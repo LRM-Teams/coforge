@@ -21,8 +21,8 @@ import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/mod
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { m } from "@/paraglide/messages";
 import { localizeHref } from "@/paraglide/runtime";
-import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@coforge/protocol";
-import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
+import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import type { UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";

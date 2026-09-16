@@ -36,8 +36,29 @@ model Workspace {
   recordComments      RecordComment[]
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
+  projects            Project[]
 
   @@map("workspaces")
+}
+
+model Project {
+  id                   String   @id @default(uuid()) @db.Uuid
+  workspaceId          String   @db.Uuid
+  name                 String
+  slug                 String
+  githubInstallationId Int
+  githubRepositoryId   Int
+  githubFullName       String
+  githubHtmlUrl        String
+  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  developmentConversation Conversation? @relation("ProjectDevelopmentConversation")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([workspaceId, slug])
+  @@unique([workspaceId, githubRepositoryId])
+  @@index([workspaceId])
+  @@map("projects")
 }
 
 model User {
@@ -51,6 +72,8 @@ model User {
   browserNotificationsEnabled Boolean                         @default(false)
   createdAt                   DateTime                        @default(now())
   identities                  UserIdentity[]
+  gitHubConnection            GitHubConnection?
+  gitHubAuthorization         GitHubAuthorization?
   memberships                 WorkspaceMembership[]
   sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
   receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
@@ -98,6 +121,33 @@ model UserIdentity {
   @@unique([provider, providerSubject])
   @@index([userId])
   @@map("user_identities")
+}
+
+/// Personal integration, never a login identity or shared Workspace credential.
+model GitHubConnection {
+  userId           String   @id @db.Uuid
+  clientId         String
+  githubUserId     String
+  login            String
+  credentials      String?
+  expiresAt        DateTime
+  refreshExpiresAt DateTime
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, githubUserId])
+  @@map("github_connections")
+}
+
+/// One outstanding, browser-bound OAuth attempt per User, replaced on a new connect.
+model GitHubAuthorization {
+  userId    String   @id @db.Uuid
+  stateHash String
+  verifier  String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("github_authorizations")
 }
 
 model Agent {
@@ -353,6 +403,7 @@ model WorkspaceComputer {
 model Conversation {
   id             String                 @id @default(uuid()) @db.Uuid
   workspaceId    String                 @db.Uuid
+  projectId      String?                @db.Uuid
   directKey      String?
   channelName    String?
   nextTaskNumber Int                    @default(1)
@@ -363,11 +414,13 @@ model Conversation {
   deliveries     AgentMessageDelivery[]
   attachments    Attachment[]
   tasks          Task[]
+  project     Project?               @relation("ProjectDevelopmentConversation", fields: [projectId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, directKey])
   @@unique([workspaceId, channelName])
   @@unique([id, workspaceId])
   @@index([workspaceId])
+  @@unique([projectId])
   @@map("conversations")
 }
 

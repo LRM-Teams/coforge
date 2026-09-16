@@ -11,8 +11,8 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { acquireProcessLock } from "@coforge/daemon";
-import { isValidReleaseVersion } from "@coforge/protocol";
+import { acquireProcessLock } from "@lrm/coforge-daemon";
+import { isValidReleaseVersion } from "@lrm/coforge-sdk/internal";
 import { runInstallationSource } from "./release/installation-source";
 
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;

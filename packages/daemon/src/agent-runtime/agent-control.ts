@@ -4,7 +4,7 @@ import type {
   AgentStartIntent,
   AgentWorkspaceResetRequest,
   SessionIdentity,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { AgentSessionRecoveryError } from "../code-agent/contract";
 import type { AgentRuntimeRecord, AgentRuntimeState } from "./agent-runtime-state";
 import type { AgentSessions } from "./agent-session";

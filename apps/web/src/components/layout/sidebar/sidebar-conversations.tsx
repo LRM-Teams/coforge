@@ -1,4 +1,4 @@
-import { Hash01 as Hash, Plus } from "@untitledui/icons";
+import { Folder, Hash01 as Hash, Plus } from "@untitledui/icons";
 import type { ReactNode } from "react";
 
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -10,6 +10,12 @@ import { m } from "@/paraglide/messages";
 import { localizeHref } from "@/paraglide/runtime";
 
 export type SidebarChannel = { id: string; name: string; joined: boolean };
+export type SidebarProject = {
+  id: string;
+  name: string;
+  slug: string;
+  developmentConversationId: string;
+};
 
 // A local row (not NavItemBase — its `icon` slot hardcodes size-5 and can't
 // take an Avatar) so channel and DM rows share one grid: 20px icon column,
@@ -61,18 +67,51 @@ export function SidebarConversations({
   selectedChannelId,
   selectedAgentId,
   onCreateChannel,
+  projects = [],
+  onCreateProject,
 }: {
   channels: SidebarChannel[];
   agents: ConversationAgent[];
   selectedChannelId?: string;
   selectedAgentId?: string;
   onCreateChannel?: () => void;
+  projects?: SidebarProject[];
+  onCreateProject?: () => void;
 }) {
   const sortedChannels = [...channels].sort((left, right) =>
     left.joined === right.joined ? 0 : left.joined ? -1 : 1,
   );
   return (
     <>
+      <div className="mt-2">
+        <div className="flex h-7 items-center justify-between pr-4 pl-6">
+          <span className="text-[11px] font-semibold tracking-wide text-quaternary uppercase">
+            Projects
+          </span>
+          {onCreateProject && (
+            <ButtonUtility
+              icon={Plus}
+              size="xs"
+              color="tertiary"
+              tooltip="Create project"
+              onClick={onCreateProject}
+            />
+          )}
+        </div>
+        <ul aria-label="Projects" className="flex flex-col px-4">
+          {projects.map((project) => (
+            <li key={project.id} className="py-px">
+              <SidebarRow
+                href={localizeHref(`/messages/channels/${project.developmentConversationId}`)}
+                icon={<Folder aria-hidden="true" className="size-4 text-tertiary" />}
+              >
+                {project.name}
+              </SidebarRow>
+            </li>
+          ))}
+        </ul>
+      </div>
+
       <div className="mt-2">
         <div className="flex h-7 items-center justify-between pr-4 pl-6">
           <span className="text-[11px] font-semibold tracking-wide text-quaternary uppercase">

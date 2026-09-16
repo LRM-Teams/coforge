@@ -184,7 +184,7 @@ These instructions apply to the entire repository.
   and CI-provider concerns in workflow YAML.
 
 - Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, CI, and architecture documentation together.
-- Protobuf schemas under `packages/protocol/proto` must pass `buf lint` and
+- Protobuf schemas under `packages/coforge-sdk/proto` must pass `buf lint` and
   `buf format --diff --exit-code`; do not use TypeScript lint rules as a
   substitute for `.proto` validation.
 - Never edit any `package.json` manually with an editor or patch. Use Bun's

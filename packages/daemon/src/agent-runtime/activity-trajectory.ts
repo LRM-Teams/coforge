@@ -1,5 +1,5 @@
 import type { AgentRuntimeEvent } from "@coforge/agent";
-import { AGENT_ACTIVITY_DETAIL_KIND, type ActivitySubagent } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND, type ActivitySubagent } from "@lrm/coforge-sdk/internal";
 
 /** One instance per launch. Never retains tool arguments/output or hidden reasoning. */
 export class ActivityTrajectory {

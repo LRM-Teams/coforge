@@ -4,7 +4,7 @@ import {
   encodeAgentWorkspaceResetRequest,
   encodeAgentControlResult,
   validateAgentSessionSnapshot,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type {
   AgentRuntimeRecord,
   AgentRuntimeStateStore,

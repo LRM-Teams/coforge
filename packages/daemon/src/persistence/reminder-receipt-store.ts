@@ -1,6 +1,6 @@
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { encodeReminderFireRequest, encodeReminderSync } from "@coforge/protocol";
+import { encodeReminderFireRequest, encodeReminderSync } from "@lrm/coforge-sdk/internal";
 import type { ReminderReceipt, ReminderReceiptStore } from "../agent-reminder/reminder-scheduler";
 
 const SAFE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;

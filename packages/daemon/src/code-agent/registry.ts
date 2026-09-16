@@ -3,8 +3,8 @@ import { CodexProvider } from "./codex/driver";
 import type { CodeAgentProvider } from "./contract";
 import { CoforgeProvider, PiProvider } from "./pi/driver";
 import { KiroProvider } from "./kiro/driver";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
-import type { RuntimeProvider } from "@coforge/protocol";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 export function createCodeAgentProvider(provider: RuntimeProvider): CodeAgentProvider {
   switch (provider) {

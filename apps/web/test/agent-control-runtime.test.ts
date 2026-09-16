@@ -16,7 +16,7 @@ import {
   decodeAgentStopIntent,
   decodeAgentWorkspaceResetRequest,
   type AgentStartIntent,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type { AgentSessionOptions } from "../../../packages/agent/src/contract";
 
 test("cloud and daemon preserve Restart identity, reset sessions, fence Full Reset replay and report recovery", async () => {

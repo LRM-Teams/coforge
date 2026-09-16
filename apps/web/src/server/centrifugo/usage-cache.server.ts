@@ -1,5 +1,5 @@
 import { RedisClient } from "bun";
-import type { RuntimeProvider } from "@coforge/protocol";
+import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 export type UsageCacheKey = {
   workspaceId: string;

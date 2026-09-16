@@ -14,7 +14,7 @@ import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentWorkspaceResetRequest,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 function observationRace() {
   const runtimeConfig = {

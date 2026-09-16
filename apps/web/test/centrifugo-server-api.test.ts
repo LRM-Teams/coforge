@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { decodeDaemonRuntimeUsageScanRequest } from "@coforge/protocol";
+import { decodeDaemonRuntimeUsageScanRequest } from "@lrm/coforge-sdk/internal";
 
 import {
   createCentrifugoServerApi,

@@ -4,7 +4,7 @@ import type {
   ReminderFireResponse,
   ReminderJob,
   ReminderSync,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { APP_INBOX_PREVIEW_MAX_CHARS } from "../agent-app-inbox/registry";
 
 const logger = getLogger(["coforge", "daemon", "reminder"]);

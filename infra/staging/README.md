@@ -210,3 +210,47 @@ VAPID pair 必须跨发布、重启和 Web 副本保持稳定。轮换会使已�
 
 Production stays disabled: it needs its own environment, an enforceable human
 approval gate, and promotion of the exact digest that passed staging.
+
+## Personal GitHub connection
+
+The staging App ID is `4937758`, Client ID is `Iv23lip3Ca7BRl50L2O4`, and its
+authorization callback must be
+`https://staging.coforge.cn/api/integrations/github/callback`.
+Keep expiring user access tokens enabled. Minimum repository permission is
+Metadata (read); no write, organization-member, or email permission is needed
+for this slice. Installation and personal authorization are separate actions.
+Disable webhook Active for now: this slice does not implement a webhook endpoint.
+The callback URL is not a Webhook URL.
+
+Set these in the repository's **staging Environment** before a reviewed deployment:
+
+- Variable `COFORGE_GITHUB_APP_SLUG`: the actual slug from the App's public URL
+  (`https://github.com/apps/<slug>`), not its display name or numeric ID.
+- Secret `COFORGE_GITHUB_CLIENT_SECRET`: generated in the GitHub App settings.
+- Secret `COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY`: independently generated
+  32-byte key encoded as 64 hexadecimal characters. Generate and store securely;
+  never send it through chat. Retain this key across deployments. Replacing it
+  makes existing ciphertext unreadable; users must disconnect and reconnect.
+
+The workflow transfers these through restricted files. Compose mounts credentials
+as secrets; neither credential is stored in its `.env` or Web container environment.
+Absent credentials leave the Settings integration unconfigured without changing
+login behavior. This does not configure production or deploy automatically.
+No GitHub App private key is needed because this slice uses user tokens only.
+
+Manual acceptance after configuration and approved migration/deployment:
+
+- [ ] Open Settings → Integrations in light/dark and desktop/narrow layouts.
+- [ ] Connect, accept GitHub authorization, and return to the same signed-in User.
+- [ ] Cancel authorization; confirm a safe error and a working retry.
+- [ ] Change account; GitHub shows its account picker. Cancellation or failed
+  authorization retains the old connection; successful authorization replaces it.
+- [ ] Configure opens GitHub's App installation page for a personal account or
+  organization, where repository grants are managed. No repository list is shown
+  on the CoForge integration card.
+- [ ] Revoke authorization on GitHub; reopen Settings to request reauthorization.
+- [ ] Disconnect; confirm the account disappears and the App remains installed.
+
+Local database regression command (disposable migrated PostgreSQL only):
+`GITHUB_TEST_DATABASE_URL=<local-url> mise exec -- bun test ./apps/web/test/github-connection.integration.ts`.
+Tests substitute GitHub HTTP responses; they do not prove a live OAuth exchange.

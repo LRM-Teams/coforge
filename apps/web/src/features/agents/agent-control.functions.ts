@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
+import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { AgentControl } from "../../server/agents/agent-control.server";
 import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
@@ -36,10 +36,11 @@ function dependencies() {
 }
 
 export const executeAgentControl = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(executeInput)
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     setResponseHeader("cache-control", "no-store");
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const user = context.user;
     const { db, control } = dependencies();
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     const result = await control.execute({ ...data, userId: user.id, workspaceId });

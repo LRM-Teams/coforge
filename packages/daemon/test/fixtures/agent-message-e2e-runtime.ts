@@ -194,7 +194,7 @@ async function handle(command: {
         )
           throw new Error("attachment metadata missing from read");
         const attachmentResponse = await fetch(
-          `${process.env.COFORGE_AGENT_PROXY_URL!.replace(/\/agent\/message$/, "/agent/attachment")}?attachmentId=${encodeURIComponent(message.attachment.id)}`,
+          `${process.env.COFORGE_AGENT_PROXY_URL!.replace(/\/api\/agent\/v1\/messages$/, "/api/agent/v1/attachments/")}${encodeURIComponent(message.attachment.id)}`,
           { headers: { authorization: `Bearer ${process.env.COFORGE_AGENT_CONTEXT}` } },
         );
         const attachmentBody = await attachmentResponse.text();
@@ -297,7 +297,10 @@ async function call(
 
 async function callInbox(operation: "check" | "ack", requestId: string, itemId?: string) {
   const response = await fetch(
-    process.env.COFORGE_AGENT_PROXY_URL!.replace(/\/agent\/message$/, "/agent/inbox"),
+    process.env.COFORGE_AGENT_PROXY_URL!.replace(
+      /\/api\/agent\/v1\/messages$/,
+      "/api/agent/v1/inbox",
+    ),
     {
       method: "POST",
       headers: {

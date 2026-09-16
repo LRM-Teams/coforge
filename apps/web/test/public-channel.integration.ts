@@ -11,9 +11,12 @@ import { PrismaWorkspaceCatalogStore } from "../src/server/workspaces/catalog.se
 import { PrismaWorkspaceEnrollmentStore } from "../src/server/workspaces/enrollment.server";
 import { readAuthorizedAttachment } from "../src/server/attachments/attachment.server";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { decodeAgentMessageDelivery } from "@coforge/protocol";
+import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
 import { createAgentMessageMethod } from "../src/server/centrifugo/rpc-handler.server";
-import { decodeCloudAgentMessageResponse, encodeAgentMessageRequest } from "@coforge/protocol";
+import {
+  decodeCloudAgentMessageResponse,
+  encodeAgentMessageRequest,
+} from "@lrm/coforge-sdk/internal";
 import { RedisAgentMessageHoldStore } from "../src/server/conversations/agent-message-hold.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
 import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";

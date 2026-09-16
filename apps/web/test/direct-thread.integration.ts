@@ -3,7 +3,10 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/client";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 import { createAgentMessageMethod } from "../src/server/centrifugo/rpc-handler.server";
-import { decodeCloudAgentMessageResponse, encodeAgentMessageRequest } from "@coforge/protocol";
+import {
+  decodeCloudAgentMessageResponse,
+  encodeAgentMessageRequest,
+} from "@lrm/coforge-sdk/internal";
 import type { AgentMessageHold } from "../src/server/conversations/agent-message-hold.server";
 
 test("thread send and unread ranges stay separate from the main conversation", async () => {

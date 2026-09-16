@@ -10,7 +10,7 @@ import {
   type AgentActivity,
   type AgentStartIntent,
   type AgentStopIntent,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { runtimeStartFields } from "./manage-agents.server";
 import type { AgentSessions } from "./agent-sessions.server";

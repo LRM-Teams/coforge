@@ -6,19 +6,31 @@ import {
   issueBrowserRealtimeToken,
   issueConversationRealtimeToken,
 } from "../../server/auth/browser-realtime-token.server";
-import { browserScope } from "../../server/auth/browser-scope.server";
+import { authMiddleware } from "../../server/auth/function-auth";
+import { getDatabaseClient } from "../../server/db/client.server";
+import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 
 export const getBrowserRealtimeConnectionToken = createServerFn({
   method: "GET",
-}).handler(async () => {
-  const { user, workspaceId } = await browserScope();
-  return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
-});
+})
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
+  });
 
 export const getConversationRealtimeToken = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(z.object({ conversationId: z.uuid() }))
-  .handler(async ({ data }) => {
-    const { user, db, workspaceId } = await browserScope();
+  .handler(async ({ data, context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+
     const conversation = await db.conversation.findFirst({
       where: {
         id: data.conversationId,

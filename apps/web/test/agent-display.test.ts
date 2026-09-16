@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { RedisClient } from "bun";
-import type { AgentActivity, AgentStatus } from "@coforge/protocol";
+import type { AgentActivity, AgentStatus } from "@lrm/coforge-sdk/internal";
 import {
   RedisAgentDisplay,
   activityKindForObservation,

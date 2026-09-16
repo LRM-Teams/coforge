@@ -2,7 +2,7 @@ import {
   COMPUTER_REGISTER_PROTOCOL_MAJOR,
   type ComputerRegisterRequest,
   type ComputerRegisterResponse,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 export type AuthenticatedPrincipal = { readonly userId: string };
 export type Workspace = { readonly id: string; readonly slug: string };

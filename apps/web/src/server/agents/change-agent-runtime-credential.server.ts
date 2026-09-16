@@ -1,4 +1,4 @@
-import type { AgentStartIntent, AgentStopIntent } from "@coforge/protocol";
+import type { AgentStartIntent, AgentStopIntent } from "@lrm/coforge-sdk/internal";
 import type { AgentRecord } from "../db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import { runtimeStartFields } from "./manage-agents.server";

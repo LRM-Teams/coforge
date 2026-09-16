@@ -42,6 +42,12 @@ services:
       AUTHING_REDIRECT_URI: https://staging.coforge.cn/auth/callback
       COFORGE_SESSION_SECRET_FILE: /run/secrets/coforge_session_secret
       COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/coforge_agent_credential_encryption_key
+      COFORGE_GITHUB_APP_ID: "4937758"
+      COFORGE_GITHUB_CLIENT_ID: Iv23lip3Ca7BRl50L2O4
+      COFORGE_GITHUB_APP_SLUG: ${COFORGE_GITHUB_APP_SLUG:-}
+      COFORGE_GITHUB_CALLBACK_URL: https://staging.coforge.cn/api/integrations/github/callback
+      COFORGE_GITHUB_CLIENT_SECRET_FILE: /run/secrets/coforge_github_client_secret
+      COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/coforge_github_credential_encryption_key
       COFORGE_CENTRIFUGO_API_URL: http://centrifugo:8000/api
       COFORGE_CENTRIFUGO_API_KEY: ${COFORGE_CENTRIFUGO_API_KEY:?deploy script writes .env}
       COFORGE_CENTRIFUGO_PROXY_SECRET: ${COFORGE_CENTRIFUGO_PROXY_SECRET:?deploy script writes .env}
@@ -82,6 +88,14 @@ services:
         gid: "1000"
         mode: 0400
       - source: coforge_agent_credential_encryption_key
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+      - source: coforge_github_client_secret
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+      - source: coforge_github_credential_encryption_key
         uid: "1000"
         gid: "1000"
         mode: 0400
@@ -228,6 +242,10 @@ secrets:
     environment: COFORGE_SESSION_SECRET
   coforge_agent_credential_encryption_key:
     environment: COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY
+  coforge_github_client_secret:
+    environment: COFORGE_GITHUB_CLIENT_SECRET
+  coforge_github_credential_encryption_key:
+    environment: COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY
   coforge_web_push_private_key:
     environment: COFORGE_WEB_PUSH_PRIVATE_KEY
   otel_traces_endpoint:

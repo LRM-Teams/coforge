@@ -66,7 +66,7 @@ comes from TLS in transit plus the manifest's checksums.
 
 Users install, upgrade, and invoke only Computer. Its main entry dispatches
 `__daemon` to the Daemon runtime, `__agent-cli` to the existing
-`@coforge/cli/runner`, and ordinary arguments to the Computer management CLI.
+`@lrm/coforge/runner`, and ordinary arguments to the Computer management CLI.
 Daemon still runs as an independent OS process over the existing Unix socket;
 sharing executable bytes does not collapse that runtime boundary. Build-time
 release version injection must give both roles the same version.
@@ -332,7 +332,7 @@ service entry is installed.
 Installation also writes a tiny version-local `coforge` launcher which invokes
 that directory's `coforge-computer __agent-cli`. Daemon prepends its own
 executable directory to Agent PATH. The Agent CLI implementation remains in
-`packages/cli`, compiled into the unified executable; its internal entry does not initialize
+`packages/coforge`, compiled into the unified executable; its internal entry does not initialize
 logging, sockets, cloud connections or Workspace recovery. Users continue to
 run only Computer management commands; Agents execute `coforge`.
 This adds neither a third native payload nor a Bun/npm requirement. The

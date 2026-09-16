@@ -1,4 +1,10 @@
-import { TASK_STATUSES, type TaskCommand, type TaskStatus, type TaskView } from "@coforge/protocol";
+import {
+  TASK_STATUSES,
+  type TaskCommand,
+  type TaskStatus,
+  type TaskView,
+} from "@lrm/coforge-sdk/internal";
+
 import { Link } from "@tanstack/react-router";
 import { FilterLines as ListFilter } from "@untitledui/icons";
 

@@ -2,7 +2,7 @@
 import {
   decodeComputerRegisterRequest,
   encodeComputerRegisterResponse,
-} from "@coforge/protocol/codec";
+} from "@lrm/coforge-sdk/internal";
 import { ComputerRegistrationError } from "../computers/registration.server";
 import {
   handleRequestError,
@@ -10,7 +10,7 @@ import {
 } from "../errors/request-error-handler.server";
 import { getComputerStatusCache, type ComputerStatusCache } from "./computer-status.server";
 import { WorkspaceQueryError, WorkspaceQueryUseCase } from "../workspaces/query.server";
-import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@coforge/protocol/codec";
+import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@lrm/coforge-sdk/internal";
 import {
   decodeAgentStartIntent,
   decodeAgentStatus,
@@ -19,11 +19,14 @@ import {
   decodeDaemonRuntimeUsageScanResponse,
   type CodeAgentModelCatalog,
   type RuntimeMetadata,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { getUsageCache, type UsageCache, type UsageSnapshot } from "./usage-cache.server";
 import { PublishAgentRuntimeControl } from "../agents/agent-runtime-control.server";
-import { decodeAgentMessageDeliveryAck } from "@coforge/protocol";
-import { decodeAgentMessageRequest, encodeCloudAgentMessageResponse } from "@coforge/protocol";
+import { decodeAgentMessageDeliveryAck } from "@lrm/coforge-sdk/internal";
+import {
+  decodeAgentMessageRequest,
+  encodeCloudAgentMessageResponse,
+} from "@lrm/coforge-sdk/internal";
 import { SendDirectMessage } from "../conversations/direct-message.server";
 import { CentrifugoConversationRealtime } from "../conversations/conversation-realtime.server";
 import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
@@ -45,13 +48,20 @@ import {
 } from "../../features/agents/agent-status-realtime";
 import type { CentrifugoServerApi } from "./server-api.server";
 import type { AgentDisplay } from "../agents/agent-display.server";
-import { isChannelMessageTarget, isChannelTarget } from "@coforge/protocol";
+import {
+  muteAgentChannel,
+  readAgentMessages,
+  searchAgentMessages,
+  executeAgentSendMessage,
+  unfollowAgentThread,
+} from "../agents/agent-messages.service";
+import { isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
 import {
   decodeReminderFireRequest,
   decodeReminderSnapshotRequest,
   encodeAgentReminderOperationResponse,
   decodeAgentReminderOperationRequest,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type { Reminders } from "../reminders/reminders.server";
 import type { ComputerRestartStore } from "../computers/computer-restart-store.server";
 import type { RedisComputerUpgradeStore } from "../computers/computer-upgrade-store.server";
@@ -273,37 +283,42 @@ export function createAgentMessageMethod(
     )
       return { code: 400, message: "target must be @username or #channel" };
     if (operation === "search") {
-      if (!repository.searchMessages) throw new Error("Agent message search is unavailable");
-      const messages = await repository.searchMessages(request.workspaceId, agentId, {
-        query: request.query,
-        target: request.target || undefined,
-        sender: request.sender,
-        sort: request.sort,
-        before: request.before,
-        after: request.after,
-        limit: request.limit,
-        offset: request.offset,
-      });
+      const messages = await searchAgentMessages(
+        repository,
+        { workspaceId: request.workspaceId, agentId },
+        {
+          query: request.query,
+          target: request.target || undefined,
+          sender: request.sender,
+          sort: request.sort,
+          before: request.before,
+          after: request.after,
+          limit: request.limit,
+          offset: request.offset,
+        },
+      );
       return encodeCloudAgentMessageResponse({
         protocolMajor: 1,
         requestId: request.requestId,
         accepted: true,
         attentionCount: 0,
-        messages: messages.map((message: any) => ({
-          ...message,
-          createdAt: message.createdAt.toISOString(),
-        })),
+        messages,
       });
     }
     if (operation === "mute" || operation === "unmute") {
-      if (!isChannelTarget(request.target))
-        return { code: 400, message: "mute requires a channel target" };
-      await repository.setAgentChannelMuted(
-        request.workspaceId,
-        agentId,
-        request.target,
-        operation === "mute",
-      );
+      try {
+        await muteAgentChannel(
+          repository,
+          { workspaceId: request.workspaceId, agentId },
+          request.target,
+          operation === "mute",
+        );
+      } catch (error) {
+        return {
+          code: 400,
+          message: error instanceof Error ? error.message : "invalid channel target",
+        };
+      }
       return encodeCloudAgentMessageResponse({
         protocolMajor: 1,
         requestId: request.requestId,
@@ -313,9 +328,18 @@ export function createAgentMessageMethod(
       });
     }
     if (operation === "thread-unfollow") {
-      if (!isChannelMessageTarget(request.target) || isChannelTarget(request.target))
-        return { code: 400, message: "unfollow requires a channel thread target" };
-      await repository.setAgentThreadFollowed(request.workspaceId, agentId, request.target, false);
+      try {
+        await unfollowAgentThread(
+          repository,
+          { workspaceId: request.workspaceId, agentId },
+          request.target,
+        );
+      } catch (error) {
+        return {
+          code: 400,
+          message: error instanceof Error ? error.message : "invalid thread target",
+        };
+      }
       return encodeCloudAgentMessageResponse({
         protocolMajor: 1,
         requestId: request.requestId,
@@ -333,33 +357,19 @@ export function createAgentMessageMethod(
         fromSequence: request.fromSequence,
         throughSequence: request.throughSequence,
       };
-      const result = repository.readMessagesPage
-        ? await repository.readMessagesPage(
-            metadata.principal.workspaceId,
-            agentId,
-            request.target,
-            page,
-          )
-        : {
-            messages: await repository.readMessages(
-              metadata.principal.workspaceId,
-              agentId,
-              request.target,
-              page,
-            ),
-            hasOlder: false,
-            hasNewer: false,
-          };
+      const result = await readAgentMessages(
+        repository,
+        { workspaceId: metadata.principal.workspaceId, agentId },
+        request.target,
+        page,
+      );
       const messages = result.messages;
       return encodeCloudAgentMessageResponse({
         protocolMajor: 1,
         requestId: request.requestId,
         accepted: true,
         attentionCount: 0,
-        messages: messages.map((m: any) => ({
-          ...m,
-          createdAt: m.createdAt.toISOString(),
-        })),
+        messages,
         hasOlder: result.hasOlder,
         hasNewer: result.hasNewer,
         olderCursor: messages[0]?.id,
@@ -466,13 +476,14 @@ export function createAgentMessageMethod(
       }
       logHold(request, metadata.principal, validPrior.stage, "anyway_accepted");
     }
-    const message = await new SendDirectMessage(
+    const sender = new SendDirectMessage(
       repository,
       idempotency ?? getMessageRequestIdempotency(),
       _centrifugo,
       new CentrifugoConversationRealtime(_centrifugo),
       notifications,
-    ).executeFromAgent({
+    );
+    const sent = await executeAgentSendMessage(sender, {
       requestId: request.requestId,
       workspaceId: request.workspaceId,
       agentId,
@@ -484,7 +495,7 @@ export function createAgentMessageMethod(
       requestId: request.requestId,
       accepted: true,
       attentionCount: 0,
-      messageId: message.id,
+      messageId: sent.messageId,
       messages: [],
       sideEffectDecision: request.continueAnyway ? "anyway_accepted" : "forward",
       freshnessContextMode,
@@ -551,6 +562,7 @@ export const createDaemonRuntimeReadyMethod =
       return { code: 400, message: "invalid daemon runtime ready request" };
     const observation = computerObservationSchema.safeParse(request);
     if (!observation.success) return { code: 400, message: "invalid Computer metadata" };
+    let stage = "restart_recovery";
     try {
       await restarts?.ready(
         { workspaceId: request.workspaceId, computerId: request.computerId },
@@ -581,8 +593,10 @@ export const createDaemonRuntimeReadyMethod =
         request.computerId,
         request.runningAgentIds,
       );
+      stage = "reminder_recovery";
       if (request.capabilities?.includes("reminder:v1"))
         await reminderRecovery?.snapshotAssigned(request.workspaceId, request.computerId);
+      stage = "upgrade_recovery";
       if (upgrades && request.computerVersion?.trim())
         await upgrades.ready(
           { workspaceId: request.workspaceId, computerId: request.computerId },
@@ -595,7 +609,17 @@ export const createDaemonRuntimeReadyMethod =
           request.recoveredUpgradeRequestIds,
         );
       return new Uint8Array();
-    } catch {
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "daemon_ready.failed",
+          stage,
+          request_id: request.requestId,
+          workspace_id: request.workspaceId,
+          computer_id: request.computerId,
+          error_type: error instanceof Error ? error.name : typeof error,
+        }),
+      );
       return { code: 503, message: "Agent start recovery failed" };
     }
   };
@@ -875,9 +899,9 @@ export type CentrifugoProxyAuthorizer = (request: Request) => void | Promise<voi
 
 export function createComputerRegistrationMethod(useCase: {
   register: (
-    request: import("@coforge/protocol").ComputerRegisterRequest,
+    request: import("@lrm/coforge-sdk/internal").ComputerRegisterRequest,
     principal: { userId: string } | undefined,
-  ) => Promise<import("@coforge/protocol").ComputerRegisterResponse>;
+  ) => Promise<import("@lrm/coforge-sdk/internal").ComputerRegisterResponse>;
 }): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     try {

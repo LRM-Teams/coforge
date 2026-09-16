@@ -111,7 +111,7 @@ if ! curl -fsS --max-time 3 "${COFORGE_E2E_WEB_URL%/}/health" >/dev/null; then
 fi
 
 echo "==> Generating protocol"
-run_bun run --cwd "$root/packages/protocol" generate
+run_bun run --cwd "$root/packages/coforge-sdk" generate
 
 echo "==> Building local Computer/Daemon fixture"
 echo "    web=$COFORGE_E2E_WEB_URL"

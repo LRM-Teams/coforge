@@ -3,7 +3,7 @@ import type {
   ActivityTrajectoryEntry,
   ActivitySubagent,
   AgentActivityDetailKind,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 export type AgentActivityLevel = "info" | "warning" | "error";
 export type AgentActivity = Readonly<{

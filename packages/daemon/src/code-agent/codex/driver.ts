@@ -11,7 +11,7 @@ import { agentEnvironment } from "../environment";
 import { JsonlProcess, JsonlRequestError } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { COFORGE_DAEMON_VERSION } from "../../version";
-import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
 import { discoverCodexCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
 import type { ProviderDiscoveryOptions } from "../contract";

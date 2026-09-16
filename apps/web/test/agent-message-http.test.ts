@@ -5,7 +5,7 @@ import {
   type AgentApiKeyRecord,
   type AgentApiKeyRepository,
 } from "../src/server/agents/agent-api-key.server";
-import { authenticateAgentMessageRequest } from "../src/server/agents/agent-message-http.server";
+import { authenticateAgentMessageRequest } from "../src/server/agents/agent-api-http.server";
 
 class MemoryAgentApiKeys implements AgentApiKeyRepository {
   record?: AgentApiKeyRecord;
@@ -19,7 +19,7 @@ class MemoryAgentApiKeys implements AgentApiKeyRepository {
 }
 
 const request = (agentToken?: string, daemonApiKey?: string) =>
-  new Request("https://server.example/api/agent-messages", {
+  new Request("https://server.example/api/agent/v1/messages", {
     method: "POST",
     headers: {
       ...(daemonApiKey ? { authorization: `Bearer ${daemonApiKey}` } : {}),

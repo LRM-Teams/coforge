@@ -1,11 +1,15 @@
-import { TASK_STATUSES, type TaskCommand } from "@coforge/protocol";
+import { TASK_STATUSES, type TaskCommand } from "@lrm/coforge-sdk/internal";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { AppError } from "../../lib/app-error";
+
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { TaskBoard } from "../../server/tasks/task-board.server";
-import { browserScope } from "../../server/auth/browser-scope.server";
+import { getDatabaseClient } from "../../server/db/client.server";
+import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 
 const taskCommand = z
   .object({
@@ -53,15 +57,25 @@ const taskCommand = z
   })
   .strict();
 
-export const loadTaskOverview = createServerFn({ method: "GET" }).handler(async () => {
-  const { user, db, workspaceId } = await browserScope();
-  return new TaskBoard(db).overview(workspaceId, user.id);
-});
+export const loadTaskOverview = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return new TaskBoard(db).overview(workspaceId, user.id);
+  });
 
 export const executeTask = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator((data: unknown): TaskCommand => taskCommand.parse(data))
-  .handler(async ({ data }) => {
-    const { user, db, workspaceId } = await browserScope();
+  .handler(async ({ context, data }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+
     const centrifugo = createCentrifugoServerApi();
     return new TaskBoard(db, {
       notifications: bestEffortMessageNotifier(db),

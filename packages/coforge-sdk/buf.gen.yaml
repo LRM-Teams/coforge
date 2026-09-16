@@ -1,0 +1,7 @@
+version: v2
+plugins:
+  - local: [bun, ../../node_modules/@bufbuild/protoc-gen-es/bin/protoc-gen-es]
+    out: src/internal/gen
+    opt:
+      - target=ts
+      - import_extension=.js

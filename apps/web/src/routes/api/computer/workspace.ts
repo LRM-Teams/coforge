@@ -1,4 +1,4 @@
-import { WORKSPACE_GET_METHOD } from "@coforge/protocol";
+import { WORKSPACE_GET_METHOD } from "@lrm/coforge-sdk/internal";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { createComputerHttpHandler } from "#/server/computers/computer-http.server";

@@ -1,4 +1,4 @@
-import { encodeComputerRestartIntent } from "@coforge/protocol";
+import { encodeComputerRestartIntent } from "@lrm/coforge-sdk/internal";
 
 import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { daemonControlChannel } from "../centrifugo/server-api.server";

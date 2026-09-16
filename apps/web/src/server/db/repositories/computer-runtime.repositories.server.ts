@@ -4,7 +4,7 @@ import {
   type CodeAgentModelCatalog,
   type RuntimeMetadata,
   type RuntimeProvider,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type {
   ComputerRuntimeRecord,
   ComputerRuntimeVisibilityRepository,

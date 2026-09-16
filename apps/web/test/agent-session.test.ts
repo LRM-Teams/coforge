@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { encodeAgentSessionReport, type AgentSessionReport } from "@coforge/protocol";
+import { encodeAgentSessionReport, type AgentSessionReport } from "@lrm/coforge-sdk/internal";
 import { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
 import {
   agentControlRevision,

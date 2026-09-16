@@ -5,7 +5,7 @@ import codexMark from "@lobehub/icons-static-svg/icons/codex-color.svg";
 import kiroMark from "@lobehub/icons-static-svg/icons/kiro-color.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 
-import type { RuntimeProvider } from "@coforge/protocol";
+import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import { Button } from "@/components/base/buttons/button";
 import { HoverPopover } from "@/components/ui/hover-popover";
 import { RelativeTime } from "@/components/ui/relative-time";

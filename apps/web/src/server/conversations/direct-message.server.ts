@@ -3,7 +3,7 @@ import {
   WORKSPACE_PROTOCOL_MAJOR,
   encodeAgentMessageDelivery,
   isChannelMessageTarget,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { daemonControlChannel } from "../centrifugo/server-api.server";
 import type { DirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";

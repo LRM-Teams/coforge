@@ -3,7 +3,7 @@ import {
   type AgentStartIntent,
   type AgentStopIntent,
   type RuntimeProvider,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repositories.server";
 import { publicAgentRuntimeConfig } from "./agent-runtime-config.server";
 import type { AgentRuntimeCredentials } from "./agent-runtime-credentials.server";

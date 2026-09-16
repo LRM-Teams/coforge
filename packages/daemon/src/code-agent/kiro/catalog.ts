@@ -1,4 +1,4 @@
-import type { CodeAgentModelCatalog } from "@coforge/protocol";
+import type { CodeAgentModelCatalog } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
 import { agentEnvironment } from "../environment";
 import { bounded, KiroConnection, record } from "./connection";

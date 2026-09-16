@@ -22,6 +22,11 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 - Informational system messages do not require a reply unless they request an action.
 
+### Workspace and attachments
+
+- Use \`coforge workspace info\` to inspect the current Workspace, its humans, Agents, and Projects. It does not currently list channel membership or channel descriptions.
+- When a message contains an attachment, use \`coforge attachment view --id <attachment-id> --output <path>\` to download it into the Agent workspace before trying to inspect the file. Do not guess an attachment URL or use the cloud storage credentials directly.
+
 ### Public channels
 
 - Channel targets use \`#name\`, for example \`coforge message read --target '#general'\` and \`coforge message send --target '#general'\`. A channel thread target is \`#general:12345678\`; use the top-level root Message prefix just like a direct-message thread. Channel thread replies stay in their thread, cannot nest, and use the same runtime session as every other conversation. Reuse the exact thread target when replying.

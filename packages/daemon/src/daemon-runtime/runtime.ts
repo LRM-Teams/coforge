@@ -35,6 +35,8 @@ import {
   type AgentActivity,
   type AgentMessageRecord,
   type AgentMessageResponse,
+  type WorkspaceInfoRequest,
+  type WorkspaceInfoResponse,
   type AgentStartIntent,
   type AgentStopIntent,
   type AgentWorkspaceResetRequest,
@@ -51,7 +53,7 @@ import {
   type ReminderSync,
   type TaskCommand,
   type TaskResult,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
 import { AgentSessions } from "../agent-runtime/agent-session";
@@ -785,6 +787,14 @@ export class DaemonRuntime {
       if (item.kind === "delivery") {
         try {
           await this.#messageAttention.receive(item.message);
+          logger.info("Agent delivery indexed", {
+            event: "agent.message.delivery_indexed",
+            agent_id: agentId,
+            delivery_id: item.message.deliveryId,
+            message_id: item.message.messageId,
+            target: item.message.target,
+            sequence: item.message.sequence,
+          });
           item.completion.resolve();
         } catch (error) {
           item.completion.reject(error);
@@ -1400,6 +1410,12 @@ export class DaemonRuntime {
     if (!agentId) throw new Error("invalid agent local context");
     if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
     if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    logger.info("Agent message operation received", {
+      event: "agent.message.operation",
+      agent_id: agentId,
+      operation: request.operation,
+      target: request.target ?? "*",
+    });
     const target = request.target
       ? await this.#canonicalAgentMessageTarget(agentId, request.target, agentApiKey)
       : undefined;
@@ -1408,6 +1424,12 @@ export class DaemonRuntime {
       const attention = this.#messageAttention
         .check(agentId)
         .filter((item) => !target || item.target === target);
+      logger.info("Agent message check queried attention", {
+        event: "agent.message.check_attention",
+        agent_id: agentId,
+        target: target ?? "*",
+        attention_count: attention.length,
+      });
       const messages: AgentMessageRecord[] = [];
       for (const item of attention) {
         let fromSequence: number | undefined;
@@ -1612,6 +1634,19 @@ export class DaemonRuntime {
       olderCursor: result.olderCursor,
       newerCursor: result.newerCursor,
     };
+  }
+
+  async workspaceInfo(
+    context: string,
+    request: WorkspaceInfoRequest,
+    agentApiKey?: string,
+  ): Promise<WorkspaceInfoResponse> {
+    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
+    if (!agentId) throw new Error("invalid agent local context");
+    if (!this.#transport.workspaceInfo) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.workspaceInfo(request, agentApiKey);
   }
 
   async agentTask(

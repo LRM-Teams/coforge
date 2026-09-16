@@ -9,7 +9,7 @@ import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { toolActivity } from "../tool-activity";
-import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { readClaudeCodeUsage } from "./usage";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

@@ -4,7 +4,7 @@ import {
   RUNTIME_PROVIDER,
   type CodeAgentModelMetadata,
   type RuntimeProvider,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";

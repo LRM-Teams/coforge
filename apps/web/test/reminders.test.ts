@@ -6,7 +6,7 @@ import {
   encodeReminderSync,
   type AgentReminderOperationRequest,
   type ReminderSummaryRecord,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { createAgentReminderMethod } from "../src/server/centrifugo/rpc-handler.server";
 import {
   DEFAULT_REMINDER_TIMEZONE,

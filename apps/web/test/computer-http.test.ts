@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { COMPUTER_REGISTER_METHOD, WORKSPACE_GET_METHOD } from "@coforge/protocol";
+import { COMPUTER_REGISTER_METHOD, WORKSPACE_GET_METHOD } from "@lrm/coforge-sdk/internal";
 import {
   decodeComputerRegisterResponse,
   decodeWorkspaceGetResponse,
   encodeComputerRegisterRequest,
   encodeWorkspaceGetRequest,
-} from "@coforge/protocol/codec";
+} from "@lrm/coforge-sdk/internal";
 
 import { createComputerHttpHandler } from "../src/server/computers/computer-http.server";
 import { WorkspaceQueryUseCase } from "../src/server/workspaces/query.server";

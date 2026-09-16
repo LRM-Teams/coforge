@@ -12,8 +12,8 @@ test("dependency changes include downstream consumers, but not unrelated modules
     "macos-lifecycle",
     "windows-release",
   ]);
-  expect(selectChecks(["packages/cli/src/cli.ts"], "changes")).toEqual([
-    "cli",
+  expect(selectChecks(["packages/coforge/src/cli.ts"], "changes")).toEqual([
+    "coforge",
     "computer",
     "daemon",
     "macos-lifecycle",
@@ -35,13 +35,13 @@ test("documentation skips application checks, while shared and unknown inputs fa
   ).toEqual([]);
   const all = [
     "agent",
-    "cli",
+    "coforge",
+    "coforge-sdk",
     "computer",
     "daemon",
     "deploy",
     "macos-lifecycle",
     "oss-cdn",
-    "protocol",
     "release",
     "web",
     "windows-installer",
@@ -55,7 +55,7 @@ test("documentation skips application checks, while shared and unknown inputs fa
     "apps/web/package.json",
     ".github/workflows/ci.yml",
     "packages/new/src/index.ts",
-    "packages/protocol/messages.ts",
+    "packages/coforge-sdk/messages.ts",
   ]) {
     expect(selectChecks([path], "changes")).toEqual(all);
   }
@@ -94,18 +94,18 @@ test("deployment validates the exact Web track only when the image or deployment
     "packages/agent/src/contract.ts",
     "bun.lock",
   ]) {
-    expect(selectChecks([path], "web")).toEqual(["deploy", "protocol", "web"]);
+    expect(selectChecks([path], "web")).toEqual(["deploy", "coforge-sdk", "web"]);
   }
 });
 
 test("manual local publication always validates its complete track, regardless of changed files", () => {
   expect(selectChecks([], "local")).toEqual([
     "agent",
-    "cli",
+    "coforge",
+    "coforge-sdk",
     "computer",
     "daemon",
     "macos-lifecycle",
-    "protocol",
     "release",
     "windows-installer",
     "windows-release",
@@ -114,13 +114,13 @@ test("manual local publication always validates its complete track, regardless o
 
 test("workflow selection accepts NUL-delimited filenames and emits job and matrix outputs", async () => {
   const child = Bun.spawn([process.execPath, "scripts/ci/selection.ts", "changes"], {
-    stdin: new Blob(["apps/web/src/a\npage.tsx\0packages/cli/src/cli.ts\0"]),
+    stdin: new Blob(["apps/web/src/a\npage.tsx\0packages/coforge/src/cli.ts\0"]),
     stdout: "pipe",
     stderr: "pipe",
   });
   const output = await new Response(child.stdout).text();
   expect(await child.exited).toBe(0);
-  expect(output).toContain('libraries=["cli"]\n');
+  expect(output).toContain('libraries=["coforge"]\n');
   expect(output).toContain("contracts=[]\n");
   expect(output).toContain(
     'jobs=["changes","libraries","computer","daemon","macos-lifecycle","web","windows-release"]\n',

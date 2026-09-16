@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 
-import { requireBrowserUser } from "@/server/auth/require-user.server";
+import { authMiddleware } from "@/server/auth/function-auth";
 import { userCodeInputSchema } from "./device-auth.schemas";
 import {
   approveUserCode,
@@ -24,26 +23,25 @@ export type DeviceCodeState = "ok" | "unknown" | "expired" | "settled" | "unavai
  * which is what makes "sign in first, then approve" a property of the route rather than an
  * instruction. Exposed as a feature server function, the way every other route reaches user
  * state, so a route file never imports a `@/server/...` module directly. */
-export const getDeviceVerifyUser = createServerFn({ method: "GET" }).handler(async () => {
-  const user = currentUser();
-  return { email: user.email };
-});
+export const getDeviceVerifyUser = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const user = context.user;
+    return { email: user.email };
+  });
 
 function resolveStore(): DeviceAuthorizationStore | undefined {
   const db = getDatabaseClient();
   return db ? new PrismaDeviceAuthorizationStore(db) : undefined;
 }
 
-function currentUser() {
-  return requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-}
-
 /** Checks a typed code without settling it, so the page can name what is about to be approved
  * before the user commits. Returns only whether the code is actionable - never who started it. */
 export const checkDeviceCode = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(userCodeInputSchema)
-  .handler(async ({ data }): Promise<{ state: DeviceCodeState; email: string }> => {
-    const user = currentUser();
+  .handler(async ({ data, context }): Promise<{ state: DeviceCodeState; email: string }> => {
+    const user = context.user;
     const store = resolveStore();
     if (!store) return { state: "unavailable", email: user.email };
     const lookup = await lookupUserCode({ store, userCode: data.userCode });
@@ -54,9 +52,10 @@ export const checkDeviceCode = createServerFn({ method: "POST" })
   });
 
 export const approveDeviceCode = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(userCodeInputSchema)
-  .handler(async ({ data }): Promise<{ state: DeviceCodeState }> => {
-    const user = currentUser();
+  .handler(async ({ data, context }): Promise<{ state: DeviceCodeState }> => {
+    const user = context.user;
     const store = resolveStore();
     if (!store) return { state: "unavailable" };
     const result = await approveUserCode({ store, userCode: data.userCode, userId: user.id });
@@ -64,9 +63,9 @@ export const approveDeviceCode = createServerFn({ method: "POST" })
   });
 
 export const denyDeviceCode = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(userCodeInputSchema)
   .handler(async ({ data }): Promise<{ state: DeviceCodeState }> => {
-    currentUser();
     const store = resolveStore();
     if (!store) return { state: "unavailable" };
     const result = await denyUserCode({ store, userCode: data.userCode });

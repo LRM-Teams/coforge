@@ -202,6 +202,10 @@ _Avoid_: AgentRuntimePool, provider adapter, process slot manager
 The trusted daemon-owned boundary that authorizes a local Agent runtime to invoke an approved operation without exposing its Agent API key to the Agent process.
 _Avoid_: Token endpoint, token store, loopback HTTP proxy
 
+**GitHub Connection**:
+A personal Internal User's authorization to a CoForge GitHub App. Repository access is the intersection of that user's GitHub access and the App installation's grants; the connection is not a login identity or a Workspace-wide credential.
+_Avoid_: GitHub login, Workspace GitHub account, Project
+
 **machine_id**:
 A stable internal registration identifier for one Computer installation profile. It supports identity reconciliation but is neither a credential, a user-facing Computer name, nor necessarily the primary key of a server-side Computer record.
 _Avoid_: Hardware fingerprint, machine secret, Computer token

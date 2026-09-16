@@ -1,4 +1,4 @@
-import { decodeAgentSessionReport } from "@coforge/protocol";
+import { decodeAgentSessionReport } from "@lrm/coforge-sdk/internal";
 import type { AgentSessionReceiver } from "../agents/agent-session.server";
 import type { AgentSessions } from "../agents/agent-sessions.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";

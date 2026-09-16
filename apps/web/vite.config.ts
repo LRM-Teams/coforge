@@ -13,7 +13,9 @@ import { paraglideOptions } from "./paraglide.config.ts";
 // rolldown's native resolver fails to follow in some Linux environments
 // (musl, overlayfs). Alias them explicitly.
 const workspaceAliases = {
-  "@coforge/protocol": fileURLToPath(new URL("../../packages/protocol", import.meta.url)),
+  "@lrm/coforge-sdk/internal": fileURLToPath(
+    new URL("../../packages/coforge-sdk", import.meta.url),
+  ),
 };
 
 const config = defineConfig({

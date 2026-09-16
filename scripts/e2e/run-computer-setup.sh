@@ -7,6 +7,7 @@ set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 : "${COFORGE_E2E_WEB_URL:?Set COFORGE_E2E_WEB_URL to the trusted local HTTPS endpoint}"
 : "${COFORGE_E2E_WORKSPACE_SLUG:?Set COFORGE_E2E_WORKSPACE_SLUG}"
+: "${COFORGE_E2E_HOME:?Set COFORGE_E2E_HOME to a disposable E2E home directory}"
 : "${OPENROUTER_API_KEY:?Native browser E2E requires a real OpenRouter key}"
 
 if [[ "${COFORGE_E2E_ALLOW_INSTALL:-}" != 1 ]]; then
@@ -27,9 +28,24 @@ for variable in OPENROUTER_API_KEY NODE_EXTRA_CA_CERTS; do
   if [[ -n "${!variable:-}" ]]; then systemctl --user import-environment "$variable"; fi
 done
 
-mise exec -- bun run --cwd "$root/packages/protocol" generate
 export COFORGE_E2E_CENTRIFUGO_ENDPOINT="${COFORGE_E2E_CENTRIFUGO_ENDPOINT:-ws://127.0.0.1:8000/connection/websocket}"
-mise exec -- bun "$root/scripts/e2e/build-computer-fixture.ts"
+bun run --cwd "$root/packages/coforge-sdk" generate
+mkdir -p "$COFORGE_E2E_HOME"
+host_home=$HOME
+for provider_home in .codex .claude; do
+  if [[ -d "$host_home/$provider_home" && ! -e "$COFORGE_E2E_HOME/$provider_home" ]]; then
+    ln -s "$host_home/$provider_home" "$COFORGE_E2E_HOME/$provider_home"
+  fi
+done
+if [[ "$HOME" != "$(getent passwd "$(id -u)" | cut -d: -f6)" ]]; then
+  echo 'HOME must match the OS user and its systemd manager; use a disposable OS user, not a HOME override.' >&2
+  exit 2
+fi
+systemctl --user show-environment >/dev/null
+for variable in OPENROUTER_API_KEY NODE_EXTRA_CA_CERTS; do
+  if [[ -n "${!variable:-}" ]]; then systemctl --user import-environment "$variable"; fi
+done
+bun "$root/scripts/e2e/build-computer-fixture.ts"
 version=$(mise exec -- bun -e 'console.log((await Bun.file(Bun.argv[1]).json()).version)' "$root/.amp/e2e/native-package/manifest.json")
 "$root/.amp/e2e/bin/coforge-computer" __install-local --version "$version" --directory "$root/.amp/e2e/native-package"
 

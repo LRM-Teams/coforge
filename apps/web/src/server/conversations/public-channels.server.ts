@@ -7,7 +7,7 @@ import {
   AGENT_MESSAGE_METHOD,
   WORKSPACE_PROTOCOL_MAJOR,
   encodeAgentMessageDelivery,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import {
   createCentrifugoServerApi,
   daemonControlChannel,
@@ -280,16 +280,24 @@ export class PublicChannels {
       .sort((a, b) => Number(b.name === "general") - Number(a.name === "general"));
   }
 
-  async create(workspaceId: string, userId: string, name: string) {
+  async create(workspaceId: string, userId: string, name: string, projectId?: string) {
     await this.authorize(workspaceId, userId);
     if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) throw new AppError("INVALID_INPUT");
     // general is reserved for automatic enrollment, including before the first list request.
     if (name === "general") throw new AppError("CONFLICT");
+    if (projectId) {
+      const project = await this.db.project.findFirst({
+        where: { id: projectId, workspaceId },
+        select: { id: true },
+      });
+      if (!project) throw new AppError("INVALID_INPUT");
+    }
     try {
       return await this.db.conversation.create({
         data: {
           workspaceId,
           channelName: name,
+          ...(projectId ? { projectId } : {}),
           members: { create: { userId } },
         },
         select: { id: true },
@@ -305,6 +313,11 @@ export class PublicChannels {
     await this.authorize(workspaceId, userId);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
+      include: {
+        project: {
+          select: { id: true, name: true, slug: true, githubFullName: true, githubHtmlUrl: true },
+        },
+      },
     });
     if (!channel) throw new AppError("NOT_FOUND");
     return channel;
@@ -361,6 +374,7 @@ export class PublicChannels {
     return {
       conversationId: channel.id,
       name: channel.channelName!,
+      project: channel.project ?? undefined,
       senderMemberId: member?.id ?? "",
       muted: member?.channelMuted ?? false,
       threadReadThrough: Object.fromEntries(

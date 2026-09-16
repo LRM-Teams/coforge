@@ -3,7 +3,7 @@ import {
   encodeAgentSkillsListResult,
   type AgentSkillsListRequest,
   type AgentSkillsListResult,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { AgentSkillsQuery, type SkillsAssignment } from "../src/server/agents/agent-skills.server";
 import { createAgentSkillsListResultMethod } from "../src/server/centrifugo/agent-skills-cache.server";
 

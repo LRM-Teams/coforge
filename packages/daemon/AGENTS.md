@@ -45,8 +45,8 @@ boundary, then update this map if the ownership changes.
 
 The `coforge-computer` entrypoint dispatches internal `__daemon` here before
 normal Computer CLI startup, and dispatches `__agent-cli` directly to
-`@coforge/cli/runner` before starting Daemon logging, sockets, or Workspace
-recovery. Agent command parsing and transport remain in `packages/cli` and are
+`@lrm/coforge/runner` before starting Daemon logging, sockets, or Workspace
+recovery. Agent command parsing and transport remain in `packages/coforge` and are
 compiled into the unified executable. This is not a user-facing Daemon
 management CLI. Computer's updater installs the version-local launcher. Daemon startup does
 not mutate the installation or supply missing files for older installers.

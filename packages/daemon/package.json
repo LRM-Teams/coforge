@@ -1,5 +1,5 @@
 {
-  "name": "@coforge/daemon",
+  "name": "@lrm/coforge-daemon",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,15 +16,15 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
-    "@coforge/agent": "0.1.0",
-    "@coforge/protocol": "workspace:*",
+    "@coforge/agent": "workspace:*",
     "@logtape/file": "2.3.2",
     "@logtape/logtape": "2.3.2",
     "@logtape/redaction": "2.3.2",
+    "@lrm/coforge-sdk": "workspace:*",
     "centrifuge": "5.2.1"
   },
   "devDependencies": {
-    "@coforge/cli": "workspace:*",
+    "@lrm/coforge": "workspace:*",
     "@types/bun": "1.4.0",
     "oxfmt": "0.65.0",
     "oxlint": "1.80.0",

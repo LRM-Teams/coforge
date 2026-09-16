@@ -1,7 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
-
-import { requireBrowserUser } from "../../server/auth/require-user.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaUserPreferencesRepository,
@@ -18,8 +16,7 @@ import {
   browserPushUnsubscribeInput,
 } from "./notifications.schemas";
 
-function context() {
-  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+function notificationContext(user: { id: string }) {
   const db = getDatabaseClient();
   if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
   return {
@@ -32,29 +29,33 @@ function context() {
 
 export const getBrowserNotificationSettings = createServerFn({
   method: "GET",
-}).handler(async () => {
-  const { user, preferences } = context();
-  return {
-    enabled: await preferences.getBrowserNotificationsEnabled(user.id),
-    publicKey: readWebPushPublicKey(),
-  };
-});
+})
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const { user, preferences } = notificationContext(context.user);
+    return {
+      enabled: await preferences.getBrowserNotificationsEnabled(user.id),
+      publicKey: readWebPushPublicKey(),
+    };
+  });
 
 export const saveBrowserNotificationPreference = createServerFn({
   method: "POST",
 })
+  .middleware([authMiddleware])
   .validator(browserNotificationPreferenceInput)
-  .handler(async ({ data }) => {
-    const { user, preferences } = context();
+  .handler(async ({ data, context }) => {
+    const { user, preferences } = notificationContext(context.user);
     return {
       enabled: await preferences.setBrowserNotificationsEnabled(user.id, data.enabled),
     };
   });
 
 export const subscribeBrowserPush = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(browserPushSubscriptionInput)
-  .handler(async ({ data }) => {
-    const { user, subscriptions } = context();
+  .handler(async ({ data, context }) => {
+    const { user, subscriptions } = notificationContext(context.user);
     await subscriptions.saveSubscription(user.id, {
       endpoint: data.endpoint,
       p256dh: data.keys.p256dh,
@@ -64,16 +65,18 @@ export const subscribeBrowserPush = createServerFn({ method: "POST" })
   });
 
 export const unsubscribeBrowserPush = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(browserPushUnsubscribeInput)
-  .handler(async ({ data }) => {
-    const { user, subscriptions } = context();
+  .handler(async ({ data, context }) => {
+    const { user, subscriptions } = notificationContext(context.user);
     await subscriptions.removeSubscription(user.id, data.endpoint);
   });
 
 export const sendTestBrowserNotification = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(browserPushTestInput)
-  .handler(async ({ data }) => {
-    const { user, db, preferences } = context();
+  .handler(async ({ data, context }) => {
+    const { user, db, preferences } = notificationContext(context.user);
     if (!(await preferences.getBrowserNotificationsEnabled(user.id)))
       throw new AppError("ACCESS_DENIED");
     try {

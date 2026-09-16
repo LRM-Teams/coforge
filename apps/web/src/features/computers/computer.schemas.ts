@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
 export type ComputerRestartStatus =
   | { requestId: string; status: "accepted"; expiresAt: string }

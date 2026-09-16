@@ -1,4 +1,4 @@
-import type { RuntimeProvider } from "@coforge/protocol";
+import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 import { readUsage, scanUsage } from "./computers.functions";
 import type { UsageView } from "./runtime-usage";

@@ -13,8 +13,8 @@ import {
   encodeLocalRpcResponse,
   LOCAL_RPC_METHODS,
   readLocalRpcFrame,
-} from "@coforge/protocol";
-import { LocalDaemonLauncher, resolveDaemonExecutablePath } from "@coforge/daemon";
+} from "@lrm/coforge-sdk/internal";
+import { LocalDaemonLauncher, resolveDaemonExecutablePath } from "@lrm/coforge-daemon";
 
 test("reuses a running daemon after a successful local handshake", async () => {
   let spawned = false;

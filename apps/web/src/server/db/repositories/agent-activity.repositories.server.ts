@@ -1,8 +1,5 @@
-import {
-  AGENT_ACTIVITY_DETAIL_KIND,
-  parseActivityEntries,
-  type AgentActivity,
-} from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
+import { parseActivityEntries, type AgentActivity } from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "../../../../generated/client";
 import { activityKindForObservation } from "../../agents/agent-display.server";
 

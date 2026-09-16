@@ -1,4 +1,4 @@
-import { decodeAgentControlResult } from "@coforge/protocol";
+import { decodeAgentControlResult } from "@lrm/coforge-sdk/internal";
 import type { AgentControl } from "../agents/agent-control.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
 

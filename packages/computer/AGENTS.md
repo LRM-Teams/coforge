@@ -10,7 +10,7 @@ The Computer starts or reuses the Daemon and talks to it through the local
 versioned RPC boundary. It may perform the one-time user-authorized setup
 registration, but the Daemon owns ongoing Workspace and Agent operation.
 The executable dispatches `__daemon` to the Daemon runtime, `__agent-cli` to
-the existing `@coforge/cli/runner`, and all normal invocations to the Computer
+the existing `@lrm/coforge/runner`, and all normal invocations to the Computer
 management CLI. These internal modes do not make Daemon or Agent CLI public
 management commands.
 Normal lifecycle commands request startup through the platform user process

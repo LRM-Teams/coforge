@@ -5,7 +5,7 @@ import {
   encodeReminderFireResponse,
   type ReminderFireRequest,
   type ReminderFireResponse,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import {
   MAX_ACTIVE_REMINDERS,
@@ -255,7 +255,7 @@ export class PrismaReminderRepository implements ReminderRepository {
     requestId: string,
     fingerprint: string,
     id: string,
-    request: import("@coforge/protocol").AgentReminderOperationRequest,
+    request: import("@lrm/coforge-sdk/internal").AgentReminderOperationRequest,
     now: Date,
     eventType: "updated" | "snoozed" | "canceled",
   ) {

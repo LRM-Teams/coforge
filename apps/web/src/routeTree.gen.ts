@@ -15,12 +15,12 @@ import { Route as HealthRouteImport } from './routes/health'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
+import { Route as AppMembersRouteImport } from './routes/_app/members'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
 import { Route as AppRecordsRouteImport } from './routes/_app/records'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as ApiAgentApiKeysRouteImport } from './routes/api/agent-api-keys'
-import { Route as ApiAgentMessagesRouteImport } from './routes/api/agent-messages'
 import { Route as ApiAttachmentsRouteImport } from './routes/api/attachments'
 import { Route as ApiJwksRouteImport } from './routes/api/jwks'
 import { Route as ApiMeRouteImport } from './routes/api/me'
@@ -39,11 +39,11 @@ import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.i
 import { Route as AppComputersComputerIdRouteImport } from './routes/_app/computers.$computerId'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
 import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
+import { Route as AppProjectsProjectSlugRouteImport } from './routes/_app/projects.$projectSlug'
 import { Route as AppRecordsIndexRouteImport } from './routes/_app/records.index'
 import { Route as AppRecordsRecordIdRouteImport } from './routes/_app/records.$recordId'
 import { Route as AppRecordsSettingsRouteImport } from './routes/_app/records.settings'
 import { Route as AppRecordsStatsRouteImport } from './routes/_app/records.stats'
-import { Route as ApiAgentAttachmentUploadCapabilitiesRouteImport } from './routes/api/agent/attachment-upload-capabilities'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments.$attachmentId'
 import { Route as ApiComputerAttachRouteImport } from './routes/api/computer/attach'
 import { Route as ApiComputerWorkspaceRouteImport } from './routes/api/computer/workspace'
@@ -54,9 +54,15 @@ import { Route as ApiInternalWeeklyReportScheduleRouteImport } from './routes/ap
 import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
 import { Route as ApiWorkspacesSlugRouteImport } from './routes/api/workspaces.$slug'
 import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
-import { Route as ApiAgentAttachmentsAttachmentIdRouteImport } from './routes/api/agent/attachments.$attachmentId'
+import { Route as ApiAgentV1MessagesRouteImport } from './routes/api/agent/v1/messages'
+import { Route as ApiAgentV1RemindersRouteImport } from './routes/api/agent/v1/reminders'
+import { Route as ApiAgentV1TasksRouteImport } from './routes/api/agent/v1/tasks'
+import { Route as ApiAgentV1WorkspaceRouteImport } from './routes/api/agent/v1/workspace'
 import { Route as ApiComputersComputerIdCreatorAvatarRouteImport } from './routes/api/computers/$computerId/creator-avatar'
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
+import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
+import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/api/agent/v1/attachments/$attachmentId'
+import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
 import { Route as ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/users/$userId/avatar'
 
 const IndexRoute = IndexRouteImport.update({
@@ -89,6 +95,11 @@ const AppComputersRoute = AppComputersRouteImport.update({
   path: '/computers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMembersRoute = AppMembersRouteImport.update({
+  id: '/members',
+  path: '/members',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppMessagesRoute = AppMessagesRouteImport.update({
   id: '/messages',
   path: '/messages',
@@ -112,11 +123,6 @@ const AppTasksRoute = AppTasksRouteImport.update({
 const ApiAgentApiKeysRoute = ApiAgentApiKeysRouteImport.update({
   id: '/api/agent-api-keys',
   path: '/api/agent-api-keys',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAgentMessagesRoute = ApiAgentMessagesRouteImport.update({
-  id: '/api/agent-messages',
-  path: '/api/agent-messages',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAttachmentsRoute = ApiAttachmentsRouteImport.update({
@@ -209,6 +215,11 @@ const AppMessagesAgentIdRoute = AppMessagesAgentIdRouteImport.update({
   path: '/$agentId',
   getParentRoute: () => AppMessagesRoute,
 } as any)
+const AppProjectsProjectSlugRoute = AppProjectsProjectSlugRouteImport.update({
+  id: '/projects/$projectSlug',
+  path: '/projects/$projectSlug',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppRecordsIndexRoute = AppRecordsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -229,12 +240,6 @@ const AppRecordsStatsRoute = AppRecordsStatsRouteImport.update({
   path: '/stats',
   getParentRoute: () => AppRecordsRoute,
 } as any)
-const ApiAgentAttachmentUploadCapabilitiesRoute =
-  ApiAgentAttachmentUploadCapabilitiesRouteImport.update({
-    id: '/api/agent/attachment-upload-capabilities',
-    path: '/api/agent/attachment-upload-capabilities',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiAttachmentsAttachmentIdRoute =
   ApiAttachmentsAttachmentIdRouteImport.update({
     id: '/$attachmentId',
@@ -290,12 +295,26 @@ const AppMessagesChannelsChannelIdRoute =
     path: '/channels/$channelId',
     getParentRoute: () => AppMessagesRoute,
   } as any)
-const ApiAgentAttachmentsAttachmentIdRoute =
-  ApiAgentAttachmentsAttachmentIdRouteImport.update({
-    id: '/api/agent/attachments/$attachmentId',
-    path: '/api/agent/attachments/$attachmentId',
-    getParentRoute: () => rootRouteImport,
-  } as any)
+const ApiAgentV1MessagesRoute = ApiAgentV1MessagesRouteImport.update({
+  id: '/api/agent/v1/messages',
+  path: '/api/agent/v1/messages',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentV1RemindersRoute = ApiAgentV1RemindersRouteImport.update({
+  id: '/api/agent/v1/reminders',
+  path: '/api/agent/v1/reminders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentV1TasksRoute = ApiAgentV1TasksRouteImport.update({
+  id: '/api/agent/v1/tasks',
+  path: '/api/agent/v1/tasks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentV1WorkspaceRoute = ApiAgentV1WorkspaceRouteImport.update({
+  id: '/api/agent/v1/workspace',
+  path: '/api/agent/v1/workspace',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiComputersComputerIdCreatorAvatarRoute =
   ApiComputersComputerIdCreatorAvatarRouteImport.update({
     id: '/api/computers/$computerId/creator-avatar',
@@ -307,6 +326,24 @@ const ApiE2eWorkspacesSlugRoute = ApiE2eWorkspacesSlugRouteImport.update({
   path: '/api/e2e/workspaces/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiIntegrationsGithubCallbackRoute =
+  ApiIntegrationsGithubCallbackRouteImport.update({
+    id: '/api/integrations/github/callback',
+    path: '/api/integrations/github/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1AttachmentsAttachmentIdRoute =
+  ApiAgentV1AttachmentsAttachmentIdRouteImport.update({
+    id: '/api/agent/v1/attachments/$attachmentId',
+    path: '/api/agent/v1/attachments/$attachmentId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1AttachmentsCapabilitiesRoute =
+  ApiAgentV1AttachmentsCapabilitiesRouteImport.update({
+    id: '/api/agent/v1/attachments/capabilities',
+    path: '/api/agent/v1/attachments/capabilities',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute =
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport.update({
     id: '/api/workspaces/$workspaceId/users/$userId/avatar',
@@ -320,12 +357,12 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/computers': typeof AppComputersRouteWithChildren
+  '/members': typeof AppMembersRoute
   '/messages': typeof AppMessagesRouteWithChildren
   '/records': typeof AppRecordsRouteWithChildren
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
-  '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
   '/api/jwks': typeof ApiJwksRoute
   '/api/me': typeof ApiMeRouteWithChildren
@@ -341,10 +378,10 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/records/$recordId': typeof AppRecordsRecordIdRoute
   '/records/settings': typeof AppRecordsSettingsRoute
   '/records/stats': typeof AppRecordsStatsRoute
-  '/api/agent/attachment-upload-capabilities': typeof ApiAgentAttachmentUploadCapabilitiesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -359,9 +396,15 @@ export interface FileRoutesByFullPath {
   '/messages/': typeof AppMessagesIndexRoute
   '/records/': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
-  '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
+  '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
+  '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
+  '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
+  '/api/agent/v1/workspace': typeof ApiAgentV1WorkspaceRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
+  '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
+  '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
+  '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesByTo {
@@ -369,10 +412,10 @@ export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
+  '/members': typeof AppMembersRoute
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
-  '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
   '/api/jwks': typeof ApiJwksRoute
   '/api/me': typeof ApiMeRouteWithChildren
@@ -388,10 +431,10 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/records/$recordId': typeof AppRecordsRecordIdRoute
   '/records/settings': typeof AppRecordsSettingsRoute
   '/records/stats': typeof AppRecordsStatsRoute
-  '/api/agent/attachment-upload-capabilities': typeof ApiAgentAttachmentUploadCapabilitiesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -406,9 +449,15 @@ export interface FileRoutesByTo {
   '/messages': typeof AppMessagesIndexRoute
   '/records': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
-  '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
+  '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
+  '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
+  '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
+  '/api/agent/v1/workspace': typeof ApiAgentV1WorkspaceRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
+  '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
+  '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
+  '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesById {
@@ -419,12 +468,12 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/_app/computers': typeof AppComputersRouteWithChildren
+  '/_app/members': typeof AppMembersRoute
   '/_app/messages': typeof AppMessagesRouteWithChildren
   '/_app/records': typeof AppRecordsRouteWithChildren
   '/_app/settings': typeof AppSettingsRoute
   '/_app/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
-  '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
   '/api/jwks': typeof ApiJwksRoute
   '/api/me': typeof ApiMeRouteWithChildren
@@ -440,10 +489,10 @@ export interface FileRoutesById {
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/computers/$computerId': typeof AppComputersComputerIdRoute
   '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/_app/projects/$projectSlug': typeof AppProjectsProjectSlugRoute
   '/_app/records/$recordId': typeof AppRecordsRecordIdRoute
   '/_app/records/settings': typeof AppRecordsSettingsRoute
   '/_app/records/stats': typeof AppRecordsStatsRoute
-  '/api/agent/attachment-upload-capabilities': typeof ApiAgentAttachmentUploadCapabilitiesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -458,9 +507,15 @@ export interface FileRoutesById {
   '/_app/messages/': typeof AppMessagesIndexRoute
   '/_app/records/': typeof AppRecordsIndexRoute
   '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
-  '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
+  '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
+  '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
+  '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
+  '/api/agent/v1/workspace': typeof ApiAgentV1WorkspaceRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
+  '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
+  '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
+  '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRouteTypes {
@@ -471,12 +526,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/.well-known/oauth-authorization-server'
     | '/computers'
+    | '/members'
     | '/messages'
     | '/records'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
-    | '/api/agent-messages'
     | '/api/attachments'
     | '/api/jwks'
     | '/api/me'
@@ -492,10 +547,10 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/projects/$projectSlug'
     | '/records/$recordId'
     | '/records/settings'
     | '/records/stats'
-    | '/api/agent/attachment-upload-capabilities'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -510,9 +565,15 @@ export interface FileRouteTypes {
     | '/messages/'
     | '/records/'
     | '/messages/channels/$channelId'
-    | '/api/agent/attachments/$attachmentId'
+    | '/api/agent/v1/messages'
+    | '/api/agent/v1/reminders'
+    | '/api/agent/v1/tasks'
+    | '/api/agent/v1/workspace'
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
+    | '/api/integrations/github/callback'
+    | '/api/agent/v1/attachments/$attachmentId'
+    | '/api/agent/v1/attachments/capabilities'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -520,10 +581,10 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
+    | '/members'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
-    | '/api/agent-messages'
     | '/api/attachments'
     | '/api/jwks'
     | '/api/me'
@@ -539,10 +600,10 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/projects/$projectSlug'
     | '/records/$recordId'
     | '/records/settings'
     | '/records/stats'
-    | '/api/agent/attachment-upload-capabilities'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -557,9 +618,15 @@ export interface FileRouteTypes {
     | '/messages'
     | '/records'
     | '/messages/channels/$channelId'
-    | '/api/agent/attachments/$attachmentId'
+    | '/api/agent/v1/messages'
+    | '/api/agent/v1/reminders'
+    | '/api/agent/v1/tasks'
+    | '/api/agent/v1/workspace'
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
+    | '/api/integrations/github/callback'
+    | '/api/agent/v1/attachments/$attachmentId'
+    | '/api/agent/v1/attachments/capabilities'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   id:
     | '__root__'
@@ -569,12 +636,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/.well-known/oauth-authorization-server'
     | '/_app/computers'
+    | '/_app/members'
     | '/_app/messages'
     | '/_app/records'
     | '/_app/settings'
     | '/_app/tasks'
     | '/api/agent-api-keys'
-    | '/api/agent-messages'
     | '/api/attachments'
     | '/api/jwks'
     | '/api/me'
@@ -590,10 +657,10 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId'
     | '/_app/computers/$computerId'
     | '/_app/messages/$agentId'
+    | '/_app/projects/$projectSlug'
     | '/_app/records/$recordId'
     | '/_app/records/settings'
     | '/_app/records/stats'
-    | '/api/agent/attachment-upload-capabilities'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -608,9 +675,15 @@ export interface FileRouteTypes {
     | '/_app/messages/'
     | '/_app/records/'
     | '/_app/messages/channels/$channelId'
-    | '/api/agent/attachments/$attachmentId'
+    | '/api/agent/v1/messages'
+    | '/api/agent/v1/reminders'
+    | '/api/agent/v1/tasks'
+    | '/api/agent/v1/workspace'
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
+    | '/api/integrations/github/callback'
+    | '/api/agent/v1/attachments/$attachmentId'
+    | '/api/agent/v1/attachments/capabilities'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesById: FileRoutesById
 }
@@ -621,7 +694,6 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   DotwellKnownOauthAuthorizationServerRoute: typeof DotwellKnownOauthAuthorizationServerRoute
   ApiAgentApiKeysRoute: typeof ApiAgentApiKeysRoute
-  ApiAgentMessagesRoute: typeof ApiAgentMessagesRoute
   ApiAttachmentsRoute: typeof ApiAttachmentsRouteWithChildren
   ApiJwksRoute: typeof ApiJwksRoute
   ApiMeRoute: typeof ApiMeRouteWithChildren
@@ -634,7 +706,6 @@ export interface RootRouteChildren {
   OauthDeviceRoute: typeof OauthDeviceRoute
   OauthTokenRoute: typeof OauthTokenRoute
   OauthVerifyRoute: typeof OauthVerifyRoute
-  ApiAgentAttachmentUploadCapabilitiesRoute: typeof ApiAgentAttachmentUploadCapabilitiesRoute
   ApiComputerAttachRoute: typeof ApiComputerAttachRoute
   ApiComputerWorkspaceRoute: typeof ApiComputerWorkspaceRoute
   ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
@@ -642,9 +713,15 @@ export interface RootRouteChildren {
   ApiInternalCentrifugoConnectRoute: typeof ApiInternalCentrifugoConnectRoute
   ApiInternalWeeklyReportScheduleRoute: typeof ApiInternalWeeklyReportScheduleRoute
   ApiWorkspacesSlugRoute: typeof ApiWorkspacesSlugRoute
-  ApiAgentAttachmentsAttachmentIdRoute: typeof ApiAgentAttachmentsAttachmentIdRoute
+  ApiAgentV1MessagesRoute: typeof ApiAgentV1MessagesRoute
+  ApiAgentV1RemindersRoute: typeof ApiAgentV1RemindersRoute
+  ApiAgentV1TasksRoute: typeof ApiAgentV1TasksRoute
+  ApiAgentV1WorkspaceRoute: typeof ApiAgentV1WorkspaceRoute
   ApiComputersComputerIdCreatorAvatarRoute: typeof ApiComputersComputerIdCreatorAvatarRoute
   ApiE2eWorkspacesSlugRoute: typeof ApiE2eWorkspacesSlugRoute
+  ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
+  ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
+  ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 
@@ -692,6 +769,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppComputersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/members': {
+      id: '/_app/members'
+      path: '/members'
+      fullPath: '/members'
+      preLoaderRoute: typeof AppMembersRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/messages': {
       id: '/_app/messages'
       path: '/messages'
@@ -725,13 +809,6 @@ declare module '@tanstack/react-router' {
       path: '/api/agent-api-keys'
       fullPath: '/api/agent-api-keys'
       preLoaderRoute: typeof ApiAgentApiKeysRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/agent-messages': {
-      id: '/api/agent-messages'
-      path: '/api/agent-messages'
-      fullPath: '/api/agent-messages'
-      preLoaderRoute: typeof ApiAgentMessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/attachments': {
@@ -860,6 +937,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMessagesAgentIdRouteImport
       parentRoute: typeof AppMessagesRoute
     }
+    '/_app/projects/$projectSlug': {
+      id: '/_app/projects/$projectSlug'
+      path: '/projects/$projectSlug'
+      fullPath: '/projects/$projectSlug'
+      preLoaderRoute: typeof AppProjectsProjectSlugRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/records/': {
       id: '/_app/records/'
       path: '/'
@@ -887,13 +971,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/records/stats'
       preLoaderRoute: typeof AppRecordsStatsRouteImport
       parentRoute: typeof AppRecordsRoute
-    }
-    '/api/agent/attachment-upload-capabilities': {
-      id: '/api/agent/attachment-upload-capabilities'
-      path: '/api/agent/attachment-upload-capabilities'
-      fullPath: '/api/agent/attachment-upload-capabilities'
-      preLoaderRoute: typeof ApiAgentAttachmentUploadCapabilitiesRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/api/attachments/$attachmentId': {
       id: '/api/attachments/$attachmentId'
@@ -965,11 +1042,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMessagesChannelsChannelIdRouteImport
       parentRoute: typeof AppMessagesRoute
     }
-    '/api/agent/attachments/$attachmentId': {
-      id: '/api/agent/attachments/$attachmentId'
-      path: '/api/agent/attachments/$attachmentId'
-      fullPath: '/api/agent/attachments/$attachmentId'
-      preLoaderRoute: typeof ApiAgentAttachmentsAttachmentIdRouteImport
+    '/api/agent/v1/messages': {
+      id: '/api/agent/v1/messages'
+      path: '/api/agent/v1/messages'
+      fullPath: '/api/agent/v1/messages'
+      preLoaderRoute: typeof ApiAgentV1MessagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/reminders': {
+      id: '/api/agent/v1/reminders'
+      path: '/api/agent/v1/reminders'
+      fullPath: '/api/agent/v1/reminders'
+      preLoaderRoute: typeof ApiAgentV1RemindersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/tasks': {
+      id: '/api/agent/v1/tasks'
+      path: '/api/agent/v1/tasks'
+      fullPath: '/api/agent/v1/tasks'
+      preLoaderRoute: typeof ApiAgentV1TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/workspace': {
+      id: '/api/agent/v1/workspace'
+      path: '/api/agent/v1/workspace'
+      fullPath: '/api/agent/v1/workspace'
+      preLoaderRoute: typeof ApiAgentV1WorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/computers/$computerId/creator-avatar': {
@@ -984,6 +1082,27 @@ declare module '@tanstack/react-router' {
       path: '/api/e2e/workspaces/$slug'
       fullPath: '/api/e2e/workspaces/$slug'
       preLoaderRoute: typeof ApiE2eWorkspacesSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/integrations/github/callback': {
+      id: '/api/integrations/github/callback'
+      path: '/api/integrations/github/callback'
+      fullPath: '/api/integrations/github/callback'
+      preLoaderRoute: typeof ApiIntegrationsGithubCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/attachments/$attachmentId': {
+      id: '/api/agent/v1/attachments/$attachmentId'
+      path: '/api/agent/v1/attachments/$attachmentId'
+      fullPath: '/api/agent/v1/attachments/$attachmentId'
+      preLoaderRoute: typeof ApiAgentV1AttachmentsAttachmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/attachments/capabilities': {
+      id: '/api/agent/v1/attachments/capabilities'
+      path: '/api/agent/v1/attachments/capabilities'
+      fullPath: '/api/agent/v1/attachments/capabilities'
+      preLoaderRoute: typeof ApiAgentV1AttachmentsCapabilitiesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/workspaces/$workspaceId/users/$userId/avatar': {
@@ -1046,21 +1165,25 @@ const AppRecordsRouteWithChildren = AppRecordsRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppComputersRoute: typeof AppComputersRouteWithChildren
+  AppMembersRoute: typeof AppMembersRoute
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppRecordsRoute: typeof AppRecordsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
   AppTasksRoute: typeof AppTasksRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
+  AppProjectsProjectSlugRoute: typeof AppProjectsProjectSlugRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppComputersRoute: AppComputersRouteWithChildren,
+  AppMembersRoute: AppMembersRoute,
   AppMessagesRoute: AppMessagesRouteWithChildren,
   AppRecordsRoute: AppRecordsRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
   AppTasksRoute: AppTasksRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
+  AppProjectsProjectSlugRoute: AppProjectsProjectSlugRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
 }
 
@@ -1096,7 +1219,6 @@ const rootRouteChildren: RootRouteChildren = {
   DotwellKnownOauthAuthorizationServerRoute:
     DotwellKnownOauthAuthorizationServerRoute,
   ApiAgentApiKeysRoute: ApiAgentApiKeysRoute,
-  ApiAgentMessagesRoute: ApiAgentMessagesRoute,
   ApiAttachmentsRoute: ApiAttachmentsRouteWithChildren,
   ApiJwksRoute: ApiJwksRoute,
   ApiMeRoute: ApiMeRouteWithChildren,
@@ -1109,8 +1231,6 @@ const rootRouteChildren: RootRouteChildren = {
   OauthDeviceRoute: OauthDeviceRoute,
   OauthTokenRoute: OauthTokenRoute,
   OauthVerifyRoute: OauthVerifyRoute,
-  ApiAgentAttachmentUploadCapabilitiesRoute:
-    ApiAgentAttachmentUploadCapabilitiesRoute,
   ApiComputerAttachRoute: ApiComputerAttachRoute,
   ApiComputerWorkspaceRoute: ApiComputerWorkspaceRoute,
   ApiInternalCentrifugoRoute: ApiInternalCentrifugoRoute,
@@ -1119,10 +1239,18 @@ const rootRouteChildren: RootRouteChildren = {
   ApiInternalCentrifugoConnectRoute: ApiInternalCentrifugoConnectRoute,
   ApiInternalWeeklyReportScheduleRoute: ApiInternalWeeklyReportScheduleRoute,
   ApiWorkspacesSlugRoute: ApiWorkspacesSlugRoute,
-  ApiAgentAttachmentsAttachmentIdRoute: ApiAgentAttachmentsAttachmentIdRoute,
+  ApiAgentV1MessagesRoute: ApiAgentV1MessagesRoute,
+  ApiAgentV1RemindersRoute: ApiAgentV1RemindersRoute,
+  ApiAgentV1TasksRoute: ApiAgentV1TasksRoute,
+  ApiAgentV1WorkspaceRoute: ApiAgentV1WorkspaceRoute,
   ApiComputersComputerIdCreatorAvatarRoute:
     ApiComputersComputerIdCreatorAvatarRoute,
   ApiE2eWorkspacesSlugRoute: ApiE2eWorkspacesSlugRoute,
+  ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
+  ApiAgentV1AttachmentsAttachmentIdRoute:
+    ApiAgentV1AttachmentsAttachmentIdRoute,
+  ApiAgentV1AttachmentsCapabilitiesRoute:
+    ApiAgentV1AttachmentsCapabilitiesRoute,
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute:
     ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute,
 }

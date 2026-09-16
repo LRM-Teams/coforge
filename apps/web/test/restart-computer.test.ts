@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { decodeComputerRestartIntent } from "@coforge/protocol";
+import { decodeComputerRestartIntent } from "@lrm/coforge-sdk/internal";
 
 import { RestartComputer } from "../src/server/computers/restart-computer.server";
 import { RedisComputerRestartStore } from "../src/server/computers/computer-restart-store.server";

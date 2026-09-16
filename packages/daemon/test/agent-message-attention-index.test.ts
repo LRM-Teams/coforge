@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AgentMessageDelivery } from "@coforge/protocol";
+import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
 import { AgentMessageAttentionIndex } from "../src/daemon-runtime/agent-message-attention-index";
 
 const delivery = (id: string, latestSender?: string): AgentMessageDelivery => ({

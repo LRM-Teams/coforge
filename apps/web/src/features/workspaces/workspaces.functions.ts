@@ -1,9 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { createWorkspaceInputSchema, selectWorkspaceInputSchema } from "./workspace.schemas";
 
 import { AppError } from "../../lib/app-error";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaWorkspaceCatalogStore,
@@ -22,31 +21,32 @@ function catalog() {
   return new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db));
 }
 
-function currentUser() {
-  return requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-}
+export const loadWorkspaceSwitcher = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const user = context.user;
+    const workspaces = await catalog().listForUser(user.id);
+    const current = await catalog().selectForUser(user.id, preferredWorkspaceSlugFromRequest());
+    return { workspaces, current };
+  });
 
-export const loadWorkspaceSwitcher = createServerFn({ method: "GET" }).handler(async () => {
-  const user = currentUser();
-  const workspaces = await catalog().listForUser(user.id);
-  const current = await catalog().selectForUser(user.id, preferredWorkspaceSlugFromRequest());
-  return { workspaces, current };
-});
-
-export const listWorkspaceMembers = createServerFn({ method: "GET" }).handler(async () => {
-  const user = currentUser();
-  const db = getDatabaseClient();
-  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
-  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  return new WorkspaceMembers(db).list(workspaceId, user.id);
-});
+export const listWorkspaceMembers = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return new WorkspaceMembers(db).list(workspaceId, user.id);
+  });
 
 export type WorkspaceMemberDirectory = Awaited<ReturnType<typeof listWorkspaceMembers>>;
 
 export const selectWorkspace = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(selectWorkspaceInputSchema)
-  .handler(async ({ data }) => {
-    const user = currentUser();
+  .handler(async ({ data, context }) => {
+    const user = context.user;
     const selected = await catalog().selectForUser(user.id, data.slug);
     if (!selected || selected.slug !== data.slug) throw new AppError("ACCESS_DENIED");
     writePreferredWorkspaceSlug(selected.slug);
@@ -54,9 +54,10 @@ export const selectWorkspace = createServerFn({ method: "POST" })
   });
 
 export const createWorkspace = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(createWorkspaceInputSchema)
-  .handler(async ({ data }) => {
-    const user = currentUser();
+  .handler(async ({ data, context }) => {
+    const user = context.user;
     const workspace = await catalog().createForUser(user.id, data);
     writePreferredWorkspaceSlug(workspace.slug);
     return workspace;

@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { encodeTaskResponse } from "@coforge/protocol";
 import { defaultAgentTaskHttpClient } from "../src/connection/daemon-connection";
 
 const request = {
@@ -12,21 +11,16 @@ const request = {
 } as const;
 
 test("Agent Task HTTP client rejects a response for a different request", async () => {
-  const bytes = encodeTaskResponse({
-    protocolMajor: 1,
-    requestId: "request-2",
-    tasks: [],
-  });
   const server = Bun.serve({
     port: 0,
     fetch() {
-      return Response.json({ result: { b64data: bytes.toBase64() } });
+      return Response.json({ requestId: "request-2", tasks: [] });
     },
   });
   try {
     await expect(
-      defaultAgentTaskHttpClient.request({
-        url: `${server.url}api/agent-messages`,
+      defaultAgentTaskHttpClient.execute({
+        url: `${server.url}api/agent/v1/tasks`,
         agentApiKey: "agent-key",
         daemonApiKey: "daemon-key",
         request,
@@ -41,18 +35,18 @@ test("Agent Task HTTP client reports an authorization denial without treating it
   const server = Bun.serve({
     port: 0,
     fetch() {
-      return Response.json({ error: { code: 403, message: "details must not be exposed" } });
+      return Response.json({ error: "details must not be exposed" }, { status: 403 });
     },
   });
   try {
     await expect(
-      defaultAgentTaskHttpClient.request({
-        url: `${server.url}api/agent-messages`,
+      defaultAgentTaskHttpClient.execute({
+        url: `${server.url}api/agent/v1/tasks`,
         agentApiKey: "agent-key",
         daemonApiKey: "daemon-key",
         request,
       }),
-    ).rejects.toThrow("Agent Task access denied");
+    ).rejects.toThrow("server Agent Task request failed (403)");
   } finally {
     await server.stop();
   }
@@ -67,8 +61,8 @@ test("Agent Task HTTP client abandons a server request at its deadline", async (
   });
   try {
     await expect(
-      defaultAgentTaskHttpClient.request({
-        url: `${server.url}api/agent-messages`,
+      defaultAgentTaskHttpClient.execute({
+        url: `${server.url}api/agent/v1/tasks`,
         agentApiKey: "agent-key",
         daemonApiKey: "daemon-key",
         request,

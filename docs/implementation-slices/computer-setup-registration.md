@@ -40,7 +40,7 @@ manually.
 
 ### 2. Registration RPC
 
-Add the first shared protocol slice under `packages/protocol`:
+Add the first shared protocol slice under `packages/coforge-sdk`:
 
 - maintain the schema in `proto/coforge/rpc/v1/computer_register.proto`;
 - generate the TypeScript message types using the repository-approved

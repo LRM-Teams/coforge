@@ -1,8 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
-import { encodeAgentSkillsListRequest } from "@coforge/protocol";
+import { setResponseHeader } from "@tanstack/react-start/server";
+import { encodeAgentSkillsListRequest } from "@lrm/coforge-sdk/internal";
 import { agentIdSchema } from "./agent.schemas";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { getDatabaseClient } from "../../server/db/client.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import {
@@ -17,10 +17,11 @@ import { getComputerStatusCache } from "../../server/centrifugo/computer-status.
 import { getAgentSkillsResults } from "../../server/centrifugo/agent-skills-cache.server";
 
 export const getAgentSkills = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(agentIdSchema)
-  .handler(async ({ data: agentId }) => {
+  .handler(async ({ data: agentId, context }) => {
     setResponseHeader("Cache-Control", "no-store");
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const user = context.user;
     const db = getDatabaseClient();
     if (!db) throw new Error("Agent persistence is unavailable");
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);

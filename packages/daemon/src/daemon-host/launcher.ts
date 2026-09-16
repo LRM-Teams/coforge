@@ -12,8 +12,8 @@ import {
   encodeLocalRpcRequest,
   decodeLocalRpcResponse,
   LOCAL_RPC_METHODS,
-} from "@coforge/protocol";
-import type { DaemonHandshakeResponse } from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
+import type { DaemonHandshakeResponse } from "@lrm/coforge-sdk/internal";
 import { DaemonConfigStore } from "../persistence/daemon-config";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 import { FileBindingStore } from "../supervisor/binding-store";

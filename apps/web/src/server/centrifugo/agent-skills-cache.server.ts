@@ -3,7 +3,7 @@ import {
   decodeAgentSkillsListResult,
   encodeAgentSkillsListResult,
   type AgentSkillsListResult,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import {
   sameSkillsScope,
   type AgentSkillsResults,

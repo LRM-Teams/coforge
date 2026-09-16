@@ -10,7 +10,7 @@ import {
   type TaskResult,
   type TaskStatus,
   type TaskView,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { ConversationRealtime } from "../conversations/conversation-realtime.server";

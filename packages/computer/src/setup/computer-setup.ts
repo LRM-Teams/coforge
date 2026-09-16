@@ -1,8 +1,11 @@
 import type { AccessibleWorkspace, Credential } from "../login";
 import { loadBuildProfile, type ComputerConfig } from "../local-config";
 import { CliError, setupError } from "../errors";
-import type { ComputerRegisterRequest, ComputerRegistrationClient } from "@coforge/protocol";
-import type { DaemonLauncher } from "@coforge/daemon";
+import type {
+  ComputerRegisterRequest,
+  ComputerRegistrationClient,
+} from "@lrm/coforge-sdk/internal";
+import type { DaemonLauncher } from "@lrm/coforge-daemon";
 import type { WorkspaceLookup } from "../workspace/lookup";
 
 export type ComputerPlatformName = "darwin" | "linux" | "win32";

@@ -2,7 +2,7 @@ import {
   AGENT_START_METHOD,
   encodeDaemonRuntimeUsageScanRequest,
   type RuntimeProvider,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { getUsageCache, type UsageCache } from "./usage-cache.server";
 
 export type CentrifugoServerApi = {

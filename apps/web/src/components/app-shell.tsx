@@ -16,7 +16,10 @@ import { Button as AriaButton } from "react-aria-components";
 import type { NavItemType } from "@/components/application/app-navigation/config";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
-import type { SidebarChannel } from "@/components/layout/sidebar/sidebar-conversations";
+import type {
+  SidebarChannel,
+  SidebarProject,
+} from "@/components/layout/sidebar/sidebar-conversations";
 import { SidebarRail } from "@/components/layout/sidebar/sidebar-rail";
 import { MobileDrawerProvider } from "@/components/layout/sidebar/mobile-header";
 import {
@@ -25,6 +28,7 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
 } from "@/components/layout/sidebar/sidebar-channels";
 import { CreateChannelDialog } from "@/features/conversations/create-channel-dialog";
+import { CreateProjectDialog } from "@/features/projects/create-project-dialog";
 import type { ConversationAgent } from "@/features/conversations/conversation-layout";
 import { WorkspaceSwitcher, type WorkspaceOption } from "@/features/workspaces/workspace-switcher";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
@@ -53,9 +57,9 @@ function useNavItems(
       icon: MessageChatSquare,
     },
     {
-      label: m.navigation_agents(),
-      bareHref: "/agents",
-      href: localizeHref("/agents"),
+      label: m.workspace_members_title(),
+      bareHref: "/members",
+      href: localizeHref("/members"),
       icon: Users,
     },
     { label: m.tasks_tab(), bareHref: "/tasks", href: localizeHref("/tasks"), icon: ListTodo },
@@ -115,6 +119,7 @@ export function AppShell({
   currentWorkspace = null,
   channels = [],
   agents = [],
+  projects = [],
   onSelectWorkspace,
   onCreateWorkspace,
   onCreateChannel,
@@ -129,17 +134,20 @@ export function AppShell({
   channels?: SidebarChannel[];
   /** Agents (with live status), shown as Direct messages under Channels. */
   agents?: ConversationAgent[];
+  projects?: SidebarProject[];
   onSelectWorkspace?: (slug: string) => Promise<void> | void;
   onCreateWorkspace?: (input: { name: string; slug: string }) => Promise<void>;
-  onCreateChannel?: (name: string) => Promise<void>;
+  onCreateChannel?: (name: string, projectId?: string) => Promise<void>;
   onSignOut?: () => Promise<void> | void;
   /** Purple dot on 记录 while a weekly template is in the one-hour preview window. */
   recordsPreview?: boolean;
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   const [channelSidebarWidth, setChannelSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [channelSidebarHidden, setChannelSidebarHidden] = useState(false);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
   // pathname is de-localized (src/router.tsx); item.href is localized, so we
   // match on bareHref (with sub-route prefix matching) instead.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -199,6 +207,8 @@ export function AppShell({
               />
             }
             footer={<UserMenuCard compact user={user} onSignOut={onSignOut} />}
+            projects={projects}
+            onCreateProject={() => setCreateProjectOpen(true)}
           />
 
           {isChatRoute && !channelSidebarHidden && (
@@ -225,8 +235,16 @@ export function AppShell({
             open={createChannelOpen}
             onOpenChange={setCreateChannelOpen}
             onCreate={onCreateChannel}
+            projects={projects}
           />
         )}
+        <CreateProjectDialog
+          open={createProjectOpen}
+          onOpenChange={setCreateProjectOpen}
+          onCreated={async () => {
+            await router.invalidate({ sync: true });
+          }}
+        />
       </div>
     </MobileDrawerProvider>
   );

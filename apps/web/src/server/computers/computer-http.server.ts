@@ -1,4 +1,4 @@
-import { COMPUTER_REGISTER_METHOD, WORKSPACE_GET_METHOD } from "@coforge/protocol";
+import { COMPUTER_REGISTER_METHOD, WORKSPACE_GET_METHOD } from "@lrm/coforge-sdk/internal";
 
 import { principalFromAuthorizationHeader } from "../auth/computer-access-token.server";
 import {

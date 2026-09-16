@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
   agentIdSchema,
   createAgentInputSchema,
@@ -19,7 +19,7 @@ import { AgentControl } from "../../server/agents/agent-control.server";
 import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
@@ -37,14 +37,12 @@ import {
   publicAgentRuntimeConfig,
 } from "../../server/agents/agent-runtime-config.server";
 import { getAgentStatusCache } from "../../server/agents/agent-status.server";
-import {
-  issueAgentActivitySubscriptionToken,
-  issueBrowserRealtimeToken,
-} from "../../server/auth/browser-realtime-token.server";
+import { issueBrowserRealtimeToken } from "../../server/auth/browser-realtime-token.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 import { getAgentDisplay } from "../../server/agents/agent-display.server";
 import { AgentEnvironment } from "../../server/agents/agent-environment.server";
-import { browserScope as sharedBrowserScope } from "../../server/auth/browser-scope.server";
+import { issueAgentActivitySubscriptionToken } from "../../server/auth/browser-realtime-token.server";
+import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 
 type Database = NonNullable<ReturnType<typeof getDatabaseClient>>;
 
@@ -53,8 +51,6 @@ function database(): Database {
   if (!db) throw new Error("Agent persistence is unavailable");
   return db;
 }
-
-const browserScope = () => sharedBrowserScope(() => new Error("Agent persistence is unavailable"));
 
 /** Runtime start/stop publisher wired to one database and Agent repository. */
 function runtimeControl(db: Database, agents: PrismaAgentRepository) {
@@ -165,62 +161,83 @@ function agentEnvironment(db: Database) {
   );
 }
 
-export const listAgents = createServerFn({ method: "GET" }).handler(async () => {
-  const { workspaceId, scope } = await browserScope();
-  const agents = await dependencies().agentManagement.list(scope);
-  const statuses = getAgentStatusCache();
-  return Promise.all(
-    agents.map(async (agent) => {
-      const status = agent.computerId
-        ? await statuses.snapshot({
-            workspaceId,
-            computerId: agent.computerId,
-            agentId: agent.id,
-          })
-        : undefined;
-      let displaySnapshot;
-      if (agent.computerId) {
-        try {
-          displaySnapshot = await getAgentDisplay().snapshot({
-            workspaceId,
-            computerId: agent.computerId,
-            agentId: agent.id,
-          });
-        } catch {
-          // An unavailable display read model must not hide an Agent profile.
+export const listAgents = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const user = context.user;
+    const { agentManagement, db } = dependencies();
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const agents = await agentManagement.list({ userId: user.id, workspaceId });
+    const statuses = getAgentStatusCache();
+    return Promise.all(
+      agents.map(async (agent) => {
+        const status = agent.computerId
+          ? await statuses.snapshot({
+              workspaceId,
+              computerId: agent.computerId,
+              agentId: agent.id,
+            })
+          : undefined;
+        let displaySnapshot;
+        if (agent.computerId) {
+          try {
+            displaySnapshot = await getAgentDisplay().snapshot({
+              workspaceId,
+              computerId: agent.computerId,
+              agentId: agent.id,
+            });
+          } catch {
+            // An unavailable display read model must not hide an Agent profile.
+          }
         }
-      }
-      return {
-        ...agent,
-        ...(displaySnapshot ? { display: displaySnapshot } : {}),
-        status: {
-          value: status?.status ?? ("inactive" as const),
-          expiresAt: status?.expiresAt ?? null,
-          ordering: status
-            ? {
-                daemonInstanceId: status.daemonInstanceId,
-                clientSeq: status.clientSeq,
-                observedAtMs: status.observedAtMs,
-              }
-            : null,
-        },
-      };
-    }),
-  );
-});
+        return {
+          ...agent,
+          ...(displaySnapshot ? { display: displaySnapshot } : {}),
+          status: {
+            value: status?.status ?? ("inactive" as const),
+            expiresAt: status?.expiresAt ?? null,
+            ordering: status
+              ? {
+                  daemonInstanceId: status.daemonInstanceId,
+                  clientSeq: status.clientSeq,
+                  observedAtMs: status.observedAtMs,
+                }
+              : null,
+          },
+        };
+      }),
+    );
+  });
 
 export const getAgentStatusConnectionToken = createServerFn({
   method: "GET",
-}).handler(async () => issueBrowserRealtimeToken((await browserScope()).scope));
+})
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
+  });
 
 export const getAgentActivitySubscriptionToken = createServerFn({
   method: "GET",
-}).handler(async () => issueAgentActivitySubscriptionToken((await browserScope()).scope));
+})
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return issueAgentActivitySubscriptionToken({ userId: user.id, workspaceId });
+  });
 
 export const createAgent = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(createAgentInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ data, context }) => {
+    const user = context.user;
     const { agentManagement, db } = dependencies();
     const workspaceId = await workspaceIdForUser(
       db,
@@ -231,16 +248,24 @@ export const createAgent = createServerFn({ method: "POST" })
   });
 
 export const updateAgent = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(updateAgentInputSchema)
-  .handler(async ({ data }) => {
-    const { scope } = await browserScope();
-    return dependencies().agentManagement.update(scope, data);
+  .handler(async ({ data, context }) => {
+    const user = context.user;
+    const { agentManagement, db } = dependencies();
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return agentManagement.update({ userId: user.id, workspaceId }, data);
   });
 
 export const getAgentDetail = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(agentIdSchema)
-  .handler(async ({ data: agentId }) => {
-    const { user, db, workspaceId, scope } = await browserScope();
+  .handler(async ({ data: agentId, context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+
     const activity = new AgentActivityRepository(db);
     const query = new AgentDetailQuery(
       {
@@ -279,7 +304,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     setResponseHeader("cache-control", "no-store");
     const ownedByCurrentUser = result.owner.id === user.id;
     const runtimeCredential = ownedByCurrentUser
-      ? await runtimeCredentials(db).summary(scope, agentId)
+      ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
       : null;
     return {
       ...result,
@@ -290,30 +315,51 @@ export const getAgentDetail = createServerFn({ method: "GET" })
   });
 
 export const saveAgentRuntimeCredential = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(saveAgentRuntimeCredentialInputSchema)
-  .handler(async ({ data }) => {
-    const { db, scope } = await browserScope();
-    return changeRuntimeCredential(db, true).save(scope, data.agentId, data.apiKey);
+  .handler(async ({ data, context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return changeRuntimeCredential(db, true).save(
+      { workspaceId, userId: user.id },
+      data.agentId,
+      data.apiKey,
+    );
   });
 
 export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(agentIdSchema)
-  .handler(async ({ data: agentId }) => {
-    const { db, scope } = await browserScope();
-    return changeRuntimeCredential(db).delete(scope, agentId);
+  .handler(async ({ data: agentId, context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return changeRuntimeCredential(db).delete({ workspaceId, userId: user.id }, agentId);
   });
 
 export const getAgentEnvironment = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(agentIdSchema)
-  .handler(async ({ data: agentId }) => {
-    const { db, scope } = await browserScope();
+  .handler(async ({ data: agentId, context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+
     setResponseHeader("cache-control", "no-store");
-    return agentEnvironment(db).get(scope, agentId);
+    return agentEnvironment(db).get({ workspaceId, userId: user.id }, agentId);
   });
 
 export const saveAgentEnvironment = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(saveAgentEnvironmentInputSchema)
-  .handler(async ({ data }) => {
-    const { db, scope } = await browserScope();
-    return agentEnvironment(db).save(scope, data.agentId, data.envVars);
+  .handler(async ({ data, context }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return agentEnvironment(db).save({ workspaceId, userId: user.id }, data.agentId, data.envVars);
   });

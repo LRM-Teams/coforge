@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { Link } from "@tanstack/react-router";
 import {
   MessageCircle01 as MessageCircle,
@@ -31,8 +32,8 @@ import { Select } from "@/components/base/select/select";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "./agent-status-realtime";
-import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@coforge/protocol";
-import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
+import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+
 import { AgentDisplayAvatar } from "./agent-activity-avatar";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";

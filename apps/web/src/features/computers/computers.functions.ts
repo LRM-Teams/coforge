@@ -1,11 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import {
   isValidReleaseVersion,
-  type CodeAgentModelMetadata,
   parseRuntimeProvider,
+  type CodeAgentModelMetadata,
   type RuntimeProvider,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
+
 import {
   computerIdInputSchema,
   readRestartStatusInputSchema,
@@ -15,7 +15,7 @@ import {
   setRuntimeVisibilityInputSchema,
   updateComputerDisplayNameInputSchema,
 } from "./computer.schemas";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
   createCentrifugoServerApi,
@@ -30,15 +30,20 @@ import { RestartComputer } from "../../server/computers/restart-computer.server"
 import { getComputerRestartStore } from "../../server/computers/computer-restart-store.server";
 import { getComputerUpgradeStore } from "../../server/computers/computer-upgrade-store.server";
 import { resolveReleaseFeedUrl } from "../../server/install/install-script.server";
-import { encodeComputerUpgradeIntent } from "@coforge/protocol";
+import { encodeComputerUpgradeIntent } from "@lrm/coforge-sdk/internal";
 import { browserScope } from "../../server/auth/browser-scope.server";
 
 const computerUnavailable = () => new Error("Computer persistence is unavailable");
 
 export const restartComputer = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(restartComputerInputSchema)
-  .handler(async ({ data }) => {
-    const { user, db, workspaceId } = await browserScope(computerUnavailable);
+  .handler(async ({ context, data }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+
     return new RestartComputer(
       {
         canRestart: async (scope) =>
@@ -59,9 +64,14 @@ export const restartComputer = createServerFn({ method: "POST" })
   });
 
 export const readComputerRestartStatus = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(readRestartStatusInputSchema)
-  .handler(async ({ data }) => {
-    const { user, db, workspaceId } = await browserScope(computerUnavailable);
+  .handler(async ({ context, data }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+
     const connection = await db.workspaceComputer.findFirst({
       where: {
         workspaceId,
@@ -89,9 +99,10 @@ function runtimeVisibility() {
 }
 
 export const scanUsage = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(scanUsageInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context, data }) => {
+    const user = context.user;
     const { db, visibility } = runtimeVisibility();
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     if (
@@ -107,9 +118,10 @@ export const scanUsage = createServerFn({ method: "POST" })
   });
 
 export const readUsage = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(readUsageInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context, data }) => {
+    const user = context.user;
     const { db, visibility } = runtimeVisibility();
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     if (
@@ -124,63 +136,65 @@ export const readUsage = createServerFn({ method: "GET" })
     return record;
   });
 
-export const listComputers = createServerFn({ method: "GET" }).handler(async () => {
-  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-  const { db, visibility } = runtimeVisibility();
-  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  const computerStatus = getComputerStatusCache();
-  const [connections, runtimes] = await Promise.all([
-    db.workspaceComputer.findMany({
-      where: { workspaceId },
-      select: {
-        createdAt: true,
-        computer: {
-          select: {
-            id: true,
-            name: true,
-            displayName: true,
-            kind: true,
-            ownerId: true,
-            computerVersion: true,
-            platform: true,
-            osVersion: true,
-            owner: { select: { username: true, displayName: true, avatarObjectKey: true } },
+export const listComputers = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const user = context.user;
+    const { db, visibility } = runtimeVisibility();
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const computerStatus = getComputerStatusCache();
+    const [connections, runtimes] = await Promise.all([
+      db.workspaceComputer.findMany({
+        where: { workspaceId },
+        select: {
+          createdAt: true,
+          computer: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+              kind: true,
+              ownerId: true,
+              computerVersion: true,
+              platform: true,
+              osVersion: true,
+              owner: { select: { username: true, displayName: true, avatarObjectKey: true } },
+            },
           },
         },
-      },
-      orderBy: { createdAt: "asc" },
-    }),
-    visibility.list({ workspaceId, userId: user.id }),
-  ]);
-  return Promise.all(
-    connections.map(async ({ computer, createdAt }) => {
-      const computerRuntimes = runtimes.filter((runtime) => runtime.computerId === computer.id);
-      return {
-        id: computer.id,
-        name: computer.name,
-        displayName: computer.displayName,
-        kind: computer.kind,
-        computerVersion: computer.computerVersion,
-        platform: computer.platform,
-        osVersion: computer.osVersion,
-        creator: {
-          username: computer.owner.username,
-          displayName: computer.owner.displayName,
-          avatarUrl: computer.owner.avatarObjectKey
-            ? `/api/computers/${computer.id}/creator-avatar?workspaceId=${workspaceId}`
-            : null,
-        },
-        connectedAt: createdAt,
-        ownedByCurrentUser: computer.ownerId === user.id,
-        online: await computerStatus.get({
-          workspaceId,
-          computerId: computer.id,
-        }),
-        runtimes: computerRuntimes.map(({ ownerId: _ownerId, ...runtime }) => runtime),
-      };
-    }),
-  );
-});
+        orderBy: { createdAt: "asc" },
+      }),
+      visibility.list({ workspaceId, userId: user.id }),
+    ]);
+    return Promise.all(
+      connections.map(async ({ computer, createdAt }) => {
+        const computerRuntimes = runtimes.filter((runtime) => runtime.computerId === computer.id);
+        return {
+          id: computer.id,
+          name: computer.name,
+          displayName: computer.displayName,
+          kind: computer.kind,
+          computerVersion: computer.computerVersion,
+          platform: computer.platform,
+          osVersion: computer.osVersion,
+          creator: {
+            username: computer.owner.username,
+            displayName: computer.owner.displayName,
+            avatarUrl: computer.owner.avatarObjectKey
+              ? `/api/computers/${computer.id}/creator-avatar?workspaceId=${workspaceId}`
+              : null,
+          },
+          connectedAt: createdAt,
+          ownedByCurrentUser: computer.ownerId === user.id,
+          online: await computerStatus.get({
+            workspaceId,
+            computerId: computer.id,
+          }),
+          runtimes: computerRuntimes.map(({ ownerId: _ownerId, ...runtime }) => runtime),
+        };
+      }),
+    );
+  });
 
 export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
   .validator(readRestartStatusInputSchema)
@@ -264,9 +278,10 @@ export const getLatestComputerVersion = createServerFn({ method: "GET" }).handle
 });
 
 export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(computerIdInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context, data }) => {
+    const user = context.user;
     const { db, visibility } = runtimeVisibility();
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     const [connection, runtimes] = await Promise.all([
@@ -306,18 +321,24 @@ export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
   });
 
 export const setRuntimeVisibility = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(setRuntimeVisibilityInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context, data }) => {
+    const user = context.user;
     const { db, visibility } = runtimeVisibility();
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     return visibility.setPublic({ workspaceId, userId: user.id }, data.runtimeId, data.isPublic);
   });
 
 export const updateComputerDisplayName = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(updateComputerDisplayNameInputSchema)
-  .handler(async ({ data }) => {
-    const { user, db, workspaceId } = await browserScope(computerUnavailable);
+  .handler(async ({ context, data }) => {
+    const user = context.user;
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+
     const result = await db.computer.updateMany({
       where: {
         id: data.computerId,

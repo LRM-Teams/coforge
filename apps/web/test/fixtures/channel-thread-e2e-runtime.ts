@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
-import { run } from "../../../../packages/cli";
-import { connectLocal } from "../../../../packages/cli/src/local-client";
+import { run } from "../../../../packages/coforge";
+import { connectLocal } from "../../../../packages/coforge/src/local-client";
 
 const decoder = new TextDecoder();
 let buffer = "";

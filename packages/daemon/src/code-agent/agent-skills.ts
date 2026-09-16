@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { lstat, open, opendir, realpath } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
-import type { AgentSkillsScope, RuntimeProvider } from "@coforge/protocol";
+import type { AgentSkillsScope, RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import { agentEnvironment } from "./environment";
 
 type Root = { path: string; label: string; legacy?: "commands" | "pi" };

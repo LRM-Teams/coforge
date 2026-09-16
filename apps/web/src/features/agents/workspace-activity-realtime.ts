@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-
-import { useRealtimeSubscription } from "../realtime/browser-realtime";
 import {
-  agentActivityChannel,
   decodeActivityObservation,
+  agentActivityChannel,
   mergeAgentActivity,
   type ActivityEntry,
 } from "./agent-activity";
+import { useRealtimeSubscription } from "../realtime/browser-realtime";
 
 export type WorkspaceActivitySnapshot = {
   workspaceId: string;

@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { ReminderNotices } from "../../server/conversations/reminder-notices.server";
 import { getDatabaseClient } from "../../server/db/client.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
@@ -12,9 +11,10 @@ const inputSchema = z.object({
 });
 
 export const loadReminderNotices = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(inputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context, data }) => {
+    const user = context.user;
     const db = getDatabaseClient();
     if (!db) throw new Error("Conversation persistence is unavailable");
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);

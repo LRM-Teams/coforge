@@ -86,7 +86,7 @@ Raft 的 transcript 接口是另一项功能，不属于本次对齐目标。
 | Skills writer | ADR 已批准 CoForge 分配的 Skills 写入 Agent 的原生 project scope，但当前没有完整的分配来源、writer 或云端 assignment 协议。不能把架构意图说成已经实现。未产生 CoForge 分配项时，无需复制 Global Skills 来凑出 writer。 |
 | `code-agent/environment.ts` | 默认继承 HOME/PATH/XDG 等基础变量；`CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`PI_CODING_AGENT_DIR` 不是默认透传项，只有显式声明才传递。查询必须使用与该 Agent 启动相同的有效环境，不能盲扫 daemon 原始 env。 |
 | `code-agent/runtime-inventory.ts`、`daemon-runtime/runtime.ts` | 启动/重连扫描、上报 runtime 与 models。实际 `discoverCodeAgentInventory` 包含内置 CoForge metadata，也可发现外部 Pi；与文档部分“只报外部 Codex/Claude”的措辞存在偏差，本任务不顺带修改库存行为。 |
-| `packages/protocol/proto/coforge/rpc/v1/daemon_runtime.proto`、`index.ts`、`codec.ts` | inventory 只有 runtimes/catalogs，没有 Agent Skills 查询/结果 schema。使用现有 usage 的 `snapshot_json` 偷渡 skills 仍然是 wire 语义变更。实际 method 常量为 `daemon:code_agents_update`。 |
+| `packages/coforge-sdk/proto/coforge/rpc/v1/daemon_runtime.proto`、`index.ts`、`codec.ts` | inventory 只有 runtimes/catalogs，没有 Agent Skills 查询/结果 schema。使用现有 usage 的 `snapshot_json` 偷渡 skills 仍然是 wire 语义变更。实际 method 常量为 `daemon:code_agents_update`。 |
 | `apps/web/src/server/centrifugo/rpc-handler.server.ts` | `createDaemonRuntimeCodeAgentsUpdateMethod` 校验 trusted Workspace/Computer claims、协议及 payload，然后调用 inventory repository。 |
 | `server/db/repositories/computer-runtime.repositories.server.ts` | 事务替换 `computerRuntime`/`computerModelCatalog` 快照，保留已有 runtime 可见性；不是 per-Agent Skills snapshot 所有者。 |
 | `features/agents/agents.functions.ts`、`agent-detail.tsx` | 现有 Profile 查询没有 Skills；普通 Agent 详情可见权限不能自动授权读取 Computer HOME 元数据。 |
@@ -110,7 +110,7 @@ A 复用已有 Bun、protobuf、Centrifugo 与 Redis，不新增框架或 runtim
 维护依赖，不引入 Raft 发布代码或其未明确的 license。运行成本是一次有界磁盘读取、一次
 WSS request/result 与短 TTL 临时关联记录。不会发布新包或改许可证。
 
-已实现 schema（`packages/protocol/proto/coforge/rpc/v1/agent_skills.proto`）：
+已实现 schema（`packages/coforge-sdk/proto/coforge/rpc/v1/agent_skills.proto`）：
 
 ```text
 agent:skills:list -> AgentSkillsListRequest
@@ -322,7 +322,7 @@ Session identity 的 WSS/数据库绑定已在第 10 节实现；Skills 查询�
 
 ## 8. Profile Skills 实现与本轮验证
 
-- `packages/protocol/agent-skills.ts` 与 `.proto` 定义独立 request/result、类型区分与
+- `packages/coforge-sdk/agent-skills.ts` 与 `.proto` 定义独立 request/result、类型区分与
   scope/字段/长度限制，未改变原有 inventory schema 或 PostgreSQL schema。
 - `packages/daemon/src/code-agent/agent-skills.ts` 只读解析 native roots 的 frontmatter；
   Claude legacy commands 允许递归 Markdown，Pi 根 Markdown 仍要求 frontmatter。

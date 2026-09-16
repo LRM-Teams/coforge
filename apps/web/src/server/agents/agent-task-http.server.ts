@@ -5,7 +5,7 @@ import {
   type TaskCommand,
   type TaskPrincipal,
   type TaskResult,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type { CentrifugoRpcMethod } from "../centrifugo/rpc-handler.server";
 import { isAppError } from "../../lib/app-error";
 

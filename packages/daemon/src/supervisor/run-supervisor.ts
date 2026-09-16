@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ManagedRuntimeIdentity } from "@coforge/protocol";
+import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 import { startDaemonLocalRpcServer } from "../local-rpc";
 import { FileDaemonCredentialStore } from "../credentials/credential-store";
 import { DaemonConfigStore } from "../persistence/daemon-config";

@@ -4,7 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/client";
 import { findOwnedSkillsAssignment } from "../src/server/agents/agent-skills.server";
 import { RedisAgentSkillsResults } from "../src/server/centrifugo/agent-skills-cache.server";
-import type { AgentSkillsListResult } from "@coforge/protocol";
+import type { AgentSkillsListResult } from "@lrm/coforge-sdk/internal";
 
 test("Skills authorization requires Agent ownership and current membership, not Computer ownership", async () => {
   if (!Bun.env.SKILLS_TEST_DATABASE_URL)

@@ -16,8 +16,9 @@ import {
   encodeAgentStopIntent,
   encodeComputerRestartIntent,
   type AgentReminderOperationRequest,
-} from "@coforge/protocol";
-import { DAEMON_RUNTIME_READY_METHOD } from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
+import { DAEMON_RUNTIME_READY_METHOD } from "@lrm/coforge-sdk/internal";
+import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 
 function fakeClient() {
   let connected = () => {};
@@ -45,29 +46,6 @@ function fakeClient() {
     publish: (channel: string, data: Uint8Array) => publication({ channel, data }),
   };
 }
-
-test("Agent message HTTP client rejects an HTTP 200 RPC error envelope", async () => {
-  const client = createAgentMessageHttpClient(async () =>
-    Response.json({
-      error: { code: 400, message: "ambiguous message prefix; use the full UUID" },
-    }),
-  );
-  await expect(
-    client.request({
-      url: "https://server.example/api/agent-messages",
-      agentApiKey: `sk_agent_${"a".repeat(43)}`,
-      daemonApiKey: "daemon-token",
-      request: {
-        protocolMajor: 1,
-        requestId: "request-1",
-        workspaceId: "workspace-1",
-        agentId: "agent-1",
-        operation: "read",
-        target: "@ada:aaaaaaaa",
-      },
-    }),
-  ).rejects.toThrow("ambiguous message prefix; use the full UUID");
-});
 
 test("sends delivery ACK through the RPC method, not a publication", async () => {
   const fake = fakeClient();
@@ -281,7 +259,7 @@ test("retains Agent activity in memory while disconnected", () => {
 
 test("retains only each Agent's newest activity while disconnected and flushes on reconnect", async () => {
   const fake = fakeClient();
-  const publications: import("@coforge/protocol").AgentActivity[] = [];
+  const publications: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
   fake.client.publish = async (_channel, data) => {
     publications.push(decodeAgentActivity(data));
   };
@@ -334,9 +312,6 @@ test("Agent reminder HTTP responses must correlate through the injected HTTP cli
   const scopes = ["protocolMajor", "requestId", "workspaceId", "computerId", "agentId"] as const;
   for (const scope of scopes) {
     const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
-      async request() {
-        throw new Error("not used");
-      },
       async requestReminder({ request: input }) {
         return {
           ...input,
@@ -374,7 +349,7 @@ test("Agent reminder HTTP transport rejects network and malformed responses with
     const client = createAgentMessageHttpClient(fetcher);
     await expect(
       client.requestReminder!({
-        url: "https://server.example/api/agent-messages",
+        url: "https://server.example/api/agent/v1/reminders",
         agentApiKey: `sk_agent_${"a".repeat(43)}`,
         daemonApiKey: "daemon-token",
         request,
@@ -807,7 +782,7 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
     messageId: "",
   };
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
-    request: async (input) => {
+    requestRead: async (input) => {
       requests.push(input);
       return response;
     },
@@ -826,7 +801,7 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
   });
   expect(requests).toHaveLength(1);
   expect(requests[0]).toMatchObject({
-    url: "https://server.example/api/agent-messages",
+    url: `https://server.example${agentApiRoutes.cloud.messages.list.path}`,
     agentApiKey: "daemon-token",
     daemonApiKey: "daemon-token",
     request: { operation: "read", target: "@ada" },
@@ -844,6 +819,71 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
       target: "@user",
     }),
   ).rejects.toThrow("HTTP endpoint is not configured");
+});
+
+test("Agent read HTTP GET request carries the request id and sequence window", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-read-1",
+      accepted: true,
+      attentionCount: 0,
+      messages: [],
+    });
+  });
+  await client.requestRead!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-read-1",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "read",
+      target: "@ada",
+      fromSequence: 5,
+      throughSequence: 12,
+      limit: 50,
+    },
+  });
+  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-read-1");
+  expect(capturedUrl?.searchParams.get("fromSequence")).toBe("5");
+  expect(capturedUrl?.searchParams.get("throughSequence")).toBe("12");
+  expect(capturedUrl?.searchParams.get("target")).toBe("@ada");
+  expect(capturedUrl?.searchParams.get("limit")).toBe("50");
+});
+
+test("Agent search HTTP GET request carries the request id", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-search-1",
+      accepted: true,
+      attentionCount: 0,
+      messages: [],
+    });
+  });
+  await client.requestSearch!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-search-1",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "search",
+      target: "",
+      query: "hello",
+    },
+  });
+  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-search-1");
+  expect(capturedUrl?.searchParams.get("query")).toBe("hello");
 });
 
 test("requests and revokes Agent API keys through the server API route", async () => {

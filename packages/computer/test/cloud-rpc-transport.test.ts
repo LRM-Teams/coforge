@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
-import { COMPUTER_REGISTER_METHOD, COMPUTER_REGISTER_PROTOCOL_MAJOR } from "@coforge/protocol";
+import {
+  COMPUTER_REGISTER_METHOD,
+  COMPUTER_REGISTER_PROTOCOL_MAJOR,
+} from "@lrm/coforge-sdk/internal";
 import {
   decodeComputerRegisterRequest,
   decodeWorkspaceGetRequest,
   encodeComputerRegisterResponse,
   encodeWorkspaceGetResponse,
-} from "@coforge/protocol/codec";
+} from "@lrm/coforge-sdk/internal/codec";
 import {
   HttpComputerRegisterTransport,
   HttpWorkspaceRpcTransport,

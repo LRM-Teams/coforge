@@ -31,12 +31,21 @@ type Theme = "system" | "light" | "dark";
 
 const appRoute = getRouteApi("/_app");
 
-const settingsSections = ["account", "members", "preferences", "notifications"] as const;
+const settingsSections = [
+  "account",
+  "members",
+  "preferences",
+  "notifications",
+  "integrations",
+] as const;
 
 export const Route = createFileRoute("/_app/settings")({
   // The section lives in the URL so it survives the full reload a locale
   // switch triggers and so a settings link can open a specific section.
-  validateSearch: z.object({ section: z.enum(settingsSections).optional().catch(undefined) }),
+  validateSearch: z.object({
+    section: z.enum(settingsSections).optional().catch(undefined),
+    github: z.enum(["connected", "error", "wrong_account"]).optional().catch(undefined),
+  }),
   loader: async () => {
     const [preferences, members, incomingInvitations] = await Promise.all([
       getUserPreferences(),
@@ -68,7 +77,7 @@ export const Route = createFileRoute("/_app/settings")({
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
   const [railLabels, setRailLabels] = useState(true);
-  const { section } = Route.useSearch();
+  const { section, github } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { timeZone: savedTimeZone, members } = Route.useLoaderData();
   const { user: profile, notifications } = appRoute.useLoaderData();
@@ -210,6 +219,8 @@ function SettingsPage() {
 
   return (
     <SettingsContent
+      githubCallbackError={github === "error" || github === "wrong_account"}
+      githubWrongAccount={github === "wrong_account"}
       section={section}
       onSectionChange={(next) => void navigate({ search: { section: next }, replace: true })}
       profile={profile}

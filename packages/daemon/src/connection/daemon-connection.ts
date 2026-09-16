@@ -1,4 +1,5 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
+import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import {
   decodeAgentWorkspaceResetRequest,
   encodeAgentControlResult,
@@ -42,21 +43,13 @@ import {
   type AgentMessageDeliveryAck,
   type AgentMessageRequest,
   type CloudAgentMessageResponse,
-  encodeAgentMessageRequest,
-  decodeCloudAgentMessageResponse,
-  AGENT_MESSAGE_READ_METHOD,
-  AGENT_MESSAGE_SEARCH_METHOD,
-  AGENT_MESSAGE_SEND_METHOD,
-  AGENT_CHANNEL_MUTE_METHOD,
-  AGENT_CHANNEL_UNMUTE_METHOD,
-  AGENT_REMINDER_METHOD,
+  type WorkspaceInfoRequest,
+  type WorkspaceInfoResponse,
   REMINDER_FIRE_METHOD,
   REMINDER_SNAPSHOT_METHOD,
   REMINDER_SYNC_MESSAGE_TYPE,
-  decodeAgentReminderOperationResponse,
   decodeReminderFireResponse,
   decodeReminderSync,
-  encodeAgentReminderOperationRequest,
   encodeReminderFireRequest,
   encodeReminderSnapshotRequest,
   type AgentReminderOperationRequest,
@@ -65,17 +58,11 @@ import {
   type ReminderFireResponse,
   type ReminderSnapshotRequest,
   type ReminderSync,
-  AGENT_THREAD_UNFOLLOW_METHOD,
-  AGENT_TASK_METHOD,
-  encodeTaskRequest,
-  decodeTaskResponse,
   type TaskRequest,
   type TaskResponse,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
-import { AgentMessageRequestError } from "./agent-message-request-error";
-import { AgentTaskRequestError } from "./agent-task-request-error";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentLaunchConfig = {
@@ -119,7 +106,19 @@ export interface DaemonConnectionConfig {
 }
 
 export interface AgentMessageHttpClient {
-  request(input: {
+  requestRead?(input: {
+    url: string;
+    agentApiKey: string;
+    daemonApiKey: string;
+    request: AgentMessageRequest;
+  }): Promise<CloudAgentMessageResponse>;
+  requestSearch?(input: {
+    url: string;
+    agentApiKey: string;
+    daemonApiKey: string;
+    request: AgentMessageRequest;
+  }): Promise<CloudAgentMessageResponse>;
+  requestSend?(input: {
     url: string;
     agentApiKey: string;
     daemonApiKey: string;
@@ -131,9 +130,15 @@ export interface AgentMessageHttpClient {
     daemonApiKey: string;
     request: AgentReminderOperationRequest;
   }): Promise<AgentReminderOperationResponse>;
+  requestWorkspaceInfo?(input: {
+    url: string;
+    agentApiKey: string;
+    daemonApiKey: string;
+    request: WorkspaceInfoRequest;
+  }): Promise<WorkspaceInfoResponse>;
 }
 export interface AgentTaskHttpClient {
-  request(input: {
+  execute(input: {
     url: string;
     agentApiKey: string;
     daemonApiKey: string;
@@ -145,6 +150,10 @@ type HttpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<
 
 /** Provider-neutral client contract for the daemon's Workspace connection. */
 export interface DaemonConnectionClient {
+  workspaceInfo?(
+    request: WorkspaceInfoRequest,
+    agentApiKey?: string,
+  ): Promise<WorkspaceInfoResponse>;
   onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
   sendAgentControlResult?(result: AgentControlResult): Promise<void>;
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
@@ -154,7 +163,7 @@ export interface DaemonConnectionClient {
   sendSkillsListResult?(result: AgentSkillsListResult): Promise<void>;
   onUsageScan?(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void;
   sendUsageScanResult?(
-    response: import("@coforge/protocol").DaemonRuntimeUsageScanResponse,
+    response: import("@lrm/coforge-sdk/internal").DaemonRuntimeUsageScanResponse,
   ): Promise<void>;
   stop(): Promise<void>;
   onReconnect?(callback: () => void): () => void;
@@ -225,10 +234,59 @@ export const defaultCentrifugeWorkspaceClientFactory: CentrifugeWorkspaceClientF
   }) as unknown as CentrifugeWorkspaceClient;
 
 export const createAgentMessageHttpClient = (
-  fetcher: HttpFetch = globalThis.fetch,
+  httpClient: HttpFetch = globalThis.fetch,
 ): AgentMessageHttpClient => ({
-  async request({ url, agentApiKey, daemonApiKey, request }) {
-    const response = await fetcher(url, {
+  async requestRead({ url, agentApiKey, daemonApiKey, request }) {
+    const endpoint = new URL(url);
+    endpoint.searchParams.set("target", request.target);
+    for (const key of [
+      "requestId",
+      "before",
+      "after",
+      "around",
+      "limit",
+      "fromSequence",
+      "throughSequence",
+    ] as const) {
+      const value = request[key];
+      if (value !== undefined) endpoint.searchParams.set(key, String(value));
+    }
+    const response = await httpClient(endpoint, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${daemonApiKey}`,
+        "x-coforge-agent-api-key": `Bearer ${agentApiKey}`,
+      },
+    });
+    if (!response.ok) throw new Error(`server agent read request failed (${response.status})`);
+    return (await response.json()) as CloudAgentMessageResponse;
+  },
+  async requestSearch({ url, agentApiKey, daemonApiKey, request }) {
+    const endpoint = new URL(url);
+    for (const key of [
+      "requestId",
+      "query",
+      "target",
+      "sender",
+      "sort",
+      "limit",
+      "offset",
+    ] as const) {
+      const value = request[key];
+      if (value !== undefined) endpoint.searchParams.set(key, String(value));
+    }
+    const response = await httpClient(endpoint, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${daemonApiKey}`,
+        "x-coforge-agent-api-key": `Bearer ${agentApiKey}`,
+      },
+    });
+    if (!response.ok) throw new Error(`server agent search request failed (${response.status})`);
+    return (await response.json()) as CloudAgentMessageResponse;
+  },
+  async requestSend({ url, agentApiKey, daemonApiKey, request }) {
+    const response = await httpClient(url, {
       method: "POST",
       headers: {
         authorization: `Bearer ${daemonApiKey}`,
@@ -236,56 +294,59 @@ export const createAgentMessageHttpClient = (
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        method: {
-          read: AGENT_MESSAGE_READ_METHOD,
-          search: AGENT_MESSAGE_SEARCH_METHOD,
-          send: AGENT_MESSAGE_SEND_METHOD,
-          mute: AGENT_CHANNEL_MUTE_METHOD,
-          unmute: AGENT_CHANNEL_UNMUTE_METHOD,
-          "thread-unfollow": AGENT_THREAD_UNFOLLOW_METHOD,
-        }[request.operation],
-        b64data: btoa(String.fromCharCode(...encodeAgentMessageRequest(request))),
+        requestId: request.requestId,
+        target: request.target,
+        body: request.body,
+        holdToken: request.holdToken,
+        continueAnyway: request.continueAnyway,
+        seenUpToSequence: request.seenUpToSequence,
       }),
     });
-    if (!response.ok) throw new Error(`server agent request failed (${response.status})`);
-    const envelope = (await response.json()) as {
-      result?: { b64data?: string };
-      error?: { code?: unknown; message?: unknown };
-    };
-    if (typeof envelope.error?.code === "number" && typeof envelope.error.message === "string")
-      throw AgentMessageRequestError.fromRpc(envelope.error.code, envelope.error.message);
-    const bytes = Uint8Array.from(atob(envelope.result?.b64data ?? ""), (c) => c.charCodeAt(0));
-    return decodeCloudAgentMessageResponse(bytes);
+    if (!response.ok) throw new Error(`server agent send request failed (${response.status})`);
+    return (await response.json()) as CloudAgentMessageResponse;
+  },
+  async requestWorkspaceInfo({ url, agentApiKey, daemonApiKey, request }) {
+    const response = await httpClient(url, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${daemonApiKey}`,
+        "x-coforge-agent-api-key": `Bearer ${agentApiKey}`,
+      },
+    });
+    if (!response.ok) throw new Error(`server workspace_info request failed (${response.status})`);
+    const data = (await response.json()) as Omit<
+      WorkspaceInfoResponse,
+      "protocolMajor" | "requestId"
+    >;
+    return { ...data, protocolMajor: request.protocolMajor, requestId: request.requestId };
   },
   async requestReminder({ url, agentApiKey, daemonApiKey, request }) {
     let response: Response;
     try {
-      response = await fetcher(url, {
+      response = await httpClient(url, {
         method: "POST",
         headers: {
           authorization: `Bearer ${daemonApiKey}`,
           "x-coforge-agent-api-key": `Bearer ${agentApiKey}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          method: AGENT_REMINDER_METHOD,
-          b64data: bytesToBase64(encodeAgentReminderOperationRequest(request)),
-        }),
+        body: JSON.stringify(request),
         signal: AbortSignal.timeout(10_000),
       });
     } catch {
       throw new Error("Agent reminder request failed");
     }
     if (!response.ok) throw new Error(`Agent reminder request failed (${response.status})`);
-    let envelope: { result?: { b64data?: string }; error?: unknown };
+    let envelope: AgentReminderOperationResponse;
     try {
       envelope = (await response.json()) as typeof envelope;
     } catch {
       throw new Error("Agent reminder response is malformed");
     }
-    if (envelope.error) throw new Error("Agent reminder RPC failed");
+    if (!envelope || typeof envelope.requestId !== "string")
+      throw new Error("Agent reminder response is malformed");
     try {
-      return decodeAgentReminderOperationResponse(base64ToBytes(envelope.result?.b64data));
+      return envelope;
     } catch {
       throw new Error("Agent reminder response is malformed");
     }
@@ -295,7 +356,7 @@ export const createAgentMessageHttpClient = (
 export const defaultAgentMessageHttpClient = createAgentMessageHttpClient();
 
 export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
-  async request({ url, agentApiKey, daemonApiKey, request }) {
+  async execute({ url, agentApiKey, daemonApiKey, request }) {
     const response = await fetch(url, {
       method: "POST",
       signal: AbortSignal.timeout(10_000),
@@ -304,25 +365,10 @@ export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
         "x-coforge-agent-api-key": `Bearer ${agentApiKey}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        method: AGENT_TASK_METHOD,
-        b64data: btoa(String.fromCharCode(...encodeTaskRequest(request))),
-      }),
+      body: JSON.stringify(request),
     });
     if (!response.ok) throw new Error(`server Agent Task request failed (${response.status})`);
-    const envelope = (await response.json()) as {
-      result?: { b64data?: string };
-      error?: { code?: unknown; message?: unknown };
-    };
-    if (typeof envelope.error?.code === "number")
-      throw envelope.error.code === 400 && typeof envelope.error.message === "string"
-        ? new AgentTaskRequestError(envelope.error.message)
-        : envelope.error.code === 403
-          ? new AgentTaskRequestError("Agent Task access denied")
-          : new Error(`server Agent Task request failed (${envelope.error.code})`);
-    const result = decodeTaskResponse(
-      Uint8Array.from(atob(envelope.result?.b64data ?? ""), (c) => c.charCodeAt(0)),
-    );
+    const result = (await response.json()) as TaskResponse;
     if (result.requestId !== request.requestId)
       throw new Error("Task response request ID does not match request");
     return result;
@@ -575,8 +621,40 @@ export class DaemonConnection implements DaemonConnectionClient {
   ): Promise<CloudAgentMessageResponse> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     if (!this.#serverHttpUrl) throw new Error("Agent message HTTP endpoint is not configured");
-    return this.agentMessageHttpClient.request({
-      url: `${new URL(this.#serverHttpUrl).origin}/api/agent-messages`,
+    if (request.operation === "read" && this.agentMessageHttpClient.requestRead)
+      return this.agentMessageHttpClient.requestRead({
+        url: `${new URL(this.#serverHttpUrl).origin}${agentApiRoutes.cloud.messages.list.path}`,
+        agentApiKey: agentApiKey ?? this.#token,
+        daemonApiKey: this.#token,
+        request,
+      });
+    if (request.operation === "search" && this.agentMessageHttpClient.requestSearch)
+      return this.agentMessageHttpClient.requestSearch({
+        url: `${new URL(this.#serverHttpUrl).origin}${agentApiRoutes.cloud.messages.list.path}`,
+        agentApiKey: agentApiKey ?? this.#token,
+        daemonApiKey: this.#token,
+        request,
+      });
+    if (request.operation === "send" && this.agentMessageHttpClient.requestSend)
+      return this.agentMessageHttpClient.requestSend({
+        url: `${new URL(this.#serverHttpUrl).origin}${agentApiRoutes.cloud.messages.list.path}`,
+        agentApiKey: agentApiKey ?? this.#token,
+        daemonApiKey: this.#token,
+        request,
+      });
+    throw new Error(`unsupported Agent message operation: ${request.operation}`);
+  }
+
+  async workspaceInfo(
+    request: WorkspaceInfoRequest,
+    agentApiKey?: string,
+  ): Promise<WorkspaceInfoResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent workspace_info HTTP endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestWorkspaceInfo)
+      throw new Error("Agent workspace_info HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestWorkspaceInfo({
+      url: `${new URL(this.#serverHttpUrl).origin}${agentApiRoutes.cloud.workspace.info.path}`,
       agentApiKey: agentApiKey ?? this.#token,
       daemonApiKey: this.#token,
       request,
@@ -589,7 +667,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     if (!this.agentMessageHttpClient.requestReminder)
       throw new Error("Agent reminder HTTP client is unavailable");
     const response = await this.agentMessageHttpClient.requestReminder({
-      url: `${new URL(this.#serverHttpUrl).origin}/api/agent-messages`,
+      url: `${new URL(this.#serverHttpUrl).origin}${agentApiRoutes.cloud.reminders.path}`,
       agentApiKey,
       daemonApiKey: this.#token,
       request,
@@ -620,8 +698,8 @@ export class DaemonConnection implements DaemonConnectionClient {
   async agentTask(request: TaskRequest, agentApiKey?: string): Promise<TaskResponse> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     if (!this.#serverHttpUrl) throw new Error("Agent Task HTTP endpoint is not configured");
-    return this.agentTaskHttpClient.request({
-      url: `${new URL(this.#serverHttpUrl).origin}/api/agent-messages`,
+    return this.agentTaskHttpClient.execute({
+      url: `${new URL(this.#serverHttpUrl).origin}${agentApiRoutes.cloud.tasks.path}`,
       agentApiKey: agentApiKey ?? this.#token,
       daemonApiKey: this.#token,
       request,
@@ -632,7 +710,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     if (!this.#serverHttpUrl) throw new Error("Agent attachment endpoint is not configured");
     return fetch(
-      `${new URL(this.#serverHttpUrl).origin}/api/agent/attachments/${encodeURIComponent(attachmentId)}`,
+      `${new URL(this.#serverHttpUrl).origin}${agentApiRoutes.cloud.attachments.path(attachmentId)}`,
       {
         headers: {
           authorization: `Bearer ${this.#token}`,
@@ -858,7 +936,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     };
   }
   async sendUsageScanResult(
-    response: import("@coforge/protocol").DaemonRuntimeUsageScanResponse,
+    response: import("@lrm/coforge-sdk/internal").DaemonRuntimeUsageScanResponse,
   ): Promise<void> {
     if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
     await this.#client.rpc(
@@ -1028,15 +1106,6 @@ export class DaemonConnection implements DaemonConnectionClient {
 function diagnosticErrorCode(error: unknown): string {
   if (error && typeof error === "object" && "code" in error) return String(error.code);
   return error instanceof Error ? error.name : "UnknownError";
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
-}
-
-function base64ToBytes(value: string | undefined): Uint8Array {
-  if (!value) throw new Error("missing RPC response payload");
-  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
 }
 
 function rpcData(reply: unknown): Uint8Array {

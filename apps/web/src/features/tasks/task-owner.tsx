@@ -1,4 +1,4 @@
-import type { TaskView } from "@coforge/protocol";
+import type { TaskView } from "@lrm/coforge-sdk/internal";
 
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";

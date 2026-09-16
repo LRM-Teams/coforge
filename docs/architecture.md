@@ -54,6 +54,20 @@ flowchart LR
 
 `Web/backend ↔ Centrifugo` 的 Handler/API schema 与 RPC namespace 尚未定型；图中只固定职责与数据方向，不固定其内部 wire protocol。这里的 `Centrifugo RPC Handler` 是 Web/backend 内部接收和分派请求的组件，不是独立业务服务；认证、授权、Use Case、持久化和 Token 签发仍归 Web/backend。
 
+### Agent SDK 与内部 protocol 的边界
+
+CoForge 的 Agent-facing API 与 Daemon realtime/control protocol 是两个独立的合同，不得因为都被本地代码调用就合并成一个包。`@lrm/coforge-sdk/agent` 提供 Agent runtime、Agent CLI 与本地 Daemon Proxy 共用的 JSON API client、资源类型、错误和 transport seam；本地 Proxy 使用 JSON over localhost，Daemon 到 Web 使用 HTTPS。它不依赖数据库、Centrifugo、OSS SDK 或 Protobuf。
+
+`@lrm/coforge-sdk/internal` 只描述 Computer、Daemon 与 Web/Centrifugo 之间的内部 IPC/WSS/control wire protocol，包括 Protobuf schema、编解码和实时控制消息。Agent SDK 不得依赖它；否则内部 Daemon 协议会意外成为 Agent API 的公开合同。两者的依赖边界如下：
+
+```text
+@lrm/coforge-sdk/agent  →  Agent JSON API
+@lrm/coforge             →  SDK/agent + CLI
+@lrm/coforge-daemon      →  SDK/agent + @lrm/coforge-sdk/internal
+@lrm/coforge-computer   →  @lrm/coforge-sdk/internal
+apps/web                 →  SDK/agent + @lrm/coforge-sdk/internal
+```
+
 ## 3. 包与进程不是同一个层级
 
 本地产品包含两个可独立构建、版本化和打包的 package component。内置 Agent runtime 可以是独立 library/runtime package，但不能成为第三个本地产品组件：
@@ -83,7 +97,7 @@ packages/
 
 因此禁止把 daemon runtime 拆成第三个本地产品组件。需要隔离的是运行时进程，而不是发布包。
 
-源码分类、可独立构建边界、运行时边界与用户安装边界不是同一层级。仓库在 `packages/` 下保留两个本地 package component；`coforge-computer` 在 package/build 层依赖 `coforge-daemon`，Daemon 再依赖精确版本的 `@coforge/agent`。monorepo 开发时 Bun workspace 链接本地 package；Daemon 的独立 source build 可以继续作为测试/开发 artifact，但不得进入用户 release。发布流水线为每个 target 只生成一个统一的原生 `coforge-computer` executable，其中包含 Computer、Daemon 与 Agent CLI roles。主入口把 `__daemon` 分流到 Daemon runtime，把 `__agent-cli` 分流到现有 `@coforge/cli/runner`，普通调用进入 Computer management CLI。统一文件不会合并进程职责：Computer 启动同一文件的 `__daemon` 模式作为独立 OS 进程，双方继续通过 Unix domain socket 通信。
+源码分类、可独立构建边界、运行时边界与用户安装边界不是同一层级。仓库在 `packages/` 下保留两个本地 package component；`coforge-computer` 在 package/build 层依赖 `coforge-daemon`，Daemon 再依赖精确版本的 `@coforge/agent`。monorepo 开发时 Bun workspace 链接本地 package；Daemon 的独立 source build 可以继续作为测试/开发 artifact，但不得进入用户 release。发布流水线为每个 target 只生成一个统一的原生 `coforge-computer` executable，其中包含 Computer、Daemon 与 Agent CLI roles。主入口把 `__daemon` 分流到 Daemon runtime，把 `__agent-cli` 分流到现有 `@lrm/coforge/runner`，普通调用进入 Computer management CLI。统一文件不会合并进程职责：Computer 启动同一文件的 `__daemon` 模式作为独立 OS 进程，双方继续通过 Unix domain socket 通信。
 
 这是 2026-09-07 经用户批准的发行布局决策。选择单一 executable 是为了去掉双 payload 的下载、校验和版本配对面，同时保留两个 source package 的所有权边界与故障隔离。代价是 unified build 必须同时包含两侧依赖，任何一侧变化都要重新发布整个 executable，不能独立替换 Daemon bytes；构建时仍须向两个 role 注入同一个 release version，以便运行时 handshake 和诊断一致。回滚只切换完整的旧版 Computer executable。已经发布的 rc1–rc3 保持 immutable，不修改也不补兼容对象；跨越旧双 payload 布局必须 fresh bootstrap，因为旧 updater 不应被假定能理解 schema 2。不得添加 raw artifact、双 payload 或旧 manifest fallback。
 
@@ -256,6 +270,20 @@ Internal User 同时拥有稳定、全局唯一且登录后不变的 `username`�
 用户可设置独立的 `displayName` 作为界面展示名称；未设置时回退到当前身份提供商姓名，
 不改变稳定 `username` 或任何业务外键。
 
+个人 GitHub Connection 独立于登录 `UserIdentity`，归属 Internal User，不授予
+Workspace 权限。Web/backend 的 `GitHubConnection` 模块通过 GitHub App 用户授权
+（state、浏览器 cookie、PKCE S256）获取短期 user access token 和 refresh token；
+PostgreSQL 只持久化使用独立环境主密钥 AES-GCM 加密的凭据，以及十分钟有效、
+单次消费的授权尝试。每个 User 的授权、刷新和断开由数据库事务 advisory lock 串行化。
+GitHub 已轮换 token 但数据库提交前崩溃仍可能需要用户重新授权；这不是分布式原子事务。
+凭据不交给浏览器、Computer 或 Daemon。仓库列表使用 user-token installation endpoint，
+权限为用户权限与 App 安装授权的交集；断开只删除 CoForge 本地连接，不卸载 GitHub App。
+staging 与 production 使用不同 App 和密钥。此阶段不引入 Project、clone、push 或 webhook
+消费；外部撤销在下次请求时发现。实现要求开启 GitHub 的 expiring user access tokens。
+依据：[GitHub App user authorization](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)、
+[refresh tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens)、
+[user installation repositories](https://docs.github.com/en/rest/apps/installations#list-repositories-accessible-to-the-user-access-token)。
+
 PostgreSQL 的首要领域对象是：
 
 - `agent`（Agent 元数据属于 Web/backend；Daemon 只消费启动意图中的 runtime config）
@@ -338,7 +366,7 @@ users/{user_id}/avatars/{avatar_id}/original
 
 coforge-computer 是机器级 supervisor，不执行 workspace 内的 Agent 业务。它是唯一面向用户的安装与升级入口，负责安装单一 unified executable，并管理登录后的机器身份、Daemon role 的启动停止与健康检查。
 
-统一的 `coforge-computer` 可执行文件承载 `packages/cli` 的内部 Agent 消息命令入口 `__agent-cli`，
+统一的 `coforge-computer` 可执行文件承载 `packages/coforge` 的内部 Agent 消息命令入口 `__agent-cli`，
 此入口在初始化 Computer/Daemon 日志、socket、云端连接和 Workspace 恢复之前分流。安装器在每个版本目录生成
 小型 `coforge` 启动脚本，固定调用同目录 `coforge-computer __agent-cli`；Daemon 把自身可执行文件目录放在
 Agent PATH 最前。用户执行 `coforge-computer`，Agent 执行 `coforge`，不额外发布第三个原生文件。Agent 授权仍由现有

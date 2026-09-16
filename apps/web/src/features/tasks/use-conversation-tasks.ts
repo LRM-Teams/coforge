@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { TaskCommand, TaskView } from "@coforge/protocol";
+import type { TaskCommand, TaskView } from "@lrm/coforge-sdk/internal";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+
 import { useServerFn } from "@tanstack/react-start";
 
 import { executeTask } from "./tasks.functions";

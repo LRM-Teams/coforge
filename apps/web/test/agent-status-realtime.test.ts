@@ -11,10 +11,7 @@ import type {
   AgentStatusEvent,
   AgentStatusView,
 } from "../src/features/agents/agent-status-realtime";
-import {
-  parseAgentDisplaySnapshot,
-  type AgentDisplaySnapshot,
-} from "@coforge/protocol/agent-display";
+import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 const ordering = {
   daemonInstanceId: "daemon-1",

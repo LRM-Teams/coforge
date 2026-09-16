@@ -2,14 +2,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { chmod, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDaemonHost, LocalDaemonLauncher } from "@coforge/daemon";
+import { createDaemonHost, LocalDaemonLauncher } from "@lrm/coforge-daemon";
 import { ComputerUpdater } from "../src/updater";
 import { buildReleaseTree } from "../../../scripts/release/build-release";
 import {
   DAEMON_RUNTIME_READY_METHOD,
   decodeDaemonRuntimeReadyRequest,
   type DaemonRuntimeReadyRequest,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 let root: string;
 let executable: string;

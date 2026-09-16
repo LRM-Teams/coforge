@@ -5,7 +5,7 @@ import {
   AGENT_CONTROL_RESULT_METHOD,
   REMINDER_FIRE_METHOD,
   REMINDER_SNAPSHOT_METHOD,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { createAgentSkillsListResultMethod } from "./agent-skills-cache.server";
 
 import {
@@ -34,7 +34,7 @@ import {
   DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
   DAEMON_CONNECTION_STATUS_METHOD,
   AGENT_STATUS_METHOD,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { getComputerRestartStore } from "../computers/computer-restart-store.server";
 import { getComputerUpgradeStore } from "../computers/computer-upgrade-store.server";
@@ -62,7 +62,7 @@ import {
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_MESSAGE_READ_METHOD,
   AGENT_MESSAGE_SEND_METHOD,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 import { verifyDaemonApiKey } from "../auth/daemon-api-key.server";
 import {
@@ -80,7 +80,7 @@ import { PrismaReminderRepository } from "../db/repositories/reminder.repositori
 import { Reminders } from "../reminders/reminders.server";
 import { getReminderCapabilityLease } from "../reminders/reminder-capability.server";
 import { daemonControlChannel } from "./server-api.server";
-import { encodeReminderSync } from "@coforge/protocol";
+import { encodeReminderSync } from "@lrm/coforge-sdk/internal";
 import { getAgentDisplay } from "../agents/agent-display.server";
 
 const unavailable: CentrifugoRpcError = {

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ComputerRegistrar } from "../src/server/computers/registration.server";
-import type { ComputerRegisterRequest } from "@coforge/protocol";
+import type { ComputerRegisterRequest } from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "../generated/client";
 import { PrismaComputerRegistrationRepository } from "../src/server/db/repositories/setup.repositories.server";
 

@@ -1,11 +1,15 @@
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileAgentRuntimeStateStore } from "../src/persistence/agent-runtime-state-store";
 
+// macOS tmpdir lives under /var, a symlink; the state store rejects linked ancestors.
+const tempRoot = realpathSync(tmpdir());
+
 test("workspace reset deletes only Agent contents, unlinks internal links and refuses linked roots", async () => {
-  const root = await mkdtemp(join(tmpdir(), "control-store-"));
+  const root = await mkdtemp(join(tempRoot, "control-store-"));
   try {
     const workspace = join(root, "workspaces", "w", "agents", "a");
     const home = join(root, "home");

@@ -1,11 +1,15 @@
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listAgentSkills } from "../src/code-agent/agent-skills";
 
+// macOS tmpdir lives under /var, a symlink; listAgentSkills rejects linked roots.
+const tempRoot = realpathSync(tmpdir());
+
 test("Skills metadata distinguishes native global and workspace roots and rereads on request", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-skills-"));
+  const root = await mkdtemp(join(tempRoot, "coforge-skills-"));
   const home = join(root, "home"),
     cwd = join(root, "agent");
   try {
@@ -59,7 +63,7 @@ test("Skills metadata distinguishes native global and workspace roots and reread
 });
 
 test("Kiro Skills use KIRO_HOME without scanning the fallback home root", async () => {
-  const root = await mkdtemp(join(tmpdir(), "kiro-skills-"));
+  const root = await mkdtemp(join(tempRoot, "kiro-skills-"));
   const cwd = join(root, "agent"),
     home = join(root, "home"),
     kiroHome = join(root, "configured-kiro");
@@ -87,7 +91,7 @@ test("Kiro Skills use KIRO_HOME without scanning the fallback home root", async 
 });
 
 test("native command conventions differ from Pi markdown skills", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skills-conventions-"));
+  const root = await mkdtemp(join(tempRoot, "skills-conventions-"));
   try {
     await Bun.write(join(root, ".claude/commands/team/review.md"), "Review this change");
     await Bun.write(join(root, ".pi/skills/not-a-skill.md"), "No metadata");
@@ -108,7 +112,7 @@ test("native command conventions differ from Pi markdown skills", async () => {
 });
 
 test("metadata queries bound malformed files, preserve duplicate sources and reject escaping symlinks", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skills-boundaries-"));
+  const root = await mkdtemp(join(tempRoot, "skills-boundaries-"));
   try {
     const cwd = join(root, "agent"),
       home = join(root, "home");

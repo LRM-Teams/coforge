@@ -1,10 +1,10 @@
+import type { ActivityTrajectoryEntry } from "@lrm/coforge-sdk/internal";
+import type { AgentActivityKind } from "@lrm/coforge-sdk/internal";
 import {
   AGENT_ACTIVITY_DETAIL_KIND,
-  WORKSPACE_PROTOCOL_MAJOR,
   decodeAgentActivity,
-  type ActivityTrajectoryEntry,
-} from "@coforge/protocol";
-import type { AgentActivityKind } from "@coforge/protocol/agent-display";
+  WORKSPACE_PROTOCOL_MAJOR,
+} from "@lrm/coforge-sdk/internal";
 
 export type ActivityEntry = {
   id?: string;

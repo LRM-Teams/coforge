@@ -4,7 +4,7 @@ import {
   type CodeAgentModelCatalog,
   type CodeAgentModelMetadata,
   type RuntimeMetadata,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { agentEnvironment } from "./environment";
 import { JsonlProcess, JsonlRequestError } from "./jsonl-process";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";

@@ -4,15 +4,15 @@ WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json ./
 COPY apps/web/package.json apps/web/package.json
 COPY packages/agent/package.json packages/agent/package.json
-COPY packages/cli/package.json packages/cli/package.json
+COPY packages/coforge/package.json packages/coforge/package.json
 COPY packages/computer/package.json packages/computer/package.json
 COPY packages/daemon/package.json packages/daemon/package.json
-COPY packages/protocol/package.json packages/protocol/package.json
+COPY packages/coforge-sdk/package.json packages/coforge-sdk/package.json
 RUN bun install --frozen-lockfile
 
 COPY apps/web apps/web
 COPY packages/agent packages/agent
-COPY packages/protocol packages/protocol
+COPY packages/coforge-sdk packages/coforge-sdk
 # apps/web embeds these two scripts verbatim at build time (Vite `?raw` import - see
 # apps/web/src/server/install/install-script.server.ts) to serve /computer/install.sh and
 # /computer/install.ps1 without a runtime file read, since nothing under scripts/ is otherwise
@@ -21,9 +21,9 @@ COPY scripts/release/install.sh scripts/release/install.sh
 COPY scripts/release/install.ps1 scripts/release/install.ps1
 
 # Generated outputs are gitignored but required for the build: buf-generated
-# protobuf modules (packages/protocol/gen) and the prisma client
+# protobuf modules (packages/coforge-sdk/gen) and the prisma client
 # (apps/web/generated).
-RUN bun run --cwd packages/protocol generate \
+RUN bun run --cwd packages/coforge-sdk generate \
   && bun run --cwd apps/web db:generate
 
 RUN bun run --cwd apps/web build

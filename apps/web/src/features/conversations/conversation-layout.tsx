@@ -7,7 +7,7 @@ import {
 } from "@/features/agents/workspace-activity-realtime";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "@/features/agents/agent-status-realtime";
-import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
+import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 export type ConversationAgent = {
   id: string;

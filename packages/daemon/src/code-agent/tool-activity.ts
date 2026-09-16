@@ -1,4 +1,4 @@
-import { AGENT_ACTIVITY_DETAIL_KIND } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 import { createAgentActivity } from "../agent-runtime/agent-activity";
 
 // Verified Raft 1.0.18 aliases, plus the lowercase Pi tools and explicit patch

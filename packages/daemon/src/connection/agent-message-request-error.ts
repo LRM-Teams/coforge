@@ -1,4 +1,4 @@
-import { AGENT_MESSAGE_VALIDATION_MESSAGES } from "@coforge/protocol";
+import { AGENT_MESSAGE_VALIDATION_MESSAGES } from "@lrm/coforge-sdk/internal";
 
 const PUBLIC_AGENT_MESSAGE_ERRORS = new Set<string>(AGENT_MESSAGE_VALIDATION_MESSAGES);
 

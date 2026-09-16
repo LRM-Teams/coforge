@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { systemdUserUnit, SystemdUserDaemonHost } from "@coforge/daemon";
+import { systemdUserUnit, SystemdUserDaemonHost } from "@lrm/coforge-daemon";
 
 test("systemd user unit dispatches the daemon through the unified executable", () => {
   const unit = systemdUserUnit(

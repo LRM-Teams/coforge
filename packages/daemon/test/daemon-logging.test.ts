@@ -1,14 +1,19 @@
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { daemonLogPath, prepareDaemonLogFile } from "../src/platform/daemon-log-file";
 
+// macOS tmpdir lives under /var, a symlink; the daemon log path guard rejects
+// a linked ancestor, so resolve the root once and build state dirs under it.
+const tempRoot = realpathSync(tmpdir());
+
 test.each(["daemon", "coordinator"])(
   "%s writes child-category diagnostics with process metadata",
   async (role) => {
-    const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-logs-"));
+    const directory = await mkdtemp(join(tempRoot, "coforge-daemon-logs-"));
     const socketPath = join(directory, "daemon.sock");
     const child = spawnDaemon(socketPath, directory, role);
     try {
@@ -40,8 +45,8 @@ test.each(["daemon", "coordinator"])(
 );
 
 test.skipIf(process.platform === "win32")("Daemon refuses a symlinked log root", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-logs-"));
-  const target = await mkdtemp(join(tmpdir(), "coforge-daemon-log-target-"));
+  const directory = await mkdtemp(join(tempRoot, "coforge-daemon-logs-"));
+  const target = await mkdtemp(join(tempRoot, "coforge-daemon-log-target-"));
   try {
     const linkedRoot = join(directory, "linked-root");
     await symlink(target, linkedRoot);
@@ -56,7 +61,7 @@ test.skipIf(process.platform === "win32")("Daemon refuses a symlinked log root",
 test.skipIf(process.platform === "win32")(
   "Daemon tightens permissions on an existing rotated log",
   async () => {
-    const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-logs-"));
+    const directory = await mkdtemp(join(tempRoot, "coforge-daemon-logs-"));
     try {
       const rotated = `${daemonLogPath(directory)}.1`;
       await mkdir(join(directory, "logs", "daemon"), { recursive: true });
@@ -72,8 +77,8 @@ test.skipIf(process.platform === "win32")(
 test.skipIf(process.platform === "win32")(
   "Daemon refuses a symlink in the log root path",
   async () => {
-    const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-logs-"));
-    const target = await mkdtemp(join(tmpdir(), "coforge-daemon-log-target-"));
+    const directory = await mkdtemp(join(tempRoot, "coforge-daemon-logs-"));
+    const target = await mkdtemp(join(tempRoot, "coforge-daemon-log-target-"));
     try {
       await mkdir(join(target, "workspace"));
       const linkedParent = join(directory, "linked-parent");
@@ -92,8 +97,8 @@ test.skipIf(process.platform === "win32")(
 test.skipIf(process.platform === "win32")(
   "Daemon refuses a symlinked active log file",
   async () => {
-    const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-logs-"));
-    const target = await mkdtemp(join(tmpdir(), "coforge-daemon-log-target-"));
+    const directory = await mkdtemp(join(tempRoot, "coforge-daemon-logs-"));
+    const target = await mkdtemp(join(tempRoot, "coforge-daemon-log-target-"));
     try {
       const logDirectory = join(directory, "logs", "daemon");
       await mkdir(logDirectory, { recursive: true });

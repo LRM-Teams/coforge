@@ -1,10 +1,16 @@
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClaudeCodeProvider } from "../src/code-agent/claude-code/driver";
 import { CodexProvider } from "../src/code-agent/codex/driver";
 import { PiProvider } from "../src/code-agent/pi/driver";
+
+// macOS tmpdir lives under /var, a symlink. Persisted Pi sessions are keyed by
+// the realpath of the workspace, so a literal /var/folders path here would
+// never match and every resume would silently fall back to a fresh session.
+const tempRoot = realpathSync(tmpdir());
 
 const TEST_AGENT_INSTRUCTIONS = "Test instructions.";
 
@@ -22,7 +28,7 @@ for (const Driver of [ClaudeCodeProvider, CodexProvider]) {
 }
 
 test("embedded Pi resumes an exact persisted session ID", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-pi-resume-"));
+  const root = await mkdtemp(join(tempRoot, "coforge-pi-resume-"));
   const workspace = join(root, "agent");
   const sessionFile = join(workspace, ".pi-sessions", "renamed-history.jsonl");
   await mkdir(join(workspace, ".pi-sessions"), { recursive: true });
@@ -49,7 +55,7 @@ test("embedded Pi resumes an exact persisted session ID", async () => {
 });
 
 test("embedded Pi replaces a selected ID when its workspace history is missing", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-pi-missing-"));
+  const root = await mkdtemp(join(tempRoot, "coforge-pi-missing-"));
   const workspace = join(root, "agent");
   await mkdir(workspace);
   const reports: Array<[string, string | undefined]> = [];
@@ -78,7 +84,7 @@ test("embedded Pi replaces a selected ID when its workspace history is missing",
 });
 
 test("embedded Pi rejects empty and path-shaped session IDs", async () => {
-  const workspace = await mkdtemp(join(tmpdir(), "coforge-pi-id-"));
+  const workspace = await mkdtemp(join(tempRoot, "coforge-pi-id-"));
   try {
     for (const sessionId of ["", "../other/session", "/global/session.jsonl", "..\\other"]) {
       await expect(
@@ -96,7 +102,7 @@ test("embedded Pi rejects empty and path-shaped session IDs", async () => {
 });
 
 test("embedded Pi resolves persisted sessions only inside the owning Agent workspace", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-pi-bounded-"));
+  const root = await mkdtemp(join(tempRoot, "coforge-pi-bounded-"));
   const workspace = join(root, "agent-a");
   const otherWorkspace = join(root, "agent-b");
   await mkdir(workspace);
@@ -157,7 +163,7 @@ test("embedded Pi resolves persisted sessions only inside the owning Agent works
 });
 
 test("embedded Pi refuses a session directory linked outside its Agent workspace", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-pi-session-"));
+  const root = await mkdtemp(join(tempRoot, "coforge-pi-session-"));
   const cwd = join(root, "agent-a");
   const other = join(root, "agent-b");
   try {
