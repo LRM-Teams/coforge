@@ -24,10 +24,9 @@ export type DaemonConfig = {
 /** @deprecated wire-facing callers should use DaemonConfig internally. */
 export type WorkspaceConfig = DaemonConfig;
 import type { DaemonCredentialStore } from "../credentials/credential-store";
-import {
-  ACTIVITY_HEARTBEAT_MS,
-  type DaemonConnectionClient,
-  type DaemonConnectionClientFactory,
+import type {
+  DaemonConnectionClient,
+  DaemonConnectionClientFactory,
 } from "../connection/daemon-connection";
 import {
   WORKSPACE_PROTOCOL_MAJOR,
@@ -109,6 +108,14 @@ type ActivityLaunch = { launchId: string; clientSeq: number; stopping: boolean }
 
 /** An activity envelope before the launch assigns its sequence metadata. */
 type ActivityDraft = Omit<AgentActivity, "launchId" | "clientSeq" | "observedAtMs">;
+
+// While an Agent stays busy (working/thinking) through a long silent turn, the
+// daemon re-sends the last busy Activity frame every 60s with isHeartbeat set
+// so the server's 90s display lease (WORKING_LEASE_MS) never lapses; the 30s
+// margin matches AGENT_STATUS_LEASE_MS's margin over AGENT_STATUS_REFRESH_MS.
+// Kept here, not in daemon-connection.ts: the macOS lifecycle fixture replaces
+// that module with a stub that only exports the connection class.
+export const ACTIVITY_HEARTBEAT_MS = 60_000;
 
 /** Detail kinds the busy heartbeat keeps warm: the Agent is working or thinking. */
 const BUSY_ACTIVITY_DETAIL_KINDS = new Set<string>([
