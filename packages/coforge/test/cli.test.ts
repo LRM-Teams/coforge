@@ -544,8 +544,11 @@ test("message search aligns with Raft lexical search options and dispatches them
     view: async () => ({ bytes: new Uint8Array() }),
   });
   expect(calls).toEqual([{ query: "release", limit: 5 }]);
-  expect(output).toContain('"id":"aaaaaaaa-0000-4000-8000-000000000001"');
-  expect(output).toContain('"target":"#general"');
+  expect(output).toContain('Search results for: "release" (1 result)');
+  expect(output).toContain('<result ref="msg:aaaaaaaa-0000-4000-8000-000000000001">');
+  expect(output).toContain("Source: #general");
+  expect(output).toContain("Time: 2026-09-07 10:00:00Z");
+  expect(output).toContain("<match>release</match> plan");
   expect(output).not.toContain("sequence");
 });
 
@@ -596,7 +599,7 @@ test("message resolve looks up one message by id and formats it like message che
   });
   expect(calls).toEqual(["abcd1234"]);
   expect(output).toBe(
-    "[target=#general msg=abcd1234 time=2026-09-07T10:00:00Z] @ada: release plan",
+    "[target=#general msg=abcd1234 time=2026-09-07 10:00:00Z] @ada: release plan",
   );
 });
 
@@ -764,7 +767,7 @@ test("message check hides server ordering fields", async () => {
   });
 
   expect(output).toBe(
-    "[target=@ada msg=message- time=2026-09-03T10:00:00Z] @ada: Can you investigate?\n\nNo more new messages.",
+    "[target=@ada msg=message- time=2026-09-03 10:00:00Z] @ada: Can you investigate?\n\nNo more new messages.",
   );
 });
 
@@ -790,7 +793,7 @@ test("message check tells the Agent to run check again when the server reports m
   });
 
   expect(output).toBe(
-    "[target=@ada msg=message- time=2026-09-03T10:00:00Z] @ada: Can you investigate?\n\nMore messages are pending. Run `coforge message check` again.",
+    "[target=@ada msg=message- time=2026-09-03 10:00:00Z] @ada: Can you investigate?\n\nMore messages are pending. Run `coforge message check` again.",
   );
 });
 
@@ -851,7 +854,8 @@ test("message read hides server ordering fields", async () => {
   });
 
   expect(output).not.toContain("sequence");
-  expect(output).toContain('"id":"message-1"');
+  expect(output).toContain("msg=message-1");
+  expect(output).toContain("replyTarget=@ada:message-");
 });
 
 test("App Inbox hides message ordering fields from Agent output", async () => {
@@ -1124,7 +1128,17 @@ test("held sends fail with draft retry instructions", async () => {
       send: async () => ({
         accepted: false,
         sideEffectDecision: "hold",
-        messages: [{ id: "message-2", sequence: 9, body: "new context" }],
+        attentionCount: 1,
+        messages: [
+          {
+            id: "message-2",
+            sequence: 9,
+            sender: "@ada",
+            target: "@ada",
+            body: "new context",
+            createdAt: "2026-09-03T10:05:00Z",
+          },
+        ],
       }),
       view: async () => ({ bytes: new Uint8Array() }),
     }),
@@ -1144,8 +1158,10 @@ test("send results hide the internal model cursor from Agent output", async () =
     view: async () => ({ bytes: new Uint8Array() }),
   });
 
+  expect(output).toBe(
+    'Message sent to @ada. Message ID: message-sent (to reply in this message\'s thread, use target "@ada:message-")',
+  );
   expect(output).not.toContain("seenUpToSequence");
-  expect(output).not.toContain("9");
 });
 
 test("weekly-report CLI parses bounded reads and dispatches the transport", async () => {

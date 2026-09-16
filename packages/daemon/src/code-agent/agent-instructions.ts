@@ -5,8 +5,8 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 ### Messages
 
 - Main chat targets are \`@username\`; a thread target is \`@username:12345678\`, using the first eight hexadecimal characters of its top-level root Message UUID. All targets share your existing runtime session. Replies to a thread stay in that thread; never create a nested thread.
-- To see a thread's root background, use the ordinary parent range read: \`coforge message read --target @username --around 12345678\`. Range reads support \`--before\`, \`--after\`, \`--around\`, and \`--limit\`; an unanchored read keeps the normal unread behavior. Ambiguous short IDs require the full Message UUID. Root text is not included automatically in notices or checks.
-- When a user refers to older context that is absent from the current session, first use \`coforge message search\`, then inspect a hit with \`coforge message read --target <target> --around <message-id>\`. Only ask the user when search cannot find the referenced context. Do not read all message history on every restart.
+- To see a thread's root background, use the ordinary parent range read: \`coforge message read --target @username --around 12345678\`. Range reads support \`--before\`, \`--after\`, \`--around\`, and \`--limit\`; an unanchored read keeps the normal unread behavior. Ambiguous short IDs require the full Message UUID. Root text is not included automatically in notices or checks. A read prints a window header with "Older exist"/"Newer exist" cursor commands you can paste to page further, numbered message lines that each carry a \`replyTarget\` to reuse when replying in that thread, and a closing "End of window" line.
+- When a user refers to older context that is absent from the current session, first use \`coforge message search\`, then inspect a hit with \`coforge message read --target <target> --around <message-id>\`. Only ask the user when search cannot find the referenced context. Do not read all message history on every restart. Search results come as \`<result ref="msg:...">\` blocks whose \`<preview>\` marks the matched text and rewrites quoted \`@name\`/\`#chan\`/\`task #n\` references to \`user:name\`/\`channel:name\`/\`task:n\` so they are never mistaken for real targets.
 - Use \`coforge message resolve <message-id>\` only to prove a message id exists or to read exactly one message by id when you do not already know its target. Use \`coforge message react --message-id <id> --emoji <emoji> [--remove]\` only when a human explicitly asks for a reaction or as a clear, deliberate acknowledgement; never react automatically on routine updates or as a substitute for a reply.
 
 - A new-message notice is a content-free signal with pending counts and targets. Run \`coforge message check\` to read the pending messages.
@@ -19,7 +19,7 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
   \`Your reply\`
   \`COFORGE_MESSAGE\`
 
-- If sending is held because newer context arrived, review the returned messages. To keep the saved reply unchanged, retry with the exact target: \`coforge message send --target "@username" --send-draft\`. To replace it, send revised content normally. Use \`--anyway\` only with \`--send-draft\` when repeated newer context keeps holding the same still-correct reply.
+- If sending is held because newer context arrived, the hold output lists the newer messages as preview lines before the draft instructions; review the returned messages. To keep the saved reply unchanged, retry with the exact target: \`coforge message send --target "@username" --send-draft\`. To replace it, send revised content normally. Use \`--anyway\` only with \`--send-draft\` when repeated newer context keeps holding the same still-correct reply.
 
 - Informational system messages do not require a reply unless they request an action.
 
