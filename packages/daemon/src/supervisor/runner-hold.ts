@@ -1,19 +1,18 @@
-import { getLogger } from "@logtape/logtape";
+import { getLogger, type Logger } from "@logtape/logtape";
 import type { HeldBusyAgent } from "@lrm/coforge-sdk/internal";
 
-const logger = getLogger(["coforge", "computer", "upgrade"]);
-
 /**
- * How long an upgrade lets in-flight Agent work finish after the runner hold is engaged. Past this
- * bound the upgrade stops the supervisor regardless: an Agent that will not finish must not be able
- * to pin a machine on an old version. Before this existed the effective grace period was the ~2s
- * SIGTERM/SIGKILL ladder in `DaemonRuntime.stop()` (ADR 0020).
+ * How long a lifecycle operation lets in-flight Agent work finish after the runner hold is
+ * engaged. Past this bound the operation stops the daemon regardless: an Agent that will not
+ * finish must not be able to pin a machine on an old version, or to block a restart. Without the
+ * hold the effective grace period is the ~2s SIGTERM/SIGKILL ladder in `DaemonRuntime.stop()`
+ * (ADR 0020 for upgrade, ADR 0021 for restart).
  */
-export const UPGRADE_RUNNER_HOLD_MS = 30_000;
+export const RUNNER_HOLD_MS = 30_000;
 
 /** How often the hold is re-asked for the busy set. `daemon:hold` is idempotent, so a poll is
  * simply a repeat call; 250ms keeps the common "already idle" case effectively instant. */
-export const UPGRADE_RUNNER_HOLD_POLL_MS = 250;
+export const RUNNER_HOLD_POLL_MS = 250;
 
 export type RunnerHoldSnapshot = {
   busyAgents: readonly HeldBusyAgent[];
@@ -29,6 +28,15 @@ export type RunnerHoldOutcome = RunnerHoldSnapshot & {
 export type RunnerHoldOptions = {
   /** Engages the hold and reports the current busy set. Must be idempotent. */
   hold: () => Promise<RunnerHoldSnapshot>;
+  /**
+   * Where this module's own two log lines go, and what prefixes their event names. Each caller
+   * owns a different pair: the Computer upgrade keeps `coforge.computer.upgrade` and `upgrade:`
+   * so ADR 0020's log contract is unchanged, while the Coordinator's restart uses
+   * `coforge.daemon.supervisor` and `restart:`. The defaults are the Coordinator's, because that
+   * is the process this module lives in.
+   */
+  logger?: Logger;
+  eventPrefix?: string;
   holdMs?: number;
   pollMs?: number;
   now?: () => number;
@@ -38,22 +46,26 @@ export type RunnerHoldOptions = {
 };
 
 /**
- * Holds every runner under a Coordinator and waits, up to `holdMs`, for the Agents to go idle.
+ * Holds every runner under a daemon and waits, up to `holdMs`, for its Agents to go idle.
  *
  * Every failure mode resolves towards "proceed": a hold that cannot be asked, or that starts
  * failing mid-poll, returns quiescent, and Workspaces the Coordinator reported unreachable are
- * counted as idle. The hold is a courtesy to in-flight tool calls, never a gate on the upgrade.
+ * counted as idle. The hold is a courtesy to in-flight tool calls, never a gate on the operation
+ * that asked for it.
  */
 export async function holdRunnersUntilQuiescent(
   options: RunnerHoldOptions,
 ): Promise<RunnerHoldOutcome> {
   const {
     hold,
-    holdMs = UPGRADE_RUNNER_HOLD_MS,
-    pollMs = UPGRADE_RUNNER_HOLD_POLL_MS,
+    logger = getLogger(["coforge", "daemon", "supervisor"]),
+    eventPrefix = "restart",
+    holdMs = RUNNER_HOLD_MS,
+    pollMs = RUNNER_HOLD_POLL_MS,
     now = Date.now,
     sleep = Bun.sleep,
-    onDeadline = defaultDeadlineLog,
+    onDeadline = (entry) =>
+      logger.warn("Agent was still busy when the runner hold expired; stopping anyway", entry),
   } = options;
   const startedAt = now();
   const elapsed = () => now() - startedAt;
@@ -63,8 +75,8 @@ export async function holdRunnersUntilQuiescent(
     try {
       snapshot = await hold();
     } catch (error) {
-      logger.warn("Runner hold could not be applied; continuing with the upgrade", {
-        event: "upgrade:runner_hold_failed",
+      logger.warn("Runner hold could not be applied; continuing without it", {
+        event: `${eventPrefix}:runner_hold_failed`,
         elapsed_ms: elapsed(),
         error_message: error instanceof Error ? error.message : String(error),
       });
@@ -78,15 +90,11 @@ export async function holdRunnersUntilQuiescent(
 
   for (const agent of snapshot.busyAgents)
     onDeadline({
-      event: "upgrade:runner_hold_deadline",
+      event: `${eventPrefix}:runner_hold_deadline`,
       workspace_id: agent.workspaceId,
       agent_id: agent.agentId,
       detail_kind: agent.detailKind,
       elapsed_ms: elapsed(),
     });
   return { ...snapshot, quiescent: false, elapsedMs: elapsed() };
-}
-
-function defaultDeadlineLog(entry: Record<string, unknown>): void {
-  logger.warn("Agent was still busy when the runner hold expired; stopping anyway", entry);
 }

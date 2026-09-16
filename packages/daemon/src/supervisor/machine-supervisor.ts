@@ -1,4 +1,6 @@
+import { getLogger } from "@logtape/logtape";
 import type { DaemonConfig } from "../daemon-runtime/runtime";
+import { holdRunnersUntilQuiescent, type RunnerHoldSnapshot } from "./runner-hold";
 
 export type RestartProgress = {
   requestId: string;
@@ -61,7 +63,26 @@ export interface WorkspaceProcesses {
   start(binding: ManagedBinding): Promise<string>;
   stop(binding: ManagedBinding): Promise<void>;
   instance(binding: ManagedBinding): Promise<string | null>;
+  /**
+   * Asks one Workspace daemon to stop admitting new turns and reports which of its Agents are
+   * still busy. Optional: a `WorkspaceProcesses` that cannot reach its children simply restarts
+   * with today's behaviour (ADR 0021).
+   */
+  hold?(binding: ManagedBinding, reason: string): Promise<RunnerHoldSnapshot>;
+  /** Lifts a hold on a daemon that, against expectations, survived: only called when the OS stop
+   * after a hold failed, so the still-running daemon does not sit held with nobody to lift it. */
+  release?(binding: ManagedBinding, reason: string): Promise<unknown>;
 }
+
+/** Test seam for the bounded restart hold; production takes every default. */
+export type RestartHoldTuning = {
+  holdMs?: number;
+  pollMs?: number;
+  now?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
+};
+
+const logger = getLogger(["coforge", "daemon", "supervisor"]);
 
 /** Serial machine mutations; a stopped binding remains registered and recoverable. */
 export class MachineSupervisor {
@@ -74,6 +95,7 @@ export class MachineSupervisor {
     private readonly store: BindingStore,
     private readonly processes: WorkspaceProcesses,
     private readonly now: () => number = Date.now,
+    private readonly restartHold: RestartHoldTuning = {},
   ) {}
 
   recover() {
@@ -276,7 +298,18 @@ export class MachineSupervisor {
       const current = await this.processes.instance(binding);
       // The same stable OS unit may already have replaced its failed invocation.
       // start below still validates the replacement through its scoped handshake.
-      if (current === null || current === restart.previousInstanceId) await this.#stop(binding);
+      if (current === null || current === restart.previousInstanceId) {
+        // Only a live instance is worth holding; a dead one has no Agents left to drain.
+        if (current !== null) await this.#holdRunners(binding);
+        try {
+          await this.#stop(binding);
+        } catch (error) {
+          // The daemon we meant to kill is still up and still held: lift the hold before
+          // surfacing the failure, or its Agents would queue turns until someone retries.
+          if (current !== null) await this.processes.release?.(binding, "restart").catch(() => {});
+          throw error;
+        }
+      }
       binding = await this.#saveBinding({ ...binding, restart: { ...restart, phase: "starting" } });
     }
     const instanceId = await this.#start(binding);
@@ -293,6 +326,40 @@ export class MachineSupervisor {
           instanceId,
         },
       ].slice(-128),
+    });
+  }
+  /**
+   * Bounded runner hold before a restart stops a live Workspace daemon (ADR 0021). Without it
+   * `#stop` hands the Agents the ~2s SIGTERM/SIGKILL ladder in `DaemonRuntime.stop()`, which is
+   * not enough for a tool call. Only `restart` holds: `stop` is an operator saying "now".
+   *
+   * Nothing releases the hold afterwards, and nothing needs to. It is in-memory in the Workspace
+   * daemon and `#stop` kills that process; the replacement is born without a hold (ADR 0020,
+   * "the hold is never persisted"). The one exception is a stop that fails: the daemon survives
+   * held, so `#advanceRestart` releases it before rethrowing; a later retry re-asks, which is
+   * idempotent.
+   *
+   * The wait runs inside the serialized mutation, so other lifecycle commands queue behind it for
+   * up to `RUNNER_HOLD_MS`. That is accepted: an upgrade's `pauseLaunches` already blocks the same
+   * queue for as long, and a restart that raced ahead of the drain would defeat the point.
+   *
+   * Every failure resolves towards proceeding: `holdRunnersUntilQuiescent` reports quiescent when
+   * the hold cannot be asked at all, and a Workspace that answers `accepted: false` or times out
+   * is counted as idle. A restart is never failed because of the hold.
+   */
+  async #holdRunners(binding: ManagedBinding): Promise<void> {
+    if (!this.processes.hold) return;
+    const outcome = await holdRunnersUntilQuiescent({
+      hold: () => this.processes.hold!(binding, "restart"),
+      ...this.restartHold,
+    });
+    logger.info("Runner hold completed before a Workspace restart", {
+      event: outcome.quiescent ? "restart:runner_hold_quiescent" : "restart:runner_hold_expired",
+      workspace_id: binding.workspaceId,
+      quiescent: outcome.quiescent,
+      elapsed_ms: outcome.elapsedMs,
+      busy_agent_count: outcome.busyAgents.length,
+      unreachable_workspace_ids: outcome.unreachableWorkspaceIds,
     });
   }
   async #saveBinding(binding: ManagedBinding): Promise<ManagedBinding> {

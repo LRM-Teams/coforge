@@ -2,8 +2,11 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { createDaemonHost, LocalDaemonLauncher } from "@lrm/coforge-daemon";
-import { holdRunnersUntilQuiescent } from "./runner-hold";
+import {
+  createDaemonHost,
+  holdRunnersUntilQuiescent,
+  LocalDaemonLauncher,
+} from "@lrm/coforge-daemon";
 
 const logger = getLogger(["coforge", "computer", "upgrade"]);
 
@@ -141,6 +144,10 @@ export function createSupervisorUpgradeLifecycle(
           if (!response.accepted) throw new Error("Coordinator did not accept the runner hold");
           return response;
         },
+        // The wait itself now lives in the daemon package, shared with the Coordinator's restart
+        // hold (ADR 0021). Keep this path's own logger and `upgrade:` event names (ADR 0020).
+        logger,
+        eventPrefix: "upgrade",
       });
       logger.info("Runner hold completed", {
         event: outcome.quiescent ? "upgrade:runner_hold_quiescent" : "upgrade:runner_hold_expired",

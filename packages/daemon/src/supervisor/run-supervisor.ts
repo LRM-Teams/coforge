@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { HeldBusyAgent, ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
+import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 import { startDaemonLocalRpcServer, type DaemonHoldReport } from "../local-rpc";
 import { FileDaemonCredentialStore } from "../credentials/credential-store";
 import { DaemonConfigStore } from "../persistence/daemon-config";
@@ -35,7 +35,7 @@ const UPGRADE_RECEIPT_POLL_MS = 2_000;
 /**
  * How long the Coordinator waits for one Workspace daemon to answer a runner hold. A Workspace
  * that does not answer is reported unreachable and counted as idle: a wedged or dead Workspace
- * daemon must never be able to block a Computer upgrade (ADR 0020).
+ * daemon must never be able to block a Computer upgrade (ADR 0020) or a restart (ADR 0021).
  */
 const RUNNER_HOLD_WORKSPACE_TIMEOUT_MS = 5_000;
 
@@ -134,6 +134,51 @@ async function runWithSupervisorLock(
       return await command.exited;
     });
   };
+  const upgradeLogger = getLogger(["coforge", "daemon", "supervisor"]);
+  /**
+   * Asks one Workspace daemon to hold (or release) its runners. A Workspace that does not answer
+   * inside `RUNNER_HOLD_WORKSPACE_TIMEOUT_MS`, answers `accepted: false`, or fails outright is
+   * reported unreachable and counted as idle: a wedged or dead Workspace daemon must never be
+   * able to block a Computer upgrade (ADR 0020) or a restart (ADR 0021). Shared by the
+   * Coordinator-wide fan-out below and by the per-Workspace restart hold.
+   */
+  const holdWorkspaceRunners = async (
+    workspaceId: string,
+    operation: "hold" | "release",
+    reason: string,
+    eventPrefix: string,
+    // `unreachableWorkspaceIds` is optional on the wire report but always known here, so the
+    // restart hold can read it without a fallback.
+  ): Promise<DaemonHoldReport & { unreachableWorkspaceIds: string[] }> => {
+    const held = operation === "hold";
+    try {
+      const response = await Promise.race([
+        childClient(workspaceId).hold(operation, reason),
+        Bun.sleep(RUNNER_HOLD_WORKSPACE_TIMEOUT_MS).then(() => {
+          throw new Error(`Workspace ${workspaceId} did not answer the runner hold`);
+        }),
+      ]);
+      if (!response.accepted)
+        return { held, busyAgents: [], unreachableWorkspaceIds: [workspaceId] };
+      return {
+        held,
+        busyAgents: response.busyAgents.map((agent) => ({
+          ...agent,
+          workspaceId: agent.workspaceId || workspaceId,
+        })),
+        unreachableWorkspaceIds: [],
+      };
+    } catch (error) {
+      upgradeLogger.warn("Workspace daemon did not answer the runner hold; treating as idle", {
+        event: `${eventPrefix}:runner_hold_unreachable`,
+        workspace_id: workspaceId,
+        operation,
+        timeout_ms: RUNNER_HOLD_WORKSPACE_TIMEOUT_MS,
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+      return { held, busyAgents: [], unreachableWorkspaceIds: [workspaceId] };
+    }
+  };
   // Stable OS units own processes even if the Coordinator died before readiness.
   // Recovery adopts them through MainPID + the daemon handshake, never by killing PIDs.
   const supervisor = new MachineSupervisor(bindings, {
@@ -221,6 +266,12 @@ async function runWithSupervisorLock(
       const observed = await workspaceInstance(binding.workspaceId).identity();
       return observed && observed.mainPid > 0 ? observed.invocationId : null;
     },
+    // Per-Workspace, so a restart never reaches past its own target: an unscoped restart holds
+    // each enabled binding in turn as the loop gets to it, not the whole machine at once. The
+    // Coordinator-wide fan-out below stays the upgrade's path (ADR 0021).
+    hold: (binding, reason) => holdWorkspaceRunners(binding.workspaceId, "hold", reason, "restart"),
+    release: (binding, reason) =>
+      holdWorkspaceRunners(binding.workspaceId, "release", reason, "restart"),
   });
   const scopedCredentials = (workspaceId: string) =>
     new FileDaemonCredentialStore(workspaceDirectory(workspaceId));
@@ -238,7 +289,6 @@ async function runWithSupervisorLock(
             version: "",
           };
     });
-  const upgradeLogger = getLogger(["coforge", "daemon", "supervisor"]);
   const completeUpgrade = async (
     workspaceId: string,
     requestId: string,
@@ -309,36 +359,16 @@ async function runWithSupervisorLock(
     reason: string,
   ): Promise<DaemonHoldReport> => {
     const running = (await snapshot()).filter((runtime) => runtime.processId > 0);
-    const busyAgents: HeldBusyAgent[] = [];
-    const unreachableWorkspaceIds: string[] = [];
-    await Promise.all(
-      running.map(async ({ workspaceId }) => {
-        try {
-          const response = await Promise.race([
-            childClient(workspaceId).hold(operation, reason),
-            Bun.sleep(RUNNER_HOLD_WORKSPACE_TIMEOUT_MS).then(() => {
-              throw new Error(`Workspace ${workspaceId} did not answer the runner hold`);
-            }),
-          ]);
-          if (!response.accepted) {
-            unreachableWorkspaceIds.push(workspaceId);
-            return;
-          }
-          for (const agent of response.busyAgents)
-            busyAgents.push({ ...agent, workspaceId: agent.workspaceId || workspaceId });
-        } catch (error) {
-          unreachableWorkspaceIds.push(workspaceId);
-          upgradeLogger.warn("Workspace daemon did not answer the runner hold; treating as idle", {
-            event: "upgrade:runner_hold_unreachable",
-            workspace_id: workspaceId,
-            operation,
-            timeout_ms: RUNNER_HOLD_WORKSPACE_TIMEOUT_MS,
-            error_message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }),
+    const reports = await Promise.all(
+      running.map(({ workspaceId }) =>
+        holdWorkspaceRunners(workspaceId, operation, reason, "upgrade"),
+      ),
     );
-    return { held: operation === "hold", busyAgents, unreachableWorkspaceIds };
+    return {
+      held: operation === "hold",
+      busyAgents: reports.flatMap((report) => report.busyAgents),
+      unreachableWorkspaceIds: reports.flatMap((report) => report.unreachableWorkspaceIds),
+    };
   };
   let rpc: Awaited<ReturnType<typeof startDaemonLocalRpcServer>> | undefined;
   try {
