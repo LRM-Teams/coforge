@@ -48,6 +48,8 @@ import { createCommand as createClientCommand } from "./daemon-client";
 import { configureComputerLogger } from "./logging/computer-logger";
 import { followComputerLogs } from "./logging/computer-logs";
 import { COFORGE_COMPUTER_VERSION as VERSION } from "./version";
+import { createStatusPorts } from "./status/create-status-ports";
+import { createStatusCommand, type StatusCommand } from "./status/status-command";
 
 export interface LoginCommand {
   run(serverUrl: string, options: { json: boolean }): Promise<void>;
@@ -79,6 +81,8 @@ export interface ForegroundCommand {
   run(): Promise<void>;
 }
 
+export type { StatusCommand };
+
 interface CliDependencies {
   login: LoginCommand;
   setup: SetupCommand;
@@ -86,6 +90,7 @@ interface CliDependencies {
   daemon?: DaemonCommand;
   logs?: LogsCommand;
   foreground?: ForegroundCommand;
+  status?: StatusCommand;
 }
 
 export async function runCli(
@@ -212,6 +217,16 @@ export async function runCli(
     .command("logs")
     .description("Follow the Computer log, including rotated log files.")
     .action(() => requireLogs(dependencies).follow());
+  program
+    .command("status")
+    .description(
+      "Show the Install, Supervisor, Workspaces, Agents, and locks in one place. Read-only.",
+    )
+    .option("--json", "write one stable JSON result to stdout")
+    .action((options: { json?: boolean }) => {
+      json = options.json ?? false;
+      return requireStatus(dependencies).run({ json });
+    });
 
   if (args.length === 0) {
     program.outputHelp();
@@ -307,6 +322,11 @@ function requireForeground(dependencies: CliDependencies): ForegroundCommand {
   if (!dependencies.foreground)
     throw new Error("Foreground supervisor is unavailable in this build");
   return dependencies.foreground;
+}
+
+function requireStatus(dependencies: CliDependencies): StatusCommand {
+  if (!dependencies.status) throw new Error("Status is unavailable in this build");
+  return dependencies.status;
 }
 
 function createLoginCommand(
@@ -634,6 +654,16 @@ export async function runComputer(): Promise<void> {
           logging.logger,
         ),
         logs: createLogsCommand(computerDirectory, io),
+        status: createStatusCommand(
+          io,
+          createStatusPorts({
+            platform: platform.os,
+            installDirectory,
+            stateDirectory,
+            releaseFeedUrl: COFORGE_RELEASE_FEED_URL,
+            serverUrl: COFORGE_SERVER_URL,
+          }),
+        ),
         foreground: {
           run: () =>
             runMachineSupervisor([

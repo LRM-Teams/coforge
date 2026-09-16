@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { runCli, type LoginCommand, type SetupCommand } from "../src/cli";
-import { loginError, setupError } from "../src/errors";
+import { runCli, type LoginCommand, type SetupCommand, type StatusCommand } from "../src/cli";
+import { CliError, loginError, setupError } from "../src/errors";
 
 test("login uses the server selected by the compiled build", async () => {
   const calls: Array<{ serverUrl: string; json: boolean }> = [];
@@ -466,4 +466,105 @@ test("foreground runs the supervisor in the current process for external supervi
 
   expect(exitCode).toBe(0);
   expect(calls).toBe(1);
+});
+
+test("status is registered, read-only, and forwards --json without touching lifecycle commands", async () => {
+  const calls: Array<{ json: boolean }> = [];
+  const lifecycleCalls: string[] = [];
+  const status: StatusCommand = {
+    async run(options) {
+      calls.push(options);
+    },
+  };
+  const dependencies = {
+    login: { async run() {} },
+    setup: { async run() {} },
+    status,
+    daemon: {
+      async start() {
+        lifecycleCalls.push("start");
+      },
+      async stop() {
+        lifecycleCalls.push("stop");
+      },
+      async restart() {
+        lifecycleCalls.push("restart");
+      },
+    },
+    updater: {
+      resolveVersion: async () => {
+        throw new Error("must not be called by status");
+      },
+      getCurrentVersion: async () => {
+        throw new Error("must not be called by status");
+      },
+      install: async () => {
+        throw new Error("must not be called by status");
+      },
+      upgrade: async () => {
+        throw new Error("must not be called by status");
+      },
+      rollback: async () => {
+        throw new Error("must not be called by status");
+      },
+    },
+  };
+
+  expect(await runCli(["status"], dependencies)).toBe(0);
+  expect(await runCli(["status", "--json"], dependencies)).toBe(0);
+
+  expect(calls).toEqual([{ json: false }, { json: true }]);
+  expect(lifecycleCalls).toEqual([]);
+});
+
+test("status is unavailable without a wired dependency", async () => {
+  const stderr: string[] = [];
+  const exitCode = await runCli(
+    ["status"],
+    { login: { async run() {} }, setup: { async run() {} } },
+    {
+      stdout: () => undefined,
+      stderr: (line) => stderr.push(line),
+    },
+  );
+
+  expect(exitCode).toBe(1);
+  expect(stderr.join("\n")).toContain("Status is unavailable in this build");
+});
+
+test("a status failure that cannot even read the install reports exit code 1, human and JSON", async () => {
+  const status: StatusCommand = {
+    async run() {
+      throw new CliError(
+        "STATUS_INSTALL_UNREADABLE",
+        "active.json is not valid JSON",
+        "Reinstall CoForge Computer.",
+      );
+    },
+  };
+  const dependencies = { login: { async run() {} }, setup: { async run() {} }, status };
+
+  const stderr: string[] = [];
+  const humanExitCode = await runCli(["status"], dependencies, {
+    stdout: () => undefined,
+    stderr: (line) => stderr.push(line),
+  });
+  expect(humanExitCode).toBe(1);
+  expect(stderr.join("\n")).toContain("STATUS_INSTALL_UNREADABLE");
+  expect(stderr.join("\n")).toContain("Hint:");
+
+  const stdout: string[] = [];
+  const jsonExitCode = await runCli(["status", "--json"], dependencies, {
+    stdout: (line) => stdout.push(line),
+    stderr: () => undefined,
+  });
+  expect(jsonExitCode).toBe(1);
+  expect(JSON.parse(stdout[0]!)).toEqual({
+    ok: false,
+    error: {
+      code: "STATUS_INSTALL_UNREADABLE",
+      message: "active.json is not valid JSON",
+      hint: "Reinstall CoForge Computer.",
+    },
+  });
 });
