@@ -32,11 +32,13 @@ import {
 } from "../../server/agents/agent-runtime-credentials.server";
 import { ChangeAgentRuntimeCredential } from "../../server/agents/change-agent-runtime-credential.server";
 import { getAgentRuntimeLock } from "../../server/agents/agent-runtime-lock.server";
+import { agentRuntimeSelectionIsAvailable } from "../../server/agents/agent-runtime-availability.server";
 import {
   parseAgentRuntimeConfig,
   publicAgentRuntimeConfig,
 } from "../../server/agents/agent-runtime-config.server";
 import { getAgentStatusCache } from "../../server/agents/agent-status.server";
+import { weeklyReportAssistantAgentName } from "../../server/records/weekly-report-assistant.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 import { getAgentDisplay } from "../../server/agents/agent-display.server";
 import { AgentEnvironment } from "../../server/agents/agent-environment.server";
@@ -98,26 +100,25 @@ function manageAgents(db: Database) {
             },
           },
         });
-        if (!connection) return false;
+        const providers = new Set<typeof config.provider>();
+        if (await runtimeVisibility.canSelect({ workspaceId, userId }, computerId, config.provider))
+          providers.add(config.provider);
         if (
-          !(await runtimeVisibility.canSelect({ workspaceId, userId }, computerId, config.provider))
+          config.provider === RUNTIME_PROVIDER.COFORGE &&
+          (await runtimeVisibility.canSelect(
+            { workspaceId, userId },
+            computerId,
+            RUNTIME_PROVIDER.PI,
+          ))
         )
-          return false;
-        if (!config.model) return !config.modelProvider && !config.reasoning;
-        if (config.provider === RUNTIME_PROVIDER.COFORGE && config.modelProvider) return true;
-        const models = connection.computer.modelCatalogs.flatMap((catalog) =>
+          providers.add(RUNTIME_PROVIDER.PI);
+        const models = connection?.computer.modelCatalogs.flatMap((catalog) =>
           Array.isArray(catalog.models) ? catalog.models : [],
         );
-        return models.some((value) => {
-          if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-          const id = Reflect.get(value, "id");
-          const modelProvider = Reflect.get(value, "modelProvider");
-          const efforts = Reflect.get(value, "reasoningEfforts");
-          return (
-            id === config.model &&
-            modelProvider === config.modelProvider &&
-            (!config.reasoning || (Array.isArray(efforts) && efforts.includes(config.reasoning)))
-          );
+        return agentRuntimeSelectionIsAvailable(config, {
+          connected: Boolean(connection),
+          providers,
+          models: models ?? [],
         });
       },
     },
@@ -236,7 +237,14 @@ export const updateAgent = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(updateAgentInputSchema)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
-    return manageAgents(db).update({ userId: user.id, workspaceId }, data);
+    const assistant = await db.weeklyReportAssistant.findFirst({
+      where: { agentId: data.agentId, workspaceId, userId: user.id },
+      select: { agentId: true },
+    });
+    return manageAgents(db).update(
+      { userId: user.id, workspaceId },
+      assistant ? { ...data, name: weeklyReportAssistantAgentName(user.id) } : data,
+    );
   });
 
 export const getAgentDetail = createServerFn({ method: "GET" })
@@ -264,6 +272,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
                 createdAt: true,
                 computerId: true,
                 runtimeConfig: true,
+                weeklyReportAssistant: { select: { id: true } },
                 owner: { select: { id: true, username: true } },
               },
             })

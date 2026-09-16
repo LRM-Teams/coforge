@@ -16,6 +16,7 @@ type DetailAgent = {
   computerId?: string | null;
   owner: { id: string; username: string };
   runtimeConfig: Prisma.JsonValue;
+  weeklyReportAssistant?: { id: string } | null;
 };
 
 export type AgentDetailSource = {
@@ -69,8 +70,10 @@ export class AgentDetailQuery {
       }
     }
     const latest = activity[0];
+    const { weeklyReportAssistant: assistantRelation, ...agentView } = agent;
     return {
-      ...agent,
+      ...agentView,
+      isWeeklyReportAssistant: Boolean(assistantRelation),
       ...(display ? { display } : {}),
       status: {
         value: statusReadFailed ? ("unknown" as const) : (status?.status ?? ("inactive" as const)),

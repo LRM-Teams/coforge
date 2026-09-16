@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { updateAgentInputFromForm } from "../src/features/agents/agent-form";
 import {
   createAgentInputSchema,
   updateAgentInputSchema,
 } from "../src/features/agents/agent.schemas";
+import { weeklyReportAssistantAgentName } from "../src/server/records/weekly-report-assistant.server";
 
 const validInput = {
   name: "release-helper",
@@ -132,5 +134,44 @@ describe("createAgentInputSchema", () => {
         agentId: "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da",
       }).success,
     ).toBe(false);
+  });
+
+  test("accepts the stable weekly-report assistant Agent name on update", () => {
+    const userId = "7bd89875-1671-4866-9b4a-3da1522ef63b";
+    const name = weeklyReportAssistantAgentName(userId);
+    expect(name.length).toBeGreaterThan(48);
+    expect(
+      updateAgentInputSchema.parse({
+        agentId: userId,
+        name,
+        description: "",
+        provider: "pi",
+        modelProvider: "anthropic",
+        computerId: userId,
+      }).name,
+    ).toBe(name);
+  });
+
+  test("forwards a CoForge API key from the Agent edit form", () => {
+    const agentId = "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da";
+    const computerId = "8c2b1a70-2d11-4f0e-9c3a-1f6e0b9d4a21";
+    const form = new FormData();
+    form.set("name", weeklyReportAssistantAgentName(agentId));
+    form.set("description", "");
+    form.set("provider", "coforge");
+    form.set("modelProvider", "openai");
+    form.set("model", "gpt-5");
+    form.set("reasoning", "");
+    form.set("computerId", computerId);
+    form.set("apiKey", "sk-assistant-runtime-key");
+    expect(updateAgentInputSchema.parse(updateAgentInputFromForm(form, { agentId }))).toMatchObject(
+      {
+        agentId,
+        provider: "coforge",
+        modelProvider: "openai",
+        apiKey: "sk-assistant-runtime-key",
+        computerId,
+      },
+    );
   });
 });

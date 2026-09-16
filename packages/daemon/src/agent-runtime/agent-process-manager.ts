@@ -3,6 +3,7 @@ import type { AgentRuntimeConfig, AgentSession } from "@coforge/agent";
 import type { CodeAgentProviderFactory } from "../code-agent/contract";
 import { AgentProcessCleanupError } from "../code-agent/contract";
 import { buildCoforgeAgentInstructions } from "../code-agent/agent-instructions";
+import { installAssignedSkills, type AssignedSkillPack } from "../code-agent/assigned-skills";
 import { mkdir } from "node:fs/promises";
 
 export type { AgentStatus } from "./agent-state-machine";
@@ -47,6 +48,7 @@ export class AgentProcessManager {
     runtimeId?: string,
     onSessionId?: (sessionId: string, replacedSessionId?: string) => Promise<void>,
     sessionMode?: "create" | "resume",
+    assignedSkillPacks: readonly AssignedSkillPack[] = [],
   ): Promise<AgentRuntime> {
     if (this.#stopping.has(agentId)) {
       throw new Error(`Agent runtime is stopping: ${agentId}`);
@@ -55,6 +57,13 @@ export class AgentProcessManager {
       throw new Error(`Agent runtime is already active: ${agentId}`);
     }
     await mkdir(agentWorkspaceDirectory, { recursive: true, mode: 0o700 });
+    if (assignedSkillPacks.length > 0) {
+      await installAssignedSkills({
+        provider: config.provider,
+        agentWorkspaceDirectory,
+        packs: assignedSkillPacks,
+      });
+    }
     let session: AgentSession;
     try {
       session = await this.#createProvider(config.provider).createAgentSession({

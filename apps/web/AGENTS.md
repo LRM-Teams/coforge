@@ -146,6 +146,8 @@ instructions for the TanStack Start Web/backend modular monolith.
   Workspace membership. Report bodies use lightweight outline JSON keyed by
   template-dimension tabs. MVP writes only human `user` comments; `assistant`
   authorType and comment `payload` are reserved for later AI side panels.
+  The weekly-report assistant's on-demand reads reuse `RecordCatalog` through
+  Agent HTTPS `POST /api/agent/v1/weekly-reports`, authorized as the assistant owner User.
   Schema merge requires Frank approval (see ADR 0009).
 
 - Browser realtime connection ownership belongs to `features/realtime/`. The
@@ -239,8 +241,10 @@ instructions for the TanStack Start Web/backend modular monolith.
 - `features/agents/agents-content.tsx` owns the Members page's mixed human/Agent
   cards, counted type filters, search recovery, and Agent creation dialog.
   Computer prerequisites appear only after requesting Agent creation; runtime
-  management remains in Agent detail, not the directory. Workspace directory
-  reads belong to `features/workspaces/workspaces.functions.ts` and
+  management remains in Agent detail, not the directory. The per-User weekly-report
+  assistant is an internal Agent identity excluded from this directory; its
+  Computer/Runtime setup reuses the Agent detail seam. Workspace directory reads
+  belong to `features/workspaces/workspaces.functions.ts` and
   `server/workspaces/members.server.ts`; owner-only Agent operations remain separate.
 - `src/features/profiles/profile.functions.ts` owns the authenticated current-user
   profile read and description mutation. Avatar bytes and profile persistence

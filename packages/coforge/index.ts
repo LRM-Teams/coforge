@@ -9,6 +9,9 @@ import {
   type TaskResult,
   type TaskStatus,
   type WorkspaceInfoResponse,
+  type WeeklyReportCommand,
+  type WeeklyReportResponse,
+  WEEKLY_REPORT_SUBJECT_TYPES,
 } from "@lrm/coforge-sdk/internal";
 import {
   createAgentApiClient,
@@ -78,6 +81,10 @@ export type WorkspaceInfoOptions = {
 };
 export type WorkspaceInfoInvocation = { command: "workspace.info" } & WorkspaceInfoOptions;
 export type WorkspaceInfoResult = WorkspaceInfoResponse & { computers?: unknown[] };
+export type WeeklyReportInvocation = {
+  command: "weekly-report";
+  weeklyReport: WeeklyReportCommand;
+};
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[] }>;
@@ -106,6 +113,7 @@ export type MessageTransport = {
   setThreadFollowed?(target: string, followed: boolean): Promise<unknown>;
   task?(command: TaskCommand): Promise<TaskResult>;
   workspaceInfo?(): Promise<WorkspaceInfoResult>;
+  weeklyReport?(command: WeeklyReportCommand): Promise<WeeklyReportResponse>;
 };
 
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
@@ -122,10 +130,12 @@ export function parseArgs(
   | ReminderInvocation
   | ThreadInvocation
   | TaskInvocation
-  | WorkspaceInfoInvocation {
+  | WorkspaceInfoInvocation
+  | WeeklyReportInvocation {
   if (args[0] === "workspace" && args[1] === "info") return parseWorkspaceInfoArgs(args.slice(2));
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (args[0] === "task") return parseTaskArgs(args.slice(1));
+  if (args[0] === "weekly-report") return parseWeeklyReportArgs(args.slice(1));
   if (
     args[0] === "channel" &&
     (args[1] === "mute" || args[1] === "unmute") &&
@@ -280,7 +290,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path>",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path> | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
   );
 }
 
@@ -375,6 +385,10 @@ export async function run(args: readonly string[], transport: MessageTransport):
         throw new Error("Task changed concurrently; read the Task list again before updating");
       throw error;
     }
+  }
+  if (invocation.command === "weekly-report") {
+    if (!transport.weeklyReport) throw new Error("Weekly report transport is unavailable");
+    return transport.weeklyReport(invocation.weeklyReport);
   }
   if (invocation.command === "mute" || invocation.command === "unmute") {
     if (!transport.setChannelMuted) throw new Error("Channel settings transport is unavailable");
@@ -717,6 +731,92 @@ function formatReminderResponse(
       .join("\n");
   }
   return `Accepted reminder ${operation} request.`;
+}
+
+const WEEKLY_REPORT_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation {
+  const operation = args[0];
+  if (operation !== "context" && operation !== "list" && operation !== "read")
+    throw new Error("Usage:");
+  const values = new Map<string, string>();
+  for (let index = 1; index < args.length; index++) {
+    const name = args[index];
+    const value = args[++index];
+    if (!name?.startsWith("--") || !value || value.startsWith("--") || values.has(name))
+      throw new Error("Usage:");
+    values.set(name, value);
+  }
+  if (operation === "context") {
+    const subjectType = values.get("--subject-type");
+    const subjectId = values.get("--subject-id");
+    if (
+      values.size !== 2 ||
+      !WEEKLY_REPORT_SUBJECT_TYPES.includes(
+        subjectType as (typeof WEEKLY_REPORT_SUBJECT_TYPES)[number],
+      ) ||
+      !subjectId ||
+      !WEEKLY_REPORT_UUID.test(subjectId)
+    )
+      throw new Error("Usage:");
+    return {
+      command: "weekly-report",
+      weeklyReport: {
+        operation: "context",
+        subjectType: subjectType as (typeof WEEKLY_REPORT_SUBJECT_TYPES)[number],
+        subjectId,
+      },
+    };
+  }
+  if (operation === "list") {
+    const cycleId = values.get("--cycle-id");
+    const cursor = values.get("--cursor");
+    const limitValue = values.get("--limit");
+    for (const name of values.keys()) {
+      if (name !== "--cycle-id" && name !== "--cursor" && name !== "--limit")
+        throw new Error("Usage:");
+    }
+    if (cycleId && !WEEKLY_REPORT_UUID.test(cycleId)) throw new Error("Usage:");
+    if (cursor && !WEEKLY_REPORT_UUID.test(cursor)) throw new Error("Usage:");
+    let limit: number | undefined;
+    if (limitValue) {
+      limit = Number(limitValue);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error("Usage:");
+    }
+    return {
+      command: "weekly-report",
+      weeklyReport: {
+        operation: "list",
+        ...(cycleId ? { cycleId } : {}),
+        ...(cursor ? { cursor } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      },
+    };
+  }
+  const reportId = values.get("--report-id");
+  const section = values.get("--section");
+  const maxCharactersValue = values.get("--max-characters");
+  for (const name of values.keys()) {
+    if (name !== "--report-id" && name !== "--section" && name !== "--max-characters")
+      throw new Error("Usage:");
+  }
+  if (!reportId || !WEEKLY_REPORT_UUID.test(reportId) || !section) throw new Error("Usage:");
+  let maxCharacters: number | undefined;
+  if (maxCharactersValue) {
+    maxCharacters = Number(maxCharactersValue);
+    if (!Number.isInteger(maxCharacters) || maxCharacters < 1 || maxCharacters > 12_000)
+      throw new Error("Usage:");
+  }
+  return {
+    command: "weekly-report",
+    weeklyReport: {
+      operation: "read",
+      reportId,
+      section,
+      ...(maxCharacters !== undefined ? { maxCharacters } : {}),
+    },
+  };
 }
 
 function parseTaskArgs(args: readonly string[]): TaskInvocation {

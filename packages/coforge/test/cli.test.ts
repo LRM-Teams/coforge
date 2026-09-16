@@ -1121,3 +1121,60 @@ test("send results hide the internal model cursor from Agent output", async () =
   expect(output).not.toContain("seenUpToSequence");
   expect(output).not.toContain("9");
 });
+
+test("weekly-report CLI parses bounded reads and dispatches the transport", async () => {
+  const invocation = parseArgs([
+    "weekly-report",
+    "read",
+    "--report-id",
+    "33333333-3333-4333-8333-333333333333",
+    "--section",
+    "Progress",
+    "--max-characters",
+    "120",
+  ]);
+  expect(invocation).toEqual({
+    command: "weekly-report",
+    weeklyReport: {
+      operation: "read",
+      reportId: "33333333-3333-4333-8333-333333333333",
+      section: "Progress",
+      maxCharacters: 120,
+    },
+  });
+  const calls: unknown[] = [];
+  const output = await run(["weekly-report", "list", "--limit", "2"], {
+    check: async () => {
+      throw new Error("message check called");
+    },
+    read: async () => {
+      throw new Error("message read called");
+    },
+    send: async () => {
+      throw new Error("message send called");
+    },
+    view: async () => {
+      throw new Error("attachment called");
+    },
+    weeklyReport: async (command) => {
+      calls.push(command);
+      return {
+        protocolMajor: 1,
+        requestId: "request",
+        operation: "list",
+        result: { reports: [], nextCursor: null },
+      };
+    },
+  });
+  expect(calls).toEqual([{ operation: "list", limit: 2 }]);
+  expect(output).toEqual({
+    protocolMajor: 1,
+    requestId: "request",
+    operation: "list",
+    result: { reports: [], nextCursor: null },
+  });
+});
+
+test("weekly-report CLI rejects oversized list limits", () => {
+  expect(() => parseArgs(["weekly-report", "list", "--limit", "51"])).toThrow("Usage:");
+});

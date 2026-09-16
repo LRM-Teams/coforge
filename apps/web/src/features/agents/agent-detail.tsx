@@ -15,15 +15,18 @@ import { useSubmitGuard } from "@/hooks/use-submit-guard";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { TextArea } from "@/components/base/textarea/textarea";
+import { Select } from "@/components/base/select/select";
 import { Badge } from "@/components/base/badges/badges";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { m } from "@/paraglide/messages";
 import { localizeHref } from "@/paraglide/runtime";
-import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import { isAppError } from "@/lib/app-error";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
+import { updateAgentInputFromForm } from "./agent-form";
 import type { UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
 import { agentDisplay } from "./agent-activity-presentation";
@@ -61,6 +64,8 @@ export function AgentDetail({
   onExecuteControl,
   onLoadReminders = async () => ({ status: "unauthorized" }),
   environment,
+  availableComputers = [],
+  initialEditOpen = false,
 }: {
   detail: Detail;
   /** Live display snapshot; falls back to the one loaded with the detail. */
@@ -76,6 +81,8 @@ export function AgentDetail({
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
   onLoadReminders?: Parameters<typeof AgentReminders>[0]["onLoad"];
   environment?: AgentEnvironmentEditorProps;
+  availableComputers?: ReadonlyArray<{ id: string; displayName: string; online?: boolean }>;
+  initialEditOpen?: boolean;
 }) {
   const view = agentDisplay(display);
   const online = view.isOnline;
@@ -124,7 +131,7 @@ export function AgentDetail({
             key={value}
             to="/agents/$agentId"
             params={{ agentId: detail.id }}
-            search={{ tab: value }}
+            search={{ tab: value, edit: false }}
             aria-current={tab === value ? "page" : undefined}
             className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-0.5 pb-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand ${tab === value ? "border-brand text-brand-secondary" : "border-transparent text-tertiary hover:border-brand hover:text-brand-secondary"}`}
           >
@@ -159,6 +166,8 @@ export function AgentDetail({
             onLoadSkills={onLoadSkills}
             onExecuteControl={onExecuteControl}
             environment={environment}
+            availableComputers={availableComputers}
+            initialEditOpen={initialEditOpen}
           />
         ) : tab === "activity" ? (
           <AgentActivityTimeline activity={activity} timeZone={timeZone} />
@@ -184,6 +193,8 @@ const Profile = memo(function Profile({
   onLoadSkills,
   onExecuteControl,
   environment,
+  availableComputers,
+  initialEditOpen,
 }: {
   detail: Detail;
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
@@ -193,12 +204,17 @@ const Profile = memo(function Profile({
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
   environment?: AgentEnvironmentEditorProps;
+  availableComputers: ReadonlyArray<{ id: string; displayName: string; online?: boolean }>;
+  initialEditOpen: boolean;
 }) {
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(initialEditOpen);
   const [saving, guard] = useSubmitGuard();
   const [editError, setEditError] = useState("");
   const [runtimeError, setRuntimeError] = useState("");
+  const [selectedComputerId, setSelectedComputerId] = useState(
+    detail.computerId ?? availableComputers[0]?.id ?? "",
+  );
   const { runtime, provider, model, reasoning } = detail.runtimeConfig;
   const providerId = provider.kind === "coforge" ? provider.providerId : "";
   const canConfigureCredential = detail.ownedByCurrentUser && Boolean(providerId);
@@ -274,19 +290,23 @@ const Profile = memo(function Profile({
                 await guard(async () => {
                   setEditError("");
                   try {
-                    await onUpdate({
-                      agentId: detail.id,
-                      name: String(form.get("name") ?? ""),
-                      description: String(form.get("description") ?? ""),
-                      provider:
-                        parseRuntimeProvider(form.get("provider")) ?? RUNTIME_PROVIDER.COFORGE,
-                      modelProvider: String(form.get("modelProvider") ?? ""),
-                      model: String(form.get("model") ?? ""),
-                      reasoning: String(form.get("reasoning") ?? ""),
-                    });
+                    await onUpdate(
+                      updateAgentInputFromForm(form, {
+                        agentId: detail.id,
+                        computerId: selectedComputerId,
+                      }),
+                    );
                     setEditOpen(false);
-                  } catch {
-                    setEditError(m.agent_update_error());
+                  } catch (cause) {
+                    setEditError(
+                      isAppError(cause) && cause.errorId === "agent-api-key-required"
+                        ? m.agent_form_api_key_required()
+                        : isAppError(cause) && cause.errorId === "agent-runtime-unavailable"
+                          ? m.agent_form_runtime_unavailable()
+                          : isAppError(cause) && cause.errorId === "agent-computer-required"
+                            ? m.agent_form_computer_required()
+                            : m.agent_update_error(),
+                    );
                   }
                 });
               }}
@@ -301,6 +321,7 @@ const Profile = memo(function Profile({
                   label={m.agent_form_name()}
                   name="name"
                   isRequired
+                  isReadOnly={detail.isWeeklyReportAssistant}
                   defaultValue={detail.name}
                   className="min-w-0 sm:col-span-2"
                 />
@@ -311,15 +332,38 @@ const Profile = memo(function Profile({
                   defaultValue={detail.description}
                   className="min-w-0 sm:col-span-2"
                 />
-                <Input
-                  label={m.agent_form_computer()}
-                  isReadOnly
-                  value={detail.computer?.label ?? detail.computerId ?? ""}
-                  className="min-w-0 sm:col-span-2"
-                />
+                {detail.computerId ? (
+                  <Input
+                    label={m.agent_form_computer()}
+                    isReadOnly
+                    value={detail.computer?.label ?? detail.computerId}
+                    className="min-w-0 sm:col-span-2"
+                  />
+                ) : (
+                  <Select
+                    name="computerId"
+                    isRequired
+                    label={m.agent_form_computer()}
+                    selectedKey={selectedComputerId}
+                    onSelectionChange={(key) => setSelectedComputerId(String(key ?? ""))}
+                    className="min-w-0 sm:col-span-2"
+                  >
+                    {availableComputers.map((computer) => (
+                      <Select.Item
+                        key={computer.id}
+                        id={computer.id}
+                        label={computer.displayName}
+                        supportingText={
+                          computer.online ? m.computer_status_online() : m.computer_status_offline()
+                        }
+                      />
+                    ))}
+                  </Select>
+                )}
                 <AgentRuntimeFields
                   open={editOpen}
-                  computerId={detail.computerId ?? ""}
+                  computerId={selectedComputerId}
+                  credentialConfigured={Boolean(detail.runtimeCredential)}
                   initial={{
                     provider: runtime,
                     modelProvider: detail.runtimeConfig.modelProvider,

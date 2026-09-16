@@ -3,17 +3,21 @@ import {
   encodeLocalReminderRequest,
   isValidReactionEmoji,
   validateTaskRequest,
+  validateWeeklyReportRequest,
+  WEEKLY_REPORT_PROTOCOL_MAJOR,
   type LocalAgentMessageRequest,
   type LocalInboxRequest,
   type LocalReminderRequest,
   type TaskCommand,
   type WorkspaceInfoRequest,
   type WorkspaceInfoResponse,
+  type WeeklyReportCommand,
 } from "@lrm/coforge-sdk/internal";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { isAgentApiKey } from "./credentials/agent-api-key";
 import { AgentMessageRequestError } from "./connection/agent-message-request-error";
 import { AgentTaskRequestError } from "./connection/agent-task-request-error";
+import { AgentWeeklyReportRequestError } from "./connection/agent-weekly-report-request-error";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentProxy = {
@@ -52,6 +56,11 @@ export function startAgentProxy(input: {
       request: WorkspaceInfoRequest,
       agentApiKey?: string,
     ): Promise<WorkspaceInfoResponse>;
+    agentWeeklyReport?(
+      context: string,
+      request: WeeklyReportCommand,
+      agentApiKey: string,
+    ): Promise<unknown>;
     issueAgentContext?: (agentId: string, context?: string) => string;
   };
   port?: number;
@@ -85,6 +94,8 @@ export function startAgentProxy(input: {
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.reminders.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.tasks.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.tasks.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.weeklyReports.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.weeklyReports.path) &&
         (request.method !== "GET" || !requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX))
       )
         return new Response("not found", { status: 404 });
@@ -163,6 +174,23 @@ export function startAgentProxy(input: {
             agentId: binding.agentId,
           });
           const result = await input.runtime.agentTask(
+            binding.context,
+            command,
+            binding.agentApiKey,
+          );
+          return Response.json(result);
+        }
+        if (requestUrl.pathname === LOCAL_PROXY_ROUTES.weeklyReports.path) {
+          if (!input.runtime.agentWeeklyReport) return new Response("not found", { status: 404 });
+          const command = payload as WeeklyReportCommand;
+          validateWeeklyReportRequest({
+            ...command,
+            protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
+            requestId: "local",
+            workspaceId: "local",
+            agentId: binding.agentId,
+          });
+          const result = await input.runtime.agentWeeklyReport(
             binding.context,
             command,
             binding.agentApiKey,
@@ -277,6 +305,8 @@ export function startAgentProxy(input: {
         if (!reviewerMode && error instanceof AgentMessageRequestError)
           return new Response(error.message, { status: 400 });
         if (!reviewerMode && error instanceof AgentTaskRequestError)
+          return new Response(error.message, { status: 400 });
+        if (!reviewerMode && error instanceof AgentWeeklyReportRequestError)
           return new Response(error.message, { status: 400 });
         return new Response("proxy request failed", { status: 502 });
       }

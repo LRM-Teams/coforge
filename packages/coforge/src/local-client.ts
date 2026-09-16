@@ -10,6 +10,8 @@ import {
   type TaskCommand,
   type TaskResult,
   type WorkspaceInfoResponse,
+  type WeeklyReportCommand,
+  type WeeklyReportResponse,
 } from "@lrm/coforge-sdk/internal";
 import type { LocalReminderReceiptResponse, ReminderTransportRequest } from "../index";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
@@ -124,6 +126,7 @@ export function connectLocal(
       if (!response.ok) throw new Error(`workspace info request failed (${response.status})`);
       return (await response.json()) as WorkspaceInfoResponse;
     },
+    weeklyReport: (command: WeeklyReportCommand) => callWeeklyReport(command),
     view: async (attachmentId: string) => {
       if (!context) throw new Error("coforge agent context is not configured");
       if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
@@ -208,5 +211,22 @@ export function connectLocal(
       throw new Error(`agent Task request failed (${response.status}): ${await response.text()}`);
     }
     return (await response.json()) as TaskResult;
+  }
+
+  async function callWeeklyReport(command: WeeklyReportCommand) {
+    if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.weeklyReports.path), {
+      method: agentApiRoutes.proxy.weeklyReports.method,
+      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+      body: JSON.stringify(command),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok)
+      throw new Error(
+        `agent weekly-report request failed (${response.status}): ${await response.text()}`,
+      );
+    return (await response.json()) as WeeklyReportResponse;
   }
 }
