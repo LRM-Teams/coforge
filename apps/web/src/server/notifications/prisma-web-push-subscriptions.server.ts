@@ -14,7 +14,9 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
     const message = await this.db.message.findUnique({
       where: { id: messageId },
       include: {
-        sender: { include: { user: true, agent: true } },
+        sender: {
+          select: { agent: { select: { name: true } }, user: { select: { username: true } } },
+        },
         conversation: {
           include: {
             workspace: { select: { slug: true } },
