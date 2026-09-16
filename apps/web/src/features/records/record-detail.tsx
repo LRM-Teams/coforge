@@ -8,11 +8,11 @@ import {
   Heart,
   MessageChatCircle as Message,
   Share01 as Share,
-  Target04 as Target,
   Trash01 as Trash,
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { Avatar } from "@/components/base/avatar/avatar";
 import { Tabs } from "@/components/application/tabs/tabs";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -20,7 +20,10 @@ import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
+import { cn } from "@/lib/utils";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { useAppToast } from "@/components/ui/toast";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
 import { ReportTabsEditor } from "./report-tabs-editor";
 import type { UploadResult } from "./report-editor/types";
@@ -341,17 +344,27 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
       >
         <PageHeader
           heading={report.title}
-          leading={<BackToRecords />}
+          leading={
+            <span className="flex items-center gap-2">
+              <BackToRecords />
+              <WeekBadge week={report.cycle.week} />
+            </span>
+          }
           meta={
-            <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-tertiary">
-              {favorited ? (
-                <Heart
-                  aria-label={m.records_report_favorited()}
-                  className="size-5 shrink-0 text-brand-secondary"
-                />
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm text-tertiary">
+              {report.kind === "member" ? (
+                <>
+                  <Avatar
+                    size="sm"
+                    alt={report.author.displayName}
+                    initials={avatarInitial(report.author.displayName)}
+                    contentClassName={avatarToneClassName(report.author.displayName)}
+                  />
+                  <span className="truncate text-primary">{report.author.displayName}</span>
+                </>
               ) : null}
               {report.kind === "member" && report.submittedAt ? (
-                <span>
+                <span className="truncate">
                   {m.records_report_shared_meta({
                     time: new Date(report.submittedAt).toLocaleString(),
                     name: report.sharedBy?.displayName ?? report.author.displayName,
@@ -371,6 +384,20 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
                 >
                   {sent ? m.records_report_resend() : m.records_report_send()}
                 </Button>
+              ) : null}
+              {report.kind === "member" ? (
+                <ButtonUtility
+                  size="sm"
+                  color="tertiary"
+                  icon={Heart}
+                  aria-label={
+                    favorited ? m.records_report_unfavorite() : m.records_report_favorite()
+                  }
+                  aria-pressed={favorited}
+                  isDisabled={favoriteBusy}
+                  className={favorited ? "text-brand-secondary" : undefined}
+                  onClick={() => void toggleFavorite()}
+                />
               ) : null}
               <ButtonUtility
                 size="sm"
@@ -397,15 +424,6 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
                       if (key === "delete") void removeCurrentReport();
                     }}
                   >
-                    {report.kind === "member" ? (
-                      <Dropdown.Item
-                        id="favorite"
-                        icon={Heart}
-                        label={
-                          favorited ? m.records_report_unfavorite() : m.records_report_favorite()
-                        }
-                      />
-                    ) : null}
                     <Dropdown.Item id="share" icon={Share} label={m.records_report_share()} />
                     <Dropdown.Item id="export" icon={Download} label={m.records_report_export()} />
                     {editable ? (
@@ -691,62 +709,65 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
       <div
         className={`${sideOpen ? "hidden md:flex" : "flex"} min-w-0 flex-1 flex-col overflow-hidden`}
       >
-        <PageHeader
-          heading={report.title}
-          leading={<BackToRecords />}
-          actions={
-            <div className="flex items-center gap-1">
-              {isOverview ? null : (
-                <>
-                  {hasUnsavedEdits ? (
-                    <Button
-                      size="sm"
-                      color="primary"
-                      isDisabled={saving || sending || promptBusy}
-                      onPress={() => void saveFormatEdits()}
-                    >
-                      {m.records_report_save()}
-                    </Button>
-                  ) : null}
+        <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
+          <span className="flex shrink-0 items-center gap-2">
+            <BackToRecords />
+            <WeekBadge week={report.cycle.week} />
+          </span>
+          <h1 className="min-w-0 truncate text-base font-semibold text-primary sm:text-lg">
+            {report.title}
+          </h1>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {isOverview ? null : (
+              <>
+                {hasUnsavedEdits ? (
                   <Button
                     size="sm"
-                    color={hasUnsavedEdits ? "secondary" : "primary"}
-                    isDisabled={saving || sending || !canSendAssignments || hasUnsavedEdits}
-                    onPress={() => setConfirmOpen(true)}
+                    color="primary"
+                    isDisabled={saving || sending || promptBusy}
+                    onPress={() => void saveFormatEdits()}
                   >
-                    {m.records_report_send()}
+                    {m.records_report_save()}
                   </Button>
-                </>
-              )}
-              <ButtonUtility
-                size="sm"
-                color="tertiary"
-                icon={Message}
-                aria-label={m.records_side_chat()}
-                aria-pressed={sideOpen}
-                onClick={() => setSideOpen((open) => !open)}
-              />
-              {isOverview ? null : (
-                <Dropdown.Root>
-                  <ButtonUtility
-                    size="sm"
-                    color="tertiary"
-                    icon={DotsHorizontal}
-                    aria-label={m.records_report_actions()}
-                    isDisabled={saving || sending}
-                  />
-                  <Dropdown.Popover placement="bottom end" className="w-44">
-                    <Dropdown.Menu
-                      onAction={() => void persist(clearReportContent(contentRef.current), "draft")}
-                    >
-                      <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
-                    </Dropdown.Menu>
-                  </Dropdown.Popover>
-                </Dropdown.Root>
-              )}
-            </div>
-          }
-        />
+                ) : null}
+                <Button
+                  size="sm"
+                  color={hasUnsavedEdits ? "secondary" : "primary"}
+                  isDisabled={saving || sending || !canSendAssignments || hasUnsavedEdits}
+                  onPress={() => setConfirmOpen(true)}
+                >
+                  {m.records_report_send()}
+                </Button>
+              </>
+            )}
+            <ButtonUtility
+              size="sm"
+              color="tertiary"
+              icon={Message}
+              aria-label={m.records_side_chat()}
+              aria-pressed={sideOpen}
+              onClick={() => setSideOpen((open) => !open)}
+            />
+            {isOverview ? null : (
+              <Dropdown.Root>
+                <ButtonUtility
+                  size="sm"
+                  color="tertiary"
+                  icon={DotsHorizontal}
+                  aria-label={m.records_report_actions()}
+                  isDisabled={saving || sending}
+                />
+                <Dropdown.Popover placement="bottom end" className="w-44">
+                  <Dropdown.Menu
+                    onAction={() => void persist(clearReportContent(contentRef.current), "draft")}
+                  >
+                    <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown.Root>
+            )}
+          </div>
+        </header>
         {isOverview || !sendError ? null : (
           <p className="border-b border-secondary px-4 py-2 text-sm text-error-primary sm:px-8">
             {sendError}
@@ -766,13 +787,9 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
                   setFormatKind(key === "highlights" ? "highlights" : "weekly")
                 }
               >
-                <Tabs.List type="underline" size="sm">
-                  <Tabs.Item id="weekly" icon={FileIcon} label={m.records_parent_tab_template()} />
-                  <Tabs.Item
-                    id="highlights"
-                    icon={Target}
-                    label={m.records_settings_tab_highlights()}
-                  />
+                <Tabs.List type="underline" size="sm" className="gap-4">
+                  <Tabs.Item id="weekly" label={m.records_parent_tab_template()} />
+                  <Tabs.Item id="highlights" label={m.records_settings_tab_highlights()} />
                 </Tabs.List>
               </Tabs>
             </div>
@@ -833,6 +850,13 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
   contentRef.current = content;
   const generating = highlight.generating === true || content.generating === true;
   const [sideOpen, setSideOpen] = useState(true);
+  const [activeBlockId, setActiveBlockId] = useState(highlight.content.blocks[0]?.id ?? "");
+  const blockRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  function focusBlock(blockId: string) {
+    setActiveBlockId(blockId);
+    blockRefs.current[blockId]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -869,59 +893,104 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
             />
           }
         />
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
-          {generating ? (
-            <p className="text-sm text-tertiary">{m.records_highlight_generating_empty()}</p>
-          ) : (
-            content.blocks.map((block, index) => (
-              <section key={block.id} className="space-y-3">
-                <h2 className="text-sm font-semibold text-primary">{block.heading}</h2>
-                {block.items.length > 0 ? (
-                  <ul className="space-y-3">
-                    {block.items.map((item, itemIndex) => (
-                      <li key={`${block.id}-${itemIndex}`} className="space-y-1">
-                        <p className="text-sm text-primary">{item.text}</p>
-                        {item.sources.length > 0 ? (
-                          <p className="text-xs text-tertiary">
-                            {m.records_highlight_source()}{" "}
-                            {item.sources.map((source) => (
-                              <Link
-                                key={source.reportId}
-                                to="/records/$recordId"
-                                params={{ recordId: source.reportId }}
-                                search={{ tab: "weekly" }}
-                                className="mr-2 font-medium text-brand-secondary"
-                              >
-                                @{source.displayName}
-                              </Link>
-                            ))}
-                          </p>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <TextArea
-                    value={block.paragraphs.join("\n")}
-                    onChange={(value) => {
-                      const next = structuredClone(contentRef.current);
-                      next.blocks[index]!.paragraphs = value.split("\n");
-                      setContent(next);
-                      contentRef.current = next;
-                    }}
-                    onBlur={() =>
-                      void save({
-                        data: {
-                          highlightId: highlight.id,
-                          content: contentRef.current,
-                        },
-                      })
-                    }
-                    rows={4}
-                  />
+        {!generating ? (
+          <nav
+            aria-label={m.records_template_dimension()}
+            className="flex shrink-0 gap-6 border-b border-secondary px-4 sm:px-8"
+          >
+            {content.blocks.map((block) => (
+              <Button
+                key={block.id}
+                type="button"
+                size="sm"
+                color="link-gray"
+                aria-pressed={activeBlockId === block.id}
+                onPress={() => focusBlock(block.id)}
+                className={cn(
+                  "rounded-none border-b-2 px-0 pb-2.5 pt-3",
+                  activeBlockId === block.id
+                    ? "border-primary text-primary"
+                    : "border-transparent text-tertiary",
                 )}
-              </section>
-            ))
+              >
+                {block.heading.replace(/^一、|^二、|^三、/, "")}
+              </Button>
+            ))}
+          </nav>
+        ) : null}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+          {generating ? (
+            <Empty className="h-full py-10">
+              <EmptyHeader>
+                <EmptyMedia aria-hidden="true" className="text-brand-secondary">
+                  <FileIcon className="size-10" />
+                </EmptyMedia>
+                <EmptyTitle>{m.records_highlight_generating_empty()}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <div className="space-y-8">
+              {content.blocks.map((block, index) => (
+                <section
+                  key={block.id}
+                  ref={(element) => {
+                    blockRefs.current[block.id] = element;
+                  }}
+                  className="scroll-mt-4 space-y-3"
+                >
+                  <h2 className="flex items-center gap-2 text-sm font-semibold text-primary">
+                    <span aria-hidden="true" className="size-2 rounded-full bg-brand-solid" />
+                    {block.heading}
+                  </h2>
+                  {block.items.length > 0 ? (
+                    <ul className="space-y-3">
+                      {block.items.map((item, itemIndex) => (
+                        <li key={`${block.id}-${itemIndex}`} className="space-y-1">
+                          <p className="rounded-lg bg-secondary px-3 py-2 text-sm leading-6 text-primary">
+                            {item.text}
+                          </p>
+                          {item.sources.length > 0 ? (
+                            <p className="px-3 text-xs text-tertiary">
+                              {m.records_highlight_source()}{" "}
+                              {item.sources.map((source) => (
+                                <Link
+                                  key={source.reportId}
+                                  to="/records/$recordId"
+                                  params={{ recordId: source.reportId }}
+                                  search={{ tab: "weekly" }}
+                                  className="mr-2 font-medium text-brand-secondary"
+                                >
+                                  @{source.displayName}
+                                </Link>
+                              ))}
+                            </p>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <TextArea
+                      value={block.paragraphs.join("\n")}
+                      onChange={(value) => {
+                        const next = structuredClone(contentRef.current);
+                        next.blocks[index]!.paragraphs = value.split("\n");
+                        setContent(next);
+                        contentRef.current = next;
+                      }}
+                      onBlur={() =>
+                        void save({
+                          data: {
+                            highlightId: highlight.id,
+                            content: contentRef.current,
+                          },
+                        })
+                      }
+                      rows={4}
+                    />
+                  )}
+                </section>
+              ))}
+            </div>
           )}
         </div>
       </div>
