@@ -1,7 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { XClose as X } from "@untitledui/icons";
+import {
+  File02 as FileIcon,
+  Microphone02 as Microphone,
+  Paperclip,
+  Send01 as Send,
+  XClose as X,
+} from "@untitledui/icons";
 
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
@@ -159,7 +165,10 @@ export function RecordSidePanel({
                     {new Date(comment.createdAt).toLocaleString()}
                   </span>
                 </div>
-                <p className="whitespace-pre-wrap text-sm text-primary">{comment.body}</p>
+                <p className="whitespace-pre-wrap text-sm leading-6 text-primary">{comment.body}</p>
+                {payload?.kind === "offer-send" || payload?.kind === "generated" ? (
+                  <AssistantAttachmentCard payload={payload} countdown={countdown} />
+                ) : null}
                 {payload?.kind === "offer-generate" ? (
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -216,59 +225,126 @@ export function RecordSidePanel({
         )}
 
         {picker ? (
-          <div className="space-y-3 rounded-xl border border-secondary p-3">
-            <p className="text-sm font-medium text-primary">{m.records_assistant_pick_members()}</p>
-            <ul className="space-y-2">
+          <div className="space-y-3 rounded-lg border border-secondary bg-primary p-3 shadow-xs">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-primary">
+                {m.records_assistant_pick_members()} ({picker.length})
+              </p>
+              <Button
+                size="sm"
+                isDisabled={busy || picked.length === 0}
+                onPress={() => void runGenerate(picked)}
+              >
+                {m.records_assistant_confirm_generate()}
+              </Button>
+            </div>
+            <ul className="max-h-72 space-y-1 overflow-y-auto">
               {picker.map((member) => (
                 <li key={member.userId}>
-                  <Checkbox
-                    size="sm"
-                    isDisabled={!member.submitted || busy}
-                    isSelected={picked.includes(member.userId)}
-                    onChange={(selected) => {
-                      setPicked((current) =>
-                        selected
-                          ? [...current, member.userId]
-                          : current.filter((id) => id !== member.userId),
-                      );
-                    }}
-                    label={member.displayName}
-                    hint={member.submitted ? undefined : m.records_report_unread_badge()}
-                  />
+                  <div className="flex items-center gap-2 rounded-md px-1 py-1.5">
+                    <Checkbox
+                      size="sm"
+                      isDisabled={!member.submitted || busy}
+                      isSelected={picked.includes(member.userId)}
+                      onChange={(selected) => {
+                        setPicked((current) =>
+                          selected
+                            ? [...current, member.userId]
+                            : current.filter((id) => id !== member.userId),
+                        );
+                      }}
+                      aria-label={member.displayName}
+                    />
+                    <Avatar
+                      size="xs"
+                      initials={avatarInitial(member.displayName)}
+                      contentClassName={avatarToneClassName(member.displayName)}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm text-primary">
+                      {member.displayName}
+                    </span>
+                    {!member.submitted ? (
+                      <span className="shrink-0 text-xs text-tertiary">
+                        {m.records_report_unread_badge()}
+                      </span>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
-            <Button
-              size="sm"
-              isDisabled={busy || picked.length === 0}
-              onPress={() => void runGenerate(picked)}
-            >
-              {m.records_assistant_confirm_generate()}
-            </Button>
           </div>
         ) : null}
       </div>
 
       <form onSubmit={(event) => void onSubmit(event)} className="border-t border-secondary p-3">
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 rounded-lg border border-secondary bg-primary p-1.5 shadow-xs">
+          <ButtonUtility
+            type="button"
+            size="sm"
+            color="tertiary"
+            icon={Paperclip}
+            aria-label={m.records_side_chat_attach()}
+            isDisabled
+          />
           <TextArea
             aria-label={m.records_side_chat_placeholder()}
             value={draft}
             onChange={setDraft}
             placeholder={m.records_side_chat_placeholder()}
-            rows={2}
-            className="flex-1"
+            rows={1}
+            textAreaClassName="resize-none border-0 bg-transparent p-1 shadow-none ring-0 focus:ring-0"
+            className="min-w-0 flex-1"
           />
-          <div className="flex flex-col items-end gap-1">
+          <div className="flex shrink-0 items-center gap-1">
             {countdown ? (
-              <span className="font-mono text-xs text-brand-secondary">{countdown}</span>
+              <span className="mr-1 font-mono text-xs text-brand-secondary">{countdown}</span>
             ) : null}
-            <Button type="submit" size="sm" isDisabled={busy || !draft.trim()}>
-              {m.records_side_chat_send()}
-            </Button>
+            <ButtonUtility
+              type="button"
+              size="sm"
+              color="tertiary"
+              icon={Microphone}
+              aria-label={m.records_side_chat_voice()}
+              isDisabled
+            />
+            <ButtonUtility
+              type="submit"
+              size="sm"
+              color="secondary"
+              icon={Send}
+              className="bg-brand-solid text-white hover:bg-brand-solid"
+              aria-label={m.records_side_chat_send()}
+              isDisabled={busy || !draft.trim()}
+            />
           </div>
         </div>
       </form>
     </aside>
+  );
+}
+
+function AssistantAttachmentCard({
+  payload,
+  countdown,
+}: {
+  payload: Extract<RecordAssistantPayload, { kind: "offer-send" | "generated" }>;
+  countdown?: string | null;
+}) {
+  const status =
+    payload.kind === "generated"
+      ? m.records_assistant_template_generated()
+      : (countdown ?? m.records_assistant_template_ready());
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-brand-primary_alt px-3 py-2">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-brand-secondary">
+        <FileIcon className="size-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-primary">
+          {m.records_assistant_template()}
+        </p>
+        <p className="text-xs text-tertiary">{status}</p>
+      </div>
+    </div>
   );
 }

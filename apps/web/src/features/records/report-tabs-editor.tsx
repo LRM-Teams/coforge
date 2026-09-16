@@ -190,7 +190,7 @@ export function ReportTabsEditor({
           ref={scrollerRef}
           aria-label={m.records_template_dimension()}
           onScroll={updateTabOverflow}
-          className="flex min-w-0 flex-1 items-end gap-4 overflow-x-auto pt-0 sm:gap-6"
+          className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pt-0 sm:gap-2"
         >
           {tabNames.map((name) => (
             <div
@@ -226,10 +226,10 @@ export function ReportTabsEditor({
                   onPress={() => setSelectedTab(name)}
                   onDoubleClick={() => startEditingTab(name)}
                   className={cn(
-                    "rounded-none border-b-2 px-0.5 pt-1 pb-3.5",
+                    "rounded-md px-2.5 py-1.5",
                     name === activeTab
-                      ? "border-brand text-brand-secondary hover:text-brand-secondary"
-                      : "border-transparent text-tertiary hover:border-brand hover:text-brand-secondary",
+                      ? "bg-primary text-primary shadow-xs ring-1 ring-secondary"
+                      : "bg-secondary_alt text-tertiary hover:bg-primary_hover hover:text-primary",
                   )}
                 >
                   {name}
