@@ -22,7 +22,7 @@ import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/mod
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { m } from "@/paraglide/messages";
 import { localizeHref } from "@/paraglide/runtime";
-import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "@/lib/app-error";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
