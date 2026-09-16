@@ -31,7 +31,12 @@ function fakePorts(overrides: Partial<StatusPorts> = {}): StatusPorts {
     listWorkspaceAgents: {
       supported: true,
       list: async (bindings): Promise<WorkspaceAgents[]> =>
-        bindings.map((binding) => ({ workspaceId: binding.workspaceId, jobs: [], count: 0 })),
+        bindings.map((binding) => ({
+          workspaceId: binding.workspaceId,
+          workspaceJobPid: null,
+          jobs: [],
+          count: 0,
+        })),
     },
     probeMachineMutationLock: () => "free",
     readSupervisorLockOwner: async () => 4821,
@@ -68,13 +73,14 @@ test("healthy machine reports every section as readable and reachable", async ()
         enabled: true,
         running: true,
         pid: 111,
+        pidSource: "daemon-snapshot",
         pending: [],
       },
     ],
   });
   expect(report.agents).toEqual({
     supported: true,
-    workspaces: [{ workspaceId: "ws-1", jobs: [], count: 0 }],
+    workspaces: [{ workspaceId: "ws-1", workspaceJobPid: null, jobs: [], count: 0 }],
   });
   expect(report.locks).toEqual({
     machineMutationLock: "free",
@@ -125,7 +131,7 @@ test("Coordinator missing: not loaded, no PID, RPC unreachable", async () => {
   });
   // The Coordinator being down does not fail the report; other sections still read normally.
   expect(report.install.readable).toBe(true);
-  // No live runtime snapshot means every binding reports not running.
+  // No live runtime snapshot and no OS-job fallback means the binding reports not running.
   expect(report.workspaces).toEqual({
     readable: true,
     workspaces: [
@@ -135,9 +141,63 @@ test("Coordinator missing: not loaded, no PID, RPC unreachable", async () => {
         enabled: true,
         running: false,
         pid: null,
+        pidSource: null,
         pending: [],
       },
     ],
+  });
+});
+
+test("a Workspace pid falls back to its OS job when the snapshot lost track of it, and says so", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      // The Coordinator's snapshot reports processId 0 - a stale cached OS-instance identity -
+      // even though the Workspace's own launchd job is genuinely running.
+      probeDaemonSnapshot: async () => ({
+        reachable: true,
+        runtimes: [{ workspaceId: "ws-1", processId: 0 }],
+      }),
+      listWorkspaceAgents: {
+        supported: true,
+        list: async (bindings) =>
+          bindings.map((binding) => ({
+            workspaceId: binding.workspaceId,
+            workspaceJobPid: 9001,
+            jobs: [],
+            count: 0,
+          })),
+      },
+    }),
+  );
+
+  expect(report.workspaces).toMatchObject({
+    readable: true,
+    workspaces: [{ workspaceId: "ws-1", running: true, pid: 9001, pidSource: "os-job" }],
+  });
+});
+
+test("a Workspace pid prefers the daemon snapshot over the OS job when both are known", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      probeDaemonSnapshot: async () => ({
+        reachable: true,
+        runtimes: [{ workspaceId: "ws-1", processId: 111 }],
+      }),
+      listWorkspaceAgents: {
+        supported: true,
+        list: async (bindings) =>
+          bindings.map((binding) => ({
+            workspaceId: binding.workspaceId,
+            workspaceJobPid: 9001,
+            jobs: [],
+            count: 0,
+          })),
+      },
+    }),
+  );
+
+  expect(report.workspaces).toMatchObject({
+    workspaces: [{ pid: 111, pidSource: "daemon-snapshot" }],
   });
 });
 

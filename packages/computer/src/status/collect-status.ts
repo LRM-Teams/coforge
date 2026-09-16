@@ -1,4 +1,5 @@
 import type {
+  AgentsStatus,
   ComputerStatusReport,
   DaemonSnapshotProbe,
   InstallStatus,
@@ -11,14 +12,16 @@ import type {
 
 /** Assembles the read-only status report from injected ports. Every section is collected
  * independently and degrades on its own failure; only `install` can fail the whole report,
- * because every other section is reported relative to "which build is active". */
+ * because every other section is reported relative to "which build is active". Agents is
+ * collected before Workspaces because a Workspace's PID can fall back to the OS-job PID Agents
+ * already reads. */
 export async function collectComputerStatus(ports: StatusPorts): Promise<ComputerStatusReport> {
   const install = await collectInstall(ports);
   const snapshot = await ports.probeDaemonSnapshot();
   const supervisor = await collectSupervisor(ports, snapshot);
   const bindingsLoad = await ports.loadBindings();
-  const workspaces = collectWorkspaces(bindingsLoad, snapshot);
   const agents = await collectAgents(ports, bindingsLoad);
+  const workspaces = collectWorkspaces(bindingsLoad, snapshot, agents);
   const leftoverJobs = await collectLeftoverJobs(ports);
   const supervisorLockOwnerPid = await ports.readSupervisorLockOwner();
   return {
@@ -89,22 +92,36 @@ async function collectSupervisor(
 function collectWorkspaces(
   bindingsLoad: Awaited<ReturnType<StatusPorts["loadBindings"]>>,
   snapshot: DaemonSnapshotProbe,
+  agents: AgentsStatus,
 ): WorkspacesStatus {
   if (!bindingsLoad.ok) return { readable: false, error: bindingsLoad.error };
   const runtimeByWorkspace = new Map(
     snapshot.reachable ? snapshot.runtimes.map((runtime) => [runtime.workspaceId, runtime]) : [],
   );
+  const osJobPidByWorkspace = new Map(
+    agents.workspaces.map((workspace) => [workspace.workspaceId, workspace.workspaceJobPid]),
+  );
   return {
     readable: true,
     workspaces: bindingsLoad.bindings.map((binding) => {
       const runtime = runtimeByWorkspace.get(binding.workspaceId);
-      const pid = runtime && runtime.processId > 0 ? runtime.processId : null;
+      const snapshotPid = runtime && runtime.processId > 0 ? runtime.processId : null;
+      // The Coordinator's snapshot can report 0 for a Workspace whose OS job it lost track of
+      // (e.g. launchd's KeepAlive restarted it after the Coordinator last observed it) even
+      // though the Workspace daemon is genuinely running. The OS job's own PID, read from the
+      // same job listing Agents already uses, is a reliable fallback - and the report says which
+      // source it came from rather than silently picking one.
+      const osJobPid = osJobPidByWorkspace.get(binding.workspaceId) ?? null;
+      const pid = snapshotPid ?? osJobPid;
+      const pidSource =
+        snapshotPid !== null ? "daemon-snapshot" : osJobPid !== null ? "os-job" : null;
       return {
         workspaceId: binding.workspaceId,
         serverHttpUrl: binding.serverHttpUrl ?? null,
         enabled: binding.enabled,
         running: pid !== null,
         pid,
+        pidSource,
         pending: pendingRequestsFor(binding),
       };
     }),

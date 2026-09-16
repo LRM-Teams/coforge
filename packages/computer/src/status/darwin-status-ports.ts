@@ -1,17 +1,5 @@
-import { launchdJobs } from "@lrm/coforge-daemon";
+import { launchdJobs, workspaceLaunchdIdentity } from "@lrm/coforge-daemon";
 import type { AgentJob, LeftoverJob, StatusBinding, WorkspaceAgents } from "./types";
-
-/** Mirrors `LaunchdWorkspaceInstance`'s identity derivation in
- * packages/daemon/src/supervisor/launchd-workspace-instance.ts (`sha256(stateRoot + "\0" +
- * workspaceId).slice(0, 24)`). Duplicated here, rather than imported, so this read-only status
- * feature never depends on that OS-containment module's internals while it may still change. If
- * the two ever drift, Agent jobs simply fall back to the "unknown" bucket below - never a crash. */
-function workspaceLaunchdIdentity(stateRoot: string, workspaceId: string): string {
-  return new Bun.CryptoHasher("sha256")
-    .update(`${stateRoot}\0${workspaceId}`)
-    .digest("hex")
-    .slice(0, 24);
-}
 
 export async function probeDarwinCoordinator(label: string): Promise<{
   loaded: boolean;
@@ -23,28 +11,35 @@ export async function probeDarwinCoordinator(label: string): Promise<{
   return { loaded: true, pid: pid > 0 ? pid : null };
 }
 
-/** Groups every loaded `cn.coforge.agent.*` job by the Workspace whose identity hash it carries.
- * A single `launchctl list` call backs the whole machine, so this stays cheap regardless of how
- * many Workspaces or Agents are running. */
+/** For each binding, reads the Workspace's own OS-containment job (`cn.coforge.workspace.
+ * <identity>`) and every Agent job under it (`cn.coforge.agent.<identity>.*`) from one
+ * `launchctl list` call. The identity comes from the daemon's own `workspaceLaunchdIdentity`
+ * (imported, never recomputed independently), so this always agrees with the labels the running
+ * system actually created - even if that derivation ever changes. */
 export async function listDarwinWorkspaceAgents(
   stateDirectory: string,
   bindings: StatusBinding[],
 ): Promise<WorkspaceAgents[]> {
   const jobs = await launchdJobs();
-  const byIdentity = new Map<string, AgentJob[]>();
-  for (const [label, pid] of jobs) {
-    const match = /^cn\.coforge\.agent\.([a-f0-9]{24})\./.exec(label);
-    if (!match) continue;
-    const identity = match[1]!;
-    const list = byIdentity.get(identity) ?? [];
-    list.push({ label, pid: pid > 0 ? pid : null });
-    byIdentity.set(identity, list);
-  }
   return bindings.map((binding) => {
     const identity = workspaceLaunchdIdentity(stateDirectory, binding.workspaceId);
-    const jobs = byIdentity.get(identity) ?? [];
-    return { workspaceId: binding.workspaceId, jobs, count: jobs.length };
+    const workspaceJobPid = pidOrNull(jobs.get(`cn.coforge.workspace.${identity}`));
+    const agentPrefix = `cn.coforge.agent.${identity}.`;
+    const agentJobs: AgentJob[] = [];
+    for (const [label, pid] of jobs) {
+      if (label.startsWith(agentPrefix)) agentJobs.push({ label, pid: pidOrNull(pid) });
+    }
+    return {
+      workspaceId: binding.workspaceId,
+      workspaceJobPid,
+      jobs: agentJobs,
+      count: agentJobs.length,
+    };
   });
+}
+
+function pidOrNull(pid: number | undefined): number | null {
+  return pid !== undefined && pid > 0 ? pid : null;
 }
 
 /** Any `cn.coforge.upgrade.*` job still loaded is a one-shot remote upgrade coordinator

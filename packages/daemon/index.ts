@@ -25,6 +25,7 @@ import { configureDaemonLogging } from "./src/platform/daemon-logging";
 import { stopLaunchdJobs } from "./src/platform/launchd-job";
 export { launchdJobs } from "./src/platform/launchd-job";
 export { FileBindingStore } from "./src/supervisor/binding-store";
+export { workspaceLaunchdIdentity } from "./src/supervisor/launchd-workspace-instance";
 export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
 export { runLaunchdAgent } from "./src/platform/launchd-process";
 

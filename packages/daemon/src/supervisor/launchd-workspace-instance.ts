@@ -6,16 +6,25 @@ import {
   type WorkspaceInstanceConfig,
 } from "./workspace-instance";
 
+/** The single source of truth for a Workspace's launchd identity: every OS label derived from a
+ * Workspace (its own `cn.coforge.workspace.<identity>` job and its Agents' `cn.coforge.agent.
+ * <identity>.*` jobs) must go through this function rather than recomputing the hash elsewhere,
+ * so a read-only observer (e.g. `coforge-computer status`) can reliably correlate OS jobs back to
+ * a Workspace binding. */
+export function workspaceLaunchdIdentity(stateRoot: string, workspaceId: string): string {
+  return new Bun.CryptoHasher("sha256")
+    .update(`${stateRoot}\0${workspaceId}`)
+    .digest("hex")
+    .slice(0, 24);
+}
+
 export class LaunchdWorkspaceInstance implements WorkspaceInstance {
   readonly #job: LaunchdJob;
   readonly #agentPrefix: string;
   readonly #agentDirectory: string;
   constructor(config: WorkspaceInstanceConfig) {
     validateWorkspaceEndpoint(config.daemonConnectionEndpoint);
-    const identity = new Bun.CryptoHasher("sha256")
-      .update(`${config.stateRoot}\0${config.workspaceId}`)
-      .digest("hex")
-      .slice(0, 24);
+    const identity = workspaceLaunchdIdentity(config.stateRoot, config.workspaceId);
     this.#agentPrefix = `cn.coforge.agent.${identity}.`;
     this.#agentDirectory = join(config.stateDirectory, "launchd-agents");
     this.#job = new LaunchdJob({

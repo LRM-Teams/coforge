@@ -33,12 +33,20 @@ export type PendingRequest =
   | { kind: "restart"; requestId: string; phase: string }
   | { kind: "upgrade"; requestId: string; expectedVersion: string };
 
+/** Where a Workspace's `pid` came from. The Coordinator's `daemon:snapshot` is the primary
+ * source, but its cached OS-instance identity can go stale (e.g. the OS job was restarted by
+ * `KeepAlive` after the Coordinator last observed it), reporting `processId: 0` for a Workspace
+ * that is really running. `os-job` is the fallback: the same `cn.coforge.workspace.<identity>`
+ * launchd job whose PID the Agents section already reads from one `launchctl list` call. */
+export type WorkspacePidSource = "daemon-snapshot" | "os-job";
+
 export type WorkspaceStatus = {
   workspaceId: string;
   serverHttpUrl: string | null;
   enabled: boolean;
   running: boolean;
   pid: number | null;
+  pidSource: WorkspacePidSource | null;
   pending: PendingRequest[];
 };
 
@@ -47,7 +55,14 @@ export type WorkspacesStatus =
   | { readable: false; error: string };
 
 export type AgentJob = { label: string; pid: number | null };
-export type WorkspaceAgents = { workspaceId: string; jobs: AgentJob[]; count: number };
+export type WorkspaceAgents = {
+  workspaceId: string;
+  /** The Workspace's own OS-containment job PID (darwin: `cn.coforge.workspace.<identity>`),
+   * read from the same job listing as `jobs` below. `null` when unsupported or not loaded. */
+  workspaceJobPid: number | null;
+  jobs: AgentJob[];
+  count: number;
+};
 export type AgentsStatus = { supported: boolean; workspaces: WorkspaceAgents[] };
 
 export type LeftoverJob = { label: string; pid: number | null; runs: number | null };
