@@ -2,9 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { agentIdSchema } from "./agent.schemas";
-import { authMiddleware } from "../../server/auth/function-auth";
-import { getDatabaseClient } from "../../server/db/client.server";
-import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
+import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import {
   AgentRemindersQuery,
   prismaAgentReminderReadStore,
@@ -15,21 +13,13 @@ const listSchema = z.object({
   cursor: z.object({ id: z.uuid() }).optional(),
 });
 
-async function context(user: { id: string }) {
-  setResponseHeader("Cache-Control", "no-store");
-  const db = getDatabaseClient();
-  if (!db) throw new Error("Agent persistence is unavailable");
-  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  return {
-    query: new AgentRemindersQuery(prismaAgentReminderReadStore(db)),
-    viewer: { userId: user.id, workspaceId },
-  };
-}
-
 export const listAgentReminders = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(listSchema)
-  .handler(async ({ context: authContext, data }) => {
-    const { query, viewer } = await context(authContext.user);
-    return query.list(viewer, data);
+  .handler(async ({ context: { user, db, workspaceId }, data }) => {
+    setResponseHeader("Cache-Control", "no-store");
+    return new AgentRemindersQuery(prismaAgentReminderReadStore(db)).list(
+      { userId: user.id, workspaceId },
+      data,
+    );
   });

@@ -1,9 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { authMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { ReminderNotices } from "../../server/conversations/reminder-notices.server";
-import { getDatabaseClient } from "../../server/db/client.server";
-import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 
 const inputSchema = z.object({
   conversationId: z.uuid(),
@@ -11,13 +9,10 @@ const inputSchema = z.object({
 });
 
 export const loadReminderNotices = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(inputSchema)
   .handler(async ({ context, data }) => {
-    const user = context.user;
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Conversation persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = context;
     return new ReminderNotices(db).list(
       workspaceId,
       user.id,

@@ -1,17 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
-import { authMiddleware } from "../../server/auth/function-auth";
-import { requireDatabaseClient } from "../../server/db/client.server";
-import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
+import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { configuredGitHub } from "../../server/integrations/github-config.server";
 import { AppError } from "../../lib/app-error";
 import { z } from "zod";
 
 export const getProject = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ slug: z.string().min(1) }))
   .handler(async ({ data, context }) => {
-    const db = requireDatabaseClient();
-    const workspaceId = await requireWorkspaceIdForRequest(db, context.user.id);
+    const { db, workspaceId } = context;
     return db.project.findFirst({
       where: { workspaceId, slug: data.slug },
       select: {
@@ -26,10 +23,9 @@ export const getProject = createServerFn({ method: "GET" })
   });
 
 export const listProjects = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
-    const db = requireDatabaseClient();
-    const workspaceId = await requireWorkspaceIdForRequest(db, context.user.id);
+    const { db, workspaceId } = context;
     return db.project.findMany({
       where: { workspaceId },
       select: {
@@ -43,7 +39,7 @@ export const listProjects = createServerFn({ method: "GET" })
   });
 
 export const createProject = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       name: z.string().trim().min(1).max(100),
@@ -62,8 +58,7 @@ export const createProject = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data, context }) => {
-    const db = requireDatabaseClient();
-    const workspaceId = await requireWorkspaceIdForRequest(db, context.user.id);
+    const { db, workspaceId } = context;
     const github = await configuredGitHub();
     if (!github) throw new AppError("TEMPORARILY_UNAVAILABLE");
     const repositories = await github.connection.repositories(
