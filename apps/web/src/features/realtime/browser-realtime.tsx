@@ -49,27 +49,35 @@ export type RealtimePublication = { channel: string; data: unknown };
  * through this hook and never construct their own Centrifuge client. A channel
  * with a narrower server-issued grant supplies its own `getToken`.
  */
+export type RealtimeSubscriptionError = {
+  channel: string;
+  code: number;
+  message: string;
+};
+
 export function useRealtimeSubscription({
   channel,
   getToken,
   onSubscribed,
   onPublication,
   onConnected,
+  onError,
 }: {
   channel?: string;
   getToken?: () => Promise<string>;
   onSubscribed?: () => void;
   onPublication: (publication: RealtimePublication) => void;
   onConnected?: () => void;
+  onError?: (error: RealtimeSubscriptionError) => void;
 }) {
   const client = useBrowserRealtime();
-  const handlers = useRef({ channel, onSubscribed, onPublication, onConnected });
+  const handlers = useRef({ channel, onSubscribed, onPublication, onConnected, onError });
 
   // Install the latest callbacks only after commit, so a superseded channel is
   // unsubscribed before its handlers are replaced and can never dispatch into
   // the new channel's scope.
   useEffect(() => {
-    handlers.current = { channel, onSubscribed, onPublication, onConnected };
+    handlers.current = { channel, onSubscribed, onPublication, onConnected, onError };
   });
 
   useEffect(() => {
@@ -78,6 +86,28 @@ export function useRealtimeSubscription({
     const subscription = client.newSubscription(channel, getToken ? { getToken } : undefined);
     subscription.on("subscribed", () => current()?.onSubscribed?.());
     subscription.on("publication", (publication) => current()?.onPublication(publication));
+    // A rejected or dropped subscription (e.g. Centrifugo's 103: permission
+    // denied when no valid subscription token is presented) otherwise fails
+    // silently, leaving the feature looking connected but never updating.
+    subscription.on("error", (event) => {
+      console.warn(`realtime subscription error on ${channel}`, event.error);
+      current()?.onError?.({
+        channel,
+        code: event.error.code,
+        message: event.error.message,
+      });
+    });
+    subscription.on("unsubscribed", (event) => {
+      // Codes 0 and 2 are this client's own cleanup (unsubscribe called, client
+      // closed); anything else is the server or a token failure dropping us.
+      if (event.code === 0 || event.code === 2) return;
+      console.warn(`realtime subscription unsubscribed from ${channel}`, event.code, event.reason);
+      current()?.onError?.({
+        channel,
+        code: event.code,
+        message: event.reason,
+      });
+    });
     const connected = () => current()?.onConnected?.();
     client.on("connected", connected);
     subscription.subscribe();

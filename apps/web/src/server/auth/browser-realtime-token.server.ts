@@ -27,11 +27,11 @@ export async function issueBrowserRealtimeToken(
   input: { userId: string; workspaceId: string },
   environment: Record<string, string | undefined> = process.env,
 ): Promise<string> {
-  return browserRealtimeSigner(
-    environment,
-    { channels: [agentStatusChannel(input.workspaceId)] },
-    input.userId,
-  );
+  // The connection token grants no channels of its own: every channel on the
+  // shared Workspace connection is subscribed client-side with its own
+  // narrower, server-issued subscription token (see the `issue*SubscriptionToken`
+  // functions below).
+  return browserRealtimeSigner(environment, {}, input.userId);
 }
 
 export async function issueAgentActivitySubscriptionToken(
@@ -41,6 +41,17 @@ export async function issueAgentActivitySubscriptionToken(
   return browserRealtimeSigner(
     environment,
     { channel: agentActivityChannel(input.workspaceId) },
+    input.userId,
+  );
+}
+
+export async function issueAgentStatusSubscriptionToken(
+  input: { userId: string; workspaceId: string },
+  environment: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  return browserRealtimeSigner(
+    environment,
+    { channel: agentStatusChannel(input.workspaceId) },
     input.userId,
   );
 }

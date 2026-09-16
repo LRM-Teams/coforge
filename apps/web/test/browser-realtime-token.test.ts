@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { exportJWK, generateKeyPair, jwtVerify } from "jose";
 import {
   issueAgentActivitySubscriptionToken,
+  issueAgentStatusSubscriptionToken,
   issueConversationRealtimeToken,
   issueBrowserRealtimeToken,
 } from "../src/server/auth/browser-realtime-token.server";
@@ -19,7 +20,7 @@ async function signingFixture() {
   return { environment, publicKey };
 }
 
-test("connection token includes only the selected Workspace status channel", async () => {
+test("connection token carries no channel grants of its own", async () => {
   const { environment, publicKey } = await signingFixture();
   const token = await issueBrowserRealtimeToken(
     { userId: "user-1", workspaceId: "workspace-1" },
@@ -31,7 +32,7 @@ test("connection token includes only the selected Workspace status channel", asy
   });
 
   expect(payload.sub).toBe("user-1");
-  expect(payload.channels).toEqual(["agent:status:workspace-1"]);
+  expect(payload.channels).toBeUndefined();
   expect(payload.channel).toBeUndefined();
 });
 
@@ -48,6 +49,22 @@ test("subscription token authorizes one User for the Workspace Activity channel"
 
   expect(payload.sub).toBe("user-1");
   expect(payload.channel).toBe("agent:activity:workspace-1");
+  expect(payload.channels).toBeUndefined();
+});
+
+test("subscription token authorizes one User for the Workspace Agent status channel", async () => {
+  const { environment, publicKey } = await signingFixture();
+  const token = await issueAgentStatusSubscriptionToken(
+    { userId: "user-1", workspaceId: "workspace-1" },
+    environment,
+  );
+  const { payload } = await jwtVerify(token, publicKey, {
+    issuer: "coforge-test",
+    audience: "coforge-test-centrifugo",
+  });
+
+  expect(payload.sub).toBe("user-1");
+  expect(payload.channel).toBe("agent:status:workspace-1");
   expect(payload.channels).toBeUndefined();
 });
 

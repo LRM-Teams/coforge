@@ -188,10 +188,12 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   agents,
   workspaceId,
   refresh,
+  getConnectionToken,
 }: {
   agents: T[];
   workspaceId?: string;
   refresh: () => Promise<T[]>;
+  getConnectionToken: () => Promise<string>;
 }) {
   const [visibleAgents, setVisibleAgents] = useState(() => expireAgentStatuses(agents, Date.now()));
   const mounted = useRef(true);
@@ -273,6 +275,7 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
 
   useRealtimeSubscription({
     channel: workspaceId ? agentStatusChannel(workspaceId) : undefined,
+    getToken: getConnectionToken,
     onConnected: () => void refreshSnapshot().catch(() => {}),
     onPublication: (publication) => {
       try {

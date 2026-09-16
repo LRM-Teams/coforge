@@ -13,7 +13,11 @@ import { loadRecordsNavAttention } from "@/features/records/records.functions";
 import { BrowserRealtimeProvider } from "@/features/realtime/browser-realtime";
 import { getBrowserRealtimeConnectionToken } from "@/features/realtime/realtime.functions";
 import { getBrowserNotificationSettings } from "@/features/notifications/notifications.functions";
-import { listAgents, getAgentActivitySubscriptionToken } from "@/features/agents/agents.functions";
+import {
+  listAgents,
+  getAgentActivitySubscriptionToken,
+  getAgentStatusSubscriptionToken,
+} from "@/features/agents/agents.functions";
 import { getWorkspaceActivity } from "@/features/agents/agent-activity.functions";
 import { listProjects } from "@/features/projects/projects.functions";
 import { useWorkspaceActivity } from "@/features/agents/workspace-activity-realtime";
@@ -81,6 +85,7 @@ function AppLayout() {
   const refreshAgents = useServerFn(listAgents);
   const refreshActivity = useServerFn(getWorkspaceActivity);
   const getActivityToken = useServerFn(getAgentActivitySubscriptionToken);
+  const getStatusToken = useServerFn(getAgentStatusSubscriptionToken);
   const activityView = useWorkspaceActivity({
     workspaceId: currentWorkspace?.id,
     refresh: refreshActivity,
@@ -90,6 +95,7 @@ function AppLayout() {
     agents,
     workspaceId: currentWorkspace?.id,
     refresh: refreshAgents,
+    getConnectionToken: getStatusToken,
   });
   return (
     <BrowserRealtimeProvider

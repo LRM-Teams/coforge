@@ -37,11 +37,13 @@ import {
   publicAgentRuntimeConfig,
 } from "../../server/agents/agent-runtime-config.server";
 import { getAgentStatusCache } from "../../server/agents/agent-status.server";
-import { issueBrowserRealtimeToken } from "../../server/auth/browser-realtime-token.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 import { getAgentDisplay } from "../../server/agents/agent-display.server";
 import { AgentEnvironment } from "../../server/agents/agent-environment.server";
-import { issueAgentActivitySubscriptionToken } from "../../server/auth/browser-realtime-token.server";
+import {
+  issueAgentActivitySubscriptionToken,
+  issueAgentStatusSubscriptionToken,
+} from "../../server/auth/browser-realtime-token.server";
 
 type Database = ReturnType<typeof requireDatabaseClient>;
 
@@ -198,13 +200,13 @@ export const listAgents = createServerFn({ method: "GET" })
     );
   });
 
-export const getAgentStatusConnectionToken = createServerFn({
+export const getAgentStatusSubscriptionToken = createServerFn({
   method: "GET",
 })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { user, workspaceId } = context;
-    return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
+    return issueAgentStatusSubscriptionToken({ userId: user.id, workspaceId });
   });
 
 export const getAgentActivitySubscriptionToken = createServerFn({
