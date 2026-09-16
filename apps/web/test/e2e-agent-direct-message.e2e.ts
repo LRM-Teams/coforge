@@ -8,7 +8,10 @@ import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/cofor
 import { Centrifuge } from "centrifuge";
 import { PrismaClient } from "../generated/client";
 import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
-import { issueBrowserRealtimeToken } from "../src/server/auth/browser-realtime-token.server";
+import {
+  issueBrowserRealtimeToken,
+  issueAgentStatusSubscriptionToken,
+} from "../src/server/auth/browser-realtime-token.server";
 import {
   agentStatusChannel,
   decodeAgentStatusEvent,
@@ -204,21 +207,33 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
   );
   const statusEvents: AgentStatusEvent[] = [];
   const displayEvents: AgentDisplaySnapshot[] = [];
+  const statusSubscriptionErrors: unknown[] = [];
+  // Mirrors the real browser: one connection token with no channel grants of
+  // its own, plus a client-side subscription authorized by its own narrower
+  // subscription token (see `issueAgentStatusSubscriptionToken`).
   const statusClient = new Centrifuge("ws://127.0.0.1:8000/connection/websocket", {
     token: await issueBrowserRealtimeToken({
       userId: DEV_BROWSER_USER.id,
       workspaceId,
     }),
   });
-  statusClient.on("publication", (publication) => {
-    if (publication.channel !== agentStatusChannel(workspaceId)) return;
+  const statusSubscription = statusClient.newSubscription(agentStatusChannel(workspaceId), {
+    token: await issueAgentStatusSubscriptionToken({
+      userId: DEV_BROWSER_USER.id,
+      workspaceId,
+    }),
+  });
+  statusSubscription.on("publication", (publication) => {
     if (publication.data?.type === "agent:display")
       displayEvents.push(parseAgentDisplaySnapshot(publication.data));
     else statusEvents.push(decodeAgentStatusEvent(publication.data));
   });
+  statusSubscription.on("error", (event) => statusSubscriptionErrors.push(event));
+  statusSubscription.on("unsubscribed", (event) => statusSubscriptionErrors.push(event));
 
   try {
     statusClient.connect();
+    statusSubscription.subscribe();
     await runtime.start({
       workspaceId,
       computerId: registration.computerId,
@@ -238,8 +253,13 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       agentId: created.agent.id,
     };
     await waitFor(async () => (await statuses.get(statusScope)) === "active");
+    // These two waits are the regression check for the client-side Agent status
+    // subscription: a rejected subscribe (Centrifugo 103: permission denied,
+    // e.g. from a missing or mismatched subscription token) would never
+    // deliver these publications and this would time out instead of passing.
     await waitFor(() => statusEvents.some((event) => event.status === "active"));
     await waitFor(() => displayEvents.some((event) => event.activityKind !== "offline"));
+    expect(statusSubscriptionErrors).toEqual([]);
     expect(await agentsPage()).toContain('aria-label="e2e-agent, Starting…"');
     expect(await Bun.file(runtimeConfigPath).json()).toEqual({
       modelProvider: "e2e-provider",
