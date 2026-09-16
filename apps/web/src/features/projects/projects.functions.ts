@@ -4,7 +4,15 @@ import { configuredGitHub } from "../../server/integrations/github-config.server
 import { AppError, isAppError } from "../../lib/app-error";
 import { ProjectSettings } from "../../server/projects/project-settings.server";
 import { z } from "zod";
-import { updateProjectInput } from "./projects.schemas";
+import { projectIconUploadInput, updateProjectInput } from "./projects.schemas";
+import { ProjectImages, projectIconUrl } from "../../server/projects/project-images.server";
+
+export const uploadProjectIcon = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(projectIconUploadInput)
+  .handler(async ({ data, context }) =>
+    new ProjectImages(context.db).store(context.workspaceId, context.user.id, data.id, data.file),
+  );
 
 export const getProjectRepository = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
@@ -37,14 +45,14 @@ export const getProject = createServerFn({ method: "GET" })
   .validator(z.object({ slug: z.string().min(1) }))
   .handler(async ({ data, context }) => {
     const { db, workspaceId } = context;
-    return db.project.findFirst({
+    const project = await db.project.findFirst({
       where: { workspaceId, slug: data.slug },
       select: {
         id: true,
         name: true,
         slug: true,
         description: true,
-        icon: true,
+        iconObjectKey: true,
         githubFullName: true,
         githubHtmlUrl: true,
         conversations: {
@@ -58,6 +66,9 @@ export const getProject = createServerFn({ method: "GET" })
         },
       },
     });
+    if (!project) return null;
+    const { iconObjectKey, ...view } = project;
+    return { ...view, iconUrl: projectIconUrl(project.id, iconObjectKey) };
   });
 
 export const updateProject = createServerFn({ method: "POST" })
@@ -88,13 +99,13 @@ export const listProjects = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { db, workspaceId } = context;
-    return db.project.findMany({
+    const projects = await db.project.findMany({
       where: { workspaceId },
       select: {
         id: true,
         name: true,
         slug: true,
-        icon: true,
+        iconObjectKey: true,
         conversations: {
           select: { id: true },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -102,6 +113,10 @@ export const listProjects = createServerFn({ method: "GET" })
       },
       orderBy: { createdAt: "asc" },
     });
+    return projects.map(({ iconObjectKey, ...project }) => ({
+      ...project,
+      iconUrl: projectIconUrl(project.id, iconObjectKey),
+    }));
   });
 
 export const createProject = createServerFn({ method: "POST" })

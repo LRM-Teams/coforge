@@ -18,6 +18,7 @@ import { CreateChannelDialog } from "@/features/conversations/create-channel-dia
 import { createPublicChannel } from "@/features/conversations/channels.functions";
 import { m } from "@/paraglide/messages";
 import type { getProject, getProjectRepository } from "./projects.functions";
+import { ProjectImage } from "./project-image";
 
 type Repository = Awaited<ReturnType<typeof getProjectRepository>>;
 
@@ -54,9 +55,7 @@ export function ProjectDetail({
             >
               <ArrowLeft aria-hidden="true" className="size-5" />
             </Link>
-            <span aria-hidden="true" className="shrink-0 text-xl">
-              {project.icon}
-            </span>
+            <ProjectImage name={project.name} url={project.iconUrl} />
           </>
         }
         actions={

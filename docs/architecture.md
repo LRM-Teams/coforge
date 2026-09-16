@@ -314,8 +314,9 @@ PublicChannel，不是 Message Thread。创建 Project 时保留自动创建首�
 `Conversation.projectId` 使用普通索引，不再使用一对一唯一约束；迁移不重建或删除既有讨论。
 此修复由 Frank 在本线程确认按项目详情实现范围执行。
 
-Project 独立设置页允许 Workspace 成员修改名称、描述、内置 Emoji 图标和 GitHub 仓库关联，保留 slug 和讨论组
-身份。描述默认为空，图标默认为 📁 并在列表和详情共用；更换仓库必须校验当前 User 的仓库访问权，未提交仓库变更时保留原关联。
+Project 独立设置页允许 Workspace 成员修改名称、描述、上传项目图片和 GitHub 仓库关联，保留 slug 和讨论组
+身份。描述默认为空；项目图片在列表和详情共用，无图片时显示名称首字，不提供内置 Emoji。
+更换仓库必须校验当前 User 的仓库访问权，未提交仓库变更时保留原关联。
 删除 Project 要求输入当前名称并由服务端原子核对；仅移除 Project，既有讨论组通过
 `ON DELETE SET NULL` 解除关联，成员与 Message 保留，不删除 GitHub 仓库。
 此设置、描述持久化及删除语义由 Frank 在本线程确认。
@@ -372,6 +373,14 @@ backend 通过统一的 `FileStorage` port 读写聊天附件和用户头像字�
 附件只有在关联到请求者可见的 committed canonical message 后才能下载或预览；未发送草稿与孤立 upload intent 不签发 GET URL。数据库只保存稳定 `object_key` 与 committed-message 附件 metadata，不保存 bucket、endpoint、delivery provider 或 OSS/CDN signed URL；物理 bucket 和域名映射属于 adapter 部署配置。Signed URL 是 bearer credential，必须短时有效且不得写入数据库、日志或 analytics；返回它的 backend 响应必须 `Cache-Control: no-store`。访问权被撤销后，已签发 URL 最长仍可用到自身过期时间，因此 TTL 就是明确的撤销延迟上界。过期、失败或未绑定 intent 对应的孤立对象由明确的 retention cleanup process 最终清理。
 
 用户头像由登录用户通过 backend 资料接口上传、替换或移除；当前实现接受 JPG、PNG、WebP，最大 5 MB，并校验声明类型和文件头。Backend 生成不可覆盖的 object key，成功提交新头像引用后才删除旧对象。头像读取接口只服务已认证请求，不允许调用方提供 object key；数据库仅保存当前头像的 object key 与 content type。
+
+项目图片复用同一私有 `FileStorage` 与图片校验规则，使用
+`workspaces/{workspace_id}/projects/{project_id}/icons/{uuid}/original` 前缀。
+上传通过认证 Server Function 单独保存；读取通过 `/api/projects/{project_id}/icon`
+重新验证 Workspace 成员身份，返回 private/no-cache 图片响应。客户端不能指定 object key。
+PostgreSQL 保存当前 key 和 content type；替换使用旧 key 条件更新，冲突时清理新文件，
+成功后清理旧文件。删除项目时同时清理当前图片，不影响讨论数据或 GitHub 仓库。
+此图片方案按 Frank 的要求替换未发布的内置 Emoji 方案。
 
 #### 下载授权 seam
 

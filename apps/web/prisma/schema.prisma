@@ -47,7 +47,8 @@ model Project {
   workspaceId          String         @db.Uuid
   name                 String
   description          String         @default("")
-  icon                 String         @default("📁")
+  iconObjectKey        String?
+  iconContentType      String?
   slug                 String
   githubInstallationId Int?
   githubRepositoryId   Int?

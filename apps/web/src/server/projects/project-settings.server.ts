@@ -1,11 +1,14 @@
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { GitHubConnection } from "../integrations/github-connection.server";
+import { getFileStorage, type FileStorage } from "../files/file-storage.server";
+import { toPublicServerError } from "../errors/public-error.server";
 
 export class ProjectSettings {
   constructor(
     private readonly db: PrismaClient,
     private readonly github?: Pick<GitHubConnection, "accessibleRepositories">,
+    private readonly storage: () => Promise<FileStorage> = getFileStorage,
   ) {}
 
   async update(
@@ -15,7 +18,6 @@ export class ProjectSettings {
       id: string;
       name: string;
       description: string;
-      icon?: string;
       repository?: { installationId: number; id: number; fullName: string } | null;
     },
   ) {
@@ -45,7 +47,6 @@ export class ProjectSettings {
       data: {
         name: input.name,
         description: input.description,
-        icon: input.icon,
         ...(repository !== undefined
           ? {
               githubInstallationId: repository?.installationId ?? null,
@@ -60,11 +61,27 @@ export class ProjectSettings {
   }
 
   async delete(workspaceId: string, userId: string, id: string, confirmation: string) {
+    const where = {
+      id,
+      workspaceId,
+      name: confirmation,
+      workspace: { members: { some: { userId } } },
+    };
+    const project = await this.db.project.findFirst({ where, select: { iconObjectKey: true } });
+    if (!project) throw new AppError("INVALID_INPUT");
     // The FK's ON DELETE SET NULL preserves channels, memberships and messages.
     // Check the current name in the delete itself so a concurrent rename cannot bypass confirmation.
     const result = await this.db.project.deleteMany({
-      where: { id, workspaceId, name: confirmation, workspace: { members: { some: { userId } } } },
+      where: { ...where, iconObjectKey: project.iconObjectKey },
     });
     if (!result.count) throw new AppError("INVALID_INPUT");
+    // Deletion has committed; report storage cleanup separately from the user operation.
+    if (project.iconObjectKey) {
+      try {
+        await (await this.storage()).remove(project.iconObjectKey);
+      } catch (error) {
+        toPublicServerError(error);
+      }
+    }
   }
 }

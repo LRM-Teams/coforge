@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { m } from "@/paraglide/messages";
 import { CreateProjectDialog } from "./create-project-dialog";
 import type { listProjects } from "./projects.functions";
+import { ProjectImage } from "./project-image";
 
 export function ProjectsContent({
   projects,
@@ -57,9 +58,7 @@ export function ProjectsContent({
                   params={{ projectSlug: project.slug }}
                   className="flex min-w-0 flex-1 items-center gap-3 rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4"
                 >
-                  <span aria-hidden="true" className="shrink-0 text-xl">
-                    {project.icon}
-                  </span>
+                  <ProjectImage name={project.name} url={project.iconUrl} />
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold text-primary">
                       {project.name}
