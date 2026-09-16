@@ -72,7 +72,9 @@ const GITHUB_EVENT_HEADER = "x-github-event";
  */
 export async function githubWebhookHandler({ request }: { request: Request }) {
   const headers = new Headers({ "cache-control": "no-store" });
-  const config = await readGitHubConfig();
+  // A misconfigured secret file (e.g. not mounted) is an operator problem, not a
+  // crash: answer 503 so GitHub's delivery log shows the failure plainly.
+  const config = await readGitHubConfig().catch(() => null);
   if (!config || !config.webhookSecret) return new Response(null, { status: 503, headers });
   const rawBody = await request.text();
   if (
