@@ -46,6 +46,7 @@ export {
   WindowsUserDaemonHost,
 } from "./src/daemon-host";
 export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./src/daemon-host/launcher";
+export { cleanupComputerUpgradeJob } from "./src/platform/computer-upgrade-launcher";
 export { acquireProcessLock } from "./src/platform/process-lock";
 export { readOperatingSystem } from "./src/platform/operating-system";
 export type { ProcessLock } from "./src/platform/process-lock";

@@ -17,6 +17,7 @@ import { LaunchdWorkspaceInstance } from "./launchd-workspace-instance";
 import type { WorkspaceInstance } from "./workspace-instance";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
+import { sweepLeftoverComputerUpgradeJobs } from "../platform/computer-upgrade-sweep";
 
 export async function runMachineSupervisor(
   args: string[],
@@ -43,6 +44,17 @@ export async function runMachineSupervisor(
         const logger = getLogger(["coforge", "daemon", "supervisor"]);
         try {
           logger.info("Coordinator process started", { event: "coordinator:started" });
+          // Best-effort: a leftover one-shot upgrade job never respawns, but it can still hold a
+          // stale `launchctl list` entry and plist across restarts until this sweep clears it.
+          await sweepLeftoverComputerUpgradeJobs({
+            platform: process.platform,
+            stateDirectory,
+          }).catch((error) =>
+            logger.error("Leftover Computer upgrade job sweep failed", {
+              event: "upgrade:leftover_job_sweep_failed",
+              error_message: error instanceof Error ? error.message : String(error),
+            }),
+          );
           await runWithSupervisorLock(socketPath, stateDirectory, createBindings(stateDirectory));
         } finally {
           lock.release();
@@ -234,7 +246,10 @@ async function runWithSupervisorLock(
               request.requestId,
               request.expectedVersion,
             );
-            if (created) await launchComputerUpgrade(request.requestId, request.expectedVersion);
+            if (created)
+              await launchComputerUpgrade(request.requestId, request.expectedVersion, {
+                stateDirectory,
+              });
           } else if (method !== "daemon:snapshot") {
             const operation = method.slice("daemon:".length);
             if (operation !== "start" && operation !== "stop" && operation !== "restart")

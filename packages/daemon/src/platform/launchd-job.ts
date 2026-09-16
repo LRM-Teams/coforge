@@ -21,6 +21,9 @@ export type LaunchdJobConfig = {
   command: string[];
   environment?: Record<string, string>;
   restartOnFailure?: boolean;
+  /** stdout and stderr destination for the job, e.g. a Computer log file. Omit to leave launchd's
+   * default (discarded) redirection in place. */
+  logPath?: string;
   platform?: LaunchdJobPlatform;
 };
 
@@ -209,7 +212,7 @@ function xml(value: string): string {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
 }
-function jobPlist(config: LaunchdJobConfig): string {
+export function jobPlist(config: LaunchdJobConfig): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -220,6 +223,7 @@ function jobPlist(config: LaunchdJobConfig): string {
     .join("")}</dict>
 <key>RunAtLoad</key><true/>
 ${config.restartOnFailure ? "<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>" : ""}
+${config.logPath ? `<key>StandardOutPath</key><string>${xml(config.logPath)}</string>\n<key>StandardErrorPath</key><string>${xml(config.logPath)}</string>` : ""}
 <key>AbandonProcessGroup</key><false/>
 <key>ExitTimeOut</key><integer>2</integer>
 </dict></plist>\n`;

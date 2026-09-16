@@ -1,7 +1,14 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { getLogger } from "@logtape/logtape";
 import { createDaemonHost, LocalDaemonLauncher } from "@lrm/coforge-daemon";
+
+const logger = getLogger(["coforge", "computer", "upgrade"]);
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export type ManagedRuntimeBinding = {
   bindingId: string;
@@ -65,6 +72,16 @@ export function createSupervisorUpgradeLifecycle(
     runtimeHomeDirectory: options.runtimeHomeDirectory,
   });
   const holdPath = join(options.supervisorStatePath, "launch-hold");
+  // Diagnostic identity only, matching each host's own default label/unit/task name; never used
+  // for control flow. The 2026-09-16 incident where the Coordinator was left unloaded after a
+  // remote upgrade reported success had no record of what `stop`/`start` actually did.
+  const coordinatorLabel =
+    options.serviceName ??
+    (process.platform === "linux"
+      ? "coforge-daemon.service"
+      : process.platform === "win32"
+        ? "CoForge Daemon"
+        : "cn.coforge.computer.daemon");
   let previousSupervisorId: string | undefined;
   let supervisorWasRunning = false;
   return {
@@ -109,7 +126,18 @@ export function createSupervisorUpgradeLifecycle(
     },
     async stop() {
       if (!supervisorWasRunning) return;
+      logger.info("Stopping Computer coordinator for upgrade", {
+        event: "upgrade:coordinator_stop_requested",
+        label: coordinatorLabel,
+        operation: "stop",
+      });
       await host.stop().catch((error) => {
+        logger.error("Computer coordinator stop failed", {
+          event: "upgrade:coordinator_stop_failed",
+          label: coordinatorLabel,
+          operation: "stop",
+          error_message: errorMessage(error),
+        });
         throw new Error(
           "Cannot upgrade a foreground externally supervised Computer while it is running. Stop it through its external supervisor before upgrading, or install the supported user service.",
           { cause: error },
@@ -119,14 +147,46 @@ export function createSupervisorUpgradeLifecycle(
       while (
         await Bun.file(join(options.supervisorStatePath, "supervisor.lock", "owner")).exists()
       ) {
-        if (Date.now() > deadline)
+        if (Date.now() > deadline) {
+          logger.error("Old Computer coordinator did not confirm shutdown", {
+            event: "upgrade:coordinator_stop_failed",
+            label: coordinatorLabel,
+            operation: "stop",
+            error_message: "old supervisor did not confirm process-tree shutdown",
+          });
           throw new Error("old supervisor did not confirm process-tree shutdown");
+        }
         await Bun.sleep(50);
       }
+      logger.info("Computer coordinator stopped", {
+        event: "upgrade:coordinator_stopped",
+        label: coordinatorLabel,
+        operation: "stop",
+      });
     },
     async start() {
       if (!supervisorWasRunning) return;
-      await host.ensureRunning();
+      logger.info("Starting Computer coordinator after upgrade", {
+        event: "upgrade:coordinator_start_requested",
+        label: coordinatorLabel,
+        operation: "start",
+      });
+      try {
+        await host.ensureRunning();
+      } catch (error) {
+        logger.error("Computer coordinator start failed", {
+          event: "upgrade:coordinator_start_failed",
+          label: coordinatorLabel,
+          operation: "start",
+          error_message: errorMessage(error),
+        });
+        throw error;
+      }
+      logger.info("Computer coordinator started", {
+        event: "upgrade:coordinator_started",
+        label: coordinatorLabel,
+        operation: "start",
+      });
     },
     async probe(snapshot, expected) {
       if (!supervisorWasRunning) {
