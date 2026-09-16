@@ -9,14 +9,17 @@ import {
   GitBranch01,
   Hash01,
   Plus,
+  Settings01,
 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { PageHeader } from "@/components/layout/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreateChannelDialog } from "@/features/conversations/create-channel-dialog";
 import { createPublicChannel } from "@/features/conversations/channels.functions";
 import { m } from "@/paraglide/messages";
 import type { getProject, getProjectRepository } from "./projects.functions";
+import { ProjectSettingsDialog } from "./project-settings-dialog";
 
 type Repository = Awaited<ReturnType<typeof getProjectRepository>>;
 
@@ -30,10 +33,21 @@ export function ProjectDetail({
   const router = useRouter();
   const create = useServerFn(createPublicChannel);
   const [creating, setCreating] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <main className="flex h-svh min-w-0 flex-col bg-primary">
       <PageHeader
         heading={project.name}
+        meta={
+          <ButtonUtility
+            icon={Settings01}
+            color="tertiary"
+            aria-label={m.project_settings()}
+            tooltip={m.project_settings()}
+            onClick={() => setSettingsOpen(true)}
+            className="shrink-0"
+          />
+        }
         leading={
           <Link
             to="/projects"
@@ -59,6 +73,11 @@ export function ProjectDetail({
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        {project.description && (
+          <p className="mb-6 whitespace-pre-wrap break-words text-sm text-tertiary">
+            {project.description}
+          </p>
+        )}
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="order-1 min-w-0 lg:order-2">
             <div className="mb-3 flex min-h-9 items-center justify-between gap-3">
@@ -116,6 +135,9 @@ export function ProjectDetail({
           </Suspense>
         </div>
       </div>
+      {settingsOpen && (
+        <ProjectSettingsDialog project={project} onClose={() => setSettingsOpen(false)} />
+      )}
       {creating && (
         <CreateChannelDialog
           open

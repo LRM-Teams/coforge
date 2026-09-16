@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/client";
 import { PublicChannels } from "../src/server/conversations/public-channels.server";
+import { ProjectSettings } from "../src/server/projects/project-settings.server";
 
 test("one project owns multiple discussion channels without crossing Workspace boundaries", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
@@ -58,6 +59,100 @@ test("one project owns multiple discussion channels without crossing Workspace b
     await expect(
       channels.create(workspace.id, user.id, `foreign-${suffix.slice(0, 8)}`, foreignProject.id),
     ).rejects.toThrow("INVALID_INPUT");
+
+    const settings = new ProjectSettings(db);
+    await expect(
+      settings.update(foreignWorkspace.id, user.id, {
+        id: foreignProject.id,
+        name: "Forbidden",
+        description: "No access",
+      }),
+    ).rejects.toThrow("NOT_FOUND");
+    await expect(
+      settings.update(workspace.id, user.id, {
+        id: foreignProject.id,
+        name: "Forbidden",
+        description: "Wrong workspace",
+      }),
+    ).rejects.toThrow("NOT_FOUND");
+    await settings.update(workspace.id, user.id, {
+      id: project.id,
+      name: "Renamed launch",
+      description: "Release planning",
+    });
+    expect(await db.project.findUnique({ where: { id: project.id } })).toMatchObject({
+      name: "Renamed launch",
+      description: "Release planning",
+      slug: `launch-${suffix}`,
+    });
+
+    const repository = { id: 903, installationId: 71, fullName: "team/planning" };
+    const connected = new ProjectSettings(db, {
+      accessibleRepositories: async (callerId) => {
+        expect(callerId).toBe(user.id);
+        return [{ ...repository, private: true, htmlUrl: "https://github.com/team/planning" }];
+      },
+    });
+    const update = { id: project.id, name: "Renamed launch", description: "Release planning" };
+    for (const forged of [
+      { ...repository, id: 904 },
+      { ...repository, installationId: 72 },
+      { ...repository, fullName: "other/planning" },
+    ]) {
+      await expect(
+        connected.update(workspace.id, user.id, { ...update, repository: forged }),
+      ).rejects.toThrow("ACCESS_DENIED");
+    }
+    await connected.update(workspace.id, user.id, { ...update, repository });
+    // Losing GitHub access must not unlink the repository when only editing metadata.
+    await settings.update(workspace.id, user.id, update);
+    expect(await db.project.findUnique({ where: { id: project.id } })).toMatchObject({
+      githubInstallationId: 71,
+      githubRepositoryId: 903,
+      githubFullName: "team/planning",
+      githubHtmlUrl: "https://github.com/team/planning",
+    });
+    await settings.update(workspace.id, user.id, { ...update, repository: null });
+    expect(await db.project.findUnique({ where: { id: project.id } })).toMatchObject({
+      githubInstallationId: null,
+      githubRepositoryId: null,
+      githubFullName: null,
+      githubHtmlUrl: null,
+    });
+
+    const message = await db.message.create({
+      data: {
+        conversationId: existing.id,
+        workspaceId: workspace.id,
+        body: "Keep this history",
+        sequence: 1,
+      },
+    });
+    await expect(settings.delete(workspace.id, user.id, project.id, "Launch")).rejects.toThrow(
+      "INVALID_INPUT",
+    );
+    await expect(
+      settings.delete(workspace.id, user.id, foreignProject.id, "Foreign"),
+    ).rejects.toThrow("INVALID_INPUT");
+    await expect(
+      settings.delete(foreignWorkspace.id, user.id, foreignProject.id, "Foreign"),
+    ).rejects.toThrow("INVALID_INPUT");
+    await settings.delete(workspace.id, user.id, project.id, "Renamed launch");
+    expect(await db.project.findUnique({ where: { id: project.id } })).toBeNull();
+    for (const id of [existing.id, created.id]) {
+      expect(
+        await db.conversation.findUnique({ where: { id }, include: { members: true } }),
+      ).toMatchObject({
+        projectId: null,
+        members: [{ userId: user.id }],
+      });
+    }
+    expect(await db.message.findUnique({ where: { id: message.id } })).toMatchObject({
+      body: "Keep this history",
+    });
+    expect(await db.project.findUnique({ where: { id: foreignProject.id } })).toMatchObject({
+      name: "Foreign",
+    });
   } finally {
     await db.workspace.deleteMany({
       where: { id: { in: [workspace.id, foreignWorkspace.id] } },

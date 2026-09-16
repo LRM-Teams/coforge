@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { configuredGitHub } from "../../server/integrations/github-config.server";
 import { AppError, isAppError } from "../../lib/app-error";
+import { ProjectSettings } from "../../server/projects/project-settings.server";
 import { z } from "zod";
 
 export const getProjectRepository = createServerFn({ method: "GET" })
@@ -41,6 +42,7 @@ export const getProject = createServerFn({ method: "GET" })
         id: true,
         name: true,
         slug: true,
+        description: true,
         githubFullName: true,
         githubHtmlUrl: true,
         conversations: {
@@ -54,6 +56,48 @@ export const getProject = createServerFn({ method: "GET" })
         },
       },
     });
+  });
+
+export const updateProject = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      id: z.uuid(),
+      name: z.string().trim().min(1).max(100),
+      description: z.string().trim().max(2000),
+      // Omitted means retain the existing link, null explicitly disconnects it.
+      repository: z
+        .object({
+          installationId: z.number().int().positive().safe(),
+          id: z.number().int().positive().safe(),
+          fullName: z
+            .string()
+            .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
+            .max(300),
+        })
+        .nullable()
+        .optional(),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const github = data.repository ? await configuredGitHub() : undefined;
+    await new ProjectSettings(context.db, github?.connection).update(
+      context.workspaceId,
+      context.user.id,
+      data,
+    );
+  });
+
+export const deleteProject = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ id: z.uuid(), confirmation: z.string().min(1).max(100) }))
+  .handler(async ({ data, context }) => {
+    await new ProjectSettings(context.db).delete(
+      context.workspaceId,
+      context.user.id,
+      data.id,
+      data.confirmation,
+    );
   });
 
 export const listProjects = createServerFn({ method: "GET" })
