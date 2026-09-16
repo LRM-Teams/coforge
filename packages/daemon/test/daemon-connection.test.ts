@@ -821,6 +821,71 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
   ).rejects.toThrow("HTTP endpoint is not configured");
 });
 
+test("Agent read HTTP GET request carries the request id and sequence window", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-read-1",
+      accepted: true,
+      attentionCount: 0,
+      messages: [],
+    });
+  });
+  await client.requestRead!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-read-1",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "read",
+      target: "@ada",
+      fromSequence: 5,
+      throughSequence: 12,
+      limit: 50,
+    },
+  });
+  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-read-1");
+  expect(capturedUrl?.searchParams.get("fromSequence")).toBe("5");
+  expect(capturedUrl?.searchParams.get("throughSequence")).toBe("12");
+  expect(capturedUrl?.searchParams.get("target")).toBe("@ada");
+  expect(capturedUrl?.searchParams.get("limit")).toBe("50");
+});
+
+test("Agent search HTTP GET request carries the request id", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-search-1",
+      accepted: true,
+      attentionCount: 0,
+      messages: [],
+    });
+  });
+  await client.requestSearch!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-search-1",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "search",
+      target: "",
+      query: "hello",
+    },
+  });
+  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-search-1");
+  expect(capturedUrl?.searchParams.get("query")).toBe("hello");
+});
+
 test("requests and revokes Agent API keys through the server API route", async () => {
   const fake = fakeClient();
   const originalFetch = globalThis.fetch;

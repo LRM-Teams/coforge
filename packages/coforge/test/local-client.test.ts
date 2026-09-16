@@ -6,9 +6,7 @@ const proxyUrl = (route: { path: string } | string) =>
   `http://proxy.test${typeof route === "string" ? route : route.path}`;
 
 test("normalizes the message request to the registered Proxy route", async () => {
-  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
-    Response.json({ messages: [] }),
-  );
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ messages: [] }));
   await connectLocal(
     "",
     `sfp_${"a".repeat(43)}`,
@@ -51,6 +49,38 @@ test("sanitizes unknown Agent proxy error bodies", async () => {
   await expect(
     connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).check(),
   ).rejects.toThrow(/^agent proxy request failed \(400\)$/);
+});
+
+test("redacts upstream detail for a withheld reviewer-isolation send failure", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response("ambiguous message prefix; use the full UUID", { status: 400 }),
+  );
+
+  await expect(
+    connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).send(
+      "@ada",
+      "body",
+      { freshnessContextMode: "withheld" },
+    ),
+  ).rejects.toThrow("reviewer-isolation message request failed (400); upstream detail withheld");
+});
+
+test("redacts upstream detail for a withheld reviewer-isolation Task failure", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response("SECRET_UPSTREAM_DETAIL", { status: 400 }),
+  );
+
+  await expect(
+    connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).task({
+      requestId: "request",
+      operation: "update",
+      target: "#general",
+      number: 1,
+      status: "in_review",
+      expectedRevision: 1,
+      freshnessContextMode: "withheld",
+    } as never),
+  ).rejects.toThrow("reviewer-isolation Task request failed (400); upstream detail withheld");
 });
 
 test("downloads attachments through the daemon-local proxy", async () => {

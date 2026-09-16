@@ -297,7 +297,10 @@ async function call(
 
 async function callInbox(operation: "check" | "ack", requestId: string, itemId?: string) {
   const response = await fetch(
-    process.env.COFORGE_AGENT_PROXY_URL!.replace(/\/api\/agent\/v1\/messages$/, "/api/agent/v1/inbox"),
+    process.env.COFORGE_AGENT_PROXY_URL!.replace(
+      /\/api\/agent\/v1\/messages$/,
+      "/api/agent/v1/inbox",
+    ),
     {
       method: "POST",
       headers: {

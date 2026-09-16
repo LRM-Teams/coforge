@@ -752,6 +752,241 @@ test("App Inbox hides message ordering fields from Agent output", async () => {
   expect(output).toContain('"pendingCount":2');
 });
 
+test("--reviewer-isolation is accepted only on send, claim, update and amend", () => {
+  expect(parseArgs(["message", "send", "--target", "@ada", "--reviewer-isolation"])).toMatchObject({
+    command: "send",
+    freshnessContextMode: "withheld",
+  });
+  expect(
+    parseArgs(["task", "claim", "--target", "#general", "--number", "1", "--reviewer-isolation"]),
+  ).toMatchObject({ task: { operation: "claim", freshnessContextMode: "withheld" } });
+  expect(
+    parseArgs([
+      "task",
+      "update",
+      "--target",
+      "#general",
+      "--number",
+      "1",
+      "--status",
+      "in_review",
+      "--expected-revision",
+      "5",
+      "--reviewer-isolation",
+    ]),
+  ).toMatchObject({ task: { operation: "update", freshnessContextMode: "withheld" } });
+  expect(
+    parseArgs([
+      "task",
+      "amend",
+      "--target",
+      "#general",
+      "--number",
+      "1",
+      "--title",
+      "Ship it",
+      "--reviewer-isolation",
+    ]),
+  ).toMatchObject({ task: { operation: "amend", freshnessContextMode: "withheld" } });
+  expect(() => parseArgs(["task", "list", "--target", "#general", "--reviewer-isolation"])).toThrow(
+    "Usage:",
+  );
+  expect(() =>
+    parseArgs(["task", "unclaim", "--target", "#general", "--number", "1", "--reviewer-isolation"]),
+  ).toThrow("Usage:");
+  expect(() => parseArgs(["message", "read", "--target", "@ada", "--reviewer-isolation"])).toThrow(
+    "Usage:",
+  );
+});
+
+test("COFORGE_REVIEWER_ISOLATION environment variable enables reviewer isolation without the flag", () => {
+  const previous = process.env.COFORGE_REVIEWER_ISOLATION;
+  try {
+    process.env.COFORGE_REVIEWER_ISOLATION = "1";
+    expect(parseArgs(["message", "send", "--target", "@ada"])).toMatchObject({
+      freshnessContextMode: "withheld",
+    });
+    expect(parseArgs(["task", "claim", "--target", "#general", "--number", "1"])).toMatchObject({
+      task: { freshnessContextMode: "withheld" },
+    });
+    process.env.COFORGE_REVIEWER_ISOLATION = "not-a-boolean";
+    expect(() => parseArgs(["message", "send", "--target", "@ada"])).toThrow(
+      "COFORGE_REVIEWER_ISOLATION must be one of: 1, true, 0, false",
+    );
+  } finally {
+    if (previous === undefined) delete process.env.COFORGE_REVIEWER_ISOLATION;
+    else process.env.COFORGE_REVIEWER_ISOLATION = previous;
+  }
+});
+
+test("reviewer-isolation held Task output suppresses secret context", async () => {
+  const output = await run(
+    ["task", "claim", "--target", "#general", "--number", "1", "--reviewer-isolation"],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      task: async () => ({
+        tasks: [],
+        state: "held",
+        freshnessContextMode: "withheld",
+        newMessageCount: 2,
+        heldMessages: [
+          {
+            id: "secret-id",
+            sequence: 1,
+            sender: "secret-sender",
+            target: "#secret",
+            body: "SECRET_SENTINEL",
+            createdAt: "now",
+          },
+        ],
+      }),
+    },
+  );
+  expect(output).toBe("Reviewer-isolation freshness hold: 2 newer messages withheld.");
+  expect(output).not.toContain("SECRET_SENTINEL");
+});
+
+test("requested reviewer isolation suppresses held Task context even when the response says inline", async () => {
+  const output = await run(
+    [
+      "task",
+      "update",
+      "--target",
+      "#general",
+      "--number",
+      "1",
+      "--status",
+      "in_review",
+      "--expected-revision",
+      "5",
+      "--reviewer-isolation",
+    ],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      task: async () => ({
+        tasks: [],
+        state: "held",
+        freshnessContextMode: "inline",
+        newMessageCount: 1,
+        heldMessages: [
+          {
+            id: "secret-id",
+            sequence: 1,
+            sender: "secret-sender",
+            target: "#secret",
+            body: "SECRET_SENTINEL",
+            createdAt: "now",
+          },
+        ],
+      }),
+    },
+  );
+  expect(output).toBe("Reviewer-isolation freshness hold: 1 newer message withheld.");
+  expect(output).not.toContain("SECRET_SENTINEL");
+});
+
+test("non-reviewer-isolation Task holds still surface the held messages", async () => {
+  const output = await run(
+    [
+      "task",
+      "update",
+      "--target",
+      "#general",
+      "--number",
+      "1",
+      "--status",
+      "in_review",
+      "--expected-revision",
+      "5",
+    ],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      task: async () => ({
+        tasks: [],
+        state: "held",
+        heldMessages: [
+          {
+            id: "visible-id",
+            sequence: 1,
+            sender: "@ada",
+            target: "#general",
+            body: "VISIBLE_CONTEXT",
+            createdAt: "now",
+          },
+        ],
+      }),
+    },
+  );
+  expect(output).toContain("Task request held.");
+  expect(output).toContain("VISIBLE_CONTEXT");
+});
+
+test("reviewer-isolation Task transport failures redact upstream detail", async () => {
+  await expect(
+    run(
+      [
+        "task",
+        "update",
+        "--target",
+        "#general",
+        "--number",
+        "1",
+        "--status",
+        "in_review",
+        "--expected-revision",
+        "5",
+        "--reviewer-isolation",
+      ],
+      {
+        check: async () => ({ messages: [] }),
+        read: async () => undefined,
+        send: async () => undefined,
+        view: async () => ({ bytes: new Uint8Array() }),
+        task: async () => {
+          throw new Error("SECRET_UPSTREAM_DETAIL");
+        },
+      },
+    ),
+  ).rejects.toThrow("Reviewer-isolation Task request failed; upstream detail was withheld");
+});
+
+test("reviewer-isolation send redacts transport failures and held context", async () => {
+  await expect(
+    run(["message", "send", "--target", "@ada", "--send-draft", "--reviewer-isolation"], {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => {
+        throw new Error("SECRET_UPSTREAM_DETAIL");
+      },
+      view: async () => ({ bytes: new Uint8Array() }),
+    }),
+  ).rejects.toThrow("Reviewer-isolation send failed; upstream response detail was withheld.");
+
+  await expect(
+    run(["message", "send", "--target", "@ada", "--send-draft", "--reviewer-isolation"], {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => ({
+        accepted: false,
+        sideEffectDecision: "hold",
+        freshnessContextMode: "inline",
+        newMessageCount: 2,
+        messages: [{ body: "SECRET_HELD_DETAIL" }],
+      }),
+      view: async () => ({ bytes: new Uint8Array() }),
+    }),
+  ).rejects.toThrow("Reviewer-isolation freshness hold: 2 newer messages withheld.");
+});
+
 test("held sends fail with draft retry instructions", async () => {
   await expect(
     run(["message", "send", "--target", "@ada"], {

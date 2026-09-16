@@ -239,7 +239,15 @@ export const createAgentMessageHttpClient = (
   async requestRead({ url, agentApiKey, daemonApiKey, request }) {
     const endpoint = new URL(url);
     endpoint.searchParams.set("target", request.target);
-    for (const key of ["before", "after", "around", "limit"] as const) {
+    for (const key of [
+      "requestId",
+      "before",
+      "after",
+      "around",
+      "limit",
+      "fromSequence",
+      "throughSequence",
+    ] as const) {
       const value = request[key];
       if (value !== undefined) endpoint.searchParams.set(key, String(value));
     }
@@ -255,7 +263,15 @@ export const createAgentMessageHttpClient = (
   },
   async requestSearch({ url, agentApiKey, daemonApiKey, request }) {
     const endpoint = new URL(url);
-    for (const key of ["query", "target", "sender", "sort", "limit", "offset"] as const) {
+    for (const key of [
+      "requestId",
+      "query",
+      "target",
+      "sender",
+      "sort",
+      "limit",
+      "offset",
+    ] as const) {
       const value = request[key];
       if (value !== undefined) endpoint.searchParams.set(key, String(value));
     }

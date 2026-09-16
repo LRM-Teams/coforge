@@ -34,6 +34,7 @@ export function connectLocal(
     options?: {
       sendDraft?: boolean;
       continueAnyway?: boolean;
+      freshnessContextMode?: "withheld";
       before?: string;
       after?: string;
       around?: string;
@@ -61,6 +62,10 @@ export function connectLocal(
       throw new Error("agent proxy request failed (network or timeout)");
     }
     if (!response.ok) {
+      if (options?.freshnessContextMode === "withheld")
+        throw new Error(
+          `reviewer-isolation message request failed (${response.status}); upstream detail withheld`,
+        );
       const detail = response.status === 400 ? await response.text() : undefined;
       if (detail && SAFE_AGENT_PROXY_VALIDATION_ERRORS.has(detail)) throw new Error(detail);
       throw new Error(`agent proxy request failed (${response.status})`);
@@ -85,21 +90,22 @@ export function connectLocal(
     send: (
       target: string,
       body?: string,
-      options?: { sendDraft?: boolean; continueAnyway?: boolean },
+      options?: {
+        sendDraft?: boolean;
+        continueAnyway?: boolean;
+        freshnessContextMode?: "withheld";
+      },
     ) => call("send", target, body, options),
     task: (command: TaskCommand) => callTask(command),
     workspaceInfo: async (): Promise<WorkspaceInfoResponse> => {
       if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
         throw new Error("coforge agent context is invalid");
       if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
-      const response = await fetch(
-        proxyEndpoint(agentApiRoutes.workspace.info.path),
-        {
-          method: agentApiRoutes.workspace.info.method,
-          headers: { authorization: `Bearer ${context}` },
-          signal: AbortSignal.timeout(10_000),
-        },
-      );
+      const response = await fetch(proxyEndpoint(agentApiRoutes.workspace.info.path), {
+        method: agentApiRoutes.workspace.info.method,
+        headers: { authorization: `Bearer ${context}` },
+        signal: AbortSignal.timeout(10_000),
+      });
       if (!response.ok) throw new Error(`workspace info request failed (${response.status})`);
       return (await response.json()) as WorkspaceInfoResponse;
     },
@@ -127,15 +133,12 @@ export function connectLocal(
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
-    const response = await fetch(
-      proxyEndpoint(agentApiRoutes.proxy.inbox.path),
-      {
-        method: agentApiRoutes.local.inbox.method,
-        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-        body: JSON.stringify({ requestId: crypto.randomUUID(), operation: "check" }),
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
+    const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.inbox.path), {
+      method: agentApiRoutes.local.inbox.method,
+      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+      body: JSON.stringify({ requestId: crypto.randomUUID(), operation: "check" }),
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!response.ok) throw new Error(`agent inbox request failed (${response.status})`);
     return response.json();
   }
@@ -153,15 +156,12 @@ export function connectLocal(
     const { context: _implicitContext, ...body } = validated;
     let response: Response;
     try {
-      response = await fetch(
-        proxyEndpoint(agentApiRoutes.proxy.reminders.path),
-        {
-          method: agentApiRoutes.local.reminders.method,
-          headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(10_000),
-        },
-      );
+      response = await fetch(proxyEndpoint(agentApiRoutes.proxy.reminders.path), {
+        method: agentApiRoutes.local.reminders.method,
+        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10_000),
+      });
     } catch {
       throw new Error("agent reminder request failed (network or timeout)");
     }
@@ -179,17 +179,19 @@ export function connectLocal(
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
-    const response = await fetch(
-      proxyEndpoint(agentApiRoutes.proxy.tasks.path),
-      {
-        method: agentApiRoutes.local.tasks.method,
-        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-        body: JSON.stringify(command),
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
-    if (!response.ok)
+    const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.tasks.path), {
+      method: agentApiRoutes.local.tasks.method,
+      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+      body: JSON.stringify(command),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      if (command.freshnessContextMode === "withheld")
+        throw new Error(
+          `reviewer-isolation Task request failed (${response.status}); upstream detail withheld`,
+        );
       throw new Error(`agent Task request failed (${response.status}): ${await response.text()}`);
+    }
     return (await response.json()) as TaskResult;
   }
 }

@@ -1,12 +1,12 @@
 const allChecks = [
   "agent",
-  "cli",
+  "coforge",
+  "coforge-sdk",
   "computer",
   "daemon",
   "deploy",
   "macos-lifecycle",
   "oss-cdn",
-  "protocol",
   "release",
   "web",
   "windows-installer",
@@ -37,7 +37,7 @@ export function selectChecks(paths: string[], track: "changes" | "web" | "local"
     } else if (/^packages\/(agent|cli|coforge|daemon)\//.test(path)) {
       affected = ["computer", "daemon", "macos-lifecycle", "windows-release"];
       if (path.startsWith("packages/agent/")) affected.push("agent", "web");
-      if (path.startsWith("packages/coforge/")) affected.push("cli");
+      if (path.startsWith("packages/coforge/")) affected.push("coforge");
     } else if (path.startsWith("scripts/release/")) {
       affected = ["computer", "daemon", "macos-lifecycle", "release", "windows-release"];
     } else if (path.startsWith("scripts/deploy/") || path.startsWith("infra/")) {
@@ -45,12 +45,12 @@ export function selectChecks(paths: string[], track: "changes" | "web" | "local"
     } else if (/^scripts\/verify-oss-cdn[.]/.test(path)) {
       affected = ["oss-cdn"];
     } else {
-      // Protocol, toolchain, CI, lockfiles, and unclassified new paths get full coverage.
+      // SDK, toolchain, CI, lockfiles, and unclassified new paths get full coverage.
       affected = allChecks;
     }
     for (const check of affected) checks.add(check);
   }
-  if (track === "web") return checks.has("web") ? ["deploy", "protocol", "web"] : [];
+  if (track === "web") return checks.has("web") ? ["deploy", "coforge-sdk", "web"] : [];
   return [...checks].sort();
 }
 
@@ -61,7 +61,7 @@ if (import.meta.main) {
   }
   const paths = (await Bun.stdin.text()).split("\0").filter(Boolean);
   const checks = selectChecks(paths, track);
-  const libraries = checks.filter((check) => ["protocol", "agent", "cli"].includes(check));
+  const libraries = checks.filter((check) => ["coforge-sdk", "agent", "coforge"].includes(check));
   const contracts = checks.filter((check) => ["deploy", "release", "oss-cdn"].includes(check));
   const jobs = [
     "changes",

@@ -38,7 +38,13 @@ export type MessageInvocation =
       limit?: number;
     }
   | ({ command: "search" } & MessageSearchOptions)
-  | { command: "send"; target: string; sendDraft?: boolean; continueAnyway?: boolean };
+  | {
+      command: "send";
+      target: string;
+      sendDraft?: boolean;
+      continueAnyway?: boolean;
+      freshnessContextMode?: "withheld";
+    };
 export type AttachmentInvocation = {
   command: "attachment.view";
   attachmentId: string;
@@ -80,7 +86,11 @@ export type MessageTransport = {
   send(
     target: string,
     body?: string,
-    options?: { sendDraft?: boolean; continueAnyway?: boolean },
+    options?: {
+      sendDraft?: boolean;
+      continueAnyway?: boolean;
+      freshnessContextMode?: "withheld";
+    },
   ): Promise<unknown>;
   view(attachmentId: string): Promise<{ bytes: Uint8Array; fileName?: string }>;
   inboxCheck?(): Promise<unknown>;
@@ -212,10 +222,12 @@ export function parseArgs(
       let target: string | undefined;
       let sendDraft = false;
       let continueAnyway = false;
+      let reviewerIsolation = reviewerIsolationFromEnvironment();
       for (let index = 2; index < args.length; index++) {
         if (args[index] === "--target" && args[index + 1]) target = args[++index];
         else if (args[index] === "--send-draft") sendDraft = true;
         else if (args[index] === "--anyway") continueAnyway = true;
+        else if (args[index] === "--reviewer-isolation") reviewerIsolation = true;
         else throw new Error("Usage:");
       }
       if (target && (!continueAnyway || sendDraft))
@@ -224,11 +236,12 @@ export function parseArgs(
           target,
           ...(sendDraft ? { sendDraft: true } : {}),
           ...(continueAnyway ? { continueAnyway: true } : {}),
+          ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
         };
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path>",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path>",
   );
 }
 
@@ -311,11 +324,14 @@ export async function run(args: readonly string[], transport: MessageTransport):
     }
     try {
       const result = await transport.task(command);
+      const reviewerIsolation = command.freshnessContextMode === "withheld";
       if (command.operation === "history") return formatTaskHistory(result);
       if (command.operation === "receipt" && result.resourceFollowup)
-        return `${formatTasks(result)}\nFollow-up reminder=${result.resourceFollowup.id} owner=${result.resourceFollowup.owner} fireAt=${result.resourceFollowup.fireAt}`;
-      return formatTasks(result);
+        return `${formatTasks(result, reviewerIsolation)}\nFollow-up reminder=${result.resourceFollowup.id} owner=${result.resourceFollowup.owner} fireAt=${result.resourceFollowup.fireAt}`;
+      return formatTasks(result, reviewerIsolation);
     } catch (error) {
+      if (command.freshnessContextMode === "withheld")
+        throw new Error("Reviewer-isolation Task request failed; upstream detail was withheld");
       if (error instanceof Error && /revision|conflict|stale/i.test(error.message))
         throw new Error("Task changed concurrently; read the Task list again before updating");
       throw error;
@@ -340,16 +356,30 @@ export async function run(args: readonly string[], transport: MessageTransport):
   }
   const { command } = invocation;
   if (command === "send") {
-    const result = await transport.send(
-      invocation.target,
-      invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text(),
-      {
-        sendDraft: invocation.sendDraft,
-        continueAnyway: invocation.continueAnyway,
-      },
-    );
-    if (isHeldSend(result)) throw heldSendError(invocation.target);
-    return formatMessageRead(result);
+    try {
+      const result = await transport.send(
+        invocation.target,
+        invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text(),
+        {
+          sendDraft: invocation.sendDraft,
+          continueAnyway: invocation.continueAnyway,
+          freshnessContextMode: invocation.freshnessContextMode,
+        },
+      );
+      if (isHeldSend(result)) {
+        if (invocation.freshnessContextMode === "withheld")
+          throw reviewerIsolationHoldError(result);
+        throw heldSendError(invocation.target);
+      }
+      return formatMessageRead(result);
+    } catch (error) {
+      if (
+        invocation.freshnessContextMode === "withheld" &&
+        !(error instanceof ReviewerIsolationHoldError)
+      )
+        throw new Error("Reviewer-isolation send failed; upstream response detail was withheld.");
+      throw error;
+    }
   }
   if (command === "search") {
     if (!transport.search) throw new Error("Message search transport is unavailable");
@@ -436,6 +466,24 @@ function isHeldSend(result: unknown): result is { accepted: false; sideEffectDec
 function heldSendError(target: string): Error {
   return new Error(
     `Message was saved as a draft. Next commands: coforge message send --target "${target}" to replace/update it; coforge message send --target "${target}" --send-draft to send it unchanged; coforge message send --target "${target}" --send-draft --anyway as the escape hatch.`,
+  );
+}
+
+class ReviewerIsolationHoldError extends Error {}
+
+function reviewerIsolationHoldError(result: unknown): Error {
+  const response = result as {
+    newMessageCount?: unknown;
+    withheldMessageCount?: unknown;
+  };
+  const count =
+    typeof response.newMessageCount === "number"
+      ? response.newMessageCount
+      : typeof response.withheldMessageCount === "number"
+        ? response.withheldMessageCount
+        : 0;
+  return new ReviewerIsolationHoldError(
+    `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`,
   );
 }
 
@@ -626,7 +674,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
   const values = new Map<string, string>();
   for (let index = 1; index < args.length; index += 2) {
     const name = args[index];
-    if (name === "--clear-description") {
+    if (name === "--clear-description" || name === "--reviewer-isolation") {
       if (values.has(name)) throw new Error("Usage:");
       values.set(name, "true");
       index -= 1;
@@ -640,10 +688,10 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     list: ["--target", "--status"],
     create: ["--target", "--title", "--assignee"],
     convert: ["--target", "--message-id"],
-    claim: ["--target", "--number", "--message-id"],
+    claim: ["--target", "--number", "--message-id", "--reviewer-isolation"],
     unclaim: ["--target", "--number", "--expected-revision"],
     assign: ["--target", "--number", "--assignee", "--expected-revision"],
-    update: ["--target", "--number", "--status", "--expected-revision"],
+    update: ["--target", "--number", "--status", "--expected-revision", "--reviewer-isolation"],
     amend: [
       "--target",
       "--number",
@@ -651,6 +699,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
       "--description",
       "--clear-description",
       "--expected-revision",
+      "--reviewer-isolation",
     ],
     history: ["--target", "--number"],
     delete: ["--target", "--number", "--expected-revision"],
@@ -702,6 +751,9 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
       tracking: required("--tracking"),
     };
   }
+  const reviewerIsolation =
+    ["claim", "update", "amend"].includes(operation) &&
+    (values.has("--reviewer-isolation") || reviewerIsolationFromEnvironment());
   const task = {
     operation,
     target,
@@ -714,6 +766,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     status,
     expectedRevision,
     ...(receipt ? { receipt } : {}),
+    ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
   } as Omit<TaskCommand, "requestId">;
   const valid =
     operation === "list" ||
@@ -740,7 +793,15 @@ function integerOption(value: string | undefined, minimum: number): number | und
   return parsed;
 }
 
-function formatTasks(result: TaskResult): string {
+function formatTasks(result: TaskResult, reviewerIsolation = false): string {
+  if (result.state === "held") {
+    if (reviewerIsolation || result.freshnessContextMode === "withheld") {
+      const count = result.newMessageCount ?? result.withheldMessageCount ?? 0;
+      return `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`;
+    }
+    const messages = result.heldMessages?.map(formatMessage).join("\n");
+    return `Task request held.${messages ? ` Review newer messages:\n${messages}` : ""}`;
+  }
   if (!result.tasks.length) return "No tasks.";
   return result.tasks
     .map(
@@ -753,6 +814,16 @@ function formatTasks(result: TaskResult): string {
 function formatTaskHistory(result: TaskResult): string {
   if (!result.history?.length) return "No task history.";
   return result.history
-    .map((event) => `${event.sequence} ${event.eventType} actor=${event.actorName ?? event.actorKind} at=${event.createdAt}`)
+    .map(
+      (event) =>
+        `${event.sequence} ${event.eventType} actor=${event.actorName ?? event.actorKind} at=${event.createdAt}`,
+    )
     .join("\n");
+}
+
+function reviewerIsolationFromEnvironment(): boolean {
+  const value = Bun.env.COFORGE_REVIEWER_ISOLATION;
+  if (value === undefined || value === "0" || value === "false") return false;
+  if (value === "1" || value === "true") return true;
+  throw new Error("COFORGE_REVIEWER_ISOLATION must be one of: 1, true, 0, false");
 }

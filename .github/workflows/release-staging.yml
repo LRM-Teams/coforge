@@ -58,7 +58,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Generate protocol sources
-        run: bun run --cwd packages/protocol generate
+        run: bun run --cwd packages/coforge-sdk generate
 
       - name: Select release version
         id: version

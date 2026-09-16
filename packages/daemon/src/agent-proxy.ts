@@ -72,11 +72,16 @@ export function startAgentProxy(input: {
         path: requestUrl.pathname,
       });
       if (
-        (request.method !== LOCAL_PROXY_ROUTES.workspace.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.workspace.path) &&
-        (request.method !== LOCAL_PROXY_ROUTES.messages.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.messages.path) &&
-        (request.method !== LOCAL_PROXY_ROUTES.inbox.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.inbox.path) &&
-        (request.method !== LOCAL_PROXY_ROUTES.reminders.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.reminders.path) &&
-        (request.method !== LOCAL_PROXY_ROUTES.tasks.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.tasks.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.workspace.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.workspace.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.messages.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.messages.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.inbox.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.inbox.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.reminders.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.reminders.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.tasks.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.tasks.path) &&
         (request.method !== "GET" || !requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX))
       )
         return new Response("not found", { status: 404 });

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { DaemonRuntime } from "../src/daemon-runtime/runtime";
 import {
@@ -40,7 +41,9 @@ function sessionSpy() {
   } satisfies AgentSession;
 }
 
-const workspaceRoot = join(tmpdir(), `coforge-daemon-runtime-${crypto.randomUUID()}`);
+// macOS tmpdir lives under /var, a symlink; the state store rejects linked ancestors.
+const tempRoot = realpathSync(tmpdir());
+const workspaceRoot = join(tempRoot, `coforge-daemon-runtime-${crypto.randomUUID()}`);
 const connection: WorkspaceConfig = {
   computerId: "computer-a",
   workspaceId: "workspace-a",
@@ -95,7 +98,7 @@ test("ready and reconnect snapshots report the executable version and observed O
 });
 
 test("a duplicate fenced start wakes the managed runtime without replaying recovery context", async () => {
-  const stateDirectory = join(tmpdir(), `coforge-managed-wake-${crypto.randomUUID()}`);
+  const stateDirectory = join(tempRoot, `coforge-managed-wake-${crypto.randomUUID()}`);
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");
   const notices: string[] = [];
@@ -1319,7 +1322,7 @@ describe("DaemonRuntime", () => {
   });
 
   test("preserves a server-held draft and returns its opaque token only to the server", async () => {
-    const stateDirectory = join(tmpdir(), `coforge-message-drafts-${crypto.randomUUID()}`);
+    const stateDirectory = join(tempRoot, `coforge-message-drafts-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const operations: string[] = [];
@@ -3569,7 +3572,7 @@ describe("DaemonRuntime", () => {
   });
 
   test("keeps App notices separate from Message state and drains them on normalized idle", async () => {
-    const stateDirectory = join(tmpdir(), `coforge-inbox-runtime-${crypto.randomUUID()}`);
+    const stateDirectory = join(tempRoot, `coforge-inbox-runtime-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const notices: string[] = [];
@@ -3706,7 +3709,7 @@ describe("DaemonRuntime", () => {
   });
 
   test("a reminder-triggered restart waits for the shared notice outcome before becoming terminal", async () => {
-    const stateDirectory = join(tmpdir(), `coforge-reminder-notice-${crypto.randomUUID()}`);
+    const stateDirectory = join(tempRoot, `coforge-reminder-notice-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const notify = Promise.withResolvers<void>();
@@ -3808,7 +3811,7 @@ describe("DaemonRuntime", () => {
   });
 
   test("projects a long multiline reminder title into the App Inbox without changing its occurrence", async () => {
-    const stateDirectory = join(tmpdir(), `coforge-reminder-preview-${crypto.randomUUID()}`);
+    const stateDirectory = join(tempRoot, `coforge-reminder-preview-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const notified = Promise.withResolvers<void>();

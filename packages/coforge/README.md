@@ -23,3 +23,13 @@ issued a second consecutive hold. A successful send consumes the held state.
 50 (maximum 100). Continue with opaque message-id cursors via `--before`,
 `--after`, or `--around`; these options are mutually exclusive. Sequence
 numbers are server-internal and are never supplied by an Agent.
+
+Pass `--reviewer-isolation` on `message send`, `task claim`, `task update`, or
+`task amend` (or set `COFORGE_REVIEWER_ISOLATION=1`/`true`, accepted
+alongside `0`/`false`) when a reviewer agent must act without seeing newer
+conversation context. The flag requests `freshnessContextMode: "withheld"`
+from the server. If the action is held on a freshness check, the CLI prints
+only the count of withheld messages — never their bodies — as
+`Reviewer-isolation freshness hold: N newer message(s) withheld.`, and any
+other transport failure is reported generically (upstream detail withheld)
+rather than surfacing the server's response text.

@@ -13,7 +13,7 @@ test("dependency changes include downstream consumers, but not unrelated modules
     "windows-release",
   ]);
   expect(selectChecks(["packages/coforge/src/cli.ts"], "changes")).toEqual([
-    "cli",
+    "coforge",
     "computer",
     "daemon",
     "macos-lifecycle",
@@ -35,13 +35,13 @@ test("documentation skips application checks, while shared and unknown inputs fa
   ).toEqual([]);
   const all = [
     "agent",
-    "cli",
+    "coforge",
+    "coforge-sdk",
     "computer",
     "daemon",
     "deploy",
     "macos-lifecycle",
     "oss-cdn",
-    "protocol",
     "release",
     "web",
     "windows-installer",
@@ -94,18 +94,18 @@ test("deployment validates the exact Web track only when the image or deployment
     "packages/agent/src/contract.ts",
     "bun.lock",
   ]) {
-    expect(selectChecks([path], "web")).toEqual(["deploy", "protocol", "web"]);
+    expect(selectChecks([path], "web")).toEqual(["deploy", "coforge-sdk", "web"]);
   }
 });
 
 test("manual local publication always validates its complete track, regardless of changed files", () => {
   expect(selectChecks([], "local")).toEqual([
     "agent",
-    "cli",
+    "coforge",
+    "coforge-sdk",
     "computer",
     "daemon",
     "macos-lifecycle",
-    "protocol",
     "release",
     "windows-installer",
     "windows-release",
@@ -120,7 +120,7 @@ test("workflow selection accepts NUL-delimited filenames and emits job and matri
   });
   const output = await new Response(child.stdout).text();
   expect(await child.exited).toBe(0);
-  expect(output).toContain('libraries=["cli"]\n');
+  expect(output).toContain('libraries=["coforge"]\n');
   expect(output).toContain("contracts=[]\n");
   expect(output).toContain(
     'jobs=["changes","libraries","computer","daemon","macos-lifecycle","web","windows-release"]\n',
