@@ -62,11 +62,20 @@ export const ChannelSidebar = ({
     },
     [width],
   );
+  // One width update per animation frame: a drag emits many pointer events per frame,
+  // and each update re-renders the app shell.
+  const pendingWidth = useRef<number | null>(null);
   const onHandlePointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (!dragState.current) return;
       const next = dragState.current.startWidth + (event.clientX - dragState.current.startX);
-      onWidthChange(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, next)));
+      const scheduled = pendingWidth.current !== null;
+      pendingWidth.current = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, next));
+      if (scheduled) return;
+      requestAnimationFrame(() => {
+        if (pendingWidth.current !== null) onWidthChange(pendingWidth.current);
+        pendingWidth.current = null;
+      });
     },
     [onWidthChange],
   );

@@ -206,7 +206,10 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
   const [visited, setVisited] = useState<string[]>([]);
   const [readThrough, setReadThrough] = useState<Record<string, number>>({});
   const reading = useRef(false);
-  const mainMessages = conversation.messages.filter((message) => !message.threadRootId);
+  const mainMessages = useMemo(
+    () => conversation.messages.filter((message) => !message.threadRootId),
+    [conversation.messages],
+  );
   // Replies grouped once per message list, instead of a filter per rendered root.
   const repliesByRoot = useMemo(() => {
     const byRoot = new Map<string, DirectConversationView["messages"]>();

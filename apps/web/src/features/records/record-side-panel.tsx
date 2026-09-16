@@ -10,6 +10,7 @@ import {
 } from "@untitledui/icons";
 
 import { Avatar } from "@/components/base/avatar/avatar";
+import { useSendWindowCountdown } from "./use-send-window";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
@@ -40,7 +41,7 @@ export function RecordSidePanel({
   subjectId,
   surface,
   formatCopy,
-  countdown,
+  countdownUntil,
   refreshToken = 0,
   onRequestSend,
   onClose,
@@ -49,13 +50,15 @@ export function RecordSidePanel({
   subjectId: string;
   surface: RecordSideSurface;
   formatCopy?: "preview" | "cancelled" | "ready";
-  countdown?: string | null;
+  /** End of the open send window; the panel renders the countdown itself. */
+  countdownUntil?: Date | null;
   refreshToken?: number;
   onRequestSend?: () => void;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
   const router = useRouter();
+  const countdown = useSendWindowCountdown(countdownUntil);
   const post = useServerFn(addRecordComment);
   const ensureIntro = useServerFn(ensureRecordAssistantIntro);
   const generate = useServerFn(generateWeeklyHighlights);

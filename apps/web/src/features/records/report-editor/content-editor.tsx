@@ -129,7 +129,7 @@ export const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
       [placeholderText],
     );
 
-    const initialMarkdown = preprocessMarkdown(defaultValue);
+    const initialMarkdown = useMemo(() => preprocessMarkdown(defaultValue), [defaultValue]);
 
     const editor = useEditor({
       extensions,
