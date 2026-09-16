@@ -417,3 +417,24 @@ test("recovery rejected by the model remains unseen and retryable", async () => 
   expect(notices).toHaveLength(2);
   expect(index.modelSeenSequence("agent-1", "@ada")).toBe(3);
 });
+
+test("forgets the oldest deliveries so a long-lived Agent does not grow without bound", async () => {
+  let notices = 0;
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session(() => notices++) },
+    async () => {},
+  );
+  const remembered = 4096;
+  for (let i = 1; i <= remembered + 1; i++)
+    await index.receive({ ...delivery(String(i)), sequence: i });
+  expect(notices).toBe(remembered + 1);
+
+  // The newest delivery is still remembered: a redelivery acks without a new notice.
+  await index.receive({ ...delivery(String(remembered + 1)), sequence: remembered + 1 });
+  expect(notices).toBe(remembered + 1);
+
+  // The oldest one was forgotten: its redelivery is treated as new.
+  await index.receive({ ...delivery("1"), sequence: 1 });
+  expect(notices).toBe(remembered + 2);
+});

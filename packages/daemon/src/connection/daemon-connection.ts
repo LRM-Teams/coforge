@@ -76,6 +76,7 @@ export type AgentLaunchConfig = {
 const AGENT_STATUS_REFRESH_MS = 30_000;
 const COMPUTER_STATUS_REFRESH_MS = 30_000;
 const RECONNECT_READY_RETRY_MS = 1_000;
+const RECONNECT_READY_RETRY_MAX_MS = 60_000;
 const REMEMBERED_REQUEST_IDS = 256;
 const AGENT_RPC_TIMEOUT_MS = 10_000;
 const logger = getLogger(["coforge", "daemon", "connection"]);
@@ -381,6 +382,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   #readyRequestFactory: (() => DaemonRuntimeReadyRequest) | undefined;
   #readyRecoveryClient: CentrifugeWorkspaceClient | undefined;
   #readyRetryTimer: unknown;
+  #readyRetryAttempts = 0;
   readonly #pendingActivity = new Map<string, AgentActivity>();
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
   readonly #latestStatuses = new Map<string, AgentStatus>();
@@ -976,21 +978,29 @@ export class DaemonConnection implements DaemonConnectionClient {
       await this.#sendReady(client, request);
     } catch (error) {
       if (!recovering()) return;
+      // Doubles per failed attempt so an outage is not hammered once a second per daemon.
+      const delayMs = Math.min(
+        RECONNECT_READY_RETRY_MAX_MS,
+        RECONNECT_READY_RETRY_MS * 2 ** this.#readyRetryAttempts,
+      );
+      this.#readyRetryAttempts += 1;
       logger.warning("Daemon reconnect recovery will retry", {
         event: "daemon_ready:retry_scheduled",
         request_id: request.requestId,
         workspace_id: request.workspaceId,
         computer_id: request.computerId,
         error_code: diagnosticErrorCode(error),
-        retry_delay_ms: RECONNECT_READY_RETRY_MS,
+        retry_delay_ms: delayMs,
+        attempt: this.#readyRetryAttempts,
       });
       this.#readyRetryTimer = this.timing.schedule(() => {
         this.#readyRetryTimer = undefined;
         void this.#attemptReadyRecovery(client, createRequest);
-      }, RECONNECT_READY_RETRY_MS);
+      }, delayMs);
       return;
     }
     if (!recovering()) return;
+    this.#readyRetryAttempts = 0;
     this.#readyRecoveryClient = undefined;
     this.#dispatchReadyPublications();
     this.#reconnect.current?.();
@@ -999,6 +1009,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   #cancelReadyRecovery(): void {
     if (this.#readyRetryTimer !== undefined) this.timing.cancel(this.#readyRetryTimer);
     this.#readyRetryTimer = undefined;
+    this.#readyRetryAttempts = 0;
     this.#readyRecoveryClient = undefined;
   }
 

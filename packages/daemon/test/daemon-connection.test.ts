@@ -1011,3 +1011,43 @@ test("rejects non-canonical runtime provider config from the server", async () =
     globalThis.fetch = originalFetch;
   }
 });
+
+test("reconnect ready retries back off exponentially up to a minute", async () => {
+  const fake = fakeClient();
+  let readyCalls = 0;
+  let retryReady!: () => void;
+  const delays: number[] = [];
+  fake.client.rpc = async (method) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD && ++readyCalls >= 2)
+      throw new Error("reconnect ready failed");
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, undefined, {
+    schedule: (callback, delayMs) => {
+      retryReady = callback;
+      delays.push(delayMs);
+      return 1;
+    },
+    cancel: () => {},
+  });
+  await transport.start("secret", config);
+  await transport.ready(() => ({
+    protocolMajor: 1,
+    requestId: `ready-${readyCalls + 1}`,
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    workerInstanceId: "runtime-1",
+    startedAt: 123,
+    runningAgentIds: [],
+  }));
+
+  fake.connect();
+  await Bun.sleep(0);
+  for (let i = 0; i < 7; i++) {
+    retryReady();
+    await Bun.sleep(0);
+  }
+
+  expect(delays).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000]);
+  await transport.stop();
+});

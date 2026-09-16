@@ -18,6 +18,13 @@ export type MessageAttention = Readonly<{
   flags: readonly string[];
 }>;
 
+/**
+ * Delivery and message ids remembered per Agent for duplicate suppression. The
+ * oldest are forgotten first; a redelivery older than this window is treated
+ * as new, which only costs one extra inbox notice.
+ */
+const REMEMBERED_DELIVERIES = 4096;
+
 /** Daemon-owned volatile attention and model-visible sequence index. */
 export class AgentMessageAttentionIndex {
   readonly #generations = new Map<
@@ -73,7 +80,7 @@ export class AgentMessageAttentionIndex {
       });
       return;
     }
-    generation.seenDeliveryIds.add(message.deliveryId);
+    this.#remember(generation, message.deliveryId);
     const target = message.target;
     if (this.modelSeenSequence(message.agentId, target) >= message.sequence) {
       await this.sendAck({
@@ -212,8 +219,7 @@ export class AgentMessageAttentionIndex {
     if (this.#generations.get(agentId) !== generation) return;
     this.#attention.set(agentId, byTarget);
     for (const message of recoveredMessages) {
-      generation.seenDeliveryIds.add(message.deliveryId);
-      generation.seenMessageIds.add(message.messageId);
+      this.#remember(generation, message.deliveryId, message.messageId);
       generation.notified.add(message.deliveryId);
       if (isChannelMessageTarget(message.target)) {
         const byTarget = this.#pendingSequences.get(agentId) ?? new Map<string, Set<number>>();
@@ -282,6 +288,29 @@ Run \`coforge message check\` to read pending messages.]`;
       });
     generation.notificationAttempts.set(message.deliveryId, notification);
     return notification;
+  }
+
+  #remember(
+    generation: {
+      seenDeliveryIds: Set<string>;
+      seenMessageIds: Set<string>;
+      notified: Set<string>;
+      notificationAttempts: Map<string, Promise<void>>;
+    },
+    deliveryId: string,
+    messageId?: string,
+  ): void {
+    if (generation.seenDeliveryIds.size >= REMEMBERED_DELIVERIES) {
+      const oldest = generation.seenDeliveryIds.values().next().value!;
+      generation.seenDeliveryIds.delete(oldest);
+      generation.notified.delete(oldest);
+      generation.notificationAttempts.delete(oldest);
+    }
+    generation.seenDeliveryIds.add(deliveryId);
+    if (messageId === undefined) return;
+    if (generation.seenMessageIds.size >= REMEMBERED_DELIVERIES)
+      generation.seenMessageIds.delete(generation.seenMessageIds.values().next().value!);
+    generation.seenMessageIds.add(messageId);
   }
 
   #generation(agentId: string) {
