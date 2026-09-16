@@ -1,5 +1,7 @@
 import { RedisClient } from "bun";
 import { sanitizeUpgradeErrorText } from "@lrm/coforge-sdk/internal";
+import { AppError } from "@/lib/app-error";
+import { COMPUTER_STATUS_LEASE_MS } from "../centrifugo/computer-status.server";
 
 export type ComputerUpgradeStatus =
   | { requestId: string; status: "accepted"; expectedVersion: string; expiresAt: string }
@@ -37,7 +39,16 @@ type Identity = {
   startedAt: number;
 };
 type Stored = ComputerUpgradeStatus & { previousWorkerInstanceId?: string };
-const TTL = 10 * 60;
+/** How long an upgrade request record survives - long enough to poll a Computer to completion. */
+const REQUEST_TTL = 10 * 60;
+/**
+ * How long the Computer's process identity survives without a fresh signal. Aligned with the
+ * Computer presence lease (3x the Daemon's periodic status interval) so "identity present" tracks
+ * "Computer online", rather than the unrelated 10-minute request TTL: a Computer connected longer
+ * than that lease used to lose its identity and fail every subsequent upgrade with an opaque
+ * internal error even though it was still online.
+ */
+const IDENTITY_TTL = COMPUTER_STATUS_LEASE_MS / 1000;
 const REPLACE = `if redis.call("GET", KEYS[1]) == ARGV[1] then redis.call("SET", KEYS[1], ARGV[2], "EX", ARGV[3]); return 1 end return 0`;
 const STORE_NEWER_IDENTITY = `
 local current = redis.call("GET", KEYS[1])
@@ -64,7 +75,7 @@ if identity then
 end
 if current ~= ARGV[1] or cjson.decode(current).status ~= "accepted" then return 0 end
 redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[4])
-redis.call("SET", KEYS[1], ARGV[3], "EX", ARGV[4])
+redis.call("SET", KEYS[1], ARGV[3], "EX", ARGV[5])
 return 1`;
 
 export class RedisComputerUpgradeStore {
@@ -84,19 +95,19 @@ export class RedisComputerUpgradeStore {
     const existing = existingRaw ? this.parse(existingRaw) : undefined;
     if (existing) return { status: this.public(existing), created: false };
     const current = await this.identity(scope);
-    if (!current) throw new Error("Computer process identity is unavailable");
+    if (!current) throw new AppError("COMPUTER_OFFLINE");
     const record: Stored = {
       requestId,
       status: "accepted",
       expectedVersion,
-      expiresAt: new Date(this.now() + TTL * 1000).toISOString(),
+      expiresAt: new Date(this.now() + REQUEST_TTL * 1000).toISOString(),
       previousWorkerInstanceId: current.workerInstanceId,
     };
     const result = await this.redis.set(
       this.requestKey(scope, requestId),
       JSON.stringify(record),
       "EX",
-      String(TTL),
+      String(REQUEST_TTL),
       "NX",
     );
     if (result === null) {
@@ -184,12 +195,34 @@ export class RedisComputerUpgradeStore {
       else if (current?.status === "accepted" && raw)
         await this.replace(scope, requestId, { requestId, status: "failed", reason: "evidence" });
     }
+    await this.storeNewerIdentity(scope, identity);
+  }
+  /**
+   * Renews the identity lease on every accepted periodic Computer status, so a Computer that
+   * stays connected does not silently lose its identity between Daemon reconnects (which are the
+   * only other writer). The periodic status carries no identity fields of its own, so this
+   * re-submits whatever is currently stored through the same monotonic guard `ready` uses -
+   * a concurrent `ready()` reporting a genuinely newer identity is never clobbered by a stale
+   * renewal that read the identity a moment earlier.
+   */
+  async touchIdentity(scope: Scope): Promise<void> {
+    const raw = await this.redis.get(this.identityKey(scope));
+    if (!raw || !this.parseIdentity(raw)) return;
+    await this.redis.send("EVAL", [
+      STORE_NEWER_IDENTITY,
+      "1",
+      this.identityKey(scope),
+      raw,
+      String(IDENTITY_TTL),
+    ]);
+  }
+  private async storeNewerIdentity(scope: Scope, identity: Identity) {
     await this.redis.send("EVAL", [
       STORE_NEWER_IDENTITY,
       "1",
       this.identityKey(scope),
       JSON.stringify(identity),
-      String(TTL),
+      String(IDENTITY_TTL),
     ]);
   }
   private async replace(scope: Scope, requestId: string, record: Stored) {
@@ -201,7 +234,7 @@ export class RedisComputerUpgradeStore {
           this.requestKey(scope, requestId),
           current,
           JSON.stringify(record),
-          String(TTL),
+          String(REQUEST_TTL),
         ])) === 1
       : false;
   }
@@ -215,7 +248,7 @@ export class RedisComputerUpgradeStore {
         this.requestKey(scope, requestId),
         current,
         JSON.stringify(record),
-        String(TTL),
+        String(REQUEST_TTL),
       ])) === 1
     );
   }
@@ -235,7 +268,8 @@ export class RedisComputerUpgradeStore {
         current,
         JSON.stringify(identity),
         JSON.stringify(record),
-        String(TTL),
+        String(IDENTITY_TTL),
+        String(REQUEST_TTL),
       ])) === 1
     );
   }

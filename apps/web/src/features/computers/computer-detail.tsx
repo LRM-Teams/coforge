@@ -24,7 +24,7 @@ import {
   operatingSystemLabel,
   type ComputerIdentity,
 } from "./computer-identity";
-import { describeComputerUpgradeFailure } from "./upgrade-failure";
+import { describeComputerUpgradeFailure, describeUpgradeRequestError } from "./upgrade-failure";
 import { ComputerTile } from "./computer-tile";
 import { RuntimeIdentity, RuntimeUsage, type UsageView } from "./runtime-usage";
 import type { ComputerRestartStatus, ComputerUpgradeStatus } from "./computer.schemas";
@@ -110,7 +110,7 @@ export function ComputerDetail({
     | { state: "idle" }
     | { state: "running" }
     | { state: "succeeded"; version: string }
-    | { state: "failed"; reason: string }
+    | { state: "failed"; reason: string; errorId?: string }
   >({ state: "idle" });
   const upgrading = upgrade.state === "running" || upgradingComputerId === computer.id;
   const upgradeAvailable =
@@ -154,15 +154,10 @@ export function ComputerDetail({
       }
       throw new Error(describeComputerUpgradeFailure({ reason: "timeout" }));
     } catch (error) {
-      settle(() =>
-        setUpgrade({
-          state: "failed",
-          reason:
-            error instanceof Error
-              ? error.message
-              : describeComputerUpgradeFailure({ reason: "timeout" }),
-        }),
-      );
+      settle(() => {
+        const copy = describeUpgradeRequestError(error);
+        setUpgrade({ state: "failed", reason: copy.headline, errorId: copy.errorId });
+      });
     } finally {
       settle(() => setUpgradingComputerId(undefined));
     }
@@ -288,9 +283,16 @@ export function ComputerDetail({
                 <span>{m.computer_upgrade_succeeded_inline()}</span>
               </span>
             ) : upgrade.state === "failed" ? (
-              <span className="inline-flex min-w-0 items-center gap-1 text-error-primary">
-                <AlertCircle className="size-3.5 shrink-0" />
-                <span className="truncate">{upgrade.reason}</span>
+              <span className="inline-flex min-w-0 flex-col gap-0.5 text-error-primary">
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <AlertCircle className="size-3.5 shrink-0" />
+                  <span className="truncate">{upgrade.reason}</span>
+                </span>
+                {upgrade.errorId && (
+                  <span className="truncate text-xs font-normal text-tertiary">
+                    {m.computer_upgrade_error_reference({ id: upgrade.errorId })}
+                  </span>
+                )}
               </span>
             ) : (
               upgradeAvailable &&

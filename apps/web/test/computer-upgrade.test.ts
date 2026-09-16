@@ -164,3 +164,95 @@ test("a reported result cannot overwrite a settled request", async () => {
 
   expect((await store.status(scope, "request"))?.status).toBe("completed");
 });
+
+test("an offline Computer (no identity on record) fails an upgrade request with a typed error", async () => {
+  const store = new RedisComputerUpgradeStore(memoryRedis(), () => 1000);
+  const scope = { workspaceId: "w", computerId: "c" };
+
+  await expect(store.begin(scope, "request", "2.0.0")).rejects.toMatchObject({
+    name: "AppError",
+    code: "COMPUTER_OFFLINE",
+  });
+});
+
+test("renewing a Computer that has no identity on record is a no-op, not a fabricated identity", async () => {
+  const store = new RedisComputerUpgradeStore(memoryRedis(), () => 1000);
+  const scope = { workspaceId: "w", computerId: "c" };
+
+  await store.touchIdentity(scope);
+
+  await expect(store.begin(scope, "request", "2.0.0")).rejects.toMatchObject({
+    code: "COMPUTER_OFFLINE",
+  });
+});
+
+test("the periodic status renewal refreshes the 90s presence lease, not the old 10-minute request TTL", async () => {
+  const scope = { workspaceId: "w", computerId: "c" };
+  const identityKey = "coforge:workspace:w:computer:c:upgrade:v1:identity";
+  const values = new Map<string, string>([
+    [identityKey, JSON.stringify(identity("worker-1", "1.0.0", 1))],
+  ]);
+  const sends: string[][] = [];
+  const redis = {
+    get: async (key: string) => values.get(key) ?? null,
+    set: async (...args: string[]) => {
+      values.set(args[0]!, args[1]!);
+      return "OK";
+    },
+    send: async (_command: "EVAL", args: string[]) => {
+      sends.push(args);
+      const [, , key, candidate] = args;
+      values.set(key!, candidate!);
+      return 1;
+    },
+  };
+  const store = new RedisComputerUpgradeStore(redis, () => 1000);
+
+  await store.touchIdentity(scope);
+
+  expect(sends).toHaveLength(1);
+  // The renewed TTL is the 90s Computer presence lease (3x the Daemon's 30s status interval),
+  // never the unrelated 10-minute (600s) request TTL that used to expire a still-connected
+  // Computer's identity and fail its next upgrade with an opaque internal error.
+  expect(sends[0]?.at(-1)).toBe("90");
+  await expect(store.identity(scope)).resolves.toMatchObject({ workerInstanceId: "worker-1" });
+});
+
+test("a stale renewal never clobbers a newer identity a concurrent ready() already wrote", async () => {
+  const scope = { workspaceId: "w", computerId: "c" };
+  const identityKey = "coforge:workspace:w:computer:c:upgrade:v1:identity";
+  // The renewal's own read returns what it saw a moment ago; a fresher `ready()` has since
+  // landed in the store underneath it.
+  const staleRaw = JSON.stringify(identity("old-worker", "1.0.0", 1));
+  const values = new Map<string, string>([
+    [identityKey, JSON.stringify(identity("new-worker", "2.0.0", 2))],
+  ]);
+  const redis = {
+    get: async (key: string) => (key === identityKey ? staleRaw : (values.get(key) ?? null)),
+    set: async () => "OK",
+    send: async (_command: "EVAL", args: string[]) => {
+      const [, , key, candidateRaw] = args;
+      const current = values.get(key!);
+      if (current) {
+        const previous = JSON.parse(current) as { startedAt: number; workerInstanceId: string };
+        const candidate = JSON.parse(candidateRaw!) as {
+          startedAt: number;
+          workerInstanceId: string;
+        };
+        if (
+          previous.startedAt > candidate.startedAt ||
+          (previous.startedAt === candidate.startedAt &&
+            previous.workerInstanceId !== candidate.workerInstanceId)
+        )
+          return 0;
+      }
+      values.set(key!, candidateRaw!);
+      return 1;
+    },
+  };
+  const store = new RedisComputerUpgradeStore(redis, () => 1000);
+
+  await store.touchIdentity(scope);
+
+  expect(JSON.parse(values.get(identityKey)!)).toMatchObject({ workerInstanceId: "new-worker" });
+});

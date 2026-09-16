@@ -5,6 +5,7 @@ import {
   type CodeAgentModelMetadata,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
+import { AppError } from "@/lib/app-error";
 
 import {
   computerIdInputSchema,
@@ -214,11 +215,10 @@ export const upgradeComputer = createServerFn({ method: "POST" })
     });
     if (!connection) throw new Error("Computer is not available");
     const feedUrl = resolveReleaseFeedUrl();
-    if (!feedUrl) throw new Error("Computer release feed is unavailable");
+    if (!feedUrl) throw new AppError("RELEASE_FEED_UNAVAILABLE");
     const response = await fetch(`${feedUrl}/latest`, { signal: AbortSignal.timeout(3_000) });
     const expectedVersion = response.ok ? (await response.text()).trim() : "";
-    if (!isValidReleaseVersion(expectedVersion))
-      throw new Error("Computer release feed returned an invalid version");
+    if (!isValidReleaseVersion(expectedVersion)) throw new AppError("RELEASE_FEED_UNAVAILABLE");
     const store = getComputerUpgradeStore();
     const registered = await store.begin(
       { workspaceId, computerId: data.computerId },
