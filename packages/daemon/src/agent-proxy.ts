@@ -235,6 +235,7 @@ export function startAgentProxy(input: {
             [payload.before, payload.after, payload.around].filter((anchor) => anchor !== undefined)
               .length > 1) ||
           (payload.operation === "search" && payload.around !== undefined) ||
+          (payload.operation === "check" && payload.target !== undefined) ||
           (payload.limit !== undefined &&
             (typeof payload.limit !== "number" ||
               !Number.isInteger(payload.limit) ||

@@ -50,6 +50,8 @@ export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "message anchor is outside this target",
   "message not found or not visible to this Agent",
   "reaction emoji must be one to sixteen characters without whitespace",
+  "mute requires a channel target",
+  "unfollow requires a channel thread target",
 ] as const;
 export type AgentMessageValidationMessage = (typeof AGENT_MESSAGE_VALIDATION_MESSAGES)[number];
 export const AGENT_STATUS_METHOD = "agent:status" as const;
@@ -343,6 +345,7 @@ export type AgentMessageRequest = {
   fromSequence?: number;
   throughSequence?: number;
   operation:
+    | "check"
     | "read"
     | "search"
     | "send"

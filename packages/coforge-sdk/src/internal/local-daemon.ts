@@ -294,6 +294,7 @@ export type AgentMessageResponse = {
   newerCursor?: string;
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
+  hasMore?: boolean;
 };
 export type MessageAttentionSummary = {
   target: string;
@@ -356,6 +357,7 @@ export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Ar
           olderCursor: undefined,
           newerCursor: undefined,
           withheldMessageCount: value.withheldMessageCount ?? value.attentionCount,
+          hasMore: undefined,
         }
       : value;
   return toBinary(
@@ -438,6 +440,7 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       | "withheld"
       | undefined,
     withheldMessageCount: v.withheldMessageCount,
+    hasMore: v.hasMore || undefined,
   };
 }
 export const DAEMON_HANDSHAKE_METHOD = LOCAL_RPC_METHODS.HANDSHAKE;

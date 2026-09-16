@@ -58,6 +58,11 @@ export type AgentMessageRepository = {
     emoji: string,
     active: boolean,
   ): Promise<{ messageId: string }>;
+  drainAgentEvents?(
+    workspaceId: string,
+    agentId: string,
+    limit?: number,
+  ): Promise<{ messages: readonly AgentMessageRecord[]; hasMore: boolean }>;
 };
 
 export type AgentMessagesPage = {
@@ -236,6 +241,22 @@ export type AgentMessageRecord = {
   createdAt: Date;
   attachment?: { id: string; fileName: string; contentType: string; sizeBytes: number };
 };
+
+export async function drainAgentEvents(
+  repository: AgentMessageRepository,
+  scope: { workspaceId: string; agentId: string },
+  limit?: number,
+) {
+  if (!repository.drainAgentEvents) throw new Error("Agent event drain is unavailable");
+  const result = await repository.drainAgentEvents(scope.workspaceId, scope.agentId, limit);
+  return {
+    ...result,
+    messages: result.messages.map((message) => ({
+      ...message,
+      createdAt: message.createdAt.toISOString(),
+    })),
+  };
+}
 
 export async function searchAgentMessages(
   repository: AgentMessageRepository,

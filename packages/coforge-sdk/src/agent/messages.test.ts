@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import type { AgentMessagesResponse, AgentMessagesSendRequest } from "./messages";
+import type {
+  AgentChannelAttentionResponse,
+  AgentEventsGetRequest,
+  AgentEventsResponse,
+  AgentMessagesResponse,
+  AgentMessagesSendRequest,
+  AgentThreadAttentionResponse,
+} from "./messages";
 
 test("models a message send request without internal transport fields", () => {
   const request: AgentMessagesSendRequest = {
@@ -33,4 +40,33 @@ test("models the public message response and attachment shape", () => {
     ],
   };
   expect(response.messages[0]?.attachment?.contentType).toBe("text/plain");
+});
+
+test("models an events drain request and its own response shape with a hasMore continuation flag", () => {
+  const request: AgentEventsGetRequest = { limit: 50 };
+  const response: AgentEventsResponse = {
+    protocolMajor: 1,
+    requestId: "request-2",
+    events: [],
+    hasMore: true,
+  };
+  expect(request).toEqual({ limit: 50 });
+  expect(response.hasMore).toBe(true);
+});
+
+test("models the channel and thread attention response shapes", () => {
+  const muted: AgentChannelAttentionResponse = {
+    protocolMajor: 1,
+    requestId: "request-3",
+    target: "#general",
+    muted: true,
+  };
+  const unfollowed: AgentThreadAttentionResponse = {
+    protocolMajor: 1,
+    requestId: "request-4",
+    target: "#general:12345678-0000-4000-8000-000000000001",
+    followed: false,
+  };
+  expect(muted.muted).toBe(true);
+  expect(unfollowed.followed).toBe(false);
 });

@@ -33,7 +33,6 @@ import {
   WORKSPACE_PROTOCOL_MAJOR,
   TASK_PROTOCOL_MAJOR,
   AGENT_ACTIVITY_DETAIL_KIND,
-  isChannelMessageTarget,
   type AgentActivity,
   type AgentMessageRecord,
   type AgentMessageResponse,
@@ -87,6 +86,8 @@ const SHORT_THREAD_TARGET = /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-
 const NOT_RUNNING = "daemon runtime is not running";
 const CLEANUP_UNCONFIRMED =
   "Agent process cleanup could not be confirmed. Replacement launch is blocked.";
+/** Bounds how many events pages one `check` drains before reporting `hasMore: true` and yielding. */
+const MAX_EVENT_DRAIN_ROUNDS = 50;
 
 type AgentInputCompletion = {
   resolve: () => void;
@@ -1481,80 +1482,63 @@ export class DaemonRuntime {
       ? await this.#canonicalAgentMessageTarget(agentId, request.target, agentApiKey)
       : undefined;
     const { operation } = request;
-    if (operation === "check")
-      return this.#checkAgentMessages(agentId, request, target, agentApiKey);
+    if (operation === "check") return this.#checkAgentMessages(agentId, request, agentApiKey);
     if (operation === "send" && target)
       return this.#sendAgentMessage(agentId, request, target, agentApiKey);
     return this.#forwardAgentMessage(agentId, request, operation, target, agentApiKey);
   }
 
-  /** Reads every pending thread for the Agent and marks what the model has now seen. */
+  /**
+   * Drains the server-side events page for the Agent until it reports no more remain. The server
+   * owns pagination and advances the canonical read boundary as it returns each page
+   * (ack-on-drain); this loop only reconciles the daemon's volatile notice index afterward.
+   */
   async #checkAgentMessages(
     agentId: string,
     request: LocalAgentMessageRequest,
-    target: string | undefined,
     agentApiKey: string,
   ): Promise<AgentMessageResponse> {
     const startedAt = performance.now();
-    const attention = this.#messageAttention
-      .check(agentId)
-      .filter((item) => !target || item.target === target);
-    logger.info("Agent message check queried attention", {
-      event: "agent.message.check_attention",
-      agent_id: agentId,
-      target: target ?? "*",
-      attention_count: attention.length,
-    });
+    const attention = this.#messageAttention.check(agentId);
     const messages: AgentMessageRecord[] = [];
-    for (const item of attention) {
-      let fromSequence: number | undefined;
-      let visibleSequence = 0;
-      while (fromSequence === undefined || fromSequence <= item.latestSequence) {
-        const result = await this.#transport.agentMessage!(
-          {
-            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-            requestId: request.requestId,
-            agentId,
-            workspaceId: this.#connection.workspaceId,
-            operation: "read",
-            target: item.target,
-            limit: request.limit,
-            fromSequence,
-            throughSequence: item.latestSequence,
-          },
-          agentApiKey,
-        );
-        if (!result.accepted) break;
-        const page = result.messages.filter(
-          ({ sequence, target }) =>
-            target === item.target &&
-            (fromSequence === undefined || sequence >= fromSequence) &&
-            sequence <= item.latestSequence,
-        );
-        if (!page.length) break;
-        messages.push(
-          ...page.filter(
-            ({ sender }) =>
-              isChannelMessageTarget(item.target) || sender === item.target.split(":")[0],
-          ),
-        );
-        visibleSequence = Math.max(visibleSequence, ...page.map(({ sequence }) => sequence));
-        fromSequence = visibleSequence + 1;
-        if (!result.hasNewer) break;
+    let hasMore = false;
+    let roundCount = 0;
+    while (roundCount < MAX_EVENT_DRAIN_ROUNDS) {
+      roundCount += 1;
+      const result = await this.#transport.agentMessage!(
+        {
+          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+          requestId: request.requestId,
+          agentId,
+          workspaceId: this.#connection.workspaceId,
+          operation: "check",
+          target: "",
+          limit: request.limit,
+        },
+        agentApiKey,
+      );
+      if (!result.accepted || result.messages.length === 0) {
+        hasMore = false;
+        break;
       }
-      if (visibleSequence > 0)
-        this.#messageAttention.recordModelSeen(agentId, item.target, visibleSequence);
+      messages.push(...result.messages);
+      hasMore = Boolean(result.hasMore);
+      if (!hasMore) break;
     }
+    const maxSequenceByTarget = new Map<string, number>();
+    for (const message of messages) {
+      const current = maxSequenceByTarget.get(message.target) ?? 0;
+      if (message.sequence > current) maxSequenceByTarget.set(message.target, message.sequence);
+    }
+    for (const [target, sequence] of maxSequenceByTarget)
+      this.#messageAttention.recordModelSeen(agentId, target, sequence);
     logger.info("Agent checked pending messages", {
       event: "agent.message.checked",
       ...this.#agentLogScope(agentId, request.requestId),
-      target_count: attention.length,
       pending_count: attention.reduce((count, item) => count + item.pendingCount, 0),
       displayed_count: messages.length,
-      sequence_ranges: attention.map((item) => ({
-        first: item.firstPendingSequence,
-        latest: item.latestSequence,
-      })),
+      round_count: roundCount,
+      has_more: hasMore,
       duration_ms: Math.round(performance.now() - startedAt),
       outcome: "ok",
     });
@@ -1565,6 +1549,7 @@ export class DaemonRuntime {
       summaries: attention.map((item) => ({ ...item, flags: [...item.flags] })),
       messages,
       messageId: "",
+      hasMore,
     };
   }
 

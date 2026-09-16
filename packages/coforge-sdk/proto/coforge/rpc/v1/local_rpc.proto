@@ -88,6 +88,7 @@ message AgentMessageResponse {
   string newer_cursor = 13;
   string freshness_context_mode = 14;
   optional uint32 withheld_message_count = 15;
+  bool has_more = 16;
 }
 
 message LocalInboxRequest {

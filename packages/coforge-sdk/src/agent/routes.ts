@@ -22,6 +22,7 @@ export const agentApiRoutes = {
   },
   cloud: {
     workspace: { info: { method: "GET", path: "/api/agent/v1/workspace" } },
+    events: { method: "GET", path: "/api/agent/v1/events" },
     messages: {
       list: { method: "GET", path: "/api/agent/v1/messages" },
       send: { method: "POST", path: "/api/agent/v1/messages" },

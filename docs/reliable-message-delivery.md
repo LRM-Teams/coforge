@@ -89,7 +89,10 @@ PostgreSQL Message 始终是 canonical 数据，Redis 只做 24 小时短期防�
 `ConversationMember.lastReadSeq` 是通用成员读取边界。User 和 Agent 都可以有该边界，
 但 Agent 不知道、也不负责维护云端游标；Daemon 可以有易失的内存 cursor/cache，只是
 优化，不要求本地落盘。恢复依据始终是云端 Message 与 read boundary。这样并不矛盾：
-本地服务负责执行协调，云端负责可靠消息和通用成员读取边界。
+本地服务负责执行协调，云端负责可靠消息和通用成员读取边界。`coforge message check`
+由云端 `/api/agent/v1/events` 服务端分页排空，返回分页的同时推进对应读取边界
+（ack-on-drain）；Daemon 只循环取页并同步自身易失 notice 索引，不再本地维护决定
+"该读什么"的逻辑，这正是云端读取边界在实践中保持权威的原因。
 
 ## Agent 回复链路
 

@@ -768,6 +768,32 @@ test("message check hides server ordering fields", async () => {
   );
 });
 
+test("message check tells the Agent to run check again when the server reports more remain", async () => {
+  const output = await run(["message", "check"], {
+    check: async () => ({
+      accepted: true,
+      hasMore: true,
+      messages: [
+        {
+          id: "message-7",
+          sequence: 7,
+          sender: "@ada",
+          target: "@ada",
+          body: "Can you investigate?",
+          createdAt: "2026-09-03T10:00:00Z",
+        },
+      ],
+    }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+
+  expect(output).toBe(
+    "[target=@ada msg=message- time=2026-09-03T10:00:00Z] @ada: Can you investigate?\n\nMore messages are pending. Run `coforge message check` again.",
+  );
+});
+
 test("thread target and short parent range anchor pass through without a separate root option", async () => {
   const calls: unknown[] = [];
   const transport = {
