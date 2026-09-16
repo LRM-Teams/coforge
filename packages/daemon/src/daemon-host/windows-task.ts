@@ -2,6 +2,7 @@ import { LocalDaemonLauncher } from "./launcher";
 import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
@@ -64,7 +65,10 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     await this.#local.ensureRunning();
   }
 
-  command(operation: "start" | "stop" | "restart", workspaceId?: string): Promise<void> {
+  command(
+    operation: "start" | "stop" | "restart",
+    workspaceId?: string,
+  ): Promise<ManagedRuntimeIdentity[]> {
     return this.#local.command(operation, workspaceId);
   }
 

@@ -494,6 +494,7 @@ function createCommand(
   serverUrl: string,
   config: FileComputerConfig,
   logger?: import("@logtape/logtape").Logger,
+  io: { stdout: (line: string) => void } = { stdout: (line) => console.log(line) },
 ): DaemonCommand {
   const launcher = createDaemonLauncher(platform, installDirectory, stateDirectory, serverUrl);
   const command = createClientCommand({
@@ -522,9 +523,26 @@ function createCommand(
     async restart(workspace) {
       await launcher.preflight?.();
       await loadBuildProfile(config, serverUrl, "daemon");
-      await command.restart(workspace);
+      const runtimes = await command.restart(workspace);
+      // The supervisor skips disabled bindings on an unscoped restart; a scoped restart always
+      // acts on its one target, so there is nothing to report there.
+      if (!workspace) reportSkippedRestarts(io, runtimes);
     },
   };
+}
+
+/** Prints one line per Workspace binding an unscoped `restart` left alone because it was
+ * disabled, so a caller does not mistake a silent skip for a completed restart. */
+export function reportSkippedRestarts(
+  io: { stdout: (line: string) => void },
+  runtimes: readonly { workspaceId: string; enabled: boolean }[],
+): void {
+  for (const runtime of runtimes) {
+    if (!runtime.enabled)
+      io.stdout(
+        `Workspace ${runtime.workspaceId} is stopped and was not restarted; run 'coforge-computer start' to bring it online.`,
+      );
+  }
 }
 
 function createLogsCommand(
@@ -534,6 +552,28 @@ function createLogsCommand(
   return {
     follow: () => followComputerLogs({ dataDirectory, write: io.stdout }),
   };
+}
+
+/** Prints one line per Workspace binding an upgrade/rollback left stopped, so a caller who only
+ * had a disabled binding does not mistake a healthy switch for a broken connection. */
+export function reportStoppedWorkspaces(
+  io: { stdout: (line: string) => void },
+  result: { supervisorRunning?: boolean; runtimes?: { bindingId: string; running: boolean }[] },
+): void {
+  const runtimes = result.runtimes ?? [];
+  if (!runtimes.length) return;
+  if (result.supervisorRunning === false) {
+    io.stdout(
+      "Computer supervisor is not running; run 'coforge-computer start' to bring your Workspaces online.",
+    );
+    return;
+  }
+  for (const runtime of runtimes) {
+    if (!runtime.running)
+      io.stdout(
+        `Workspace ${runtime.bindingId} was already stopped and stays stopped; run 'coforge-computer start' to bring it online.`,
+      );
+  }
 }
 
 /** A thin CLI adapter: it builds one operation per command and renders the durable result. */
@@ -584,10 +624,12 @@ export function createUpdateCommand(io: {
       io.stdout(`==> Updating CoForge Computer${current ? ` from ${current}` : ""} to ${version}`);
       const result = await coordinate("upgrade", version, undefined, true);
       io.stdout(`CoForge Computer ${result.version} updated successfully.`);
+      reportStoppedWorkspaces(io, result);
     },
     async rollback() {
       const result = await coordinate("rollback", "latest");
       io.stdout(`Rolled back to ${result.version}`);
+      reportStoppedWorkspaces(io, result);
     },
   };
 }
@@ -652,6 +694,7 @@ export async function runComputer(): Promise<void> {
           COFORGE_SERVER_URL,
           config,
           logging.logger,
+          io,
         ),
         logs: createLogsCommand(computerDirectory, io),
         status: createStatusCommand(

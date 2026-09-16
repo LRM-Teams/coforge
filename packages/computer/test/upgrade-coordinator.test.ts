@@ -27,6 +27,7 @@ const snapshot: ManagedRuntimeSnapshot = {
     { bindingId: "running-a", running: true, processId: 101 },
     { bindingId: "stopped-b", running: false, processId: null },
   ],
+  supervisorRunning: true,
 };
 
 async function harness(failCandidateProbe = false, failRestore = false) {
@@ -132,10 +133,16 @@ test("direct install contends with the coordinator's lock through resume", async
 
 test("coordinator prepares while running then restores the exact running snapshot on candidate", async () => {
   const { calls, options } = await harness();
+  const stages: string[] = [];
 
-  await expect(coordinateUpgrade(options)).resolves.toMatchObject({
+  await expect(coordinateUpgrade(options, (stage) => stages.push(stage))).resolves.toMatchObject({
     status: "succeeded",
     version: "2.0.0",
+    supervisorRunning: true,
+    runtimes: [
+      { bindingId: "running-a", running: true },
+      { bindingId: "stopped-b", running: false },
+    ],
   });
   expect(calls).toEqual([
     "prepare",
@@ -148,12 +155,23 @@ test("coordinator prepares while running then restores the exact running snapsho
     "probe:2.0.0",
     "resume",
   ]);
+  expect(stages).toEqual([
+    "Pausing new Workspace launches",
+    "Holding Agent runners until they are idle",
+    "Stopping Computer supervisor and 1 Workspace runtime",
+    "Switching the active executable to 2.0.0",
+    "Starting Computer supervisor 2.0.0 (1 running Workspace runtime, 1 stopped Workspace binding left as is)",
+    "Waiting for the supervisor and Workspace runtimes to report 2.0.0",
+    "Computer supervisor 2.0.0 healthy with 1 Workspace runtime",
+    "Resuming Workspace launches",
+  ]);
 });
 
 test("candidate health failure verifies and restores old bytes and exact running snapshot", async () => {
   const { calls, options } = await harness(true);
+  const stages: string[] = [];
 
-  await expect(coordinateUpgrade(options)).rejects.toMatchObject({
+  await expect(coordinateUpgrade(options, (stage) => stages.push(stage))).rejects.toMatchObject({
     result: { status: "failed", restoredVersion: "1.0.0", error: "wrong pid" },
   });
   expect(calls.slice(-5)).toEqual([
@@ -162,6 +180,74 @@ test("candidate health failure verifies and restores old bytes and exact running
     "start:1.0.0",
     "probe:1.0.0",
     "resume",
+  ]);
+  expect(stages).toEqual([
+    "Pausing new Workspace launches",
+    "Holding Agent runners until they are idle",
+    "Stopping Computer supervisor and 1 Workspace runtime",
+    "Switching the active executable to 2.0.0",
+    "Starting Computer supervisor 2.0.0 (1 running Workspace runtime, 1 stopped Workspace binding left as is)",
+    "Waiting for the supervisor and Workspace runtimes to report 2.0.0",
+    "Upgrade failed: wrong pid; restoring 1.0.0",
+    "Stopping Computer supervisor and 1 Workspace runtime",
+    "Switching the active executable to 1.0.0",
+    "Starting Computer supervisor 1.0.0 (1 running Workspace runtime, 1 stopped Workspace binding left as is)",
+    "Waiting for the supervisor and Workspace runtimes to report 1.0.0",
+    "Computer supervisor 1.0.0 healthy with 1 Workspace runtime",
+    "Resuming Workspace launches",
+    "Previous version 1.0.0 restored and healthy",
+  ]);
+});
+
+test("stages describe an executable-only switch when no supervisor is running", async () => {
+  const { options } = await harness();
+  const notRunningSnapshot: ManagedRuntimeSnapshot = {
+    bindings: [{ bindingId: "disabled-a", running: false, processId: null }],
+    supervisorRunning: false,
+  };
+  const calls: string[] = [];
+  options.lifecycle = {
+    async snapshot() {
+      calls.push("snapshot");
+      return notRunningSnapshot;
+    },
+    async pauseLaunches() {
+      calls.push("pause");
+    },
+    async holdRunners() {
+      calls.push("hold");
+    },
+    async stop(value) {
+      expect(value).toBe(notRunningSnapshot);
+      calls.push("stop");
+    },
+    async start(value, version) {
+      expect(value).toBe(notRunningSnapshot);
+      calls.push(`start:${version}`);
+    },
+    async probe(value, expected) {
+      expect(value).toBe(notRunningSnapshot);
+      calls.push(`probe:${expected.version}`);
+    },
+    async resumeLaunches() {
+      calls.push("resume");
+    },
+  };
+  const stages: string[] = [];
+
+  await expect(coordinateUpgrade(options, (stage) => stages.push(stage))).resolves.toMatchObject({
+    status: "succeeded",
+    version: "2.0.0",
+    supervisorRunning: false,
+    runtimes: [{ bindingId: "disabled-a", running: false }],
+  });
+  expect(stages).toEqual([
+    "Pausing new Workspace launches",
+    "Computer supervisor is not running; no processes to restart",
+    "Switching the active executable to 2.0.0",
+    "Checking the activated executable reports 2.0.0",
+    "Activated executable 2.0.0 confirmed",
+    "Resuming Workspace launches",
   ]);
 });
 

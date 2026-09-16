@@ -19,6 +19,9 @@ export type ManagedRuntimeBinding = {
 
 export type ManagedRuntimeSnapshot = {
   bindings: readonly ManagedRuntimeBinding[];
+  /** Whether the Computer supervisor was running when this snapshot was taken. When false,
+   * `stop`/`start` are no-ops and there is no running process tree to restart or report on. */
+  supervisorRunning: boolean;
 };
 
 export type UpgradeProbe = {
@@ -105,6 +108,7 @@ export function createSupervisorUpgradeLifecycle(
             running: false,
             processId: null,
           })),
+          supervisorRunning: false,
         };
       }
       const identities = await local.control("snapshot");
@@ -117,6 +121,7 @@ export function createSupervisorUpgradeLifecycle(
           running: runtime.processId > 0,
           processId: runtime.processId || null,
         })),
+        supervisorRunning: true,
       };
     },
     async pauseLaunches() {

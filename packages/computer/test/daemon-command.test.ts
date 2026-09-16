@@ -9,6 +9,7 @@ test("scoped stop and restart dispatch to supervisor without stopping the machin
       ensureRunning: async () => {},
       command: async (operation, workspaceId) => {
         calls.push(`${operation}:${workspaceId}`);
+        return [];
       },
     },
   });
@@ -25,6 +26,7 @@ test("Computer commands delegate machine-wide lifecycle to the resident supervis
     },
     command: async (operation) => {
       calls.push(operation);
+      return [];
     },
     stop: async () => {
       calls.push("process-stop");
@@ -46,6 +48,34 @@ test("Computer commands delegate machine-wide lifecycle to the resident supervis
   ]);
 });
 
+test("restart resolves with the daemon's post-command runtime snapshot", async () => {
+  const runtimes = [
+    {
+      workspaceId: "a",
+      computerId: "c",
+      enabled: true,
+      processId: 1,
+      instanceId: "i",
+      version: "v",
+    },
+    {
+      workspaceId: "b",
+      computerId: "c",
+      enabled: false,
+      processId: 0,
+      instanceId: "",
+      version: "",
+    },
+  ];
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => runtimes,
+    },
+  });
+  await expect(command.restart()).resolves.toEqual(runtimes);
+});
+
 test("restart waits for the supervisor's completed replacement response", async () => {
   const stopping = Promise.withResolvers<void>();
   const stopCalled = Promise.withResolvers<void>();
@@ -57,6 +87,7 @@ test("restart waits for the supervisor's completed replacement response", async 
         stopCalled.resolve();
         await stopping.promise;
         calls.push(operation);
+        return [];
       },
     },
   });

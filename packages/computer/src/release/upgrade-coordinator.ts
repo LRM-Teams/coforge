@@ -43,6 +43,10 @@ export type UpgradeResult = {
   version?: string;
   restoredVersion?: string;
   error?: string;
+  /** Whether the Computer supervisor was running before the switch. Kept JSON-plain so a CLI
+   * reading the receipt back can tell a caller their Workspaces were never touched. */
+  supervisorRunning?: boolean;
+  runtimes?: { bindingId: string; running: boolean }[];
 };
 
 export class UpgradeCoordinatorError extends Error {
@@ -87,6 +91,7 @@ export async function coordinateUpgrade(
       options.operation === "rollback"
         ? await lockedUpdater.prepareRollback()
         : await lockedUpdater.prepare(options.selection);
+    onStage("Pausing new Workspace launches");
     await lifecycle.pauseLaunches();
     let snapshot: ManagedRuntimeSnapshot;
     try {
@@ -97,6 +102,66 @@ export async function coordinateUpgrade(
     }
     return await switchRuntime(lifecycle, lockedUpdater, snapshot, prepared, options, onStage);
   });
+}
+
+/** How many bindings this snapshot has running, versus registered-but-stopped. */
+function runtimeCounts(snapshot: ManagedRuntimeSnapshot): { running: number; stopped: number } {
+  const running = snapshot.bindings.filter((binding) => binding.running).length;
+  return { running, stopped: snapshot.bindings.length - running };
+}
+
+function plural(count: number): string {
+  return count === 1 ? "" : "s";
+}
+
+/** The `==>` stage wording for one stop/activate/start/probe/healthy switch, shared by the
+ * candidate path and the restore path. When the supervisor was not running before the switch,
+ * there is no process tree to stop or start, so those stages collapse into a single fact and the
+ * probe is described as checking the activated executable rather than a live supervisor. */
+function switchStageText(snapshot: ManagedRuntimeSnapshot) {
+  const { running, stopped } = runtimeCounts(snapshot);
+  return {
+    stopping: snapshot.supervisorRunning
+      ? `Stopping Computer supervisor and ${running} Workspace runtime${plural(running)}`
+      : "Computer supervisor is not running; no processes to restart",
+    switching: (version: string) => `Switching the active executable to ${version}`,
+    starting: (version: string) =>
+      snapshot.supervisorRunning
+        ? `Starting Computer supervisor ${version} (${running} running Workspace runtime${plural(running)}, ${stopped} stopped Workspace binding${plural(stopped)} left as is)`
+        : undefined,
+    waiting: (version: string) =>
+      snapshot.supervisorRunning
+        ? `Waiting for the supervisor and Workspace runtimes to report ${version}`
+        : `Checking the activated executable reports ${version}`,
+    healthy: (version: string) =>
+      snapshot.supervisorRunning
+        ? `Computer supervisor ${version} healthy with ${running} Workspace runtime${plural(running)}`
+        : `Activated executable ${version} confirmed`,
+  };
+}
+
+/** Stops (if running), activates one version, starts it back up (if it was running), and waits
+ * for it to report healthy. Used for both the candidate switch and, on candidate failure, the
+ * restore back to the previous version. */
+async function performSwitch(
+  lifecycle: UpgradeLifecycle,
+  snapshot: ManagedRuntimeSnapshot,
+  version: string,
+  activate: () => Promise<void>,
+  previousProcessIds: readonly number[],
+  onStage: (stage: string) => void,
+): Promise<void> {
+  const stage = switchStageText(snapshot);
+  onStage(stage.stopping);
+  await lifecycle.stop(snapshot);
+  onStage(stage.switching(version));
+  await activate();
+  const startStage = stage.starting(version);
+  if (startStage) onStage(startStage);
+  await lifecycle.start(snapshot, version);
+  onStage(stage.waiting(version));
+  await lifecycle.probe(snapshot, { version, previousProcessIds });
+  onStage(stage.healthy(version));
 }
 
 async function switchRuntime(
@@ -115,14 +180,17 @@ async function switchRuntime(
     // Quiesce before the stop, never after: `stop` is the ~2s SIGTERM/SIGKILL ladder this hold
     // exists to keep away from a live tool call (ADR 0020). The rollback `stop` below is
     // deliberately not held - that path is already a failure recovery and speed wins there.
+    if (snapshot.supervisorRunning) onStage("Holding Agent runners until they are idle");
     await lifecycle.holdRunners();
-    await lifecycle.stop(snapshot);
-    await updater.activatePrepared(prepared);
-    await lifecycle.start(snapshot, prepared.version);
-    await lifecycle.probe(snapshot, {
-      version: prepared.version,
-      previousProcessIds: oldProcessIds,
-    });
+    await performSwitch(
+      lifecycle,
+      snapshot,
+      prepared.version,
+      () => updater.activatePrepared(prepared),
+      oldProcessIds,
+      onStage,
+    );
+    onStage("Resuming Workspace launches");
     await lifecycle.resumeLaunches();
     paused = false;
     return {
@@ -131,6 +199,11 @@ async function switchRuntime(
       operation,
       status: "succeeded",
       version: prepared.version,
+      supervisorRunning: snapshot.supervisorRunning,
+      runtimes: snapshot.bindings.map((binding) => ({
+        bindingId: binding.bindingId,
+        running: binding.running,
+      })),
     };
   } catch (candidateError) {
     if (!paused || prepared.previous === null) {
@@ -138,14 +211,16 @@ async function switchRuntime(
       throw candidateError;
     }
     try {
-      onStage(`Upgrade failed; restoring ${prepared.previous}`);
-      await lifecycle.stop(snapshot);
-      await updater.restoreVerified(prepared.previous, prepared.rollbackVersion ?? null);
-      await lifecycle.start(snapshot, prepared.previous);
-      await lifecycle.probe(snapshot, {
-        version: prepared.previous,
-        previousProcessIds: oldProcessIds,
-      });
+      onStage(`Upgrade failed: ${errorMessage(candidateError)}; restoring ${prepared.previous}`);
+      await performSwitch(
+        lifecycle,
+        snapshot,
+        prepared.previous,
+        () => updater.restoreVerified(prepared.previous!, prepared.rollbackVersion ?? null),
+        oldProcessIds,
+        onStage,
+      );
+      onStage("Resuming Workspace launches");
       await lifecycle.resumeLaunches();
       onStage(`Previous version ${prepared.previous} restored and healthy`);
       const result: UpgradeResult = {
