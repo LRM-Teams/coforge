@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 import { LocalDaemonLauncher } from "./launcher";
 import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
 
@@ -62,7 +63,10 @@ export class LaunchdDaemonHost implements DaemonLauncher {
     await this.#local.ensureRunning();
   }
 
-  command(operation: "start" | "stop" | "restart", workspaceId?: string): Promise<void> {
+  command(
+    operation: "start" | "stop" | "restart",
+    workspaceId?: string,
+  ): Promise<ManagedRuntimeIdentity[]> {
     return this.#local.command(operation, workspaceId);
   }
 

@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 
-import { runCli, type LoginCommand, type SetupCommand, type StatusCommand } from "../src/cli";
+import {
+  reportSkippedRestarts,
+  reportStoppedWorkspaces,
+  runCli,
+  type LoginCommand,
+  type SetupCommand,
+  type StatusCommand,
+} from "../src/cli";
 import { CliError, loginError, setupError } from "../src/errors";
 
 test("login uses the server selected by the compiled build", async () => {
@@ -451,6 +458,65 @@ test.each(["y", " YES "])(
     ]);
   },
 );
+
+test("post-upgrade hint reports each Workspace binding left stopped", () => {
+  const output: string[] = [];
+  reportStoppedWorkspaces(
+    { stdout: (line) => output.push(line) },
+    {
+      supervisorRunning: true,
+      runtimes: [
+        { bindingId: "cc5c27ce-running", running: true },
+        { bindingId: "cc5c27ce-stopped", running: false },
+      ],
+    },
+  );
+  expect(output).toEqual([
+    "Workspace cc5c27ce-stopped was already stopped and stays stopped; run 'coforge-computer start' to bring it online.",
+  ]);
+});
+
+test("post-upgrade hint says nothing when every Workspace binding is running", () => {
+  const output: string[] = [];
+  reportStoppedWorkspaces(
+    { stdout: (line) => output.push(line) },
+    { supervisorRunning: true, runtimes: [{ bindingId: "cc5c27ce-running", running: true }] },
+  );
+  expect(output).toEqual([]);
+});
+
+test("post-upgrade hint reports a stopped supervisor once instead of per-binding", () => {
+  const output: string[] = [];
+  reportStoppedWorkspaces(
+    { stdout: (line) => output.push(line) },
+    {
+      supervisorRunning: false,
+      runtimes: [{ bindingId: "cc5c27ce-stopped", running: false }],
+    },
+  );
+  expect(output).toEqual([
+    "Computer supervisor is not running; run 'coforge-computer start' to bring your Workspaces online.",
+  ]);
+});
+
+test("restart hint reports each Workspace binding an unscoped restart skipped because it was disabled", () => {
+  const output: string[] = [];
+  reportSkippedRestarts({ stdout: (line) => output.push(line) }, [
+    { workspaceId: "cc5c27ce-enabled", enabled: true },
+    { workspaceId: "cc5c27ce-disabled", enabled: false },
+  ]);
+  expect(output).toEqual([
+    "Workspace cc5c27ce-disabled is stopped and was not restarted; run 'coforge-computer start' to bring it online.",
+  ]);
+});
+
+test("restart hint says nothing when every Workspace binding is enabled", () => {
+  const output: string[] = [];
+  reportSkippedRestarts({ stdout: (line) => output.push(line) }, [
+    { workspaceId: "cc5c27ce-enabled", enabled: true },
+  ]);
+  expect(output).toEqual([]);
+});
 
 test("foreground runs the supervisor in the current process for external supervision", async () => {
   let calls = 0;

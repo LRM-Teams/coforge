@@ -15,7 +15,11 @@ import {
   decodeDaemonHoldResponse,
   LOCAL_RPC_METHODS,
 } from "@lrm/coforge-sdk/internal";
-import type { DaemonHandshakeResponse, DaemonHoldResponse } from "@lrm/coforge-sdk/internal";
+import type {
+  DaemonHandshakeResponse,
+  DaemonHoldResponse,
+  ManagedRuntimeIdentity,
+} from "@lrm/coforge-sdk/internal";
 import { DaemonConfigStore } from "../persistence/daemon-config";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 import { FileBindingStore } from "../supervisor/binding-store";
@@ -27,7 +31,12 @@ export interface DaemonLauncher {
 }
 export interface DaemonCommandRunner {
   ensureRunning(): Promise<void>;
-  command(operation: "start" | "stop" | "restart", workspaceId?: string): Promise<void>;
+  /** Returns the post-command snapshot of every locally registered binding, so a caller can tell
+   * which ones the command actually touched (e.g. an unscoped restart skips disabled bindings). */
+  command(
+    operation: "start" | "stop" | "restart",
+    workspaceId?: string,
+  ): Promise<ManagedRuntimeIdentity[]>;
 }
 export type DaemonWorkspaceConfig = {
   workspaceId: string;
@@ -123,9 +132,12 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     );
   }
 
-  async command(operation: "start" | "stop" | "restart", workspaceId?: string): Promise<void> {
+  async command(
+    operation: "start" | "stop" | "restart",
+    workspaceId?: string,
+  ): Promise<ManagedRuntimeIdentity[]> {
     await this.ensureRunning();
-    await this.control(operation, workspaceId);
+    return this.control(operation, workspaceId);
   }
 
   async control(
