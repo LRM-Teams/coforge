@@ -75,3 +75,9 @@ export const listGitHubRepositories = createServerFn({ method: "GET" })
     const userId = context.user.id;
     return (await requiredGitHub()).connection.repositories(userId, data.installationId, data.page);
   });
+
+export const listAccessibleGitHubRepositories = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) =>
+    (await requiredGitHub()).connection.accessibleRepositories(context.user.id),
+  );

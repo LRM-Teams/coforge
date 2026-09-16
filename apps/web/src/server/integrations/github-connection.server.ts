@@ -256,6 +256,31 @@ export class GitHubConnection {
     return result.data;
   }
 
+  /** Every repository the connected user can reach through a usable App installation. */
+  async accessibleRepositories(userId: string) {
+    const installations = await this.allInstallations(userId);
+    const pagesPerInstallation = await Promise.all(
+      installations
+        .filter((installation) => !installation.suspended)
+        .map(async (installation) => {
+          const pages = [await this.repositories(userId, installation.id, 1)];
+          for (let page = 2; page <= 10000 && pages.at(-1)?.hasMore; page++)
+            pages.push(await this.repositories(userId, installation.id, page));
+          return pages.flatMap((page) =>
+            page.repositories.map((repository) => ({
+              ...repository,
+              installationId: installation.id,
+            })),
+          );
+        }),
+    );
+    return [
+      ...new Map(
+        pagesPerInstallation.flat().map((repository) => [repository.id, repository]),
+      ).values(),
+    ].sort((left, right) => left.fullName.localeCompare(right.fullName));
+  }
+
   async disconnect(userId: string) {
     await this.locked(userId, async (tx) => {
       await tx.gitHubAuthorization.deleteMany({ where: { userId } });
