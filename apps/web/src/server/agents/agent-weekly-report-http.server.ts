@@ -1,13 +1,9 @@
 import {
   WEEKLY_REPORT_PROTOCOL_MAJOR,
-  decodeWeeklyReportRequest,
-  encodeWeeklyReportResponse,
-  validateWeeklyReportRequest,
   type WeeklyReportCommand,
   type WeeklyReportRequest,
   type WeeklyReportResponse,
 } from "@lrm/coforge-sdk/internal";
-import type { CentrifugoRpcMethod } from "../centrifugo/rpc-handler.server";
 import { isAppError } from "../../lib/app-error";
 
 type WeeklyReportCatalog = {
@@ -52,6 +48,7 @@ type WeeklyReportPrincipal = {
   agentId?: string;
 };
 
+/** Authorized weekly-report reads for the assistant owner User over Agent HTTPS REST. */
 export async function executeAgentWeeklyReport(
   catalog: WeeklyReportCatalog,
   authorization: WeeklyReportAuthorization,
@@ -107,28 +104,6 @@ export async function executeAgentWeeklyReport(
   }
 }
 
-/** Centrifugo-style adapter retained for unit tests of the shared authorization path. */
-export function createAgentWeeklyReportMethod(
-  catalog: WeeklyReportCatalog,
-  authorization: WeeklyReportAuthorization,
-): CentrifugoRpcMethod {
-  return async (payload, metadata) => {
-    try {
-      const request = decodeWeeklyReportRequest(payload);
-      const outcome = await executeAgentWeeklyReport(
-        catalog,
-        authorization,
-        request,
-        metadata.principal,
-      );
-      if ("error" in outcome) return outcome.error;
-      return encodeWeeklyReportResponse(outcome.response);
-    } catch {
-      return { code: 400, message: "invalid weekly-report request" };
-    }
-  };
-}
-
 async function executeWeeklyReportRead(
   catalog: WeeklyReportCatalog,
   workspaceId: string,
@@ -160,5 +135,3 @@ async function executeWeeklyReportRead(
     maxCharacters: command.maxCharacters,
   });
 }
-
-export { validateWeeklyReportRequest };

@@ -68,7 +68,7 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   states the claim-before-work and conversational acceptance workflow.
 
 - Weekly-report assistant reads use the same Credential Proxy and Agent HTTPS
-  connection (`agent:weekly-report`). Daemon forwards `coforge weekly-report`
+  connection (`POST /api/agent/v1/weekly-reports`). Daemon forwards `coforge weekly-report`
   context/list/read without interpreting report bodies or widening authorization.
   Web/backend re-checks the assistant owner User's existing Records visibility.
 

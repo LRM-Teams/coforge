@@ -147,7 +147,7 @@ instructions for the TanStack Start Web/backend modular monolith.
   template-dimension tabs. MVP writes only human `user` comments; `assistant`
   authorType and comment `payload` are reserved for later AI side panels.
   The weekly-report assistant's on-demand reads reuse `RecordCatalog` through
-  Agent HTTPS `agent:weekly-report`, authorized as the assistant owner User.
+  Agent HTTPS `POST /api/agent/v1/weekly-reports`, authorized as the assistant owner User.
   Schema merge requires Frank approval (see ADR 0009).
 
 - Browser realtime connection ownership belongs to `features/realtime/`. The
