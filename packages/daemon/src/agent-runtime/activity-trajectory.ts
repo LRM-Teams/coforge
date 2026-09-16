@@ -81,7 +81,7 @@ export class ActivityTrajectory {
 
 // Best-effort redaction of the assembled buffer, including split deltas. This
 // cannot guarantee that arbitrary model-emitted sensitive text is recognizable.
-function redactTrajectoryText(text: string) {
+export function redactTrajectoryText(text: string) {
   return text
     .replace(/((?:api[_-]?key|token|secret|password)\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]")
     .replace(/sk-[A-Za-z0-9_-]+/g, "[REDACTED]")

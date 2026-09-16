@@ -126,8 +126,39 @@ message: bun test packages/daemon/test/daemon-runtime.test.ts
 
 `activity=running_command` 表示 Agent runtime 正在执行命令；持久化的 `message` 使用
 provider 上报命令的前 100 个 Unicode 字符，超出部分由 Daemon 截断，不把 activity 类型
-和命令内容拼入 event name。命令前 100 个字符不做参数脱敏，可能包含命令参数中的敏感
-文本。后续需要记录启动、工具
+和命令内容拼入 event name。非 CoForge CLI 的 shell 命令先复用 trajectory 文本相同的脱敏
+规则（`redactTrajectoryText`）再截断：命令中出现的第一个 `<<`（heredoc 起始）之前截断，
+heredoc 正文永远不进入 `message`，随后才截断到前 100 个字符；命令参数中能被规则识别的
+token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是尽力而为的脱敏，不保证
+覆盖所有敏感文本。
+
+当命令的第一个 token 是 `coforge` 或以 `/coforge` 结尾的路径时，Daemon 把它解析为语义
+工具，只记录该工具预先约定的安全摘要字段，从不使用原始命令行或消息正文（`message send`
+之后的 heredoc 消息体同样不会出现在 `message` 里）；`message check`/`inbox check` 使用
+`checking_messages` 而不是 `running_command`/`tool_started`：
+
+| CoForge CLI 子命令 | 语义工具 | 摘要 |
+| --- | --- | --- |
+| `message send` | `send_message` | `--target` |
+| `message check` | `check_messages`（`checking_messages`） | 无 |
+| `message read` | `read_history` | `--target` |
+| `message search` | `search_messages` | `--query`（截断到 120 字符） |
+| `message resolve` / `message react` | `resolve_message` / `react_message` | 无 |
+| `inbox check` | `check_inbox`（`checking_messages`） | 无 |
+| `channel mute` / `unmute` | `mute_channel` / `unmute_channel` | `--target` |
+| `thread unfollow` | `unfollow_thread` | `--target` |
+| `task list/create/convert/claim/unclaim/assign/update/amend/history/delete/receipt` | `list_tasks` 等对应的 `*_task(s)` | `--target`，若有 `--number` 则附加 `#<n>` |
+| `attachment view` | `view_file` | 无 |
+| `reminder schedule` | `schedule_reminder` | `--title`（截断到 40 字符） |
+| `reminder list` | `list_reminders` | 无 |
+| `reminder update/snooze/cancel/log/ack/dismiss` | 对应的 `*_reminder`/`reminder_log` | `--id` 前 8 位 |
+| `weekly-report *` | `weekly_report` | 无 |
+| 其他 `coforge` 子命令 | `coforge_cli` | 无 |
+
+`glob`、`grep`、`web_fetch`、`web_search`、`todo_write` 等 Code Agent 工具同样只从一个预先
+约定的参数字段取摘要（`pattern`/`query`/`url`，均有长度上限），或在没有对应字段、以及未纳入
+统一分类的工具上只记录工具名；provider 上报的其他参数（例如 prompt、diff、密码等自由文本）
+永远不拼入 `message`。后续需要记录启动、工具
 调用或其他执行明细时，沿用 `agent:activity`，增加新的 discriminator 值和对应字段，
 不增加 Agent 业务状态。Code Agent 的文件工具调用必须记录，至少包括：
 

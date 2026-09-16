@@ -67,6 +67,7 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   IDLE: "idle",
   RUNNING_COMMAND: "running_command",
   TOOL_STARTED: "tool_started",
+  CHECKING_MESSAGES: "checking_messages",
   RUNTIME_RECONNECTING: "runtime_reconnecting",
   RUNTIME_ERROR: "runtime_error",
   // Content-free provider stream/system event (no rendered text): keeps the
