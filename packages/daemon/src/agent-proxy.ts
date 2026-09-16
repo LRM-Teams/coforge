@@ -15,9 +15,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { isAgentApiKey } from "./credentials/agent-api-key";
-import { AgentMessageRequestError } from "./connection/agent-message-request-error";
-import { AgentTaskRequestError } from "./connection/agent-task-request-error";
-import { AgentWeeklyReportRequestError } from "./connection/agent-weekly-report-request-error";
+import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentProxy = {
@@ -33,6 +31,38 @@ const MESSAGE_ID_ANCHOR =
 const LOCAL_ATTACHMENT_ROUTE_PREFIX = agentApiRoutes.local.attachments.path("");
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
+
+/** The `route_family` tag on a classified failure: which local proxy route it came from. */
+function routeFamilyFor(pathname: string, payload: Record<string, unknown> | undefined): string {
+  if (pathname === LOCAL_PROXY_ROUTES.reminders.path) return "agent-api/reminder";
+  if (pathname === LOCAL_PROXY_ROUTES.tasks.path) return "agent-api/task";
+  if (pathname === LOCAL_PROXY_ROUTES.weeklyReports.path) return "agent-api/weekly-report";
+  if (pathname === LOCAL_PROXY_ROUTES.inbox.path) return "agent-api/inbox";
+  if (pathname === LOCAL_PROXY_ROUTES.messages.path) {
+    const operation = payload?.operation;
+    return `agent-api/${typeof operation === "string" ? operation : "message"}`;
+  }
+  return "agent-api/unknown";
+}
+
+/**
+ * Classifies a thrown error into the local daemon proxy's JSON error contract (never a bare,
+ * unlabeled 502), logs it once at WARN, and carries the same correlation id on a response header.
+ */
+function proxyFailureResponse(
+  error: unknown,
+  context: { method: string; path: string; routeFamily: string; agentId: string; redact?: boolean },
+): Response {
+  const classified = classifyAgentProxyFailure(error, context);
+  logger.warn("Agent proxy request failed", {
+    event: "agent.proxy.failure",
+    ...classified.logFields,
+  });
+  return Response.json(classified.body, {
+    status: classified.status,
+    headers: { [AGENT_PROXY_CORRELATION_HEADER]: classified.body.proxy.correlation_id },
+  });
+}
 
 /** One daemon-local HTTP boundary shared by all Agent child processes. */
 export function startAgentProxy(input: {
@@ -113,8 +143,13 @@ export function startAgentProxy(input: {
               protocolMajor: 1,
             }),
           );
-        } catch {
-          return new Response("workspace info failed", { status: 502 });
+        } catch (error) {
+          return proxyFailureResponse(error, {
+            method: request.method,
+            path: requestUrl.pathname,
+            routeFamily: "agent-api/workspace-info",
+            agentId: binding.agentId,
+          });
         }
       }
       if (requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX)) {
@@ -138,12 +173,18 @@ export function startAgentProxy(input: {
             status: response.status,
             headers: response.headers,
           });
-        } catch {
-          return new Response("attachment download failed", { status: 502 });
+        } catch (error) {
+          return proxyFailureResponse(error, {
+            method: request.method,
+            path: requestUrl.pathname,
+            routeFamily: "agent-api/attachment",
+            agentId: binding.agentId,
+          });
         }
       }
       if (request.headers.get("content-type")?.toLowerCase() !== "application/json")
         return new Response("unsupported media type", { status: 415 });
+      let payload: Record<string, unknown> | undefined;
       try {
         const contentLength = request.headers.get("content-length");
         if (contentLength && (!/^\d+$/.test(contentLength) || Number(contentLength) > maxBodyBytes))
@@ -154,7 +195,7 @@ export function startAgentProxy(input: {
         const body = JSON.parse(raw);
         if (!body || typeof body !== "object" || Array.isArray(body))
           return new Response("bad request", { status: 400 });
-        const payload = body as Record<string, unknown>;
+        payload = body as Record<string, unknown>;
         reviewerMode = payload.freshnessContextMode === "withheld";
         if (requestUrl.pathname === LOCAL_PROXY_ROUTES.reminders.path) {
           if (!input.runtime.reminder) return new Response("not found", { status: 404 });
@@ -301,15 +342,16 @@ export function startAgentProxy(input: {
         );
         return Response.json(result);
       } catch (error) {
-        // Deliberately do not expose runtime/transport exception text.
         if (error instanceof SyntaxError) return new Response("bad request", { status: 400 });
-        if (!reviewerMode && error instanceof AgentMessageRequestError)
-          return new Response(error.message, { status: 400 });
-        if (!reviewerMode && error instanceof AgentTaskRequestError)
-          return new Response(error.message, { status: 400 });
-        if (!reviewerMode && error instanceof AgentWeeklyReportRequestError)
-          return new Response(error.message, { status: 400 });
-        return new Response("proxy request failed", { status: 502 });
+        // Every other failure is classified: never a bare, unlabeled 502. Reviewer-isolated
+        // requests still get a classified response, but with detail withheld.
+        return proxyFailureResponse(error, {
+          method: request.method,
+          path: requestUrl.pathname,
+          routeFamily: routeFamilyFor(requestUrl.pathname, payload),
+          agentId: binding.agentId,
+          redact: reviewerMode,
+        });
       }
     },
   });

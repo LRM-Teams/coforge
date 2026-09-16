@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { run, type MessageTransport } from "../index";
 import { connectLocal } from "./local-client";
+import { CliError, renderCliError } from "./cli-error";
 
 export async function runAgentCli(args: readonly string[]): Promise<void> {
   const transport: MessageTransport = connectLocal(
@@ -14,7 +15,8 @@ export async function runAgentCli(args: readonly string[]): Promise<void> {
     if (typeof result === "string") console.log(result);
     else if (result !== undefined) console.log(JSON.stringify(result));
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    if (error instanceof CliError) console.error(renderCliError(error));
+    else console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
 }

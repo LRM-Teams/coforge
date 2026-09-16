@@ -3,6 +3,9 @@ import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { startAgentProxy } from "../src/agent-proxy";
 import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
 import { AgentTaskRequestError } from "../src/connection/agent-task-request-error";
+import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
+import { AgentTransportError } from "../src/connection/agent-transport-error";
+import type { AgentProxyFailureBody } from "../src/agent-proxy-failure";
 
 const proxies: Array<{ close(): void }> = [];
 
@@ -10,17 +13,20 @@ afterEach(() => {
   for (const proxy of proxies.splice(0)) proxy.close();
 });
 
-test("proxy returns safe Agent message failures and hides unknown failures", async () => {
-  for (const [failure, status, message] of [
+test("proxy classifies Agent message failures: known validation passes through, upstream HTTP status passes through", async () => {
+  for (const [failure, status, expected] of [
     [
       AgentMessageRequestError.fromRpc(400, "ambiguous message prefix; use the full UUID"),
       400,
-      "ambiguous message prefix; use the full UUID",
+      {
+        error: "ambiguous message prefix; use the full UUID",
+        code: "AGENT_MESSAGE_VALIDATION_FAILED",
+      },
     ],
     [
       AgentMessageRequestError.fromRpc(500, "database password leaked"),
-      502,
-      "proxy request failed",
+      500,
+      { error: "upstream HTTP response failed", code: "agent_proxy_failed" },
     ],
   ] as const) {
     const proxy = startAgentProxy({
@@ -38,7 +44,14 @@ test("proxy returns safe Agent message failures and hides unknown failures", asy
       body: JSON.stringify({ requestId: "request-1", operation: "read", target: "@ada" }),
     });
     expect(response.status).toBe(status);
-    expect(await response.text()).toBe(message);
+    expect(response.headers.get("x-coforge-correlation-id")).toBeTruthy();
+    const body = (await response.json()) as AgentProxyFailureBody;
+    expect(body).toMatchObject(expected);
+    expect(body.proxy.layer).toBe("local_daemon_proxy");
+    expect(body.proxy.route_family).toBe("agent-api/read");
+    // Never the bare, unlabeled 502 the incident produced.
+    expect(body.error).not.toBe("proxy request failed");
+    if (status === 500) expect(body.detail).not.toContain("database password leaked");
   }
 });
 
@@ -67,14 +80,20 @@ test("proxy redacts known request errors in reviewer-isolated mode", async () =>
     target: "@ada",
     body: "reply",
   });
-  expect([message.status, await message.text()]).toEqual([502, "proxy request failed"]);
+  expect(message.status).toBe(502);
+  const messageBody = (await message.json()) as AgentProxyFailureBody;
+  expect(messageBody.detail).toBeUndefined();
+  expect(JSON.stringify(messageBody)).not.toContain("sensitive message failure");
   const task = await post(agentApiRoutes.proxy.tasks.path, {
     requestId: "task",
     operation: "claim",
     target: "#general",
     number: 1,
   });
-  expect([task.status, await task.text()]).toEqual([502, "proxy request failed"]);
+  expect(task.status).toBe(502);
+  const taskBody = (await task.json()) as AgentProxyFailureBody;
+  expect(taskBody.detail).toBeUndefined();
+  expect(JSON.stringify(taskBody)).not.toContain("sensitive task failure");
 });
 
 test("one shared proxy maps opaque per-Agent tokens and fails closed", async () => {
@@ -515,4 +534,66 @@ test("proxy forwards weekly-report reads after validating the local command", as
     result: { reports: [], nextCursor: null },
   });
   expect(calls).toEqual([{ operation: "list", limit: 2 }]);
+});
+
+test("a local precondition failure (missing API key, no held draft, ...) is a classified 400, not a bare 502", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        throw new AgentPreflightError(`No held draft for target: @ada`, "NO_HELD_DRAFT");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(proxy.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      requestId: "request-1",
+      operation: "send",
+      target: "@ada",
+      sendDraft: true,
+    }),
+  });
+  expect(response.status).toBe(400);
+  const body = (await response.json()) as AgentProxyFailureBody;
+  expect(body).toMatchObject({
+    error: "No held draft for target: @ada",
+    code: "NO_HELD_DRAFT",
+    proxy: { failure_class: "local_precondition", cause_code: "NO_HELD_DRAFT" },
+  });
+});
+
+test("the incident: an upstream 200 whose body cannot be trusted is a protocol-mismatch failure, not a bare 502", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        // What dev.30's daemon actually received from a #264-shaped server: HTTP 200, but a body
+        // this daemon build cannot decode/validate (see `daemon-connection.ts`'s strict `state`
+        // check). The daemon must never let this reach the CLI as an unlabeled crash.
+        throw AgentTransportError.protocolMismatch(
+          "agent send",
+          200,
+          'response state is not one of "sent"/"held"/"denied" (got undefined)',
+        );
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(proxy.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ requestId: "request-1", operation: "send", target: "@ada", body: "hi" }),
+  });
+  expect(response.status).toBe(502);
+  expect(response.headers.get("x-coforge-correlation-id")).toBeTruthy();
+  const body = (await response.json()) as AgentProxyFailureBody;
+  expect(body.proxy.failure_class).toBe("protocol_mismatch");
+  expect(body.proxy.upstream_status).toBe(200);
+  expect(body.proxy.response_started).toBe(true);
+  expect(body.proxy.response_complete).toBe(true);
+  expect(body.proxy.route_family).toBe("agent-api/send");
+  expect(body.detail).toContain("response state is not one of");
 });

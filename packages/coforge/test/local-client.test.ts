@@ -1,6 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { connectLocal } from "../src/local-client";
+import { CliError } from "../src/cli-error";
 
 const proxyUrl = (route: { path: string } | string) =>
   `http://proxy.test${typeof route === "string" ? route : route.path}`;
@@ -48,7 +49,7 @@ test("sanitizes unknown Agent proxy error bodies", async () => {
 
   await expect(
     connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).check(),
-  ).rejects.toThrow(/^agent proxy request failed \(400\)$/);
+  ).rejects.toThrow(/^HTTP 400$/);
 });
 
 test("redacts upstream detail for a withheld reviewer-isolation send failure", async () => {
@@ -62,7 +63,9 @@ test("redacts upstream detail for a withheld reviewer-isolation send failure", a
       "body",
       { freshnessContextMode: "withheld" },
     ),
-  ).rejects.toThrow("reviewer-isolation message request failed (400); upstream detail withheld");
+  ).rejects.toThrow(
+    "Reviewer-isolation send failed (HTTP 400); upstream error detail was withheld.",
+  );
 });
 
 test("redacts upstream detail for a withheld reviewer-isolation Task failure", async () => {
@@ -162,6 +165,105 @@ test("resolve posts the messageId as a resolve operation", async () => {
   expect(body).toMatchObject({ operation: "resolve", messageId: "abcd1234" });
 });
 
+test("a send that fails before any request was issued reports the draft as not saved", async () => {
+  const fetch = spyOn(globalThis, "fetch");
+  const error = await connectLocal(
+    "",
+    "not-a-valid-context",
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@ada", "hi")
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.draftSaved).toBe(false);
+  expect(cliError.retryable).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+test("a send that fails after the daemon reports a local precondition keeps the draft unsaved", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        error: "No held draft for target: @ada",
+        code: "NO_HELD_DRAFT",
+        proxy: {
+          correlation_id: "corr-1",
+          route_family: "agent-api/send",
+          failure_class: "local_precondition",
+          cause_code: "NO_HELD_DRAFT",
+          response_started: false,
+          response_complete: false,
+        },
+      },
+      { status: 400 },
+    ),
+  );
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@ada", undefined, { sendDraft: true })
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("NO_HELD_DRAFT");
+  expect(cliError.draftSaved).toBe(false);
+  expect(cliError.suggestedNextAction).toContain("No message was sent");
+});
+
+test("a send that fails after a transport/protocol failure marks the draft saved and refuses to say it is safe to retry", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        error: "upstream HTTP response failed",
+        code: "agent_proxy_failed",
+        proxy: {
+          correlation_id: "corr-2",
+          route_family: "agent-api/send",
+          failure_class: "upstream_http_response",
+          cause_code: "HTTP_500",
+          upstream_layer: "http_status",
+          upstream_status: 500,
+          response_started: true,
+          response_complete: true,
+        },
+      },
+      { status: 500 },
+    ),
+  );
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@ada", "hi")
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("SERVER_5XX");
+  expect(cliError.draftSaved).toBe(true);
+  expect(cliError.retryable).toBe(false);
+  expect(cliError.correlationId).toBe("corr-2");
+  expect(cliError.suggestedNextAction).toContain("Do not resend on this evidence");
+});
+
+test("a network failure reaching the local daemon proxy is treated as possibly-issued for send", async () => {
+  spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@ada", "hi")
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.draftSaved).toBe(true);
+  expect(cliError.retryable).toBe(false);
+});
+
 test.each([
   [false, "react"],
   [true, "unreact"],
@@ -177,4 +279,70 @@ test.each([
   const [, init] = fetch.mock.calls[0]!;
   const body = JSON.parse(String(init?.body));
   expect(body).toMatchObject({ operation, messageId: "abcd1234", emoji: "👍" });
+});
+
+test("the incident: a protocol mismatch after an upstream 200 is INVALID_JSON_RESPONSE, never SERVER_5XX", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        error: "upstream response could not be decoded",
+        code: "agent_proxy_failed",
+        detail: 'agent send: response state is not one of "sent"/"held"/"denied" (got undefined)',
+        proxy: {
+          correlation_id: "corr-3",
+          route_family: "agent-api/send",
+          failure_class: "protocol_mismatch",
+          cause_code: "AGENT_RESPONSE_SHAPE_INVALID",
+          upstream_layer: "response_decode",
+          upstream_status: 200,
+          response_started: true,
+          response_complete: true,
+        },
+      },
+      { status: 502 },
+    ),
+  );
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@ada", "hi")
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("INVALID_JSON_RESPONSE");
+  expect(cliError.proxy?.upstreamStatus).toBe(200);
+  expect(cliError.draftSaved).toBe(true);
+  expect(cliError.retryable).toBe(false);
+});
+
+test("a reviewer-isolated send still learns a local precondition (no upstream detail involved)", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        error: "No held draft for target: @ada",
+        code: "NO_HELD_DRAFT",
+        proxy: {
+          correlation_id: "corr-4",
+          route_family: "agent-api/send",
+          failure_class: "local_precondition",
+          cause_code: "NO_HELD_DRAFT",
+          response_started: false,
+          response_complete: false,
+        },
+      },
+      { status: 400 },
+    ),
+  );
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@ada", undefined, { sendDraft: true, freshnessContextMode: "withheld" })
+    .catch((caught: unknown) => caught);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("NO_HELD_DRAFT");
+  expect(cliError.draftSaved).toBe(false);
 });

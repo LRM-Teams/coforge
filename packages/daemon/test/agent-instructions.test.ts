@@ -77,6 +77,14 @@ test("read, search, and send-held describe the CLI's printed output formats", ()
   );
 });
 
+test("a failed send with a saved draft must not be retried automatically", () => {
+  expect(instructions).toContain("`Draft saved: yes`");
+  expect(instructions).toContain("delivery is unknown, not failed: do not resend");
+  expect(instructions).toContain(
+    "`coforge message send --send-draft` after such a failure is a person's deliberate decision",
+  );
+});
+
 test("resolve and react are scoped to proving/reading an id and deliberate acknowledgement", () => {
   expect(instructions).toContain("coforge message resolve <message-id>");
   expect(instructions).toContain(
