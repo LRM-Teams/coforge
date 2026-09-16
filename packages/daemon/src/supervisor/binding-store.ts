@@ -1,6 +1,10 @@
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { BindingStore, ManagedBinding } from "./machine-supervisor";
+import {
+  UPGRADE_OPERATION_HISTORY,
+  type BindingStore,
+  type ManagedBinding,
+} from "./machine-supervisor";
 
 /** Coordinator-owned registry. File and directory sync bracket atomic replacement. */
 export class FileBindingStore implements BindingStore {
@@ -21,7 +25,7 @@ export class FileBindingStore implements BindingStore {
     }
     validateBindings(value);
     this.#assertEnvironment(value);
-    return value;
+    return value.map(migrateLegacyUpgradeRequests);
   }
   async save(bindings: ManagedBinding[]): Promise<void> {
     validateBindings(bindings);
@@ -134,5 +138,62 @@ function validateBindings(value: unknown): asserts value is ManagedBinding[] {
         requests.add(request.requestId);
       }
     }
+    validateUpgradeOperations(binding.upgradeOperations);
   }
+}
+
+const UPGRADE_OPERATION_STATES = ["pending", "succeeded", "failed", "acknowledged"];
+
+/** One operation at a time may be pending, and every terminal state carries its receipt. */
+function validateUpgradeOperations(value: unknown): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length > UPGRADE_OPERATION_HISTORY)
+    throw new Error("invalid binding registry upgrade operations");
+  const seen = new Set<string>();
+  let pending = 0;
+  for (const operation of value) {
+    if (
+      !record(operation) ||
+      !text(operation.requestId) ||
+      !text(operation.expectedVersion) ||
+      !UPGRADE_OPERATION_STATES.includes(String(operation.state)) ||
+      seen.has(operation.requestId)
+    )
+      throw new Error("invalid binding registry upgrade operation");
+    seen.add(operation.requestId);
+    if (operation.state === "pending") pending += 1;
+    const terminal = operation.terminal;
+    if (operation.state === "pending") {
+      if (terminal !== undefined) throw new Error("invalid binding registry upgrade operation");
+    } else if (operation.state !== "acknowledged" || terminal !== undefined) {
+      if (
+        !record(terminal) ||
+        !Number.isSafeInteger(terminal.at) ||
+        (terminal.version !== undefined && !text(terminal.version)) ||
+        (terminal.error !== undefined && !text(terminal.error))
+      )
+        throw new Error("invalid binding registry upgrade operation");
+    }
+  }
+  if (pending > 1) throw new Error("invalid binding registry upgrade operation overlap");
+}
+
+/**
+ * Reopens the pre-receipt `upgradeRequests` dedupe list as pending operations. Those entries were
+ * never cleared, so a machine can carry requests for versions it finished long ago; they become
+ * ordinary pending operations that the receipt sweep resolves or that expire with the record cap.
+ */
+function migrateLegacyUpgradeRequests(binding: ManagedBinding): ManagedBinding {
+  if (!binding.upgradeRequests?.length) return binding;
+  const { upgradeRequests, ...rest } = binding;
+  const existing = new Set((binding.upgradeOperations ?? []).map((entry) => entry.requestId));
+  return {
+    ...rest,
+    upgradeOperations: [
+      ...(binding.upgradeOperations ?? []),
+      ...upgradeRequests
+        .filter((request) => !existing.has(request.requestId))
+        .map((request) => ({ ...request, state: "pending" as const })),
+    ].slice(-UPGRADE_OPERATION_HISTORY),
+  };
 }

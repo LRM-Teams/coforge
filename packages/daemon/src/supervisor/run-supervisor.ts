@@ -18,6 +18,14 @@ import type { WorkspaceInstance } from "./workspace-instance";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
 import { sweepLeftoverComputerUpgradeJobs } from "../platform/computer-upgrade-sweep";
+import {
+  sweepComputerUpgradeReceipts,
+  type ComputerUpgradeReceipt,
+} from "../platform/computer-upgrade-receipts";
+
+/** How long, and how often, a Coordinator watches for a receipt from a job it launched. */
+const UPGRADE_RECEIPT_WATCH_MS = 10 * 60_000;
+const UPGRADE_RECEIPT_POLL_MS = 2_000;
 
 export async function runMachineSupervisor(
   args: string[],
@@ -131,16 +139,23 @@ async function runWithSupervisorLock(
         restartResults: _results,
         restartRequestIds: _legacy,
         upgradeRequestIds: _upgrades,
-        upgradeRequests,
+        upgradeRequests: _legacyUpgrades,
+        upgradeOperations,
         ...config
       } = binding;
+      // The replacement carries every operation it must still settle with the server: pending
+      // ones as cloud ready hints, terminal ones as results it owes the server a report for.
+      const operations = (upgradeOperations ?? [])
+        .filter((operation) => operation.state !== "acknowledged")
+        .slice(-128);
       const childConfig = {
         ...config,
         restartRequestIds: restartRequestIds.slice(-128),
-        upgradeRequestIds: (upgradeRequests ?? []).map((entry) => entry.requestId).slice(-128),
+        upgradeRequestIds: operations.map((entry) => entry.requestId),
         upgradeExpectedVersions: Object.fromEntries(
-          (upgradeRequests ?? []).map((entry) => [entry.requestId, entry.expectedVersion]),
+          operations.map((entry) => [entry.requestId, entry.expectedVersion]),
         ),
+        upgradeOperations: operations,
       };
       await new DaemonConfigStore(directory).save(childConfig);
       const instance = workspaceInstance(binding.workspaceId);
@@ -211,6 +226,57 @@ async function runWithSupervisorLock(
             version: "",
           };
     });
+  const upgradeLogger = getLogger(["coforge", "daemon", "supervisor"]);
+  const completeUpgrade = async (
+    workspaceId: string,
+    requestId: string,
+    receipt: ComputerUpgradeReceipt,
+  ) => {
+    const recorded = await supervisor.completeUpgrade(workspaceId, requestId, {
+      status: receipt.status,
+      at: receipt.at,
+      ...(receipt.version ? { version: receipt.version } : {}),
+      ...(receipt.error ? { error: receipt.error } : {}),
+    });
+    if (recorded)
+      upgradeLogger.info("Computer upgrade operation reached its terminal state", {
+        event: "upgrade:operation_settled",
+        request_id: requestId,
+        workspace_id: workspaceId,
+        status: receipt.status,
+      });
+    return recorded;
+  };
+  const pendingUpgradeOperations = async () =>
+    (await supervisor.snapshot()).flatMap((binding) =>
+      (binding.upgradeOperations ?? [])
+        .filter((operation) => operation.state === "pending")
+        .map((operation) => ({ workspaceId: binding.workspaceId, requestId: operation.requestId })),
+    );
+  const settlePendingUpgradeOperations = async () => {
+    try {
+      await sweepComputerUpgradeReceipts(await pendingUpgradeOperations(), completeUpgrade);
+    } catch (error) {
+      upgradeLogger.error("Computer upgrade receipt sweep failed", {
+        event: "upgrade:receipt_sweep_failed",
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  /** Best-effort in-process watch; the startup sweep above is the durable backstop. */
+  const watchUpgradeReceipt = (workspaceId: string, requestId: string) => {
+    void (async () => {
+      const deadline = Date.now() + UPGRADE_RECEIPT_WATCH_MS;
+      while (Date.now() < deadline) {
+        await Bun.sleep(UPGRADE_RECEIPT_POLL_MS);
+        const settled = await sweepComputerUpgradeReceipts(
+          [{ workspaceId, requestId }],
+          completeUpgrade,
+        ).catch(() => 0);
+        if (settled) return;
+      }
+    })();
+  };
   let rpc: Awaited<ReturnType<typeof startDaemonLocalRpcServer>> | undefined;
   try {
     try {
@@ -223,6 +289,9 @@ async function runWithSupervisorLock(
         { error },
       );
     }
+    // A remote upgrade stops and replaces this very process, so Coordinator startup is the first
+    // moment anything can observe what the job the old process launched actually did.
+    await settlePendingUpgradeOperations();
     if (await Bun.file(holdPath).exists()) await supervisor.pause();
     rpc = await startDaemonLocalRpcServer({
       socketPath,
@@ -246,10 +315,15 @@ async function runWithSupervisorLock(
               request.requestId,
               request.expectedVersion,
             );
-            if (created)
+            if (created) {
               await launchComputerUpgrade(request.requestId, request.expectedVersion, {
                 stateDirectory,
               });
+              watchUpgradeReceipt(request.workspaceId, request.requestId);
+            }
+          } else if (method === "daemon:upgrade_ack") {
+            if (!request.workspaceId) throw new Error("upgrade acknowledgement requires workspace");
+            await supervisor.acknowledgeUpgrade(request.workspaceId, request.requestId);
           } else if (method !== "daemon:snapshot") {
             const operation = method.slice("daemon:".length);
             if (operation !== "start" && operation !== "stop" && operation !== "restart")

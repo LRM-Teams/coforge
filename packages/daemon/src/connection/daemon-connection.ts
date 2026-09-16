@@ -17,11 +17,14 @@ import {
   AGENT_SKILLS_LIST_RESULT_METHOD,
   type AgentSkillsListRequest,
   type AgentSkillsListResult,
+  type ComputerUpgradeResult,
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
   decodeAgentMessageDelivery,
   decodeComputerRestartIntent,
   decodeComputerUpgradeIntent,
+  encodeComputerUpgradeResult,
+  COMPUTER_UPGRADE_RESULT_METHOD,
   encodeAgentActivity,
   encodeAgentStatus,
   encodeAgentMessageDeliveryAck,
@@ -154,6 +157,7 @@ export interface DaemonConnectionClient {
   sendSkillsListResult?(result: AgentSkillsListResult): Promise<void>;
   onUsageScan?(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void;
   sendUsageScanResult?(response: DaemonRuntimeUsageScanResponse): Promise<void>;
+  sendUpgradeResult?(result: ComputerUpgradeResult): Promise<boolean>;
   stop(): Promise<void>;
   onReconnect?(callback: () => void): () => void;
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
@@ -411,6 +415,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
   readonly #upgradeRequestIds = new Set<string>();
+  readonly #reportedUpgradeRequestIds = new Set<string>();
   #statusRefreshTimer: ReturnType<typeof setInterval> | undefined;
   #computerStatusRefreshTimer: unknown;
   #statusRpcQueue = Promise.resolve();
@@ -930,6 +935,22 @@ export class DaemonConnection implements DaemonConnectionClient {
     await this.#rpc(AGENT_SKILLS_LIST_RESULT_METHOD, encodeAgentSkillsListResult(result));
   }
 
+  /**
+   * Reports one upgrade operation's terminal result. Returns whether this call was the one that
+   * put it on the wire; a replay of an already reported operation is dropped, and a failed send
+   * stays replayable, matching the dedupe discipline of the other lifecycle results.
+   */
+  async sendUpgradeResult(result: ComputerUpgradeResult): Promise<boolean> {
+    if (this.#reportedUpgradeRequestIds.has(result.requestId)) return false;
+    await this.#rpc(COMPUTER_UPGRADE_RESULT_METHOD, encodeComputerUpgradeResult(result));
+    if (this.#reportedUpgradeRequestIds.size >= REMEMBERED_REQUEST_IDS)
+      this.#reportedUpgradeRequestIds.delete(
+        this.#reportedUpgradeRequestIds.values().next().value!,
+      );
+    this.#reportedUpgradeRequestIds.add(result.requestId);
+    return true;
+  }
+
   async sendUsageScanResult(response: DaemonRuntimeUsageScanResponse): Promise<void> {
     await this.#rpc(
       DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
@@ -1096,6 +1117,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#latestStatuses,
       this.#restartRequestIds,
       this.#upgradeRequestIds,
+      this.#reportedUpgradeRequestIds,
     ])
       collection.clear();
     this.#statusRpcQueue = Promise.resolve();

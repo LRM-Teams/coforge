@@ -92,7 +92,90 @@ test("binding registry fails closed on malformed upgrade requests", async () => 
     }
     const valid = [{ ...binding, upgradeRequests: [{ requestId: "r", expectedVersion: "1.0.0" }] }];
     await new FileBindingStore(root).save(valid);
+    expect(await new FileBindingStore(root).load()).toEqual([
+      {
+        ...binding,
+        upgradeOperations: [{ requestId: "r", expectedVersion: "1.0.0", state: "pending" }],
+      },
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("binding registry validates upgrade operation records and their terminal receipts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coforge-binding-operation-"));
+  const binding = { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true };
+  try {
+    for (const upgradeOperations of [
+      [{ requestId: "r", expectedVersion: "1.0.0" }],
+      [{ requestId: "r", expectedVersion: "1.0.0", state: "running" }],
+      [{ requestId: "r", expectedVersion: "", state: "pending" }],
+      [
+        { requestId: "r", expectedVersion: "1.0.0", state: "pending" },
+        { requestId: "r", expectedVersion: "1.0.0", state: "pending" },
+      ],
+      [{ requestId: "r", expectedVersion: "1.0.0", state: "succeeded", terminal: { at: "now" } }],
+      [{ requestId: "r", expectedVersion: "1.0.0", state: "failed" }],
+      [
+        { requestId: "r", expectedVersion: "1.0.0", state: "pending" },
+        { requestId: "s", expectedVersion: "1.0.0", state: "pending" },
+      ],
+    ]) {
+      await Bun.write(
+        join(root, "bindings.json"),
+        JSON.stringify([{ ...binding, upgradeOperations }]),
+      );
+      await expect(new FileBindingStore(root).load()).rejects.toThrow(
+        "invalid binding registry upgrade operation",
+      );
+    }
+    const valid = [
+      {
+        ...binding,
+        upgradeOperations: [
+          { requestId: "r", expectedVersion: "1.0.0", state: "acknowledged" as const },
+          {
+            requestId: "s",
+            expectedVersion: "1.1.0",
+            state: "failed" as const,
+            terminal: { error: "candidate failed", at: 1 },
+          },
+          { requestId: "t", expectedVersion: "1.2.0", state: "pending" as const },
+        ],
+      },
+    ];
+    await new FileBindingStore(root).save(valid);
     expect(await new FileBindingStore(root).load()).toEqual(valid);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy upgrade requests reopen as pending operations", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coforge-binding-migration-"));
+  try {
+    await Bun.write(
+      join(root, "bindings.json"),
+      JSON.stringify([
+        {
+          workspaceId: "a",
+          computerId: "c",
+          workspaceRoot: "/a",
+          enabled: true,
+          upgradeRequests: [
+            { requestId: "old", expectedVersion: "0.1.0-dev.28" },
+            { requestId: "older", expectedVersion: "0.1.0-dev.27" },
+          ],
+        },
+      ]),
+    );
+    const [migrated] = await new FileBindingStore(root).load();
+    expect(migrated?.upgradeRequests).toBeUndefined();
+    expect(migrated?.upgradeOperations).toEqual([
+      { requestId: "old", expectedVersion: "0.1.0-dev.28", state: "pending" },
+      { requestId: "older", expectedVersion: "0.1.0-dev.27", state: "pending" },
+    ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

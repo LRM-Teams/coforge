@@ -77,6 +77,15 @@ import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store"
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
+
+/** A terminal upgrade operation carried forward from the Coordinator's durable record. */
+export type RecoveredUpgradeResult = {
+  requestId: string;
+  status: "succeeded" | "failed";
+  completedAtMs: number;
+  version?: string;
+  error?: string;
+};
 const FULL_THREAD_TARGET =
   /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 const SHORT_THREAD_TARGET = /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-f]{8})$/;
@@ -245,6 +254,10 @@ export class DaemonRuntime {
       requestUpgrade?(requestId: string, expectedVersion?: string): Promise<void>;
       recoveredRestartRequestIds?: string[];
       recoveredUpgradeRequestIds?: string[];
+      /** Terminal upgrade operations this machine still owes the server a report for. */
+      recoveredUpgradeResults?: RecoveredUpgradeResult[];
+      /** Called once the server has accepted a reported result. */
+      acknowledgeUpgradeResult?(requestId: string): Promise<void>;
     } = {},
     private readonly computerVersion?: string,
   ) {
@@ -576,6 +589,7 @@ export class DaemonRuntime {
         recoveredUpgradeRequestIds: this.lifecycle.recoveredUpgradeRequestIds ?? [],
         capabilities: [REMINDER_CAPABILITY],
       }));
+      await this.#reportUpgradeResults();
       await Promise.all(
         this.#readyRunningAgentIds().map((agentId) => this.#requestReminderSnapshot(agentId)),
       );
@@ -592,6 +606,40 @@ export class DaemonRuntime {
       // A transport may retain partial state after a failed start; never reuse it.
       this.#transport = this.#transportFactory.create(this.#connection);
       throw error;
+    }
+  }
+
+  /**
+   * Reports every terminal upgrade operation this machine has not settled yet. The server's
+   * acceptance is the acknowledgement: only then does the local record become audit history.
+   * A refused or failed report is left alone so the next ready handshake retries it.
+   */
+  async #reportUpgradeResults(): Promise<void> {
+    const results = this.lifecycle.recoveredUpgradeResults ?? [];
+    if (!results.length || !this.#transport.sendUpgradeResult) return;
+    const connection = this.#connection;
+    for (const result of results) {
+      try {
+        await this.#transport.sendUpgradeResult({
+          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+          requestId: result.requestId,
+          workspaceId: connection.workspaceId,
+          computerId: connection.computerId ?? "",
+          status: result.status,
+          completedAtMs: result.completedAtMs,
+          ...(result.version ? { version: result.version } : {}),
+          ...(result.error ? { error: result.error } : {}),
+        });
+        await this.lifecycle.acknowledgeUpgradeResult?.(result.requestId);
+      } catch (error) {
+        logger.error("Computer upgrade result report failed", {
+          event: "upgrade:result_report_failed",
+          request_id: result.requestId,
+          workspace_id: connection.workspaceId,
+          error_code: diagnosticErrorCode(error),
+          outcome: "failed",
+        });
+      }
     }
   }
 

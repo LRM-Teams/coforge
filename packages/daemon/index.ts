@@ -6,7 +6,11 @@ import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
 import { createCodeAgentProvider } from "./src/code-agent/registry";
 import { discoverCodeAgentInventory } from "./src/code-agent/runtime-inventory";
-import { DaemonRuntime, type DaemonConfig } from "./src/daemon-runtime/runtime";
+import {
+  DaemonRuntime,
+  type DaemonConfig,
+  type RecoveredUpgradeResult,
+} from "./src/daemon-runtime/runtime";
 import { diagnosticErrorCode } from "./src/platform/diagnostic-error-code";
 import { FileDaemonCredentialStore } from "./src/credentials/credential-store";
 import { DaemonConfigStore } from "./src/persistence/daemon-config";
@@ -75,7 +79,11 @@ export {
 export { AgentMessageAttentionIndex } from "./src/daemon-runtime/agent-message-attention-index";
 export { AgentAppInbox } from "./src/agent-app-inbox/agent-app-inbox";
 export type { AgentAppItem, MintAppItem } from "./src/agent-app-inbox/agent-app-inbox";
-export type { DaemonConfig, WorkspaceConfig } from "./src/daemon-runtime/runtime";
+export type {
+  DaemonConfig,
+  WorkspaceConfig,
+  RecoveredUpgradeResult,
+} from "./src/daemon-runtime/runtime";
 export {
   InMemoryDaemonCredentialStore,
   FileDaemonCredentialStore,
@@ -176,6 +184,13 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
               (config as { restartRequestIds?: string[] } | null)?.restartRequestIds ?? [],
             recoveredUpgradeRequestIds:
               (config as { upgradeRequestIds?: string[] } | null)?.upgradeRequestIds ?? [],
+            recoveredUpgradeResults: terminalUpgradeResults(config),
+            acknowledgeUpgradeResult: supervisorSocket
+              ? async (requestId: string) => {
+                  if (!config) throw new Error("Workspace is not configured");
+                  await supervisorControl("upgrade_ack", config.workspaceId, requestId);
+                }
+              : undefined,
             requestRestart: supervisorSocket
               ? async (requestId: string) => {
                   if (!config) throw new Error("Workspace is not configured");
@@ -254,6 +269,42 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       await shutdownRequested;
     },
   );
+}
+
+/**
+ * The Coordinator hands each Workspace daemon the upgrade operations it must still settle with
+ * the server. Only terminal ones carry a receipt worth reporting; pending ones stay cloud ready
+ * hints until their job leaves a receipt.
+ */
+function terminalUpgradeResults(config: unknown): RecoveredUpgradeResult[] {
+  const operations = (
+    config as {
+      upgradeOperations?: {
+        requestId?: unknown;
+        state?: unknown;
+        terminal?: { version?: unknown; error?: unknown; at?: unknown };
+      }[];
+    } | null
+  )?.upgradeOperations;
+  if (!Array.isArray(operations)) return [];
+  return operations.flatMap((operation) => {
+    if (operation.state !== "succeeded" && operation.state !== "failed") return [];
+    if (typeof operation.requestId !== "string" || !operation.requestId) return [];
+    const at = operation.terminal?.at;
+    return [
+      {
+        requestId: operation.requestId,
+        status: operation.state,
+        completedAtMs: Number.isSafeInteger(at) ? (at as number) : Date.now(),
+        ...(typeof operation.terminal?.version === "string" && operation.terminal.version
+          ? { version: operation.terminal.version }
+          : {}),
+        ...(typeof operation.terminal?.error === "string" && operation.terminal.error
+          ? { error: operation.terminal.error }
+          : {}),
+      },
+    ];
+  });
 }
 
 // Standalone source/development harness; releases enter through Computer.

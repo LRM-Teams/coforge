@@ -12,6 +12,8 @@ export const COMPUTER_RESTART_METHOD = "computer:restart" as const;
 export const COMPUTER_RESTART_MESSAGE_TYPE = "coforge.rpc.v1.ComputerRestartIntent" as const;
 export const COMPUTER_UPGRADE_METHOD = "computer:upgrade" as const;
 export const COMPUTER_UPGRADE_MESSAGE_TYPE = "coforge.rpc.v1.ComputerUpgradeIntent" as const;
+export const COMPUTER_UPGRADE_RESULT_METHOD = "computer:upgrade_result" as const;
+export const COMPUTER_UPGRADE_RESULT_MESSAGE_TYPE = "coforge.rpc.v1.ComputerUpgradeResult" as const;
 export const AGENT_START_METHOD = "agent:start" as const;
 export const AGENT_START_MESSAGE_TYPE = "coforge.rpc.v1.AgentStartIntent" as const;
 export const AGENT_STOP_METHOD = "agent:stop" as const;
@@ -215,6 +217,18 @@ export type ComputerUpgradeIntent = {
   target: "latest";
   expectedVersion?: string;
   messageType?: typeof COMPUTER_UPGRADE_MESSAGE_TYPE;
+};
+/** One Computer upgrade operation's terminal report, from the Daemon to the server. */
+export type ComputerUpgradeResult = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  status: "succeeded" | "failed";
+  completedAtMs: number;
+  version?: string;
+  error?: string;
+  messageType?: typeof COMPUTER_UPGRADE_RESULT_MESSAGE_TYPE;
 };
 export type DaemonRuntimeCodeAgentsUpdateRequest = {
   protocolMajor: number;
@@ -498,6 +512,9 @@ export {
   decodeComputerRestartIntent,
   encodeComputerUpgradeIntent,
   decodeComputerUpgradeIntent,
+  encodeComputerUpgradeResult,
+  decodeComputerUpgradeResult,
+  sanitizeUpgradeErrorText,
 } from "./codec";
 export {
   encodeAgentSessionReport,

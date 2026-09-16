@@ -58,6 +58,21 @@ message ComputerUpgradeIntent {
   optional string expected_version = 7;
 }
 
+// The Daemon's terminal report for one Computer upgrade operation. The server still requires its
+// own identity evidence before calling a reported success complete; a reported failure is
+// authoritative because only the Computer can observe it.
+message ComputerUpgradeResult {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string status = 5;
+  int64 completed_at_ms = 6;
+  string message_type = 7;
+  optional string version = 8;
+  optional string error = 9;
+}
+
 message DaemonRuntimeCodeAgentsUpdateRequest {
   uint32 protocol_major = 1;
   string request_id = 2;
