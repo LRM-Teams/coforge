@@ -6,7 +6,8 @@ import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
 import { createCodeAgentProvider } from "./src/code-agent/registry";
 import { discoverCodeAgentInventory } from "./src/code-agent/runtime-inventory";
-import { DaemonRuntime } from "./src/daemon-runtime/runtime";
+import { DaemonRuntime, type DaemonConfig } from "./src/daemon-runtime/runtime";
+import { diagnosticErrorCode } from "./src/platform/diagnostic-error-code";
 import { FileDaemonCredentialStore } from "./src/credentials/credential-store";
 import { DaemonConfigStore } from "./src/persistence/daemon-config";
 import {
@@ -94,11 +95,13 @@ export { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/conne
 const DAEMON_CATEGORY = ["coforge", "daemon"];
 
 export async function runDaemon(args: string[], computerVersion?: string): Promise<void> {
-  const socketIndex = args.indexOf("--socket");
-  const socketPath = socketIndex >= 0 ? args[socketIndex + 1] : undefined;
-  const stateIndex = args.indexOf("--state-directory");
-  const stateDirectory = stateIndex >= 0 ? args[stateIndex + 1] : undefined;
-  const daemonStateDirectory = stateDirectory ?? join(homedir(), ".coforge", "daemon");
+  const argument = (flag: string) => {
+    const index = args.indexOf(flag);
+    return index >= 0 ? args[index + 1] : undefined;
+  };
+  const socketPath = argument("--socket");
+  const daemonStateDirectory =
+    argument("--state-directory") ?? join(homedir(), ".coforge", "daemon");
   await configureDaemonLogging(daemonStateDirectory);
   if (!socketPath) {
     getLogger(DAEMON_CATEGORY).error("Daemon requires --socket", {
@@ -128,99 +131,78 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
         serverHttpUrl: COFORGE_DAEMON_SERVER_URL,
       });
       let runtime: DaemonRuntime | undefined;
+      const requireRuntime = (): DaemonRuntime => {
+        if (!runtime) throw new Error("daemon runtime is not running");
+        return runtime;
+      };
+      // Every caller awaits inside a try, so a missing runtime surfaces as a rejected call.
       const agentProxy = startAgentProxy({
         runtime: {
-          agentMessage: (...args) =>
-            runtime?.agentMessage(...args) ??
-            Promise.reject(new Error("daemon runtime is not running")),
-          agentAttachment: (...args) =>
-            runtime?.agentAttachment(...args) ??
-            Promise.reject(new Error("daemon runtime is not running")),
-          inbox: (...args) =>
-            runtime?.inbox(...args) ?? Promise.reject(new Error("daemon runtime is not running")),
-          agentTask: (...args) =>
-            runtime?.agentTask(...args) ??
-            Promise.reject(new Error("daemon runtime is not running")),
-          workspaceInfo: (...args) =>
-            runtime?.workspaceInfo(...args) ??
-            Promise.reject(new Error("daemon runtime is not running")),
-          issueAgentContext: (agentId) => {
-            if (!runtime) throw new Error("daemon runtime is not running");
-            return runtime.issueAgentContext(agentId);
-          },
+          agentMessage: async (...input) => requireRuntime().agentMessage(...input),
+          agentAttachment: async (...input) => requireRuntime().agentAttachment(...input),
+          inbox: async (...input) => requireRuntime().inbox(...input),
+          agentTask: async (...input) => requireRuntime().agentTask(...input),
+          workspaceInfo: async (...input) => requireRuntime().workspaceInfo(...input),
+          issueAgentContext: (agentId) => requireRuntime().issueAgentContext(agentId),
         },
       });
       process.env.COFORGE_AGENT_PROXY_URL = agentProxy.url;
       let config = await configStore.load();
-      const endpoint = () => {
-        return daemonConnectionEndpoint(COFORGE_DAEMON_SERVER_URL);
-      };
-      const lifecycle = () => ({
-        recoveredRestartRequestIds:
-          (config as { restartRequestIds?: string[] } | null)?.restartRequestIds ?? [],
-        recoveredUpgradeRequestIds:
-          (config as { upgradeRequestIds?: string[] } | null)?.upgradeRequestIds ?? [],
-        requestRestart: Bun.env.COFORGE_SUPERVISOR_SOCKET
-          ? async (requestId: string) => {
+      const supervisorSocket = Bun.env.COFORGE_SUPERVISOR_SOCKET;
+      const supervisorControl = (...request: Parameters<LocalDaemonLauncher["control"]>) =>
+        new LocalDaemonLauncher({
+          executablePath: process.execPath,
+          socketPath: supervisorSocket!,
+          spawn: () => {},
+        }).control(...request);
+      const createRuntime = (connection: DaemonConfig) =>
+        new DaemonRuntime(
+          connection,
+          createCodeAgentProvider,
+          credentials,
+          {
+            create: () =>
+              new DaemonConnection(
+                daemonConnectionEndpoint(COFORGE_DAEMON_SERVER_URL),
+                defaultCentrifugeWorkspaceClientFactory,
+              ),
+          },
+          agentProxy,
+          discoverCodeAgentInventory,
+          daemonStateDirectory,
+          {
+            recoveredRestartRequestIds:
+              (config as { restartRequestIds?: string[] } | null)?.restartRequestIds ?? [],
+            recoveredUpgradeRequestIds:
+              (config as { upgradeRequestIds?: string[] } | null)?.upgradeRequestIds ?? [],
+            requestRestart: supervisorSocket
+              ? async (requestId: string) => {
+                  if (!config) throw new Error("Workspace is not configured");
+                  await supervisorControl("restart", config.workspaceId, requestId);
+                }
+              : undefined,
+            requestUpgrade: async (requestId: string, expectedVersion?: string) => {
               if (!config) throw new Error("Workspace is not configured");
-              await new LocalDaemonLauncher({
-                executablePath: process.execPath,
-                socketPath: Bun.env.COFORGE_SUPERVISOR_SOCKET!,
-                spawn: () => {},
-              }).control("restart", config.workspaceId, requestId);
-            }
-          : undefined,
-        requestUpgrade: async (requestId: string, expectedVersion?: string) => {
-          if (!config) throw new Error("Workspace is not configured");
-          if (!expectedVersion) throw new Error("upgrade expected version is unavailable");
-          await new LocalDaemonLauncher({
-            executablePath: process.execPath,
-            socketPath: Bun.env.COFORGE_SUPERVISOR_SOCKET!,
-            spawn: () => {},
-          }).control("upgrade", config.workspaceId, requestId, expectedVersion);
-        },
-      });
+              if (!expectedVersion) throw new Error("upgrade expected version is unavailable");
+              await supervisorControl("upgrade", config.workspaceId, requestId, expectedVersion);
+            },
+          },
+          computerVersion,
+        );
       const daemon = {
-        async configure(connection: Parameters<DaemonRuntime["start"]>[0]) {
+        async configure(connection: DaemonConfig) {
           const nextConfig = configStore.bindToServer(connection);
           // A configure request is the Workspace-page replacement operation. Stop
           // the old connection and all children before adopting the new identity.
           await runtime?.stop();
           config = nextConfig;
-          runtime = new DaemonRuntime(
-            config,
-            createCodeAgentProvider,
-            credentials,
-            {
-              create: () =>
-                new DaemonConnection(endpoint(), defaultCentrifugeWorkspaceClientFactory),
-            },
-            agentProxy,
-            discoverCodeAgentInventory,
-            daemonStateDirectory,
-            lifecycle(),
-            computerVersion,
-          );
+          runtime = createRuntime(config);
           await runtime.start(config);
         },
         async start() {
-          if (config) {
-            runtime ??= new DaemonRuntime(
-              config,
-              createCodeAgentProvider,
-              credentials,
-              {
-                create: () =>
-                  new DaemonConnection(endpoint(), defaultCentrifugeWorkspaceClientFactory),
-              },
-              agentProxy,
-              discoverCodeAgentInventory,
-              daemonStateDirectory,
-              lifecycle(),
-              computerVersion,
-            );
-            await runtime.start(config);
-          }
+          if (!config) return;
+          runtime ??= createRuntime(config);
+          await runtime.start(config);
         },
         async stopAll() {
           await runtime?.stop();
@@ -230,14 +212,10 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           await this.stopAll();
           await this.start();
         },
-        inbox(context: string, request: LocalInboxRequest) {
-          return (
-            runtime?.inbox(context, request) ??
-            Promise.reject(new Error("daemon runtime is not running"))
-          );
-        },
+        inbox: async (context: string, request: LocalInboxRequest) =>
+          requireRuntime().inbox(context, request),
       };
-      if (Bun.env.COFORGE_SUPERVISOR_SOCKET) await daemon.start();
+      if (supervisorSocket) await daemon.start();
       const localRpc = await startDaemonLocalRpcServer({
         socketPath,
         version: COFORGE_DAEMON_VERSION,
@@ -279,8 +257,3 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
 
 // Standalone source/development harness; releases enter through Computer.
 if (import.meta.main) await runDaemon(Bun.argv.slice(2));
-
-function diagnosticErrorCode(error: unknown): string {
-  if (error && typeof error === "object" && "code" in error) return String(error.code);
-  return error instanceof Error ? error.name : "UnknownError";
-}

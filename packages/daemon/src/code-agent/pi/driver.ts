@@ -21,6 +21,7 @@ import { join } from "node:path";
 import type { RuntimeMetadata } from "@lrm/coforge-sdk/internal";
 import { discoverCoforgeCatalog, discoverPiCatalog } from "../runtime-inventory";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./metadata";
+import { errorMessage, textContent } from "../json-record";
 
 export class PiProvider implements CodeAgentProvider {
   readonly provider: RuntimeProvider = RUNTIME_PROVIDER.PI;
@@ -295,23 +296,4 @@ class AgentSessionImpl implements AgentSession {
     this.#identity = { sessionId: this.#identity.sessionId, state };
     this.#emit({ type: "session", identity: this.#identity });
   }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function textContent(value: unknown): string {
-  if (!Array.isArray(value)) return "";
-  return value
-    .map((item) => asRecord(item))
-    .filter((item) => item?.type === "text" && typeof item.text === "string")
-    .map((item) => item!.text as string)
-    .join("");
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "";
 }

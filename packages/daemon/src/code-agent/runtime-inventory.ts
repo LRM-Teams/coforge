@@ -21,6 +21,8 @@ import { discoverKiroCatalog } from "./kiro/catalog";
 import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";
+import { asRecord } from "./json-record";
+import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
 
 const logger = getLogger(["coforge", "daemon", "runtime-inventory"]);
 
@@ -38,20 +40,7 @@ const bunProbe: ExternalCodeAgentProbe = {
       agentEnvironment(undefined),
     );
     try {
-      await within(
-        child.request({
-          method: "initialize",
-          params: {
-            clientInfo: {
-              name: "coforge_daemon",
-              title: "CoForge Daemon",
-              version: COFORGE_DAEMON_VERSION,
-            },
-            capabilities: { experimentalApi: false },
-          },
-        }),
-      );
-      await child.send({ method: "initialized", params: {} });
+      await initializeCodex(child);
     } finally {
       await child.dispose().catch(() => undefined);
     }
@@ -110,16 +99,7 @@ export async function discoverExternalCodeAgents(
         if (version) runtimes.push({ provider, version, displayName: "Claude Code" });
         continue;
       }
-      const process = probe.spawn(executable);
-      const { output, exitCode } = await Promise.race([
-        Promise.all([new Response(process.stdout).text(), process.exited]).then(
-          ([output, exitCode]) => ({ output, exitCode }),
-        ),
-        Bun.sleep(5_000).then(() => {
-          process.kill?.();
-          throw new Error("runtime version probe timed out");
-        }),
-      ]);
+      const { output, exitCode } = await versionProbeOutput(probe.spawn(executable));
       if (exitCode !== 0) {
         logger.warning("Code Agent version probe exited unsuccessfully", {
           event: "code_agent_runtime:probe_failed",
@@ -130,7 +110,7 @@ export async function discoverExternalCodeAgents(
         });
         continue;
       }
-      const version = output.trim().split(/\s+/).pop();
+      const version = lastWord(output);
       if (version)
         runtimes.push({
           provider,
@@ -297,22 +277,7 @@ async function discoverCodexCatalogFromProcess(
     command,
     cwd,
     async (process, progress) => {
-      progress.stage = "initialize";
-      await within(
-        process.request({
-          method: "initialize",
-          params: {
-            clientInfo: {
-              name: "coforge_daemon",
-              title: "CoForge Daemon",
-              version: COFORGE_DAEMON_VERSION,
-            },
-            capabilities: { experimentalApi: false },
-          },
-        }),
-      );
-      progress.stage = "initialized";
-      await process.send({ method: "initialized", params: {} });
+      await initializeCodex(process, progress);
       const models: CodeAgentModelMetadata[] = [];
       let cursor: string | undefined;
       do {
@@ -334,6 +299,26 @@ async function discoverCodexCatalogFromProcess(
     },
     environment,
   );
+}
+
+/** Completes the Codex app-server handshake; a bounded wait guards the initialize reply. */
+async function initializeCodex(process: JsonlProcess, progress?: CatalogProgress): Promise<void> {
+  if (progress) progress.stage = "initialize";
+  await within(
+    process.request({
+      method: "initialize",
+      params: {
+        clientInfo: {
+          name: "coforge_daemon",
+          title: "CoForge Daemon",
+          version: COFORGE_DAEMON_VERSION,
+        },
+        capabilities: { experimentalApi: false },
+      },
+    }),
+  );
+  if (progress) progress.stage = "initialized";
+  await process.send({ method: "initialized", params: {} });
 }
 
 type CatalogProgress = {
@@ -487,24 +472,33 @@ function within<T>(promise: Promise<T>): Promise<T> {
   ]);
 }
 
+/** Collects a `--version` child's output, killing it if it outlives the probe budget. */
+async function versionProbeOutput(
+  process: ReturnType<CodeAgentProbe["spawn"]>,
+): Promise<{ output: string; exitCode: number }> {
+  return Promise.race([
+    Promise.all([new Response(process.stdout).text(), process.exited]).then(
+      ([output, exitCode]) => ({ output, exitCode }),
+    ),
+    Bun.sleep(5_000).then(() => {
+      process.kill?.();
+      throw new Error("runtime version probe timed out");
+    }),
+  ]);
+}
+
+function lastWord(output: string): string | undefined {
+  return output.trim().split(/\s+/).pop() || undefined;
+}
+
 async function readVersionWithBun(executable: string): Promise<string | undefined> {
   const process = Bun.spawn({ cmd: [executable, "--version"], stdout: "pipe", stderr: "ignore" });
   try {
-    const { output, exitCode } = await within(
-      Promise.all([new Response(process.stdout).text(), process.exited]).then(
-        ([output, exitCode]) => ({ output, exitCode }),
-      ),
-    );
-    if (exitCode !== 0) return undefined;
-    return output.trim().split(/\s+/).pop() || undefined;
+    const { output, exitCode } = await versionProbeOutput(process);
+    return exitCode === 0 ? lastWord(output) : undefined;
   } finally {
     process.kill();
   }
-}
-
-function diagnosticErrorCode(error: unknown): string {
-  if (error && typeof error === "object" && "code" in error) return String(error.code);
-  return error instanceof Error ? error.name : "UnknownError";
 }
 
 function externalRuntimeDisplayName(provider: RuntimeMetadata["provider"]): string {
@@ -607,10 +601,4 @@ function claudeStaticModel(
 
 function isModel(model: CodeAgentModelMetadata | undefined): model is CodeAgentModelMetadata {
   return model !== undefined;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
 }
