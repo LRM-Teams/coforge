@@ -72,8 +72,9 @@ function renderWorkspaces(report: ComputerStatusReport): string[] {
     return ["Workspaces", "  No workspace bindings configured."];
   const lines = [`Workspaces (${workspaces.workspaces.length})`];
   for (const workspace of workspaces.workspaces) {
+    const pid = workspace.pid === null ? "-" : `${workspace.pid} (${workspace.pidSource})`;
     lines.push(
-      `  ${terminalText(workspace.workspaceId)}  server=${workspace.serverHttpUrl ? terminalText(workspace.serverHttpUrl) : "-"}  enabled=${workspace.enabled ? "yes" : "no"}  running=${workspace.running ? "yes" : "no"}  pid=${workspace.pid ?? "-"}`,
+      `  ${terminalText(workspace.workspaceId)}  server=${workspace.serverHttpUrl ? terminalText(workspace.serverHttpUrl) : "-"}  enabled=${workspace.enabled ? "yes" : "no"}  running=${workspace.running ? "yes" : "no"}  pid=${pid}`,
     );
     for (const pending of workspace.pending) lines.push(`    pending: ${renderPending(pending)}`);
   }
@@ -92,7 +93,9 @@ function renderAgents(report: ComputerStatusReport): string[] {
   if (agents.workspaces.length === 0) return ["Agents", "  No workspace bindings configured."];
   const lines = ["Agents"];
   for (const workspace of agents.workspaces) {
-    lines.push(`  ${terminalText(workspace.workspaceId)}: ${workspace.count} job(s)`);
+    lines.push(
+      `  ${terminalText(workspace.workspaceId)}: ${workspace.count} job(s)  (workspace job pid=${workspace.workspaceJobPid ?? "-"})`,
+    );
     for (const job of workspace.jobs) {
       lines.push(`    ${terminalText(job.label)}  pid=${job.pid ?? "-"}`);
     }

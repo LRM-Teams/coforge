@@ -30,6 +30,7 @@ const REPORT: ComputerStatusReport = {
         enabled: true,
         running: true,
         pid: 111,
+        pidSource: "daemon-snapshot",
         pending: [{ kind: "upgrade", requestId: "req-1", expectedVersion: "1.5.0" }],
       },
     ],
@@ -37,7 +38,12 @@ const REPORT: ComputerStatusReport = {
   agents: {
     supported: true,
     workspaces: [
-      { workspaceId: "ws-1", jobs: [{ label: "cn.coforge.agent.abc.1", pid: 222 }], count: 1 },
+      {
+        workspaceId: "ws-1",
+        workspaceJobPid: 333,
+        jobs: [{ label: "cn.coforge.agent.abc.1", pid: 222 }],
+        count: 1,
+      },
     ],
   },
   locks: {
@@ -68,8 +74,10 @@ test("renderStatusHuman prints short aligned sections, one fact per line", () =>
   expect(text).toContain("Local RPC:             reachable (1 workspace runtime(s))");
   expect(text).toContain("Workspaces (1)");
   expect(text).toContain("ws-1");
+  expect(text).toContain("pid=111 (daemon-snapshot)");
   expect(text).toContain("pending: upgrade req-1 -> 1.5.0");
   expect(text).toContain("Agents");
+  expect(text).toContain("1 job(s)  (workspace job pid=333)");
   expect(text).toContain("cn.coforge.agent.abc.1  pid=222");
   expect(text).toContain("Locks");
   expect(text).toContain("Machine mutation lock: free");
@@ -98,6 +106,28 @@ test("renderStatusHuman reports unsupported Agents and leftover-job listings pla
   expect(text).toContain("Not supported on this platform.");
 });
 
+test("renderStatusHuman shows which source a Workspace's pid came from", () => {
+  const lines = renderStatusHuman({
+    ...REPORT,
+    workspaces: {
+      readable: true,
+      workspaces: [
+        {
+          workspaceId: "ws-1",
+          serverHttpUrl: "https://coforge.cn",
+          enabled: true,
+          running: true,
+          pid: 9001,
+          pidSource: "os-job",
+          pending: [],
+        },
+      ],
+    },
+  });
+
+  expect(lines.join("\n")).toContain("pid=9001 (os-job)");
+});
+
 test("renderStatusHuman never crashes on control characters embedded in untrusted strings", () => {
   const lines = renderStatusHuman({
     ...REPORT,
@@ -110,6 +140,7 @@ test("renderStatusHuman never crashes on control characters embedded in untruste
           enabled: false,
           running: false,
           pid: null,
+          pidSource: null,
           pending: [],
         },
       ],
