@@ -30,6 +30,7 @@ test("optional GitHub deployment credentials reach Compose without entering stdo
       "coforge_agent_credential_encryption_key",
       "coforge_web_push_public_key",
       "coforge_web_push_private_key",
+      "coforge_file_delivery_key",
     ])
       await writeFile(join(directory, name), "fixture");
     for (const configured of [false, true]) {
@@ -332,6 +333,7 @@ describe("candidate failure diagnostics", () => {
           "coforge_agent_credential_encryption_key",
           "coforge_web_push_public_key",
           "coforge_web_push_private_key",
+          "coforge_file_delivery_key",
           "postgres_password",
           "redis_password",
           "centrifugo_http_api_key",
@@ -575,8 +577,14 @@ describe("staging user file persistence", () => {
       "COFORGE_FILE_DELIVERY_KEY_FILE: /run/secrets/coforge_file_delivery_key",
     );
     expect(webBlock).toContain("source: coforge_file_delivery_key");
+    // The Web container runs as uid 1000 under a rootless daemon; only an `environment:`
+    // sourced secret is written with the declared uid/mode. A `file:` source is unreadable.
     expect(compose).toContain(
-      "coforge_file_delivery_key:\n    file: ./secrets/coforge_file_delivery_key",
+      "coforge_file_delivery_key:\n    environment: COFORGE_FILE_DELIVERY_KEY",
+    );
+    const deploy = await Bun.file(new URL("./remote-deploy.sh", import.meta.url)).text();
+    expect(deploy).toContain(
+      'COFORGE_FILE_DELIVERY_KEY="$(cat "$secrets_dir/coforge_file_delivery_key")"',
     );
 
     const workflow = await Bun.file(

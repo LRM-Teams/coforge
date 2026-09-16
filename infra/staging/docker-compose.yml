@@ -267,8 +267,11 @@ secrets:
     environment: COFORGE_WEB_PUSH_PRIVATE_KEY
   otel_traces_endpoint:
     file: ./secrets/otel_traces_endpoint
+  # `environment:` like every other secret the Web container reads: Compose writes the value to
+  # a file it owns with the uid/mode above. A `file:` source would bind-mount the deploy user's
+  # 600 file, which the rootless daemon maps to root, so the `bun` user could not read it.
   coforge_file_delivery_key:
-    file: ./secrets/coforge_file_delivery_key
+    environment: COFORGE_FILE_DELIVERY_KEY
   redis_password:
     file: ./secrets/redis_password
   postgres_password:
