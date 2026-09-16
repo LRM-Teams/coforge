@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  dragCarriesFiles,
+  fileFromDropItems,
   filesFromPaste,
   IME_ENTER_GUARD_MS,
   shouldSendOnEnter,
@@ -75,5 +77,50 @@ describe("filesFromPaste", () => {
     expect(filesFromPaste({ files: [fromFiles], items: [fileItem(fromItems)] })).toEqual([
       fromFiles,
     ]);
+  });
+});
+
+describe("dragCarriesFiles", () => {
+  test("is true when the native drag types include 'Files'", () => {
+    expect(dragCarriesFiles(["Files"])).toBe(true);
+    expect(dragCarriesFiles(["text/plain", "Files"])).toBe(true);
+  });
+
+  test("is false for a text or URL drag with no 'Files' type", () => {
+    expect(dragCarriesFiles(["text/plain"])).toBe(false);
+    expect(dragCarriesFiles(["text/uri-list", "text/plain"])).toBe(false);
+  });
+
+  test("is false when there are no drag types", () => {
+    expect(dragCarriesFiles([])).toBe(false);
+    expect(dragCarriesFiles(null)).toBe(false);
+    expect(dragCarriesFiles(undefined)).toBe(false);
+  });
+});
+
+describe("fileFromDropItems", () => {
+  test("returns undefined for a text-only drop", () => {
+    expect(fileFromDropItems({ files: [], items: [textItem()] })).toBeUndefined();
+  });
+
+  test("returns undefined when dataTransfer is missing", () => {
+    expect(fileFromDropItems(null)).toBeUndefined();
+    expect(fileFromDropItems(undefined)).toBeUndefined();
+  });
+
+  test("reads the file from dataTransfer.files", () => {
+    const file = new File(["contents"], "photo.png", { type: "image/png" });
+    expect(fileFromDropItems({ files: [file], items: [] })).toBe(file);
+  });
+
+  test("falls back to items with kind 'file'", () => {
+    const file = new File(["contents"], "report.pdf", { type: "application/pdf" });
+    expect(fileFromDropItems({ files: [], items: [textItem(), fileItem(file)] })).toBe(file);
+  });
+
+  test("keeps only the first file when several are dropped, matching paste's single-attachment model", () => {
+    const first = new File(["a"], "first.txt");
+    const second = new File(["b"], "second.txt");
+    expect(fileFromDropItems({ files: [first, second], items: [] })).toBe(first);
   });
 });

@@ -5,6 +5,7 @@ import {
   useState,
   type ClipboardEvent,
   type CompositionEvent,
+  type DragEvent,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
@@ -20,10 +21,16 @@ import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { ProgressBar } from "@/components/base/progress-indicators/progress-indicators";
 import { Dialog, DialogTrigger } from "@/components/application/modals/modal";
-import { filesFromPaste, shouldSendOnEnter } from "./composer-behavior";
+import {
+  dragCarriesFiles,
+  fileFromDropItems,
+  filesFromPaste,
+  shouldSendOnEnter,
+} from "./composer-behavior";
 import { fileIconType } from "./message-row";
 import { useAppToast } from "@/components/ui/toast";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
+import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
 
 export type SentMessage = {
@@ -223,8 +230,13 @@ export function MessageComposer({
   // IME composition tracking for Enter-to-send: see composer-behavior.ts.
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef<number | null>(null);
+  // Counts nested dragenter/dragleave pairs across the form's descendants, so the drop
+  // affordance does not flicker as the pointer crosses child element boundaries.
+  const dragDepthRef = useRef(0);
+  const [draggingFile, setDraggingFile] = useState(false);
   const uploading = Boolean(attachment && !attachment.id && !attachment.failed);
   const composerDisabled = !hydrated || sending;
+  const dropDisabled = composerDisabled || uploading;
 
   async function upload(file: File) {
     setAttachment({ file, progress: 0, failed: false });
@@ -303,12 +315,62 @@ export function MessageComposer({
     void upload(files[0]);
   }
 
+  /**
+   * Drag a file over the composer to upload it through the same path as paste and the
+   * paperclip button. Only a native file drag (`dragCarriesFiles`) is intercepted; a text or
+   * URL drag is left untouched so the browser's own drop-to-insert behaviour still reaches the
+   * textarea. Always calling `preventDefault` for a file drag (even while disabled) also keeps
+   * the browser from navigating away to open the dropped file.
+   */
+  function dragEnter(event: DragEvent<HTMLFormElement>) {
+    if (!dragCarriesFiles(event.dataTransfer.types)) return;
+    event.preventDefault();
+    if (dropDisabled) return;
+    dragDepthRef.current += 1;
+    setDraggingFile(true);
+  }
+
+  function dragOver(event: DragEvent<HTMLFormElement>) {
+    if (!dragCarriesFiles(event.dataTransfer.types)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = dropDisabled ? "none" : "copy";
+  }
+
+  function dragLeave(event: DragEvent<HTMLFormElement>) {
+    if (!dragCarriesFiles(event.dataTransfer.types)) return;
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDraggingFile(false);
+  }
+
+  function drop(event: DragEvent<HTMLFormElement>) {
+    if (!dragCarriesFiles(event.dataTransfer.types)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setDraggingFile(false);
+    if (dropDisabled) return;
+    const file = fileFromDropItems(event.dataTransfer);
+    if (file) void upload(file);
+  }
+
   const taskMode = !inThread && Boolean(onCreateTask);
   return (
     <form
       onSubmit={submit}
-      className="mx-3 mt-2 mb-3 flex shrink-0 flex-col gap-1 rounded-xl border border-primary bg-primary p-2 focus-within:ring-2 focus-within:ring-brand md:mx-6"
+      onDragEnter={dragEnter}
+      onDragOver={dragOver}
+      onDragLeave={dragLeave}
+      onDrop={drop}
+      className={cx(
+        "relative mx-3 mt-2 mb-3 flex shrink-0 flex-col gap-1 rounded-xl border border-primary bg-primary p-2 focus-within:ring-2 focus-within:ring-brand md:mx-6",
+        draggingFile && "ring-2 ring-brand",
+      )}
     >
+      {draggingFile && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-brand-secondary text-sm font-medium text-brand-primary">
+          {m.conversation_drop_to_upload()}
+        </div>
+      )}
       <label htmlFor={composerId} className="sr-only">
         {m.conversation_message_label()}
       </label>

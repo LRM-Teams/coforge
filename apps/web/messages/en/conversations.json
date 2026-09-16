@@ -41,6 +41,7 @@
   "conversation_loading_older": "Loading older messages…",
   "conversation_history_load_error": "Messages could not be loaded. Try again.",
   "conversation_attachment_label": "Add attachment",
+  "conversation_drop_to_upload": "Drop to upload",
   "conversation_attachment_download": "Download",
   "conversation_attachment_remove": "Remove attachment",
   "conversation_thread": "Thread",
