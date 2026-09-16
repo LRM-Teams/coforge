@@ -54,6 +54,7 @@ import {
 } from "../agents/agent-runtime-control.server";
 import { getAgentRuntimeLock } from "../agents/agent-runtime-lock.server";
 import { AgentControl } from "../agents/agent-control.server";
+import { getAgentControlSignal } from "../agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "./server-api.server";
 import {
@@ -182,6 +183,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       getAgentRuntimeLock(),
       undefined,
       sessions,
+      getAgentControlSignal(),
     );
     const sessionReceiver = new AgentSessionReceiver(controlStore);
     const reminderRepository = new PrismaReminderRepository(db);

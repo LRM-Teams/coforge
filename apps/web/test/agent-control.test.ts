@@ -337,7 +337,7 @@ test("reset is one confirmed-stop then fresh-start operation and retains no old 
       },
     },
     { run: async (_id, work) => work() },
-    { timeoutMs: 1, wait: async () => {} },
+    { timeoutMs: 1, fallbackMs: 0 },
   );
   const input = {
     userId: "owner-a",
@@ -413,7 +413,7 @@ test.each([undefined, "pi", "codex", "claude-code", "coforge"] as const)(
         },
       },
       { run: async (_id, work) => work() },
-      { timeoutMs: 1, wait: async () => {} },
+      { timeoutMs: 1, fallbackMs: 0 },
     );
 
     expect(
@@ -612,7 +612,7 @@ test("Full Reset halts on failed clearing and automatic starts cannot bypass the
       },
     },
     { run: async (_id, work) => work() },
-    { timeoutMs: 0, wait: async () => {} },
+    { timeoutMs: 0, fallbackMs: 0 },
   );
   const input = {
     userId: "owner",
@@ -692,7 +692,7 @@ test("Clear Session and advancement commit together; recovery retries that step,
     },
   };
   const lock = { run: async <T>(_id: string, work: () => Promise<T>) => work() };
-  const control = new AgentControl(store, api, lock, { timeoutMs: 0, wait: async () => {} });
+  const control = new AgentControl(store, api, lock, { timeoutMs: 0, fallbackMs: 0 });
   await control.execute({
     userId: "owner",
     workspaceId: "w",
@@ -720,4 +720,91 @@ test("Clear Session and advancement commit together; recovery retries that step,
   expect((await store.get("a"))?.state?.identity).toBeUndefined();
   await recovered.result(scope, resetResult);
   expect(sent).toHaveLength(3);
+});
+
+test("a signal-driven wakeup trusts the ACK path and never republishes the command it already sent", async () => {
+  let agent: AgentControlAgent = {
+    id: "agent-a",
+    workspaceId: "workspace-a",
+    computerId: "computer-a",
+    ownerId: "owner-a",
+    runtimeConfig: {
+      runtime: "pi",
+      provider: { kind: "default" },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    },
+    state: null,
+  };
+  const store: AgentControlStore = {
+    async get() {
+      return structuredClone(agent);
+    },
+    async replace(before, state) {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state };
+      return true;
+    },
+  };
+  const events: string[] = [];
+  // Daemon ACKs arrive asynchronously, after the publish returned, like a real RPC round-trip.
+  const later = (work: () => Promise<void>) => {
+    setTimeout(() => void work().catch((error) => events.push(`error:${error.message}`)), 5);
+  };
+  const control = new AgentControl(
+    store,
+    {
+      async publish(_channel, bytes) {
+        let stop;
+        try {
+          stop = decodeAgentStopIntent(bytes);
+        } catch {
+          /* Not a stop intent. */
+        }
+        if (stop) {
+          events.push("stop");
+          later(() =>
+            control.result(stop, {
+              ...stop,
+              provider: stop.provider!,
+              epoch: stop.controlEpoch!,
+              phase: "stopped",
+              sequence: 1,
+            }),
+          );
+          return;
+        }
+        const start = decodeAgentStartIntent(bytes);
+        events.push("start");
+        later(async () => {
+          const launchId = "launch-a";
+          await control.authorizeLaunch({ ...start, launchId, controlEpoch: start.controlEpoch! });
+          await control.result(start, {
+            ...start,
+            epoch: start.controlEpoch!,
+            launchId,
+            phase: "started",
+            sequence: 2,
+            identity: { sessionId: "native-a", state: "resumable" },
+          });
+        });
+      },
+    },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 5_000, fallbackMs: 2_000 },
+  );
+  const started = Date.now();
+  const result = await control.execute({
+    userId: "owner-a",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    requestId: "restart-1",
+    action: "restart",
+  });
+  expect(result.phase).toBe("completed");
+  // Each command is published exactly once: the ACK handler's advance() sent the start.
+  expect(events).toEqual(["stop", "start"]);
+  // Completion came from the signal, well inside the 2s fallback re-read.
+  expect(Date.now() - started).toBeLessThan(1_000);
 });
