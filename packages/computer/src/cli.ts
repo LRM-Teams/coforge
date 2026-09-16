@@ -30,6 +30,7 @@ import {
 } from "./cloud-rpc-transport";
 import { ComputerRegistrationClient } from "@lrm/coforge-sdk/internal";
 import {
+  cleanupComputerUpgradeJob,
   createDaemonHost,
   readOperatingSystem,
   resolveDaemonExecutablePath,
@@ -598,10 +599,27 @@ export function createUpdateCommand(
 }
 
 export async function runRemoteUpgrade(): Promise<void> {
-  await createUpdateCommand(
-    { stdout: () => {}, stderr: () => {} },
-    { quietProgress: true },
-  ).upgrade(Bun.env.COFORGE_UPGRADE_VERSION ?? "latest");
+  const requestId = Bun.env.COFORGE_UPGRADE_REQUEST_ID;
+  try {
+    await createUpdateCommand(
+      { stdout: () => {}, stderr: () => {} },
+      { quietProgress: true },
+    ).upgrade(Bun.env.COFORGE_UPGRADE_VERSION ?? "latest");
+  } finally {
+    // The job has no KeepAlive, so leaving it in place cannot make it respawn; this only clears
+    // the now-idle `launchctl list` entry and its plist once the result file above is durable, so
+    // a retried upgrade never collides with a stale label. Best-effort: `launchctl bootout`
+    // targeting your own still-running job is unreliable on some macOS versions, and the
+    // Coordinator's startup sweep is the backstop if this does not complete.
+    if (requestId) {
+      const stateDirectory = resolveComputerStateDirectory({
+        platform: process.platform,
+        homeDirectory: homedir(),
+        environment: Bun.env,
+      });
+      await cleanupComputerUpgradeJob(requestId, { stateDirectory }).catch(() => {});
+    }
+  }
 }
 
 export async function runComputer(): Promise<void> {
