@@ -1,6 +1,15 @@
 import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
+import { requireDatabaseClient } from "../db/client.server";
+import { requireWorkspaceIdForRequest } from "../workspaces/selection.server";
+import type { BrowserUser } from "./browser-login.server";
 import { requireBrowserUser } from "./require-user.server";
+
+export type WorkspaceMemberContext = {
+  user: BrowserUser;
+  db: ReturnType<typeof requireDatabaseClient>;
+  workspaceId: string;
+};
 
 /** Authentication boundary for server functions. Route guards are not enough. */
 export const authMiddleware = createMiddleware({ type: "function" }).server(async ({ next }) =>
@@ -10,3 +19,16 @@ export const authMiddleware = createMiddleware({ type: "function" }).server(asyn
     },
   }),
 );
+
+/**
+ * Server functions called by a signed-in Workspace member. Resolves the database
+ * and the caller's selected Workspace once so handlers start from
+ * `{ user, db, workspaceId }` instead of repeating the lookup.
+ */
+export const workspaceMemberMiddleware = createMiddleware({ type: "function" })
+  .middleware([authMiddleware])
+  .server(async ({ next, context }) => {
+    const db = requireDatabaseClient();
+    const workspaceId = await requireWorkspaceIdForRequest(db, context.user.id);
+    return next({ context: { db, workspaceId } });
+  });

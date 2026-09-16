@@ -15,15 +15,16 @@ import {
   setRuntimeVisibilityInputSchema,
   updateComputerDisplayNameInputSchema,
 } from "./computer.schemas";
-import { authMiddleware } from "../../server/auth/function-auth";
-import { getDatabaseClient } from "../../server/db/client.server";
+import {
+  workspaceMemberMiddleware,
+  type WorkspaceMemberContext,
+} from "../../server/auth/function-auth";
 import {
   createCentrifugoServerApi,
   createUsageScan,
 } from "../../server/centrifugo/server-api.server";
 import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
 import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
-import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
 import { RestartComputer } from "../../server/computers/restart-computer.server";
@@ -31,19 +32,12 @@ import { getComputerRestartStore } from "../../server/computers/computer-restart
 import { getComputerUpgradeStore } from "../../server/computers/computer-upgrade-store.server";
 import { resolveReleaseFeedUrl } from "../../server/install/install-script.server";
 import { encodeComputerUpgradeIntent } from "@lrm/coforge-sdk/internal";
-import { browserScope } from "../../server/auth/browser-scope.server";
-
-const computerUnavailable = () => new Error("Computer persistence is unavailable");
 
 export const restartComputer = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(restartComputerInputSchema)
   .handler(async ({ context, data }) => {
-    const user = context.user;
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-
+    const { user, db, workspaceId } = context;
     return new RestartComputer(
       {
         canRestart: async (scope) =>
@@ -64,14 +58,10 @@ export const restartComputer = createServerFn({ method: "POST" })
   });
 
 export const readComputerRestartStatus = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(readRestartStatusInputSchema)
   .handler(async ({ context, data }) => {
-    const user = context.user;
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-
+    const { user, db, workspaceId } = context;
     const connection = await db.workspaceComputer.findFirst({
       where: {
         workspaceId,
@@ -89,22 +79,16 @@ export const readComputerRestartStatus = createServerFn({ method: "GET" })
     return status;
   });
 
-function runtimeVisibility() {
-  const db = getDatabaseClient();
-  if (!db) throw new Error("Computer persistence is unavailable");
-  return {
-    db,
-    visibility: new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db)),
-  };
+function runtimeVisibility(db: WorkspaceMemberContext["db"]) {
+  return new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db));
 }
 
 export const scanUsage = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(scanUsageInputSchema)
   .handler(async ({ context, data }) => {
-    const user = context.user;
-    const { db, visibility } = runtimeVisibility();
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = context;
+    const visibility = runtimeVisibility(db);
     if (
       !(await visibility.isOwner({ workspaceId, userId: user.id }, data.computerId, data.provider))
     )
@@ -118,12 +102,11 @@ export const scanUsage = createServerFn({ method: "POST" })
   });
 
 export const readUsage = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(readUsageInputSchema)
   .handler(async ({ context, data }) => {
-    const user = context.user;
-    const { db, visibility } = runtimeVisibility();
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = context;
+    const visibility = runtimeVisibility(db);
     if (
       !(await visibility.isOwner({ workspaceId, userId: user.id }, data.computerId, data.provider))
     )
@@ -137,11 +120,10 @@ export const readUsage = createServerFn({ method: "GET" })
   });
 
 export const listComputers = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .handler(async ({ context }) => {
-    const user = context.user;
-    const { db, visibility } = runtimeVisibility();
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = context;
+    const visibility = runtimeVisibility(db);
     const computerStatus = getComputerStatusCache();
     const [connections, runtimes] = await Promise.all([
       db.workspaceComputer.findMany({
@@ -197,9 +179,9 @@ export const listComputers = createServerFn({ method: "GET" })
   });
 
 export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
+  .middleware([workspaceMemberMiddleware])
   .validator(readRestartStatusInputSchema)
-  .handler(async ({ data }) => {
-    const { user, db, workspaceId } = await browserScope(computerUnavailable);
+  .handler(async ({ context: { user, db, workspaceId }, data }) => {
     const connection = await db.workspaceComputer.findFirst({
       where: {
         workspaceId,
@@ -218,9 +200,9 @@ export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
   });
 
 export const upgradeComputer = createServerFn({ method: "POST" })
+  .middleware([workspaceMemberMiddleware])
   .validator(restartComputerInputSchema)
-  .handler(async ({ data }) => {
-    const { user, db, workspaceId } = await browserScope(computerUnavailable);
+  .handler(async ({ context: { user, db, workspaceId }, data }) => {
     const computer = await db.computer.findFirst({
       where: { id: data.computerId },
       select: { ownerId: true },
@@ -278,12 +260,11 @@ export const getLatestComputerVersion = createServerFn({ method: "GET" }).handle
 });
 
 export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(computerIdInputSchema)
   .handler(async ({ context, data }) => {
-    const user = context.user;
-    const { db, visibility } = runtimeVisibility();
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = context;
+    const visibility = runtimeVisibility(db);
     const [connection, runtimes] = await Promise.all([
       db.workspaceComputer.findUnique({
         where: {
@@ -321,24 +302,19 @@ export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
   });
 
 export const setRuntimeVisibility = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(setRuntimeVisibilityInputSchema)
   .handler(async ({ context, data }) => {
-    const user = context.user;
-    const { db, visibility } = runtimeVisibility();
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = context;
+    const visibility = runtimeVisibility(db);
     return visibility.setPublic({ workspaceId, userId: user.id }, data.runtimeId, data.isPublic);
   });
 
 export const updateComputerDisplayName = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(updateComputerDisplayNameInputSchema)
   .handler(async ({ context, data }) => {
-    const user = context.user;
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-
+    const { user, db, workspaceId } = context;
     const result = await db.computer.updateMany({
       where: {
         id: data.computerId,

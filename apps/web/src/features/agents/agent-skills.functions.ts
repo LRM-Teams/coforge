@@ -2,9 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { encodeAgentSkillsListRequest } from "@lrm/coforge-sdk/internal";
 import { agentIdSchema } from "./agent.schemas";
-import { authMiddleware } from "../../server/auth/function-auth";
-import { getDatabaseClient } from "../../server/db/client.server";
-import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
+import { workspaceMemberMiddleware } from "../../server/auth/function-auth";
 import {
   AgentSkillsQuery,
   findOwnedSkillsAssignment,
@@ -17,14 +15,11 @@ import { getComputerStatusCache } from "../../server/centrifugo/computer-status.
 import { getAgentSkillsResults } from "../../server/centrifugo/agent-skills-cache.server";
 
 export const getAgentSkills = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
     setResponseHeader("Cache-Control", "no-store");
-    const user = context.user;
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = context;
     const query = new AgentSkillsQuery({
       findOwned: (viewer, id) => findOwnedSkillsAssignment(db, viewer, id),
       online: (scope) => getComputerStatusCache().get(scope),

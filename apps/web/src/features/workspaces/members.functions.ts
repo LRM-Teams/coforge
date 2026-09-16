@@ -2,23 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { AppError } from "../../lib/app-error";
-import { authMiddleware } from "../../server/auth/function-auth";
-import { getDatabaseClient } from "../../server/db/client.server";
-import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.server";
+import { authMiddleware, workspaceMemberMiddleware } from "../../server/auth/function-auth";
+import { requireDatabaseClient } from "../../server/db/client.server";
 import { workspaceMemberDirectory } from "../../server/workspaces/member-directory-store.server";
-import { preferredWorkspaceSlugFromRequest } from "../../server/workspaces/selection.server";
 import { INVITABLE_WORKSPACE_ROLES } from "../../server/workspaces/member-role.server";
-
-function directory() {
-  const db = getDatabaseClient();
-  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
-  return { db, directory: workspaceMemberDirectory(db) };
-}
-
-async function currentWorkspaceId(userId: string) {
-  const { db } = directory();
-  return requireExistingWorkspaceId(db, userId, preferredWorkspaceSlugFromRequest());
-}
 
 const inviteInputSchema = z.object({
   username: z.string().trim().min(1),
@@ -34,15 +21,9 @@ const targetUserInputSchema = z.object({ userId: z.string().uuid() });
 const invitationIdInputSchema = z.object({ invitationId: z.string().uuid() });
 
 export const loadWorkspaceMembers = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const user = context.user;
-    const { db, directory: members } = directory();
-    const workspaceId = await requireExistingWorkspaceId(
-      db,
-      user.id,
-      preferredWorkspaceSlugFromRequest(),
-    );
+  .middleware([workspaceMemberMiddleware])
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    const members = workspaceMemberDirectory(db);
     const actor = await db.workspaceMembership.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: user.id } },
       select: { role: true },
@@ -63,12 +44,10 @@ export const loadWorkspaceMembers = createServerFn({ method: "GET" })
   });
 
 export const inviteWorkspaceMember = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(inviteInputSchema)
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return directory().directory.invite({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return workspaceMemberDirectory(db).invite({
       workspaceId,
       actorUserId: user.id,
       inviteeUsername: data.username,
@@ -81,7 +60,7 @@ export const acceptWorkspaceInvitation = createServerFn({ method: "POST" })
   .validator(invitationIdInputSchema)
   .handler(async ({ data, context }) => {
     const user = context.user;
-    return directory().directory.acceptInvitation({
+    return workspaceMemberDirectory(requireDatabaseClient()).acceptInvitation({
       invitationId: data.invitationId,
       userId: user.id,
     });
@@ -92,19 +71,17 @@ export const declineWorkspaceInvitation = createServerFn({ method: "POST" })
   .validator(invitationIdInputSchema)
   .handler(async ({ data, context }) => {
     const user = context.user;
-    return directory().directory.declineInvitation({
+    return workspaceMemberDirectory(requireDatabaseClient()).declineInvitation({
       invitationId: data.invitationId,
       userId: user.id,
     });
   });
 
 export const revokeWorkspaceInvitation = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(invitationIdInputSchema)
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return directory().directory.revokeInvitation({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return workspaceMemberDirectory(db).revokeInvitation({
       workspaceId,
       actorUserId: user.id,
       invitationId: data.invitationId,
@@ -112,12 +89,10 @@ export const revokeWorkspaceInvitation = createServerFn({ method: "POST" })
   });
 
 export const updateWorkspaceMemberRole = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(updateRoleInputSchema)
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return directory().directory.updateRole({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return workspaceMemberDirectory(db).updateRole({
       workspaceId,
       actorUserId: user.id,
       targetUserId: data.userId,
@@ -126,12 +101,10 @@ export const updateWorkspaceMemberRole = createServerFn({ method: "POST" })
   });
 
 export const removeWorkspaceMember = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(targetUserInputSchema)
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    await directory().directory.removeMember({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    await workspaceMemberDirectory(db).removeMember({
       workspaceId,
       actorUserId: user.id,
       targetUserId: data.userId,
@@ -140,11 +113,9 @@ export const removeWorkspaceMember = createServerFn({ method: "POST" })
   });
 
 export const leaveWorkspace = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    await directory().directory.leave({ workspaceId, userId: user.id });
+  .middleware([workspaceMemberMiddleware])
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    await workspaceMemberDirectory(db).leave({ workspaceId, userId: user.id });
     return { ok: true as const };
   });
 
@@ -152,7 +123,7 @@ export const loadMyWorkspaceInvitations = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const user = context.user;
-    const { db } = directory();
+    const db = requireDatabaseClient();
     const rows = await db.workspaceInvitation.findMany({
       where: {
         inviteeUserId: user.id,

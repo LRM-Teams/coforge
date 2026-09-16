@@ -1,5 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { authMiddleware } from "../../server/auth/function-auth";
+import {
+  workspaceMemberMiddleware,
+  type WorkspaceMemberContext,
+} from "../../server/auth/function-auth";
 import {
   agentConversationPageInputSchema,
   agentConversationUpdatesInputSchema,
@@ -13,73 +16,70 @@ import { SendDirectMessage } from "../../server/conversations/direct-message.ser
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { ConversationHistory } from "../../server/conversations/conversation-history.server";
 import { getMessageRequestIdempotency } from "../../server/conversations/redis-message-request-idempotency.server";
-import { getDatabaseClient } from "../../server/db/client.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
-import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { withMessageSendTrace } from "../../server/observability/tracing.server";
 import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
 
-async function context(user: { id: string; username: string; name: string }, agentId: string) {
-  const db = getDatabaseClient();
-  if (!db) throw new Error("Conversation persistence is unavailable");
-  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+/** The caller's own direct conversation repository, or a failure when the Agent is not theirs. */
+async function ownedConversations(
+  { db, workspaceId, user }: WorkspaceMemberContext,
+  agentId: string,
+) {
   const agent = await db.agent.findFirst({
     where: { id: agentId, workspaceId, ownerId: user.id },
     select: { id: true },
   });
   if (!agent) throw new Error("conversation scope is not authorized");
-  const conversations = new PrismaDirectConversationRepository(db);
-  return { conversations, db, userId: user.id, workspaceId };
-}
-
-async function historyContext(userId: string) {
-  const db = getDatabaseClient();
-  if (!db) throw new Error("Conversation persistence is unavailable");
-  const workspaceId = await requireWorkspaceIdForRequest(db, userId);
-  return { history: new ConversationHistory(db), workspaceId };
+  return new PrismaDirectConversationRepository(db);
 }
 
 export const loadDirectConversation = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(agentConversationPageInputSchema)
-  .handler(async ({ context: { user }, data }) => {
-    const { conversations, workspaceId } = await context(user, data.agentId);
+  .handler(async ({ context, data }) => {
+    const { user, workspaceId } = context;
+    const conversations = await ownedConversations(context, data.agentId);
     return conversations.openForUser(workspaceId, user.id, data.agentId, {
       beforeSequence: data.beforeSequence,
     });
   });
 
 export const loadDirectConversationUpdates = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(agentConversationUpdatesInputSchema)
-  .handler(async ({ context: { user }, data }) => {
-    const { conversations, workspaceId } = await context(user, data.agentId);
+  .handler(async ({ context, data }) => {
+    const { user, workspaceId } = context;
+    const conversations = await ownedConversations(context, data.agentId);
     return conversations.updatesForUser(workspaceId, user.id, data.agentId, data.afterSequence);
   });
 
 export const loadOwnConversationMessages = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(ownMessageIndexInputSchema)
-  .handler(async ({ context: { user }, data }) => {
-    const { history, workspaceId } = await historyContext(user.id);
-    return history.listOwnMessages(workspaceId, user.id, data.conversationId, {
+  .handler(async ({ context: { user, db, workspaceId }, data }) => {
+    return new ConversationHistory(db).listOwnMessages(workspaceId, user.id, data.conversationId, {
       beforeSequence: data.beforeSequence,
     });
   });
 
 export const loadConversationAround = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(conversationAroundInputSchema)
-  .handler(async ({ context: { user }, data }) => {
-    const { history, workspaceId } = await historyContext(user.id);
-    return history.loadAround(workspaceId, user.id, data.conversationId, data.messageId);
+  .handler(async ({ context: { user, db, workspaceId }, data }) => {
+    return new ConversationHistory(db).loadAround(
+      workspaceId,
+      user.id,
+      data.conversationId,
+      data.messageId,
+    );
   });
 
 export const markDirectThreadRead = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(readConversationThreadInputSchema)
-  .handler(async ({ context: { user }, data }) => {
-    const { conversations, workspaceId } = await context(user, data.agentId);
+  .handler(async ({ context, data }) => {
+    const { user, workspaceId } = context;
+    const conversations = await ownedConversations(context, data.agentId);
     await conversations.markThreadReadForUser(
       workspaceId,
       user.id,
@@ -90,15 +90,16 @@ export const markDirectThreadRead = createServerFn({ method: "POST" })
   });
 
 export const sendDirectConversationMessage = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .validator(sendConversationMessageInputSchema)
-  .handler(async ({ context: { user }, data }) => {
+  .handler(async ({ context, data }) => {
+    const { user, db, workspaceId } = context;
     return withMessageSendTrace(
       data.requestId,
       { "coforge.agent_id": data.agentId },
       async (sendTrace) => {
-        const { conversations, db, workspaceId } = await sendTrace.measure("message.context", () =>
-          context(user, data.agentId),
+        const conversations = await sendTrace.measure("message.context", () =>
+          ownedConversations(context, data.agentId),
         );
         const opened = await conversations.memberForUser(workspaceId, user.id, data.agentId);
         const message = await sendTrace.measure("message.persist_and_publish", () => {

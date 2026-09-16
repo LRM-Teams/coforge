@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createWorkspaceInputSchema, selectWorkspaceInputSchema } from "./workspace.schemas";
 
 import { AppError } from "../../lib/app-error";
-import { authMiddleware } from "../../server/auth/function-auth";
+import { authMiddleware, workspaceMemberMiddleware } from "../../server/auth/function-auth";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaWorkspaceCatalogStore,
@@ -10,7 +10,6 @@ import {
 } from "../../server/workspaces/catalog.server";
 import {
   preferredWorkspaceSlugFromRequest,
-  requireWorkspaceIdForRequest,
   writePreferredWorkspaceSlug,
 } from "../../server/workspaces/selection.server";
 import { WorkspaceMembers } from "../../server/workspaces/members.server";
@@ -31,12 +30,9 @@ export const loadWorkspaceSwitcher = createServerFn({ method: "GET" })
   });
 
 export const listWorkspaceMembers = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceMemberMiddleware])
   .handler(async ({ context }) => {
-    const user = context.user;
-    const db = getDatabaseClient();
-    if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = context;
     return new WorkspaceMembers(db).list(workspaceId, user.id);
   });
 
