@@ -93,8 +93,9 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 - Personal GitHub connections belong to `server/integrations/github-connection.server.ts`.
   `GitHubConnection` owns authorization attempts, encrypted user credentials,
-  refresh serialization, installation/repository access and disconnect. GitHub
-  connections do not create login identities or confer Workspace authority.
+  refresh serialization, installation/repository access, on-demand Agent owner
+  user credentials and disconnect. GitHub connections do not create login identities
+  or confer Workspace authority.
   `features/integrations/github.functions.ts` exposes authenticated browser
   operations; the raw OAuth callback is a thin route adapter. Settings owns
   the Integrations section, with its GitHub view in `features/integrations/`.

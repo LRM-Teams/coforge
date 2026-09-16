@@ -44,7 +44,10 @@ export async function configuredGitHub() {
   const config = await readGitHubConfig();
   if (!config) return null;
   const db = requireDatabaseClient();
-  return { config, connection: new GitHubConnection(db, config) };
+  return {
+    config,
+    connection: new GitHubConnection(db, config),
+  };
 }
 
 async function secret(env: Record<string, string | undefined>, name: string) {

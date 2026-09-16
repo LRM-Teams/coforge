@@ -49,12 +49,19 @@ type ActiveState = {
   previous: string | null;
 };
 
-type InstalledIdentity = {
+type InstalledIdentityV2 = {
   schema_version: 2;
   version: string;
   computer: ArtifactIdentity;
   agentCli: ArtifactIdentity;
 };
+
+type InstalledIdentity =
+  | InstalledIdentityV2
+  | (Omit<InstalledIdentityV2, "schema_version"> & {
+      schema_version: 3;
+      githubCli: ArtifactIdentity;
+    });
 
 export type PreparedUpdate = {
   version: string;
@@ -420,11 +427,17 @@ export class ComputerUpdater {
         ? '@echo off\r\n"%~dp0coforge-computer.exe" __agent-cli %*\r\n'
         : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli "$@"\n',
     );
+    const githubCli = new TextEncoder().encode(
+      this.#target.startsWith("windows-")
+        ? '@echo off\r\n"%~dp0coforge-computer.exe" __agent-cli github gh %*\r\n'
+        : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli github gh "$@"\n',
+    );
     const installedIdentity: InstalledIdentity = {
-      schema_version: 2,
+      schema_version: 3,
       version,
       computer: { size: computer.byteLength, checksum: checksum(computer) },
       agentCli: { size: agentCli.byteLength, checksum: checksum(agentCli) },
+      githubCli: { size: githubCli.byteLength, checksum: checksum(githubCli) },
     };
     await mkdir(staging, { recursive: true, mode: 0o700 });
     try {
@@ -435,6 +448,9 @@ export class ComputerUpdater {
           agentCli,
           { mode: 0o700 },
         ),
+        writeFile(join(staging, this.#target.startsWith("windows-") ? "gh.cmd" : "gh"), githubCli, {
+          mode: 0o700,
+        }),
         writeFile(join(staging, "version"), `${version}\n`, { mode: 0o600 }),
         writeFile(join(staging, "installation.json"), `${JSON.stringify(installedIdentity)}\n`, {
           mode: 0o600,
@@ -463,6 +479,15 @@ export class ComputerUpdater {
       ]);
       const identity = JSON.parse(identityText) as InstalledIdentity;
       if (
+        identity.schema_version === 3 &&
+        (!validIdentity(identity.githubCli) ||
+          !matchesIdentity(
+            await readFile(join(directory, this.#target.startsWith("windows-") ? "gh.cmd" : "gh")),
+            identity.githubCli,
+          ))
+      )
+        throw integrity("installed GitHub CLI launcher failed its offline integrity check");
+      if (
         !validIdentity(identity.agentCli) ||
         !matchesIdentity(
           await readFile(
@@ -474,7 +499,7 @@ export class ComputerUpdater {
         throw integrity("installed Agent CLI failed its offline integrity check");
       if (
         marker.trim() !== version ||
-        identity.schema_version !== 2 ||
+        (identity.schema_version !== 2 && identity.schema_version !== 3) ||
         identity.version !== version ||
         "daemon" in identity ||
         !validIdentity(identity.computer) ||

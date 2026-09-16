@@ -118,9 +118,12 @@ client, or command-specific copy of an existing domain operation.
 - Computer has no long-lived cloud WebSocket. It communicates with Daemon over
   local RPC; each Daemon-supervised daemon owns its own cloud WSS
   connection and uses the versioned CoForge RPC/Protobuf protocol.
-- User authorization may authorize the one-time Computer registration, but
-  User credentials must not be persisted by Daemon or exposed to Agent
-  runtimes. Daemon uses its Computer/Workspace credential after setup.
+- User authorization may authorize the one-time Computer registration. Long-lived
+  User credentials and refresh tokens must not be persisted by Daemon or exposed
+  to Agent runtimes. The approved GitHub integration may supply the Agent owner's
+  current short-lived user access token on demand to a Git or `gh` child process;
+  it must not persist that token or install it in the general Agent environment.
+  Daemon otherwise uses its Computer/Workspace credential after setup.
 - Never print access tokens, refresh tokens, device codes, or stored secrets.
 - Resolve state through the platform-native path module; do not hand-build a
   hidden home-directory convention at call sites.

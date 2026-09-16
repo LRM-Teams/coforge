@@ -83,6 +83,7 @@ import { COFORGE_DAEMON_VERSION } from "../version";
 import { ReminderScheduler, reminderAppInboxPreview } from "../agent-reminder/reminder-scheduler";
 import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import type { GitHubCredentialRequest, GitHubCredentialResponse } from "@lrm/coforge-sdk/agent";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
 
@@ -2028,6 +2029,17 @@ export class DaemonRuntime {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.workspaceInfo) throw new Error("daemon connection is not connected");
     return this.#transport.workspaceInfo(request, agentApiKey);
+  }
+
+  async githubCredential(
+    context: string,
+    request: GitHubCredentialRequest,
+    agentApiKey?: string,
+  ): Promise<GitHubCredentialResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.githubCredential)
+      throw new Error("GitHub credential endpoint is not configured");
+    return this.#transport.githubCredential(request, agentApiKey);
   }
 
   async agentTask(

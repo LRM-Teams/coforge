@@ -14,7 +14,7 @@ import {
   type WeeklyReportResponse,
 } from "@lrm/coforge-sdk/internal";
 import type { LocalReminderReceiptResponse, ReminderTransportRequest } from "../index";
-import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
+import { agentApiRoutes, decodeGitHubCredentialResponse } from "@lrm/coforge-sdk/agent";
 import { CliError, NO_MESSAGE_SENT_NEXT_ACTION, unknownDeliveryNextAction } from "./cli-error";
 
 /**
@@ -275,6 +275,19 @@ export function connectLocal(
       return (await response.json()) as WorkspaceInfoResponse;
     },
     weeklyReport: (command: WeeklyReportCommand) => callWeeklyReport(command),
+    githubCredential: async () => {
+      if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+        throw new Error("coforge agent context is invalid");
+      if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+      const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.githubCredentials.path), {
+        method: agentApiRoutes.proxy.githubCredentials.method,
+        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error(`GitHub credential request failed (${response.status})`);
+      return decodeGitHubCredentialResponse(await response.json());
+    },
     view: async (attachmentId: string) => {
       if (!context) throw new Error("coforge agent context is not configured");
       if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))

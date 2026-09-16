@@ -30,6 +30,48 @@ test("accepts sfp_ daemon-local Proxy tokens", async () => {
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
+test("requests GitHub credentials through the daemon-local proxy", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({
+      username: "x-access-token",
+      password: "short-lived-token",
+      expiresAt: "2026-09-16T21:00:00Z",
+    }),
+  );
+  const credential = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).githubCredential!();
+
+  expect(credential.password).toBe("short-lived-token");
+  const [url, init] = fetch.mock.calls[0]!;
+  expect(url).toEqual(new URL(proxyUrl(agentApiRoutes.proxy.githubCredentials.path)));
+  expect(init).toMatchObject({
+    method: "POST",
+    headers: {
+      authorization: `Bearer sfp_${"a".repeat(43)}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+});
+
+test("rejects malformed GitHub credentials from the daemon-local proxy", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({
+      username: "x-access-token",
+      password: 42,
+      expiresAt: "not-a-date",
+    }),
+  );
+
+  await expect(
+    connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages))
+      .githubCredential!(),
+  ).rejects.toThrow("invalid GitHub credential response");
+});
+
 test("shows actionable validation errors returned by the Agent proxy", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(
     new Response("ambiguous message prefix; use the full UUID", { status: 400 }),

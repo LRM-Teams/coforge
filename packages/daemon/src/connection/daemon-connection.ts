@@ -1,5 +1,5 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
-import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
+import { agentApiRoutes, decodeGitHubCredentialResponse } from "@lrm/coforge-sdk/agent";
 import type {
   AgentEventsResponse,
   AgentChannelAttentionResponse,
@@ -10,6 +10,8 @@ import type {
   AgentResolveResponse,
   AgentReactionResponse,
   AgentMessage,
+  GitHubCredentialRequest,
+  GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "./agent-message-request-error";
 import { AgentTransportError } from "./agent-transport-error";
@@ -160,6 +162,9 @@ export interface AgentMessageHttpClient {
   requestWorkspaceInfo?(
     input: AgentHttpInput<WorkspaceInfoRequest>,
   ): Promise<WorkspaceInfoResponse>;
+  requestGitHubCredential?(
+    input: AgentHttpInput<GitHubCredentialRequest>,
+  ): Promise<GitHubCredentialResponse>;
 }
 
 /**
@@ -283,6 +288,10 @@ export interface DaemonConnectionClient {
     request: WorkspaceInfoRequest,
     agentApiKey?: string,
   ): Promise<WorkspaceInfoResponse>;
+  githubCredential?(
+    request: GitHubCredentialRequest,
+    agentApiKey?: string,
+  ): Promise<GitHubCredentialResponse>;
   onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
   sendAgentControlResult?(result: AgentControlResult): Promise<void>;
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
@@ -610,6 +619,16 @@ export const createAgentMessageHttpClient = (
       { ...keys, what: "workspace_info", query: {} },
     );
     return { ...data, protocolMajor: request.protocolMajor, requestId: request.requestId };
+  },
+  async requestGitHubCredential({ url, request, ...keys }) {
+    const response = await httpClient(url, {
+      method: "POST",
+      headers: agentHeaders(keys, true),
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`GitHub credential request failed (${response.status})`);
+    return decodeGitHubCredentialResponse(await response.json());
   },
   async requestReminder({ url, request, ...keys }) {
     let response: Response;
@@ -1100,6 +1119,18 @@ export class DaemonConnection implements DaemonConnectionClient {
       throw new Error("Agent workspace_info HTTP client is unavailable");
     return this.agentMessageHttpClient.requestWorkspaceInfo({
       url: this.#serverEndpoint("Agent workspace_info", agentApiRoutes.cloud.workspace.info.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async githubCredential(request: GitHubCredentialRequest, agentApiKey?: string) {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("GitHub credential endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestGitHubCredential)
+      throw new Error("GitHub credential HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestGitHubCredential({
+      url: this.#serverEndpoint("GitHub credential", agentApiRoutes.cloud.githubCredentials.path),
       ...this.#agentKeys(agentApiKey),
       request,
     });

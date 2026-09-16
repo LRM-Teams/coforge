@@ -63,9 +63,27 @@ export function agentEnvironment(
     },
     platform,
   );
-  return {
+  const result: Record<string, string> = {
     ...environment,
     ...declared,
     PATH: [...CLI_BIN_DIRECTORIES, path].join(executablePathDelimiter(platform)),
   };
+  const inheritedGitConfigCount = Number(result.GIT_CONFIG_COUNT ?? "0");
+  const gitConfigCount =
+    Number.isSafeInteger(inheritedGitConfigCount) && inheritedGitConfigCount >= 0
+      ? inheritedGitConfigCount
+      : 0;
+  const entries = [
+    ["credential.https://github.com.helper", ""],
+    ["credential.https://github.com.helper", "!coforge github credential"],
+    ["credential.https://github.com.useHttpPath", "true"],
+    ["url.https://github.com/.insteadOf", "git@github.com:"],
+    ["url.https://github.com/.insteadOf", "ssh://git@github.com/"],
+  ] as const;
+  for (const [offset, [key, value]] of entries.entries()) {
+    result[`GIT_CONFIG_KEY_${gitConfigCount + offset}`] = key;
+    result[`GIT_CONFIG_VALUE_${gitConfigCount + offset}`] = value;
+  }
+  result.GIT_CONFIG_COUNT = String(gitConfigCount + entries.length);
+  return result;
 }

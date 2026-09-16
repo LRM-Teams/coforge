@@ -13,7 +13,11 @@ import {
   type WorkspaceInfoResponse,
   type WeeklyReportCommand,
 } from "@lrm/coforge-sdk/internal";
-import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
+import {
+  agentApiRoutes,
+  type GitHubCredentialRequest,
+  type GitHubCredentialResponse,
+} from "@lrm/coforge-sdk/agent";
 import { isAgentApiKey } from "./credentials/agent-api-key";
 import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
 import { getLogger } from "@logtape/logtape";
@@ -86,6 +90,11 @@ export function startAgentProxy(input: {
       request: WorkspaceInfoRequest,
       agentApiKey?: string,
     ): Promise<WorkspaceInfoResponse>;
+    githubCredential?(
+      context: string,
+      request: GitHubCredentialRequest,
+      agentApiKey?: string,
+    ): Promise<GitHubCredentialResponse>;
     agentWeeklyReport?(
       context: string,
       request: WeeklyReportCommand,
@@ -126,6 +135,8 @@ export function startAgentProxy(input: {
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.tasks.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.weeklyReports.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.weeklyReports.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.githubCredentials.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.githubCredentials.path) &&
         (request.method !== "GET" || !requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX))
       )
         return new Response("not found", { status: 404 });
@@ -237,6 +248,15 @@ export function startAgentProxy(input: {
             binding.agentApiKey,
           );
           return Response.json(result);
+        }
+        if (requestUrl.pathname === LOCAL_PROXY_ROUTES.githubCredentials.path) {
+          if (!input.runtime.githubCredential) return new Response("not found", { status: 404 });
+          if (Object.keys(payload).length !== 0)
+            return new Response("bad request", { status: 400 });
+          return Response.json(
+            await input.runtime.githubCredential(binding.context, {}, binding.agentApiKey),
+            { headers: { "cache-control": "no-store" } },
+          );
         }
         if (requestUrl.pathname === LOCAL_PROXY_ROUTES.inbox.path) {
           if (!input.runtime.inbox) return new Response("not found", { status: 404 });

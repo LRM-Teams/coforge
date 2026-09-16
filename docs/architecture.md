@@ -300,13 +300,30 @@ Workspace 权限。Web/backend 的 `GitHubConnection` 模块通过 GitHub App �
 PostgreSQL 只持久化使用独立环境主密钥 AES-GCM 加密的凭据，以及十分钟有效、
 单次消费的授权尝试。每个 User 的授权、刷新和断开由数据库事务 advisory lock 串行化。
 GitHub 已轮换 token 但数据库提交前崩溃仍可能需要用户重新授权；这不是分布式原子事务。
-凭据不交给浏览器、Computer 或 Daemon。仓库列表使用 user-token installation endpoint，
-权限为用户权限与 App 安装授权的交集；断开只删除 CoForge 本地连接，不卸载 GitHub App。
-staging 与 production 使用不同 App 和密钥。此阶段不引入 clone、push 或 webhook
-消费；外部撤销在下次请求时发现。实现要求开启 GitHub 的 expiring user access tokens。
+用户凭据不交给浏览器，也不持久化到 Computer、Daemon 或 Agent。仓库列表使用
+user-token installation endpoint，权限为用户权限、App 安装仓库授权与 App permissions
+的交集；断开只删除 CoForge 本地连接，不卸载 GitHub App。Project 保存已选择仓库的
+installation/repository ID。Agent 执行 Git 或 `gh` 时，经 Daemon Credential Proxy 和
+Agent-authenticated HTTPS 按需取得 Agent owner 当前的短期 GitHub App user token；
+Web/backend 在既有每用户数据库锁下刷新加密凭据。token 不进入命令参数、日志、快照或
+磁盘：Git credential helper 忽略 `store`/`erase`，`gh` 仅在子进程环境中接收 `GH_TOKEN`。
+该 token 可访问 GitHub Connection 交集中任意仓库，不限于当前 Project；GitHub push/PR
+actor 因此是负责该 Agent 的连接用户，而不是 App bot。commit author、用户 signing key 与
+CoForge PR provenance 是独立能力。
+
+Agent Git 配置将 `git@github.com:` 与 `ssh://git@github.com/` 重写为 HTTPS，并仅为格式正确
+的 `github.com/owner/repo` 请求凭据。Computer 的不可变版本目录提供 `coforge` 与 `gh`
+launcher；后者排除自身目录后调用宿主机真实 GitHub CLI，避免递归。安装/更新入口携带
+浏览器绑定的随机 `state`；首次安装通过 user authorization callback 回跳并验证该状态、
+忽略不可信的 `installation_id`，再通过已认证 user token 同步。App 配置开启安装时 OAuth
+授权，因此 Setup URL 保持禁用且 Redirect on update 不启用。后续仓库授权变化通过 GitHub
+webhook 更新缓存，并在 Settings 或 Project 仓库选择器读取时通过 user token 主动同步。
+staging 与 production 使用不同 App 和密钥，并要求 expiring user access tokens。
 依据：[GitHub App user authorization](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)、
 [refresh tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens)、
-[user installation repositories](https://docs.github.com/en/rest/apps/installations#list-repositories-accessible-to-the-user-access-token)。
+[user installation repositories](https://docs.github.com/en/rest/apps/installations#list-repositories-accessible-to-the-user-access-token)、
+[GitHub App registration](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)、
+[Amp GitHub integration](https://ampcode.com/docs/github)。
 
 Project 属于一个 Workspace，可关联一个 GitHub 仓库和多个讨论组；讨论组复用
 PublicChannel，不是 Message Thread。创建 Project 时保留自动创建首个讨论组的行为；

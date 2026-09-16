@@ -155,6 +155,78 @@ test("proxy registration rejects Local Proxy tokens as Agent API keys", () => {
   );
 });
 
+test("proxy forwards validated GitHub credential requests without caching", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      githubCredential: async (context, request, agentApiKey) => {
+        calls.push({ context, request, agentApiKey });
+        return {
+          username: "x-access-token",
+          password: "short-lived-token",
+          expiresAt: "2026-09-16T21:00:00Z",
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.githubCredentials.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(await response.json()).toMatchObject({ password: "short-lived-token" });
+  expect(calls).toEqual([
+    {
+      context: "agent-a",
+      request: {},
+      agentApiKey,
+    },
+  ]);
+});
+
+test("proxy rejects unexpected GitHub credential fields before forwarding", async () => {
+  let calls = 0;
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      githubCredential: async () => {
+        calls++;
+        throw new Error("must not forward");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.githubCredentials.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ repository: "Example-Org/private-repo" }),
+    },
+  );
+
+  expect(response.status).toBe(400);
+  expect(calls).toBe(0);
+});
+
 test("Agent API key remains usable after an idle day without refresh", async () => {
   let calls = 0;
   const proxy = startAgentProxy({

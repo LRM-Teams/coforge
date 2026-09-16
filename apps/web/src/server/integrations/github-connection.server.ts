@@ -169,6 +169,15 @@ export class GitHubConnection {
     return { url: url.toString(), state };
   }
 
+  beginInstallation() {
+    const state = randomValue();
+    const url = new URL(
+      `https://github.com/apps/${this.config.appSlug}/installations/select_target`,
+    );
+    url.searchParams.set("state", state);
+    return { url: url.toString(), state };
+  }
+
   async complete(userId: string, browserState: string, state: string, code: string) {
     if (!state || state.length > 256 || state !== browserState || code.length > 2048) return false;
     // Commit consumption before external I/O. A later transaction abort must not
@@ -478,6 +487,17 @@ export class GitHubConnection {
     return result.data;
   }
 
+  /** A current user token for one Agent-owned GitHub operation; never persisted by the caller. */
+  async credential(userId: string) {
+    const result = await this.withToken(userId, async (token, _githubUserId, row) => ({
+      username: "x-access-token",
+      password: token,
+      expiresAt: row.expiresAt.toISOString(),
+    }));
+    if (!result.ok) throw new AppError("ACCESS_DENIED");
+    return result.data;
+  }
+
   async disconnect(userId: string) {
     await this.locked(userId, async (tx) => {
       await tx.gitHubAuthorization.deleteMany({ where: { userId } });
@@ -506,7 +526,11 @@ export class GitHubConnection {
 
   private async withToken<T>(
     userId: string,
-    action: (token: string, githubUserId: string) => Promise<T>,
+    action: (
+      token: string,
+      githubUserId: string,
+      row: { expiresAt: Date; updatedAt: Date; credentials: string | null; login: string },
+    ) => Promise<T>,
     refreshWithinMs = 60_000,
   ) {
     const prepared = await this.locked(userId, async (tx) => {
@@ -554,7 +578,10 @@ export class GitHubConnection {
     // The advisory lock only covers the token read/refresh above. GitHub reads run here,
     // outside any transaction, so a slow API call never blocks a concurrent disconnect().
     try {
-      return { ok: true as const, data: await action(prepared.token, prepared.githubUserId) };
+      return {
+        ok: true as const,
+        data: await action(prepared.token, prepared.githubUserId, prepared.row),
+      };
     } catch (error) {
       if (error instanceof GitHubUnauthorized) {
         await this.clearCredentialsIfUnchanged(userId, prepared.row);

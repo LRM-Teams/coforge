@@ -35,8 +35,33 @@ test("makes the Agent-facing coforge binary available without Agent identity", (
   const environment = agentEnvironment({ AGENT_SECRET: "declared" });
 
   expect(environment.PATH?.split(":")).toContain(join(process.execPath, ".."));
+  expect(environment.GIT_CONFIG_COUNT).toBe("5");
+  expect(environment.GIT_CONFIG_KEY_0).toBe("credential.https://github.com.helper");
+  expect(environment.GIT_CONFIG_VALUE_0).toBe("");
+  expect(environment.GIT_CONFIG_KEY_1).toBe("credential.https://github.com.helper");
+  expect(environment.GIT_CONFIG_VALUE_1).toBe("!coforge github credential");
+  expect(environment.GIT_CONFIG_KEY_2).toBe("credential.https://github.com.useHttpPath");
+  expect(environment.GIT_CONFIG_VALUE_2).toBe("true");
+  expect(environment.GIT_CONFIG_KEY_3).toBe("url.https://github.com/.insteadOf");
+  expect(environment.GIT_CONFIG_VALUE_3).toBe("git@github.com:");
+  expect(environment.GIT_CONFIG_KEY_4).toBe("url.https://github.com/.insteadOf");
+  expect(environment.GIT_CONFIG_VALUE_4).toBe("ssh://git@github.com/");
   expect(environment).not.toHaveProperty("agentId");
   expect(environment).not.toHaveProperty("AGENT_ID");
+});
+
+test("preserves inherited command-scope Git configuration before the GitHub helper", () => {
+  const environment = agentEnvironment(undefined, {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "safe.directory",
+    GIT_CONFIG_VALUE_0: "/workspace",
+  });
+
+  expect(environment.GIT_CONFIG_COUNT).toBe("6");
+  expect(environment.GIT_CONFIG_KEY_0).toBe("safe.directory");
+  expect(environment.GIT_CONFIG_KEY_1).toBe("credential.https://github.com.helper");
+  expect(environment.GIT_CONFIG_KEY_3).toBe("credential.https://github.com.useHttpPath");
+  expect(environment.GIT_CONFIG_KEY_5).toBe("url.https://github.com/.insteadOf");
 });
 
 test("explicit Agent proxy settings override inherited values including empty values", () => {

@@ -27,6 +27,6 @@ test("GitHub stays unconfigured without secrets and rejects non-HTTPS or mismatc
     readGitHubConfig({ ...env, COFORGE_GITHUB_CALLBACK_URL: "https://staging.coforge.cn/other" }),
   ).rejects.toThrow();
   await expect(
-    readGitHubConfig({ ...env, COFORGE_GITHUB_CLIENT_SECRET_FILE: "/unused" }),
+    readGitHubConfig({ ...env, COFORGE_GITHUB_CLIENT_SECRET_FILE: "/tmp/secret" }),
   ).rejects.toThrow();
 });

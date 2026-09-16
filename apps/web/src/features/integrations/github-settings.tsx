@@ -10,6 +10,7 @@ import {
   getGitHubConnection,
   refreshGitHubConnection,
   startGitHubConnection,
+  startGitHubInstallation,
   startGitHubReauthorization,
 } from "./github.functions";
 
@@ -27,6 +28,7 @@ export function GitHubSettings({
   const load = useServerFn(getGitHubConnection);
   const refresh = useServerFn(refreshGitHubConnection);
   const connect = useServerFn(startGitHubConnection);
+  const install = useServerFn(startGitHubInstallation);
   const reauthorize = useServerFn(startGitHubReauthorization);
   const disconnect = useServerFn(disconnectGitHub);
   useEffect(() => {
@@ -86,6 +88,17 @@ export function GitHubSettings({
     } catch {
       setError(true);
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function configureInstallation() {
+    setBusy(true);
+    setError(false);
+    try {
+      window.location.assign((await install()).url);
+    } catch {
+      setError(true);
       setBusy(false);
     }
   }
@@ -168,35 +181,19 @@ export function GitHubSettings({
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {connection &&
-            connection.status !== "unconfigured" &&
-            connection.status !== "pending_installation" && (
+            (connection.status === "disconnected" || connection.status === "reauthorize") && (
               <Button
                 size="sm"
-                color={connection.status === "connected" ? "secondary" : "primary"}
+                color="primary"
                 isDisabled={busy}
                 onPress={connection.status === "reauthorize" ? restoreAuthorization : authorize}
               >
-                {connection.status === "connected"
-                  ? m.github_replace()
-                  : connection.status === "reauthorize"
-                    ? m.github_reauthorize()
-                    : m.github_connect()}
+                {connection.status === "reauthorize" ? m.github_reauthorize() : m.github_connect()}
               </Button>
             )}
           {connection?.login && connection.installUrl && (
             <>
-              <Button
-                size="sm"
-                color="secondary"
-                href={
-                  connection.status === "connected" && connection.installations.length === 1
-                    ? (connection.installations.at(0)?.configureUrl ?? connection.installUrl)
-                    : connection.installUrl
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                isDisabled={busy}
-              >
+              <Button size="sm" color="secondary" isDisabled={busy} onPress={configureInstallation}>
                 {m.github_configure()}
               </Button>
               <Button size="sm" color="secondary" isDisabled={busy} onPress={removeConnection}>
