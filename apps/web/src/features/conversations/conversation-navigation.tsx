@@ -5,6 +5,7 @@ import { ArrowLeft, Plus } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { PageHeader } from "@/components/layout/page-header";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { ConversationDirectory } from "./conversation-directory";
 import { m } from "@/paraglide/messages";
 import { cx } from "@/utils/cx";
@@ -26,6 +27,7 @@ export function useConversationDetailVisible() {
 export function ConversationNavigation({ children }: { children: ReactNode }) {
   const { channels, projects } = messagesRoute.useLoaderData();
   const agents = useLiveAgents();
+  const desktop = useBreakpoint("lg");
   const router = useRouter();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [browsing, setBrowsing] = useState(false);
@@ -38,10 +40,15 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
 
   return (
     <ConversationListContext
-      value={{ showList: () => setBrowsing(true), detailVisible: !showList }}
+      value={{ showList: () => setBrowsing(true), detailVisible: desktop || !showList }}
     >
-      <main className="flex h-svh min-w-0 flex-col bg-primary">
-        <section className={cx("min-h-0 flex-1 flex-col", showList ? "flex" : "hidden")}>
+      <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
+        <section
+          className={cx(
+            "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
+            showList ? "flex" : "hidden",
+          )}
+        >
           <PageHeader
             heading={m.navigation_chat()}
             actions={
@@ -59,7 +66,9 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
             />
           </div>
         </section>
-        <div className={cx("min-h-0 flex-1 flex-col", showList ? "hidden" : "flex")}>
+        <div
+          className={cx("min-h-0 min-w-0 flex-1 flex-col lg:flex", showList ? "hidden" : "flex")}
+        >
           {children}
         </div>
       </main>
@@ -92,7 +101,7 @@ export function ConversationListButton() {
       color="tertiary"
       aria-label={m.conversation_back_to_list()}
       onClick={navigation.showList}
-      className="-ml-2 shrink-0"
+      className="-ml-2 shrink-0 lg:hidden"
     />
   );
 }
