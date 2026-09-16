@@ -68,3 +68,27 @@ export function filesFromPaste(clipboardData: ClipboardDataLike | null | undefin
   }
   return fallback;
 }
+
+/**
+ * Whether a drag carries at least one native file (e.g. dragged from Finder or Explorer),
+ * checked against `dataTransfer.types` during `dragenter`/`dragover`, before any file is
+ * actually readable. A plain text or URL drag (e.g. a text selection or a link) never
+ * includes this type, so the composer's drag handlers can leave those alone and let the
+ * browser's own drop-to-insert behaviour reach the textarea underneath.
+ */
+export function dragCarriesFiles(types: ArrayLike<string> | null | undefined): boolean {
+  if (!types) return false;
+  return Array.from(types).includes("Files");
+}
+
+/**
+ * The first file dropped onto the composer. Drag events carry data through the same
+ * `DataTransfer` shape as paste's `ClipboardData`, so this reuses `filesFromPaste` and keeps
+ * only its first result: dropping several files at once uploads the first and ignores the
+ * rest, matching the composer's single-attachment paste and paperclip behaviour.
+ */
+export function fileFromDropItems(
+  dataTransfer: ClipboardDataLike | null | undefined,
+): File | undefined {
+  return filesFromPaste(dataTransfer)[0];
+}
