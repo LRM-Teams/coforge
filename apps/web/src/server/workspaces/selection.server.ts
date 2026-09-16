@@ -38,6 +38,34 @@ export function writePreferredWorkspaceSlug(slug: string): void {
   setResponseHeader("Set-Cookie", serializeWorkspaceCookie(slug, secure));
 }
 
+const selectedWorkspaceByRequest = new WeakMap<Request, Map<string, Promise<string>>>();
+
+/**
+ * Runs `load` once per (request, userId) and shares the result with later
+ * callers on the same request. A rejected load is forgotten so a retry can run.
+ */
+export function memoizeForRequest(
+  request: Request,
+  userId: string,
+  load: () => Promise<string>,
+): Promise<string> {
+  let byUser = selectedWorkspaceByRequest.get(request);
+  if (!byUser) selectedWorkspaceByRequest.set(request, (byUser = new Map()));
+  const cached = byUser.get(userId);
+  if (cached) return cached;
+  const pending = load();
+  byUser.set(userId, pending);
+  pending.catch(() => byUser.delete(userId));
+  return pending;
+}
+
+/**
+ * The caller's selected Workspace for this request. During SSR one page load
+ * calls many server functions against the same Request, so the lookup runs
+ * once per Request and User; a browser call is one Request and pays once.
+ */
 export function requireWorkspaceIdForRequest(db: PrismaClient, userId: string): Promise<string> {
-  return requireExistingWorkspaceId(db, userId, preferredWorkspaceSlugFromRequest());
+  return memoizeForRequest(getRequest(), userId, () =>
+    requireExistingWorkspaceId(db, userId, preferredWorkspaceSlugFromRequest()),
+  );
 }

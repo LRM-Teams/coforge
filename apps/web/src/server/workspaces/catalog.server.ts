@@ -11,6 +11,18 @@ export type WorkspaceCatalogStore = {
   createForUser(input: { slug: string; name: string; userId: string }): Promise<WorkspaceRecord>;
 };
 
+/** The preferred Workspace when the User belongs to it, otherwise their first one. */
+export function pickWorkspace<T extends { slug: string }>(
+  workspaces: readonly T[],
+  preferredSlug?: string,
+): T | null {
+  if (preferredSlug) {
+    const preferred = workspaces.find((workspace) => workspace.slug === preferredSlug);
+    if (preferred) return preferred;
+  }
+  return workspaces[0] ?? null;
+}
+
 export class WorkspaceCatalog {
   constructor(private readonly store: WorkspaceCatalogStore) {}
 
@@ -19,12 +31,7 @@ export class WorkspaceCatalog {
   }
 
   async selectForUser(userId: string, preferredSlug?: string): Promise<WorkspaceRecord | null> {
-    const workspaces = await this.store.listForUser(userId);
-    if (preferredSlug) {
-      const preferred = workspaces.find((workspace) => workspace.slug === preferredSlug);
-      if (preferred) return preferred;
-    }
-    return workspaces[0] ?? null;
+    return pickWorkspace(await this.store.listForUser(userId), preferredSlug);
   }
 
   async createForUser(

@@ -7,6 +7,7 @@ import { requireDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaWorkspaceCatalogStore,
   WorkspaceCatalog,
+  pickWorkspace,
 } from "../../server/workspaces/catalog.server";
 import {
   preferredWorkspaceSlugFromRequest,
@@ -24,7 +25,7 @@ export const loadWorkspaceSwitcher = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const user = context.user;
     const workspaces = await catalog().listForUser(user.id);
-    const current = await catalog().selectForUser(user.id, preferredWorkspaceSlugFromRequest());
+    const current = pickWorkspace(workspaces, preferredWorkspaceSlugFromRequest());
     return { workspaces, current };
   });
 
