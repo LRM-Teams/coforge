@@ -7,7 +7,7 @@ export class WorkspaceMembers {
   async list(workspaceId: string, userId: string) {
     const membership = await this.db.workspaceMembership.findUnique({
       where: { workspaceId_userId: { workspaceId, userId } },
-      select: { userId: true },
+      select: { userId: true, role: true },
     });
     if (!membership) throw new AppError("ACCESS_DENIED");
 
@@ -41,6 +41,7 @@ export class WorkspaceMembers {
     ]);
 
     return {
+      actorRole: membership.role,
       people: people.map((person) => ({
         id: person.id,
         name: person.username,

@@ -57,9 +57,9 @@ function useNavItems(
       icon: MessageChatSquare,
     },
     {
-      label: m.workspace_members_title(),
-      bareHref: "/members",
-      href: localizeHref("/members"),
+      label: m.navigation_agents(),
+      bareHref: "/agents",
+      href: localizeHref("/agents"),
       icon: Users,
     },
     { label: m.tasks_tab(), bareHref: "/tasks", href: localizeHref("/tasks"), icon: ListTodo },

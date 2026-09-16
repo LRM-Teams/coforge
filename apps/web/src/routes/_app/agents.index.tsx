@@ -8,6 +8,7 @@ import { AgentsPending } from "@/features/agents/agents-pending";
 import { createAgent } from "@/features/agents/agents.functions";
 import { useLiveAgents } from "@/features/conversations/conversation-layout";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
+import { inviteWorkspaceMember } from "@/features/workspaces/members.functions";
 import { listWorkspaceMembers } from "@/features/workspaces/workspaces.functions";
 
 export const Route = createFileRoute("/_app/agents/")({
@@ -33,6 +34,7 @@ function AgentsPage() {
   const router = useRouter();
   const create = useServerFn(createAgent);
   const loadRuntimeCatalog = useServerFn(getComputerRuntimeCatalog);
+  const invite = useServerFn(inviteWorkspaceMember);
   const visibleAgents = useLiveAgents();
   return (
     <AgentsContent
@@ -51,6 +53,9 @@ function AgentsPage() {
         const result = await create({ data });
         await router.invalidate({ sync: true });
         return result;
+      }}
+      onInviteMember={async (data) => {
+        await invite({ data });
       }}
     />
   );
