@@ -2,11 +2,8 @@ import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/client";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import { createAgentMessageMethod } from "../src/server/centrifugo/rpc-handler.server";
-import {
-  decodeCloudAgentMessageResponse,
-  encodeAgentMessageRequest,
-} from "@lrm/coforge-sdk/internal";
+import { executeAgentSendMessageWithPolicy } from "../src/server/agents/agent-messages.service";
+import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
 import type { AgentMessageHold } from "../src/server/conversations/agent-message-hold.server";
 
 test("thread send and unread ranges stay separate from the main conversation", async () => {
@@ -149,46 +146,29 @@ test("thread send and unread ranges stay separate from the main conversation", a
     expect(afterRead.threadReadThrough[other.id]).toBeUndefined();
 
     const holds = new Map<string, AgentMessageHold>();
-    const send = createAgentMessageMethod(
-      repo,
-      {},
-      "send",
-      { canUseAgent: async () => true },
-      { execute: async (_scope, persist) => persist() },
-      {
-        issue: async (hold) => {
-          const token = crypto.randomUUID();
-          holds.set(token, hold);
-          return token;
-        },
-        get: async (token) => holds.get(token),
-        consume: async (token) => holds.delete(token),
+    const holdStore = {
+      issue: async (hold: AgentMessageHold) => {
+        const token = crypto.randomUUID();
+        holds.set(token, hold);
+        return token;
       },
-    );
-    const sendTo = async (destination: string, holdToken?: string) => {
-      const result = await send(
-        encodeAgentMessageRequest({
-          protocolMajor: 1,
+      get: async (token: string) => holds.get(token),
+      consume: async (token: string) => holds.delete(token),
+    };
+    const idempotency = { execute: async (_scope: unknown, persist: () => unknown) => persist() };
+    const sender = new SendDirectMessage(repo, idempotency as any, {} as any);
+    const sendTo = async (destination: string, holdToken?: string) =>
+      executeAgentSendMessageWithPolicy(
+        { repository: repo, sender, holdStore },
+        {
           requestId: crypto.randomUUID(),
           workspaceId: workspace.id,
           agentId: agent.id,
-          operation: "send",
           target: destination,
           body: "response",
           holdToken,
-        }),
-        {
-          principal: {
-            userId: user.id,
-            workspaceId: workspace.id,
-            agentId: agent.id,
-            computerId: "test-computer",
-          },
         },
       );
-      if (!(result instanceof Uint8Array)) throw new Error("RPC rejected");
-      return decodeCloudAgentMessageResponse(result);
-    };
     expect((await sendTo(shortTarget)).accepted).toBe(true);
     const hold = await sendTo(otherTarget);
     expect(hold.sideEffectDecision).toBe("hold");

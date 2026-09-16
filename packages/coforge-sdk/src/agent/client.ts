@@ -11,7 +11,11 @@ import type {
   AgentMessagesSendRequest,
   AgentMessagesResolveRequest,
   AgentMessagesReactionRequest,
-  AgentMessagesResponse,
+  AgentHistoryResponse,
+  AgentSearchResponse,
+  AgentSendResponse,
+  AgentResolveResponse,
+  AgentReactionResponse,
   AgentEventsGetRequest,
   AgentEventsResponse,
   AgentChannelAttentionResponse,
@@ -81,12 +85,12 @@ export type AgentApiClient = {
     log(request: AgentReminderInput): Promise<AgentReminderResponse>;
   };
   messages: {
-    read(request: AgentMessagesReadRequest): Promise<AgentMessagesResponse>;
-    search(request: AgentMessagesSearchRequest): Promise<AgentMessagesResponse>;
-    send(request: AgentMessagesSendRequest): Promise<AgentMessagesResponse>;
-    resolve(request: AgentMessagesResolveRequest): Promise<AgentMessagesResponse>;
-    addReaction(request: AgentMessagesReactionRequest): Promise<AgentMessagesResponse>;
-    removeReaction(request: AgentMessagesReactionRequest): Promise<AgentMessagesResponse>;
+    read(request: AgentMessagesReadRequest): Promise<AgentHistoryResponse>;
+    search(request: AgentMessagesSearchRequest): Promise<AgentSearchResponse>;
+    send(request: AgentMessagesSendRequest): Promise<AgentSendResponse>;
+    resolve(request: AgentMessagesResolveRequest): Promise<AgentResolveResponse>;
+    addReaction(request: AgentMessagesReactionRequest): Promise<AgentReactionResponse>;
+    removeReaction(request: AgentMessagesReactionRequest): Promise<AgentReactionResponse>;
   };
   events: { get(request: AgentEventsGetRequest): Promise<AgentEventsResponse> };
   channels: {
@@ -122,16 +126,16 @@ export type RawAgentApiClient = {
     log(request: AgentReminderInput): Promise<AgentApiResult<AgentReminderResponse>>;
   };
   messages: {
-    read(request: AgentMessagesReadRequest): Promise<AgentApiResult<AgentMessagesResponse>>;
-    search(request: AgentMessagesSearchRequest): Promise<AgentApiResult<AgentMessagesResponse>>;
-    send(request: AgentMessagesSendRequest): Promise<AgentApiResult<AgentMessagesResponse>>;
-    resolve(request: AgentMessagesResolveRequest): Promise<AgentApiResult<AgentMessagesResponse>>;
+    read(request: AgentMessagesReadRequest): Promise<AgentApiResult<AgentHistoryResponse>>;
+    search(request: AgentMessagesSearchRequest): Promise<AgentApiResult<AgentSearchResponse>>;
+    send(request: AgentMessagesSendRequest): Promise<AgentApiResult<AgentSendResponse>>;
+    resolve(request: AgentMessagesResolveRequest): Promise<AgentApiResult<AgentResolveResponse>>;
     addReaction(
       request: AgentMessagesReactionRequest,
-    ): Promise<AgentApiResult<AgentMessagesResponse>>;
+    ): Promise<AgentApiResult<AgentReactionResponse>>;
     removeReaction(
       request: AgentMessagesReactionRequest,
-    ): Promise<AgentApiResult<AgentMessagesResponse>>;
+    ): Promise<AgentApiResult<AgentReactionResponse>>;
   };
   events: { get(request: AgentEventsGetRequest): Promise<AgentApiResult<AgentEventsResponse>> };
   channels: {
@@ -270,28 +274,28 @@ function messageResources(transport: AgentApiTransport): RawAgentApiClient["mess
   return {
     read: (request) =>
       transport.request(agentApiRoutes.cloud.messages.list, request) as Promise<
-        AgentApiResult<AgentMessagesResponse>
+        AgentApiResult<AgentHistoryResponse>
       >,
     search: (request) =>
-      transport.request(agentApiRoutes.cloud.messages.list, request) as Promise<
-        AgentApiResult<AgentMessagesResponse>
+      transport.request(agentApiRoutes.cloud.messages.search, request) as Promise<
+        AgentApiResult<AgentSearchResponse>
       >,
     send: (request) =>
       transport.request(agentApiRoutes.cloud.messages.send, request) as Promise<
-        AgentApiResult<AgentMessagesResponse>
+        AgentApiResult<AgentSendResponse>
       >,
     resolve: ({ messageId }) =>
       transport.request(agentApiRoutes.cloud.messages.resolve.path(messageId)) as Promise<
-        AgentApiResult<AgentMessagesResponse>
+        AgentApiResult<AgentResolveResponse>
       >,
     addReaction: ({ messageId, emoji }) =>
       transport.request(agentApiRoutes.cloud.messages.reactions.path(messageId), {
         emoji,
-      }) as Promise<AgentApiResult<AgentMessagesResponse>>,
+      }) as Promise<AgentApiResult<AgentReactionResponse>>,
     removeReaction: ({ messageId, emoji }) =>
       transport.request(agentApiRoutes.cloud.messages.reactions.path(messageId), {
         emoji,
-      }) as Promise<AgentApiResult<AgentMessagesResponse>>,
+      }) as Promise<AgentApiResult<AgentReactionResponse>>,
   };
 }
 

@@ -26,10 +26,6 @@ export type DaemonRuntimeMessageType =
   | typeof USAGE_SCAN_RESPONSE_MESSAGE_TYPE;
 export const AGENT_MESSAGE_METHOD = "agent:deliver" as const;
 export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
-export const AGENT_MESSAGE_CHECK_METHOD = "agent:message:check" as const;
-export const AGENT_MESSAGE_READ_METHOD = "agent:message:read" as const;
-export const AGENT_MESSAGE_SEARCH_METHOD = "agent:message:search" as const;
-export const AGENT_MESSAGE_SEND_METHOD = "agent:message:send" as const;
 export const AGENT_CHANNEL_MUTE_METHOD = "agent:channel:mute" as const;
 export const AGENT_CHANNEL_UNMUTE_METHOD = "agent:channel:unmute" as const;
 export const AGENT_THREAD_UNFOLLOW_METHOD = "agent:thread:unfollow" as const;
@@ -372,38 +368,6 @@ export type AgentMessageRequest = {
   messageId?: string;
   emoji?: string;
 };
-export type CloudAgentMessageResponse = {
-  protocolMajor: number;
-  requestId: string;
-  accepted: boolean;
-  attentionCount: number;
-  messageId?: string;
-  messages: {
-    id: string;
-    sequence: number;
-    sender: string;
-    body: string;
-    createdAt: string;
-    target: string;
-    attachment?: {
-      id: string;
-      fileName: string;
-      contentType: string;
-      sizeBytes: number;
-    };
-    task?: import("./local-daemon").MessageTaskMetadata;
-  }[];
-  sideEffectDecision?: "forward" | "hold" | "anyway_denied" | "anyway_accepted";
-  holdToken?: string;
-  anywayAllowed?: boolean;
-  hasOlder?: boolean;
-  hasNewer?: boolean;
-  olderCursor?: string;
-  newerCursor?: string;
-  freshnessContextMode?: "inline" | "withheld";
-  withheldMessageCount?: number;
-};
-
 export interface ComputerRegisterTransport {
   request(
     method: typeof COMPUTER_REGISTER_METHOD,
@@ -517,10 +481,7 @@ export {
   decodeAgentActivity,
   encodeAgentStatus,
   decodeAgentStatus,
-  encodeAgentMessageRequest,
-  decodeAgentMessageRequest,
-  encodeCloudAgentMessageResponse,
-  decodeCloudAgentMessageResponse,
+  validateAgentMessageRequest,
 } from "./codec";
 export * from "./agent-skills";
 export * from "./agent-control";

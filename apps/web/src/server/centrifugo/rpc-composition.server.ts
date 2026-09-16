@@ -43,11 +43,7 @@ import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
 } from "../db/repositories/agent.repositories.server";
-import {
-  createAgentStartMethod,
-  createAgentDeliveryAckMethod,
-  createAgentMessageMethod,
-} from "./rpc-handler.server";
+import { createAgentStartMethod, createAgentDeliveryAckMethod } from "./rpc-handler.server";
 import {
   PublishAgentRuntimeControl,
   WorkspaceAgentRecovery,
@@ -57,12 +53,7 @@ import { AgentControl } from "../agents/agent-control.server";
 import { getAgentControlSignal } from "../agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "./server-api.server";
-import {
-  AGENT_START_METHOD,
-  AGENT_MESSAGE_ACK_METHOD,
-  AGENT_MESSAGE_READ_METHOD,
-  AGENT_MESSAGE_SEND_METHOD,
-} from "@lrm/coforge-sdk/internal";
+import { AGENT_START_METHOD, AGENT_MESSAGE_ACK_METHOD } from "@lrm/coforge-sdk/internal";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 import { verifyDaemonApiKey } from "../auth/daemon-api-key.server";
 import {
@@ -72,7 +63,6 @@ import {
 import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
 import { PrismaComputerRuntimeRepository } from "../db/repositories/computer-runtime.repositories.server";
 import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
-import { bestEffortMessageNotifier } from "../notifications/web-push-composition.server";
 import { createAgentSessions } from "../db/repositories/agent-session.repositories.server";
 import { AgentSessionReceiver } from "../agents/agent-session.server";
 import { createAgentControlResultMethod } from "./agent-control-receiver.server";
@@ -265,21 +255,6 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
         [AGENT_MESSAGE_ACK_METHOD]: createAgentDeliveryAckMethod(
           new PrismaDirectConversationRepository(db),
         ),
-        [AGENT_MESSAGE_READ_METHOD]: createAgentMessageMethod(
-          new PrismaDirectConversationRepository(db),
-          centrifugo,
-          "read",
-          agentAuthorization,
-        ),
-        [AGENT_MESSAGE_SEND_METHOD]: createAgentMessageMethod(
-          new PrismaDirectConversationRepository(db),
-          centrifugo,
-          "send",
-          agentAuthorization,
-          undefined,
-          undefined,
-          bestEffortMessageNotifier(db),
-        ),
       },
       authenticateEnvelope: (request, context) =>
         requireAuthenticatedCentrifugoUser(request, context, new PrismaDaemonApiKeyRepository(db)),
@@ -299,8 +274,6 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [AGENT_START_METHOD]: unavailableMethod,
       [AGENT_STATUS_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
-      [AGENT_MESSAGE_READ_METHOD]: unavailableMethod,
-      [AGENT_MESSAGE_SEND_METHOD]: unavailableMethod,
       [REMINDER_FIRE_METHOD]: unavailableMethod,
       [REMINDER_SNAPSHOT_METHOD]: unavailableMethod,
     },

@@ -25,6 +25,7 @@ export const agentApiRoutes = {
     events: { method: "GET", path: "/api/agent/v1/events" },
     messages: {
       list: { method: "GET", path: "/api/agent/v1/messages" },
+      search: { method: "GET", path: "/api/agent/v1/messages/search" },
       send: { method: "POST", path: "/api/agent/v1/messages" },
       resolve: {
         method: "GET",

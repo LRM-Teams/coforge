@@ -17,15 +17,11 @@ import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
 import {
   DaemonConnection,
+  type AgentMessageTransportResponse,
   type CentrifugeWorkspaceClient,
 } from "../src/connection/daemon-connection";
 import { startAgentProxy, type AgentProxy } from "../src/agent-proxy";
-import type {
-  AgentMessageRequest,
-  CloudAgentMessageResponse,
-  TaskRequest,
-  TaskResponse,
-} from "@lrm/coforge-sdk/internal";
+import type { AgentMessageRequest, TaskRequest, TaskResponse } from "@lrm/coforge-sdk/internal";
 
 function sessionSpy() {
   return {
@@ -508,7 +504,7 @@ async function queueHarness(
 }
 
 async function messageHarness(
-  respond: (request: AgentMessageRequest) => Promise<CloudAgentMessageResponse>,
+  respond: (request: AgentMessageRequest) => Promise<AgentMessageTransportResponse>,
   respondTask?: (request: TaskRequest) => Promise<TaskResponse>,
 ) {
   const credentials = new InMemoryDaemonCredentialStore();

@@ -15,6 +15,16 @@ test("exposes the cloud events drain route", () => {
   });
 });
 
+test("exposes a dedicated cloud message search route distinct from read", () => {
+  expect(agentApiRoutes.cloud.messages.search).toEqual({
+    method: "GET",
+    path: "/api/agent/v1/messages/search",
+  });
+  expect(agentApiRoutes.cloud.messages.search.path).not.toBe(
+    agentApiRoutes.cloud.messages.list.path,
+  );
+});
+
 test("uses versioned Agent API routes for the Proxy and cloud", () => {
   expect(agentApiRoutes.proxy.messages.path).toBe("/api/agent/v1/messages");
   expect(agentApiRoutes.proxy.tasks.path).toBe("/api/agent/v1/tasks");

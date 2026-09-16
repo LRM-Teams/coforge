@@ -49,8 +49,6 @@ test("read forwards the sequence window to the repository and returns the canoni
   expect(body).toEqual({
     protocolMajor: 1,
     requestId: "request-1",
-    accepted: true,
-    attentionCount: 0,
     messages: [
       {
         id: "message-1",
@@ -79,52 +77,22 @@ test("read generates a request id when the daemon omits one", async () => {
     },
   );
   const body = await result.json();
-  expect(body.accepted).toBe(true);
   expect(typeof body.requestId).toBe("string");
   expect(body.requestId.length).toBeGreaterThan(0);
-});
-
-test("search returns the canonical response shape and echoes the request id", async () => {
-  const result = await handleAgentMessagesGet(
-    request("?query=hello&requestId=request-2"),
-    { workspaceId: "workspace-1", agentId: "agent-1" },
-    {
-      setAgentChannelMuted: async () => {},
-      setAgentThreadFollowed: async () => {},
-      searchMessages: async () => [
-        {
-          id: "message-2",
-          sequence: 1,
-          sender: "@ada",
-          target: "@ada",
-          body: "hello",
-          createdAt: new Date("2026-09-15T00:00:00.000Z"),
-        },
-      ],
-    },
-  );
-  expect(result.status).toBe(200);
-  expect(await result.json()).toEqual({
-    protocolMajor: 1,
-    requestId: "request-2",
-    accepted: true,
-    attentionCount: 0,
-    messages: [
-      {
-        id: "message-2",
-        sequence: 1,
-        sender: "@ada",
-        target: "@ada",
-        body: "hello",
-        createdAt: "2026-09-15T00:00:00.000Z",
-      },
-    ],
-  });
 });
 
 test("rejects a missing target with 400", async () => {
   const result = await handleAgentMessagesGet(
     request(""),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    { setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} },
+  );
+  expect(result.status).toBe(400);
+});
+
+test("rejects a query param with 400; search moved to its own route", async () => {
+  const result = await handleAgentMessagesGet(
+    request("?query=hello"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     { setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} },
   );

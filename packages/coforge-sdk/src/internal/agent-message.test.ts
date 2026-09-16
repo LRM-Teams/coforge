@@ -6,18 +6,15 @@ import {
   encodeAgentMessageDeliveryAck,
   decodeAgentMessageDelivery,
   decodeAgentMessageResponse,
-  decodeCloudAgentMessageResponse,
   encodeAgentMessageDelivery,
   encodeAgentMessageResponse,
-  encodeCloudAgentMessageResponse,
-  encodeAgentMessageRequest,
-  decodeAgentMessageRequest,
+  validateAgentMessageRequest,
   decodeLocalAgentMessageRequest,
   encodeLocalAgentMessageRequest,
   isChannelMessageTarget,
 } from "./index";
 
-test("round-trips the targetless events-drain check operation over the cloud envelope", () => {
+test("accepts the targetless events-drain check operation", () => {
   const request = {
     protocolMajor: 1,
     requestId: "request-check",
@@ -27,11 +24,11 @@ test("round-trips the targetless events-drain check operation over the cloud env
     target: "",
     limit: 50,
   };
-  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+  expect(validateAgentMessageRequest(request)).toBe(request);
 });
 
 test.each(["mute", "unmute"] as const)(
-  "round-trips Agent channel %s over existing versioned envelopes",
+  "accepts Agent channel %s and round-trips the local envelope",
   (operation) => {
     const request = {
       protocolMajor: 1,
@@ -41,7 +38,7 @@ test.each(["mute", "unmute"] as const)(
       operation,
       target: "#general",
     };
-    expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+    expect(validateAgentMessageRequest(request)).toBe(request);
     const local = {
       requestId: "request-mute",
       context: "context-a",
@@ -54,7 +51,7 @@ test.each(["mute", "unmute"] as const)(
   },
 );
 
-test("round-trips Agent channel thread unfollow over existing versioned envelopes", () => {
+test("accepts Agent channel thread unfollow and round-trips the local envelope", () => {
   const request = {
     protocolMajor: 1,
     requestId: "request-unfollow",
@@ -63,7 +60,7 @@ test("round-trips Agent channel thread unfollow over existing versioned envelope
     operation: "thread-unfollow" as const,
     target: "#general:12345678-1234-4234-8234-123456789abc",
   };
-  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+  expect(validateAgentMessageRequest(request)).toBe(request);
   const local = {
     requestId: "request-unfollow",
     context: "context-a",
@@ -75,7 +72,7 @@ test("round-trips Agent channel thread unfollow over existing versioned envelope
   );
 });
 
-test("round-trips Agent message resolve over existing versioned envelopes", () => {
+test("accepts Agent message resolve and round-trips the local envelope", () => {
   const request = {
     protocolMajor: 1,
     requestId: "request-resolve",
@@ -85,7 +82,7 @@ test("round-trips Agent message resolve over existing versioned envelopes", () =
     target: "",
     messageId: "12345678",
   };
-  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+  expect(validateAgentMessageRequest(request)).toBe(request);
   const local = {
     requestId: "request-resolve",
     context: "context-a",
@@ -98,7 +95,7 @@ test("round-trips Agent message resolve over existing versioned envelopes", () =
 });
 
 test.each(["react", "unreact"] as const)(
-  "round-trips Agent message %s over existing versioned envelopes",
+  "accepts Agent message %s and round-trips the local envelope",
   (operation) => {
     const request = {
       protocolMajor: 1,
@@ -110,7 +107,7 @@ test.each(["react", "unreact"] as const)(
       messageId: "12345678-1234-4234-8234-123456789abc",
       emoji: "👍",
     };
-    expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+    expect(validateAgentMessageRequest(request)).toBe(request);
     const local = {
       requestId: "request-react",
       context: "context-a",
@@ -134,9 +131,7 @@ test("rejects a cloud react request without an emoji", () => {
     target: "",
     messageId: "12345678",
   };
-  expect(() => decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toThrow(
-    "invalid cloud agent message request",
-  );
+  expect(() => validateAgentMessageRequest(request)).toThrow("invalid cloud agent message request");
 });
 
 test("rejects a cloud resolve request without a message id", () => {
@@ -148,12 +143,34 @@ test("rejects a cloud resolve request without a message id", () => {
     operation: "resolve" as const,
     target: "",
   };
-  expect(() => decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toThrow(
-    "invalid cloud agent message request",
-  );
+  expect(() => validateAgentMessageRequest(request)).toThrow("invalid cloud agent message request");
 });
 
-test("round-trips Agent lexical message search filters over the HTTPS envelope", () => {
+test("rejects an unknown operation", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-unknown",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "bogus" as unknown as "read",
+    target: "#general",
+  };
+  expect(() => validateAgentMessageRequest(request)).toThrow("invalid cloud agent message request");
+});
+
+test("rejects a targeted operation without a target", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-read",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "read" as const,
+    target: "",
+  };
+  expect(() => validateAgentMessageRequest(request)).toThrow("invalid cloud agent message request");
+});
+
+test("accepts Agent lexical message search filters", () => {
   const request = {
     protocolMajor: 1,
     requestId: "request-search",
@@ -168,7 +185,7 @@ test("round-trips Agent lexical message search filters over the HTTPS envelope",
     limit: 10,
     offset: 2,
   } as const;
-  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+  expect(validateAgentMessageRequest(request)).toBe(request);
 });
 
 test("accepts full and short channel thread targets without treating them as mute targets", () => {
@@ -195,7 +212,7 @@ test("round-trips an Agent direct message delivery", () => {
   expect(decodeAgentMessageDelivery(encodeAgentMessageDelivery(delivery))).toEqual(delivery);
 });
 
-test("round-trips only safe positive trusted model-seen sequences", () => {
+test("accepts a trusted model-seen sequence on send", () => {
   const request = {
     protocolMajor: 1,
     requestId: "send-seen",
@@ -206,11 +223,7 @@ test("round-trips only safe positive trusted model-seen sequences", () => {
     body: "reply",
     seenUpToSequence: 42,
   };
-  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
-  expect(() => encodeAgentMessageRequest({ ...request, seenUpToSequence: 0 })).toThrow("positive");
-  expect(() =>
-    encodeAgentMessageRequest({ ...request, seenUpToSequence: Number.MAX_SAFE_INTEGER + 1 }),
-  ).toThrow("sequence");
+  expect(validateAgentMessageRequest(request)).toBe(request);
 });
 
 test("rejects seen-up-to sequences on non-send operations", () => {
@@ -223,13 +236,10 @@ test("rejects seen-up-to sequences on non-send operations", () => {
     target: "@ada",
     seenUpToSequence: 42,
   };
-  expect(() => encodeAgentMessageRequest(request)).toThrow("only valid for send");
-
-  const bytes = encodeAgentMessageRequest({ ...request, operation: "send", body: "reply" });
-  const operationOffset = new TextDecoder().decode(bytes).indexOf("send");
-  expect(operationOffset).toBeGreaterThanOrEqual(0);
-  bytes.set(new TextEncoder().encode("read"), operationOffset);
-  expect(() => decodeAgentMessageRequest(bytes)).toThrow("only valid for send");
+  expect(() => validateAgentMessageRequest(request)).toThrow("only valid for send");
+  expect(
+    validateAgentMessageRequest({ ...request, operation: "send", body: "reply" }),
+  ).toMatchObject({ operation: "send" });
 });
 
 test("round-trips all Agent delivery ACK identity and ordering fields", () => {
@@ -316,30 +326,4 @@ test("withholds the daemon-local events drain hasMore flag under reviewer isolat
     freshnessContextMode: "withheld" as const,
   };
   expect(decodeAgentMessageResponse(encodeAgentMessageResponse(local)).hasMore).toBeUndefined();
-});
-
-test("round-trips attachment metadata in Agent message history", () => {
-  const value = {
-    protocolMajor: 1,
-    requestId: "request-attachment",
-    accepted: true,
-    attentionCount: 0,
-    messages: [
-      {
-        id: "message-attachment",
-        sequence: 1,
-        sender: "@frank",
-        body: "see file",
-        createdAt: "2026-08-30T00:00:00Z",
-        target: "@agent",
-        attachment: {
-          id: "attachment-1",
-          fileName: "report.pdf",
-          contentType: "application/pdf",
-          sizeBytes: 42,
-        },
-      },
-    ],
-  };
-  expect(decodeCloudAgentMessageResponse(encodeCloudAgentMessageResponse(value))).toEqual(value);
 });

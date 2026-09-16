@@ -12,11 +12,15 @@ import { PrismaWorkspaceEnrollmentStore } from "../src/server/workspaces/enrollm
 import { readAuthorizedAttachment } from "../src/server/attachments/attachment.server";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
-import { createAgentMessageMethod } from "../src/server/centrifugo/rpc-handler.server";
+import type { CentrifugoServerApi } from "../src/server/centrifugo/server-api.server";
 import {
-  decodeCloudAgentMessageResponse,
-  encodeAgentMessageRequest,
-} from "@lrm/coforge-sdk/internal";
+  executeAgentSendMessageWithPolicy,
+  muteAgentChannel,
+  readAgentMessages,
+  unfollowAgentThread,
+} from "../src/server/agents/agent-messages.service";
+import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
+import { CentrifugoConversationRealtime } from "../src/server/conversations/conversation-realtime.server";
 import { RedisAgentMessageHoldStore } from "../src/server/conversations/agent-message-hold.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
 import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";
@@ -432,59 +436,38 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
         (m) => m.messageId,
       ),
     ).toEqual([mentioned.id, ordinary.id]);
-    const auth = { canUseAgent: async () => true };
-    const metadata = {
-      principal: {
-        userId: user.id,
-        workspaceId: workspace.id,
-        agentId: agent.id,
-        computerId: computer.id,
+    const scope = { workspaceId: workspace.id, agentId: agent.id };
+    const failingCentrifugo: CentrifugoServerApi = {
+      publish: async () => {
+        throw new Error("Agent reply must not publish");
       },
-      requestId: crypto.randomUUID(),
+      publishJson: async () => {
+        throw new Error("Agent reply must not publish");
+      },
     };
-    const rpc = async (
-      operation: "read" | "send" | "mute" | "unmute",
-      target: string,
-      body?: string,
-    ) => {
-      const method = createAgentMessageMethod(
-        repo,
-        {
-          publish: async () => {
-            throw new Error("Agent reply must not publish");
-          },
-        },
-        operation,
-        auth,
-        new RedisMessageRequestIdempotency(redis),
-        new RedisAgentMessageHoldStore(redis),
-      );
-      const result = await method(
-        encodeAgentMessageRequest({
-          protocolMajor: 1,
-          requestId: crypto.randomUUID(),
-          workspaceId: workspace.id,
-          agentId: agent.id,
-          operation,
-          target,
-          body,
-          seenUpToSequence: operation === "send" ? ordinary.sequence : undefined,
-        }),
-        metadata,
-      );
-      if (!(result instanceof Uint8Array)) throw new Error(JSON.stringify(result));
-      return decodeCloudAgentMessageResponse(result);
-    };
-    expect((await rpc("mute", "#general")).accepted).toBe(true);
-    expect((await rpc("read", "#general")).messages.map((m) => m.body)).toContain(
-      "New ordinary conversation after unmute.",
+    const holdStore = new RedisAgentMessageHoldStore(redis);
+    const agentSender = new SendDirectMessage(
+      repo,
+      new RedisMessageRequestIdempotency(redis),
+      failingCentrifugo,
+      new CentrifugoConversationRealtime(failingCentrifugo),
     );
+    await muteAgentChannel(repo, scope, "#general", true);
+    expect(
+      (await readAgentMessages(repo, scope, "#general", {})).messages.map((m) => m.body),
+    ).toContain("New ordinary conversation after unmute.");
     const beforeReply = published.length;
     await channels.setUserMuted(workspace.id, user.id, general.id, true);
-    const reply = await rpc(
-      "send",
-      "#general",
-      `@${user.username} this Agent reply should notify the mentioned human`,
+    const reply = await executeAgentSendMessageWithPolicy(
+      { repository: repo, sender: agentSender, holdStore },
+      {
+        requestId: crypto.randomUUID(),
+        workspaceId: workspace.id,
+        agentId: agent.id,
+        target: "#general",
+        body: `@${user.username} this Agent reply should notify the mentioned human`,
+        seenUpToSequence: ordinary.sequence,
+      },
     );
     expect(reply.accepted).toBe(true);
     expect(published.length).toBe(beforeReply);
@@ -553,23 +536,6 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     await expect(repo.readMessages(crypto.randomUUID(), agent.id, "#general")).rejects.toThrow(
       "ACCESS_DENIED",
     );
-    const denied = createAgentMessageMethod(repo, {}, "mute", {
-      canUseAgent: async () => false,
-    });
-    expect(
-      await denied(
-        encodeAgentMessageRequest({
-          protocolMajor: 1,
-          requestId: crypto.randomUUID(),
-          workspaceId: workspace.id,
-          agentId: agent.id,
-          operation: "mute",
-          target: "#general",
-        }),
-        metadata,
-      ),
-    ).toMatchObject({ code: 403 });
-
     await channels.setAgentMuted(workspace.id, agent.id, "#general", false);
     const retryInput = {
       workspaceId: workspace.id,
@@ -710,29 +676,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       threadRootId: root.id,
     });
     expect(published.at(-1)?.messageId).toBe(followedReply.id);
-    const unfollow = createAgentMessageMethod(repo, {}, "thread-unfollow", {
-      canUseAgent: async () => true,
-    });
-    const unfollowResult = await unfollow(
-      encodeAgentMessageRequest({
-        protocolMajor: 1,
-        requestId: crypto.randomUUID(),
-        workspaceId: workspace.id,
-        agentId: agent.id,
-        operation: "thread-unfollow",
-        target,
-      }),
-      {
-        principal: {
-          userId: alice.id,
-          workspaceId: workspace.id,
-          agentId: agent.id,
-          computerId: computer.id,
-        },
-      },
-    );
-    if (!(unfollowResult instanceof Uint8Array)) throw new Error(JSON.stringify(unfollowResult));
-    expect(decodeCloudAgentMessageResponse(unfollowResult).accepted).toBe(true);
+    await unfollowAgentThread(repo, { workspaceId: workspace.id, agentId: agent.id }, target);
     const afterUnfollow = await channels.send({
       workspaceId: workspace.id,
       userId: alice.id,

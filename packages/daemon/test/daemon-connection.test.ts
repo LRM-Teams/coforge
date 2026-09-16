@@ -2,8 +2,10 @@ import { expect, test } from "bun:test";
 import {
   createAgentMessageHttpClient,
   DaemonConnection,
+  type AgentMessageTransportResponse,
   type CentrifugeWorkspaceClient,
 } from "../src/connection/daemon-connection";
+import type { AgentSendResponse } from "@lrm/coforge-sdk/agent";
 import {
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_STATUS_METHOD,
@@ -775,12 +777,11 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
   const fake = fakeClient();
   const requests: unknown[] = [];
   const response = {
-    protocolMajor: 1,
+    protocolMajor: 1 as const,
     requestId: "request-2",
-    accepted: true,
-    attentionCount: 0,
     messages: [],
-    messageId: "",
+    hasOlder: false,
+    hasNewer: false,
   };
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     requestRead: async (input) => {
@@ -829,9 +830,9 @@ test("Agent read HTTP GET request carries the request id and sequence window", a
     return Response.json({
       protocolMajor: 1,
       requestId: "request-read-1",
-      accepted: true,
-      attentionCount: 0,
       messages: [],
+      hasOlder: false,
+      hasNewer: false,
     });
   });
   await client.requestRead!({
@@ -864,9 +865,7 @@ test("Agent search HTTP GET request carries the request id", async () => {
     return Response.json({
       protocolMajor: 1,
       requestId: "request-search-1",
-      accepted: true,
-      attentionCount: 0,
-      messages: [],
+      results: [],
     });
   });
   await client.requestSearch!({
@@ -894,18 +893,14 @@ test("Agent resolve HTTP GET request carries the request id", async () => {
     return Response.json({
       protocolMajor: 1,
       requestId: "request-resolve-1",
-      accepted: true,
-      attentionCount: 0,
-      messages: [
-        {
-          id: "message-1",
-          sequence: 1,
-          sender: "@ada",
-          body: "hi",
-          createdAt: "now",
-          target: "@ada",
-        },
-      ],
+      message: {
+        id: "message-1",
+        sequence: 1,
+        sender: "@ada",
+        body: "hi",
+        createdAt: "now",
+        target: "@ada",
+      },
     });
   });
   const result = await client.requestResolve!({
@@ -924,7 +919,7 @@ test("Agent resolve HTTP GET request carries the request id", async () => {
   });
   expect(capturedUrl?.pathname).toBe("/api/agent/v1/messages/abcd1234/resolve");
   expect(capturedUrl?.searchParams.get("requestId")).toBe("request-resolve-1");
-  expect(result.messages).toHaveLength(1);
+  expect(result.message.id).toBe("message-1");
 });
 
 test("Agent events HTTP GET request carries the request id and limit", async () => {
@@ -1037,10 +1032,9 @@ test.each(["react", "unreact"] as const)(
       return Response.json({
         protocolMajor: 1,
         requestId: "request-react-1",
-        accepted: true,
-        attentionCount: 0,
-        messages: [],
         messageId: "abcd1234",
+        emoji: "👍",
+        active: operation === "react",
       });
     });
     const method = operation === "react" ? "POST" : "DELETE";
@@ -1205,22 +1199,33 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
   const fake = fakeClient();
   const resolveCalls: unknown[] = [];
   const reactionCalls: unknown[] = [];
-  const response = {
-    protocolMajor: 1,
+  const resolveResponse = {
+    protocolMajor: 1 as const,
     requestId: "request-resolve",
-    accepted: true,
-    attentionCount: 0,
-    messages: [],
-    messageId: "",
+    message: {
+      id: "message-1",
+      sequence: 1,
+      sender: "@ada",
+      target: "@ada",
+      body: "hi",
+      createdAt: "2026-09-16T00:00:00.000Z",
+    },
+  };
+  const reactionResponse = {
+    protocolMajor: 1 as const,
+    requestId: "request-react",
+    messageId: "abcd1234",
+    emoji: "👍",
+    active: true,
   };
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     requestResolve: async (input) => {
       resolveCalls.push(input);
-      return response;
+      return resolveResponse;
     },
     requestReaction: async (input) => {
       reactionCalls.push(input);
-      return { ...response, messageId: "abcd1234" };
+      return reactionResponse;
     },
   });
   await transport.start("daemon-token", {
@@ -1381,6 +1386,212 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
   expect(unfollowed.accepted).toBe(true);
   expect(unfollowed.messages).toEqual([]);
 });
+
+test("adapts the read route's AgentHistoryResponse into the transport shape", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
+    requestRead: async () => ({
+      protocolMajor: 1,
+      requestId: "request-read",
+      messages: [
+        {
+          id: "message-1",
+          sequence: 1,
+          sender: "@ada",
+          target: "@ada",
+          body: "hi",
+          createdAt: "2026-09-16T00:00:00.000Z",
+        },
+      ],
+      hasOlder: true,
+      hasNewer: false,
+      olderCursor: "cursor-older",
+      newerCursor: "cursor-newer",
+    }),
+  });
+  await transport.start("daemon-token", {
+    ...config,
+    serverHttpUrl: "https://server.example/api/internal/centrifugo",
+  });
+  const result = await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-read",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "read",
+    target: "@ada",
+  });
+  expect(result).toMatchObject({
+    accepted: true,
+    attentionCount: 0,
+    hasOlder: true,
+    hasNewer: false,
+    olderCursor: "cursor-older",
+    newerCursor: "cursor-newer",
+  });
+  expect(result.messages).toHaveLength(1);
+});
+
+test("adapts the dedicated search route's AgentSearchResponse (results -> messages) into the transport shape", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
+    requestSearch: async () => ({
+      protocolMajor: 1,
+      requestId: "request-search",
+      results: [
+        {
+          id: "message-1",
+          sequence: 1,
+          sender: "@ada",
+          target: "@ada",
+          body: "hi",
+          createdAt: "2026-09-16T00:00:00.000Z",
+        },
+      ],
+    }),
+  });
+  await transport.start("daemon-token", {
+    ...config,
+    serverHttpUrl: "https://server.example/api/internal/centrifugo",
+  });
+  const result = await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-search",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "search",
+    target: "",
+    query: "hi",
+  });
+  expect(result.accepted).toBe(true);
+  expect(result.messages).toHaveLength(1);
+  expect(result.messages[0]?.id).toBe("message-1");
+});
+
+test("adapts the resolve route's AgentResolveResponse (message -> messages: [message]) into the transport shape", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
+    requestResolve: async () => ({
+      protocolMajor: 1,
+      requestId: "request-resolve",
+      message: {
+        id: "message-1",
+        sequence: 1,
+        sender: "@ada",
+        target: "@ada",
+        body: "hi",
+        createdAt: "2026-09-16T00:00:00.000Z",
+      },
+    }),
+  });
+  await transport.start("daemon-token", {
+    ...config,
+    serverHttpUrl: "https://server.example/api/internal/centrifugo",
+  });
+  const result = await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-resolve",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "resolve",
+    target: "",
+    messageId: "message-1",
+  });
+  expect(result.accepted).toBe(true);
+  expect(result.messages).toEqual([expect.objectContaining({ id: "message-1", body: "hi" })]);
+});
+
+const sendAdapterCases: Array<{
+  label: string;
+  response: AgentSendResponse;
+  expected: Partial<AgentMessageTransportResponse>;
+}> = [
+  {
+    label: "sent with no bypass maps to forward",
+    response: {
+      protocolMajor: 1,
+      requestId: "request-send",
+      state: "sent",
+      messageId: "message-1",
+      context: [],
+    },
+    expected: { accepted: true, sideEffectDecision: "forward", messageId: "message-1" },
+  },
+  {
+    label: "sent with bypass maps to anyway_accepted",
+    response: {
+      protocolMajor: 1,
+      requestId: "request-send",
+      state: "sent",
+      messageId: "message-1",
+      bypass: true,
+      context: [],
+    },
+    expected: { accepted: true, sideEffectDecision: "anyway_accepted", messageId: "message-1" },
+  },
+  {
+    label: "held maps to hold and carries the held context as messages/attentionCount",
+    response: {
+      protocolMajor: 1,
+      requestId: "request-send",
+      state: "held",
+      holdToken: "hold-token-1",
+      anywayAllowed: true,
+      context: [
+        {
+          id: "message-1",
+          sequence: 1,
+          sender: "@ada",
+          target: "@ada",
+          body: "hi",
+          createdAt: "2026-09-16T00:00:00.000Z",
+        },
+      ],
+    },
+    expected: {
+      accepted: false,
+      sideEffectDecision: "hold",
+      holdToken: "hold-token-1",
+      anywayAllowed: true,
+      attentionCount: 1,
+    },
+  },
+  {
+    label: "denied maps to anyway_denied",
+    response: {
+      protocolMajor: 1,
+      requestId: "request-send",
+      state: "denied",
+      context: [],
+    },
+    expected: { accepted: false, sideEffectDecision: "anyway_denied" },
+  },
+];
+
+test.each(sendAdapterCases)(
+  "adapts the send route's AgentSendResponse ($label) into the transport shape",
+  async ({ response, expected }) => {
+    const fake = fakeClient();
+    const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
+      requestSend: async () => response,
+    });
+    await transport.start("daemon-token", {
+      ...config,
+      serverHttpUrl: "https://server.example/api/internal/centrifugo",
+    });
+    const result = await transport.agentMessage({
+      protocolMajor: 1,
+      requestId: "request-send",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "send",
+      target: "@ada",
+      body: "hi",
+    });
+    expect(result).toMatchObject(expected);
+    expect(result.messages).toEqual(response.context);
+  },
+);
 
 test("requests and revokes Agent API keys through the server API route", async () => {
   const fake = fakeClient();

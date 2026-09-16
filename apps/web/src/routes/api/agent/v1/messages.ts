@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { CloudAgentMessageResponse } from "@lrm/coforge-sdk/internal";
+import type { AgentHistoryResponse, AgentSendResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
   readAgentMessages,
-  searchAgentMessages,
+  executeAgentSendMessageWithPolicy,
   type AgentMessageRepository,
+  type AgentSendMessageResult,
 } from "#/server/agents/agent-messages.service";
-import { executeAgentSendMessageWithPolicy } from "#/server/agents/agent-messages.service";
 import { SendDirectMessage } from "#/server/conversations/direct-message.server";
 import { getMessageRequestIdempotency } from "#/server/conversations/redis-message-request-idempotency.server";
 import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server";
@@ -28,6 +28,7 @@ function parseSequenceParam(
   return value;
 }
 
+/** Read-only history route; `query` belongs to the dedicated search route. */
 export async function handleAgentMessagesGet(
   request: Request,
   principal: AgentMessagesGetPrincipal,
@@ -37,24 +38,11 @@ export async function handleAgentMessagesGet(
   const requestId = query.get("requestId") || crypto.randomUUID();
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
-    if (query.has("query")) {
-      const messages = await searchAgentMessages(repository, scope, {
-        query: query.get("query") ?? "",
-        target: query.get("target") ?? undefined,
-        sender: query.get("sender") ?? undefined,
-        sort: query.get("sort") === "recent" ? "recent" : "relevance",
-        limit: query.has("limit") ? Number(query.get("limit")) : undefined,
-        offset: query.has("offset") ? Number(query.get("offset")) : undefined,
-      });
-      const response: CloudAgentMessageResponse = {
-        protocolMajor: 1,
-        requestId,
-        accepted: true,
-        attentionCount: 0,
-        messages,
-      };
-      return Response.json(response);
-    }
+    if (query.has("query"))
+      return Response.json(
+        { error: "use /api/agent/v1/messages/search for query" },
+        { status: 400 },
+      );
     const target = query.get("target");
     if (!target) return Response.json({ error: "target is required" }, { status: 400 });
     const fromSequence = parseSequenceParam(query, "fromSequence");
@@ -67,12 +55,10 @@ export async function handleAgentMessagesGet(
       fromSequence,
       throughSequence,
     });
-    const messages = result.messages;
-    const response: CloudAgentMessageResponse = {
+    const messages = result.messages as AgentMessage[];
+    const response: AgentHistoryResponse = {
       protocolMajor: 1,
       requestId,
-      accepted: true,
-      attentionCount: 0,
       messages,
       hasOlder: result.hasOlder,
       hasNewer: result.hasNewer,
@@ -83,6 +69,30 @@ export async function handleAgentMessagesGet(
   } catch {
     return Response.json({ error: "invalid message query" }, { status: 400 });
   }
+}
+
+/** Maps `executeAgentSendMessageWithPolicy`'s side-effect decision onto the send route's `state`. */
+function mapSendResult(requestId: string, result: AgentSendMessageResult & { messages: unknown }) {
+  const context = (result.messages as { createdAt: Date }[]).map((message) => ({
+    ...message,
+    createdAt: message.createdAt.toISOString(),
+  })) as AgentMessage[];
+  const response: AgentSendResponse = {
+    protocolMajor: 1,
+    requestId,
+    state:
+      result.sideEffectDecision === "hold"
+        ? "held"
+        : result.sideEffectDecision === "anyway_denied"
+          ? "denied"
+          : "sent",
+    messageId: result.messageId,
+    holdToken: result.holdToken,
+    bypass: result.sideEffectDecision === "anyway_accepted" ? true : undefined,
+    anywayAllowed: result.anywayAllowed,
+    context,
+  };
+  return response;
 }
 
 export const Route = createFileRoute("/api/agent/v1/messages")({
@@ -100,6 +110,7 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
           typeof body.body !== "string"
         )
           return Response.json({ error: "target and body are required" }, { status: 400 });
+        const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
         const repository = new PrismaDirectConversationRepository(db);
         const centrifugo = createCentrifugoServerApi();
         const result = await executeAgentSendMessageWithPolicy(
@@ -114,7 +125,7 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
             ),
           },
           {
-            requestId: typeof body.requestId === "string" ? body.requestId : crypto.randomUUID(),
+            requestId,
             workspaceId: principal.workspaceId,
             agentId: principal.agentId,
             target: body.target,
@@ -125,7 +136,7 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
               typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
           },
         );
-        return Response.json(result);
+        return Response.json(mapSendResult(requestId, result));
       },
     },
   },
