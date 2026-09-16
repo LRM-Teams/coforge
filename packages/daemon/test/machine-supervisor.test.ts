@@ -5,6 +5,8 @@ import {
   type ManagedBinding,
 } from "../src/supervisor/machine-supervisor";
 
+const NOW = 1_700_000_000_000;
+
 function upgradeFixture(initial: Partial<ManagedBinding> = {}) {
   const state = {
     saved: [
@@ -19,6 +21,7 @@ function upgradeFixture(initial: Partial<ManagedBinding> = {}) {
       },
     },
     { start: async () => "a", stop: async () => {}, instance: async () => "a" },
+    () => NOW,
   );
   return { state, supervisor, operations: () => state.saved[0]?.upgradeOperations };
 }
@@ -36,7 +39,7 @@ test("only one upgrade operation may be pending, and a replay is not a second la
     "request-a is still pending",
   );
   expect(operations()).toEqual([
-    { requestId: "request-a", expectedVersion: "1.2.3-rc.1", state: "pending" },
+    { requestId: "request-a", expectedVersion: "1.2.3-rc.1", state: "pending", requestedAt: NOW },
   ]);
 });
 
@@ -57,6 +60,7 @@ test("an operation moves from pending through its receipt to the server acknowle
       requestId: "request-a",
       expectedVersion: "1.2.3",
       state: "failed",
+      requestedAt: NOW,
       terminal: { error: "candidate failed", at: 7 },
     },
   ]);
@@ -91,6 +95,7 @@ test("operation history stays capped at the audit tail", async () => {
       requestId: `old-${index}`,
       expectedVersion: "1.0.0",
       state: "acknowledged" as const,
+      requestedAt: NOW - 1,
     })),
   });
   await supervisor.recover();

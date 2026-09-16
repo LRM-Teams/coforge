@@ -1,36 +1,43 @@
+import { ProgressBar } from "react-aria-components";
+
 import { cn } from "@/lib/utils";
 
 /**
- * The spinner Untitled UI's Button draws while it is pending, as a standalone primitive for the
- * places that need the same motion without a button around it. The official Button keeps its own
- * copy: `components/base` is unmodified upstream source, so this adapts callers rather than it.
+ * The product's one inline spinner: work is in flight, with no idea how far along it is.
  *
- * Decorative by default; give a `label` wherever the spinner is the only thing announcing that
- * work is in flight.
+ * Two libraries, one job each. daisyUI draws it - its `loading` component is plain CSS with no
+ * runtime dependency, Tailwind-native, and registered in `styles.css` with `include: loading`,
+ * `themes: false` and a `d-` prefix, so nothing else of daisyUI's reaches the bundle and CoForge
+ * colour tokens stay authoritative. React Aria's `ProgressBar` with `isIndeterminate` gives it
+ * meaning: `role="progressbar"` and the accessible name come from the framework rather than from
+ * hand-written ARIA.
+ *
+ * daisyUI's spinner paints in `currentColor` and Tailwind's `size-*` overrides its default size,
+ * so `className` is the whole styling surface. Pass a colour token that reads on both grounds.
+ *
+ * Use this one inline - beside text, inside a badge, in a button-sized slot. Untitled UI's
+ * `application/loading-indicator` is the other one: a page-level block, 32-64px, with a visible
+ * caption below it and no `className`, for a whole view that is still loading.
+ *
+ * @see https://react-spectrum.adobe.com/react-aria/ProgressBar.html
+ * @see https://daisyui.com/components/loading/
  */
 export function LoadingIndicator({
-  className,
   label,
+  className,
 }: {
-  /** Sizing and color come from the caller, as with any icon. */
+  /** What is in flight. Becomes the spinner's accessible name, so it is never optional. */
+  label: string;
+  /** Size and colour, as with any icon. */
   className?: string;
-  label?: string;
 }) {
   return (
-    <span className="inline-flex shrink-0" role={label ? "status" : undefined}>
-      <svg fill="none" viewBox="0 0 20 20" aria-hidden="true" className={cn("size-4", className)}>
-        <circle className="stroke-current opacity-30" cx="10" cy="10" r="8" strokeWidth="2" />
-        <circle
-          className="origin-center animate-spin stroke-current"
-          cx="10"
-          cy="10"
-          r="8"
-          strokeWidth="2"
-          strokeDasharray="12.5 50"
-          strokeLinecap="round"
-        />
-      </svg>
-      {label && <span className="sr-only">{label}</span>}
-    </span>
+    <ProgressBar
+      isIndeterminate
+      aria-label={label}
+      className={cn("inline-flex shrink-0", className)}
+    >
+      <span aria-hidden="true" className="d-loading d-loading-spinner size-full" />
+    </ProgressBar>
   );
 }

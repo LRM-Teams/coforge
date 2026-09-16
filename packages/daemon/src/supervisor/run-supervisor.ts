@@ -7,7 +7,12 @@ import { FileDaemonCredentialStore } from "../credentials/credential-store";
 import { DaemonConfigStore } from "../persistence/daemon-config";
 import { LocalDaemonLauncher } from "../daemon-host/launcher";
 import { acquireProcessLock } from "../platform/process-lock";
-import { MachineSupervisor, WorkspaceRecoveryError, type BindingStore } from "./machine-supervisor";
+import {
+  MachineSupervisor,
+  UPGRADE_OPERATION_PENDING_TTL_MS,
+  WorkspaceRecoveryError,
+  type BindingStore,
+} from "./machine-supervisor";
 import { FileBindingStore } from "./binding-store";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
 import { configureDaemonLogging } from "../platform/daemon-logging";
@@ -251,11 +256,19 @@ async function runWithSupervisorLock(
     (await supervisor.snapshot()).flatMap((binding) =>
       (binding.upgradeOperations ?? [])
         .filter((operation) => operation.state === "pending")
-        .map((operation) => ({ workspaceId: binding.workspaceId, requestId: operation.requestId })),
+        .map((operation) => ({
+          workspaceId: binding.workspaceId,
+          requestId: operation.requestId,
+          requestedAt: operation.requestedAt,
+        })),
     );
   const settlePendingUpgradeOperations = async () => {
     try {
-      await sweepComputerUpgradeReceipts(await pendingUpgradeOperations(), completeUpgrade);
+      // A stranded operation is aged out here too: without that, one lost receipt would refuse
+      // every later upgrade on this machine.
+      await sweepComputerUpgradeReceipts(await pendingUpgradeOperations(), completeUpgrade, {
+        pendingTtlMs: UPGRADE_OPERATION_PENDING_TTL_MS,
+      });
     } catch (error) {
       upgradeLogger.error("Computer upgrade receipt sweep failed", {
         event: "upgrade:receipt_sweep_failed",
@@ -264,13 +277,15 @@ async function runWithSupervisorLock(
     }
   };
   /** Best-effort in-process watch; the startup sweep above is the durable backstop. */
-  const watchUpgradeReceipt = (workspaceId: string, requestId: string) => {
+  const watchUpgradeReceipt = (workspaceId: string, requestId: string, requestedAt: number) => {
     void (async () => {
       const deadline = Date.now() + UPGRADE_RECEIPT_WATCH_MS;
       while (Date.now() < deadline) {
         await Bun.sleep(UPGRADE_RECEIPT_POLL_MS);
+        // The watch only waits for a receipt; ageing a stranded operation out belongs to the
+        // startup sweep, which is the one that still runs after this process is replaced.
         const settled = await sweepComputerUpgradeReceipts(
-          [{ workspaceId, requestId }],
+          [{ workspaceId, requestId, requestedAt }],
           completeUpgrade,
         ).catch(() => 0);
         if (settled) return;
@@ -319,7 +334,7 @@ async function runWithSupervisorLock(
               await launchComputerUpgrade(request.requestId, request.expectedVersion, {
                 stateDirectory,
               });
-              watchUpgradeReceipt(request.workspaceId, request.requestId);
+              watchUpgradeReceipt(request.workspaceId, request.requestId, Date.now());
             }
           } else if (method === "daemon:upgrade_ack") {
             if (!request.workspaceId) throw new Error("upgrade acknowledgement requires workspace");

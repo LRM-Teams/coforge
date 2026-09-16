@@ -7,7 +7,13 @@ import {
   computerUpgradeResultPath,
   readComputerUpgradeReceipt,
   sweepComputerUpgradeReceipts,
+  UPGRADE_EXPIRED_WITHOUT_RECEIPT,
 } from "../src/platform/computer-upgrade-receipts";
+import {
+  MachineSupervisor,
+  UPGRADE_OPERATION_PENDING_TTL_MS,
+  type ManagedBinding,
+} from "../src/supervisor/machine-supervisor";
 
 async function home() {
   return await mkdtemp(join(realpathSync(tmpdir()), "coforge-upgrade-receipt-"));
@@ -68,8 +74,8 @@ test("the sweep settles only the pending operations whose job already finished",
     const settled: { workspaceId: string; requestId: string; status: string }[] = [];
     const resolved = await sweepComputerUpgradeReceipts(
       [
-        { workspaceId: "a", requestId: "done" },
-        { workspaceId: "a", requestId: "still-running" },
+        { workspaceId: "a", requestId: "done", requestedAt: 0 },
+        { workspaceId: "a", requestId: "still-running", requestedAt: 0 },
       ],
       async (workspaceId, requestId, receipt) => {
         settled.push({ workspaceId, requestId, status: receipt.status });
@@ -79,6 +85,94 @@ test("the sweep settles only the pending operations whose job already finished",
 
     expect(resolved).toBe(1);
     expect(settled).toEqual([{ workspaceId: "a", requestId: "done", status: "failed" }]);
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a pending operation without a receipt expires once, and only past its TTL", async () => {
+  const homeDirectory = await home();
+  try {
+    const now = 10 * 60_000;
+    const expired: Record<string, unknown>[] = [];
+    const sweep = (requestedAt: number) =>
+      sweepComputerUpgradeReceipts(
+        [{ workspaceId: "a", requestId: "stranded", requestedAt }],
+        async (workspaceId, _requestId, receipt) => {
+          expired.push({ workspaceId, ...receipt });
+        },
+        { homeDirectory, now: () => now, pendingTtlMs: 5 * 60_000 },
+      );
+
+    // Still inside the window: the job may simply be slow, so nothing is concluded.
+    expect(await sweep(now - 4 * 60_000)).toBe(0);
+    expect(expired).toEqual([]);
+
+    expect(await sweep(now - 6 * 60_000)).toBe(1);
+    expect(expired).toEqual([
+      {
+        workspaceId: "a",
+        requestId: "stranded",
+        status: "failed",
+        error: UPGRADE_EXPIRED_WITHOUT_RECEIPT,
+        at: now,
+      },
+    ]);
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true });
+  }
+});
+
+test("an expired operation stops blocking the next request; a live one still blocks", async () => {
+  const homeDirectory = await home();
+  const now = 60 * 60_000;
+  const supervisor = (requestedAt: number) => {
+    let saved: ManagedBinding[] = [
+      {
+        workspaceId: "a",
+        computerId: "c",
+        workspaceRoot: "/a",
+        enabled: true,
+        upgradeOperations: [
+          { requestId: "stranded", expectedVersion: "1.0.0", state: "pending", requestedAt },
+        ],
+      },
+    ];
+    return new MachineSupervisor(
+      {
+        load: async () => structuredClone(saved),
+        save: async (next) => {
+          saved = structuredClone(next);
+        },
+      },
+      { start: async () => "a", stop: async () => {}, instance: async () => "a" },
+      () => now,
+    );
+  };
+  const settle = (machine: MachineSupervisor, requestedAt: number) =>
+    sweepComputerUpgradeReceipts(
+      [{ workspaceId: "a", requestId: "stranded", requestedAt }],
+      (workspaceId, requestId, receipt) =>
+        machine.completeUpgrade(workspaceId, requestId, {
+          status: receipt.status,
+          at: receipt.at,
+          ...(receipt.error ? { error: receipt.error } : {}),
+        }),
+      { homeDirectory, now: () => now, pendingTtlMs: UPGRADE_OPERATION_PENDING_TTL_MS },
+    );
+
+  try {
+    const stale = supervisor(now - UPGRADE_OPERATION_PENDING_TTL_MS - 1);
+    await stale.recover();
+    await settle(stale, now - UPGRADE_OPERATION_PENDING_TTL_MS - 1);
+    expect(await stale.recordUpgrade("a", "fresh", "2.0.0")).toBe(true);
+
+    const live = supervisor(now - 1_000);
+    await live.recover();
+    await settle(live, now - 1_000);
+    await expect(live.recordUpgrade("a", "fresh", "2.0.0")).rejects.toThrow(
+      "stranded is still pending",
+    );
   } finally {
     await rm(homeDirectory, { recursive: true, force: true });
   }

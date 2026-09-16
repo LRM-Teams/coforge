@@ -279,7 +279,7 @@ export function ComputerDetail({
             <span>{computerVersionLabel(computer)}</span>
             {upgrading ? (
               <span className="inline-flex items-center gap-1 text-brand-secondary">
-                <LoadingIndicator className="size-3.5" />
+                <LoadingIndicator className="size-3.5" label={m.computer_upgrade_in_progress()} />
                 <span>{m.computer_upgrade_in_progress()}</span>
               </span>
             ) : upgrade.state === "succeeded" ? (
