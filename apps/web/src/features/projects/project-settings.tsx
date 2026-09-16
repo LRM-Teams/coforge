@@ -7,8 +7,13 @@ import { Button } from "@/components/base/buttons/button";
 import { Select } from "@/components/base/select/select";
 import { listAccessibleGitHubRepositories } from "@/features/integrations/github.functions";
 import { m } from "@/paraglide/messages";
-import { deleteProject, updateProject, type getProject } from "./projects.functions";
-import { projectIcons } from "./projects.schemas";
+import {
+  deleteProject,
+  updateProject,
+  uploadProjectIcon,
+  type getProject,
+} from "./projects.functions";
+import { ProjectImage } from "./project-image";
 
 export function ProjectSettingsPage({
   project,
@@ -18,12 +23,11 @@ export function ProjectSettingsPage({
   const router = useRouter();
   const save = useServerFn(updateProject);
   const remove = useServerFn(deleteProject);
+  const upload = useServerFn(uploadProjectIcon);
   const repositories = useServerFn(listAccessibleGitHubRepositories);
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description);
-  const [icon, setIcon] = useState(
-    projectIcons.find((value) => value === project.icon) ?? projectIcons[0],
-  );
+  const [imageMessage, setImageMessage] = useState("");
   const [saved, setSaved] = useState(false);
   const [selection, setSelection] = useState("keep");
   const [items, setItems] = useState<Awaited<ReturnType<typeof listAccessibleGitHubRepositories>>>(
@@ -52,6 +56,27 @@ export function ProjectSettingsPage({
     };
   }, [repositories]);
 
+  async function changeImage(file: File) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setSaved(false);
+    setImageMessage(m.project_image_uploading());
+    try {
+      const data = new FormData();
+      data.set("id", project.id);
+      data.set("file", file);
+      await upload({ data });
+      await router.invalidate({ sync: true });
+      setImageMessage(m.project_image_saved());
+    } catch {
+      setImageMessage("");
+      setError(m.project_image_error());
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (busy) return;
@@ -70,7 +95,6 @@ export function ProjectSettingsPage({
             id: project.id,
             name,
             description,
-            icon,
             ...(selection === "none"
               ? { repository: null }
               : repository
@@ -139,30 +163,34 @@ export function ProjectSettingsPage({
             </>
           ) : (
             <>
-              <div className="flex items-end gap-4">
-                <span
-                  aria-hidden="true"
-                  className="grid size-12 shrink-0 place-items-center rounded-xl border border-secondary text-3xl"
-                >
-                  {icon}
-                </span>
-                <div className="w-40">
-                  <Select
-                    label={m.project_icon()}
-                    selectedKey={icon}
-                    isDisabled={busy}
-                    onSelectionChange={(key) => {
-                      const value = projectIcons.find((candidate) => candidate === key);
-                      if (value) {
-                        setIcon(value);
-                        setSaved(false);
-                      }
+              <div className="flex items-center gap-4">
+                <label className="cursor-pointer rounded-xl outline-focus-ring focus-within:outline-2 focus-within:outline-offset-4">
+                  <ProjectImage
+                    name={project.name}
+                    url={project.iconUrl}
+                    className="size-16 text-2xl"
+                  />
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    aria-label={m.project_image_upload()}
+                    disabled={busy}
+                    className="sr-only"
+                    onChange={async (event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) await changeImage(file);
                     }}
-                  >
-                    {projectIcons.map((value) => (
-                      <Select.Item key={value} id={value} label={value} />
-                    ))}
-                  </Select>
+                  />
+                </label>
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-medium">{m.project_image_upload()}</p>
+                  <p className="text-sm text-tertiary">{m.project_image_hint()}</p>
+                  {imageMessage && (
+                    <p role="status" className="text-sm text-tertiary">
+                      {imageMessage}
+                    </p>
+                  )}
                 </div>
               </div>
               <label className="grid gap-1 text-sm font-medium">
