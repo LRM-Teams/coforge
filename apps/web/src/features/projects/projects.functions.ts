@@ -4,6 +4,7 @@ import { configuredGitHub } from "../../server/integrations/github-config.server
 import { AppError, isAppError } from "../../lib/app-error";
 import { ProjectSettings } from "../../server/projects/project-settings.server";
 import { z } from "zod";
+import { updateProjectInput } from "./projects.schemas";
 
 export const getProjectRepository = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
@@ -43,6 +44,7 @@ export const getProject = createServerFn({ method: "GET" })
         name: true,
         slug: true,
         description: true,
+        icon: true,
         githubFullName: true,
         githubHtmlUrl: true,
         conversations: {
@@ -60,25 +62,7 @@ export const getProject = createServerFn({ method: "GET" })
 
 export const updateProject = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator(
-    z.object({
-      id: z.uuid(),
-      name: z.string().trim().min(1).max(100),
-      description: z.string().trim().max(2000),
-      // Omitted means retain the existing link, null explicitly disconnects it.
-      repository: z
-        .object({
-          installationId: z.number().int().positive().safe(),
-          id: z.number().int().positive().safe(),
-          fullName: z
-            .string()
-            .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
-            .max(300),
-        })
-        .nullable()
-        .optional(),
-    }),
-  )
+  .validator(updateProjectInput)
   .handler(async ({ data, context }) => {
     const github = data.repository ? await configuredGitHub() : undefined;
     await new ProjectSettings(context.db, github?.connection).update(
@@ -110,6 +94,7 @@ export const listProjects = createServerFn({ method: "GET" })
         id: true,
         name: true,
         slug: true,
+        icon: true,
         conversations: {
           select: { id: true },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],

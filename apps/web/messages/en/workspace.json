@@ -31,6 +31,8 @@
   "project_github_settings": "GitHub connection settings",
   "project_retry": "Retry",
   "project_settings": "Project settings",
+  "project_icon": "Icon",
+  "project_saved": "Changes saved",
   "project_description": "Description",
   "project_save": "Save changes",
   "project_settings_error": "Could not save changes. Check repository access or whether it is already linked to another project.",

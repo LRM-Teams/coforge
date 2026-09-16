@@ -57,7 +57,9 @@ export function ProjectsContent({
                   params={{ projectSlug: project.slug }}
                   className="flex min-w-0 flex-1 items-center gap-3 rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-4"
                 >
-                  <Folder aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
+                  <span aria-hidden="true" className="shrink-0 text-xl">
+                    {project.icon}
+                  </span>
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold text-primary">
                       {project.name}
@@ -86,11 +88,11 @@ export function ProjectsContent({
   );
 }
 
-export function ProjectsPending() {
+export function ProjectsPending({ heading = m.projects_title() }: { heading?: string } = {}) {
   return (
     <main className="flex h-svh min-w-0 flex-col bg-primary">
-      <PageHeader heading={m.projects_title()} />
-      <div aria-busy="true" aria-label={m.projects_title()} className="space-y-6 px-4 py-6 sm:px-6">
+      <PageHeader heading={heading} />
+      <div aria-busy="true" aria-label={heading} className="space-y-6 px-4 py-6 sm:px-6">
         <p role="status" className="sr-only">
           {m.projects_loading()}
         </p>

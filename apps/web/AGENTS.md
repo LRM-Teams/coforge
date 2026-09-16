@@ -83,8 +83,9 @@ instructions for the TanStack Start Web/backend modular monolith.
 
   `server/projects/project-settings.server.ts` owns Workspace-member-authorized
   project settings and name-confirmed deletion. `projects.functions.ts` validates
-  browser input; `project-settings-dialog.tsx` owns the settings and confirmation
-  UI. Repository changes require the caller's GitHub access. Deletion preserves
+  browser input; `project-settings.tsx` owns the standalone settings page at
+  `/projects/$projectSlug/settings`, including the built-in Emoji icon selector
+  and deletion confirmation. Repository changes require the caller's GitHub access. Deletion preserves
   discussion groups, memberships and messages by clearing their Project relation.
 
 - Personal GitHub connections belong to `server/integrations/github-connection.server.ts`.

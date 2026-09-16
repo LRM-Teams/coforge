@@ -12,14 +12,12 @@ import {
   Settings01,
 } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { PageHeader } from "@/components/layout/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreateChannelDialog } from "@/features/conversations/create-channel-dialog";
 import { createPublicChannel } from "@/features/conversations/channels.functions";
 import { m } from "@/paraglide/messages";
 import type { getProject, getProjectRepository } from "./projects.functions";
-import { ProjectSettingsDialog } from "./project-settings-dialog";
 
 type Repository = Awaited<ReturnType<typeof getProjectRepository>>;
 
@@ -33,29 +31,33 @@ export function ProjectDetail({
   const router = useRouter();
   const create = useServerFn(createPublicChannel);
   const [creating, setCreating] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <main className="flex h-svh min-w-0 flex-col bg-primary">
       <PageHeader
         heading={project.name}
         meta={
-          <ButtonUtility
-            icon={Settings01}
-            color="tertiary"
-            aria-label={m.project_settings()}
-            tooltip={m.project_settings()}
-            onClick={() => setSettingsOpen(true)}
-            className="shrink-0"
-          />
-        }
-        leading={
           <Link
-            to="/projects"
-            aria-label={m.project_back()}
+            to="/projects/$projectSlug/settings"
+            params={{ projectSlug: project.slug }}
+            aria-label={m.project_settings()}
             className="shrink-0 rounded-lg p-2 text-tertiary outline-focus-ring hover:bg-primary_hover focus-visible:outline-2"
           >
-            <ArrowLeft aria-hidden="true" className="size-5" />
+            <Settings01 aria-hidden="true" className="size-5" />
           </Link>
+        }
+        leading={
+          <>
+            <Link
+              to="/projects"
+              aria-label={m.project_back()}
+              className="shrink-0 rounded-lg p-2 text-tertiary outline-focus-ring hover:bg-primary_hover focus-visible:outline-2"
+            >
+              <ArrowLeft aria-hidden="true" className="size-5" />
+            </Link>
+            <span aria-hidden="true" className="shrink-0 text-xl">
+              {project.icon}
+            </span>
+          </>
         }
         actions={
           project.githubFullName && (
@@ -135,9 +137,6 @@ export function ProjectDetail({
           </Suspense>
         </div>
       </div>
-      {settingsOpen && (
-        <ProjectSettingsDialog project={project} onClose={() => setSettingsOpen(false)} />
-      )}
       {creating && (
         <CreateChannelDialog
           open

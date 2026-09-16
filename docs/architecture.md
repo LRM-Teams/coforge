@@ -314,8 +314,8 @@ PublicChannel，不是 Message Thread。创建 Project 时保留自动创建首�
 `Conversation.projectId` 使用普通索引，不再使用一对一唯一约束；迁移不重建或删除既有讨论。
 此修复由 Frank 在本线程确认按项目详情实现范围执行。
 
-Project 设置允许 Workspace 成员修改名称、描述和 GitHub 仓库关联，保留 slug 和讨论组
-身份。描述默认为空；更换仓库必须校验当前 User 的仓库访问权，未提交仓库变更时保留原关联。
+Project 独立设置页允许 Workspace 成员修改名称、描述、内置 Emoji 图标和 GitHub 仓库关联，保留 slug 和讨论组
+身份。描述默认为空，图标默认为 📁 并在列表和详情共用；更换仓库必须校验当前 User 的仓库访问权，未提交仓库变更时保留原关联。
 删除 Project 要求输入当前名称并由服务端原子核对；仅移除 Project，既有讨论组通过
 `ON DELETE SET NULL` 解除关联，成员与 Message 保留，不删除 GitHub 仓库。
 此设置、描述持久化及删除语义由 Frank 在本线程确认。

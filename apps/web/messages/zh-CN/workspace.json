@@ -31,6 +31,8 @@
   "project_github_settings": "GitHub 连接设置",
   "project_retry": "重试",
   "project_settings": "项目设置",
+  "project_icon": "图标",
+  "project_saved": "更改已保存",
   "project_description": "描述",
   "project_save": "保存更改",
   "project_settings_error": "无法保存更改，请检查仓库访问权限或仓库是否已关联其他项目。",

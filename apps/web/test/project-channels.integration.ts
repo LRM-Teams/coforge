@@ -79,10 +79,12 @@ test("one project owns multiple discussion channels without crossing Workspace b
       id: project.id,
       name: "Renamed launch",
       description: "Release planning",
+      icon: "🚀",
     });
     expect(await db.project.findUnique({ where: { id: project.id } })).toMatchObject({
       name: "Renamed launch",
       description: "Release planning",
+      icon: "🚀",
       slug: `launch-${suffix}`,
     });
 
@@ -109,6 +111,7 @@ test("one project owns multiple discussion channels without crossing Workspace b
     expect(await db.project.findUnique({ where: { id: project.id } })).toMatchObject({
       githubInstallationId: 71,
       githubRepositoryId: 903,
+      icon: "🚀",
       githubFullName: "team/planning",
       githubHtmlUrl: "https://github.com/team/planning",
     });

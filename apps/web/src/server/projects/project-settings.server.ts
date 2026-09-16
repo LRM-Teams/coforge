@@ -15,6 +15,7 @@ export class ProjectSettings {
       id: string;
       name: string;
       description: string;
+      icon?: string;
       repository?: { installationId: number; id: number; fullName: string } | null;
     },
   ) {
@@ -44,6 +45,7 @@ export class ProjectSettings {
       data: {
         name: input.name,
         description: input.description,
+        icon: input.icon,
         ...(repository !== undefined
           ? {
               githubInstallationId: repository?.installationId ?? null,
