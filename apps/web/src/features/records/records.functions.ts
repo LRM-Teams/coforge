@@ -1,12 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { authMiddleware } from "../../server/auth/function-auth";
-import { getRequest } from "@tanstack/react-start/server";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
-import { requireDatabaseClient } from "../../server/db/client.server";
-import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.server";
-import { preferredWorkspaceSlugFromRequest } from "../../server/workspaces/selection.server";
+import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+
 import { recordCatalog } from "../../server/records/record-catalog.server";
 import { tryCreateWeeklyAssignmentDelivery } from "../../server/records/weekly-assignment-delivery-composition.server";
 import {
@@ -15,43 +11,23 @@ import {
   type ReportContent,
 } from "./records-content";
 
-function catalog() {
-  const db = requireDatabaseClient();
-  return { db, catalog: recordCatalog(db) };
-}
-
-function catalogWithChannelDelivery() {
-  const db = requireDatabaseClient();
-  return { db, catalog: recordCatalog(db, tryCreateWeeklyAssignmentDelivery(db)) };
-}
-
-function currentUser() {
-  return requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-}
-
-export const loadRecordsNavAttention = createServerFn({ method: "GET" }).handler(async () => {
-  const user = currentUser();
-  const workspaceId = await currentWorkspaceId(user.id);
-  return catalog().catalog.loadNavAttention({ workspaceId, userId: user.id });
-});
+export const loadRecordsNavAttention = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).loadNavAttention({ workspaceId, userId: user.id });
+  });
 
 export const saveWeeklyHighlightPrompt = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ reportId: z.string().uuid(), text: z.string().max(20_000) }))
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.saveHighlightPrompt({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).saveHighlightPrompt({
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
       text: data.text,
     });
   });
-
-async function currentWorkspaceId(userId: string) {
-  const { db } = catalog();
-  return requireExistingWorkspaceId(db, userId, preferredWorkspaceSlugFromRequest());
-}
 
 const reportContentSchema: z.ZodType<ReportContent> = z.object({
   tabs: z.record(z.string(), z.object({ markdown: z.string() })),
@@ -86,28 +62,22 @@ const highlightContentSchema = z.object({
 });
 
 export const loadRecordsCatalog = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.loadCatalog({ workspaceId, userId: user.id });
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).loadCatalog({ workspaceId, userId: user.id });
   });
 
 export const createWeeklyHighlight = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.createHighlight({ workspaceId, userId: user.id });
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).createHighlight({ workspaceId, userId: user.id });
   });
 
 export const createTemplateChildReport = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ templateId: z.string().uuid() }))
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.createSubmissionUnderTemplate({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).createSubmissionUnderTemplate({
       workspaceId,
       userId: user.id,
       templateId: data.templateId,
@@ -115,12 +85,10 @@ export const createTemplateChildReport = createServerFn({ method: "POST" })
   });
 
 export const deleteTemplateWeeklyReport = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ reportId: z.string().uuid() }))
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.deleteTemplateReport({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).deleteTemplateReport({
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
@@ -128,11 +96,10 @@ export const deleteTemplateWeeklyReport = createServerFn({ method: "POST" })
   });
 
 export const deleteMemberWeeklyReport = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ reportId: z.string().uuid() }))
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.deleteMemberReport({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).deleteMemberReport({
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
@@ -140,16 +107,15 @@ export const deleteMemberWeeklyReport = createServerFn({ method: "POST" })
   });
 
 export const setWeeklyReportFavorite = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       reportId: z.string().uuid(),
       favorited: z.boolean(),
     }),
   )
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.setReportFavorite({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).setReportFavorite({
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
@@ -158,12 +124,10 @@ export const setWeeklyReportFavorite = createServerFn({ method: "POST" })
   });
 
 export const deleteWeeklyCycle = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ cycleId: z.string().uuid() }))
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.deleteCycle({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).deleteCycle({
       workspaceId,
       userId: user.id,
       cycleId: data.cycleId,
@@ -171,21 +135,17 @@ export const deleteWeeklyCycle = createServerFn({ method: "POST" })
   });
 
 export const loadRecordSubject = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ id: z.string().uuid() }))
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.getSubject({ workspaceId, userId: user.id, id: data.id });
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).getSubject({ workspaceId, userId: user.id, id: data.id });
   });
 
 export const createRecordNote = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ title: z.string().trim().max(200).optional() }))
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.createNote({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).createNote({
       workspaceId,
       userId: user.id,
       title: data.title,
@@ -193,7 +153,7 @@ export const createRecordNote = createServerFn({ method: "POST" })
   });
 
 export const saveRecordNote = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       noteId: z.string().uuid(),
@@ -201,10 +161,8 @@ export const saveRecordNote = createServerFn({ method: "POST" })
       body: z.string().optional(),
     }),
   )
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.saveNote({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).saveNote({
       workspaceId,
       userId: user.id,
       noteId: data.noteId,
@@ -214,12 +172,10 @@ export const saveRecordNote = createServerFn({ method: "POST" })
   });
 
 export const deleteRecordNote = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ noteId: z.string().uuid() }))
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.deleteNote({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).deleteNote({
       workspaceId,
       userId: user.id,
       noteId: data.noteId,
@@ -227,7 +183,7 @@ export const deleteRecordNote = createServerFn({ method: "POST" })
   });
 
 export const saveWeeklyReportContent = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       reportId: z.string().uuid(),
@@ -236,10 +192,8 @@ export const saveWeeklyReportContent = createServerFn({ method: "POST" })
       askToSend: z.boolean().optional(),
     }),
   )
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.saveReportContent({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).saveReportContent({
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
@@ -250,11 +204,10 @@ export const saveWeeklyReportContent = createServerFn({ method: "POST" })
   });
 
 export const markWeeklyAssignmentOpened = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ reportId: z.string().uuid() }))
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.markAssignmentOpened({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).markAssignmentOpened({
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
@@ -262,16 +215,15 @@ export const markWeeklyAssignmentOpened = createServerFn({ method: "POST" })
   });
 
 export const sendWeeklyReportAssignments = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       sourceReportId: z.string().uuid(),
       content: z.unknown().optional(),
     }),
   )
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalogWithChannelDelivery().catalog.sendWeeklyAssignments({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db, tryCreateWeeklyAssignmentDelivery(db)).sendWeeklyAssignments({
       workspaceId,
       userId: user.id,
       sourceReportId: data.sourceReportId,
@@ -280,7 +232,7 @@ export const sendWeeklyReportAssignments = createServerFn({ method: "POST" })
   });
 
 export const saveWeeklyHighlightContent = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       highlightId: z.string().uuid(),
@@ -288,10 +240,8 @@ export const saveWeeklyHighlightContent = createServerFn({ method: "POST" })
       markCompleted: z.boolean().optional(),
     }),
   )
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.saveHighlightContent({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).saveHighlightContent({
       workspaceId,
       userId: user.id,
       highlightId: data.highlightId,
@@ -301,19 +251,16 @@ export const saveWeeklyHighlightContent = createServerFn({ method: "POST" })
   });
 
 export const loadWeeklyTemplates = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.listTemplates({ workspaceId, userId: user.id });
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).listTemplates({ workspaceId, userId: user.id });
   });
 
 export const applyWeeklyTemplate = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ templateId: z.string().uuid() }))
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.applyTemplate({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).applyTemplate({
       workspaceId,
       userId: user.id,
       templateId: data.templateId,
@@ -321,16 +268,15 @@ export const applyWeeklyTemplate = createServerFn({ method: "POST" })
   });
 
 export const setWeeklyTemplateScheduleEnabled = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       templateId: z.string().uuid(),
       scheduleEnabled: z.boolean(),
     }),
   )
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.setTemplateScheduleEnabled({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).setTemplateScheduleEnabled({
       workspaceId,
       userId: user.id,
       templateId: data.templateId,
@@ -344,7 +290,7 @@ const templateSectionSchema = z.object({
 });
 
 export const createWeeklyTemplate = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       name: z.string().trim().min(1),
@@ -357,14 +303,12 @@ export const createWeeklyTemplate = createServerFn({ method: "POST" })
       recipientUserIds: z.array(z.string().uuid()),
     }),
   )
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.createTemplate({ workspaceId, userId: user.id, ...data });
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).createTemplate({ workspaceId, userId: user.id, ...data });
   });
 
 export const updateWeeklyTemplate = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       templateId: z.string().uuid(),
@@ -378,10 +322,8 @@ export const updateWeeklyTemplate = createServerFn({ method: "POST" })
       recipientUserIds: z.array(z.string().uuid()),
     }),
   )
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.updateTemplate({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).updateTemplate({
       workspaceId,
       userId: user.id,
       ...data,
@@ -389,12 +331,10 @@ export const updateWeeklyTemplate = createServerFn({ method: "POST" })
   });
 
 export const deleteWeeklyTemplate = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ templateId: z.string().uuid() }))
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.deleteTemplate({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).deleteTemplate({
       workspaceId,
       userId: user.id,
       templateId: data.templateId,
@@ -402,12 +342,10 @@ export const deleteWeeklyTemplate = createServerFn({ method: "POST" })
   });
 
 export const loadWeeklyReportStats = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12) }))
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.loadStats({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).loadStats({
       workspaceId,
       userId: user.id,
       year: data.year,
@@ -416,17 +354,15 @@ export const loadWeeklyReportStats = createServerFn({ method: "GET" })
   });
 
 export const loadRecordComments = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       subjectType: z.enum(["report", "highlight", "cycle"]),
       subjectId: z.string().uuid(),
     }),
   )
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.listComments({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).listComments({
       workspaceId,
       userId: user.id,
       subjectType: data.subjectType,
@@ -435,7 +371,7 @@ export const loadRecordComments = createServerFn({ method: "GET" })
   });
 
 export const addRecordComment = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       subjectType: z.enum(["report", "highlight", "cycle"]),
@@ -443,10 +379,8 @@ export const addRecordComment = createServerFn({ method: "POST" })
       body: z.string().trim().min(1).max(4000),
     }),
   )
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.postSideChat({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).postSideChat({
       workspaceId,
       userId: user.id,
       subjectType: data.subjectType,
@@ -456,6 +390,7 @@ export const addRecordComment = createServerFn({ method: "POST" })
   });
 
 export const ensureRecordAssistantIntro = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       subjectType: z.enum(["report", "highlight", "cycle"]),
@@ -464,10 +399,8 @@ export const ensureRecordAssistantIntro = createServerFn({ method: "POST" })
       formatCopy: z.enum(["preview", "cancelled", "ready"]).optional(),
     }),
   )
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.ensureAssistantIntro({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).ensureAssistantIntro({
       workspaceId,
       userId: user.id,
       subjectType: data.subjectType,
@@ -478,16 +411,15 @@ export const ensureRecordAssistantIntro = createServerFn({ method: "POST" })
   });
 
 export const generateWeeklyHighlights = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       reportId: z.string().uuid(),
       memberIds: z.union([z.literal("all"), z.array(z.string().uuid()).min(1)]),
     }),
   )
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.generateWeeklyHighlights({
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).generateWeeklyHighlights({
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
