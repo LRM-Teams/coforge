@@ -682,7 +682,7 @@ describe("GitHub validation workflow contract", () => {
     }
   });
 
-  test("CI covers protocol, Agent, and CLI tests, checks, and buildable libraries", async () => {
+  test("CI covers SDK, Agent, and CLI tests, checks, and buildable libraries", async () => {
     const workflow = await Bun.file(
       new URL("../../.github/workflows/ci.yml", import.meta.url),
     ).text();
@@ -692,7 +692,7 @@ describe("GitHub validation workflow contract", () => {
     for (const command of ["test", "check", "build"]) {
       expect(workflow).toContain(`bun run --cwd packages/\${{ matrix.package }} ${command}`);
     }
-    expect(workflow).toContain("if: matrix.package != 'protocol'");
+    expect(workflow).toContain("if: matrix.package != 'coforge-sdk'");
     expect(workflow).toContain("bun run --cwd packages/coforge-sdk generate");
   });
 });
