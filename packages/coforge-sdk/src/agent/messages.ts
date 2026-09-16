@@ -24,6 +24,15 @@ export type AgentMessagesSendRequest = {
   continueAnyway?: boolean;
 };
 
+export type AgentMessagesResolveRequest = {
+  messageId: string;
+};
+
+export type AgentMessagesReactionRequest = {
+  messageId: string;
+  emoji: string;
+};
+
 export type AgentMessagesResponse = {
   requestId: string;
   accepted: boolean;

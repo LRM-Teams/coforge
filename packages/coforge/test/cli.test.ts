@@ -567,6 +567,109 @@ test.each(["read", "send"] as const)("requires an explicit target for message %s
   });
 });
 
+test("message resolve looks up one message by id and formats it like message check", async () => {
+  expect(parseArgs(["message", "resolve", "abcd1234"])).toEqual({
+    command: "resolve",
+    messageId: "abcd1234",
+  });
+  const calls: string[] = [];
+  const output = await run(["message", "resolve", "abcd1234"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+    resolve: async (messageId) => {
+      calls.push(messageId);
+      return {
+        messages: [
+          {
+            id: "abcd1234-0000-4000-8000-000000000001",
+            sequence: 1,
+            sender: "@ada",
+            target: "#general",
+            body: "release plan",
+            createdAt: "2026-09-07T10:00:00Z",
+          },
+        ],
+      };
+    },
+  });
+  expect(calls).toEqual(["abcd1234"]);
+  expect(output).toBe(
+    "[target=#general msg=abcd1234 time=2026-09-07T10:00:00Z] @ada: release plan",
+  );
+});
+
+test("message resolve reports a clear error when the message is not found", async () => {
+  await expect(
+    run(["message", "resolve", "abcd1234"], {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      resolve: async () => ({ messages: [] }),
+    }),
+  ).rejects.toThrow("message not found or not visible to this Agent");
+});
+
+test("message resolve rejects malformed argument shapes", () => {
+  expect(() => parseArgs(["message", "resolve"])).toThrow("Usage:");
+  expect(() => parseArgs(["message", "resolve", "abcd1234", "extra"])).toThrow("Usage:");
+});
+
+test.each([
+  [false, "added to"],
+  [true, "removed from"],
+] as const)(
+  "message react parses flags in any order and dispatches with remove=%s",
+  async (remove, verb) => {
+    const flags = remove
+      ? ["--emoji", "👍", "--remove", "--message-id", "abcd1234"]
+      : ["--message-id", "abcd1234", "--emoji", "👍"];
+    expect(parseArgs(["message", "react", ...flags])).toEqual({
+      command: "react",
+      messageId: "abcd1234",
+      emoji: "👍",
+      ...(remove ? { remove: true } : {}),
+    });
+    const calls: unknown[] = [];
+    const output = await run(["message", "react", ...flags], {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      react: async (messageId, emoji, removeArg) => {
+        calls.push([messageId, emoji, removeArg === true]);
+        return { accepted: true };
+      },
+    });
+    expect(calls).toEqual([["abcd1234", "👍", remove]]);
+    expect(output).toBe(`Reaction 👍 ${verb} message abcd1234.`);
+  },
+);
+
+test("message react rejects bad ids, missing emoji, whitespace emoji, and --remove without --emoji", () => {
+  // bad id
+  expect(() => parseArgs(["message", "react", "--message-id", "not-hex", "--emoji", "👍"])).toThrow(
+    "Usage:",
+  );
+  // missing emoji
+  expect(() => parseArgs(["message", "react", "--message-id", "abcd1234"])).toThrow("Usage:");
+  // whitespace emoji
+  expect(() =>
+    parseArgs(["message", "react", "--message-id", "abcd1234", "--emoji", "a b"]),
+  ).toThrow("Usage:");
+  // --remove without --emoji
+  expect(() => parseArgs(["message", "react", "--message-id", "abcd1234", "--remove"])).toThrow(
+    "Usage:",
+  );
+});
+
+test("message resolve rejects an emoji-shaped or malformed id", () => {
+  expect(() => parseArgs(["message", "resolve", "not-hex"])).toThrow("Usage:");
+  expect(() => parseArgs(["message", "resolve", "abcd123"])).toThrow("Usage:");
+});
+
 test("App Inbox exposes check without a generic acknowledgement command", () => {
   expect(parseArgs(["inbox", "check"])).toEqual({ command: "inbox-check" });
   expect(() => parseArgs(["inbox", "ack", "--item", "reminder:id:1"])).toThrow("Usage:");

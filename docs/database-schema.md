@@ -209,6 +209,21 @@ the committed message and requester visibility. Neither adapter may persist its
 returned bearer URL, and a content replacement receives a new `attachment_id`
 and object key rather than overwriting the object behind an existing row.
 
+### `message_reaction`
+
+A `message_reaction` row is one conversation member's reaction to one message
+with one emoji. Its columns are `messageId`, `conversationId`, `workspaceId`,
+`memberId`, `emoji`, and `createdAt`; the primary key is the composite
+`(messageId, memberId, emoji)`, so a reaction is unique per participant,
+message, and emoji, and adding the same reaction twice is a no-op rather than a
+duplicate row. `conversationId` and `workspaceId` are denormalized onto the row
+to support its composite foreign keys to `Message` and `ConversationMember`,
+the same pattern `Task` and `ThreadFollow` already use; they are not a second
+tenancy concept. An index on `(conversationId, messageId)` supports listing a
+message's reactions when rendering conversation history. Removing a message or
+a conversation member cascades to its reactions. The browser groups reactions
+by emoji for display; there is no separate reaction-count column.
+
 ### Agent attention and recovery
 
 The current MVP has no complete per-Agent delivery-ledger table and no local

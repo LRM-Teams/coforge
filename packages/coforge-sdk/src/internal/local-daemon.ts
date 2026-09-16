@@ -178,7 +178,17 @@ export const decodeUsageScanResponse = (b: Uint8Array): UsageScanResponse => {
 export type LocalAgentMessageRequest = {
   requestId: string;
   context: string;
-  operation: "check" | "read" | "search" | "send" | "mute" | "unmute" | "thread-unfollow";
+  operation:
+    | "check"
+    | "read"
+    | "search"
+    | "send"
+    | "mute"
+    | "unmute"
+    | "thread-unfollow"
+    | "resolve"
+    | "react"
+    | "unreact";
   target?: string;
   body?: string;
   sendDraft?: boolean;
@@ -192,6 +202,8 @@ export type LocalAgentMessageRequest = {
   sort?: "relevance" | "recent";
   offset?: number;
   freshnessContextMode?: "inline" | "withheld";
+  messageId?: string;
+  emoji?: string;
 };
 export type AgentMessageRecord = {
   id: string;
@@ -328,6 +340,8 @@ export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMes
       | "inline"
       | "withheld"
       | undefined,
+    messageId: v.messageId || undefined,
+    emoji: v.emoji || undefined,
   };
 }
 export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Array {

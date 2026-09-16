@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   encodeLocalReminderRequest,
+  isValidReactionEmoji,
   validateTaskRequest,
   type LocalAgentMessageRequest,
   type LocalInboxRequest,
@@ -23,6 +24,8 @@ export type AgentProxy = {
 };
 
 const LOCAL_PROXY_TOKEN = /^sfp_[A-Za-z0-9_-]{43}$/;
+const MESSAGE_ID_ANCHOR =
+  /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOCAL_ATTACHMENT_ROUTE_PREFIX = agentApiRoutes.local.attachments.path("");
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
@@ -180,9 +183,18 @@ export function startAgentProxy(input: {
         if (
           typeof payload.requestId !== "string" ||
           payload.requestId.length === 0 ||
-          !["check", "read", "search", "send", "mute", "unmute", "thread-unfollow"].includes(
-            payload.operation as string,
-          ) ||
+          ![
+            "check",
+            "read",
+            "search",
+            "send",
+            "mute",
+            "unmute",
+            "thread-unfollow",
+            "resolve",
+            "react",
+            "unreact",
+          ].includes(payload.operation as string) ||
           (payload.continueAnyway !== undefined && typeof payload.continueAnyway !== "boolean") ||
           (payload.sendDraft !== undefined && typeof payload.sendDraft !== "boolean") ||
           (payload.freshnessContextMode !== undefined &&
@@ -217,7 +229,12 @@ export function startAgentProxy(input: {
             !payload.target &&
             !payload.sender &&
             !payload.before &&
-            !payload.after)
+            !payload.after) ||
+          (["resolve", "react", "unreact"].includes(payload.operation as string) &&
+            (typeof payload.messageId !== "string" ||
+              !MESSAGE_ID_ANCHOR.test(payload.messageId))) ||
+          (["react", "unreact"].includes(payload.operation as string) &&
+            (typeof payload.emoji !== "string" || !isValidReactionEmoji(payload.emoji)))
         )
           return new Response("bad request", { status: 400 });
         const result = await input.runtime.agentMessage(
@@ -243,6 +260,8 @@ export function startAgentProxy(input: {
               payload.freshnessContextMode === "withheld"
                 ? payload.freshnessContextMode
                 : undefined,
+            messageId: typeof payload.messageId === "string" ? payload.messageId : undefined,
+            emoji: typeof payload.emoji === "string" ? payload.emoji : undefined,
             // Identity is exclusively the token binding. Never accept caller
             // supplied agentId/context fields as authorization input.
             context: binding.context,

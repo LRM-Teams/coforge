@@ -57,6 +57,18 @@ test("channels allow selective replies and self mute without hiding history", ()
   expect(instructions).toContain("Do not disclose private conversation contents");
 });
 
+test("resolve and react are scoped to proving/reading an id and deliberate acknowledgement", () => {
+  expect(instructions).toContain("coforge message resolve <message-id>");
+  expect(instructions).toContain(
+    "to prove a message id exists or to read exactly one message by id",
+  );
+  expect(instructions).toContain(
+    "coforge message react --message-id <id> --emoji <emoji> [--remove]",
+  );
+  expect(instructions).toContain("only when a human explicitly asks for a reaction");
+  expect(instructions).toContain("never react automatically on routine updates");
+});
+
 test("Tasks require claim-before-work and conversational human acceptance", () => {
   expect(instructions).toContain("**Decision rule:**");
   expect(instructions).toContain("Task commands use the parent target");

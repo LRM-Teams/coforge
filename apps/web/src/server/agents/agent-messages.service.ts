@@ -1,9 +1,14 @@
-import { isChannelMessageTarget, isChannelTarget } from "@lrm/coforge-sdk/internal";
+import {
+  isChannelMessageTarget,
+  isChannelTarget,
+  isValidReactionEmoji,
+} from "@lrm/coforge-sdk/internal";
 import {
   getAgentMessageHoldStore,
   hashAgentDraft,
   type AgentMessageHoldStore,
 } from "../conversations/agent-message-hold.server";
+import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
 
 export type AgentMessageRepository = {
   readPendingAgentContext?(
@@ -41,6 +46,18 @@ export type AgentMessageRepository = {
     target: string,
     page: AgentMessagesPage,
   ): Promise<{ messages: readonly AgentMessageRecord[]; hasOlder: boolean; hasNewer: boolean }>;
+  resolveAgentMessage?(
+    workspaceId: string,
+    agentId: string,
+    messageId: string,
+  ): Promise<AgentMessageRecord>;
+  setAgentMessageReaction?(
+    workspaceId: string,
+    agentId: string,
+    messageId: string,
+    emoji: string,
+    active: boolean,
+  ): Promise<{ messageId: string }>;
 };
 
 export type AgentMessagesPage = {
@@ -248,4 +265,35 @@ export async function unfollowAgentThread(
   if (!isChannelMessageTarget(target) || isChannelTarget(target))
     throw new Error("unfollow requires a channel thread target");
   await repository.setAgentThreadFollowed(scope.workspaceId, scope.agentId, target, false);
+}
+
+export async function resolveAgentMessage(
+  repository: AgentMessageRepository,
+  scope: { workspaceId: string; agentId: string },
+  messageId: string,
+) {
+  if (!repository.resolveAgentMessage) throw new Error("Agent message resolve is unavailable");
+  const message = await repository.resolveAgentMessage(scope.workspaceId, scope.agentId, messageId);
+  return { ...message, createdAt: message.createdAt.toISOString() };
+}
+
+export async function reactToAgentMessage(
+  repository: AgentMessageRepository,
+  scope: { workspaceId: string; agentId: string },
+  messageId: string,
+  emoji: string,
+  active: boolean,
+) {
+  if (!repository.setAgentMessageReaction) throw new Error("Agent message reaction is unavailable");
+  if (!isValidReactionEmoji(emoji))
+    throw new AgentMessageValidationError(
+      "reaction emoji must be one to sixteen characters without whitespace",
+    );
+  return repository.setAgentMessageReaction(
+    scope.workspaceId,
+    scope.agentId,
+    messageId,
+    emoji,
+    active,
+  );
 }

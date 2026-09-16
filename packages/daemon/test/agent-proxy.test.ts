@@ -353,3 +353,110 @@ test("proxy forwards an authorized attachment download without exposing the Agen
   });
   expect(legacyResponse.status).toBe(404);
 });
+
+test("proxy forwards resolve and react without accepting caller identity", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: () => "trusted-context",
+      agentMessage: async (_context, request) => {
+        calls.push(request);
+        return {};
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+
+  const resolveResponse = await fetch(proxy.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      requestId: "resolve-1",
+      operation: "resolve",
+      messageId: "abcd1234",
+      context: "forged",
+    }),
+  });
+  expect(resolveResponse.status).toBe(200);
+
+  const reactResponse = await fetch(proxy.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      requestId: "react-1",
+      operation: "react",
+      messageId: "abcd1234",
+      emoji: "👍",
+      context: "forged",
+    }),
+  });
+  expect(reactResponse.status).toBe(200);
+
+  const unreactResponse = await fetch(proxy.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      requestId: "unreact-1",
+      operation: "unreact",
+      messageId: "abcd1234",
+      emoji: "👍",
+    }),
+  });
+  expect(unreactResponse.status).toBe(200);
+
+  expect(calls).toEqual([
+    expect.objectContaining({
+      requestId: "resolve-1",
+      operation: "resolve",
+      messageId: "abcd1234",
+      context: "trusted-context",
+    }),
+    expect.objectContaining({
+      requestId: "react-1",
+      operation: "react",
+      messageId: "abcd1234",
+      emoji: "👍",
+      context: "trusted-context",
+    }),
+    expect.objectContaining({
+      requestId: "unreact-1",
+      operation: "unreact",
+      messageId: "abcd1234",
+      emoji: "👍",
+      context: "trusted-context",
+    }),
+  ]);
+});
+
+test("proxy rejects resolve and react requests with bad ids or emoji", async () => {
+  let calls = 0;
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        calls++;
+        return {};
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+
+  for (const body of [
+    { requestId: "r-1", operation: "resolve" },
+    { requestId: "r-2", operation: "resolve", messageId: "not-hex" },
+    { requestId: "r-3", operation: "react", messageId: "abcd1234" },
+    { requestId: "r-4", operation: "react", messageId: "abcd1234", emoji: "" },
+    { requestId: "r-5", operation: "react", messageId: "abcd1234", emoji: "a b" },
+    { requestId: "r-6", operation: "react", messageId: "abcd1234", emoji: "x".repeat(17) },
+    { requestId: "r-7", operation: "unreact", messageId: "abcd1234" },
+  ]) {
+    const response = await fetch(proxy.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(400);
+  }
+  expect(calls).toBe(0);
+});

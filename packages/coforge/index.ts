@@ -1,6 +1,7 @@
 import {
   decodeLocalReminderRequest,
   encodeLocalReminderRequest,
+  isValidReactionEmoji,
   type AgentMessageRecord,
   type AgentReminderOperationResponse,
   type LocalReminderRequest,
@@ -16,7 +17,7 @@ import {
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 
-export type MessageCommand = "check" | "read" | "search" | "send";
+export type MessageCommand = "check" | "read" | "search" | "send" | "resolve" | "react";
 export type MessageSearchOptions = {
   query?: string;
   target?: string;
@@ -44,7 +45,9 @@ export type MessageInvocation =
       sendDraft?: boolean;
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
-    };
+    }
+  | { command: "resolve"; messageId: string }
+  | { command: "react"; messageId: string; emoji: string; remove?: true };
 export type AttachmentInvocation = {
   command: "attachment.view";
   attachmentId: string;
@@ -93,6 +96,8 @@ export type MessageTransport = {
     },
   ): Promise<unknown>;
   view(attachmentId: string): Promise<{ bytes: Uint8Array; fileName?: string }>;
+  resolve?(messageId: string): Promise<unknown>;
+  react?(messageId: string, emoji: string, remove?: boolean): Promise<unknown>;
   inboxCheck?(): Promise<unknown>;
   setChannelMuted?(target: string, muted: boolean): Promise<unknown>;
   reminder?(
@@ -102,6 +107,10 @@ export type MessageTransport = {
   task?(command: TaskCommand): Promise<TaskResult>;
   workspaceInfo?(): Promise<WorkspaceInfoResult>;
 };
+
+/** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
+const MESSAGE_ANCHOR_PATTERN =
+  /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function parseArgs(
   args: readonly string[],
@@ -145,6 +154,36 @@ export function parseArgs(
   }
   if (args[0] === "message" && isMessageCommand(args[1])) {
     if (args[1] === "check" && args.length === 2) return { command: "check" };
+    if (args[1] === "resolve") {
+      const messageId = args[2];
+      if (messageId && args.length === 3 && MESSAGE_ANCHOR_PATTERN.test(messageId))
+        return { command: "resolve", messageId: messageId.toLowerCase() };
+      throw new Error("Usage:");
+    }
+    if (args[1] === "react") {
+      let messageId: string | undefined;
+      let emoji: string | undefined;
+      let remove = false;
+      for (let index = 2; index < args.length; index++) {
+        if (args[index] === "--message-id" && args[index + 1]) messageId = args[++index];
+        else if (args[index] === "--emoji" && args[index + 1]) emoji = args[++index];
+        else if (args[index] === "--remove") remove = true;
+        else throw new Error("Usage:");
+      }
+      if (
+        !messageId ||
+        !emoji ||
+        !MESSAGE_ANCHOR_PATTERN.test(messageId) ||
+        !isValidReactionEmoji(emoji)
+      )
+        throw new Error("Usage:");
+      return {
+        command: "react",
+        messageId: messageId.toLowerCase(),
+        emoji,
+        ...(remove ? { remove: true as const } : {}),
+      };
+    }
     if (args[1] === "search") {
       const options: MessageSearchOptions = {};
       for (let i = 2; i < args.length; i += 2) {
@@ -241,7 +280,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path>",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path>",
   );
 }
 
@@ -386,6 +425,15 @@ export async function run(args: readonly string[], transport: MessageTransport):
     const { command: _command, ...options } = invocation;
     return formatMessageRead(await transport.search(options));
   }
+  if (command === "resolve") {
+    if (!transport.resolve) throw new Error("Message resolve transport is unavailable");
+    return formatMessageResolve(await transport.resolve(invocation.messageId));
+  }
+  if (command === "react") {
+    if (!transport.react) throw new Error("Message reaction transport is unavailable");
+    await transport.react(invocation.messageId, invocation.emoji, invocation.remove === true);
+    return formatReaction(invocation.messageId, invocation.emoji, invocation.remove === true);
+  }
   if (command === "check") return formatMessageCheck(await transport.check());
   return formatMessageRead(
     await transport.read(invocation.target, invocation.command === "read" ? invocation : undefined),
@@ -439,6 +487,18 @@ function formatMessageCheck(result: { messages: AgentMessageRecord[] }): string 
 
 function formatMessage(message: AgentMessageRecord): string {
   return `[target=${message.target} msg=${message.id.slice(0, 8)} time=${message.createdAt}] ${message.sender}: ${message.body}`;
+}
+
+function formatMessageResolve(result: unknown): string {
+  const response = result as { messages?: AgentMessageRecord[] };
+  const message = response.messages?.[0];
+  if (!message) throw new Error("message not found or not visible to this Agent");
+  return formatMessage(message);
+}
+
+function formatReaction(messageId: string, emoji: string, remove: boolean): string {
+  const shortId = messageId.slice(0, 8);
+  return `Reaction ${emoji} ${remove ? "removed from" : "added to"} message ${shortId}.`;
 }
 
 function formatMessageRead(result: unknown): string {
@@ -511,7 +571,14 @@ function formatInboxCheck(result: unknown): string {
 }
 
 function isMessageCommand(value: string | undefined): value is MessageCommand {
-  return value === "check" || value === "read" || value === "search" || value === "send";
+  return (
+    value === "check" ||
+    value === "read" ||
+    value === "search" ||
+    value === "send" ||
+    value === "resolve" ||
+    value === "react"
+  );
 }
 
 const REMINDER_USAGE =

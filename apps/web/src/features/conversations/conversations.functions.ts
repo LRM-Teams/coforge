@@ -139,6 +139,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           body: message.body,
           createdAt: message.createdAt,
           attachment: message.attachment,
+          reactions: undefined,
         };
       },
     );

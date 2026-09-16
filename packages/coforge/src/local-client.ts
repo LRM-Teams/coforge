@@ -28,7 +28,17 @@ export function connectLocal(
     return endpoint;
   };
   const call = async (
-    operation: "check" | "read" | "search" | "send" | "mute" | "unmute" | "thread-unfollow",
+    operation:
+      | "check"
+      | "read"
+      | "search"
+      | "send"
+      | "mute"
+      | "unmute"
+      | "thread-unfollow"
+      | "resolve"
+      | "react"
+      | "unreact",
     target?: string,
     body?: string,
     options?: {
@@ -43,6 +53,8 @@ export function connectLocal(
       sender?: string;
       sort?: "relevance" | "recent";
       offset?: number;
+      messageId?: string;
+      emoji?: string;
     },
   ) => {
     if (!context) throw new Error("coforge agent context is not configured");
@@ -96,6 +108,9 @@ export function connectLocal(
         freshnessContextMode?: "withheld";
       },
     ) => call("send", target, body, options),
+    resolve: (messageId: string) => call("resolve", undefined, undefined, { messageId }),
+    react: (messageId: string, emoji: string, remove?: boolean) =>
+      call(remove ? "unreact" : "react", undefined, undefined, { messageId, emoji }),
     task: (command: TaskCommand) => callTask(command),
     workspaceInfo: async (): Promise<WorkspaceInfoResponse> => {
       if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))

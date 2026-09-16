@@ -28,3 +28,18 @@ test("builds encoded resource paths from the shared contract", () => {
     "/api/agent/v1/threads/thread%231/unfollow",
   );
 });
+
+test("builds resolve and reaction routes for the messages resource", () => {
+  expect(agentApiRoutes.cloud.messages.resolve).toEqual({
+    method: "GET",
+    path: agentApiRoutes.cloud.messages.resolve.path,
+  });
+  expect(agentApiRoutes.cloud.messages.resolve.path("abcd1234")).toBe(
+    "/api/agent/v1/messages/abcd1234/resolve",
+  );
+  expect(agentApiRoutes.cloud.messages.reactions.path("abcd1234")).toBe(
+    "/api/agent/v1/messages/abcd1234/reactions",
+  );
+  expect(agentApiRoutes.cloud.messages.reactions.add).toEqual({ method: "POST" });
+  expect(agentApiRoutes.cloud.messages.reactions.remove).toEqual({ method: "DELETE" });
+});

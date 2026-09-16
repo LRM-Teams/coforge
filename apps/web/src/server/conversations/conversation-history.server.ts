@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
+import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions.server";
 
 const browserMessageFields = {
   id: true,
@@ -19,6 +20,7 @@ const browserMessageFields = {
       agent: { select: { name: true, displayName: true } },
     },
   },
+  reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
 const browserRootMessageFields = {
@@ -59,6 +61,7 @@ function mapBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
     body: message.body,
     createdAt: message.createdAt,
     attachment: message.attachment ?? undefined,
+    reactions: reactionSummaries(message.reactions),
   };
 }
 

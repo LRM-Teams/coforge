@@ -149,3 +149,32 @@ test("posts validated reminders to the derived endpoint with implicit bearer con
   expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
   expect(body.context).toBeUndefined();
 });
+
+test("resolve posts the messageId as a resolve operation", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+  );
+  await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).resolve(
+    "abcd1234",
+  );
+  const [, init] = fetch.mock.calls[0]!;
+  const body = JSON.parse(String(init?.body));
+  expect(body).toMatchObject({ operation: "resolve", messageId: "abcd1234" });
+});
+
+test.each([
+  [false, "react"],
+  [true, "unreact"],
+] as const)("react posts the messageId and emoji as a %s operation", async (remove, operation) => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+  );
+  await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).react(
+    "abcd1234",
+    "👍",
+    remove,
+  );
+  const [, init] = fetch.mock.calls[0]!;
+  const body = JSON.parse(String(init?.body));
+  expect(body).toMatchObject({ operation, messageId: "abcd1234", emoji: "👍" });
+});

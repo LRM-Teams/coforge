@@ -801,6 +801,69 @@ test("channel check and notification settings use the bound Agent without replac
   }
 });
 
+test("resolve, react, and unreact reach the transport with messageId, emoji, and the bound Agent", async () => {
+  const calls: AgentMessageRequest[] = [];
+  const harness = await messageHarness(async (request) => {
+    calls.push(request);
+    return {
+      protocolMajor: 1,
+      requestId: request.requestId,
+      accepted: true,
+      attentionCount: 0,
+      messages: request.operation === "resolve" ? [messageRecord(1, "@alice", "#general")] : [],
+      messageId: request.operation === "react" || request.operation === "unreact" ? "abcd1234" : "",
+    };
+  });
+  try {
+    await harness.runtime.agentMessage(
+      harness.context,
+      {
+        requestId: "resolve-1",
+        context: harness.context,
+        operation: "resolve",
+        messageId: "abcd1234",
+      },
+      harness.apiKey,
+    );
+    await harness.runtime.agentMessage(
+      harness.context,
+      {
+        requestId: "react-1",
+        context: harness.context,
+        operation: "react",
+        messageId: "abcd1234",
+        emoji: "👍",
+      },
+      harness.apiKey,
+    );
+    await harness.runtime.agentMessage(
+      harness.context,
+      {
+        requestId: "unreact-1",
+        context: harness.context,
+        operation: "unreact",
+        messageId: "abcd1234",
+        emoji: "👍",
+      },
+      harness.apiKey,
+    );
+    expect(
+      calls.map(({ operation, messageId, emoji, agentId }) => [
+        operation,
+        messageId,
+        emoji,
+        agentId,
+      ]),
+    ).toEqual([
+      ["resolve", "abcd1234", undefined, "agent-a"],
+      ["react", "abcd1234", "👍", "agent-a"],
+      ["unreact", "abcd1234", "👍", "agent-a"],
+    ]);
+  } finally {
+    await harness.runtime.stop();
+  }
+});
+
 describe("DaemonRuntime", () => {
   test("orders stop completion before replacement start lifecycle", async () => {
     let releaseDispose!: () => void;

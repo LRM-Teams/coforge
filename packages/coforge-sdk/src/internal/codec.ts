@@ -666,6 +666,19 @@ export function encodeAgentMessageRequest(value: AgentMessageRequest): Uint8Arra
     }),
   );
 }
+const AGENT_MESSAGE_OPERATIONS = [
+  "read",
+  "search",
+  "send",
+  "mute",
+  "unmute",
+  "thread-unfollow",
+  "resolve",
+  "react",
+  "unreact",
+];
+/** Operations addressed by a message id or a query rather than a conversation target. */
+const TARGETLESS_AGENT_MESSAGE_OPERATIONS = ["search", "resolve", "react", "unreact"];
 export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageRequest {
   const v = fromBinary(AgentMessageRequestSchema, bytes);
   if (
@@ -676,11 +689,14 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
     throw new Error("invalid Agent message freshness context mode");
   if (v.seenUpToSequence && v.operation !== "send")
     throw new Error("Agent message seen-up-to sequence is only valid for send");
+
   if (
     !v.requestId ||
     !v.agentId ||
-    !["read", "search", "send", "mute", "unmute", "thread-unfollow"].includes(v.operation) ||
-    (v.operation !== "search" && !v.target)
+    !AGENT_MESSAGE_OPERATIONS.includes(v.operation) ||
+    (!TARGETLESS_AGENT_MESSAGE_OPERATIONS.includes(v.operation) && !v.target) ||
+    (["resolve", "react", "unreact"].includes(v.operation) && !v.messageId) ||
+    (["react", "unreact"].includes(v.operation) && !v.emoji)
   )
     throw new Error("invalid cloud agent message request");
   return {
@@ -698,6 +714,8 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
     sender: v.sender || undefined,
     sort: (v.sort || undefined) as AgentMessageRequest["sort"],
     offset: v.offset || undefined,
+    messageId: v.messageId || undefined,
+    emoji: v.emoji || undefined,
     fromSequence: v.fromSequence
       ? safeUint64(v.fromSequence, "Agent message from sequence")
       : undefined,

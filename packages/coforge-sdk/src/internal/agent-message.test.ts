@@ -62,6 +62,84 @@ test("round-trips Agent channel thread unfollow over existing versioned envelope
   );
 });
 
+test("round-trips Agent message resolve over existing versioned envelopes", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-resolve",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "resolve" as const,
+    target: "",
+    messageId: "12345678",
+  };
+  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+  const local = {
+    requestId: "request-resolve",
+    context: "context-a",
+    operation: "resolve" as const,
+    messageId: "12345678",
+  };
+  expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(local))).toMatchObject(
+    local,
+  );
+});
+
+test.each(["react", "unreact"] as const)(
+  "round-trips Agent message %s over existing versioned envelopes",
+  (operation) => {
+    const request = {
+      protocolMajor: 1,
+      requestId: "request-react",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation,
+      target: "",
+      messageId: "12345678-1234-4234-8234-123456789abc",
+      emoji: "👍",
+    };
+    expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+    const local = {
+      requestId: "request-react",
+      context: "context-a",
+      operation,
+      messageId: "12345678-1234-4234-8234-123456789abc",
+      emoji: "👍",
+    };
+    expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(local))).toMatchObject(
+      local,
+    );
+  },
+);
+
+test("rejects a cloud react request without an emoji", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-react",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "react" as const,
+    target: "",
+    messageId: "12345678",
+  };
+  expect(() => decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toThrow(
+    "invalid cloud agent message request",
+  );
+});
+
+test("rejects a cloud resolve request without a message id", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-resolve",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "resolve" as const,
+    target: "",
+  };
+  expect(() => decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toThrow(
+    "invalid cloud agent message request",
+  );
+});
+
 test("round-trips Agent lexical message search filters over the HTTPS envelope", () => {
   const request = {
     protocolMajor: 1,

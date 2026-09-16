@@ -1,5 +1,6 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
+import { AgentMessageRequestError } from "./agent-message-request-error";
 import {
   decodeAgentWorkspaceResetRequest,
   encodeAgentControlResult,
@@ -121,6 +122,10 @@ export interface AgentMessageHttpClient {
   requestRead?(input: AgentHttpInput<AgentMessageRequest>): Promise<CloudAgentMessageResponse>;
   requestSearch?(input: AgentHttpInput<AgentMessageRequest>): Promise<CloudAgentMessageResponse>;
   requestSend?(input: AgentHttpInput<AgentMessageRequest>): Promise<CloudAgentMessageResponse>;
+  requestResolve?(input: AgentHttpInput<AgentMessageRequest>): Promise<CloudAgentMessageResponse>;
+  requestReaction?(
+    input: AgentHttpInput<AgentMessageRequest> & { method: "POST" | "DELETE" },
+  ): Promise<CloudAgentMessageResponse>;
   requestReminder?(
     input: AgentHttpInput<AgentReminderOperationRequest>,
   ): Promise<AgentReminderOperationResponse>;
@@ -288,6 +293,24 @@ export const createAgentMessageHttpClient = (
       }),
     });
     if (!response.ok) throw new Error(`server agent send request failed (${response.status})`);
+    return (await response.json()) as CloudAgentMessageResponse;
+  },
+  async requestResolve({ url, request, ...keys }) {
+    const endpoint = new URL(url);
+    endpoint.searchParams.set("requestId", request.requestId);
+    const response = await httpClient(endpoint, { method: "GET", headers: agentHeaders(keys) });
+    if (!response.ok)
+      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
+    return (await response.json()) as CloudAgentMessageResponse;
+  },
+  async requestReaction({ url, request, method, ...keys }) {
+    const response = await httpClient(url, {
+      method,
+      headers: agentHeaders(keys, true),
+      body: JSON.stringify({ requestId: request.requestId, emoji: request.emoji }),
+    });
+    if (!response.ok)
+      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
     return (await response.json()) as CloudAgentMessageResponse;
   },
   async requestWorkspaceInfo({ request, ...keys }) {
@@ -622,8 +645,30 @@ export class DaemonConnection implements DaemonConnectionClient {
     agentApiKey?: string,
   ): Promise<CloudAgentMessageResponse> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
+    const { requestRead, requestSearch, requestSend, requestResolve, requestReaction } =
+      this.agentMessageHttpClient;
+    if (request.operation === "resolve") {
+      if (!requestResolve) throw new Error("unsupported Agent message operation: resolve");
+      const url = this.#serverEndpoint(
+        "Agent message HTTP",
+        agentApiRoutes.cloud.messages.resolve.path(request.messageId ?? ""),
+      );
+      return requestResolve({ url, ...this.#agentKeys(agentApiKey), request });
+    }
+    if (request.operation === "react" || request.operation === "unreact") {
+      if (!requestReaction)
+        throw new Error(`unsupported Agent message operation: ${request.operation}`);
+      const url = this.#serverEndpoint(
+        "Agent message HTTP",
+        agentApiRoutes.cloud.messages.reactions.path(request.messageId ?? ""),
+      );
+      const method =
+        request.operation === "react"
+          ? agentApiRoutes.cloud.messages.reactions.add.method
+          : agentApiRoutes.cloud.messages.reactions.remove.method;
+      return requestReaction({ url, method, ...this.#agentKeys(agentApiKey), request });
+    }
     const url = this.#serverEndpoint("Agent message HTTP", agentApiRoutes.cloud.messages.list.path);
-    const { requestRead, requestSearch, requestSend } = this.agentMessageHttpClient;
     const send =
       request.operation === "read"
         ? requestRead

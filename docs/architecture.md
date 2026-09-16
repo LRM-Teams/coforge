@@ -956,7 +956,7 @@ mute 不压制已 follow Thread。CoForge 额外要求短 target 经父频道 au
 canonicalization、Web/backend 始终输出完整 UUID、主频道/各 Thread 分别维护 read/recovery/
 freshness 边界、notice 与 channel recovery 不含正文，并保持单 Agent shared runtime session。
 CoForge 当前缺少 Raft 的显式 Agent channel join/leave、private channel、channel member/admin、
-DM Thread follow/unfollow、task/reviewer-isolation 与 reaction/resolve 能力；standing instructions
+DM Thread follow/unfollow 与 task/reviewer-isolation 能力；standing instructions
 不得声称或复制这些能力。Raft 官方默认频道名为
 [#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
 [Thread 文档](https://docs.raft.build/features/messaging/threads/)定义上述 follow/unfollow 行为；
