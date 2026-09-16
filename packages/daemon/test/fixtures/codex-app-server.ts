@@ -296,6 +296,25 @@ function handle(request: Request): void {
       console.error(textInput(request.params)!.slice("reconnect-stderr:".length));
       return;
     }
+    if (textInput(request.params) === "reasoning-item") {
+      write({
+        method: "item/completed",
+        params: {
+          turnId,
+          item: { id: "reasoning-1", type: "reasoning" },
+        },
+      });
+      write({
+        method: "turn/completed",
+        params: { turn: { id: turnId, status: "completed" } },
+      });
+      return;
+    }
+    if (textInput(request.params) === "crash") {
+      // Exit without responding: the parent observes this as an unexpected
+      // process exit, not a requested stop.
+      process.exit(1);
+    }
     if (textInput(request.params)?.startsWith("race-")) {
       write({
         method: "item/agentMessage/delta",

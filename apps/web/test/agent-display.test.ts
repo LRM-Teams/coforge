@@ -109,7 +109,7 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     await redis.send("FLUSHDB", []);
     const subject = display();
     await subject.observeStatus(status(1));
-    const working = await subject.observeActivity(activity(1, "working"), fence);
+    const working = await subject.observeActivity(activity(1, "running_command"), fence);
     expect(working?.expiresAt).toBe(now + 90_000);
     now += 60_000;
     // Renew the process lease on its own schedule; the work lease keeps counting
@@ -166,6 +166,36 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     expect(heartbeat!.revision).toBeGreaterThan(lapsed.revision);
   });
 
+  test.each(["tool_end", "thinking_end", "compaction_finished"])(
+    "%s renews the lease and reads as working, like other busy detail kinds",
+    async (detailKind) => {
+      await redis.send("FLUSHDB", []);
+      now = 3_100_000;
+      const subject = display();
+      await subject.observeStatus(status(1));
+      const filler = await subject.observeActivity(activity(1, detailKind), fence);
+      expect(filler?.activityKind).toBe("working");
+      expect(filler?.expiresAt).toBe(now + 90_000);
+    },
+  );
+
+  test.each(["tool_end", "thinking_end", "compaction_finished"])(
+    "a repeated %s renews the lease without bumping the revision",
+    async (detailKind) => {
+      await redis.send("FLUSHDB", []);
+      now = 3_150_000;
+      const subject = display();
+      await subject.observeStatus(status(1));
+      const first = await subject.observeActivity(activity(1, detailKind), fence);
+      now += 30_000;
+      const renewed = await subject.observeStatus(status(2));
+      const repeat = await subject.observeActivity(activity(2, detailKind), fence);
+      expect(repeat?.revision).toBe(renewed!.revision);
+      expect(repeat?.expiresAt).toBe(now + 90_000);
+      expect(first).toBeDefined();
+    },
+  );
+
   test("runtime_progress renews the lease and reads as working, like other busy detail kinds", async () => {
     await redis.send("FLUSHDB", []);
     now = 3_400_000;
@@ -181,12 +211,12 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     now = 1_500_000;
     const subject = display();
     await subject.observeStatus(status(1));
-    await subject.observeActivity(activity(1, "working"), fence);
+    await subject.observeActivity(activity(1, "running_command"), fence);
     now += 60_000;
     await subject.observeStatus(status(2)); // keep the process lease ahead of the work lease
     now += 30_000;
     expect((await subject.snapshot(scope)).activityKind).toBe("online");
-    expect(await subject.observeActivity(activity(1, "working"), fence)).toBeUndefined();
+    expect(await subject.observeActivity(activity(1, "running_command"), fence)).toBeUndefined();
     expect((await subject.snapshot(scope)).activityKind).toBe("online");
   });
 
@@ -218,9 +248,9 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     now = 2_000_000;
     const subject = display();
     await subject.observeStatus(status(1));
-    const working = await subject.observeActivity(activity(2, "working"), fence);
+    const working = await subject.observeActivity(activity(2, "running_command"), fence);
     now += 10_000;
-    expect(await subject.observeActivity(activity(2, "working"), fence)).toBeUndefined();
+    expect(await subject.observeActivity(activity(2, "running_command"), fence)).toBeUndefined();
     expect((await subject.observeStatus(status(2)))?.activityKind).toBe("working");
     expect((await subject.snapshot(scope)).expiresAt).toBe(working!.expiresAt);
   });
@@ -230,7 +260,7 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     now = 2_500_000;
     const subject = display();
     await subject.observeStatus(status(1));
-    await subject.observeActivity(activity(1, "working"), fence);
+    await subject.observeActivity(activity(1, "running_command"), fence);
     now += 60_000;
     await subject.observeStatus(status(2)); // renew the process lease ahead of the work lease
     now += 30_000;
@@ -276,7 +306,7 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     const subject = display();
 
     const first = await subject.observeStatus(status(1));
-    const second = await subject.observeActivity(activity(1, "working"), fence);
+    const second = await subject.observeActivity(activity(1, "running_command"), fence);
 
     expect(first?.revision).toBe(8_000_000_000_000_001);
     expect(second?.revision).toBe(8_000_000_000_000_002);
@@ -289,21 +319,21 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     now = 3_000_000;
     const subject = display();
     await subject.observeStatus(status(1));
-    await subject.observeActivity(activity(1, "working"), fence);
+    await subject.observeActivity(activity(1, "running_command"), fence);
     expect((await subject.observeStatus(status(2, "inactive")))?.activityKind).toBe("offline");
-    expect(await subject.observeActivity(activity(2, "working"), fence)).toBeUndefined();
+    expect(await subject.observeActivity(activity(2, "running_command"), fence)).toBeUndefined();
     await subject.observeStatus(
       status(1, "active", { daemonInstanceId: "daemon-b", observedAtMs: 1_000 }),
     );
     expect((await subject.snapshot(scope)).activityKind).toBe("online");
-    expect(await subject.observeActivity(activity(1, "working"), fence)).toBeUndefined();
+    expect(await subject.observeActivity(activity(1, "running_command"), fence)).toBeUndefined();
     const fenceB = { daemonInstanceId: "daemon-b", launchId: "launch-b" };
     await subject.observeActivity(
-      activity(1, "working", { launchId: "launch-b", observedAtMs: 2_000 }),
+      activity(1, "running_command", { launchId: "launch-b", observedAtMs: 2_000 }),
       fenceB,
     );
     expect(
-      await subject.observeActivity(activity(99, "working", { observedAtMs: 1_500 }), {
+      await subject.observeActivity(activity(99, "running_command", { observedAtMs: 1_500 }), {
         ...fenceB,
         launchId: "launch-a",
       }),
@@ -357,4 +387,33 @@ test("activityKindForObservation is stateless and leaves unknown facts unclassif
   expect(activityKindForObservation({ detailKind: "anything", level: "error" })).toBe("error");
   expect(activityKindForObservation({ detailKind: "idle", level: "info" })).toBe("online");
   expect(activityKindForObservation({ detailKind: "future", level: "info" })).toBeUndefined();
+});
+
+// ADR 0021
+test("activityKindForObservation classifies the new detail kinds", () => {
+  for (const detailKind of [
+    "tool_end",
+    "thinking_end",
+    "compacting_context",
+    "compaction_finished",
+    "subagent_activity",
+    "message_received",
+  ])
+    expect(activityKindForObservation({ detailKind, level: "info" })).toBe("working");
+  expect(activityKindForObservation({ detailKind: "runtime_crashed", level: "error" })).toBe(
+    "error",
+  );
+  expect(activityKindForObservation({ detailKind: "runtime_interrupted", level: "info" })).toBe(
+    "online",
+  );
+});
+
+test("working and runtime_starting are dropped: nothing in the daemon emits either", () => {
+  expect(activityKindForObservation({ detailKind: "working", level: "info" })).toBeUndefined();
+  expect(
+    activityKindForObservation({ detailKind: "runtime_starting", level: "info" }),
+  ).toBeUndefined();
+  expect(
+    activityKindForObservation({ detailKind: "turn_completed", level: "info" }),
+  ).toBeUndefined();
 });

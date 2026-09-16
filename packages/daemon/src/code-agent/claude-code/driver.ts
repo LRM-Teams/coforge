@@ -133,6 +133,9 @@ class ClaudeCodeAgentSession implements AgentSession {
   // A fresh Claude session becomes ready at its first result, as in Raft 1.0.17.
   #sessionReadyForNotices = false;
   #compacting = false;
+  // Tracks an open top-level thinking content block so its content_block_stop
+  // can report thinking_end instead of a generic content-free progress event.
+  #thinkingBlockOpen = false;
   #inputFailure: Error | undefined;
   #recoveryFailed = false;
   readonly #outstandingTools = new Set<string>();
@@ -248,10 +251,15 @@ class ClaudeCodeAgentSession implements AgentSession {
         return;
       }
       if (failure && this.#state !== "disposed") {
+        // Every close reaches here through the same sentinel message,
+        // whether the process was disposed intentionally or not; only the
+        // "not disposed" branch above already excludes a requested stop.
         this.#emit({
           type: "activity",
           activity: createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+            failure.message === "code agent process exited unexpectedly"
+              ? AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_CRASHED
+              : AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
             "error",
             failure.message,
           ),
@@ -452,20 +460,34 @@ class ClaudeCodeAgentSession implements AgentSession {
     }
     if (record.type === "system" && record.parent_tool_use_id == null) {
       if (record.subtype === "status" && record.status === "compacting") {
+        // Edge-triggered: only the transition into compaction is visible.
+        // Repeated "compacting" status lines while already compacting must
+        // not flood history with duplicate entries.
+        if (!this.#compacting) {
+          this.#emit({
+            type: "activity",
+            activity: createAgentActivity(
+              AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT,
+              "info",
+              "",
+              eventTime(record),
+            ),
+          });
+        }
         this.#compacting = true;
-        // A background status event carries no rendered text; it only keeps the
-        // busy signal warm while the daemon rate-limits this to once per 10s.
-        this.#emit({
-          type: "activity",
-          activity: createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
-            "info",
-            "",
-            eventTime(record),
-          ),
-        });
       }
       if (record.subtype === "compact_boundary") {
+        if (this.#compacting) {
+          this.#emit({
+            type: "activity",
+            activity: createAgentActivity(
+              AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
+              "info",
+              "",
+              eventTime(record),
+            ),
+          });
+        }
         this.#compacting = false;
         this.#flushNotices();
       }
@@ -544,6 +566,30 @@ class ClaudeCodeAgentSession implements AgentSession {
           type: "thinking-delta",
           text: delta.thinking,
           ...(subagent ? { subagent } : {}),
+        });
+      }
+      if (
+        record.parent_tool_use_id == null &&
+        event?.type === "content_block_start" &&
+        asRecord(event.content_block)?.type === "thinking"
+      ) {
+        this.#thinkingBlockOpen = true;
+      }
+      if (
+        record.parent_tool_use_id == null &&
+        event?.type === "content_block_stop" &&
+        this.#thinkingBlockOpen
+      ) {
+        this.#thinkingBlockOpen = false;
+        renderedText = true;
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity(
+            AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
+            "info",
+            "",
+            eventTime(record),
+          ),
         });
       }
       // A partial stream event with no renderable text (message/content block

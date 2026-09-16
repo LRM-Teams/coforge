@@ -20,28 +20,49 @@ const WORKING_LEASE_MS = 90_000;
 // never has to scan Agent state directly to find stale busy leases.
 const LEASES_KEY = "coforge:agent-display:activity-leases";
 
+// ADR 0021: busy-but-filler detail kinds. Like runtime_progress, these only
+// renew the display lease; they carry no content worth showing or keeping.
+export const LIVENESS_ONLY_DETAIL_KINDS: ReadonlySet<string> = new Set([
+  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
+  AGENT_ACTIVITY_DETAIL_KIND.TOOL_END,
+  AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
+  AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
+]);
+
+// "runtime_starting" and "working" are dropped: nothing in the daemon ever
+// emits either detail kind. The daemon has exactly one spawn moment, already
+// reported as "starting"; "checking_messages" stays for a sibling branch.
 const workingKinds = new Set([
   "model_request_started",
   "message_received",
   "model_response_started",
   "running_command",
   "tool_started",
-  "working",
   "freshness_hold",
   "runtime_progress",
   "runtime_reconnecting",
-  "runtime_starting",
   "starting",
   "checking_messages",
   "compacting_context",
+  // ADR 0021 liveness-only fillers: still "working" while visible.
+  "tool_end",
+  "thinking_end",
+  "compaction_finished",
+  // ADR 0021 visible, stored busy detail kinds.
+  "subagent_activity",
 ]);
 
 export function activityKindForObservation(
   observation: Pick<AgentActivity, "detailKind" | "level">,
 ): Exclude<AgentActivityKind, "offline"> | undefined {
-  if (observation.level === "error" || observation.detailKind === "runtime_error") return "error";
+  if (
+    observation.level === "error" ||
+    observation.detailKind === "runtime_error" ||
+    observation.detailKind === "runtime_crashed"
+  )
+    return "error";
   if (observation.detailKind === "thinking_started") return "thinking";
-  if (observation.detailKind === "idle" || observation.detailKind === "turn_completed")
+  if (observation.detailKind === "idle" || observation.detailKind === "runtime_interrupted")
     return "online";
   if (workingKinds.has(observation.detailKind)) return "working";
   return undefined;
@@ -336,8 +357,7 @@ export class RedisAgentDisplay implements AgentDisplay {
     const kind = activityKindForObservation(activity);
     if (!kind) return undefined;
     const isFiller =
-      activity.isHeartbeat === true ||
-      activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS;
+      activity.isHeartbeat === true || LIVENESS_ONLY_DETAIL_KINDS.has(activity.detailKind);
     return this.execute(OBSERVE_ACTIVITY, activity, [
       kind,
       activity.detailKind,

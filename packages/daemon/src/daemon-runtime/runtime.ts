@@ -165,6 +165,14 @@ const BUSY_ACTIVITY_DETAIL_KINDS = new Set<string>([
   AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED,
   AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND,
   AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
+  // Liveness-only fillers (ADR 0021): busy, but content-free.
+  AGENT_ACTIVITY_DETAIL_KIND.TOOL_END,
+  AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
+  AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
+  // Visible, stored busy detail kinds (ADR 0021).
+  AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT,
+  AGENT_ACTIVITY_DETAIL_KIND.SUBAGENT_ACTIVITY,
+  AGENT_ACTIVITY_DETAIL_KIND.MESSAGE_RECEIVED,
 ]);
 
 /** Detail kinds that end a busy turn; the heartbeat stops as soon as one is observed. */
@@ -173,6 +181,8 @@ const TERMINAL_ACTIVITY_DETAIL_KINDS = new Set<string>([
   AGENT_ACTIVITY_DETAIL_KIND.STOPPED,
   AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
   AGENT_ACTIVITY_DETAIL_KIND.FRESHNESS_HOLD,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_CRASHED,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_INTERRUPTED,
 ]);
 
 /** Providers can emit runtime_progress once per coalesced provider event; cap it
@@ -317,7 +327,7 @@ export class DaemonRuntime {
             agentId,
             this.#activity(
               agentId,
-              AGENT_ACTIVITY_DETAIL_KIND.MODEL_REQUEST_STARTED,
+              AGENT_ACTIVITY_DETAIL_KIND.MESSAGE_RECEIVED,
               "info",
               "Message received",
               {
@@ -1051,6 +1061,7 @@ export class DaemonRuntime {
     this.#closeAgentInputQueue(agentId, error);
     const activityLaunch = this.#currentActivityLaunches.get(agentId);
     if (activityLaunch) activityLaunch.stopping = true;
+    this.#interruptIfBusy(agentId, activityLaunch);
     this.#clearActivityHeartbeat(agentId);
     this.#revokeLocalLaunch(agentId);
     try {
@@ -1287,10 +1298,17 @@ export class DaemonRuntime {
       const carriesEntries =
         activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING &&
         activity.entries?.some((entry) => entry.kind !== "tool_start");
+      // A trajectory entry carrying a subagent scope (Claude parent_tool_use_id)
+      // reports as subagent_activity regardless of its original detail kind, so
+      // the display shows one unified "Subagent working…" signal (ADR 0021).
+      // An error stays classified as an error so it remains visible as one.
+      const subagentScoped =
+        activity.level !== "error" &&
+        activity.entries?.some((entry) => entry.subagent !== undefined);
       this.#emitAgentActivity(agentId, launch, {
         ...this.#activity(
           agentId,
-          activity.detailKind,
+          subagentScoped ? AGENT_ACTIVITY_DETAIL_KIND.SUBAGENT_ACTIVITY : activity.detailKind,
           activity.level,
           carriesEntries
             ? ""
@@ -1305,6 +1323,15 @@ export class DaemonRuntime {
       });
       if (activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.IDLE)
         void this.drainAppInboxNotices(agentId).catch(() => {});
+      return;
+    }
+    if (event.type === "tool-end") {
+      // Liveness-only filler (ADR 0021): renews the busy lease, never stored.
+      this.#emitAgentActivity(
+        agentId,
+        launch,
+        this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.TOOL_END, "info", ""),
+      );
       return;
     }
     if (event.type !== "completed") return;
@@ -1323,7 +1350,9 @@ export class DaemonRuntime {
             ...this.#runtimeErrorActivity(agentId, "Agent runtime failed."),
             runtimeError: runtimeFailureDiagnostic("turn failure"),
           }
-        : this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.IDLE, "info", ""),
+        : event.status === "interrupted"
+          ? this.#interruptedActivity(agentId)
+          : this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.IDLE, "info", ""),
     );
     void this.drainAppInboxNotices(agentId).catch(() => {});
   }
@@ -1508,6 +1537,7 @@ export class DaemonRuntime {
     this.#closeAgentInputQueue(agentId, new Error(`Agent runtime is stopping: ${agentId}`));
     const activityLaunch = this.#currentActivityLaunches.get(agentId);
     if (activityLaunch) activityLaunch.stopping = true;
+    this.#interruptIfBusy(agentId, activityLaunch);
     this.#clearActivityHeartbeat(agentId);
     this.#revokeLocalLaunch(agentId);
     const stopping = this.#stopAgent(agentId)
@@ -1610,6 +1640,25 @@ export class DaemonRuntime {
     );
   }
 
+  /** A running turn was cut by a requested stop/restart (ADR 0021). */
+  #interruptedActivity(agentId: string): ActivityDraft {
+    return this.#activity(
+      agentId,
+      AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_INTERRUPTED,
+      "info",
+      "Agent turn was interrupted.",
+    );
+  }
+
+  /** Reports runtime_interrupted when a requested stop/restart cuts a busy turn.
+   * Must run before #clearActivityHeartbeat, which erases the busy evidence. */
+  #interruptIfBusy(agentId: string, activityLaunch: ActivityLaunch | undefined): void {
+    if (!activityLaunch) return;
+    const busy = this.#lastBusyActivity.get(agentId);
+    if (busy && busy.launch === activityLaunch)
+      this.#emitAgentActivity(agentId, activityLaunch, this.#interruptedActivity(agentId));
+  }
+
   /** Emits against the Agent's current launch, if one exists. */
   #emitCurrentActivity(agentId: string, activity: ActivityDraft): void {
     const launch = this.#currentActivityLaunches.get(agentId);
@@ -1622,6 +1671,7 @@ export class DaemonRuntime {
       this.#clearActivityHeartbeat(agentId);
       if (
         activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.STOPPED &&
+        activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_INTERRUPTED &&
         activity.level !== "error" &&
         !activity.entries?.some((entry) => entry.kind !== "tool_start")
       )

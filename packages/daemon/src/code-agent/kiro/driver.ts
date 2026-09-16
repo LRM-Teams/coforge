@@ -112,6 +112,8 @@ class KiroSession implements AgentSession {
   #disposed = false;
   #dispose: Promise<void> | undefined;
   #interrupting = false;
+  // Edge-triggers compacting_context/compaction_finished from CompactionUpdate.status.
+  #compacting = false;
 
   constructor(
     command: readonly string[],
@@ -342,12 +344,23 @@ class KiroSession implements AgentSession {
         });
     }
     if (update.sessionUpdate === "compaction_update") {
-      // Background context compaction carries no rendered text; report it
-      // content-free so a long compaction pass still reads as busy.
-      this.#emit({
-        type: "activity",
-        activity: createAgentActivity(AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS, "info", ""),
-      });
+      // Edge-triggered on CompactionUpdate.status: "in_progress" starts a
+      // compaction pass, any other status ends it. Content-free either way;
+      // a status re-sent while already compacting must not repeat the entry.
+      const active = update.status === "in_progress";
+      if (active && !this.#compacting) {
+        this.#compacting = true;
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity(AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT, "info", ""),
+        });
+      } else if (!active && this.#compacting) {
+        this.#compacting = false;
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity(AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED, "info", ""),
+        });
+      }
     }
     if (
       update.sessionUpdate === "session_info_update" &&

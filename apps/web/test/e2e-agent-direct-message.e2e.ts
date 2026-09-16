@@ -411,7 +411,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     expect(firstLaunchActivity.map(({ detailKind }) => detailKind)).toEqual([
       "starting",
       "idle",
-      "model_request_started",
+      "message_received",
       "freshness_hold",
       "running_command",
       "tool_started",

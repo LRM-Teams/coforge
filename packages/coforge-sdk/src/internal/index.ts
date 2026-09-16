@@ -73,6 +73,18 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   // Content-free provider stream/system event (no rendered text): keeps the
   // busy lease warm without adding a trajectory entry.
   RUNTIME_PROGRESS: "runtime_progress",
+  // Liveness-only fillers: busy, but never stored in history or shown in the
+  // popover. Renew the display lease the same way runtime_progress does.
+  TOOL_END: "tool_end",
+  THINKING_END: "thinking_end",
+  COMPACTION_FINISHED: "compaction_finished",
+  // Visible, stored busy detail kinds.
+  COMPACTING_CONTEXT: "compacting_context",
+  SUBAGENT_ACTIVITY: "subagent_activity",
+  MESSAGE_RECEIVED: "message_received",
+  // Terminal detail kinds.
+  RUNTIME_CRASHED: "runtime_crashed",
+  RUNTIME_INTERRUPTED: "runtime_interrupted",
   OTHER: "other",
 } as const;
 export type AgentActivityDetailKind =

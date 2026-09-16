@@ -85,6 +85,21 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | `launch_failed` / `stop_failed` | 启动或安全回收失败；使用脱敏后的可操作原因 |
 | `error` / `warning` | provider 运行错误或可恢复警告 |
 
+ADR 0021 在 `detailKind` 上新增了以下值，只在对应 provider driver 确有真实信号时才
+上报；`packages/coforge-sdk/src/internal/index.ts` 的 `AGENT_ACTIVITY_DETAIL_KIND` 是
+唯一权威定义：
+
+| detailKind | 上报条件 | 展示 |
+| --- | --- | --- |
+| `tool_end` | Claude 的 `tool_result`、Codex 的 `item/completed`（命令）、Kiro 的 `tool_call_update` 终态、Pi 的 `tool_execution_end` | 仅续租，不写入历史，不出现在 popover |
+| `thinking_end` | Claude 的 thinking content block `content_block_stop`；Codex 的 `item/completed`（reasoning）；Kiro、Pi 无对应信号，不上报 | 同 `tool_end` |
+| `compacting_context` | Claude 的 `system/status=compacting`（原先误报为 `runtime_progress`）；Kiro 的 ACP `compaction_update`（`status=in_progress`）；Codex 无对应信号 | 可见，写入历史，文案“Compacting context…” |
+| `compaction_finished` | 上述两个 provider 各自的结束信号（Claude 的 `compact_boundary`；Kiro 的 `compaction_update` 转为非 `in_progress`） | 仅续租，不写入历史，不出现在 popover |
+| `subagent_activity` | 任意携带 subagent 归属（Claude `parent_tool_use_id`）的 trajectory entry；只有 Claude 产生这类归属 | 可见，写入历史，文案“Subagent working…” |
+| `message_received` | 消息投递/唤醒后既有的“Message received”上报，改用这个 kind 而不是通用的 `model_request_started` | 可见，写入历史 |
+| `runtime_crashed` | Claude、Codex 进程在非主动停止下意外退出（沿用既有的 `errorClass`/`errorReason`/`fingerprint`，只改 kind）；Kiro、Pi 目前没有等价的进程级信号，意外退出仍报 `stopped` | 可见，写入历史，视为错误 |
+| `runtime_interrupted` | 主动 stop/restart 打断了一个正在忙碌（working/thinking）的 turn | 可见，写入历史，视为在线 |
+
 `starting`、`stopped`、`idle` 是 timeline 记录，不是新的 Agent 业务状态；当前状态仍只
 由 `agent:status` 的 `active` / `inactive` 表示。只有真正发生过程或观察结果时才记录
 对应 activity，不能用定时 heartbeat 不断重复制造相同 activity——但见下方的忙碌心跳例外

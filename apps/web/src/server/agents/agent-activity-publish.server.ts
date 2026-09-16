@@ -10,6 +10,7 @@ import {
 import {
   activityKindForObservation,
   getAgentDisplay,
+  LIVENESS_ONLY_DETAIL_KINDS,
   type AgentDisplay,
 } from "./agent-display.server";
 import { ensureAgentActivitySweep } from "./agent-activity-sweep.server";
@@ -91,13 +92,14 @@ export async function handleAgentActivityPublication(
         ? "offline"
         : activityKindForObservation(activity);
     const cloudActivity = { ...activity, activityKind: mappedKind };
-    // A busy heartbeat, a content-free runtime_progress frame, or a reply to
+    // A busy heartbeat, a content-free liveness-only frame (runtime_progress,
+    // tool_end, thinking_end, compaction_finished; ADR 0021), or a reply to
     // the server's own liveness probe only renews the display lease; none of
     // them carry anything worth keeping in history or the recent-activity
     // popover.
     const isFillerActivity =
       activity.isHeartbeat === true ||
-      activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS ||
+      LIVENESS_ONLY_DETAIL_KINDS.has(activity.detailKind) ||
       Boolean(activity.probeId);
     const history = isFillerActivity
       ? Promise.resolve()

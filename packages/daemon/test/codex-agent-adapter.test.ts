@@ -320,6 +320,17 @@ async function waitForEvent(
   throw new Error(`timed out waiting for ${type}`);
 }
 
+async function waitForDetailKind(events: AgentRuntimeEvent[], detailKind: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (
+      events.some((event) => event.type === "activity" && event.activity.detailKind === detailKind)
+    )
+      return;
+    await Bun.sleep(5);
+  }
+  throw new Error(`timed out waiting for detailKind ${detailKind}`);
+}
+
 test.each([true, false])(
   "Codex preserves the active turn and only hides retryable errors (willRetry=%s)",
   async (willRetry) => {
@@ -411,3 +422,38 @@ test.each([
     }
   },
 );
+
+test("Codex reports thinking_end when a reasoning item completes", async () => {
+  const session = await fixtureAdapter().createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("reasoning-item");
+    await waitForDetailKind(events, "thinking_end");
+    await waitForEvent(events, "completed");
+  } finally {
+    await session.dispose();
+  }
+});
+
+test("Codex reports runtime_crashed, with the error class attached, when the process exits unexpectedly", async () => {
+  const session = await fixtureAdapter().createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("crash").catch(() => {});
+    await waitForDetailKind(events, "runtime_crashed");
+    const crash = events.find(
+      (event) => event.type === "activity" && event.activity.detailKind === "runtime_crashed",
+    );
+    expect(crash?.type === "activity" && crash.activity.level).toBe("error");
+  } finally {
+    await session.dispose().catch(() => {});
+  }
+});

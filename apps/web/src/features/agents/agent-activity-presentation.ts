@@ -81,6 +81,24 @@ const toolAliases: Readonly<Record<string, string>> = {
 /** Display-only projection: never derive Agent availability from these tones. */
 export function presentActivity(observation: ActivityObservation): ActivityRow[] {
   const { detailKind: kind, level, detail } = observation;
+  // ADR 0021: any activity reclassified as subagent_activity (a trajectory
+  // entry carrying a subagent scope) shows one unified label, regardless of
+  // its underlying entries.
+  if (kind === AGENT_ACTIVITY_DETAIL_KIND.SUBAGENT_ACTIVITY && level !== "error") {
+    return [
+      {
+        label: "Subagent working",
+        detail: "",
+        recentLabel: "Subagent working…",
+        currentLabel: "Subagent working…",
+        tone: "working",
+        recentTone: "working",
+        pulse: true,
+        monospace: false,
+        expandable: false,
+      },
+    ];
+  }
   if (level !== "error") {
     const entries = observation.entries ?? [];
     if (entries.length)
@@ -135,25 +153,30 @@ export function presentActivity(observation: ActivityObservation): ActivityRow[]
         ? "idle"
         : (observation.activityKind ?? "unknown");
   const starting = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.STARTING;
+  const compacting = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT;
   const label =
     tone === "error"
       ? "Error"
       : starting
         ? "Starting"
-        : tone === "working"
-          ? "Working"
-          : tone === "thinking"
-            ? "Thinking"
-            : tone === "idle"
-              ? "Idle"
-              : tone === "offline"
-                ? "Stopped"
-                : "Activity";
+        : compacting
+          ? "Compacting context"
+          : tone === "working"
+            ? "Working"
+            : tone === "thinking"
+              ? "Thinking"
+              : tone === "idle"
+                ? "Idle"
+                : tone === "offline"
+                  ? "Stopped"
+                  : "Activity";
   const recentLabel =
     tone === "working"
       ? starting
         ? "Starting…"
-        : detail || "Working…"
+        : compacting
+          ? "Compacting context…"
+          : detail || "Working…"
       : tone === "thinking"
         ? "Thinking…"
         : tone === "idle"

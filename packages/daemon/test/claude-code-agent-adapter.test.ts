@@ -757,6 +757,120 @@ test("Claude Code retains notifications during compaction until the compact boun
   }
 });
 
+test("Claude Code reports compacting_context once and compaction_finished at the boundary", async () => {
+  const fixture = await controlledClaude();
+  const { session, emit } = fixture;
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("wait");
+    await emit(
+      { type: "system", subtype: "status", status: "compacting" },
+      { type: "system", subtype: "status", status: "compacting" },
+    );
+    await waitForDetailKind(events, "compacting_context");
+    await emit({ type: "system", subtype: "compact_boundary" });
+    await waitForDetailKind(events, "compaction_finished");
+    const kinds = events
+      .filter((event) => event.type === "activity")
+      .map((event) => event.activity.detailKind);
+    expect(kinds.filter((kind) => kind === "compacting_context")).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === "compaction_finished")).toHaveLength(1);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("Claude Code does not report compaction_finished without an open compaction", async () => {
+  const fixture = await controlledClaude();
+  const { session, emit } = fixture;
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("wait");
+    await emit({ type: "system", subtype: "compact_boundary" });
+    await emit({ type: "stream_event", event: { type: "message_stop" } });
+    const kinds = events
+      .filter((event) => event.type === "activity")
+      .map((event) => event.activity.detailKind);
+    expect(kinds).not.toContain("compaction_finished");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("Claude Code reports thinking_end when a thinking content block closes", async () => {
+  const fixture = await controlledClaude();
+  const { session, emit } = fixture;
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("wait");
+    await emit(
+      {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "thinking", thinking: "" } },
+      },
+      { type: "stream_event", event: { type: "content_block_stop" } },
+    );
+    await waitForDetailKind(events, "thinking_end");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("Claude Code does not report thinking_end for a content block stop without an open thinking block", async () => {
+  const fixture = await controlledClaude();
+  const { session, emit } = fixture;
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("wait");
+    await emit(
+      {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "text", text: "" } },
+      },
+      { type: "stream_event", event: { type: "content_block_stop" } },
+    );
+    await emit({ type: "stream_event", event: { type: "message_stop" } });
+    const kinds = events
+      .filter((event) => event.type === "activity")
+      .map((event) => event.activity.detailKind);
+    expect(kinds).not.toContain("thinking_end");
+    expect(kinds).toContain("runtime_progress");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("Claude Code reports runtime_crashed, with the error class attached, when the CLI exits unexpectedly", async () => {
+  const adapter = new ClaudeCodeProvider({
+    command: [
+      process.execPath,
+      new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
+      "exit-on-interrupt",
+    ],
+  });
+  const session = await adapter.createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("wait");
+    await session.interrupt().catch(() => {});
+    await waitForDetailKind(events, "runtime_crashed");
+    const crash = events.find(
+      (event) => event.type === "activity" && event.activity.detailKind === "runtime_crashed",
+    );
+    expect(crash?.type === "activity" && crash.activity.level).toBe("error");
+  } finally {
+    await session.dispose();
+  }
+});
+
 test("Claude Code holds later text-only turns and delivers all waiting notices once", async () => {
   const fixture = await controlledClaude();
   const { session, emit } = fixture;
@@ -1043,4 +1157,15 @@ async function waitForEvent(
     await Bun.sleep(5);
   }
   throw new Error(`timed out waiting for ${type}`);
+}
+
+async function waitForDetailKind(events: AgentRuntimeEvent[], detailKind: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (
+      events.some((event) => event.type === "activity" && event.activity.detailKind === detailKind)
+    )
+      return;
+    await Bun.sleep(5);
+  }
+  throw new Error(`timed out waiting for detailKind ${detailKind}`);
 }
