@@ -29,3 +29,6 @@ apps/web/secrets/
 
 # Local Centrifugo overrides (may contain expanded secrets)
 infra/centrifugo/config.local.yaml
+
+# DaemonRuntime tests that use the default state directory write the probe cache here.
+.coforge-daemon-state/
