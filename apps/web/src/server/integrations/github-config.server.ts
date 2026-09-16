@@ -1,5 +1,5 @@
 import { AppError } from "../../lib/app-error";
-import { getDatabaseClient } from "../db/client.server";
+import { requireDatabaseClient } from "../db/client.server";
 import { GitHubConnection, type GitHubConfig } from "./github-connection.server";
 
 export async function readGitHubConfig(
@@ -39,8 +39,7 @@ export async function readGitHubConfig(
 export async function configuredGitHub() {
   const config = await readGitHubConfig();
   if (!config) return null;
-  const db = getDatabaseClient();
-  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+  const db = requireDatabaseClient();
   return { config, connection: new GitHubConnection(db, config) };
 }
 

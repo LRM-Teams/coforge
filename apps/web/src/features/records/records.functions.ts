@@ -1,11 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { AppError } from "../../lib/app-error";
 import { authMiddleware } from "../../server/auth/function-auth";
 import { getRequest } from "@tanstack/react-start/server";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
-import { getDatabaseClient } from "../../server/db/client.server";
+import { requireDatabaseClient } from "../../server/db/client.server";
 import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.server";
 import { preferredWorkspaceSlugFromRequest } from "../../server/workspaces/selection.server";
 import { recordCatalog } from "../../server/records/record-catalog.server";
@@ -17,14 +16,12 @@ import {
 } from "./records-content";
 
 function catalog() {
-  const db = getDatabaseClient();
-  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+  const db = requireDatabaseClient();
   return { db, catalog: recordCatalog(db) };
 }
 
 function catalogWithChannelDelivery() {
-  const db = getDatabaseClient();
-  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+  const db = requireDatabaseClient();
   return { db, catalog: recordCatalog(db, tryCreateWeeklyAssignmentDelivery(db)) };
 }
 

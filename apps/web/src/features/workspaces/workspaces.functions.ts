@@ -3,7 +3,7 @@ import { createWorkspaceInputSchema, selectWorkspaceInputSchema } from "./worksp
 
 import { AppError } from "../../lib/app-error";
 import { authMiddleware, workspaceUserMiddleware } from "../../server/auth/function-auth";
-import { getDatabaseClient } from "../../server/db/client.server";
+import { requireDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaWorkspaceCatalogStore,
   WorkspaceCatalog,
@@ -15,8 +15,7 @@ import {
 import { WorkspaceMembers } from "../../server/workspaces/members.server";
 
 function catalog() {
-  const db = getDatabaseClient();
-  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+  const db = requireDatabaseClient();
   return new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db));
 }
 
