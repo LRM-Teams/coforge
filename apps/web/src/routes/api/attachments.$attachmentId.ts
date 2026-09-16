@@ -59,24 +59,36 @@ export async function handleAttachmentDownload(
       userId: user.id,
     });
     const forceDownload = new URL(request.url).searchParams.has("download");
-    const delivery =
-      !forceDownload && isInlineImage(attachment.contentType) ? dependencies.delivery() : null;
-    if (delivery) {
-      const { url } = delivery.signedUrl(attachment.objectKey);
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: url,
-          "Cache-Control": "private, no-store",
-          "X-Content-Type-Options": "nosniff",
-        },
-      });
-    }
+    const redirect =
+      !forceDownload && isInlineImage(attachment.contentType)
+        ? signedRedirect(dependencies, attachment.objectKey)
+        : null;
+    if (redirect) return redirect;
     const file = await open();
     return new Response(file.body, {
       headers: attachmentResponseHeaders(attachment, forceDownload),
     });
   } catch {
     return new Response("not found", { status: 404 });
+  }
+}
+
+/** The CDN redirect for one inline image, or `null` when delivery is off or failing (the caller
+ * then streams the bytes, so a misconfigured secret degrades instead of breaking downloads). */
+function signedRedirect(dependencies: AttachmentDownloadDependencies, objectKey: string) {
+  try {
+    const delivery = dependencies.delivery();
+    if (!delivery) return null;
+    const { url } = delivery.signedUrl(objectKey);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: url,
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  } catch {
+    return null;
   }
 }
