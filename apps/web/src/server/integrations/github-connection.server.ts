@@ -61,6 +61,53 @@ const repositoriesSchema = z.object({
     )
     .max(30),
 });
+const repositorySelectionSchema = z.object({
+  installationId: idSchema,
+  repositoryId: idSchema,
+  fullName: z
+    .string()
+    .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
+    .max(300),
+});
+const repositoryMetadataSchema = z.object({
+  id: idSchema,
+  full_name: z.string().min(3).max(300),
+  default_branch: z.string().min(1).max(255),
+});
+const commitsSchema = z
+  .array(
+    z.object({
+      sha: z.string().regex(/^[a-f0-9]{40,64}$/i),
+      author: z
+        .object({ login: z.string().min(1).max(100) })
+        .nullable()
+        .optional(),
+      commit: z.object({
+        message: z.string().max(100_000),
+        author: z
+          .object({
+            name: z.string().min(1).max(500),
+            date: z.string().datetime().nullable(),
+          })
+          .nullable(),
+        committer: z
+          .object({ name: z.string().min(1).max(500) })
+          .nullable()
+          .optional(),
+      }),
+    }),
+  )
+  .max(5);
+const rootContentsSchema = z
+  .array(
+    z.object({
+      name: z.string().min(1).max(255),
+      path: z.string().min(1).max(4096),
+      type: z.enum(["file", "dir", "symlink", "submodule"]),
+    }),
+  )
+  // GitHub's Contents API returns at most 1,000 entries for a directory.
+  .max(1000);
 
 type ApiInstallation = {
   id: number;
@@ -377,6 +424,60 @@ export class GitHubConnection {
     ].sort((left, right) => left.fullName.localeCompare(right.fullName));
   }
 
+  async repositoryOverview(
+    userId: string,
+    repository: { installationId: number; repositoryId: number; fullName: string },
+  ) {
+    const selected = repositorySelectionSchema.parse(repository);
+    const accessible = await this.accessibleRepositories(userId);
+    if (
+      !accessible.some(
+        (item) =>
+          item.installationId === selected.installationId &&
+          item.id === selected.repositoryId &&
+          item.fullName === selected.fullName,
+      )
+    )
+      throw new AppError("ACCESS_DENIED");
+
+    const result = await this.withToken(userId, async (token) => {
+      const path = `/repos/${selected.fullName}`;
+      const metadata = repositoryMetadataSchema.parse(await this.api(path, token));
+      if (metadata.id !== selected.repositoryId || metadata.full_name !== selected.fullName)
+        throw new AppError("ACCESS_DENIED");
+
+      const branch = encodeURIComponent(metadata.default_branch);
+      const commitsResponse = await this.api(
+        `${path}/commits?sha=${branch}&per_page=5`,
+        token,
+        true,
+      );
+      if (commitsResponse === null)
+        return { defaultBranch: metadata.default_branch, commits: [], files: [] };
+
+      const commits = commitsSchema.parse(commitsResponse).map((item) => ({
+        sha: item.sha,
+        message: item.commit.message,
+        author:
+          item.author?.login ??
+          item.commit.author?.name ??
+          item.commit.committer?.name ??
+          "Unknown",
+        date: item.commit.author?.date ?? null,
+      }));
+      const files = rootContentsSchema.parse(
+        await this.api(`${path}/contents?ref=${branch}`, token),
+      );
+      return {
+        defaultBranch: metadata.default_branch,
+        commits,
+        files: files.map(({ name, path: filePath, type }) => ({ name, path: filePath, type })),
+      };
+    });
+    if (!result.ok) throw new AppError("ACCESS_DENIED");
+    return result.data;
+  }
+
   async disconnect(userId: string) {
     await this.locked(userId, async (tx) => {
       await tx.gitHubAuthorization.deleteMany({ where: { userId } });
@@ -526,18 +627,22 @@ export class GitHubConnection {
     return tokensSchema.parse(result);
   }
 
-  private api(path: string, token: string) {
-    return this.request(`https://api.github.com${path}`, {
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: `Bearer ${token}`,
-        "x-github-api-version": "2026-03-10",
-        "user-agent": "CoForge",
+  private api(path: string, token: string, conflictAsNull = false) {
+    return this.request(
+      `https://api.github.com${path}`,
+      {
+        headers: {
+          accept: "application/vnd.github+json",
+          authorization: `Bearer ${token}`,
+          "x-github-api-version": "2026-03-10",
+          "user-agent": "CoForge",
+        },
       },
-    });
+      conflictAsNull,
+    );
   }
 
-  private async request(url: string, init: RequestInit): Promise<unknown> {
+  private async request(url: string, init: RequestInit, conflictAsNull = false): Promise<unknown> {
     try {
       const response = await this.http(url, {
         ...init,
@@ -545,6 +650,7 @@ export class GitHubConnection {
         signal: AbortSignal.timeout(8000),
       });
       if (response.status === 401) throw new GitHubUnauthorized();
+      if (conflictAsNull && response.status === 409) return null;
       if (
         response.status === 404 ||
         (response.status === 403 &&

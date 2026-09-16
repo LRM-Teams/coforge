@@ -3,14 +3,12 @@ import {
   Bell01 as Bell,
   BellOff01 as BellOff,
   Hash01 as Hash,
-  LayoutLeft as PanelLeft,
   Share04 as Share,
 } from "@untitledui/icons";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
-import { useChannelSidebarVisibility } from "@/components/app-shell";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { MobileNavigationButton } from "@/components/layout/sidebar/mobile-header";
+import { ConversationListButton } from "./conversation-navigation";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
 import {
   ThreadedConversation,
@@ -50,21 +48,10 @@ export function ChannelConversationHeader({
   onMutedChange: (muted: boolean) => Promise<void>;
 }) {
   const [savingMute, setSavingMute] = useState(false);
-  const channelSidebar = useChannelSidebarVisibility();
   return (
     <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
       <div className="-mx-3 flex h-12 items-center gap-3 border-b border-secondary px-3 sm:-mx-5 sm:px-5">
-        {channelSidebar.hidden && (
-          <ButtonUtility
-            icon={PanelLeft}
-            size="sm"
-            color="tertiary"
-            tooltip={m.controls_show_sidebar()}
-            onClick={channelSidebar.show}
-            className="hidden lg:inline-flex"
-          />
-        )}
-        <MobileNavigationButton />
+        <ConversationListButton />
         <h1 className="truncate text-base font-semibold">#{conversation.name}</h1>
         {conversation.project && (
           <div className="hidden min-w-0 items-center gap-2 text-xs text-tertiary sm:flex">

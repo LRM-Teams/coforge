@@ -6,12 +6,10 @@ import {
   ArrowDown,
   ArrowLeft,
   DotsHorizontal,
-  LayoutLeft as PanelLeft,
   MessageSquare01 as MessageSquare,
 } from "@untitledui/icons";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 
-import { useChannelSidebarVisibility } from "@/components/app-shell";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
 import {
   useConversationActivity,
@@ -23,7 +21,7 @@ import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { MobileNavigationButton } from "@/components/layout/sidebar/mobile-header";
+import { ConversationListButton, useConversationDetailVisible } from "./conversation-navigation";
 import {
   Empty,
   EmptyHeader,
@@ -131,21 +129,10 @@ export function DirectConversationHeader({
   const activity = useConversationActivity(conversation.agent.id);
   const display = useConversationDisplay(conversation.agent.id);
   const displayLabel = agentDisplay(display).label;
-  const channelSidebar = useChannelSidebarVisibility();
   return (
     <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
       <div className="-mx-3 flex h-12 items-center gap-2 border-b border-secondary px-3 sm:-mx-5 sm:gap-3 sm:px-5">
-        {channelSidebar.hidden && (
-          <ButtonUtility
-            icon={PanelLeft}
-            size="sm"
-            color="tertiary"
-            tooltip={m.controls_show_sidebar()}
-            onClick={channelSidebar.show}
-            className="hidden lg:inline-flex"
-          />
-        )}
-        <MobileNavigationButton />
+        <ConversationListButton />
         <AgentActivityAvatar agent={conversation.agent} size="sm" display={display} {...activity} />
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
@@ -203,6 +190,7 @@ export function DirectConversation(props: ConversationProps) {
 
 export function ThreadedConversation(props: ThreadedConversationProps) {
   const { conversation, onReadThread, header, threadHeaderAction, ...conversationProps } = props;
+  const detailVisible = useConversationDetailVisible();
   const [selected, setSelected] = useState<string>();
   const [visited, setVisited] = useState<string[]>([]);
   const [readThrough, setReadThrough] = useState<Record<string, number>>({});
@@ -231,7 +219,13 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
     onlySaveAfterUserInteractions: true,
   });
   useEffect(() => {
-    if (!selected || !selectedSequence || reading.current || document.visibilityState === "hidden")
+    if (
+      !detailVisible ||
+      !selected ||
+      !selectedSequence ||
+      reading.current ||
+      document.visibilityState === "hidden"
+    )
       return;
     const boundary = Math.max(
       readThrough[selected] ?? 0,
@@ -252,7 +246,7 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
       .finally(() => {
         reading.current = false;
       });
-  }, [selected, selectedSequence, conversation, onReadThread, readThrough]);
+  }, [detailVisible, selected, selectedSequence, conversation, onReadThread, readThrough]);
 
   function openThread(rootMessageId: string) {
     setVisited((previous) =>

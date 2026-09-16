@@ -1,16 +1,10 @@
 import type { FC, ReactNode } from "react";
-import { Folder, Plus } from "@untitledui/icons";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Tooltip } from "@/components/base/tooltip/tooltip";
 import type { NavItemType } from "@/components/application/app-navigation/config";
 import { cx } from "@/utils/cx";
-import { localizeHref } from "@/paraglide/runtime";
 
 // Adapted from Untitled's sidebar-slim.tsx (MIT; docs/ui-guidelines.md §2) —
 // the demo hardcodes Untitled's own logo/account card with no override
-// props. This is the app's one permanent piece of chrome, not a collapsed
-// state of a wider sidebar; the 240px Channels/DMs surface is separate
-// (sidebar-channels.tsx), shown only on chat routes.
+// props. Desktop keeps the rail visible; mobile uses a separate wide drawer.
 
 export const SIDEBAR_RAIL_WIDTH = 70;
 
@@ -65,18 +59,9 @@ interface SidebarRailProps {
   subheader?: ReactNode;
   /** Avatar + user menu at the bottom — the only Settings entry point. */
   footer: ReactNode;
-  projects?: { id: string; name: string; slug: string; developmentConversationId: string }[];
-  onCreateProject?: () => void;
 }
 
-export const SidebarRail = ({
-  activeUrl,
-  items,
-  subheader,
-  footer,
-  projects = [],
-  onCreateProject,
-}: SidebarRailProps) => {
+export const SidebarRail = ({ activeUrl, items, subheader, footer }: SidebarRailProps) => {
   const rail = (
     // [data-sidebar] retints official components' bg-primary/bg-secondary/etc
     // via src/styles/coforge-theme.css.
@@ -94,40 +79,6 @@ export const SidebarRail = ({
             </li>
           ))}
         </ul>
-        {(projects.length > 0 || onCreateProject) && (
-          <ul
-            aria-label="Projects"
-            className="mt-2 flex flex-col gap-1 border-t border-secondary pt-2"
-          >
-            {onCreateProject && (
-              <li>
-                <ButtonUtility
-                  icon={Plus}
-                  size="xs"
-                  color="tertiary"
-                  tooltip="Create project"
-                  onClick={onCreateProject}
-                />
-              </li>
-            )}
-            {projects.map((project) => (
-              <li key={project.id}>
-                <Tooltip title={project.name} placement="right">
-                  <a
-                    href={localizeHref(`/messages/channels/${project.developmentConversationId}`)}
-                    aria-label={project.name}
-                    className="group flex size-12 items-center justify-center rounded-lg hover:bg-sidebar-accent"
-                  >
-                    <Folder
-                      aria-hidden="true"
-                      className="size-5 text-tertiary group-hover:text-secondary"
-                    />
-                  </a>
-                </Tooltip>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
       {footer}
     </aside>

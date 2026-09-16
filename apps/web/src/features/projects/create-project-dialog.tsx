@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Share04 } from "@untitledui/icons";
+import { Heading } from "react-aria-components";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Select } from "@/components/base/select/select";
@@ -49,7 +50,7 @@ export function CreateProjectDialog({
         setItems(available);
       })
       .catch(() => {
-        if (!cancelled) setItems([]);
+        if (!cancelled) setError(m.project_repository_unavailable());
       });
     return () => {
       cancelled = true;
@@ -75,7 +76,7 @@ export function CreateProjectDialog({
       await onCreated();
       onOpenChange(false);
     } catch {
-      setError("Could not create this project. Check the name, slug, and repository access.");
+      setError(m.project_create_error());
     } finally {
       setBusy(false);
     }
@@ -85,12 +86,12 @@ export function CreateProjectDialog({
       <Modal className="w-[min(480px,calc(100vw-2rem))]">
         <Dialog>
           <form onSubmit={submit} className="grid gap-4 p-6">
-            <h2 className="text-lg font-semibold">Create project</h2>
-            <p className="text-sm text-tertiary">
-              Optionally connect a GitHub repository to this Workspace.
-            </p>
+            <Heading slot="title" className="text-lg font-semibold">
+              {m.project_create()}
+            </Heading>
+            <p className="text-sm text-tertiary">{m.project_repository_optional()}</p>
             <label className="grid gap-1">
-              Name
+              {m.project_name()}
               <input
                 required
                 value={name}
@@ -99,7 +100,7 @@ export function CreateProjectDialog({
               />
             </label>
             <label className="grid gap-1">
-              Slug
+              {m.project_slug()}
               <input
                 required
                 pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
@@ -109,14 +110,14 @@ export function CreateProjectDialog({
               />
             </label>
             <Select
-              label="GitHub repository"
+              label={m.project_repository()}
               placeholder={
-                items.length ? "No repository (start from scratch)" : "No accessible repositories"
+                items.length ? m.project_repository_none() : m.project_repository_empty()
               }
               selectedKey={repositoryId ? String(repositoryId) : null}
               onSelectionChange={(key) => setRepositoryId(key && key !== "none" ? Number(key) : 0)}
             >
-              <Select.Item id="none" label="No repository (start from scratch)" />
+              <Select.Item id="none" label={m.project_repository_none()} />
               {items.map((item) => (
                 <Select.Item key={item.id} id={String(item.id)} label={item.fullName} />
               ))}
@@ -147,10 +148,10 @@ export function CreateProjectDialog({
             )}
             <div className="flex justify-end gap-2">
               <Button type="button" color="secondary" onPress={() => onOpenChange(false)}>
-                Cancel
+                {m.controls_cancel()}
               </Button>
               <Button type="submit" isLoading={busy} showTextWhileLoading>
-                Create project
+                {m.project_create()}
               </Button>
             </div>
           </form>

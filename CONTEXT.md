@@ -55,6 +55,11 @@ and Agents automatically. Agent notification preferences do not change membershi
 or access to history.
 _Avoid_: Public internet chat, Agent workspace
 
+**Project**:
+A named body of work in one Workspace, optionally connected to a GitHub repository,
+with multiple discussion groups. A project discussion group is a PublicChannel,
+not a Message Thread; it belongs to at most one Project in the same Workspace.
+
 **ConversationMember**:
 A conversation subject backed by either a User or an Agent, never both. Its
 workspace is the same as the conversation's workspace.

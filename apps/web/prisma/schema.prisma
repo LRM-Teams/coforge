@@ -43,18 +43,20 @@ model Workspace {
 }
 
 model Project {
-  id                   String   @id @default(uuid()) @db.Uuid
-  workspaceId          String   @db.Uuid
+  id                   String         @id @default(uuid()) @db.Uuid
+  workspaceId          String         @db.Uuid
   name                 String
+  description          String         @default("")
+  icon                 String         @default("📁")
   slug                 String
   githubInstallationId Int?
   githubRepositoryId   Int?
   githubFullName       String?
   githubHtmlUrl        String?
-  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  developmentConversation Conversation? @relation("ProjectDevelopmentConversation")
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  workspace            Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversations        Conversation[] @relation("ProjectConversations")
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   @@unique([workspaceId, slug])
   @@unique([workspaceId, githubRepositoryId])
@@ -454,13 +456,13 @@ model Conversation {
   deliveries     AgentMessageDelivery[]
   attachments    Attachment[]
   tasks          Task[]
-  project     Project?               @relation("ProjectDevelopmentConversation", fields: [projectId], references: [id], onDelete: SetNull)
+  project        Project?               @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, directKey])
   @@unique([workspaceId, channelName])
   @@unique([id, workspaceId])
   @@index([workspaceId])
-  @@unique([projectId])
+  @@index([projectId])
   @@map("conversations")
 }
 

@@ -4,6 +4,7 @@ import { Button } from "@/components/base/buttons/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
+import { ConversationListButton } from "./conversation-navigation";
 
 export function MessagesPending() {
   return (
@@ -17,6 +18,7 @@ export function ConversationPending() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+        <ConversationListButton />
         <p role="status" className="sr-only">
           {m.conversation_loading()}
         </p>
@@ -49,6 +51,7 @@ export function ConversationLoadError({ error }: { error: unknown }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+        <ConversationListButton />
         <h1 className="text-base font-semibold">{m.messages_title()}</h1>
       </header>
       <div className="grid flex-1 place-content-center gap-4 p-6 text-center">

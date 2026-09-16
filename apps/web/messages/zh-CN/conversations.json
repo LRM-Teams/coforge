@@ -1,5 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
+  "conversation_back_to_list": "返回会话列表",
   "conversation_loading": "正在加载消息…",
   "channels_title": "频道",
   "channel_create": "创建频道",

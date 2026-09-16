@@ -1,5 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
+  "conversation_back_to_list": "Back to conversations",
   "channels_title": "Channels",
   "channel_create": "Create channel",
   "channel_name": "Channel name",

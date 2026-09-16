@@ -38,6 +38,7 @@ import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.i
 import { Route as AppComputersComputerIdRouteImport } from './routes/_app/computers.$computerId'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
 import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
+import { Route as AppProjectsIndexRouteImport } from './routes/_app/projects.index'
 import { Route as AppProjectsProjectSlugRouteImport } from './routes/_app/projects.$projectSlug'
 import { Route as AppRecordsIndexRouteImport } from './routes/_app/records.index'
 import { Route as AppRecordsRecordIdRouteImport } from './routes/_app/records.$recordId'
@@ -53,6 +54,7 @@ import { Route as ApiInternalWeeklyReportScheduleRouteImport } from './routes/ap
 import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
 import { Route as ApiWorkspacesSlugRouteImport } from './routes/api/workspaces.$slug'
 import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
+import { Route as AppProjectsProjectSlugSettingsRouteImport } from './routes/_app/projects.$projectSlug_.settings'
 import { Route as ApiAgentV1EventsRouteImport } from './routes/api/agent/v1/events'
 import { Route as ApiAgentV1MessagesRouteImport } from './routes/api/agent/v1/messages'
 import { Route as ApiAgentV1RemindersRouteImport } from './routes/api/agent/v1/reminders'
@@ -218,6 +220,11 @@ const AppMessagesAgentIdRoute = AppMessagesAgentIdRouteImport.update({
   path: '/$agentId',
   getParentRoute: () => AppMessagesRoute,
 } as any)
+const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
+  id: '/projects/',
+  path: '/projects/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProjectsProjectSlugRoute = AppProjectsProjectSlugRouteImport.update({
   id: '/projects/$projectSlug',
   path: '/projects/$projectSlug',
@@ -297,6 +304,12 @@ const AppMessagesChannelsChannelIdRoute =
     id: '/channels/$channelId',
     path: '/channels/$channelId',
     getParentRoute: () => AppMessagesRoute,
+  } as any)
+const AppProjectsProjectSlugSettingsRoute =
+  AppProjectsProjectSlugSettingsRouteImport.update({
+    id: '/projects/$projectSlug_/settings',
+    path: '/projects/$projectSlug/settings',
+    getParentRoute: () => AppRoute,
   } as any)
 const ApiAgentV1EventsRoute = ApiAgentV1EventsRouteImport.update({
   id: '/api/agent/v1/events',
@@ -448,8 +461,10 @@ export interface FileRoutesByFullPath {
   '/agents/': typeof AppAgentsIndexRoute
   '/computers/': typeof AppComputersIndexRoute
   '/messages/': typeof AppMessagesIndexRoute
+  '/projects/': typeof AppProjectsIndexRoute
   '/records/': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
+  '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
@@ -509,8 +524,10 @@ export interface FileRoutesByTo {
   '/agents': typeof AppAgentsIndexRoute
   '/computers': typeof AppComputersIndexRoute
   '/messages': typeof AppMessagesIndexRoute
+  '/projects': typeof AppProjectsIndexRoute
   '/records': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
+  '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
@@ -575,8 +592,10 @@ export interface FileRoutesById {
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/computers/': typeof AppComputersIndexRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
+  '/_app/projects/': typeof AppProjectsIndexRoute
   '/_app/records/': typeof AppRecordsIndexRoute
   '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
+  '/_app/projects/$projectSlug_/settings': typeof AppProjectsProjectSlugSettingsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
@@ -641,8 +660,10 @@ export interface FileRouteTypes {
     | '/agents/'
     | '/computers/'
     | '/messages/'
+    | '/projects/'
     | '/records/'
     | '/messages/channels/$channelId'
+    | '/projects/$projectSlug/settings'
     | '/api/agent/v1/events'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/reminders'
@@ -702,8 +723,10 @@ export interface FileRouteTypes {
     | '/agents'
     | '/computers'
     | '/messages'
+    | '/projects'
     | '/records'
     | '/messages/channels/$channelId'
+    | '/projects/$projectSlug/settings'
     | '/api/agent/v1/events'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/reminders'
@@ -767,8 +790,10 @@ export interface FileRouteTypes {
     | '/_app/agents/'
     | '/_app/computers/'
     | '/_app/messages/'
+    | '/_app/projects/'
     | '/_app/records/'
     | '/_app/messages/channels/$channelId'
+    | '/_app/projects/$projectSlug_/settings'
     | '/api/agent/v1/events'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/reminders'
@@ -1042,6 +1067,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMessagesAgentIdRouteImport
       parentRoute: typeof AppMessagesRoute
     }
+    '/_app/projects/': {
+      id: '/_app/projects/'
+      path: '/projects'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof AppProjectsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/projects/$projectSlug': {
       id: '/_app/projects/$projectSlug'
       path: '/projects/$projectSlug'
@@ -1146,6 +1178,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/messages/channels/$channelId'
       preLoaderRoute: typeof AppMessagesChannelsChannelIdRouteImport
       parentRoute: typeof AppMessagesRoute
+    }
+    '/_app/projects/$projectSlug_/settings': {
+      id: '/_app/projects/$projectSlug_/settings'
+      path: '/projects/$projectSlug/settings'
+      fullPath: '/projects/$projectSlug/settings'
+      preLoaderRoute: typeof AppProjectsProjectSlugSettingsRouteImport
+      parentRoute: typeof AppRoute
     }
     '/api/agent/v1/events': {
       id: '/api/agent/v1/events'
@@ -1340,6 +1379,8 @@ interface AppRouteChildren {
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppProjectsProjectSlugRoute: typeof AppProjectsProjectSlugRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
+  AppProjectsIndexRoute: typeof AppProjectsIndexRoute
+  AppProjectsProjectSlugSettingsRoute: typeof AppProjectsProjectSlugSettingsRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -1351,6 +1392,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppProjectsProjectSlugRoute: AppProjectsProjectSlugRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
+  AppProjectsIndexRoute: AppProjectsIndexRoute,
+  AppProjectsProjectSlugSettingsRoute: AppProjectsProjectSlugSettingsRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

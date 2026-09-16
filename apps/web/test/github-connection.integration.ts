@@ -373,6 +373,177 @@ test("repository reads use the personal installation endpoint, paginate, and dis
   }
 });
 
+test("repository overview verifies the selected installation and maps GitHub repository data", async () => {
+  const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  const requested: string[] = [];
+  const connection = new GitHubConnection(db, config, async (url, init) => {
+    requested.push(url);
+    expect(new Headers(init.headers).get("authorization") ?? "").not.toContain("installation");
+    if (url.endsWith("/access_token"))
+      return Response.json({
+        access_token: "user-access",
+        refresh_token: "refresh",
+        expires_in: 28800,
+        refresh_token_expires_in: 15897600,
+        token_type: "bearer",
+      });
+    if (url.endsWith("/user")) return Response.json({ id: 101, login: "overview-owner" });
+    if (url === "https://api.github.com/user/installations?per_page=30&page=1")
+      return Response.json({
+        total_count: 1,
+        installations: [
+          {
+            id: 42,
+            app_id: config.appId,
+            account: { login: "example-org" },
+            repository_selection: "selected",
+          },
+        ],
+      });
+    if (url === "https://api.github.com/user/installations/42/repositories?per_page=30&page=1")
+      return Response.json({
+        total_count: 1,
+        repositories: [{ id: 99, full_name: "example-org/private-repo", private: true }],
+      });
+    if (url === "https://api.github.com/repos/example-org/private-repo")
+      return Response.json({
+        id: 99,
+        full_name: "example-org/private-repo",
+        default_branch: "trunk",
+      });
+    if (
+      url === "https://api.github.com/repos/example-org/private-repo/commits?sha=trunk&per_page=5"
+    )
+      return Response.json([
+        {
+          sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          author: { login: "linked-login" },
+          commit: {
+            message: "Ship asymmetric fixture",
+            author: { name: "Git Author", date: "2026-09-15T08:30:00Z" },
+          },
+        },
+        {
+          sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          author: null,
+          commit: { message: "Unlinked author", author: { name: "Offline Author", date: null } },
+        },
+      ]);
+    if (url === "https://api.github.com/repos/example-org/private-repo/contents?ref=trunk")
+      return Response.json([
+        { name: "src", path: "src", type: "dir" },
+        { name: "README.md", path: "README.md", type: "file" },
+        { name: "current", path: "current", type: "symlink" },
+        { name: "vendor", path: "vendor", type: "submodule" },
+      ]);
+    return Response.json({}, { status: 404 });
+  });
+  try {
+    const { state } = await connection.begin(user.id);
+    expect(await connection.complete(user.id, state, state, "code")).toBe(true);
+    expect(
+      await connection.repositoryOverview(user.id, {
+        installationId: 42,
+        repositoryId: 99,
+        fullName: "example-org/private-repo",
+      }),
+    ).toEqual({
+      defaultBranch: "trunk",
+      commits: [
+        {
+          sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          message: "Ship asymmetric fixture",
+          author: "linked-login",
+          date: "2026-09-15T08:30:00Z",
+        },
+        {
+          sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          message: "Unlinked author",
+          author: "Offline Author",
+          date: null,
+        },
+      ],
+      files: [
+        { name: "src", path: "src", type: "dir" },
+        { name: "README.md", path: "README.md", type: "file" },
+        { name: "current", path: "current", type: "symlink" },
+        { name: "vendor", path: "vendor", type: "submodule" },
+      ],
+    });
+    expect(requested).not.toContain(
+      "https://api.github.com/repos/example-org/private-repo/contents",
+    );
+  } finally {
+    await db.user.delete({ where: { id: user.id } });
+  }
+});
+
+test("repository overview denies identity mismatches and treats only commit conflict as empty", async () => {
+  const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  let metadataId = 100;
+  let contentReads = 0;
+  const connection = new GitHubConnection(db, config, async (url) => {
+    if (url.endsWith("/access_token"))
+      return Response.json({
+        access_token: "user-access",
+        refresh_token: "refresh",
+        expires_in: 28800,
+        refresh_token_expires_in: 15897600,
+        token_type: "bearer",
+      });
+    if (url.endsWith("/user")) return Response.json({ id: 102, login: "empty-owner" });
+    if (url.includes("/user/installations/42/repositories"))
+      return Response.json({
+        total_count: 1,
+        repositories: [{ id: 99, full_name: "example-org/empty", private: true }],
+      });
+    if (url.includes("/user/installations"))
+      return Response.json({
+        total_count: 1,
+        installations: [
+          {
+            id: 42,
+            app_id: config.appId,
+            account: { login: "example-org" },
+            repository_selection: "selected",
+          },
+        ],
+      });
+    if (url === "https://api.github.com/repos/example-org/empty")
+      return Response.json({
+        id: metadataId,
+        full_name: "example-org/empty",
+        default_branch: "main",
+      });
+    contentReads++;
+    if (url.includes("/commits?")) return Response.json({}, { status: 409 });
+    return Response.json({}, { status: 503 });
+  });
+  const selected = { installationId: 42, repositoryId: 99, fullName: "example-org/empty" };
+  try {
+    const { state } = await connection.begin(user.id);
+    expect(await connection.complete(user.id, state, state, "code")).toBe(true);
+    await expect(
+      connection.repositoryOverview(user.id, { ...selected, installationId: 43 }),
+    ).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+    expect(contentReads).toBe(0);
+    await expect(connection.repositoryOverview(user.id, selected)).rejects.toMatchObject({
+      code: "ACCESS_DENIED",
+    });
+    expect(contentReads).toBe(0);
+
+    metadataId = 99;
+    expect(await connection.repositoryOverview(user.id, selected)).toEqual({
+      defaultBranch: "main",
+      commits: [],
+      files: [],
+    });
+    expect(contentReads).toBe(1);
+  } finally {
+    await db.user.delete({ where: { id: user.id } });
+  }
+});
+
 test("expired and superseded attempts fail; a transient API error preserves the rotated token", async () => {
   const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
   let now = Date.now();

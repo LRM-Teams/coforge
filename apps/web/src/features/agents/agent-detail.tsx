@@ -353,8 +353,17 @@ const Profile = memo(function Profile({
                         key={computer.id}
                         id={computer.id}
                         label={computer.displayName}
-                        supportingText={
-                          computer.online ? m.computer_status_online() : m.computer_status_offline()
+                        aria-label={`${computer.displayName}, ${computer.online ? m.computer_status_online() : m.computer_status_offline()}`}
+                        icon={
+                          <span
+                            role="img"
+                            aria-label={
+                              computer.online
+                                ? m.computer_status_online()
+                                : m.computer_status_offline()
+                            }
+                            className={`size-2 shrink-0 rounded-full ${computer.online ? "bg-online" : "bg-offline"}`}
+                          />
                         }
                       />
                     ))}

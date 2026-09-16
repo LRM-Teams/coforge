@@ -71,6 +71,23 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Route and page organization
 
+- `features/projects/` owns the Projects directory, its loading state, and the
+  creation dialog and detail dashboard (commits, discussion groups, repository
+  files). `projects.functions.ts` is the authenticated
+  list/create/detail seam. `/projects` owns the directory route; the existing
+  `/projects/$projectSlug` owns project detail. AppShell exposes one Projects
+  navigation item on desktop and mobile; project creation belongs on the page,
+  not in either sidebar. `GitHubConnection` owns user-authorized repository
+  overview reads; project functions enforce Workspace scope before invoking it.
+  Discussion groups reuse `PublicChannels.create` and the existing channel route.
+
+  `server/projects/project-settings.server.ts` owns Workspace-member-authorized
+  project settings and name-confirmed deletion. `projects.functions.ts` validates
+  browser input; `project-settings.tsx` owns the standalone settings page at
+  `/projects/$projectSlug/settings`, including the built-in Emoji icon selector
+  and deletion confirmation. Repository changes require the caller's GitHub access. Deletion preserves
+  discussion groups, memberships and messages by clearing their Project relation.
+
 - Personal GitHub connections belong to `server/integrations/github-connection.server.ts`.
   `GitHubConnection` owns authorization attempts, encrypted user credentials,
   refresh serialization, installation/repository access and disconnect. GitHub
@@ -229,10 +246,13 @@ instructions for the TanStack Start Web/backend modular monolith.
 - `features/conversations/direct-conversation.tsx` owns the shared conversation
   empty-state layout and compact thread prompt. Direct and channel views supply
   their own identity, media, and copy; they retain their existing composer or join action.
-- `components/layout/mobile-navigation.tsx` connects page-owned mobile menu
-  controls to `AppShell`'s global navigation drawer. Pages own their titles
-  and actions; conversation list/detail selection and list scroll retention
-  remain in `features/conversations/conversation-layout.tsx`.
+- `components/layout/sidebar/mobile-header.tsx` connects page-owned mobile menu
+  controls to `AppShell`'s global navigation drawer, which contains global
+  destinations only, never channel or direct-message lists. Pages own their
+  titles and actions. `features/conversations/conversation-navigation.tsx`
+  owns Chat list/detail selection, retained list scroll and mounted conversation
+  drafts on desktop and mobile. `conversation-directory.tsx` renders the page's
+  channel/DM list. Neither sidebar renders conversation lists or their creation actions.
 - `features/computers/computer-layout.tsx` owns the analogous Computer
   list/detail selection, return control, list scroll retention, and empty state.
 - `features/computers/runtime-usage.tsx` owns Usage interaction eligibility:
