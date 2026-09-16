@@ -220,9 +220,10 @@ Keep expiring user access tokens enabled. Minimum repository permission is
 Metadata (read); no write, organization-member, or email permission is needed
 for this slice. Installation and personal authorization are separate actions.
 Set Webhook Active, with URL `https://staging.coforge.cn/api/integrations/github/webhook`
-and the generated webhook secret below. Enable these events: Installation,
-Installation repositories. GitHub App authorization is on by default for Apps
-and needs no separate opt-in. The callback URL and the Webhook URL are
+and the generated webhook secret below. No event subscription is needed:
+GitHub delivers `installation`, `installation_repositories` and
+`github_app_authorization` to every GitHub App automatically, and none of them
+appears under Permissions & events. The callback URL and the Webhook URL are
 different endpoints; do not point one at the other.
 
 Set these in the repository's **staging Environment** before a reviewed deployment:
