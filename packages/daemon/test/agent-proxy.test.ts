@@ -481,11 +481,14 @@ test("proxy forwards weekly-report reads after validating the local command", as
   });
   proxies.push(proxy);
   const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
-  const response = await fetch(proxy.url.replace("/agent/message", "/agent/weekly-report"), {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ operation: "list", limit: 2 }),
-  });
+  const response = await fetch(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.weeklyReports.path),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ operation: "list", limit: 2 }),
+    },
+  );
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
     protocolMajor: 1,

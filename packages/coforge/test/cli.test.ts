@@ -1144,7 +1144,18 @@ test("weekly-report CLI parses bounded reads and dispatches the transport", asyn
   });
   const calls: unknown[] = [];
   const output = await run(["weekly-report", "list", "--limit", "2"], {
-    ...baseTransport,
+    check: async () => {
+      throw new Error("message check called");
+    },
+    read: async () => {
+      throw new Error("message read called");
+    },
+    send: async () => {
+      throw new Error("message send called");
+    },
+    view: async () => {
+      throw new Error("attachment called");
+    },
     weeklyReport: async (command) => {
       calls.push(command);
       return {
