@@ -8,6 +8,23 @@ export type RestartProgress = {
 export type RestartResult =
   | { requestId: string; status: "completed"; instanceId: string }
   | { requestId: string; status: "cancelled" };
+
+/**
+ * One Computer upgrade operation as this machine knows it. `pending` means an external one-shot
+ * job was launched and has not left a receipt yet; `succeeded`/`failed` carry that receipt;
+ * `acknowledged` means the server accepted the reported result and the record is audit only.
+ */
+export type UpgradeOperationState = "pending" | "succeeded" | "failed" | "acknowledged";
+export type UpgradeOperationTerminal = { version?: string; error?: string; at: number };
+export type UpgradeOperation = {
+  requestId: string;
+  expectedVersion: string;
+  state: UpgradeOperationState;
+  terminal?: UpgradeOperationTerminal;
+};
+/** How many operation records one binding keeps, newest last, including the audit tail. */
+export const UPGRADE_OPERATION_HISTORY = 128;
+
 export type ManagedBinding = DaemonConfig & {
   enabled: boolean;
   restart?: RestartProgress;
@@ -15,8 +32,17 @@ export type ManagedBinding = DaemonConfig & {
   /** Legacy cloud ready hints, never proof of a completed local operation. */
   restartRequestIds?: string[];
   upgradeRequestIds?: string[];
+  /** Pre-receipt dedupe list; FileBindingStore reopens these as pending operations. */
   upgradeRequests?: { requestId: string; expectedVersion: string }[];
+  upgradeOperations?: UpgradeOperation[];
 };
+
+/** A terminal operation the server has not accepted yet. */
+export function reportableUpgradeOperations(binding: ManagedBinding): UpgradeOperation[] {
+  return (binding.upgradeOperations ?? []).filter(
+    (operation) => operation.state === "succeeded" || operation.state === "failed",
+  );
+}
 export class WorkspaceRecoveryError extends AggregateError {}
 export interface BindingStore {
   load(): Promise<ManagedBinding[]>;
@@ -128,6 +154,12 @@ export class MachineSupervisor {
     });
   }
 
+  /**
+   * Opens one upgrade operation. Returns whether this call is the one that must launch the
+   * external job; a replay of the same request ID returns false. Operations are mutually
+   * exclusive: a second request while another is still pending is rejected outright rather than
+   * left to collide over the installation lock.
+   */
   recordUpgrade(workspaceId: string, requestId: string, expectedVersion: string) {
     return this.#serialize(async () => {
       this.#assertMutable();
@@ -135,15 +167,67 @@ export class MachineSupervisor {
       const binding = this.#bindings.find((entry) => entry.workspaceId === workspaceId);
       if (!binding) throw new Error("Workspace is not registered locally");
       if (!expectedVersion) throw new Error("upgrade expected version is required");
-      const existing = binding.upgradeRequests?.find((entry) => entry.requestId === requestId);
+      const operations = binding.upgradeOperations ?? [];
+      const existing = operations.find((entry) => entry.requestId === requestId);
       if (existing) {
         if (existing.expectedVersion !== expectedVersion)
           throw new Error("upgrade request already has a different expected version");
         return false;
       }
-      const requests = [...(binding.upgradeRequests ?? [])];
-      requests.push({ requestId, expectedVersion });
-      await this.#saveBinding({ ...binding, upgradeRequests: requests.slice(-128) });
+      const pending = operations.find((entry) => entry.state === "pending");
+      if (pending)
+        throw new Error(
+          `Computer upgrade operation ${pending.requestId} is still pending; wait for it to finish before starting another`,
+        );
+      await this.#saveBinding({
+        ...binding,
+        upgradeOperations: [
+          ...operations,
+          { requestId, expectedVersion, state: "pending" as const },
+        ].slice(-UPGRADE_OPERATION_HISTORY),
+      });
+      return true;
+    });
+  }
+
+  /** Records the durable receipt an operation's external job left behind. */
+  completeUpgrade(
+    workspaceId: string,
+    requestId: string,
+    terminal: { status: "succeeded" | "failed" } & UpgradeOperationTerminal,
+  ) {
+    return this.#serialize(async () => {
+      await this.#refresh();
+      const binding = this.#bindings.find((entry) => entry.workspaceId === workspaceId);
+      const operation = binding?.upgradeOperations?.find((entry) => entry.requestId === requestId);
+      if (!binding || !operation || operation.state !== "pending") return false;
+      const { status, ...receipt } = terminal;
+      await this.#saveBinding({
+        ...binding,
+        upgradeOperations: binding.upgradeOperations!.map((entry) =>
+          entry.requestId === requestId ? { ...entry, state: status, terminal: receipt } : entry,
+        ),
+      });
+      return true;
+    });
+  }
+
+  /** The server accepted the reported result; the record becomes audit-only history. */
+  acknowledgeUpgrade(workspaceId: string, requestId: string) {
+    return this.#serialize(async () => {
+      await this.#refresh();
+      const binding = this.#bindings.find((entry) => entry.workspaceId === workspaceId);
+      const operation = binding?.upgradeOperations?.find((entry) => entry.requestId === requestId);
+      if (!binding || !operation) return false;
+      if (operation.state === "acknowledged") return true;
+      if (operation.state === "pending")
+        throw new Error("a pending Computer upgrade operation cannot be acknowledged");
+      await this.#saveBinding({
+        ...binding,
+        upgradeOperations: binding.upgradeOperations!.map((entry) =>
+          entry.requestId === requestId ? { ...entry, state: "acknowledged" as const } : entry,
+        ),
+      });
       return true;
     });
   }

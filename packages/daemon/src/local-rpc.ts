@@ -70,6 +70,7 @@ const LIFECYCLE_METHODS: ReadonlySet<string> = new Set([
   LOCAL_RPC_METHODS.PAUSE,
   LOCAL_RPC_METHODS.RESUME,
   LOCAL_RPC_METHODS.UPGRADE,
+  LOCAL_RPC_METHODS.UPGRADE_ACKNOWLEDGE,
 ]);
 
 export async function startDaemonLocalRpcServer(

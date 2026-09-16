@@ -7,33 +7,38 @@ import {
   type ManagedRuntimeSnapshot,
   type UpgradeLifecycle,
 } from "./upgrade-lifecycle";
+import {
+  assertUpgradeRequestId,
+  type UpgradeOperation,
+  type UpgradeOperationKind,
+} from "./upgrade-operation";
 
-export type UpgradeOperation = "upgrade" | "rollback";
+export type { UpgradeOperation, UpgradeOperationKind };
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-export interface UpgradeCoordinatorOptions {
-  requestId?: string;
+/** Where one machine keeps its installation, its release feed, and its Coordinator. */
+export interface UpgradeCoordinatorPaths {
   installRoot: string;
   binaryDirectory?: string;
-  localDirectory?: string;
-  quietHeader?: boolean;
   target: string;
   baseUrl: string;
-  selection: string;
-  operation: UpgradeOperation;
   supervisorSocketPath: string;
   supervisorStatePath: string;
   serviceName?: string;
   homeDirectory?: string;
   runtimeHomeDirectory?: string;
-  lifecycle?: UpgradeLifecycle;
-  updater?: Pick<ComputerUpdater, "withExclusiveOperation">;
 }
 
+export type UpgradeCoordinatorOptions = UpgradeOperation &
+  UpgradeCoordinatorPaths & {
+    lifecycle?: UpgradeLifecycle;
+    updater?: Pick<ComputerUpdater, "withExclusiveOperation">;
+  };
+
+/** The durable receipt one operation leaves behind; the only evidence the Daemon reads. */
 export type UpgradeResult = {
   schema_version: 1;
-  operation: UpgradeOperation;
+  request_id: string;
+  operation: UpgradeOperationKind;
   status: "succeeded" | "failed";
   version?: string;
   restoredVersion?: string;
@@ -55,9 +60,7 @@ export async function coordinateUpgrade(
   options: UpgradeCoordinatorOptions,
   onStage: (stage: string) => void = () => {},
 ): Promise<UpgradeResult> {
-  const requestId = options.requestId ?? Bun.env.COFORGE_UPGRADE_REQUEST_ID;
-  if (requestId !== undefined && !UUID_PATTERN.test(requestId))
-    throw new Error("COFORGE_UPGRADE_REQUEST_ID must be a valid UUID");
+  assertUpgradeRequestId(options.requestId);
   const updater =
     options.updater ??
     new ComputerUpdater({
@@ -66,7 +69,7 @@ export async function coordinateUpgrade(
       target: options.target,
       baseUrl: options.baseUrl,
       localDirectory: options.localDirectory,
-      quietHeader: options.quietHeader,
+      quietHeader: options.quiet,
       onStage,
     });
   const lifecycle =
@@ -92,14 +95,7 @@ export async function coordinateUpgrade(
       await lifecycle.resumeLaunches();
       throw error;
     }
-    return await switchRuntime(
-      lifecycle,
-      lockedUpdater,
-      snapshot,
-      prepared,
-      options.operation,
-      onStage,
-    );
+    return await switchRuntime(lifecycle, lockedUpdater, snapshot, prepared, options, onStage);
   });
 }
 
@@ -108,7 +104,7 @@ async function switchRuntime(
   updater: Pick<LockedComputerUpdater, "activatePrepared" | "restoreVerified">,
   snapshot: ManagedRuntimeSnapshot,
   prepared: PreparedUpdate,
-  operation: UpgradeOperation,
+  { requestId: request_id, operation }: Pick<UpgradeOperation, "requestId" | "operation">,
   onStage: (stage: string) => void,
 ): Promise<UpgradeResult> {
   const oldProcessIds = snapshot.bindings
@@ -125,7 +121,13 @@ async function switchRuntime(
     });
     await lifecycle.resumeLaunches();
     paused = false;
-    return { schema_version: 1, operation, status: "succeeded", version: prepared.version };
+    return {
+      schema_version: 1,
+      request_id,
+      operation,
+      status: "succeeded",
+      version: prepared.version,
+    };
   } catch (candidateError) {
     if (!paused || prepared.previous === null) {
       if (paused) await lifecycle.resumeLaunches().catch(() => {});
@@ -144,6 +146,7 @@ async function switchRuntime(
       onStage(`Previous version ${prepared.previous} restored and healthy`);
       const result: UpgradeResult = {
         schema_version: 1,
+        request_id,
         operation,
         status: "failed",
         restoredVersion: prepared.previous,
@@ -157,6 +160,7 @@ async function switchRuntime(
       // Neither version has verified health: retain the launch hold for explicit recovery.
       const result: UpgradeResult = {
         schema_version: 1,
+        request_id,
         operation,
         status: "failed",
         error: `${errorMessage(candidateError)}; rollback failed: ${errorMessage(rollbackError)}`,
@@ -177,8 +181,8 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
   if (requestFlag < 0 || !args[requestFlag + 1]) throw new Error("missing --request path");
   const requestPath = args[requestFlag + 1]!;
   const request = JSON.parse(await readFile(requestPath, "utf8")) as CoordinatorRequest;
-  if (request.requestId !== undefined && !UUID_PATTERN.test(request.requestId))
-    throw new Error("upgrade coordinator request ID must be a valid UUID");
+  // The durable request file is the only carrier of the operation's identity between processes.
+  assertUpgradeRequestId(request.requestId);
   let result: UpgradeResult;
   try {
     result = await coordinateUpgrade(request, (stage) => console.log(`==> ${stage}`));
@@ -188,6 +192,7 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
         ? error.result
         : {
             schema_version: 1,
+            request_id: request.requestId,
             operation: request.operation,
             status: "failed",
             error: errorMessage(error),
@@ -198,38 +203,44 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
   if (result.status === "failed") process.exitCode = 1;
 }
 
-export interface LaunchUpgradeCoordinatorOptions extends Omit<
-  UpgradeCoordinatorOptions,
-  "lifecycle" | "updater"
-> {
+export interface LaunchUpgradeCoordinatorPaths extends UpgradeCoordinatorPaths {
   executablePath?: string;
-  /** Remote-triggered upgrades suppress terminal progress; normal CLI upgrades show it. */
-  quietProgress?: boolean;
+}
+
+/** Where one operation's durable request and result receipts live. */
+export function upgradeReceiptPaths(installRoot: string, requestId: string) {
+  assertUpgradeRequestId(requestId);
+  const directory = join(installRoot, "upgrade-results");
+  return {
+    directory,
+    requestPath: join(directory, `${requestId}.request.json`),
+    resultPath: join(directory, `${requestId}.result.json`),
+  };
 }
 
 /** Starts an OS-detached copy of the unified executable from the normal CLI. Linux rejects calls
  * from the managed supervisor unit because all descendants share its stop scope. Completion is
  * observed through a private durable result file rather than inherited pipes. */
 export async function launchUpgradeCoordinator(
-  options: LaunchUpgradeCoordinatorOptions,
+  operation: UpgradeOperation,
+  paths: LaunchUpgradeCoordinatorPaths,
 ): Promise<UpgradeResult> {
   await assertCoordinatorOutsideManagedSupervisor();
-  const id = options.requestId ?? Bun.env.COFORGE_UPGRADE_REQUEST_ID ?? crypto.randomUUID();
-  if (!UUID_PATTERN.test(id))
-    throw new Error("upgrade coordinator request ID must be a valid UUID");
-  const directory = join(options.installRoot, "upgrade-results");
-  const requestPath = join(directory, `${id}.request.json`);
-  const resultPath = join(directory, `${id}.result.json`);
+  assertUpgradeRequestId(operation.requestId);
+  const { directory, requestPath, resultPath } = upgradeReceiptPaths(
+    paths.installRoot,
+    operation.requestId,
+  );
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const { executablePath = process.execPath, ...requestOptions } = options;
-  await writeJsonAtomic(requestPath, { ...requestOptions, resultPath });
+  const { executablePath = process.execPath, ...requestPaths } = paths;
+  await writeJsonAtomic(requestPath, { ...operation, ...requestPaths, resultPath });
   const child = Bun.spawn({
     cmd: [executablePath, "__upgrade", "--request", requestPath],
     stdin: "ignore",
     // Completion still uses the durable result, never terminal output. Normal CLI upgrades
-    // inherit stdout so their installation progress remains visible; the remote hidden path
-    // opts into quiet progress explicitly.
-    stdout: options.quietProgress ? "ignore" : "inherit",
+    // inherit stdout so their installation progress remains visible; a remote operation runs
+    // with no terminal at all.
+    stdout: operation.origin === "remote" ? "ignore" : "inherit",
     stderr: "inherit",
     detached: true,
     windowsHide: true,

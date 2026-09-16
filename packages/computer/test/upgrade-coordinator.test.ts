@@ -7,8 +7,10 @@ import {
   coordinateUpgrade,
   launchUpgradeCoordinator,
   UpgradeCoordinatorError,
+  upgradeReceiptPaths,
   type UpgradeCoordinatorOptions,
 } from "../src/release/upgrade-coordinator";
+import type { UpgradeOperation } from "../src/release/upgrade-operation";
 import { ComputerUpdater, type LockedComputerUpdater } from "../src/updater";
 import type { ManagedRuntimeSnapshot, UpgradeLifecycle } from "../src/release/upgrade-lifecycle";
 
@@ -78,7 +80,11 @@ async function harness(failCandidateProbe = false, failRestore = false) {
     target: "linux-x64",
     baseUrl: "https://releases.example/",
   });
+  const requestId = crypto.randomUUID();
   const options: UpgradeCoordinatorOptions = {
+    requestId,
+    origin: "cli",
+    quiet: false,
     installRoot,
     binaryDirectory: join(installRoot, "bin"),
     target: "linux-x64",
@@ -93,7 +99,7 @@ async function harness(failCandidateProbe = false, failRestore = false) {
         lockOwner.withExclusiveOperation(() => operation(updater as LockedComputerUpdater)),
     },
   };
-  return { calls, options };
+  return { calls, options, requestId };
 }
 
 test("direct install contends with the coordinator's lock through resume", async () => {
@@ -172,9 +178,63 @@ test("rollback verification failure is reported and launches remain paused", asy
 
 test("a coordinator that exits without evidence does not strand the caller", async () => {
   const { options } = await harness();
-  const { lifecycle: _lifecycle, updater: _updater, ...request } = options;
+  const { operation, paths } = split(options);
   // The Bun interpreter is not a release executable: __upgrade exits without a result.
-  await expect(
-    launchUpgradeCoordinator({ ...request, executablePath: process.execPath }),
-  ).rejects.toThrow("upgrade coordinator exited without a result");
+  await expect(launchUpgradeCoordinator(operation, paths)).rejects.toThrow(
+    "upgrade coordinator exited without a result",
+  );
 });
+
+test("the durable request file carries the operation identity to the coordinator process", async () => {
+  const { options, requestId } = await harness();
+  const { operation, paths } = split(options);
+  await launchUpgradeCoordinator(operation, paths).catch(() => {});
+  const { requestPath } = upgradeReceiptPaths(options.installRoot, requestId);
+  const written = (await Bun.file(requestPath).json()) as Record<string, unknown>;
+  expect(written.requestId).toBe(requestId);
+  expect(written.operation).toBe("upgrade");
+  expect(written.origin).toBe("cli");
+  expect(written.resultPath).toBe(upgradeReceiptPaths(options.installRoot, requestId).resultPath);
+});
+
+test("the coordinator never takes its operation identity from the environment", async () => {
+  const { options, requestId } = await harness();
+  const stale = "11111111-2222-4333-8444-555555555555";
+  const previous = Bun.env.COFORGE_UPGRADE_REQUEST_ID;
+  Bun.env.COFORGE_UPGRADE_REQUEST_ID = stale;
+  try {
+    const result = await coordinateUpgrade(options);
+    expect(result.request_id).toBe(requestId);
+    expect(result.request_id).not.toBe(stale);
+    const { options: missing } = await harness();
+    // @ts-expect-error the operation identity is mandatory; the environment cannot supply it.
+    delete missing.requestId;
+    await expect(coordinateUpgrade(missing)).rejects.toThrow("valid UUID request ID");
+  } finally {
+    if (previous === undefined) delete Bun.env.COFORGE_UPGRADE_REQUEST_ID;
+    else Bun.env.COFORGE_UPGRADE_REQUEST_ID = previous;
+  }
+});
+
+function split(options: UpgradeCoordinatorOptions) {
+  const {
+    lifecycle: _lifecycle,
+    updater: _updater,
+    requestId,
+    operation: kind,
+    selection,
+    origin,
+    quiet,
+    localDirectory,
+    ...paths
+  } = options;
+  const operation: UpgradeOperation = {
+    requestId,
+    operation: kind,
+    selection,
+    origin,
+    quiet,
+    ...(localDirectory ? { localDirectory } : {}),
+  };
+  return { operation, paths: { ...paths, executablePath: process.execPath } };
+}

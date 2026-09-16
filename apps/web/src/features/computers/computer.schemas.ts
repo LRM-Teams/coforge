@@ -13,6 +13,26 @@ export type ComputerRestartStatus =
     }
   | { requestId: string; status: "failed"; reason: "timeout" | "publication" };
 
+/** The client-side shape of one upgrade operation's status, mirroring the server's store. */
+export type ComputerUpgradeStatus =
+  | { requestId: string; status: "accepted"; expectedVersion: string; expiresAt: string }
+  | {
+      requestId: string;
+      status: "completed";
+      expectedVersion: string;
+      computerVersion: string;
+      daemonVersion: string;
+      workerInstanceId: string;
+      completedAt: string;
+    }
+  | {
+      requestId: string;
+      status: "failed";
+      reason: "timeout" | "publication" | "evidence" | "reported";
+      error?: string;
+    }
+  | { requestId: string; status: "unknown"; reason: "corrupt" };
+
 const runtimeInput = z.object({
   computerId: z.string().min(1),
   provider: z.enum(RUNTIME_PROVIDER),

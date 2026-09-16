@@ -1,28 +1,105 @@
 import { expect, test } from "bun:test";
-import { MachineSupervisor, type ManagedBinding } from "../src/supervisor/machine-supervisor";
+import {
+  MachineSupervisor,
+  UPGRADE_OPERATION_HISTORY,
+  type ManagedBinding,
+} from "../src/supervisor/machine-supervisor";
 
-test("serializes upgrade request persistence and keeps concrete versions across concurrent delivery", async () => {
-  let saved: ManagedBinding[] = [
-    { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
-  ];
+function upgradeFixture(initial: Partial<ManagedBinding> = {}) {
+  const state = {
+    saved: [
+      { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true, ...initial },
+    ] as ManagedBinding[],
+  };
   const supervisor = new MachineSupervisor(
     {
-      load: async () => structuredClone(saved),
+      load: async () => structuredClone(state.saved),
       save: async (next) => {
-        saved = structuredClone(next);
+        state.saved = structuredClone(next);
       },
     },
     { start: async () => "a", stop: async () => {}, instance: async () => "a" },
   );
+  return { state, supervisor, operations: () => state.saved[0]?.upgradeOperations };
+}
+
+test("only one upgrade operation may be pending, and a replay is not a second launch", async () => {
+  const { supervisor, operations } = upgradeFixture();
   await supervisor.recover();
-  await Promise.all([
-    supervisor.recordUpgrade("a", "request-a", "1.2.3-rc.1"),
-    supervisor.recordUpgrade("a", "request-b", "1.2.3"),
+
+  expect(await supervisor.recordUpgrade("a", "request-a", "1.2.3-rc.1")).toBe(true);
+  expect(await supervisor.recordUpgrade("a", "request-a", "1.2.3-rc.1")).toBe(false);
+  await expect(supervisor.recordUpgrade("a", "request-a", "9.9.9")).rejects.toThrow(
+    "different expected version",
+  );
+  await expect(supervisor.recordUpgrade("a", "request-b", "1.2.3")).rejects.toThrow(
+    "request-a is still pending",
+  );
+  expect(operations()).toEqual([
+    { requestId: "request-a", expectedVersion: "1.2.3-rc.1", state: "pending" },
   ]);
-  expect(saved[0]?.upgradeRequests).toEqual([
-    { requestId: "request-a", expectedVersion: "1.2.3-rc.1" },
-    { requestId: "request-b", expectedVersion: "1.2.3" },
+});
+
+test("an operation moves from pending through its receipt to the server acknowledgement", async () => {
+  const { supervisor, operations } = upgradeFixture();
+  await supervisor.recover();
+  await supervisor.recordUpgrade("a", "request-a", "1.2.3");
+
+  expect(
+    await supervisor.completeUpgrade("a", "request-a", {
+      status: "failed",
+      error: "candidate failed",
+      at: 7,
+    }),
+  ).toBe(true);
+  expect(operations()).toEqual([
+    {
+      requestId: "request-a",
+      expectedVersion: "1.2.3",
+      state: "failed",
+      terminal: { error: "candidate failed", at: 7 },
+    },
   ]);
+  // A receipt only ever resolves a pending operation; a late duplicate is ignored.
+  expect(await supervisor.completeUpgrade("a", "request-a", { status: "succeeded", at: 8 })).toBe(
+    false,
+  );
+
+  expect(await supervisor.acknowledgeUpgrade("a", "request-a")).toBe(true);
+  expect(operations()?.[0]?.state).toBe("acknowledged");
+  // An acknowledged operation no longer blocks the next one.
+  expect(await supervisor.recordUpgrade("a", "request-b", "1.2.4")).toBe(true);
+});
+
+test("a pending operation cannot be acknowledged and unknown operations are ignored", async () => {
+  const { supervisor } = upgradeFixture();
+  await supervisor.recover();
+  await supervisor.recordUpgrade("a", "request-a", "1.2.3");
+
+  await expect(supervisor.acknowledgeUpgrade("a", "request-a")).rejects.toThrow(
+    "pending Computer upgrade operation cannot be acknowledged",
+  );
+  expect(await supervisor.acknowledgeUpgrade("a", "absent")).toBe(false);
+  expect(await supervisor.completeUpgrade("a", "absent", { status: "succeeded", at: 1 })).toBe(
+    false,
+  );
+});
+
+test("operation history stays capped at the audit tail", async () => {
+  const { supervisor, operations } = upgradeFixture({
+    upgradeOperations: Array.from({ length: UPGRADE_OPERATION_HISTORY }, (_, index) => ({
+      requestId: `old-${index}`,
+      expectedVersion: "1.0.0",
+      state: "acknowledged" as const,
+    })),
+  });
+  await supervisor.recover();
+
+  await supervisor.recordUpgrade("a", "newest", "1.2.3");
+
+  expect(operations()).toHaveLength(UPGRADE_OPERATION_HISTORY);
+  expect(operations()?.at(-1)?.requestId).toBe("newest");
+  expect(operations()?.some((entry) => entry.requestId === "old-0")).toBe(false);
 });
 
 test("a restart interrupted before OS stop cannot acknowledge replay while the original instance survives", async () => {

@@ -1,23 +1,39 @@
 import { useEffect, useRef, useState } from "react";
-import { Edit01 as Pencil, RefreshCw01 as RotateCw } from "@untitledui/icons";
+import {
+  AlertCircle,
+  ArrowUp,
+  Check,
+  Edit01 as Pencil,
+  RefreshCw01 as RotateCw,
+} from "@untitledui/icons";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
+import { BadgeWithIcon } from "@/components/base/badges/badges";
+import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { useAppToast } from "@/components/ui/toast";
 import { m } from "@/paraglide/messages";
-import { BackToComputers } from "./computer-layout";
-import { computerLabel, operatingSystemLabel, type ComputerIdentity } from "./computer-identity";
+import { BackToComputers, useUpgradingComputer } from "./computer-layout";
+import {
+  computerLabel,
+  isComputerUpdateAvailable,
+  operatingSystemLabel,
+  type ComputerIdentity,
+} from "./computer-identity";
+import { describeComputerUpgradeFailure } from "./upgrade-failure";
 import { ComputerTile } from "./computer-tile";
 import { RuntimeIdentity, RuntimeUsage, type UsageView } from "./runtime-usage";
-import type { ComputerRestartStatus } from "./computer.schemas";
+import type { ComputerRestartStatus, ComputerUpgradeStatus } from "./computer.schemas";
 import { Input } from "@/components/base/input/input";
 
 export const RESTART_POLL_INTERVAL_MS = 2_000;
 export const RESTART_MAX_POLLS = 31;
+/** How long the inline "upgraded" confirmation stays before the meta line speaks for itself. */
+export const UPGRADE_CONFIRMATION_MS = 6_000;
 
 export type ComputerDetailView = ComputerIdentity & {
   id: string;
@@ -50,6 +66,9 @@ export function ComputerDetail({
   onUpdateDisplayName,
   onRestart,
   onReadRestartStatus,
+  onUpgrade,
+  onReadUpgradeStatus,
+  latestComputerVersion,
   restartPollIntervalMs = RESTART_POLL_INTERVAL_MS,
   restartMaxPolls = RESTART_MAX_POLLS,
 }: {
@@ -60,6 +79,9 @@ export function ComputerDetail({
   onUpdateDisplayName?: (displayName: string) => Promise<void>;
   onRestart?: (requestId: string) => Promise<ComputerRestartStatus>;
   onReadRestartStatus?: (requestId: string) => Promise<ComputerRestartStatus>;
+  onUpgrade?: (requestId: string) => Promise<ComputerUpgradeStatus>;
+  onReadUpgradeStatus?: (requestId: string) => Promise<ComputerUpgradeStatus>;
+  latestComputerVersion?: string | null;
   restartPollIntervalMs?: number;
   restartMaxPolls?: number;
 }) {
@@ -83,6 +105,68 @@ export function ComputerDetail({
   const [restartState, setRestartState] = useState<
     "idle" | "pending" | "accepted" | "completed" | "error"
   >("idle");
+  const { upgradingComputerId, setUpgradingComputerId } = useUpgradingComputer();
+  const [upgrade, setUpgrade] = useState<
+    | { state: "idle" }
+    | { state: "running" }
+    | { state: "succeeded"; version: string }
+    | { state: "failed"; reason: string }
+  >({ state: "idle" });
+  const upgrading = upgrade.state === "running" || upgradingComputerId === computer.id;
+  const upgradeAvailable =
+    onUpgrade &&
+    computer.ownedByCurrentUser &&
+    isComputerUpdateAvailable(computer.computerVersion, latestComputerVersion);
+  // The confirmation is a courtesy; the meta line's version is the durable answer.
+  useEffect(() => {
+    if (upgrade.state !== "succeeded") return;
+    const timer = window.setTimeout(
+      () => mountedRef.current && setUpgrade({ state: "idle" }),
+      UPGRADE_CONFIRMATION_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [upgrade]);
+  const runUpgrade = async () => {
+    if (!onUpgrade) return;
+    const requestId = crypto.randomUUID();
+    setUpgrade({ state: "running" });
+    setUpgradingComputerId(computer.id);
+    const settle = (update: () => void) => {
+      if (mountedRef.current) update();
+    };
+    try {
+      const accepted = await onUpgrade(requestId);
+      if (accepted.status !== "accepted")
+        throw new Error(describeComputerUpgradeFailure({ reason: "publication" }));
+      if (!onReadUpgradeStatus) return;
+      for (let poll = 0; poll < restartMaxPolls; poll += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, restartPollIntervalMs));
+        const status = await onReadUpgradeStatus(requestId);
+        if (status.status === "completed" && status.computerVersion) {
+          settle(() => setUpgrade({ state: "succeeded", version: status.computerVersion }));
+          return;
+        }
+        if (status.status === "completed")
+          throw new Error(describeComputerUpgradeFailure({ reason: "evidence" }));
+        if (status.status === "failed") throw new Error(describeComputerUpgradeFailure(status));
+        if (status.status === "unknown")
+          throw new Error(describeComputerUpgradeFailure({ reason: "evidence" }));
+      }
+      throw new Error(describeComputerUpgradeFailure({ reason: "timeout" }));
+    } catch (error) {
+      settle(() =>
+        setUpgrade({
+          state: "failed",
+          reason:
+            error instanceof Error
+              ? error.message
+              : describeComputerUpgradeFailure({ reason: "timeout" }),
+        }),
+      );
+    } finally {
+      settle(() => setUpgradingComputerId(undefined));
+    }
+  };
   const setRuntimePublic = async (runtimeId: string, isPublic: boolean) => {
     if (updatingRuntimeIds.current.has(runtimeId)) return;
     updatingRuntimeIds.current.add(runtimeId);
@@ -193,6 +277,29 @@ export function ComputerDetail({
             <span>{operatingSystemLabel(computer)}</span>
             <span aria-hidden="true">·</span>
             <span>{computerVersionLabel(computer)}</span>
+            {upgrading ? (
+              <span className="inline-flex items-center gap-1 text-brand-secondary">
+                <LoadingIndicator className="size-3.5" />
+                <span>{m.computer_upgrade_in_progress()}</span>
+              </span>
+            ) : upgrade.state === "succeeded" ? (
+              <span className="inline-flex items-center gap-1 text-success-primary">
+                <Check className="size-3.5" />
+                <span>{m.computer_upgrade_succeeded_inline()}</span>
+              </span>
+            ) : upgrade.state === "failed" ? (
+              <span className="inline-flex min-w-0 items-center gap-1 text-error-primary">
+                <AlertCircle className="size-3.5 shrink-0" />
+                <span className="truncate">{upgrade.reason}</span>
+              </span>
+            ) : (
+              upgradeAvailable &&
+              latestComputerVersion && (
+                <BadgeWithIcon color="brand" size="sm" type="pill-color" iconLeading={ArrowUp}>
+                  {m.computer_new_version({ version: latestComputerVersion })}
+                </BadgeWithIcon>
+              )
+            )}
             {computer.creator && (
               <Tooltip
                 title={m.computer_added_by_name({
@@ -221,12 +328,32 @@ export function ComputerDetail({
         </div>
         {onRestart && (
           <div className="ml-auto flex shrink-0 items-center gap-2">
+            {upgradeAvailable && upgrade.state !== "succeeded" && latestComputerVersion && (
+              <Button
+                type="button"
+                size="md"
+                color={upgrade.state === "failed" ? "secondary" : "primary"}
+                iconLeading={ArrowUp}
+                isLoading={upgrading}
+                showTextWhileLoading
+                isDisabled={upgrading}
+                onPress={() => void runUpgrade()}
+              >
+                {upgrading
+                  ? m.computer_upgrade_in_progress()
+                  : upgrade.state === "failed"
+                    ? m.computer_upgrade_retry()
+                    : m.computer_upgrade_action({
+                        version: shortReleaseVersion(latestComputerVersion),
+                      })}
+              </Button>
+            )}
             <Button
               type="button"
               size="md"
               color="secondary"
               iconLeading={RotateCw}
-              isDisabled={restartState === "pending" || restartState === "accepted"}
+              isDisabled={upgrading || restartState === "pending" || restartState === "accepted"}
               onPress={() => {
                 setRestartState("pending");
                 const requestId = crypto.randomUUID();
@@ -349,6 +476,12 @@ export function ComputerDetail({
       </div>
     </>
   );
+}
+
+/** The part a reader distinguishes releases by: `0.1.0-dev.29` reads as `dev.29`. */
+function shortReleaseVersion(version: string) {
+  const tail = version.split("-").at(-1);
+  return tail && tail !== version ? tail : version;
 }
 
 function computerVersionLabel(computer: ComputerDetailView) {

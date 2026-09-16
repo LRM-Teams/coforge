@@ -204,16 +204,38 @@ download, checksum, snapshot, health and rollback transaction. Unsupported
 platforms fail closed. Accepted publication is not completion evidence.
 Completion is reported only after a fresh ready identity and the same request
 ID are observed; outcomes are accepted, completed, failed, or unknown.
-The request ID and expected version are durably recorded by the Supervisor's
-serialized atomic binding state, outside every managed Workspace process, and
-injected into the replacement Workspace Daemon config on recovery. Corrupt state
-fails closed. Thus a Coordinator, Supervisor, and Workspace Daemon restart
-replays the same operation rather than creating a new one; duplicate delivery is
-bounded and idempotent. Web completion additionally requires the concrete
-expected version, a new Computer/Daemon process identity, matching Computer and
-Daemon versions, and the distinct `recovered_upgrade_request_ids` evidence;
-missing, conflicting, timed-out, or unknown evidence remains failed or unknown
-(never successful).
+Each upgrade is one operation with an identity carried explicitly from the
+process boundary - never through an environment variable - and a durable
+request/result receipt pair under
+`~/.coforge/computer/install/upgrade-results`. The Supervisor records it in its
+serialized atomic binding state as an operation
+`{ request_id, expected_version, state, terminal }`, outside every managed
+Workspace process, and injects the still-unsettled operations into the
+replacement Workspace Daemon config on recovery. Corrupt state fails closed.
+Thus a Coordinator, Supervisor, and Workspace Daemon restart replays the same
+operation rather than creating a new one; duplicate delivery is bounded and
+idempotent. At most one operation may be pending per binding: a second request
+is refused at the operation level, before any job is launched, rather than left
+to collide over the installation lock.
+
+The Supervisor moves a pending operation to its terminal state from the job's
+result receipt, at Coordinator startup and while it watches a job it launched.
+The Workspace Daemon then reports that terminal result to Web as the additive
+`coforge.rpc.v1.ComputerUpgradeResult` (`computer:upgrade_result`,
+`protocol_major` unchanged), and Web's acceptance is the acknowledgement that
+lets the Supervisor retire the record to bounded audit history. A reported
+failure settles the request with reason `reported` and sanitized error text -
+never a local path or a credential-shaped run. A reported success is
+corroborating evidence only. Web completion still requires the concrete expected
+version, a new Computer/Daemon process identity, matching Computer and Daemon
+versions, and the distinct `recovered_upgrade_request_ids` evidence; missing,
+conflicting, timed-out, or unknown evidence remains failed or unknown (never
+successful). See [ADR 0017](adr/0017-computer-upgrade-operation-receipt.md).
+
+Nothing in this path holds Agent runners: the machine lifecycle pause taken
+before an upgrade blocks lifecycle commands only, and does not stop new Agent
+turns or drain an in-flight tool call. That gap is recorded in ADR 0017 as
+follow-up work.
 
 Computer-scoped Redis state uses the canonical destructive-update key hierarchy
 `coforge:workspace:<workspace_id>:computer:<computer_id>:<operation>:v<n>`.

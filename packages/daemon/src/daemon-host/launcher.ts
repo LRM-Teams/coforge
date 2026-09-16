@@ -127,7 +127,15 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
   }
 
   async control(
-    operation: "start" | "stop" | "restart" | "snapshot" | "pause" | "resume" | "upgrade",
+    operation:
+      | "start"
+      | "stop"
+      | "restart"
+      | "snapshot"
+      | "pause"
+      | "resume"
+      | "upgrade"
+      | "upgrade_ack",
     workspaceId?: string,
     requestId: string = crypto.randomUUID(),
     expectedVersion?: string,

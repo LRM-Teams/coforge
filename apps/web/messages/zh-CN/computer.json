@@ -110,5 +110,15 @@
   "computer_copy_login_command": "复制登录命令",
   "computer_login_command_copied": "命令已复制",
   "computer_added_by_name": "由 {name} 添加",
-  "computer_update_available": "有可用更新"
+  "computer_update_available": "有可用更新",
+  "computer_upgrade_in_progress": "升级中…",
+  "computer_upgrade_failed_reported": "电脑报告升级失败",
+  "computer_upgrade_failed_timeout": "电脑未能及时报告新版本",
+  "computer_upgrade_failed_publication": "升级请求无法下发到电脑",
+  "computer_upgrade_failed_evidence": "电脑重新上线，但没有新版本的证据",
+  "computer_upgrade_failed_unknown": "升级未完成",
+  "computer_new_version": "新版本 {version}",
+  "computer_upgrade_action": "升级到 {version}",
+  "computer_upgrade_succeeded_inline": "已升级",
+  "computer_upgrade_retry": "重试升级"
 }

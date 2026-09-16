@@ -11,9 +11,11 @@ import {
 } from "@/features/computers/computers-pending";
 import {
   readComputerRestartStatus,
+  readComputerUpgradeStatus,
   restartComputer,
   setRuntimeVisibility,
   updateComputerDisplayName,
+  upgradeComputer,
 } from "@/features/computers/computers.functions";
 import { scanRuntimeUsage } from "@/features/computers/usage-scan";
 import type { UsageView } from "@/features/computers/runtime-usage";
@@ -26,7 +28,11 @@ export const Route = createFileRoute("/_app/computers/$computerId")({
     const { loaderData } = await parentMatchPromise;
     const computer = loaderData?.computers.find((candidate) => candidate.id === params.computerId);
     if (!computer) throw notFound();
-    return { computer, timeZone: loaderData?.timeZone ?? null };
+    return {
+      computer,
+      timeZone: loaderData?.timeZone ?? null,
+      latestComputerVersion: loaderData?.latestComputerVersion ?? null,
+    };
   },
   pendingMs: 300,
   pendingMinMs: 0,
@@ -38,12 +44,14 @@ export const Route = createFileRoute("/_app/computers/$computerId")({
 
 function ComputerDetailPage() {
   const { computerId } = Route.useParams();
-  const { computer, timeZone } = Route.useLoaderData();
+  const { computer, timeZone, latestComputerVersion } = Route.useLoaderData();
   const router = useRouter();
   const setVisibility = useServerFn(setRuntimeVisibility);
   const updateDisplayName = useServerFn(updateComputerDisplayName);
   const requestRestart = useServerFn(restartComputer);
   const readRestart = useServerFn(readComputerRestartStatus);
+  const requestUpgrade = useServerFn(upgradeComputer);
+  const readUpgrade = useServerFn(readComputerUpgradeStatus);
   // The route component survives a change of `$computerId`, so a snapshot is
   // held against the Computer it was scanned for, never the mounted component.
   const [usage, setUsage] = useState<Record<string, Record<string, UsageView>>>({});
@@ -66,6 +74,14 @@ function ComputerDetailPage() {
       onScanUsage={scan}
       onRestart={(requestId) => requestRestart({ data: { computerId, requestId } })}
       onReadRestartStatus={(requestId) => readRestart({ data: { computerId, requestId } })}
+      latestComputerVersion={latestComputerVersion}
+      onUpgrade={(requestId) => requestUpgrade({ data: { computerId, requestId } })}
+      onReadUpgradeStatus={async (requestId) => {
+        const status = await readUpgrade({ data: { computerId, requestId } });
+        // A completed upgrade changes the version the list and the meta line show.
+        if (status.status === "completed") await router.invalidate({ sync: true });
+        return status;
+      }}
       onUpdateDisplayName={async (displayName) => {
         await updateDisplayName({ data: { computerId, displayName } });
         await router.invalidate({ sync: true });

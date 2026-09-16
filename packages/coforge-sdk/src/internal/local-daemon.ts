@@ -34,6 +34,7 @@ export const LOCAL_RPC_METHODS = {
   PAUSE: "daemon:pause",
   RESUME: "daemon:resume",
   UPGRADE: "daemon:upgrade",
+  UPGRADE_ACKNOWLEDGE: "daemon:upgrade_ack",
   AGENT_MESSAGE: "agent:message",
   AGENT_INBOX: "agent:inbox",
   USAGE_SCAN: "usage:scan",

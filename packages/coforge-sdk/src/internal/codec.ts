@@ -25,6 +25,7 @@ import {
   DaemonRuntimeUsageScanResponseSchema,
   ComputerRestartIntentSchema,
   ComputerUpgradeIntentSchema,
+  ComputerUpgradeResultSchema,
 } from "./gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   AgentSessionReportSchema,
@@ -63,8 +64,13 @@ import type {
   DaemonRuntimeReadyRequest,
   ComputerRestartIntent,
   ComputerUpgradeIntent,
+  ComputerUpgradeResult,
 } from "./index";
-import { COMPUTER_RESTART_MESSAGE_TYPE, COMPUTER_UPGRADE_MESSAGE_TYPE } from "./index";
+import {
+  COMPUTER_RESTART_MESSAGE_TYPE,
+  COMPUTER_UPGRADE_MESSAGE_TYPE,
+  COMPUTER_UPGRADE_RESULT_MESSAGE_TYPE,
+} from "./index";
 
 const runtimeMetadata = (runtime: RuntimeMetadata) => ({
   ...runtime,
@@ -205,6 +211,70 @@ export function decodeComputerUpgradeIntent(bytes: Uint8Array): ComputerUpgradeI
     target: "latest",
     ...(value.expectedVersion ? { expectedVersion: value.expectedVersion } : {}),
     messageType: COMPUTER_UPGRADE_MESSAGE_TYPE,
+  };
+}
+
+/** How much reported failure text the protocol carries. */
+const UPGRADE_ERROR_LIMIT = 300;
+const ABSOLUTE_PATH = /(?:[A-Za-z]:\\|\/)[^\s"'`]{2,}/g;
+const SECRET_LIKE = /\b[A-Za-z0-9_-]{24,}\b/g;
+
+/**
+ * Upgrade failures are rendered to Workspace members, so the text that leaves the machine must
+ * not carry local filesystem layout or anything shaped like a credential. Both ends apply this:
+ * the Daemon before it reports, the server before it stores.
+ */
+export function sanitizeUpgradeErrorText(value: string): string {
+  return value
+    .replace(ABSOLUTE_PATH, "<path>")
+    .replace(SECRET_LIKE, "<redacted>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, UPGRADE_ERROR_LIMIT);
+}
+
+export function encodeComputerUpgradeResult(value: ComputerUpgradeResult): Uint8Array {
+  if (value.status !== "succeeded" && value.status !== "failed")
+    throw new Error("invalid Computer upgrade result status");
+  return toBinary(
+    ComputerUpgradeResultSchema,
+    create(ComputerUpgradeResultSchema, {
+      protocolMajor: value.protocolMajor,
+      requestId: value.requestId,
+      workspaceId: value.workspaceId,
+      computerId: value.computerId,
+      status: value.status,
+      completedAtMs: BigInt(Math.trunc(value.completedAtMs)),
+      messageType: COMPUTER_UPGRADE_RESULT_MESSAGE_TYPE,
+      ...(value.version ? { version: value.version } : {}),
+      ...(value.error ? { error: sanitizeUpgradeErrorText(value.error) } : {}),
+    }),
+  );
+}
+
+export function decodeComputerUpgradeResult(bytes: Uint8Array): ComputerUpgradeResult {
+  const value = fromBinary(ComputerUpgradeResultSchema, bytes);
+  if (
+    value.messageType !== COMPUTER_UPGRADE_RESULT_MESSAGE_TYPE ||
+    !value.requestId ||
+    !value.workspaceId ||
+    !value.computerId ||
+    (value.status !== "succeeded" && value.status !== "failed")
+  )
+    throw new Error("invalid Computer upgrade result");
+  const completedAtMs = Number(value.completedAtMs);
+  if (!Number.isSafeInteger(completedAtMs) || completedAtMs < 0)
+    throw new Error("invalid Computer upgrade result completion time");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    status: value.status,
+    completedAtMs,
+    ...(value.version ? { version: value.version } : {}),
+    ...(value.error ? { error: sanitizeUpgradeErrorText(value.error) } : {}),
+    messageType: COMPUTER_UPGRADE_RESULT_MESSAGE_TYPE,
   };
 }
 

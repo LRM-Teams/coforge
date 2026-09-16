@@ -15,6 +15,8 @@ import {
   encodeAgentStartIntent,
   encodeAgentStopIntent,
   encodeComputerRestartIntent,
+  decodeComputerUpgradeResult,
+  COMPUTER_UPGRADE_RESULT_METHOD,
   type AgentReminderOperationRequest,
 } from "@lrm/coforge-sdk/internal";
 import { DAEMON_RUNTIME_READY_METHOD } from "@lrm/coforge-sdk/internal";
@@ -1546,4 +1548,65 @@ test("reconnect ready retries back off exponentially up to a minute", async () =
 
   expect(delays).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000]);
   await transport.stop();
+});
+
+test("reports one Computer upgrade result through its RPC method and replays it at most once", async () => {
+  const fake = fakeClient();
+  const calls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    calls.push({ method, data });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  const result = {
+    protocolMajor: 1,
+    requestId: "operation-1",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    status: "failed" as const,
+    completedAtMs: 1_700_000_000_000,
+    error:
+      "candidate failed at /Users/someone/.coforge/computer/install; token abcdefghijklmnopqrstuvwxyz",
+  };
+
+  expect(await transport.sendUpgradeResult(result)).toBe(true);
+  // A retried report for the same operation is dropped rather than re-sent.
+  expect(await transport.sendUpgradeResult(result)).toBe(false);
+
+  const sent = calls.filter(({ method }) => method === COMPUTER_UPGRADE_RESULT_METHOD);
+  expect(sent).toHaveLength(1);
+  const decoded = decodeComputerUpgradeResult(sent[0]!.data);
+  expect(decoded.requestId).toBe("operation-1");
+  expect(decoded.status).toBe("failed");
+  expect(decoded.completedAtMs).toBe(1_700_000_000_000);
+  // The wire form carries no local paths and nothing shaped like a credential.
+  expect(decoded.error).not.toContain("/Users/");
+  expect(decoded.error).toContain("<path>");
+  expect(decoded.error).toContain("<redacted>");
+});
+
+test("a failed Computer upgrade report stays replayable", async () => {
+  const fake = fakeClient();
+  let attempts = 0;
+  fake.client.rpc = async (method) => {
+    if (method === COMPUTER_UPGRADE_RESULT_METHOD && attempts++ === 0)
+      throw new Error("server unavailable");
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  const result = {
+    protocolMajor: 1,
+    requestId: "operation-2",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    status: "succeeded" as const,
+    completedAtMs: 1_700_000_000_001,
+    version: "0.1.0-dev.29",
+  };
+
+  await expect(transport.sendUpgradeResult(result)).rejects.toThrow("server unavailable");
+  expect(await transport.sendUpgradeResult(result)).toBe(true);
+  expect(attempts).toBe(2);
 });
