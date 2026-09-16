@@ -1,8 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { CloudAgentMessageResponse } from "@lrm/coforge-sdk/internal";
-import type { PrismaClient } from "../../../../../generated/client";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { getDatabaseClient } from "#/server/db/client.server";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
   readAgentMessages,
@@ -16,17 +14,7 @@ import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server
 import { CentrifugoConversationRealtime } from "#/server/conversations/conversation-realtime.server";
 import { bestEffortMessageNotifier } from "#/server/notifications/web-push-composition.server";
 
-export type AgentMessagesGetPrincipal = { workspaceId: string; agentId?: string };
-
-export type AgentMessagesGetDependencies = {
-  database(): PrismaClient | null | undefined;
-  createRepository(db: PrismaClient): AgentMessageRepository;
-};
-
-const agentMessagesGetDependencies: AgentMessagesGetDependencies = {
-  database: getDatabaseClient,
-  createRepository: (db) => new PrismaDirectConversationRepository(db),
-};
+export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 
 /** Parses a sequence-window query param, throwing on a non-integer value. */
 function parseSequenceParam(
@@ -43,15 +31,11 @@ function parseSequenceParam(
 export async function handleAgentMessagesGet(
   request: Request,
   principal: AgentMessagesGetPrincipal,
-  dependencies: AgentMessagesGetDependencies = agentMessagesGetDependencies,
+  repository: AgentMessageRepository,
 ): Promise<Response> {
-  const db = dependencies.database();
-  const agentId = principal.agentId;
-  if (!db || !agentId) return Response.json({ error: "message access denied" }, { status: 403 });
   const query = new URL(request.url).searchParams;
   const requestId = query.get("requestId") || crypto.randomUUID();
-  const repository = dependencies.createRepository(db);
-  const scope = { workspaceId: principal.workspaceId, agentId };
+  const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     if (query.has("query")) {
       const messages = await searchAgentMessages(repository, scope, {
@@ -105,8 +89,9 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
   server: {
     middleware: [agentAuthMiddleware],
     handlers: {
-      GET: ({ request, context }) => handleAgentMessagesGet(request, context.principal),
-      POST: async ({ request, context }) => {
+      GET: ({ request, context: { principal, db } }) =>
+        handleAgentMessagesGet(request, principal, new PrismaDirectConversationRepository(db)),
+      POST: async ({ request, context: { principal, db } }) => {
         const body = await request.json().catch(() => undefined);
         if (
           !body ||
@@ -115,10 +100,6 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
           typeof body.body !== "string"
         )
           return Response.json({ error: "target and body are required" }, { status: 400 });
-        const db = getDatabaseClient();
-        const agentId = context.principal.agentId;
-        if (!db || !agentId)
-          return Response.json({ error: "message access denied" }, { status: 403 });
         const repository = new PrismaDirectConversationRepository(db);
         const centrifugo = createCentrifugoServerApi();
         const result = await executeAgentSendMessageWithPolicy(
@@ -134,8 +115,8 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
           },
           {
             requestId: typeof body.requestId === "string" ? body.requestId : crypto.randomUUID(),
-            workspaceId: context.principal.workspaceId,
-            agentId,
+            workspaceId: principal.workspaceId,
+            agentId: principal.agentId,
             target: body.target,
             body: body.body,
             holdToken: typeof body.holdToken === "string" ? body.holdToken : undefined,

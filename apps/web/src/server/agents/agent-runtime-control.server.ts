@@ -12,7 +12,7 @@ import {
   type AgentStopIntent,
 } from "@lrm/coforge-sdk/internal";
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
-import { runtimeStartFields } from "./manage-agents.server";
+import { agentStartIntent } from "./manage-agents.server";
 import type { AgentSessions } from "./agent-sessions.server";
 import type { AgentRepository } from "../db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
@@ -142,15 +142,7 @@ export class WorkspaceAgentRecovery {
             return;
           }
           const recovery = await this.conversations.readAgentRecoveryContext(workspaceId, agent.id);
-          const intent: AgentStartIntent = {
-            protocolMajor: 1,
-            requestId: crypto.randomUUID(),
-            workspaceId,
-            computerId,
-            agentId: agent.id,
-            ...runtimeStartFields(agent.runtimeConfig),
-            ...recovery,
-          };
+          const intent: AgentStartIntent = { ...agentStartIntent(agent, computerId), ...recovery };
           if (this.control) {
             await this.control.recover(intent, agent.ownerId);
             return;

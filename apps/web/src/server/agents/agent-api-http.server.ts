@@ -6,6 +6,7 @@ import {
   type AgentApiKeyRepository,
 } from "./agent-api-key.server";
 import { verifyDaemonApiKey } from "../auth/daemon-api-key.server";
+import type { PrismaClient } from "../../../generated/client";
 import { getDatabaseClient } from "../db/client.server";
 import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
 import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
@@ -68,9 +69,7 @@ export function createAgentReminderService(
   );
 }
 
-export async function authenticateAgentHttpRequest(request: Request) {
-  const db = getDatabaseClient();
-  if (!db) throw new CentrifugoRpcAuthenticationError();
+export async function authenticateAgentHttpRequest(request: Request, db: PrismaClient) {
   return authenticateAgentMessageRequest(request, {
     agentApiKeys: new PrismaAgentApiKeyRepository(db),
     verifyDaemonApiKey: (token) => verifyDaemonApiKey(token, new PrismaDaemonApiKeyRepository(db)),

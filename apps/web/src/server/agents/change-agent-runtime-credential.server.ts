@@ -1,7 +1,7 @@
 import type { AgentStartIntent, AgentStopIntent } from "@lrm/coforge-sdk/internal";
 import type { AgentRecord } from "../db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
-import { runtimeStartFields } from "./manage-agents.server";
+import { agentStartIntent, agentStopIntent } from "./manage-agents.server";
 import type {
   AgentRuntimeCredentialSummary,
   AgentRuntimeCredentials,
@@ -61,41 +61,24 @@ export class ChangeAgentRuntimeCredential {
         agent.ownerId !== principal.userId
       )
         throw new Error("Agent is not authorized");
-      await this.runtimeControl.stop(stopIntent(agent), principal.userId);
+      await this.runtimeControl.stop(agentStopIntent(agent), principal.userId);
       let result: T;
       try {
         result = await mutation();
       } catch (error) {
         try {
-          await this.runtimeControl.start(startIntent(agent), principal.userId);
+          await this.runtimeControl.start(agentStartIntent(agent), principal.userId);
         } catch {}
         throw error;
       }
       try {
         const updated = await this.agents.getById(agentId);
         if (updated?.computerId)
-          await this.runtimeControl.start(startIntent(updated), principal.userId);
+          await this.runtimeControl.start(agentStartIntent(updated), principal.userId);
       } catch {
         return { result, restart: "deferred" as const };
       }
       return { result, restart: "published" as const };
     });
   }
-}
-
-function stopIntent(agent: AgentRecord): AgentStopIntent {
-  return {
-    protocolMajor: 1,
-    requestId: crypto.randomUUID(),
-    workspaceId: agent.workspaceId,
-    computerId: agent.computerId!,
-    agentId: agent.id,
-  };
-}
-
-function startIntent(agent: AgentRecord): AgentStartIntent {
-  return {
-    ...stopIntent(agent),
-    ...runtimeStartFields(agent.runtimeConfig),
-  };
 }

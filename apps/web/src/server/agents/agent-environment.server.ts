@@ -2,7 +2,7 @@ import type { AgentStartIntent, AgentStopIntent } from "@lrm/coforge-sdk/interna
 import type { AgentRecord } from "../db/repositories/agent.repositories.server";
 import type { AgentRuntimeConfig, EncryptedAgentEnvironment } from "./agent-runtime-config.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
-import { runtimeStartFields } from "./manage-agents.server";
+import { agentStartIntent, agentStopIntent } from "./manage-agents.server";
 
 const MAX_VARIABLES = 64;
 const MAX_NAME_LENGTH = 128;
@@ -62,7 +62,7 @@ export class AgentEnvironment {
         throw new Error("Agent is not authorized");
       const envVars = validateAgentEnvironment(input);
       const config = await this.#ownedConfig(principal, agentId);
-      await this.runtimeControl.stop(stopIntent(agent), principal.userId);
+      await this.runtimeControl.stop(agentStopIntent(agent), principal.userId);
       const { environment: _environment, ...withoutEnvironment } = config;
       try {
         await this.repository.updateRuntimeConfig(
@@ -73,14 +73,14 @@ export class AgentEnvironment {
         );
       } catch {
         try {
-          await this.runtimeControl.start(startIntent(agent), principal.userId);
+          await this.runtimeControl.start(agentStartIntent(agent), principal.userId);
         } catch {}
         throw new Error("Agent environment could not be saved");
       }
       try {
         const updated = await this.agents.getById(agentId);
         if (!updated?.computerId) return { restart: "deferred" };
-        await this.runtimeControl.start(startIntent(updated), principal.userId);
+        await this.runtimeControl.start(agentStartIntent(updated), principal.userId);
         return { restart: "published" };
       } catch {
         return { restart: "deferred" };
@@ -167,18 +167,4 @@ export function validateAgentEnvironment(input: unknown): Record<string, string>
 
 function aad(agentId: string) {
   return new TextEncoder().encode(`${AAD_PREFIX}\0${agentId}`);
-}
-
-function stopIntent(agent: AgentRecord): AgentStopIntent {
-  return {
-    protocolMajor: 1,
-    requestId: crypto.randomUUID(),
-    workspaceId: agent.workspaceId,
-    computerId: agent.computerId!,
-    agentId: agent.id,
-  };
-}
-
-function startIntent(agent: AgentRecord): AgentStartIntent {
-  return { ...stopIntent(agent), ...runtimeStartFields(agent.runtimeConfig) };
 }
