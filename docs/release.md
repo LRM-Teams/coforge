@@ -724,8 +724,9 @@ seams before a local distribution channel can be promoted.
 An upgrade or rollback coordinator must execute outside the managed service's
 kill scope. Under native management it acquires the machine mutation lock for
 the complete transaction, prepares and verifies bytes, pauses launches,
-snapshots the exact running Workspace set, asks `systemd --user` or per-user
-`launchd` to stop the Supervisor, activates the target, restarts the manager,
+snapshots the exact running Workspace set, holds the runners and waits for them
+to quiesce (below), asks `systemd --user` or per-user `launchd` to stop the
+Supervisor, activates the target, restarts the manager,
 and accepts health only with a new Supervisor identity, expected version, and
 new identity for every previously running Workspace child. Candidate failure
 automatically restores the prior immutable installation and the same running
@@ -763,6 +764,33 @@ Because the Daemon calls a server method that older deployments do not expose, a
 Computer release carrying this behaviour must ship together with the Web
 deployment that accepts it. See
 [ADR 0017](adr/0017-computer-upgrade-operation-receipt.md).
+
+### The runner hold
+
+Stopping the Supervisor gives each Agent about two seconds (a 1 s SIGTERM / 1 s
+SIGKILL ladder), which is not enough for a tool call. Before the stop, the
+coordinator therefore sends `daemon:hold` to the Coordinator, which fans it out
+to every running Workspace daemon over the per-Workspace sockets it already
+owns. A held daemon stops admitting new turns: an inbound delivery is queued on
+the existing per-Agent input queue rather than rejected, is never drained and so
+is never acknowledged, and no new Agent process is launched. Because the
+`agent:deliver:ack` is sent from inside that drain, a held delivery stays
+pending on the server and is republished after the restart - nothing is lost.
+
+The coordinator then polls the hold - it is idempotent, so a poll is a repeat
+call - until every Agent's last Activity is a terminal detail kind or
+`UPGRADE_RUNNER_HOLD_MS` (30 s) elapses, then stops regardless, logging one
+`upgrade:runner_hold_deadline` event per Agent still busy at the deadline. A
+Workspace daemon that does not answer within 5 s counts as idle: an unreachable
+daemon must never block an upgrade. The hold is in-memory only, so a restarted
+daemon - including one restored by a failed install's rollback - is never born
+held.
+
+`upgrade` and `rollback` get the hold because both go through
+`UpgradeLifecycle`. `coforge-computer stop` deliberately does not: an explicit
+stop is immediate. `coforge-computer restart` does not either, because it goes
+through the `daemon:restart` local RPC rather than the upgrade coordinator. See
+[ADR 0020](adr/0020-upgrade-runner-hold.md).
 
 ## Rollback
 

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { createDaemonHost, LocalDaemonLauncher } from "@lrm/coforge-daemon";
+import { holdRunnersUntilQuiescent } from "./runner-hold";
 
 const logger = getLogger(["coforge", "computer", "upgrade"]);
 
@@ -31,6 +32,9 @@ export type UpgradeProbe = {
 export interface UpgradeLifecycle {
   snapshot(): Promise<ManagedRuntimeSnapshot>;
   pauseLaunches(): Promise<void>;
+  /** Stops every Agent admitting new turns and waits, bounded, for in-flight work to finish.
+   * Always runs before `stop`; `resumeLaunches` lifts it if the upgrade aborts first. */
+  holdRunners(): Promise<void>;
   stop(snapshot: ManagedRuntimeSnapshot): Promise<void>;
   start(snapshot: ManagedRuntimeSnapshot, version: string): Promise<void>;
   probe(snapshot: ManagedRuntimeSnapshot, expected: UpgradeProbe): Promise<void>;
@@ -123,6 +127,25 @@ export function createSupervisorUpgradeLifecycle(
         () => false,
       );
       if (supervisorWasRunning) await local.control("pause");
+    },
+    async holdRunners() {
+      if (!supervisorWasRunning) return;
+      const outcome = await holdRunnersUntilQuiescent({
+        hold: async () => {
+          const response = await local.hold("hold");
+          if (!response.accepted) throw new Error("Coordinator did not accept the runner hold");
+          return response;
+        },
+      });
+      logger.info("Runner hold completed", {
+        event: outcome.quiescent ? "upgrade:runner_hold_quiescent" : "upgrade:runner_hold_expired",
+        label: coordinatorLabel,
+        operation: "hold",
+        quiescent: outcome.quiescent,
+        elapsed_ms: outcome.elapsedMs,
+        busy_agent_count: outcome.busyAgents.length,
+        unreachable_workspace_ids: outcome.unreachableWorkspaceIds,
+      });
     },
     async stop() {
       if (!supervisorWasRunning) return;
@@ -222,7 +245,13 @@ export function createSupervisorUpgradeLifecycle(
         throw new Error("Workspace replacement set/identity/version mismatch");
     },
     async resumeLaunches() {
-      if (supervisorWasRunning) await local.control("resume");
+      // Releasing first is what lifts a runner hold on an upgrade aborted before the stop. On the
+      // success path the daemon answering here is a fresh process that was never held, and
+      // `daemon:release` is idempotent, so the extra call is a no-op rather than a special case.
+      if (supervisorWasRunning) {
+        await local.hold("release").catch(() => {});
+        await local.control("resume");
+      }
       await rm(holdPath, { force: true });
     },
   };

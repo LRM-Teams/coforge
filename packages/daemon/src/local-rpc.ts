@@ -19,6 +19,9 @@ import {
   encodeInboxResponse,
   decodeUsageScanRequest,
   encodeUsageScanResponse,
+  decodeDaemonHoldRequest,
+  encodeDaemonHoldResponse,
+  type HeldBusyAgent,
   type UsageScanResponse,
   type AgentMessageResponse,
   type InboxResponse,
@@ -38,6 +41,14 @@ export type DaemonLocalRpcServer = {
   close(): Promise<void>;
 };
 
+/** What a daemon reports when asked to hold or release its runners. */
+export type DaemonHoldReport = {
+  held: boolean;
+  busyAgents: HeldBusyAgent[];
+  /** Coordinator only: Workspaces that did not answer inside the per-Workspace budget. */
+  unreachableWorkspaceIds?: string[];
+};
+
 type DaemonRuntimePort = Partial<{
   configure(connection: DaemonConfig): Promise<void>;
   start(): Promise<void>;
@@ -47,6 +58,8 @@ type DaemonRuntimePort = Partial<{
   inbox(context: string, request: LocalInboxRequest): Promise<InboxResponse>;
   scanUsage(provider: string): Promise<UsageScanResponse>;
   command(method: string, request: DaemonCommandRequest): Promise<ManagedRuntimeIdentity[]>;
+  hold(reason: string): Promise<DaemonHoldReport>;
+  release(): Promise<DaemonHoldReport>;
 }>;
 
 type LocalRpcConfigStore = Pick<DaemonConfigStore, "load" | "save" | "clear"> &
@@ -124,6 +137,8 @@ class LocalRpcDispatcher {
       [LOCAL_RPC_METHODS.AGENT_INBOX]: (payload) => this.#inbox(payload),
       [LOCAL_RPC_METHODS.USAGE_SCAN]: (payload) => this.#usageScan(payload),
       [LOCAL_RPC_METHODS.CONFIGURE]: (payload) => this.#configure(payload),
+      [LOCAL_RPC_METHODS.HOLD]: (payload) => this.#hold(payload, true),
+      [LOCAL_RPC_METHODS.RELEASE]: (payload) => this.#hold(payload, false),
     };
   }
 
@@ -211,6 +226,30 @@ class LocalRpcDispatcher {
     const result = await this.input.runtime.scanUsage?.(request.provider);
     if (!result) throw new Error("usage scanning is unavailable");
     return encodeUsageScanResponse({ ...result, requestId: request.requestId, protocolMajor: 1 });
+  }
+
+  /**
+   * Engages or lifts the runner hold. Deliberately not a LIFECYCLE_METHOD: it answers with its own
+   * message because the caller needs the busy set, not a runtime identity list. A daemon that does
+   * not implement the port answers `accepted: false`, which callers must read as "cannot hold,
+   * carry on" - an upgrade is never blocked by a daemon that cannot be held.
+   */
+  async #hold(payload: Uint8Array, engage: boolean): Promise<Uint8Array> {
+    const request = decodeDaemonHoldRequest(payload);
+    this.#assertOwnServer(request.expectedServerUrl, "request");
+    const { runtime } = this.input;
+    const valid = request.protocolMajor === 1 && request.requestId.length > 0;
+    const report = valid
+      ? await (engage ? runtime.hold?.(request.reason ?? "upgrade") : runtime.release?.())
+      : undefined;
+    return encodeDaemonHoldResponse({
+      protocolMajor: 1,
+      requestId: request.requestId,
+      accepted: valid && report !== undefined,
+      held: report?.held ?? false,
+      busyAgents: report?.busyAgents ?? [],
+      unreachableWorkspaceIds: report?.unreachableWorkspaceIds ?? [],
+    });
   }
 
   /** Rejects requests addressed to a server other than the one this daemon build embeds. */

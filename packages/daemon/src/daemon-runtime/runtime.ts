@@ -153,6 +153,9 @@ const TERMINAL_ACTIVITY_DETAIL_KINDS = new Set<string>([
  * here, centrally, so a chatty stream can never flood the transport or history. */
 const RUNTIME_PROGRESS_RATE_LIMIT_MS = 10_000;
 
+/** One Agent that is still mid-turn when the runner hold is polled. */
+export type BusyAgentReport = { agentId: string; detailKind: string; busySinceMs: number };
+
 type SessionMode = "create" | "resume";
 
 /** Cloud-supplied identity for one launch; every field falls back to the previous reference. */
@@ -242,8 +245,11 @@ export class DaemonRuntime {
   readonly #activityHeartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #lastBusyActivity = new Map<
     string,
-    { launch: ActivityLaunch; activity: ActivityDraft }
+    { launch: ActivityLaunch; activity: ActivityDraft; at: number }
   >();
+  /** Runner-hold reason while this runtime is refusing new turns; undefined when not held.
+   * Deliberately in-memory only, so a restarted daemon is never born held (ADR 0020). */
+  #runnerHold: string | undefined;
   readonly #lastRuntimeProgressAt = new Map<string, number>();
 
   constructor(
@@ -796,6 +802,12 @@ export class DaemonRuntime {
       return recoveryCompletion.then(() => activeRuntime);
     }
 
+    // A brand-new process started inside the hold window would be killed seconds later by the
+    // upgrade's stop. Refusing is safe: `#agentControl.replay()` re-issues the intent after the
+    // restart. Launches that only extend a live runtime returned above and are untouched.
+    if (this.#runnerHold !== undefined)
+      return Promise.reject(new Error(`Agent launches are held for ${this.#runnerHold}`));
+
     this.#messageAttention.clearAgent(agentId);
 
     const recoveryCompletion = recovery ? enqueueRecovery(recovery) : undefined;
@@ -836,7 +848,17 @@ export class DaemonRuntime {
 
   #ensureAgentInputDrain(agentId: string): void {
     const queue = this.#agentInputQueues.get(agentId);
-    if (!queue || queue.closed || queue.drain || !this.#agentProcessManager.session(agentId))
+    // The runner hold is enforced here as well as at handleAgentMessage: draining is what calls
+    // AgentMessageAttentionIndex.receive, which notifies the session and then sends the
+    // `agent:deliver:ack`. Not draining is therefore exactly "accepted locally, never acked", so
+    // the server's AgentMessageDelivery.receivedAt stays null and it republishes after restart.
+    if (
+      !queue ||
+      queue.closed ||
+      queue.drain ||
+      this.#runnerHold !== undefined ||
+      !this.#agentProcessManager.session(agentId)
+    )
       return;
     queue.drain = this.#drainAgentInputs(agentId, queue).finally(() => {
       queue.drain = undefined;
@@ -1283,6 +1305,20 @@ export class DaemonRuntime {
       message,
       completion,
     }));
+    // Runner hold: the delivery is queued, never rejected and never indexed. Attention indexing is
+    // what wakes a turn, and the server's canonical read boundary only advances when the Agent
+    // itself drains `check` - so a held delivery stays undelivered server-side and is re-fetched
+    // after the restart. Nothing is acknowledged while the hold is in force.
+    if (this.#runnerHold !== undefined) {
+      void delivery.catch(() => {});
+      logger.info("Agent delivery queued behind a runner hold", {
+        event: "agent.message.delivery_held",
+        agent_id: message.agentId,
+        delivery_id: message.deliveryId,
+        reason: this.#runnerHold,
+      });
+      return;
+    }
     if (this.#agentProcessManager.session(message.agentId)) {
       this.#ensureAgentInputDrain(message.agentId);
       return delivery;
@@ -1436,7 +1472,8 @@ export class DaemonRuntime {
     if (TERMINAL_ACTIVITY_DETAIL_KINDS.has(activity.detailKind)) {
       this.#clearActivityHeartbeat(agentId);
     } else if (BUSY_ACTIVITY_DETAIL_KINDS.has(activity.detailKind)) {
-      if (!activity.isHeartbeat) this.#lastBusyActivity.set(agentId, { launch, activity });
+      if (!activity.isHeartbeat)
+        this.#lastBusyActivity.set(agentId, { launch, activity, at: Date.now() });
       this.#scheduleActivityHeartbeat(agentId, launch);
     }
   }
@@ -2066,8 +2103,51 @@ export class DaemonRuntime {
     return context;
   }
 
+  /**
+   * Stops admitting new Agent turns and reports which Agents are still busy. Idempotent: a repeat
+   * call only re-reads the busy set, which is what the upgrade's quiescence poll relies on.
+   */
+  holdRunners(reason = "upgrade"): BusyAgentReport[] {
+    if (this.#runnerHold === undefined)
+      logger.info("Runner hold engaged", { event: "daemon.runner_hold.engaged", reason });
+    this.#runnerHold = reason;
+    return this.busyAgents();
+  }
+
+  /** Lifts the hold and resumes every delivery queued behind it, in arrival order. */
+  releaseRunners(): BusyAgentReport[] {
+    if (this.#runnerHold !== undefined)
+      logger.info("Runner hold released", {
+        event: "daemon.runner_hold.released",
+        reason: this.#runnerHold,
+      });
+    this.#runnerHold = undefined;
+    // Copied deliberately: #ensureAgentInputDrain deletes drained queues from this very map.
+    const queued = Array.from(this.#agentInputQueues.keys());
+    for (const agentId of queued) this.#ensureAgentInputDrain(agentId);
+    return this.busyAgents();
+  }
+
+  get runnerHeld(): boolean {
+    return this.#runnerHold !== undefined;
+  }
+
+  /**
+   * Agents whose last emitted Activity is a busy detail kind with no terminal kind since -
+   * `#lastBusyActivity` is set on every busy emission and cleared by `#clearActivityHeartbeat`,
+   * which every terminal kind and every stop path already runs (ADR 0016).
+   */
+  busyAgents(): BusyAgentReport[] {
+    return [...this.#lastBusyActivity.entries()].map(([agentId, remembered]) => ({
+      agentId,
+      detailKind: remembered.activity.detailKind,
+      busySinceMs: remembered.at,
+    }));
+  }
+
   stop(): Promise<void> {
     if (this.#stopPromise) return this.#stopPromise;
+    this.#runnerHold = undefined;
     // Close every local capability synchronously before any shutdown await.
     this.#stopping = true;
     this.#started = false;

@@ -468,3 +468,88 @@ test("launcher stops waiting when the daemon closes the socket during configurat
     }).ensureStarted(config),
   ).rejects.toThrow("did not accept");
 });
+
+test("daemon:hold and daemon:release round-trip the busy set over the local socket", async () => {
+  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const holds: string[] = [];
+  let releases = 0;
+  servers.push(
+    await startDaemonLocalRpcServer({
+      socketPath,
+      serverUrl: launcherEnvironment.serverUrl,
+      validateCredential: () => true,
+      credentials: new InMemoryDaemonCredentialStore(),
+      runtime: {
+        hold: async (reason) => {
+          holds.push(reason);
+          return {
+            held: true,
+            busyAgents: [
+              {
+                workspaceId: "workspace-a",
+                agentId: "agent-a",
+                detailKind: "running_command",
+                busySinceMs: 1_700_000_000_000,
+              },
+            ],
+            unreachableWorkspaceIds: ["workspace-b"],
+          };
+        },
+        release: async () => {
+          releases++;
+          return { held: false, busyAgents: [], unreachableWorkspaceIds: [] };
+        },
+      },
+    }),
+  );
+  const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
+    executablePath: "/unused",
+    socketPath,
+  });
+
+  const held = await launcher.hold("hold", "upgrade");
+  expect(held.accepted).toBe(true);
+  expect(held.held).toBe(true);
+  expect(held.busyAgents).toEqual([
+    {
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      detailKind: "running_command",
+      busySinceMs: 1_700_000_000_000,
+    },
+  ]);
+  expect(held.unreachableWorkspaceIds).toEqual(["workspace-b"]);
+
+  // Idempotent at the wire level too: a second hold is just another busy-set read, which is what
+  // the upgrade's quiescence poll relies on.
+  await launcher.hold("hold", "upgrade");
+  expect(holds).toEqual(["upgrade", "upgrade"]);
+
+  const released = await launcher.hold("release");
+  expect(released.accepted).toBe(true);
+  expect(released.held).toBe(false);
+  expect(releases).toBe(1);
+});
+
+test("a daemon that cannot hold answers accepted:false rather than blocking an upgrade", async () => {
+  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  servers.push(
+    await startDaemonLocalRpcServer({
+      socketPath,
+      serverUrl: launcherEnvironment.serverUrl,
+      validateCredential: () => true,
+      credentials: new InMemoryDaemonCredentialStore(),
+      runtime: {},
+    }),
+  );
+  const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
+    executablePath: "/unused",
+    socketPath,
+  });
+
+  const response = await launcher.hold("hold");
+  expect(response.accepted).toBe(false);
+  expect(response.busyAgents).toEqual([]);
+});
