@@ -87,6 +87,7 @@ test("lists only the requested Workspace directory and denies outsiders", async 
 
     const members = new WorkspaceMembers(db);
     expect(await members.list(workspace.id, viewer.id)).toEqual({
+      actorRole: "member",
       people: [
         {
           id: otherOwner.id,

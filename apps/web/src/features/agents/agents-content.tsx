@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import {
   MessageCircle01 as MessageCircle,
   Monitor01 as Monitor,
   Plus,
   SearchLg as Search,
   Users01 as UsersRound,
+  UsersPlus,
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -31,6 +32,7 @@ import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { m } from "@/paraglide/messages";
+import { InviteMemberDialog } from "@/features/workspaces/invite-member-dialog";
 import type { AgentStatusView } from "./agent-status-realtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
@@ -64,6 +66,7 @@ export function AgentsContent({
   computers,
   onCreate,
   onLoadRuntimeCatalog,
+  onInviteMember,
   defaultCreateDialogOpen = false,
 }: {
   directory: WorkspaceMemberDirectory;
@@ -73,15 +76,19 @@ export function AgentsContent({
   computers: ComputerOption[];
   onCreate: (input: CreateAgentInput) => Promise<{ startPublished: boolean }>;
   onLoadRuntimeCatalog: (computerId: string) => Promise<RuntimeCatalog[]>;
+  onInviteMember: (input: { username: string; role: "admin" | "member" }) => Promise<void>;
   defaultCreateDialogOpen?: boolean;
 }) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(defaultCreateDialogOpen);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [submitting, guard] = useSubmitGuard();
   const [error, setError] = useState("");
   const [deferredStart, setDeferredStart] = useState(false);
   const [computerId, setComputerId] = useState(computers[0]?.id ?? "");
   const memberCount = directory.people.length + directory.agents.length;
+  const canInviteMember = directory.actorRole === "owner" || directory.actorRole === "admin";
   const memberTypes = [
     { value: "all", label: m.filters_all(), count: memberCount },
     { value: "human", label: m.member_person(), count: directory.people.length },
@@ -140,9 +147,21 @@ export function AgentsContent({
         <PageHeader
           heading={m.navigation_agents()}
           actions={
-            <Button size="sm" color="secondary" iconLeading={Plus} onPress={() => setOpen(true)}>
-              {m.header_new_agent()}
-            </Button>
+            <>
+              {canInviteMember && (
+                <Button
+                  size="sm"
+                  color="secondary"
+                  iconLeading={UsersPlus}
+                  onPress={() => setInviteOpen(true)}
+                >
+                  {m.workspace_invite_button()}
+                </Button>
+              )}
+              <Button size="sm" color="secondary" iconLeading={Plus} onPress={() => setOpen(true)}>
+                {m.header_new_agent()}
+              </Button>
+            </>
           }
         />
         {memberCount > 0 && (
@@ -260,6 +279,15 @@ export function AgentsContent({
           )}
         </div>
       </section>
+
+      <InviteMemberDialog
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        onInvite={async (input) => {
+          await onInviteMember(input);
+          await router.invalidate({ sync: true });
+        }}
+      />
 
       <ModalOverlay
         isOpen={open}

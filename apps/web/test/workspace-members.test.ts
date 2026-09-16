@@ -19,9 +19,14 @@ describe("WorkspaceMembers", () => {
   });
 
   test("returns all humans and Agents in the Workspace with only public directory fields", async () => {
-    const queries: { people?: object; agents?: object } = {};
+    const queries: { membership?: object; people?: object; agents?: object } = {};
     const db = {
-      workspaceMembership: { findUnique: async () => ({ userId: "viewer" }) },
+      workspaceMembership: {
+        findUnique: async (query: object) => {
+          queries.membership = query;
+          return { userId: "viewer", role: "admin" };
+        },
+      },
       user: {
         findMany: async (query: object) => {
           queries.people = query;
@@ -69,6 +74,10 @@ describe("WorkspaceMembers", () => {
 
     const result = await new WorkspaceMembers(db).list("workspace-1", "viewer");
 
+    expect(queries.membership).toEqual({
+      where: { workspaceId_userId: { workspaceId: "workspace-1", userId: "viewer" } },
+      select: { userId: true, role: true },
+    });
     expect(queries.people).toEqual({
       where: { memberships: { some: { workspaceId: "workspace-1" } } },
       select: { id: true, username: true, displayName: true, description: true },
@@ -96,6 +105,7 @@ describe("WorkspaceMembers", () => {
       orderBy: [{ name: "asc" }, { id: "asc" }],
     });
     expect(result).toEqual({
+      actorRole: "admin",
       people: [
         {
           id: "other-user",
