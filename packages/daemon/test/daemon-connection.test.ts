@@ -25,6 +25,7 @@ import {
 import { DAEMON_RUNTIME_READY_METHOD } from "@lrm/coforge-sdk/internal";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
+import { AgentTransportError } from "../src/connection/agent-transport-error";
 
 function fakeClient() {
   let connected = () => {};
@@ -1676,6 +1677,93 @@ test.each(sendAdapterCases)(
     expect(result.messages).toEqual(response.context);
   },
 );
+
+test("requestSend rejects a response whose state is not sent/held/denied instead of returning it untyped", async () => {
+  // The exact incident: upstream answers 200, but the body has no `state` (or `context`) the
+  // daemon can trust. Previously this fell through to a `TypeError` deep in `runtime.ts`.
+  for (const malformedBody of [
+    { protocolMajor: 1, requestId: "request-send" }, // missing state and context entirely
+    { protocolMajor: 1, requestId: "request-send", state: "sent" }, // missing context
+    { protocolMajor: 1, requestId: "request-send", state: "queued", context: [] }, // unknown state
+    "not an object",
+  ]) {
+    const client = createAgentMessageHttpClient(async () => Response.json(malformedBody));
+    const attempt = client.requestSend!({
+      url: "https://server.example/api/agent/v1/messages",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-send",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        operation: "send",
+        target: "@ada",
+        body: "hi",
+      },
+    });
+    await expect(attempt).rejects.toBeInstanceOf(AgentTransportError);
+    await expect(attempt).rejects.toMatchObject({
+      failureClass: "protocol_mismatch",
+      upstreamStatus: 200,
+      responseStarted: true,
+      responseComplete: true,
+    });
+  }
+});
+
+test("requestSend classifies a network failure as pre-response transport, never a bare exception", async () => {
+  const client = createAgentMessageHttpClient(async () => {
+    throw new TypeError("fetch failed");
+  });
+  const attempt = client.requestSend!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-send",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "send",
+      target: "@ada",
+      body: "hi",
+    },
+  });
+  await expect(attempt).rejects.toBeInstanceOf(AgentTransportError);
+  await expect(attempt).rejects.toMatchObject({
+    failureClass: "pre_response_transport",
+    responseStarted: false,
+    responseComplete: false,
+  });
+});
+
+test("requestSend on a non-2xx upstream response surfaces the real status, not a collapsed 502", async () => {
+  const client = createAgentMessageHttpClient(
+    async () => new Response("internal error", { status: 500 }),
+  );
+  const attempt = client.requestSend!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-send",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "send",
+      target: "@ada",
+      body: "hi",
+    },
+  });
+  await expect(attempt).rejects.toBeInstanceOf(AgentTransportError);
+  await expect(attempt).rejects.toMatchObject({
+    failureClass: "upstream_http_response",
+    upstreamStatus: 500,
+    responseStarted: true,
+    responseComplete: true,
+  });
+});
 
 test("requests and revokes Agent API keys through the server API route", async () => {
   const fake = fakeClient();

@@ -20,6 +20,7 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
   \`COFORGE_MESSAGE\`
 
 - If sending is held because newer context arrived, the hold output lists the newer messages as preview lines before the draft instructions; review the returned messages. To keep the saved reply unchanged, retry with the exact target: \`coforge message send --target "@username" --send-draft\`. To replace it, send revised content normally. Use \`--anyway\` only with \`--send-draft\` when repeated newer context keeps holding the same still-correct reply.
+- If \`coforge message send\` fails and its error shows \`Draft saved: yes\`, delivery is unknown, not failed: do not resend. Wait, or tell a person what happened; running \`coforge message read\` or seeing no reply neither confirms nor rules out that it already sent. \`coforge message send --send-draft\` after such a failure is a person's deliberate decision to accept a possible duplicate, not something you decide on your own.
 
 - Informational system messages do not require a reply unless they request an action.
 

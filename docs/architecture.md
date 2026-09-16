@@ -925,6 +925,43 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 - attention 丢失后的恢复依赖 canonical Message/read boundary；恢复正文被 model 接受后，Daemon 在该 Agent 随后的 `send` side effect 上附带可信 `seenUpToSequence`，Web 据此为精确授权的会话单调推进且不超过当前 sequence。它不是专用恢复回执，也不表示 turn 完成；delivery ACK、start ACK 和 `unreadSummary` 都不是阅读确认；
 - 不使用数据库 command mailbox 或 claim/lease，除非先形成新的架构决策。
 
+#### Agent proxy 失败分类与 send 失败语义
+
+2026-09-16 事故：dev.30 daemon 按 `messages`/`accepted` 旧字段解析已迁移到 `context`/`state`
+（PR #264）的 send response，`TypeError` 发生在 Web 已经落库并投递之后；daemon 把每个异常都
+折叠成裸 `502 "proxy request failed"`，无 WARN 日志；CLI 打印 32 字符的失败文案，Agent 误判为
+未发送并用新 `requestId` 重试，产生重复消息。Frank 批准对齐 Raft Computer 1.0.32 的可观察契约，
+接受不兼容旧 Computer/Web 的破坏性变更。
+
+- `packages/daemon/src/agent-proxy-failure.ts` 把抛出的异常分类为 `pre_response_transport`（请求
+  未达到上游）、`upstream_http_response`（上游返回的 HTTP 错误，状态码原样透传，不折叠为 502）、
+  `mid_response_transport`（响应体读取中失败）、`protocol_mismatch`（收到 200 但无法解码/校验，
+  如本次事故）或 `local_precondition`（Agent 本地上下文无效、runtime 未启动、API key 缺失、无
+  held draft 等，来自 `packages/daemon/src/daemon-runtime/agent-preflight-error.ts`，保持 400 类
+  状态）。已知安全的服务端校验消息（`AgentMessageRequestError`/`AgentTaskRequestError`/
+  `AgentWeeklyReportRequestError`）归类为 `request_validation`，原样透传其消息文本。每次失败生成
+  一个 `correlation_id`，写入 JSON body 的 `proxy.*` 字段、同名响应头
+  `x-coforge-correlation-id` 和一条 WARN 日志；`detail` 字段是原始异常消息的空白归一化、截断到
+  500 字符版本，Reviewer isolation 请求（`freshnessContextMode: "withheld"`）不携带 `detail`。
+  `packages/daemon/src/connection/agent-transport-error.ts` 是这些失败类的类型化载体，取代此前对
+  错误消息字符串的解析。
+- `packages/daemon/src/connection/daemon-connection.ts` 的 `requestSend` 在解码 JSON 后立即校验
+  `state` 是否属于 `"sent"/"held"/"denied"` 且 `context` 是数组；不满足即抛出 `protocol_mismatch`
+  类型化错误，绝不把未定义字段透传给 `DaemonRuntime`。`read`/`search`/`events`/`resolve` 等路由
+  做同样的最小形状校验（各自必需数组或对象字段），任务/reminder 的既有 preflight 守卫本次未纳入
+  同一分类，仍是已知缺口。
+- `packages/coforge/src/cli-error.ts` 的 `CliError` 是 CLI 侧统一的失败模型（`code`、
+  `retryable`、`effect`、`draftSaved`、`correlationId`、`proxy` 诊断、`suggestedNextAction`、
+  `outputMode`），由 `packages/coforge/src/local-client.ts` 从本地 daemon proxy 的 JSON 错误体
+  构造；stderr 按固定行序渲染（`Error`/`Code`/`Retryable`/...，字段缺失即省略该行），
+  `--json`（目前仅 `message send` 支持）改为输出单个 JSON 对象。
+- Send 失败语义：daemon 在把请求交给 transport **之前**已经 `inbox.save` 本地 draft
+  （`runtime.ts#sendAgentMessage`，未变）。之后任何失败（`local_precondition` 类除外）都标记
+  `Draft saved: yes`、`Retryable: no`，并明确指示：读取或未读到都不能证明真正的发送结果，禁止仅凭
+  这个证据重发；`--send-draft` 重发是人的决定，不是 CLI 或 Agent 自动判定"失败"后的补救。请求发出
+  前失败（本地校验、缺少 context、无 held draft）标记 `Draft saved: no`，可以直接修正后重跑。
+  `packages/daemon/src/code-agent/agent-instructions.ts` 记录了对应的 Agent 侧规则。
+
 ### 6.3 消息 Thread
 
 Thread 适用于现有 User–Agent DirectConversation 与 Workspace 公开频道，不引入群聊、独立随机

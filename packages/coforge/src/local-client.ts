@@ -15,8 +15,146 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import type { LocalReminderReceiptResponse, ReminderTransportRequest } from "../index";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
+import { CliError, NO_MESSAGE_SENT_NEXT_ACTION, unknownDeliveryNextAction } from "./cli-error";
 
-const SAFE_AGENT_PROXY_VALIDATION_ERRORS = new Set<string>(AGENT_MESSAGE_VALIDATION_MESSAGES);
+/**
+ * A legacy or pre-request-validation daemon may still answer with a bare-text body (never JSON):
+ * the fixed literals `agent-proxy.ts` uses for its own request parsing (`"not found"`, `"bad
+ * request"`, ...) and this known-safe validation-message allowlist. Anything else, this client
+ * never relays verbatim — it could be arbitrary exception text from an unmigrated daemon build.
+ */
+const SAFE_LEGACY_PROXY_TEXT = new Set<string>(AGENT_MESSAGE_VALIDATION_MESSAGES);
+
+/** The local daemon proxy's JSON error body shape (see `agent-proxy-failure.ts`). Best-effort: a
+ * legacy or pre-request-validation daemon response may still be a bare text body, which
+ * `readProxyErrorBody` tolerates. */
+type AgentProxyErrorBody = {
+  error?: string;
+  code?: string;
+  detail?: string;
+  suggested_next_action?: string;
+  proxy?: {
+    correlation_id?: string;
+    route_family?: string;
+    failure_class?: string;
+    cause_code?: string;
+    upstream_layer?: string;
+    upstream_status?: number;
+    response_started?: boolean;
+    response_complete?: boolean;
+  };
+};
+
+/** Reads a non-ok proxy response body once, parsing it as the JSON error contract when possible. */
+async function readProxyErrorBody(
+  response: Response,
+): Promise<{ text: string; json?: AgentProxyErrorBody }> {
+  const text = await response.text().catch(() => "");
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && "code" in parsed)
+      return { text, json: parsed as AgentProxyErrorBody };
+  } catch {
+    // A legacy bare-text proxy error (e.g. unauthorized/not found); fall through with just `text`.
+  }
+  return { text };
+}
+
+function operationFailedCode(operation: string): string {
+  return `${operation.toUpperCase().replace(/-/g, "_")}_FAILED`;
+}
+
+/** A local condition that meant no request was ever issued: nothing to wait on or undo. */
+function preIssuanceError(operation: string, message: string): CliError {
+  const isSend = operation === "send";
+  return new CliError({
+    code: isSend ? "SEND_PRECONDITION_FAILED" : operationFailedCode(operation),
+    message,
+    retryable: false,
+    ...(isSend ? { draftSaved: false, suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION } : {}),
+  });
+}
+
+/**
+ * Classifies a non-ok proxy response (or a network failure reaching the proxy) into a `CliError`.
+ * `send` failures raised here happened AFTER the daemon saved the local draft and handed the
+ * request to its transport (see `runtime.ts#sendAgentMessage`): delivery state is unknown, so they
+ * are never retryable from this evidence alone (Raft-aligned; see `cli-error.ts`).
+ */
+function proxyHttpFailure(
+  operation: string,
+  status: number,
+  body: { text: string; json?: AgentProxyErrorBody },
+  target: string | undefined,
+): CliError {
+  const isSend = operation === "send";
+  const proxy = body.json?.proxy;
+  const isLocalPrecondition = proxy?.failure_class === "local_precondition";
+  const legacyText = body.text && SAFE_LEGACY_PROXY_TEXT.has(body.text) ? body.text : undefined;
+  const message = body.json?.error || legacyText || `HTTP ${status}`;
+  const code = failureCode(operation, status, body.json);
+  return new CliError({
+    code,
+    message,
+    retryable: false,
+    ...(isSend ? { draftSaved: !isLocalPrecondition } : {}),
+    correlationId: proxy?.correlation_id,
+    proxy: proxy
+      ? {
+          failureClass: proxy.failure_class,
+          causeCode: proxy.cause_code,
+          routeFamily: proxy.route_family,
+          upstreamLayer: proxy.upstream_layer,
+          upstreamStatus: proxy.upstream_status,
+          responseStarted: proxy.response_started,
+          responseComplete: proxy.response_complete,
+        }
+      : { upstreamStatus: status },
+    suggestedNextAction: isSend
+      ? isLocalPrecondition
+        ? NO_MESSAGE_SENT_NEXT_ACTION
+        : unknownDeliveryNextAction(target ?? "")
+      : body.json?.suggested_next_action,
+  });
+}
+
+/**
+ * The typed code an Agent decides on. It follows the proxy's `failure_class`, not the proxy's own
+ * HTTP status: a decode failure after an upstream 200 is `INVALID_JSON_RESPONSE` (Raft's code for
+ * it), never `SERVER_5XX`, which is reserved for an upstream that really answered 5xx.
+ */
+function failureCode(operation: string, status: number, json: AgentProxyErrorBody | undefined) {
+  const proxy = json?.proxy;
+  switch (proxy?.failure_class) {
+    case "local_precondition":
+      return json?.code ?? operationFailedCode(operation);
+    case "protocol_mismatch":
+      return "INVALID_JSON_RESPONSE";
+    case "upstream_http_response":
+      return (proxy?.upstream_status ?? status) >= 500
+        ? "SERVER_5XX"
+        : operationFailedCode(operation);
+    case "pre_response_transport":
+    case "mid_response_transport":
+      return operationFailedCode(operation);
+    default:
+      return status >= 500 ? "SERVER_5XX" : operationFailedCode(operation);
+  }
+}
+
+/** A failure reaching the local daemon proxy itself (network/timeout): treated conservatively as
+ * "may have been issued" — see `unknownDeliveryNextAction`. */
+function proxyTransportFailure(operation: string, target: string | undefined): CliError {
+  const isSend = operation === "send";
+  return new CliError({
+    code: isSend ? "SEND_FAILED" : operationFailedCode(operation),
+    message: "agent proxy request failed (network or timeout)",
+    retryable: false,
+    ...(isSend
+      ? { draftSaved: true, suggestedNextAction: unknownDeliveryNextAction(target ?? "") }
+      : {}),
+  });
+}
 
 export function connectLocal(
   _socketPath: string,
@@ -59,11 +197,11 @@ export function connectLocal(
       emoji?: string;
     },
   ) => {
-    if (!context) throw new Error("coforge agent context is not configured");
+    if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
     if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
-      throw new Error("coforge agent context is invalid");
+      throw preIssuanceError(operation, "coforge agent context is invalid");
     const requestId = crypto.randomUUID();
-    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
     let response: Response;
     try {
       response = await fetch(proxyEndpoint(agentApiRoutes.proxy.messages.path), {
@@ -73,16 +211,26 @@ export function connectLocal(
         signal: AbortSignal.timeout(10_000),
       });
     } catch {
-      throw new Error("agent proxy request failed (network or timeout)");
+      throw proxyTransportFailure(operation, target);
     }
     if (!response.ok) {
-      if (options?.freshnessContextMode === "withheld")
-        throw new Error(
-          `reviewer-isolation message request failed (${response.status}); upstream detail withheld`,
-        );
-      const detail = response.status === 400 ? await response.text() : undefined;
-      if (detail && SAFE_AGENT_PROXY_VALIDATION_ERRORS.has(detail)) throw new Error(detail);
-      throw new Error(`agent proxy request failed (${response.status})`);
+      const errorBody = await readProxyErrorBody(response);
+      if (
+        options?.freshnessContextMode === "withheld" &&
+        errorBody.json?.proxy?.failure_class !== "local_precondition"
+      ) {
+        const label = operation === "send" ? "send" : `${operation} request`;
+        throw new CliError({
+          code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(operation),
+          message: `Reviewer-isolation ${label} failed (HTTP ${response.status}); upstream error detail was withheld.`,
+          retryable: false,
+          ...(operation === "send"
+            ? { draftSaved: true, suggestedNextAction: unknownDeliveryNextAction(target ?? "") }
+            : {}),
+          proxy: { upstreamStatus: response.status },
+        });
+      }
+      throw proxyHttpFailure(operation, response.status, errorBody, target);
     }
     return (await response.json()) as ReturnType<typeof decodeAgentMessageResponse>;
   };

@@ -72,6 +72,7 @@ import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
 import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
 import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
 import { isAgentApiKey } from "../credentials/agent-api-key";
+import { AgentPreflightError } from "./agent-preflight-error";
 import {
   discoverCodeAgentRuntimes,
   discoverCodeAgentCatalogs,
@@ -406,7 +407,8 @@ export class DaemonRuntime {
   }
 
   #assertRunning(): void {
-    if (this.#stopping || !this.#started) throw new Error(NOT_RUNNING);
+    if (this.#stopping || !this.#started)
+      throw new AgentPreflightError(NOT_RUNNING, "DAEMON_NOT_RUNNING");
   }
 
   #assertAgentNotStopping(agentId: string): void {
@@ -1719,8 +1721,10 @@ export class DaemonRuntime {
   ): Promise<AgentMessageResponse> {
     this.#assertRunning();
     const agentId = this.#agentIdForContext(context);
-    if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
-    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    if (!this.#transport.agentMessage)
+      throw new AgentPreflightError("daemon connection is not connected", "DAEMON_NOT_CONNECTED");
+    if (!isAgentApiKey(agentApiKey))
+      throw new AgentPreflightError("Agent API key is missing", "AGENT_API_KEY_MISSING");
     logger.info("Agent message operation received", {
       event: "agent.message.operation",
       agent_id: agentId,
@@ -1812,12 +1816,23 @@ export class DaemonRuntime {
     const startedAt = performance.now();
     const inbox = this.#agentInbox(agentId);
     const draft = request.sendDraft ? await inbox.draft(target) : undefined;
-    if (request.sendDraft && !draft) throw new Error(`No held draft for target: ${target}`);
+    if (request.sendDraft && !draft)
+      throw new AgentPreflightError(`No held draft for target: ${target}`, "NO_HELD_DRAFT");
     const body = draft?.body ?? request.body;
-    if (body === undefined) throw new Error("Agent message body is required");
+    if (body === undefined)
+      throw new AgentPreflightError(
+        "Agent message body is required",
+        "AGENT_MESSAGE_BODY_REQUIRED",
+      );
+    // `inbox.save` persists the draft locally BEFORE the request is issued to the transport below;
+    // any failure past this point leaves delivery state unknown, never "not sent" (see
+    // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
     if (!request.sendDraft) await inbox.save(target, body);
     if (request.sendDraft && !draft?.holdToken)
-      throw new Error(`Held draft token is unavailable for target: ${target}`);
+      throw new AgentPreflightError(
+        `Held draft token is unavailable for target: ${target}`,
+        "HELD_DRAFT_TOKEN_UNAVAILABLE",
+      );
     const result = await this.#transport.agentMessage!(
       {
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
@@ -2240,7 +2255,8 @@ export class DaemonRuntime {
 
   #agentIdForContext(context: string): string {
     const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
-    if (!agentId) throw new Error("invalid agent local context");
+    if (!agentId)
+      throw new AgentPreflightError("invalid agent local context", "AGENT_CONTEXT_INVALID");
     return agentId;
   }
 

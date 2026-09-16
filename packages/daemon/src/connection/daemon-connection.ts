@@ -12,6 +12,7 @@ import type {
   AgentMessage,
 } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "./agent-message-request-error";
+import { AgentTransportError } from "./agent-transport-error";
 import {
   decodeAgentWorkspaceResetRequest,
   encodeAgentControlResult,
@@ -374,20 +375,105 @@ function agentHeaders(keys: { agentApiKey: string; daemonApiKey: string }, json 
   };
 }
 
+/** Invokes the HTTP fetcher, turning any thrown error into a typed pre-response transport failure. */
+async function fetchAgentResponse(
+  fetcher: HttpFetch,
+  url: string | URL,
+  init: RequestInit,
+  what: string,
+): Promise<Response> {
+  try {
+    return await fetcher(url, init);
+  } catch (cause) {
+    throw AgentTransportError.preResponseTransport(what, cause);
+  }
+}
+
+/** Reads a response body as text, turning a stream failure into a typed mid-response failure. */
+async function readAgentResponseText(response: Response, what: string): Promise<string> {
+  try {
+    return await response.text();
+  } catch (cause) {
+    throw AgentTransportError.midResponseTransport(what, response.status, cause);
+  }
+}
+
+/** Throws when the response is a non-2xx: a safe validation message, or a typed transport error. */
+async function assertAgentResponseOk(response: Response, what: string): Promise<void> {
+  if (response.ok) return;
+  throw AgentMessageRequestError.fromRpc(
+    response.status,
+    await readAgentResponseText(response, what),
+  );
+}
+
+/**
+ * Decodes a 2xx response body as JSON, turning a decode failure or an optional shape `validate`
+ * failure into a typed protocol-mismatch error — the response arrived, but the daemon could not
+ * trust it. Never lets a missing required field reach the caller as a silent `undefined`.
+ */
+async function readAgentResponseJson<Result>(
+  response: Response,
+  what: string,
+  validate?: (data: unknown) => string | undefined,
+): Promise<Result> {
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw AgentTransportError.protocolMismatch(
+      what,
+      response.status,
+      "response body is not valid JSON",
+    );
+  }
+  const shapeError = validate?.(data);
+  if (shapeError) throw AgentTransportError.protocolMismatch(what, response.status, shapeError);
+  return data as Result;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 /** GETs `url` with the request's defined `keys` copied into the query string. */
 async function getAgentJson<Result>(
   fetcher: HttpFetch,
   input: Omit<AgentHttpInput<never>, "request"> & {
     query: Record<string, string | number | undefined>;
     what: string;
+    validate?: (data: unknown) => string | undefined;
   },
 ): Promise<Result> {
   const endpoint = new URL(input.url);
   for (const [key, value] of Object.entries(input.query))
     if (value !== undefined) endpoint.searchParams.set(key, String(value));
-  const response = await fetcher(endpoint, { method: "GET", headers: agentHeaders(input) });
-  if (!response.ok) throw AgentMessageRequestError.fromRpc(response.status, await response.text());
-  return (await response.json()) as Result;
+  const response = await fetchAgentResponse(
+    fetcher,
+    endpoint,
+    { method: "GET", headers: agentHeaders(input) },
+    input.what,
+  );
+  await assertAgentResponseOk(response, input.what);
+  return readAgentResponseJson<Result>(response, input.what, input.validate);
+}
+
+const AGENT_SEND_STATES = new Set(["sent", "held", "denied"]);
+
+/** Validates the send route's response shape; the incident this module exists to prevent. */
+function validateAgentSendResponseShape(data: unknown): string | undefined {
+  if (!isRecord(data)) return "response body is not a JSON object";
+  if (typeof data.state !== "string" || !AGENT_SEND_STATES.has(data.state))
+    return `response state is not one of "sent"/"held"/"denied" (got ${JSON.stringify(data.state)})`;
+  if (!Array.isArray(data.context)) return "response is missing the context array";
+  return undefined;
+}
+
+function validateAgentMessageArrayShape(field: string) {
+  return (data: unknown): string | undefined =>
+    isRecord(data) && Array.isArray(data[field])
+      ? undefined
+      : `response is missing the ${field} array`;
 }
 
 export const createAgentMessageHttpClient = (
@@ -407,6 +493,7 @@ export const createAgentMessageHttpClient = (
         fromSequence: request.fromSequence,
         throughSequence: request.throughSequence,
       },
+      validate: validateAgentMessageArrayShape("messages"),
     }),
   requestSearch: ({ request, ...keys }) =>
     getAgentJson(httpClient, {
@@ -421,68 +508,101 @@ export const createAgentMessageHttpClient = (
         limit: request.limit,
         offset: request.offset,
       },
+      validate: validateAgentMessageArrayShape("results"),
     }),
   async requestSend({ url, request, ...keys }) {
-    const response = await httpClient(url, {
-      method: "POST",
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify({
-        requestId: request.requestId,
-        target: request.target,
-        body: request.body,
-        holdToken: request.holdToken,
-        continueAnyway: request.continueAnyway,
-        seenUpToSequence: request.seenUpToSequence,
-        freshnessContextMode: request.freshnessContextMode,
-      }),
-    });
-    if (!response.ok)
-      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
-    return (await response.json()) as AgentSendResponse;
+    const response = await fetchAgentResponse(
+      httpClient,
+      url,
+      {
+        method: "POST",
+        headers: agentHeaders(keys, true),
+        body: JSON.stringify({
+          requestId: request.requestId,
+          target: request.target,
+          body: request.body,
+          holdToken: request.holdToken,
+          continueAnyway: request.continueAnyway,
+          seenUpToSequence: request.seenUpToSequence,
+          freshnessContextMode: request.freshnessContextMode,
+        }),
+      },
+      "agent send",
+    );
+    await assertAgentResponseOk(response, "agent send");
+    return readAgentResponseJson<AgentSendResponse>(
+      response,
+      "agent send",
+      validateAgentSendResponseShape,
+    );
   },
   requestEvents: ({ request, ...keys }) =>
     getAgentJson<AgentEventsResponse>(httpClient, {
       ...keys,
       what: "agent events",
       query: { requestId: request.requestId, limit: request.limit },
+      validate: validateAgentMessageArrayShape("events"),
     }),
   async requestChannelMute({ url, request, ...keys }) {
-    const response = await httpClient(url, {
-      method: "POST",
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify({ requestId: request.requestId }),
-    });
-    if (!response.ok)
-      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
-    return (await response.json()) as AgentChannelAttentionResponse;
+    const response = await fetchAgentResponse(
+      httpClient,
+      url,
+      {
+        method: "POST",
+        headers: agentHeaders(keys, true),
+        body: JSON.stringify({ requestId: request.requestId }),
+      },
+      "agent channel attention",
+    );
+    await assertAgentResponseOk(response, "agent channel attention");
+    return readAgentResponseJson<AgentChannelAttentionResponse>(
+      response,
+      "agent channel attention",
+    );
   },
   async requestThreadUnfollow({ url, request, ...keys }) {
-    const response = await httpClient(url, {
-      method: "POST",
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify({ requestId: request.requestId }),
-    });
-    if (!response.ok)
-      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
-    return (await response.json()) as AgentThreadAttentionResponse;
+    const response = await fetchAgentResponse(
+      httpClient,
+      url,
+      {
+        method: "POST",
+        headers: agentHeaders(keys, true),
+        body: JSON.stringify({ requestId: request.requestId }),
+      },
+      "agent thread attention",
+    );
+    await assertAgentResponseOk(response, "agent thread attention");
+    return readAgentResponseJson<AgentThreadAttentionResponse>(response, "agent thread attention");
   },
   async requestResolve({ url, request, ...keys }) {
     const endpoint = new URL(url);
     endpoint.searchParams.set("requestId", request.requestId);
-    const response = await httpClient(endpoint, { method: "GET", headers: agentHeaders(keys) });
-    if (!response.ok)
-      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
-    return (await response.json()) as AgentResolveResponse;
+    const response = await fetchAgentResponse(
+      httpClient,
+      endpoint,
+      { method: "GET", headers: agentHeaders(keys) },
+      "agent resolve",
+    );
+    await assertAgentResponseOk(response, "agent resolve");
+    return readAgentResponseJson<AgentResolveResponse>(response, "agent resolve", (data) =>
+      isRecord(data) && isRecord(data.message)
+        ? undefined
+        : "response is missing the message object",
+    );
   },
   async requestReaction({ url, request, method, ...keys }) {
-    const response = await httpClient(url, {
-      method,
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify({ requestId: request.requestId, emoji: request.emoji }),
-    });
-    if (!response.ok)
-      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
-    return (await response.json()) as AgentReactionResponse;
+    const response = await fetchAgentResponse(
+      httpClient,
+      url,
+      {
+        method,
+        headers: agentHeaders(keys, true),
+        body: JSON.stringify({ requestId: request.requestId, emoji: request.emoji }),
+      },
+      "agent reaction",
+    );
+    await assertAgentResponseOk(response, "agent reaction");
+    return readAgentResponseJson<AgentReactionResponse>(response, "agent reaction");
   },
   async requestWorkspaceInfo({ request, ...keys }) {
     const data = await getAgentJson<Omit<WorkspaceInfoResponse, "protocolMajor" | "requestId">>(

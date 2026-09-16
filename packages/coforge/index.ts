@@ -24,6 +24,7 @@ import {
   formatSearchResults,
   formatSendSuccess,
 } from "./src/message-format";
+import { CliError, unknownDeliveryNextAction, withOutputMode } from "./src/cli-error";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 
@@ -55,6 +56,7 @@ export type MessageInvocation =
       sendDraft?: boolean;
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
+      json?: boolean;
     }
   | { command: "resolve"; messageId: string }
   | { command: "react"; messageId: string; emoji: string; remove?: true };
@@ -278,12 +280,14 @@ export function parseArgs(
       let target: string | undefined;
       let sendDraft = false;
       let continueAnyway = false;
+      let json = false;
       let reviewerIsolation = reviewerIsolationFromEnvironment();
       for (let index = 2; index < args.length; index++) {
         if (args[index] === "--target" && args[index + 1]) target = args[++index];
         else if (args[index] === "--send-draft") sendDraft = true;
         else if (args[index] === "--anyway") continueAnyway = true;
         else if (args[index] === "--reviewer-isolation") reviewerIsolation = true;
+        else if (args[index] === "--json") json = true;
         else throw new Error("Usage:");
       }
       if (target && (!continueAnyway || sendDraft))
@@ -293,11 +297,12 @@ export function parseArgs(
           ...(sendDraft ? { sendDraft: true } : {}),
           ...(continueAnyway ? { continueAnyway: true } : {}),
           ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
+          ...(json ? { json: true as const } : {}),
         };
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path> | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path> | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
   );
 }
 
@@ -416,8 +421,10 @@ export async function run(args: readonly string[], transport: MessageTransport):
   }
   const { command } = invocation;
   if (command === "send") {
+    const outputMode = invocation.json ? "json" : "text";
+    let result: unknown;
     try {
-      const result = await transport.send(
+      result = await transport.send(
         invocation.target,
         invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text(),
         {
@@ -426,29 +433,43 @@ export async function run(args: readonly string[], transport: MessageTransport):
           freshnessContextMode: invocation.freshnessContextMode,
         },
       );
-      if (isHeldSend(result)) {
-        if (invocation.freshnessContextMode === "withheld")
-          throw reviewerIsolationHoldError(result);
-        throw new Error(
-          formatHeldSend(
-            invocation.target,
-            result as {
-              attentionCount?: number;
-              anywayAllowed?: boolean;
-              messages?: AgentMessageRecord[];
-            },
-          ),
-        );
-      }
-      return formatSendSuccess(invocation.target, result as { messageId: string });
     } catch (error) {
-      if (
-        invocation.freshnessContextMode === "withheld" &&
-        !(error instanceof ReviewerIsolationHoldError)
-      )
-        throw new Error("Reviewer-isolation send failed; upstream response detail was withheld.");
-      throw error;
+      // The transport (`local-client.ts`) already redacts upstream detail for a withheld request;
+      // this fallback only covers a transport that throws a bare `Error` without going through it.
+      if (invocation.freshnessContextMode === "withheld" && !(error instanceof CliError))
+        throw withOutputMode(
+          new CliError({
+            code: "SEND_FAILED",
+            message: "Reviewer-isolation send failed; upstream response detail was withheld.",
+            retryable: false,
+            draftSaved: true,
+            suggestedNextAction: unknownDeliveryNextAction(invocation.target),
+          }),
+          outputMode,
+        );
+      throw error instanceof CliError ? withOutputMode(error, outputMode) : error;
     }
+    if (isHeldSend(result))
+      throw withOutputMode(
+        heldSendCliError(
+          invocation.target,
+          result as {
+            attentionCount?: number;
+            anywayAllowed?: boolean;
+            messages?: AgentMessageRecord[];
+          },
+          invocation.freshnessContextMode === "withheld",
+        ),
+        outputMode,
+      );
+    const sent = result as { messageId?: string };
+    if (invocation.json)
+      return JSON.stringify({
+        state: "sent",
+        target: invocation.target,
+        messageId: sent.messageId,
+      });
+    return formatSendSuccess(invocation.target, sent as { messageId: string });
   }
   if (command === "search") {
     if (!transport.search) throw new Error("Message search transport is unavailable");
@@ -545,22 +566,46 @@ function isHeldSend(result: unknown): result is { accepted: false; sideEffectDec
   return response.accepted === false && response.sideEffectDecision === "hold";
 }
 
-class ReviewerIsolationHoldError extends Error {}
+const HELD_SEND_NEXT_ACTION =
+  "Review the held context, then update the draft or send the current draft unchanged.";
 
-function reviewerIsolationHoldError(result: unknown): Error {
-  const response = result as {
-    newMessageCount?: unknown;
-    withheldMessageCount?: unknown;
-  };
-  const count =
-    typeof response.newMessageCount === "number"
-      ? response.newMessageCount
-      : typeof response.withheldMessageCount === "number"
-        ? response.withheldMessageCount
-        : 0;
-  return new ReviewerIsolationHoldError(
-    `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`,
-  );
+/**
+ * A hold is not a transport failure — the server made a definite decision and the daemon already
+ * saved the reply as a local draft — but it is still not delivery, so `message send` reports it as
+ * a typed error rather than a quiet success. Reviewer isolation keeps withholding message content;
+ * the ordinary case keeps printing the existing rich held-context report (`formatHeldSend`).
+ */
+function heldSendCliError(
+  target: string,
+  result: { attentionCount?: number; anywayAllowed?: boolean; messages?: AgentMessageRecord[] },
+  reviewerIsolation: boolean,
+): CliError {
+  if (reviewerIsolation) {
+    const response = result as { newMessageCount?: unknown; withheldMessageCount?: unknown };
+    const count =
+      typeof response.newMessageCount === "number"
+        ? response.newMessageCount
+        : typeof response.withheldMessageCount === "number"
+          ? response.withheldMessageCount
+          : 0;
+    return new CliError({
+      code: "SEND_HELD_AS_DRAFT",
+      message: `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`,
+      retryable: false,
+      effect: "draft_saved",
+      draftSaved: true,
+      suggestedNextAction: HELD_SEND_NEXT_ACTION,
+    });
+  }
+  return new CliError({
+    code: "SEND_HELD_AS_DRAFT",
+    message: "Message held as draft; no target delivery occurred.",
+    retryable: false,
+    effect: "draft_saved",
+    draftSaved: true,
+    contextText: formatHeldSend(target, result),
+    suggestedNextAction: HELD_SEND_NEXT_ACTION,
+  });
 }
 
 function formatInboxCheck(result: unknown): string {

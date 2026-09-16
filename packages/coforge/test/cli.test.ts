@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseArgs, run } from "../index";
+import { CliError, renderCliErrorJson, renderCliErrorText } from "../src/cli-error";
 import { validateTaskRequest } from "@lrm/coforge-sdk/internal";
 import {
   createAgentApiClient,
@@ -1093,19 +1094,28 @@ test("reviewer-isolation Task transport failures redact upstream detail", async 
 });
 
 test("reviewer-isolation send redacts transport failures and held context", async () => {
-  await expect(
-    run(["message", "send", "--target", "@ada", "--send-draft", "--reviewer-isolation"], {
+  const transportFailure = await run(
+    ["message", "send", "--target", "@ada", "--send-draft", "--reviewer-isolation"],
+    {
       check: async () => ({ messages: [] }),
       read: async () => undefined,
       send: async () => {
         throw new Error("SECRET_UPSTREAM_DETAIL");
       },
       view: async () => ({ bytes: new Uint8Array() }),
-    }),
-  ).rejects.toThrow("Reviewer-isolation send failed; upstream response detail was withheld.");
+    },
+  ).catch((error: unknown) => error);
+  expect(transportFailure).toBeInstanceOf(CliError);
+  expect((transportFailure as CliError).message).toBe(
+    "Reviewer-isolation send failed; upstream response detail was withheld.",
+  );
+  expect((transportFailure as CliError).draftSaved).toBe(true);
+  expect((transportFailure as CliError).retryable).toBe(false);
+  expect(renderCliErrorText(transportFailure as CliError)).not.toContain("SECRET_UPSTREAM_DETAIL");
 
-  await expect(
-    run(["message", "send", "--target", "@ada", "--send-draft", "--reviewer-isolation"], {
+  const held = await run(
+    ["message", "send", "--target", "@ada", "--send-draft", "--reviewer-isolation"],
+    {
       check: async () => ({ messages: [] }),
       read: async () => undefined,
       send: async () => ({
@@ -1116,33 +1126,72 @@ test("reviewer-isolation send redacts transport failures and held context", asyn
         messages: [{ body: "SECRET_HELD_DETAIL" }],
       }),
       view: async () => ({ bytes: new Uint8Array() }),
-    }),
-  ).rejects.toThrow("Reviewer-isolation freshness hold: 2 newer messages withheld.");
+    },
+  ).catch((error: unknown) => error);
+  expect(held).toBeInstanceOf(CliError);
+  expect((held as CliError).message).toBe(
+    "Reviewer-isolation freshness hold: 2 newer messages withheld.",
+  );
+  expect((held as CliError).code).toBe("SEND_HELD_AS_DRAFT");
+  expect(renderCliErrorText(held as CliError)).not.toContain("SECRET_HELD_DETAIL");
 });
 
-test("held sends fail with draft retry instructions", async () => {
-  await expect(
-    run(["message", "send", "--target", "@ada"], {
-      check: async () => ({ messages: [] }),
-      read: async () => undefined,
-      send: async () => ({
-        accepted: false,
-        sideEffectDecision: "hold",
-        attentionCount: 1,
-        messages: [
-          {
-            id: "message-2",
-            sequence: 9,
-            sender: "@ada",
-            target: "@ada",
-            body: "new context",
-            createdAt: "2026-09-03T10:05:00Z",
-          },
-        ],
-      }),
-      view: async () => ({ bytes: new Uint8Array() }),
+test("held sends fail with a typed error that keeps the existing held-context report", async () => {
+  const error = await run(["message", "send", "--target", "@ada"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => ({
+      accepted: false,
+      sideEffectDecision: "hold",
+      attentionCount: 1,
+      messages: [
+        {
+          id: "message-2",
+          sequence: 9,
+          sender: "@ada",
+          target: "@ada",
+          body: "new context",
+          createdAt: "2026-09-03T10:05:00Z",
+        },
+      ],
     }),
-  ).rejects.toThrow("saved as a draft");
+    view: async () => ({ bytes: new Uint8Array() }),
+  }).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const held = error as CliError;
+  expect(held.code).toBe("SEND_HELD_AS_DRAFT");
+  expect(held.message).toBe("Message held as draft; no target delivery occurred.");
+  expect(held.draftSaved).toBe(true);
+  expect(held.retryable).toBe(false);
+  const rendered = renderCliErrorText(held);
+  expect(rendered).toContain("saved as a draft");
+  expect(rendered).toContain("Error: Message held as draft; no target delivery occurred.");
+  expect(rendered).toContain("Code: SEND_HELD_AS_DRAFT");
+  expect(rendered).toContain("Draft saved: yes");
+  expect(rendered).toContain(
+    "Next action: Review the held context, then update the draft or send the current draft unchanged.",
+  );
+});
+
+test("message send --json renders a held failure as one JSON object", async () => {
+  const error = await run(["message", "send", "--target", "@ada", "--send-draft", "--json"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => ({
+      accepted: false,
+      sideEffectDecision: "hold",
+      attentionCount: 0,
+      messages: [],
+    }),
+    view: async () => ({ bytes: new Uint8Array() }),
+  }).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const held = error as CliError;
+  expect(held.outputMode).toBe("json");
+  const parsed = JSON.parse(renderCliErrorJson(held));
+  expect(parsed.error.code).toBe("SEND_HELD_AS_DRAFT");
+  expect(parsed.error.draft_saved).toBe(true);
+  expect(parsed.error.retryable).toBe(false);
 });
 
 test("send results hide the internal model cursor from Agent output", async () => {
@@ -1219,4 +1268,18 @@ test("weekly-report CLI parses bounded reads and dispatches the transport", asyn
 
 test("weekly-report CLI rejects oversized list limits", () => {
   expect(() => parseArgs(["weekly-report", "list", "--limit", "51"])).toThrow("Usage:");
+});
+
+test("message send --json reports a sent message as one JSON object", async () => {
+  const output = await run(["message", "send", "--target", "@ada", "--send-draft", "--json"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => ({ accepted: true, messageId: "message-1" }),
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  expect(JSON.parse(output as string)).toEqual({
+    state: "sent",
+    target: "@ada",
+    messageId: "message-1",
+  });
 });
