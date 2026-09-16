@@ -37,6 +37,12 @@ function sessionSpy() {
   } satisfies AgentSession;
 }
 
+const emptyCodeAgentDiscovery = {
+  runtimes: async () => [],
+  cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+  catalogs: async () => [],
+};
+
 // macOS tmpdir lives under /var, a symlink; the state store rejects linked ancestors.
 const tempRoot = realpathSync(tmpdir());
 const workspaceRoot = join(tempRoot, `coforge-daemon-runtime-${crypto.randomUUID()}`);
@@ -73,7 +79,7 @@ test("ready and reconnect snapshots report the executable version and observed O
       }),
     },
     undefined,
-    async () => ({ runtimes: [], catalogs: [] }),
+    emptyCodeAgentDiscovery,
     workspaceRoot,
     {},
     "9.8.7",
@@ -129,7 +135,7 @@ test("a duplicate fenced start wakes the managed runtime without replaying recov
       }),
     },
     undefined,
-    async () => ({ runtimes: [], catalogs: [] }),
+    emptyCodeAgentDiscovery,
     stateDirectory,
   );
   const intent = {
@@ -207,7 +213,7 @@ test("a recreated daemon waits for cloud start and forwards the cloud-selected s
         }),
       },
       undefined,
-      async () => ({ runtimes: [], catalogs: [] }),
+      emptyCodeAgentDiscovery,
     );
   const original = make();
   await original.start(connection);
@@ -1539,7 +1545,7 @@ describe("DaemonRuntime", () => {
         }),
       },
       undefined,
-      async () => ({ runtimes: [], catalogs: [] }),
+      emptyCodeAgentDiscovery,
       stateDirectory,
     );
     await runtime.start(connection);
@@ -1608,7 +1614,7 @@ describe("DaemonRuntime", () => {
         }),
       },
       undefined,
-      async () => ({ runtimes: [], catalogs: [] }),
+      emptyCodeAgentDiscovery,
       stateDirectory,
     );
     await recoveredRuntime.start(connection);
@@ -1845,10 +1851,68 @@ describe("DaemonRuntime", () => {
     expect(statusAtTransportStop).toBe("inactive");
   });
 
-  test("reports a fresh external Code Agent snapshot on daemon start", async () => {
+  test("reports runtimes without waiting for catalog discovery, then catalogs in a second update", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const updates: unknown[] = [];
+    const secondUpdate = Promise.withResolvers<void>();
+    const catalogDiscovery =
+      Promise.withResolvers<import("@lrm/coforge-sdk/internal").CodeAgentModelCatalog[]>();
+    let catalogDiscoveryStarted = false;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async updateCodeAgents(request) {
+            updates.push(request);
+            if (updates.length === 2) secondUpdate.resolve();
+          },
+          async stop() {},
+        }),
+      },
+      undefined,
+      {
+        runtimes: async () => [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
+        cachedCatalogs: async () => ({ catalogs: [], needsRefresh: true }),
+        catalogs: async () => {
+          // Never resolves until the assertion below releases it: proves start() does not wait.
+          catalogDiscoveryStarted = true;
+          return catalogDiscovery.promise;
+        },
+      },
+    );
+
+    await runtime.start(connection);
+    expect(catalogDiscoveryStarted).toBe(true);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
+      catalogs: [],
+    });
+
+    catalogDiscovery.resolve([{ provider: "codex", models: [] }]);
+    await secondUpdate.promise;
+    expect(updates).toHaveLength(2);
+    expect(updates[1]).toMatchObject({
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
+      catalogs: [{ provider: "codex", models: [] }],
+    });
+    await runtime.stop();
+  });
+
+  test("skips the background catalog refresh when the cached catalogs are already fresh", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const updates: unknown[] = [];
+    let catalogDiscoveryCalls = 0;
     const runtime = new DaemonRuntime(
       connection,
       () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
@@ -1864,20 +1928,25 @@ describe("DaemonRuntime", () => {
         }),
       },
       undefined,
-      async () => ({
-        runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
-        catalogs: [{ provider: "codex", models: [] }],
-      }),
+      {
+        runtimes: async () => [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
+        cachedCatalogs: async () => ({
+          catalogs: [{ provider: "codex", models: [] }],
+          needsRefresh: false,
+        }),
+        catalogs: async () => {
+          catalogDiscoveryCalls++;
+          return [{ provider: "codex", models: [] }];
+        },
+      },
     );
 
     await runtime.start(connection);
+    // Give a scheduled-but-unwanted background task a chance to run before asserting it didn't.
+    await Bun.sleep(2);
+    expect(catalogDiscoveryCalls).toBe(0);
     expect(updates).toHaveLength(1);
-    expect(updates[0]).toMatchObject({
-      workspaceId: connection.workspaceId,
-      computerId: connection.computerId,
-      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
-      catalogs: [{ provider: "codex", models: [] }],
-    });
+    expect(updates[0]).toMatchObject({ catalogs: [{ provider: "codex", models: [] }] });
     await runtime.stop();
   });
 
@@ -2027,10 +2096,11 @@ describe("DaemonRuntime", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = Object.assign(
       async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-        requests.push({
-          url: String(input),
-          authorization: new Headers(init?.headers).get("authorization"),
-        });
+        const url = String(input);
+        // Other DaemonRuntime instances in this test file may still have a background Code Agent
+        // catalog refresh in flight; only this test's own target host is under test here.
+        if (url.startsWith("https://server.example/"))
+          requests.push({ url, authorization: new Headers(init?.headers).get("authorization") });
         return Response.json({ apiKey: `sk_agent_${"a".repeat(43)}` });
       },
       { preconnect: originalFetch.preconnect },
@@ -2044,7 +2114,7 @@ describe("DaemonRuntime", () => {
         create: () => new DaemonConnection("wss://cloud.example", () => client),
       },
       undefined,
-      async () => ({ runtimes: [], catalogs: [] }),
+      emptyCodeAgentDiscovery,
     );
     try {
       await runtime.start(configuredConnection);
@@ -3779,7 +3849,7 @@ describe("DaemonRuntime", () => {
         },
       },
       undefined,
-      async () => ({ runtimes: [], catalogs: [] }),
+      emptyCodeAgentDiscovery,
     );
     try {
       await runtime.start(configuredConnection);
@@ -3848,7 +3918,7 @@ describe("DaemonRuntime", () => {
         }),
       },
       undefined,
-      async () => ({ runtimes: [], catalogs: [] }),
+      emptyCodeAgentDiscovery,
       stateDirectory,
     );
     try {
@@ -3984,7 +4054,7 @@ describe("DaemonRuntime", () => {
         }),
       },
       undefined,
-      async () => ({ runtimes: [], catalogs: [] }),
+      emptyCodeAgentDiscovery,
       stateDirectory,
     );
     try {
@@ -4069,7 +4139,7 @@ describe("DaemonRuntime", () => {
         }),
       },
       undefined,
-      async () => ({ runtimes: [], catalogs: [] }),
+      emptyCodeAgentDiscovery,
       stateDirectory,
     );
     try {

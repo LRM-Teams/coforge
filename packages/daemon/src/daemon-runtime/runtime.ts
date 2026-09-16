@@ -47,6 +47,8 @@ import {
   type LocalAgentMessageRequest,
   type LocalInboxRequest,
   type RuntimeProvider,
+  type RuntimeMetadata,
+  type CodeAgentModelCatalog,
   type UsageScanResponse,
   REMINDER_CAPABILITY,
   type AgentReminderOperationRequest,
@@ -71,8 +73,9 @@ import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store
 import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import {
-  discoverCodeAgentInventory,
-  type CodeAgentInventory,
+  discoverCodeAgentRuntimes,
+  discoverCodeAgentCatalogs,
+  loadCachedCodeAgentCatalogs,
 } from "../code-agent/runtime-inventory";
 import { getLogger } from "@logtape/logtape";
 import { COFORGE_DAEMON_VERSION } from "../version";
@@ -81,6 +84,28 @@ import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store"
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
+
+/**
+ * The injectable half of Code Agent discovery. `runtimes` is the fast, always-awaited probe;
+ * `cachedCatalogs` is a disk-only read (no spawning) used for the same report; `catalogs` is the
+ * live, possibly-spawning discovery used only for the background refresh.
+ */
+export type CodeAgentDiscovery = {
+  runtimes(): Promise<RuntimeMetadata[]>;
+  cachedCatalogs(
+    runtimes: RuntimeMetadata[],
+  ): Promise<{ catalogs: CodeAgentModelCatalog[]; needsRefresh: boolean }>;
+  catalogs(runtimes: RuntimeMetadata[]): Promise<CodeAgentModelCatalog[]>;
+};
+
+function defaultCodeAgentDiscovery(stateDirectory: string): CodeAgentDiscovery {
+  return {
+    runtimes: () => discoverCodeAgentRuntimes({ cacheDirectory: stateDirectory }),
+    cachedCatalogs: (runtimes) =>
+      loadCachedCodeAgentCatalogs(runtimes, { cacheDirectory: stateDirectory }),
+    catalogs: (runtimes) => discoverCodeAgentCatalogs(runtimes, { cacheDirectory: stateDirectory }),
+  };
+}
 
 /** A terminal upgrade operation carried forward from the Coordinator's durable record. */
 export type RecoveredUpgradeResult = {
@@ -252,6 +277,7 @@ export class DaemonRuntime {
    * Deliberately in-memory only, so a restarted daemon is never born held (ADR 0020). */
   #runnerHold: string | undefined;
   readonly #lastRuntimeProgressAt = new Map<string, number>();
+  readonly #codeAgentDiscovery: CodeAgentDiscovery;
 
   constructor(
     connection: DaemonConfig,
@@ -259,7 +285,7 @@ export class DaemonRuntime {
     credentials: DaemonCredentialStore,
     transportFactory: DaemonConnectionClientFactory,
     agentProxy?: AgentProxy,
-    private readonly discoverCodeAgents: () => Promise<CodeAgentInventory> = discoverCodeAgentInventory,
+    codeAgentDiscovery?: CodeAgentDiscovery,
     private readonly stateDirectory = ".coforge-daemon-state",
     private readonly lifecycle: {
       requestRestart?(requestId: string): Promise<void>;
@@ -279,6 +305,7 @@ export class DaemonRuntime {
     this.#credentials = credentials;
     this.#transportFactory = transportFactory;
     this.#agentProxy = agentProxy;
+    this.#codeAgentDiscovery = codeAgentDiscovery ?? defaultCodeAgentDiscovery(stateDirectory);
     this.#transport = transportFactory.create(connection);
     this.#messageAttention = new AgentMessageAttentionIndex(
       connection.workspaceId,
@@ -482,7 +509,15 @@ export class DaemonRuntime {
     try {
       this.#subscribe(
         this.#transport.onReconnect?.(() => {
-          void this.#reportCodeAgents(connection).catch(() => {});
+          const transport = this.#transport;
+          void this.#reportCodeAgentRuntimes(connection)
+            .then((report) => {
+              if (report.needsCatalogRefresh && !this.#stopping && this.#transport === transport)
+                void this.#reportCodeAgentCatalogs(connection, report.runtimes, transport).catch(
+                  () => {},
+                );
+            })
+            .catch(() => {});
           for (const agentId of this.#readyRunningAgentIds())
             void this.#requestReminderSnapshot(agentId).catch(() => {});
           void this.#agentControl
@@ -614,8 +649,14 @@ export class DaemonRuntime {
       await Promise.all(
         this.#readyRunningAgentIds().map((agentId) => this.#requestReminderSnapshot(agentId)),
       );
-      await this.#reportCodeAgents(connection).catch(() => {});
+      const codeAgentReport = await this.#reportCodeAgentRuntimes(connection).catch(
+        () => undefined,
+      );
       if (this.#stopping) return;
+      if (codeAgentReport?.needsCatalogRefresh)
+        void this.#reportCodeAgentCatalogs(connection, codeAgentReport.runtimes, transport).catch(
+          () => {},
+        );
       const buffered = [...pendingControl.splice(0), ...pendingMessages.splice(0)];
       buffering = false;
       this.#started = true;
@@ -692,7 +733,15 @@ export class DaemonRuntime {
     }
   }
 
-  async #reportCodeAgents(connection: DaemonConfig): Promise<void> {
+  /**
+   * The fast half of Code Agent discovery: installed runtimes plus whatever model catalogs are
+   * already on disk from a previous probe. Never spawns a provider CLI beyond what runtime
+   * probing itself needs (Codex's `app-server` handshake), so this is safe to await before the
+   * daemon reports itself ready to the Coordinator.
+   */
+  async #reportCodeAgentRuntimes(
+    connection: DaemonConfig,
+  ): Promise<{ runtimes: RuntimeMetadata[]; needsCatalogRefresh: boolean }> {
     const requestId = crypto.randomUUID();
     const scope = {
       request_id: requestId,
@@ -700,21 +749,24 @@ export class DaemonRuntime {
       computer_id: connection.computerId,
     };
     try {
-      const inventory = await this.discoverCodeAgents();
+      const runtimes = await this.#codeAgentDiscovery.runtimes();
+      const { catalogs, needsRefresh } = await this.#codeAgentDiscovery.cachedCatalogs(runtimes);
       await this.#transport.updateCodeAgents?.({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId,
         workspaceId: connection.workspaceId,
         computerId: connection.computerId,
-        ...inventory,
+        runtimes,
+        catalogs,
       });
       logger.info("Code Agent inventory reported", {
         event: "code_agent_inventory:reported",
         ...scope,
-        runtime_count: inventory.runtimes.length,
-        catalog_count: inventory.catalogs.length,
+        runtime_count: runtimes.length,
+        catalog_count: catalogs.length,
         outcome: "ok",
       });
+      return { runtimes, needsCatalogRefresh: needsRefresh };
     } catch (error) {
       logger.warning("Code Agent inventory report failed", {
         event: "code_agent_inventory:report_failed",
@@ -723,6 +775,58 @@ export class DaemonRuntime {
         outcome: "failed",
       });
       throw error;
+    }
+  }
+
+  /**
+   * The slow half: live model catalog discovery (Kiro and Pi spawn a CLI; Codex calls
+   * `model/list`). Always runs in the background, never blocking start() or a reconnect, and is
+   * guarded against a daemon shutdown or a transport replaced by a later reconnect while it was
+   * in flight — the same guard `onSkillsList` uses.
+   */
+  async #reportCodeAgentCatalogs(
+    connection: DaemonConfig,
+    runtimes: RuntimeMetadata[],
+    transport: DaemonConnectionClient,
+  ): Promise<void> {
+    const requestId = crypto.randomUUID();
+    const scope = {
+      request_id: requestId,
+      workspace_id: connection.workspaceId,
+      computer_id: connection.computerId,
+    };
+    const startedAt = performance.now();
+    logger.info("Code Agent catalog discovery started", {
+      event: "code_agent_catalog:summary_started",
+      ...scope,
+      outcome: "started",
+    });
+    try {
+      const catalogs = await this.#codeAgentDiscovery.catalogs(runtimes);
+      if (this.#stopping || this.#transport !== transport) return;
+      await transport.updateCodeAgents?.({
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId,
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        runtimes,
+        catalogs,
+      });
+      logger.info("Code Agent catalog discovery completed", {
+        event: "code_agent_catalog:summary_completed",
+        ...scope,
+        catalog_count: catalogs.length,
+        elapsed_ms: Math.round(performance.now() - startedAt),
+        outcome: "ok",
+      });
+    } catch (error) {
+      logger.warning("Code Agent catalog discovery failed", {
+        event: "code_agent_catalog:summary_failed",
+        ...scope,
+        elapsed_ms: Math.round(performance.now() - startedAt),
+        error_code: diagnosticErrorCode(error),
+        outcome: "failed",
+      });
     }
   }
 

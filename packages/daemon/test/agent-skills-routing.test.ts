@@ -51,9 +51,13 @@ test("WSS Skills query scans a stopped Agent without launching or changing inven
     credentials,
     { create: () => new DaemonConnection("wss://example.test", () => client) },
     undefined,
-    async () => {
-      inventories++;
-      return { runtimes: [], catalogs: [] };
+    {
+      runtimes: async () => {
+        inventories++;
+        return [];
+      },
+      cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+      catalogs: async () => [],
     },
     join(root, "state"),
   );

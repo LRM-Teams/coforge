@@ -82,13 +82,22 @@ test.skipIf(process.platform !== "darwin")(
         spawn: () => {},
       });
       const deadline = Date.now() + 30_000;
+      let replacement: typeof oldB | undefined;
       while (true) {
-        const replacement = await replacementClient.identity().catch(() => null);
-        if (replacement && replacement.processId !== b.processId) break;
+        const identity = await replacementClient.identity().catch(() => null);
+        // The local RPC socket now opens before the Workspace finishes starting (readiness must
+        // not wait on Code Agent discovery), so a fresh identity does not yet guarantee
+        // native-ready.json has caught up; poll it too.
+        if (identity && identity.processId !== b.processId) {
+          const candidate = await Bun.file(bReadyPath).json();
+          if (candidate.workspacePid !== oldB.workspacePid) {
+            replacement = candidate;
+            break;
+          }
+        }
         if (Date.now() >= deadline) throw new Error("Workspace did not recover after crash");
         await Bun.sleep(25);
       }
-      const replacement = await Bun.file(bReadyPath).json();
       expect(replacement.workspacePid).not.toBe(oldB.workspacePid);
       expect(replacement.predecessorAlive).toBe(false);
       expect(() => process.kill(oldB.agentPid, 0)).toThrow();

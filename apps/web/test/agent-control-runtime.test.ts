@@ -130,7 +130,11 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
         }),
       },
       undefined,
-      async () => ({ runtimes: [], catalogs: [] }),
+      {
+        runtimes: async () => [],
+        cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+        catalogs: async () => [],
+      },
       join(root, "state"),
     );
   runtime = createRuntime();
