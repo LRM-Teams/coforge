@@ -8,6 +8,7 @@ import { m } from "@/paraglide/messages";
 import {
   disconnectGitHub,
   getGitHubConnection,
+  refreshGitHubConnection,
   startGitHubConnection,
   startGitHubReauthorization,
 } from "./github.functions";
@@ -24,6 +25,7 @@ export function GitHubSettings({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const load = useServerFn(getGitHubConnection);
+  const refresh = useServerFn(refreshGitHubConnection);
   const connect = useServerFn(startGitHubConnection);
   const reauthorize = useServerFn(startGitHubReauthorization);
   const disconnect = useServerFn(disconnectGitHub);
@@ -33,7 +35,15 @@ export function GitHubSettings({
     setError(false);
     load()
       .then((value) => {
-        if (!cancelled) setConnection(value);
+        if (cancelled) return;
+        setConnection(value);
+        // Background refresh against live GitHub data. No spinner while it is in
+        // flight, and a failure here keeps the DB snapshot instead of showing an error.
+        refresh()
+          .then((next) => {
+            if (!cancelled) setConnection(next);
+          })
+          .catch(() => {});
       })
       .catch(() => {
         if (!cancelled) setError(true);
@@ -41,7 +51,7 @@ export function GitHubSettings({
     return () => {
       cancelled = true;
     };
-  }, [load, revision]);
+  }, [load, refresh, revision]);
 
   async function authorize() {
     setBusy(true);
@@ -73,6 +83,18 @@ export function GitHubSettings({
     try {
       await disconnect();
       setRevision((value) => value + 1);
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryRefresh() {
+    setBusy(true);
+    setError(false);
+    try {
+      setConnection(await refresh());
     } catch {
       setError(true);
     } finally {
@@ -183,12 +205,7 @@ export function GitHubSettings({
             </>
           )}
           {error && (
-            <Button
-              size="sm"
-              color="secondary"
-              isDisabled={busy}
-              onPress={() => setRevision((value) => value + 1)}
-            >
+            <Button size="sm" color="secondary" isDisabled={busy} onPress={retryRefresh}>
               {m.github_refresh()}
             </Button>
           )}

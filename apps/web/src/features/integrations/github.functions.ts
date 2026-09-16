@@ -47,6 +47,16 @@ export const startGitHubReauthorization = createServerFn({ method: "POST" })
     return { url: attempt.url };
   });
 
+export const refreshGitHubConnection = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const userId = context.user.id;
+    const github = await requiredGitHub();
+    if (getRequest().headers.get("origin") !== new URL(github.config.callbackUrl).origin)
+      throw new AppError("ACCESS_DENIED");
+    return github.connection.sync(userId);
+  });
+
 export const disconnectGitHub = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {

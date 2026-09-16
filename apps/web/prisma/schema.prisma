@@ -75,6 +75,7 @@ model User {
   identities                  UserIdentity[]
   gitHubConnection            GitHubConnection?
   gitHubAuthorization         GitHubAuthorization?
+  gitHubUserInstallations     GitHubUserInstallation[]
   memberships                 WorkspaceMembership[]
   sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
   receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
@@ -150,6 +151,23 @@ model GitHubAuthorization {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("github_authorizations")
+}
+
+/// Cache of a User's usable GitHub App installations, refreshed by GitHubConnection.sync()
+/// and kept fresh by installation/installation_repositories webhooks. Read-only for Settings.
+model GitHubUserInstallation {
+  userId               String   @db.Uuid
+  installationId       Int
+  accountLogin         String
+  repositorySelection  String
+  suspended            Boolean
+  configureUrl         String
+  syncedAt             DateTime
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, installationId])
+  @@index([installationId])
+  @@map("github_user_installations")
 }
 
 model Agent {

@@ -62,6 +62,7 @@ import { Route as ApiAgentV1WorkspaceRouteImport } from './routes/api/agent/v1/w
 import { Route as ApiComputersComputerIdCreatorAvatarRouteImport } from './routes/api/computers/$computerId/creator-avatar'
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
+import { Route as ApiIntegrationsGithubWebhookRouteImport } from './routes/api/integrations/github/webhook'
 import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/api/agent/v1/attachments/$attachmentId'
 import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
 import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent/v1/messages_.search'
@@ -344,6 +345,12 @@ const ApiIntegrationsGithubCallbackRoute =
     path: '/api/integrations/github/callback',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiIntegrationsGithubWebhookRoute =
+  ApiIntegrationsGithubWebhookRouteImport.update({
+    id: '/api/integrations/github/webhook',
+    path: '/api/integrations/github/webhook',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1AttachmentsAttachmentIdRoute =
   ApiAgentV1AttachmentsAttachmentIdRouteImport.update({
     id: '/api/agent/v1/attachments/$attachmentId',
@@ -452,6 +459,7 @@ export interface FileRoutesByFullPath {
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
+  '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
@@ -512,6 +520,7 @@ export interface FileRoutesByTo {
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
+  '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
@@ -577,6 +586,7 @@ export interface FileRoutesById {
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
+  '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages_/search': typeof ApiAgentV1MessagesSearchRoute
@@ -642,6 +652,7 @@ export interface FileRouteTypes {
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
     | '/api/integrations/github/callback'
+    | '/api/integrations/github/webhook'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages/search'
@@ -702,6 +713,7 @@ export interface FileRouteTypes {
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
     | '/api/integrations/github/callback'
+    | '/api/integrations/github/webhook'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages/search'
@@ -766,6 +778,7 @@ export interface FileRouteTypes {
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
     | '/api/integrations/github/callback'
+    | '/api/integrations/github/webhook'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages_/search'
@@ -812,6 +825,7 @@ export interface RootRouteChildren {
   ApiComputersComputerIdCreatorAvatarRoute: typeof ApiComputersComputerIdCreatorAvatarRoute
   ApiE2eWorkspacesSlugRoute: typeof ApiE2eWorkspacesSlugRoute
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
+  ApiIntegrationsGithubWebhookRoute: typeof ApiIntegrationsGithubWebhookRoute
   ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
   ApiAgentV1MessagesSearchRoute: typeof ApiAgentV1MessagesSearchRoute
@@ -1196,6 +1210,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIntegrationsGithubCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/integrations/github/webhook': {
+      id: '/api/integrations/github/webhook'
+      path: '/api/integrations/github/webhook'
+      fullPath: '/api/integrations/github/webhook'
+      preLoaderRoute: typeof ApiIntegrationsGithubWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/attachments/$attachmentId': {
       id: '/api/agent/v1/attachments/$attachmentId'
       path: '/api/agent/v1/attachments/$attachmentId'
@@ -1394,6 +1415,7 @@ const rootRouteChildren: RootRouteChildren = {
     ApiComputersComputerIdCreatorAvatarRoute,
   ApiE2eWorkspacesSlugRoute: ApiE2eWorkspacesSlugRoute,
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
+  ApiIntegrationsGithubWebhookRoute: ApiIntegrationsGithubWebhookRoute,
   ApiAgentV1AttachmentsAttachmentIdRoute:
     ApiAgentV1AttachmentsAttachmentIdRoute,
   ApiAgentV1AttachmentsCapabilitiesRoute:

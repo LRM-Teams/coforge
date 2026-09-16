@@ -10,6 +10,9 @@ export async function readGitHubConfig(
   const clientSecret = await secret(env, "COFORGE_GITHUB_CLIENT_SECRET");
   const encryptionKey = await secret(env, "COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY");
   if (!clientSecret || !encryptionKey) return null;
+  // Optional: existing deployments have no webhook configured yet. The webhook route
+  // returns 503 until an operator sets this, independent of the OAuth connection flow.
+  const webhookSecret = (await secret(env, "COFORGE_GITHUB_WEBHOOK_SECRET")) || null;
   const appId = Number(env.COFORGE_GITHUB_APP_ID);
   const appSlug = env.COFORGE_GITHUB_APP_SLUG?.trim() ?? "";
   const callbackUrl = new URL(env.COFORGE_GITHUB_CALLBACK_URL ?? "");
@@ -33,6 +36,7 @@ export async function readGitHubConfig(
     appSlug,
     callbackUrl: callbackUrl.toString(),
     encryptionKey: Uint8Array.from(Buffer.from(encryptionKey, "hex")),
+    webhookSecret,
   };
 }
 

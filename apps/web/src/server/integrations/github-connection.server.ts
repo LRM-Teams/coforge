@@ -9,6 +9,7 @@ export type GitHubConfig = {
   callbackUrl: string;
   appSlug: string;
   encryptionKey: Uint8Array<ArrayBuffer>;
+  webhookSecret: string | null;
 };
 
 type Http = (url: string, init: RequestInit) => Promise<Response>;
@@ -60,6 +61,20 @@ const repositoriesSchema = z.object({
     )
     .max(30),
 });
+
+type ApiInstallation = {
+  id: number;
+  login: string;
+  repositorySelection: "all" | "selected";
+  suspended: boolean;
+  configureUrl: string;
+};
+
+const REFRESH_THROTTLE_MS = 60_000;
+const PROACTIVE_REFRESH_WINDOW_MS = 3_600_000;
+// Module-level: configuredGitHub() builds a new GitHubConnection per request, so an
+// instance field would never throttle anything.
+const lastProactiveRefresh = new Map<string, number>();
 
 /** Personal GitHub integration. Only its HTTP adapter handles bearer credentials. */
 export class GitHubConnection {
@@ -122,7 +137,7 @@ export class GitHubConnection {
       return attempt.verifier;
     });
     if (!verifier) return false;
-    return this.locked(userId, async (tx) => {
+    const result = await this.locked(userId, async (tx) => {
       const attempt = await tx.gitHubAuthorization.findUnique({ where: { userId } });
       // A disconnect or new begin between transactions cancels finalization.
       if (!attempt || attempt.stateHash !== hash(state) || attempt.verifier) return false;
@@ -173,6 +188,16 @@ export class GitHubConnection {
       });
       return true;
     });
+    if (result === true) {
+      try {
+        // The connection is already saved. A failed sync just leaves the
+        // installation cache empty until the next sync (background refresh or Refresh button).
+        await this.sync(userId);
+      } catch {
+        // Never log GitHub response bodies, tokens, or secrets.
+      }
+    }
+    return result;
   }
 
   async status(userId: string) {
@@ -186,48 +211,115 @@ export class GitHubConnection {
       : { status: result.status, login: result.login, installUrl: this.installUrl };
   }
 
+  /** Pure DB read. No GitHub I/O, and safe to call on every Settings mount. */
   async overview(userId: string) {
-    const status = await this.status(userId);
-    if (status.status !== "connected") return status;
-    const installations = await this.allInstallations(userId);
-    const usableInstallations = installations.filter((item) => !item.suspended);
-    return usableInstallations.length === 0
-      ? { ...status, status: "pending_installation" as const, installations: [] }
-      : { ...status, installations: usableInstallations };
+    const row = await this.db.gitHubConnection.findUnique({ where: { userId } });
+    if (!row) return { status: "disconnected" as const, login: null, installUrl: this.installUrl };
+    if (!row.credentials)
+      return { status: "reauthorize" as const, login: row.login, installUrl: this.installUrl };
+    this.maybeProactivelyRefresh(userId, row);
+    const rows = await this.db.gitHubUserInstallation.findMany({ where: { userId } });
+    const installations = rows
+      .filter((item) => !item.suspended)
+      .map((item) => ({
+        id: item.installationId,
+        login: item.accountLogin,
+        repositorySelection: item.repositorySelection as "all" | "selected",
+        suspended: item.suspended,
+        configureUrl: item.configureUrl,
+      }));
+    return installations.length === 0
+      ? {
+          status: "pending_installation" as const,
+          login: row.login,
+          installUrl: this.installUrl,
+          installations: [],
+        }
+      : {
+          status: "connected" as const,
+          login: row.login,
+          installUrl: this.installUrl,
+          installations,
+        };
+  }
+
+  /**
+   * Fetches /user and /user/installations (all pages) from GitHub in parallel, verifies
+   * identity, and replaces the User's installation cache in one transaction. Returns the
+   * same shape as overview(). Safe to call from a background refresh or a webhook-adjacent
+   * manual "Refresh" action; never called on the hot settings-load path.
+   */
+  async sync(userId: string) {
+    const result = await this.withToken(userId, async (token, githubUserId) => {
+      const [user, installations] = await Promise.all([
+        this.api("/user", token).then((value) => userSchema.parse(value)),
+        this.apiAllInstallations(token),
+      ]);
+      if (String(user.id) !== githubUserId) throw new GitHubUnauthorized();
+      return installations;
+    });
+    if (result.ok) await this.replaceInstallations(userId, result.data);
+    return this.overview(userId);
   }
 
   async installations(userId: string, page: number) {
     pageSchema.parse(page);
-    const result = await this.withToken(userId, async (token) => {
-      const data = installationsSchema.parse(
-        await this.api(`/user/installations?per_page=30&page=${page}`, token),
-      );
-      if (data.installations.some((item) => item.app_id !== this.config.appId))
-        throw new AppError("ACCESS_DENIED");
-      return {
-        installations: data.installations.map((item) => ({
-          id: item.id,
-          login: item.account.login,
-          repositorySelection: item.repository_selection,
-          suspended: Boolean(item.suspended_at),
-          configureUrl: item.html_url ?? this.installUrl,
-        })),
-        hasMore: page * 30 < data.total_count,
-      };
-    });
+    const result = await this.withToken(userId, (token) => this.apiInstallationsPage(token, page));
     if (!result.ok) throw new AppError("ACCESS_DENIED");
     return result.data;
   }
 
-  private async allInstallations(userId: string) {
-    let result = await this.installations(userId, 1);
+  private async apiInstallationsPage(token: string, page: number) {
+    const data = installationsSchema.parse(
+      await this.api(`/user/installations?per_page=30&page=${page}`, token),
+    );
+    if (data.installations.some((item) => item.app_id !== this.config.appId))
+      throw new AppError("ACCESS_DENIED");
+    return {
+      installations: data.installations.map((item): ApiInstallation => ({
+        id: item.id,
+        login: item.account.login,
+        repositorySelection: item.repository_selection,
+        suspended: Boolean(item.suspended_at),
+        configureUrl: item.html_url ?? this.installUrl,
+      })),
+      hasMore: page * 30 < data.total_count,
+    };
+  }
+
+  private async apiAllInstallations(token: string) {
+    let result = await this.apiInstallationsPage(token, 1);
     const all = [...result.installations];
     let page = 2;
     while (result.hasMore && page <= 10000) {
-      result = await this.installations(userId, page++);
+      result = await this.apiInstallationsPage(token, page++);
       all.push(...result.installations);
     }
     return all;
+  }
+
+  private async replaceInstallations(userId: string, installations: ApiInstallation[]) {
+    const syncedAt = new Date(this.now());
+    const keepIds = installations.map((item) => item.id);
+    await this.db.$transaction(async (tx) => {
+      await tx.gitHubUserInstallation.deleteMany({
+        where: { userId, installationId: { notIn: keepIds } },
+      });
+      for (const item of installations) {
+        const data = {
+          accountLogin: item.login,
+          repositorySelection: item.repositorySelection,
+          suspended: item.suspended,
+          configureUrl: item.configureUrl,
+          syncedAt,
+        };
+        await tx.gitHubUserInstallation.upsert({
+          where: { userId_installationId: { userId, installationId: item.id } },
+          create: { userId, installationId: item.id, ...data },
+          update: data,
+        });
+      }
+    });
   }
 
   async repositories(userId: string, installationId: number, page: number) {
@@ -256,23 +348,27 @@ export class GitHubConnection {
     return result.data;
   }
 
-  /** Every repository the connected user can reach through a usable App installation. */
+  /**
+   * Every repository the connected user can reach through a usable App installation.
+   * Takes its installation list from sync(userId), so calling this also refreshes the cache.
+   */
   async accessibleRepositories(userId: string) {
-    const installations = await this.allInstallations(userId);
+    const overview = await this.sync(userId);
+    if (overview.status === "disconnected" || overview.status === "reauthorize")
+      throw new AppError("ACCESS_DENIED");
+    if (overview.status !== "connected") return [];
     const pagesPerInstallation = await Promise.all(
-      installations
-        .filter((installation) => !installation.suspended)
-        .map(async (installation) => {
-          const pages = [await this.repositories(userId, installation.id, 1)];
-          for (let page = 2; page <= 10000 && pages.at(-1)?.hasMore; page++)
-            pages.push(await this.repositories(userId, installation.id, page));
-          return pages.flatMap((page) =>
-            page.repositories.map((repository) => ({
-              ...repository,
-              installationId: installation.id,
-            })),
-          );
-        }),
+      overview.installations.map(async (installation) => {
+        const pages = [await this.repositories(userId, installation.id, 1)];
+        for (let page = 2; page <= 10000 && pages.at(-1)?.hasMore; page++)
+          pages.push(await this.repositories(userId, installation.id, page));
+        return pages.flatMap((page) =>
+          page.repositories.map((repository) => ({
+            ...repository,
+            installationId: installation.id,
+          })),
+        );
+      }),
     );
     return [
       ...new Map(
@@ -285,14 +381,34 @@ export class GitHubConnection {
     await this.locked(userId, async (tx) => {
       await tx.gitHubAuthorization.deleteMany({ where: { userId } });
       await tx.gitHubConnection.deleteMany({ where: { userId } });
+      await tx.gitHubUserInstallation.deleteMany({ where: { userId } });
     });
+  }
+
+  /**
+   * If the cached token is close to expiry, kick off a refresh in the background without
+   * blocking the (DB-only) overview() read. Throttled per userId so a burst of page loads
+   * cannot fire concurrent refreshes.
+   */
+  private maybeProactivelyRefresh(
+    userId: string,
+    row: { expiresAt: Date; refreshExpiresAt: Date },
+  ) {
+    const now = this.now();
+    if (row.expiresAt.getTime() - now >= PROACTIVE_REFRESH_WINDOW_MS) return;
+    if (row.refreshExpiresAt.getTime() <= now) return;
+    const last = lastProactiveRefresh.get(userId) ?? 0;
+    if (now - last < REFRESH_THROTTLE_MS) return;
+    lastProactiveRefresh.set(userId, now);
+    void this.withToken(userId, async () => {}, PROACTIVE_REFRESH_WINDOW_MS).catch(() => {});
   }
 
   private async withToken<T>(
     userId: string,
     action: (token: string, githubUserId: string) => Promise<T>,
+    refreshWithinMs = 60_000,
   ) {
-    const result = await this.locked(userId, async (tx) => {
+    const prepared = await this.locked(userId, async (tx) => {
       const row = await tx.gitHubConnection.findUnique({ where: { userId } });
       if (!row) return { ok: false as const, status: "disconnected" as const, login: null };
       try {
@@ -301,33 +417,67 @@ export class GitHubConnection {
         let tokens = credentialsSchema.parse(
           JSON.parse(await this.open(userId, "tokens", row.credentials)),
         );
-        if (row.expiresAt.getTime() <= this.now() + 60_000) {
+        let current = row;
+        if (row.expiresAt.getTime() <= this.now() + refreshWithinMs) {
           if (row.refreshExpiresAt.getTime() <= this.now()) throw new GitHubUnauthorized();
           const refreshed = await this.exchange({
             grant_type: "refresh_token",
             refresh_token: tokens.refresh_token,
           });
-          await tx.gitHubConnection.update({
+          current = await tx.gitHubConnection.update({
             where: { userId },
             data: await this.storedTokens(userId, refreshed),
           });
           tokens = refreshed;
         }
-        return { ok: true as const, data: await action(tokens.access_token, row.githubUserId) };
+        return {
+          ok: true as const,
+          token: tokens.access_token,
+          githubUserId: row.githubUserId,
+          row: current,
+        };
       } catch (error) {
         if (error instanceof GitHubUnauthorized) {
           await tx.gitHubConnection.update({ where: { userId }, data: { credentials: null } });
           return { ok: false as const, status: "reauthorize" as const, login: row.login };
         }
-        // Commit a rotated token even if the subsequent read fails. Errors are raised
-        // outside the transaction so a transient GitHub failure cannot undo refresh.
+        // Commit a rotated token even if the subsequent read fails. The action runs
+        // after this transaction, so a transient GitHub failure cannot undo a refresh.
         return {
           error: error instanceof AppError ? error : new AppError("TEMPORARILY_UNAVAILABLE"),
         };
       }
     });
-    if ("error" in result) throw result.error;
-    return result;
+    if ("error" in prepared) throw prepared.error;
+    if (!prepared.ok) return prepared;
+    // The advisory lock only covers the token read/refresh above. GitHub reads run here,
+    // outside any transaction, so a slow API call never blocks a concurrent disconnect().
+    try {
+      return { ok: true as const, data: await action(prepared.token, prepared.githubUserId) };
+    } catch (error) {
+      if (error instanceof GitHubUnauthorized) {
+        await this.clearCredentialsIfUnchanged(userId, prepared.row);
+        return { ok: false as const, status: "reauthorize" as const, login: prepared.row.login };
+      }
+      throw error instanceof AppError ? error : new AppError("TEMPORARILY_UNAVAILABLE");
+    }
+  }
+
+  /** Never wipe a credential that a concurrent refresh already rotated past what we read. */
+  private async clearCredentialsIfUnchanged(
+    userId: string,
+    seen: { updatedAt: Date; credentials: string | null },
+  ) {
+    await this.locked(userId, async (tx) => {
+      const row = await tx.gitHubConnection.findUnique({ where: { userId } });
+      if (
+        !row ||
+        row.updatedAt.getTime() !== seen.updatedAt.getTime() ||
+        row.credentials !== seen.credentials
+      )
+        return;
+      await tx.gitHubConnection.update({ where: { userId }, data: { credentials: null } });
+    });
   }
 
   private get installUrl() {
