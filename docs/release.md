@@ -734,6 +734,36 @@ recovery. A foreground externally supervised instance cannot currently be
 stopped by this coordinator and must be stopped through its external supervisor
 before upgrade.
 
+### Upgrade operations and their receipts
+
+Every upgrade or rollback - remote or from the CLI - is one `UpgradeOperation`
+`{ requestId, operation, selection, origin, quiet }`, built once at the process
+boundary and passed explicitly from there. No environment variable carries an
+operation's identity. The operation's durable `<requestId>.request.json` and
+`<requestId>.result.json` under `~/.coforge/computer/install/upgrade-results`
+are the only channel between the coordinator process and the Daemon, and the
+result receipt names its own `request_id`.
+
+The Coordinator records each operation in `~/.coforge/daemon/bindings.json` as
+`upgradeOperations`, moving it from `pending` to `succeeded`/`failed` from that
+receipt - at Coordinator startup, and while it watches a job it launched - and
+finally to `acknowledged` once the server has accepted the reported result. Only
+one operation may be pending per binding; a second request is refused before
+anything is launched rather than left to collide over the installation lock.
+
+A terminal result is reported to the server as `computer:upgrade_result`
+(`ComputerUpgradeResult`, additive, `protocol_major` unchanged) after the
+Workspace daemon's ready handshake. A reported failure settles the request with
+reason `reported`; a reported success is corroborating evidence only, and the
+server still requires the Computer's own new identity and matching versions
+before an upgrade counts as complete. Reported failure text is sanitized of
+absolute paths and credential-shaped runs at both ends.
+
+Because the Daemon calls a server method that older deployments do not expose, a
+Computer release carrying this behaviour must ship together with the Web
+deployment that accepts it. See
+[ADR 0017](adr/0017-computer-upgrade-operation-receipt.md).
+
 ## Rollback
 
 Each release track records its own previous known-healthy identity before
