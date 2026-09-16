@@ -12,6 +12,11 @@ test("GitHub stays unconfigured without secrets and rejects non-HTTPS or mismatc
     COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY: "ab".repeat(32),
   };
   expect((await readGitHubConfig(env))?.encryptionKey).toEqual(new Uint8Array(32).fill(171));
+  expect((await readGitHubConfig(env))?.webhookSecret).toBeNull();
+  expect(
+    (await readGitHubConfig({ ...env, COFORGE_GITHUB_WEBHOOK_SECRET: "whsec-value" }))
+      ?.webhookSecret,
+  ).toBe("whsec-value");
   await expect(
     readGitHubConfig({
       ...env,

@@ -37,6 +37,7 @@ test("optional GitHub deployment credentials reach Compose without entering stdo
         await writeFile(join(directory, "coforge_github_client_secret"), "github-fixture");
         await writeFile(join(directory, "coforge_github_credential_encryption_key"), "key-fixture");
         await writeFile(join(directory, "coforge_github_app_slug"), "fixture-app");
+        await writeFile(join(directory, "coforge_github_webhook_secret"), "hook-fixture");
       }
       const child = Bun.spawn(
         [
@@ -49,15 +50,17 @@ test("optional GitHub deployment credentials reach Compose without entering stdo
           test "\${COFORGE_GITHUB_CLIENT_SECRET-unset}" = "$2"
           test "\${COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY-unset}" = "$3"
           test "\${COFORGE_GITHUB_APP_SLUG-unset}" = "$4"
+          test "\${COFORGE_GITHUB_WEBHOOK_SECRET-unset}" = "$5"
         }
         load_compose_secrets
-        compose "$2" "$3" "$4"
+        compose "$2" "$3" "$4" "$5"
       `,
           "test",
           directory,
           configured ? "github-fixture" : "",
           configured ? "key-fixture" : "",
           configured ? "fixture-app" : "",
+          configured ? "hook-fixture" : "",
         ],
         { stdout: "pipe", stderr: "pipe" },
       );

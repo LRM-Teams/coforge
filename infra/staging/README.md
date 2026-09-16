@@ -219,8 +219,11 @@ authorization callback must be
 Keep expiring user access tokens enabled. Minimum repository permission is
 Metadata (read); no write, organization-member, or email permission is needed
 for this slice. Installation and personal authorization are separate actions.
-Disable webhook Active for now: this slice does not implement a webhook endpoint.
-The callback URL is not a Webhook URL.
+Set Webhook Active, with URL `https://staging.coforge.cn/api/integrations/github/webhook`
+and the generated webhook secret below. Enable these events: Installation,
+Installation repositories. GitHub App authorization is on by default for Apps
+and needs no separate opt-in. The callback URL and the Webhook URL are
+different endpoints; do not point one at the other.
 
 Set these in the repository's **staging Environment** before a reviewed deployment:
 
@@ -231,12 +234,21 @@ Set these in the repository's **staging Environment** before a reviewed deployme
   32-byte key encoded as 64 hexadecimal characters. Generate and store securely;
   never send it through chat. Retain this key across deployments. Replacing it
   makes existing ciphertext unreadable; users must disconnect and reconnect.
+- Secret `COFORGE_GITHUB_WEBHOOK_SECRET`: independently generated, entered
+  verbatim as the GitHub App's webhook secret. Optional: absent, the webhook
+  route responds 503 and Settings falls back to its background/manual sync
+  only, so this can be provisioned after the rest of the connection works.
 
 The workflow transfers these through restricted files. Compose mounts credentials
 as secrets; neither credential is stored in its `.env` or Web container environment.
 Absent credentials leave the Settings integration unconfigured without changing
 login behavior. This does not configure production or deploy automatically.
 No GitHub App private key is needed because this slice uses user tokens only.
+
+Settings no longer polls GitHub on every page load: it reads a database cache
+and refreshes it in the background, kept fresh by the three webhook events
+above (installation, installation_repositories, github_app_authorization). See
+[ADR 0019](../../docs/adr/0019-github-installation-cache-and-webhooks.md).
 
 Manual acceptance after configuration and approved migration/deployment:
 
@@ -250,6 +262,10 @@ Manual acceptance after configuration and approved migration/deployment:
   on the CoForge integration card.
 - [ ] Revoke authorization on GitHub; reopen Settings to request reauthorization.
 - [ ] Disconnect; confirm the account disappears and the App remains installed.
+- [ ] With the webhook secret configured, suspend then unsuspend the installation
+  on GitHub; Settings reflects the change without a manual Refresh.
+- [ ] Uninstall the App on GitHub; Settings shows "pending installation" without
+  a manual Refresh.
 
 Local database regression command (disposable migrated PostgreSQL only):
 `GITHUB_TEST_DATABASE_URL=<local-url> mise exec -- bun test ./apps/web/test/github-connection.integration.ts`.
