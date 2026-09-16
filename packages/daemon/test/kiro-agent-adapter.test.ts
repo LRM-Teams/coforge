@@ -162,6 +162,27 @@ test("Kiro replaces busy input, suppresses late completion, and normalizes ACP e
   }
 });
 
+test("Kiro reports compacting_context once, then compaction_finished, from CompactionUpdate.status", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-compaction-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.notify!("compaction");
+    const kinds = events
+      .filter((event) => event.type === "activity")
+      .map((event) => event.activity.detailKind);
+    expect(kinds.filter((kind) => kind === "compacting_context")).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === "compaction_finished")).toHaveLength(1);
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("Kiro rejects protocol disconnect before admission and mismatched resume identity", async () => {
   const cwd = await mkdtemp(join(tempRoot, "kiro-failures-"));
   try {

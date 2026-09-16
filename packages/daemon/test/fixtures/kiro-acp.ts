@@ -224,6 +224,20 @@ async function handle(request: Message) {
         }
         break;
       }
+      if (JSON.stringify(request.params).includes("compaction")) {
+        // A repeated in_progress update must not re-trigger compacting_context;
+        // only the edge into and out of compaction is a real signal.
+        update({ sessionUpdate: "compaction_update", compactionId: "c1", status: "in_progress" });
+        update({ sessionUpdate: "compaction_update", compactionId: "c1", status: "in_progress" });
+        update({ sessionUpdate: "compaction_update", compactionId: "c1", status: "completed" });
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: {
+            kiro: { kind: "user_message_id_assigned", userMessageId: `message-${++admissions}` },
+          },
+        });
+        break;
+      }
       update({
         sessionUpdate: "session_info_update",
         _meta: {

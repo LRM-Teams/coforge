@@ -57,6 +57,29 @@ test("decodeActivityObservation drops a content-free runtime_progress frame", ()
   expect(decoded).toBeUndefined();
 });
 
+// ADR 0021
+test.each(["tool_end", "thinking_end", "compaction_finished"])(
+  "decodeActivityObservation drops a content-free %s frame",
+  (detailKind) => {
+    const decoded = decodeActivityObservation(
+      encodeAgentActivity({ ...baseWireActivity, detailKind, detail: "" }),
+      { workspaceId: "workspace-1" },
+    );
+    expect(decoded).toBeUndefined();
+  },
+);
+
+test.each(["compacting_context", "subagent_activity", "message_received"])(
+  "decodeActivityObservation keeps a visible %s activity",
+  (detailKind) => {
+    const decoded = decodeActivityObservation(
+      encodeAgentActivity({ ...baseWireActivity, detailKind }),
+      { workspaceId: "workspace-1" },
+    );
+    expect(decoded?.entry.detailKind).toBe(detailKind);
+  },
+);
+
 test("decodeActivityObservation keeps an ordinary busy activity", () => {
   const decoded = decodeActivityObservation(encodeAgentActivity(baseWireActivity), {
     workspaceId: "workspace-1",
@@ -71,6 +94,14 @@ test("mergeAgentActivity drops runtime_progress entries even if not decoded away
   );
   expect(result.map((value) => value.clientSeq)).toEqual([1]);
 });
+
+test.each(["tool_end", "thinking_end", "compaction_finished"])(
+  "mergeAgentActivity drops %s entries even if not decoded away",
+  (detailKind) => {
+    const result = mergeAgentActivity([], [entry(1), { ...entry(2), detailKind }]);
+    expect(result.map((value) => value.clientSeq)).toEqual([1]);
+  },
+);
 
 test("merges delayed history with live activity without duplicates or lost publications", () => {
   const live = mergeAgentActivity([entry(1)], [entry(3), entry(2)]);

@@ -123,6 +123,52 @@ test("status presentation uses backend detail instead of hardcoding the received
   ]);
 });
 
+// ADR 0021
+test("compacting_context uses a dedicated label instead of the generic working text", () => {
+  const observation = {
+    activityKind: "working" as const,
+    detailKind: "compacting_context",
+    level: "info",
+    detail: "",
+  };
+  expect(presentActivity(observation)).toMatchObject([
+    {
+      label: "Compacting context",
+      recentLabel: "Compacting context…",
+      currentLabel: "Compacting context…",
+      tone: "working",
+    },
+  ]);
+});
+
+test("subagent_activity always shows one unified label, even with entries", () => {
+  const observation = {
+    activityKind: "working" as const,
+    detailKind: "subagent_activity",
+    level: "info",
+    detail: "",
+    entries: [
+      { kind: "tool_start" as const, toolName: "bash", subagent: { parentToolUseId: "t1" } },
+    ],
+  };
+  expect(presentActivity(observation)).toEqual([
+    {
+      label: "Subagent working",
+      detail: "",
+      recentLabel: "Subagent working…",
+      currentLabel: "Subagent working…",
+      tone: "working",
+      recentTone: "working",
+      pulse: true,
+      monospace: false,
+      expandable: false,
+    },
+  ]);
+  expect(presentActivity({ ...observation, level: "error", detail: "boom" })).toMatchObject([
+    { label: "Error", tone: "error" },
+  ]);
+});
+
 test("structured tools separate the label from command and path details", () => {
   const observation = {
     activityKind: "working" as const,

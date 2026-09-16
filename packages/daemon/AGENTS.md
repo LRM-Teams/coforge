@@ -76,7 +76,8 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   attention, model-visible positions, and the accepted-Message observation hook.
   After successful current-generation `notify`, ordinary live Message delivery
   and concrete wake/resume batches report `Message received` with
-  `model_request_started`, matching Raft 1.0.17's
+  `message_received` (ADR 0021; previously the generic
+  `model_request_started`), matching Raft 1.0.17's
   `broadcastMessageReceivedActivity`. Summary-only recovery and deduplicated
   inputs do not report it. `runtime.ts` assigns launch/sequence metadata and
   publishes best-effort Activity before live delivery ACK; observer failure

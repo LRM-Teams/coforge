@@ -234,6 +234,58 @@ describe("Agent activity publication", () => {
     expect(history).toHaveLength(0);
   });
 
+  // ADR 0021: tool_end, thinking_end, and compaction_finished are the same
+  // liveness-only shape as runtime_progress.
+  test.each(["tool_end", "thinking_end", "compaction_finished"])(
+    "does not persist a content-free %s frame to history",
+    async (detailKind) => {
+      const history: unknown[] = [];
+      const response = await handleAgentActivityPublication(
+        request({
+          b64data: encodedBase64({
+            ...activity,
+            detailKind,
+            detail: "",
+            entries: [],
+          }),
+        }),
+        {
+          proxySecret: "test-secret",
+          agentBelongsToWorkspace: async () => true,
+          agentBelongsToComputer: async () => true,
+          computerBelongsToWorkspace: async () => true,
+          observe: async (value) => {
+            history.push(value);
+          },
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(history).toHaveLength(0);
+    },
+  );
+
+  test("persists compacting_context and subagent_activity to history like other visible working kinds", async () => {
+    for (const detailKind of ["compacting_context", "subagent_activity"]) {
+      const history: unknown[] = [];
+      const response = await handleAgentActivityPublication(
+        request({
+          b64data: encodedBase64({ ...activity, detailKind, detail: "" }),
+        }),
+        {
+          proxySecret: "test-secret",
+          agentBelongsToWorkspace: async () => true,
+          agentBelongsToComputer: async () => true,
+          computerBelongsToWorkspace: async () => true,
+          observe: async (value) => {
+            history.push(value);
+          },
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(history).toHaveLength(1);
+    }
+  });
+
   test("rejects an untrusted proxy or mismatched connection scope", async () => {
     const dependencies = {
       proxySecret: "test-secret",

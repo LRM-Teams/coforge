@@ -209,7 +209,9 @@ class CodexAgentSession implements AgentSession {
       this.#emit({
         type: "activity",
         activity: createAgentActivity(
-          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+          error.message === "code agent process exited unexpectedly"
+            ? AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_CRASHED
+            : AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
           "error",
           error.message,
         ),
@@ -450,6 +452,18 @@ class CodexAgentSession implements AgentSession {
     }
     if (record.method === "item/completed") {
       const item = asRecord(params?.item);
+      if (item?.type === "reasoning") {
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity(
+            AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
+            "info",
+            "",
+            eventTime(record),
+          ),
+        });
+        return;
+      }
       if (item?.type === "commandExecution" && typeof item.id === "string") {
         logger.info("Codex command completed", {
           event: "codex.command.completed",

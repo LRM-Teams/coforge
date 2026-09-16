@@ -2666,10 +2666,10 @@ describe("DaemonRuntime", () => {
       expect(events).toEqual([]);
       gate.resolve();
       await delivery;
-      expect(events).toEqual(["accepted", "activity:model_request_started", "ack:delivery-1"]);
+      expect(events).toEqual(["accepted", "activity:message_received", "ack:delivery-1"]);
       expect(activities[1]).toMatchObject({
         agentId: "agent-a",
-        detailKind: "model_request_started",
+        detailKind: "message_received",
         detail: "Message received",
         level: "info",
         entries: [],
@@ -2718,12 +2718,12 @@ describe("DaemonRuntime", () => {
         gate.resolve();
         await launch;
         expect(activities.map((activity) => activity.detailKind)).toEqual(
-          kind === "summary" ? ["starting"] : ["starting", "model_request_started"],
+          kind === "summary" ? ["starting"] : ["starting", "message_received"],
         );
         if (kind !== "summary") {
           expect(activities[1]).toMatchObject({
             agentId: "agent-a",
-            detailKind: "model_request_started",
+            detailKind: "message_received",
             detail: "Message received",
             level: "info",
             entries: [],
@@ -2774,7 +2774,7 @@ describe("DaemonRuntime", () => {
   test("Activity publication failure does not reject accepted delivery", async () => {
     const harness = await queueHarness({
       activity: (activity) => {
-        if (activity.detailKind === "model_request_started") throw new Error("offline observer");
+        if (activity.detailKind === "message_received") throw new Error("offline observer");
       },
     });
     try {
@@ -2805,7 +2805,7 @@ describe("DaemonRuntime", () => {
       expect(activities).toEqual(["starting"]);
       await harness.delivery(1);
       expect(attempts).toBe(2);
-      expect(activities).toEqual(["starting", "model_request_started"]);
+      expect(activities).toEqual(["starting", "message_received"]);
       expect(harness.acknowledgements).toEqual(["delivery-1"]);
       expect(harness.sessions()).toBe(1);
     } finally {
@@ -2956,7 +2956,7 @@ describe("DaemonRuntime", () => {
     const received: string[] = [];
     const harness = await queueHarness({
       activity(activity) {
-        if (activity.detailKind === "model_request_started") received.push(activity.detail);
+        if (activity.detailKind === "message_received") received.push(activity.detail);
       },
       notify() {
         notifyAttempts++;

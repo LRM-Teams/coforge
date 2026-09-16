@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { DaemonRuntime, type WorkspaceConfig } from "../src/daemon-runtime/runtime";
-import type { AgentRuntimeConfig, AgentSession } from "../src/code-agent/contract";
+import type {
+  AgentRuntimeConfig,
+  AgentRuntimeEvent,
+  AgentSession,
+} from "../src/code-agent/contract";
 import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
 import type { AgentActivity, AgentActivityDetailKind } from "@lrm/coforge-sdk/internal";
 
@@ -45,6 +49,18 @@ function agentLaunchConfig(agentApiKey: string) {
   return { agentApiKey };
 }
 
+// Without this, DaemonRuntime falls back to real Code Agent discovery, which spawns Pi's
+// embedded SDK in the background to report its live model catalog (see runtime.ts
+// #reportCodeAgentCatalogs). That background work outlives `await runtime.start()`, uses real
+// timers of its own (Pi's session-lock renewal), and races the test's `jest.useFakeTimers()` -
+// leaking timers the heartbeat tests never armed. daemon-runtime.test.ts already stubs this for
+// the same reason.
+const emptyCodeAgentDiscovery = {
+  runtimes: async () => [],
+  cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+  catalogs: async () => [],
+};
+
 /** Boots a runtime whose one Agent session hands the test direct control over runtime events. */
 async function harness() {
   const credentials = new InMemoryDaemonCredentialStore();
@@ -80,6 +96,8 @@ async function harness() {
         async revokeAgentApiKey() {},
       }),
     },
+    undefined,
+    emptyCodeAgentDiscovery,
   );
   await runtime.start(connection);
   await runtime.startAgent("agent-a", config);
@@ -90,8 +108,14 @@ async function harness() {
       detailKind: AgentActivityDetailKind;
       level: AgentActivity["level"];
       detail: string;
+      entries?: AgentActivity["entries"];
     }) {
       listener({ type: "activity", activity: { ...activity, observedAtMs: Date.now() } });
+    },
+    /** Raw AgentRuntimeEvent injection, for events with no activity shorthand
+     * (tool-end, completed). */
+    emitEvent(event: AgentRuntimeEvent) {
+      listener(event);
     },
   };
 }
@@ -284,6 +308,153 @@ test("rate-limits runtime_progress to at most one every 10s per Agent", async ()
     emit({ detailKind: "runtime_progress", level: "info", detail: "" });
     expect(activities.filter((a) => !a.isHeartbeat)).toHaveLength(2);
     expect(activities[0]).toMatchObject({ detailKind: "runtime_progress", detail: "" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+// ADR 0021: tool_end/thinking_end/compaction_finished are busy-but-filler,
+// exactly like runtime_progress — they re-arm the heartbeat.
+for (const detailKind of ["tool_end", "thinking_end", "compaction_finished"] as const) {
+  test(`${detailKind} is busy-but-filler: it re-arms the heartbeat`, async () => {
+    const { runtime, activities, emit } = await harness();
+    jest.useFakeTimers();
+    try {
+      activities.length = 0;
+      emit({ detailKind, level: "info", detail: "" });
+      expect(activities).toHaveLength(1);
+      jest.advanceTimersByTime(60_000);
+      expect(activities).toHaveLength(2);
+      expect(activities[1]).toMatchObject({ detailKind, isHeartbeat: true });
+    } finally {
+      await runtime.stop();
+    }
+  });
+}
+
+test("tool-end AgentRuntimeEvent reports as tool_end", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({ type: "tool-end", id: "tool-1", isError: false });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ detailKind: "tool_end", level: "info", detail: "" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("compacting_context and subagent_activity are visible busy kinds that re-arm the heartbeat", async () => {
+  const { runtime, activities, emit } = await harness();
+  jest.useFakeTimers();
+  try {
+    activities.length = 0;
+    emit({ detailKind: "compacting_context", level: "info", detail: "" });
+    emit({ detailKind: "subagent_activity", level: "info", detail: "" });
+    expect(activities).toHaveLength(2);
+    jest.advanceTimersByTime(60_000);
+    expect(activities).toHaveLength(3);
+    expect(activities[2]).toMatchObject({ detailKind: "subagent_activity", isHeartbeat: true });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a subagent-scoped activity is reclassified as subagent_activity", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({
+      type: "activity",
+      activity: {
+        detailKind: "tool_started",
+        level: "info",
+        detail: "",
+        observedAtMs: Date.now(),
+        entries: [{ kind: "tool_start", toolName: "Bash", subagent: { parentToolUseId: "t1" } }],
+      },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ detailKind: "subagent_activity" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a subagent-scoped error activity keeps its error classification", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({
+      type: "activity",
+      activity: {
+        detailKind: "runtime_error",
+        level: "error",
+        detail: "subagent failed",
+        observedAtMs: Date.now(),
+        entries: [{ kind: "text", text: "boom", subagent: { parentToolUseId: "t1" } }],
+      },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ detailKind: "runtime_error", level: "error" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test.each(["runtime_crashed", "runtime_interrupted"] as const)(
+  "%s stops the heartbeat like other terminal kinds",
+  async (detailKind) => {
+    const { runtime, activities, emit } = await harness();
+    jest.useFakeTimers();
+    try {
+      activities.length = 0;
+      emit({ detailKind: "running_command", level: "info", detail: "ls" });
+      emit({ detailKind, level: detailKind === "runtime_crashed" ? "error" : "info", detail: "" });
+      const countAfter = activities.length;
+      jest.advanceTimersByTime(600_000);
+      expect(activities).toHaveLength(countAfter);
+    } finally {
+      await runtime.stop();
+    }
+  },
+);
+
+test("a completed event's interrupted status reports runtime_interrupted", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({ type: "completed", status: "interrupted" });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ detailKind: "runtime_interrupted", level: "info" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("stopAgent reports runtime_interrupted before stopped when it cuts a busy turn", async () => {
+  const { runtime, activities, emit } = await harness();
+  try {
+    activities.length = 0;
+    emit({ detailKind: "running_command", level: "info", detail: "ls" });
+    activities.length = 0;
+    await runtime.stopAgent("agent-a");
+    const kinds = activities.map((activity) => activity.detailKind);
+    expect(kinds).toEqual(["runtime_interrupted", "stopped"]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("stopAgent does not report runtime_interrupted when the Agent was idle", async () => {
+  const { runtime, activities, emit } = await harness();
+  try {
+    activities.length = 0;
+    emit({ detailKind: "idle", level: "info", detail: "" });
+    await runtime.stopAgent("agent-a");
+    const kinds = activities.map((activity) => activity.detailKind);
+    expect(kinds).not.toContain("runtime_interrupted");
+    expect(kinds).toContain("stopped");
   } finally {
     await runtime.stop();
   }

@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 
-import { decodeAgentActivity, encodeAgentActivity, type AgentActivity } from "./index";
+import {
+  AGENT_ACTIVITY_DETAIL_KIND,
+  decodeAgentActivity,
+  encodeAgentActivity,
+  type AgentActivity,
+} from "./index";
 
 const activity: AgentActivity = {
   protocolMajor: 1,
@@ -64,3 +69,22 @@ test("omits probeId on decode when the frame was not a probe reply", () => {
   const decoded = decodeAgentActivity(encodeAgentActivity(activity));
   expect(decoded.probeId).toBeUndefined();
 });
+
+// ADR 0021: each new detail kind round-trips through the codec exactly like
+// any other stable string value; detail_kind is a plain proto string field.
+for (const detailKind of [
+  AGENT_ACTIVITY_DETAIL_KIND.TOOL_END,
+  AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
+  AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT,
+  AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
+  AGENT_ACTIVITY_DETAIL_KIND.SUBAGENT_ACTIVITY,
+  AGENT_ACTIVITY_DETAIL_KIND.MESSAGE_RECEIVED,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_CRASHED,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_INTERRUPTED,
+]) {
+  test(`round trips the ${detailKind} detail kind`, () => {
+    const withKind: AgentActivity = { ...activity, detailKind };
+    const decoded = decodeAgentActivity(encodeAgentActivity(withKind));
+    expect(decoded.detailKind).toBe(detailKind);
+  });
+}
