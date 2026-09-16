@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { List, Loading01 as LoaderCircle } from "@untitledui/icons";
+import { List } from "@untitledui/icons";
 import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-components";
 
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { useAppToast } from "@/components/ui/toast";
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
@@ -177,15 +178,15 @@ export function OwnMessagesMenu({
       >
         {loading && (
           <div
+            // The live region stays, so its appearance is announced; the spinner inside it
+            // carries the name, rather than labelling the same thing twice.
             role="status"
-            aria-label={m.conversation_loading_your_messages()}
             className={cn(
               "flex items-center justify-center text-tertiary",
               messages.length ? "sticky top-0 z-10 h-7 rounded-md bg-primary" : "h-14",
             )}
           >
-            <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-            <span className="sr-only">{m.conversation_loading_your_messages()}</span>
+            <LoadingIndicator className="size-4" label={m.conversation_loading_your_messages()} />
           </div>
         )}
         <Dropdown.Menu
