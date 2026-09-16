@@ -2043,3 +2043,58 @@ test("saveReportContent autosave does not ask to send", async () => {
   expect(result.assistantPosted).toBe(false);
   expect(comments).toHaveLength(0);
 });
+
+test("loadNavAttention reads every applied stream with two batched queries", async () => {
+  // Wednesday 09:30 in Asia/Shanghai: inside the preview hour of a 10:00 send, not of a 15:00 one.
+  const now = new Date("2026-09-16T01:30:00Z");
+  let findManyCalls = 0;
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    weeklyReportTemplate: {
+      findMany: async () => [
+        { id: "settings-late", sendWeekday: 3, sendTime: "15:00" },
+        { id: "settings-soon", sendWeekday: 3, sendTime: "10:00" },
+        { id: "settings-sent", sendWeekday: 3, sendTime: "10:00" },
+      ],
+    },
+    weeklyReport: {
+      findMany: async (args: { where: { submissions: { some?: unknown; none?: unknown } } }) => {
+        findManyCalls += 1;
+        return args.where.submissions.some
+          ? [{ settingsId: "settings-sent" }]
+          : [{ settingsId: "settings-soon", content: null }];
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).loadNavAttention({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    now,
+  });
+
+  expect(result).toEqual({ preview: true });
+  expect(findManyCalls).toBe(2);
+});
+
+test("loadNavAttention stays quiet when the only armed stream was already sent", async () => {
+  const now = new Date("2026-09-16T01:30:00Z");
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    weeklyReportTemplate: {
+      findMany: async () => [{ id: "settings-sent", sendWeekday: 3, sendTime: "10:00" }],
+    },
+    weeklyReport: {
+      findMany: async (args: { where: { submissions: { some?: unknown } } }) =>
+        args.where.submissions.some ? [{ settingsId: "settings-sent" }] : [],
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).loadNavAttention({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    now,
+  });
+
+  expect(result).toEqual({ preview: false });
+});

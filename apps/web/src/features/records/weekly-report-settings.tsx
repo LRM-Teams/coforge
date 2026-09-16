@@ -13,7 +13,7 @@ import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { m } from "@/paraglide/messages";
 import { CreateWeeklyTemplateDialog } from "./create-weekly-template-dialog";
 import { formatRecipientSummary } from "./records-content";
-import { memberLabel, type TemplateMemberOption } from "./weekly-template-members";
+import { memberLabel, weekdayLabel, type TemplateMemberOption } from "./weekly-template-members";
 import {
   applyWeeklyTemplate,
   createWeeklyTemplate,
@@ -26,25 +26,6 @@ import { BackToRecords } from "./records-layout";
 export type WeeklyTemplateList = Awaited<ReturnType<typeof loadWeeklyTemplates>>;
 
 export type { TemplateMemberOption };
-
-function weekdayLabel(day: number) {
-  switch (day) {
-    case 1:
-      return m.records_template_weekday_mon();
-    case 2:
-      return m.records_template_weekday_tue();
-    case 3:
-      return m.records_template_weekday_wed();
-    case 4:
-      return m.records_template_weekday_thu();
-    case 5:
-      return m.records_template_weekday_fri();
-    case 6:
-      return m.records_template_weekday_sat();
-    default:
-      return m.records_template_weekday_sun();
-  }
-}
 
 function recipientsCell(template: WeeklyTemplateList[number]) {
   if (template.allMembers) return m.records_template_all_members();

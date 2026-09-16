@@ -73,6 +73,35 @@ async function requireMembership(db: Db, workspaceId: string, userId: string) {
   return row;
 }
 
+type TemplateInput = {
+  name: string;
+  frequency: "weekly";
+  sendTime: string;
+  sendWeekday: number;
+  scheduleEnabled: boolean;
+  sections: TemplateOutlineSection[];
+  allMembers: boolean;
+  recipientUserIds: string[];
+};
+
+/** The columns a template create or update writes from validated input. */
+function templateWriteData(input: TemplateInput, sections: TemplateOutlineSection[]) {
+  return {
+    name: input.name.trim(),
+    frequency: input.frequency,
+    sendTime: input.sendTime,
+    sendWeekday: input.sendWeekday,
+    applied: input.scheduleEnabled,
+    scheduleEnabled: input.scheduleEnabled,
+    dimensions: sections as unknown as Prisma.InputJsonValue,
+    mainTitles: [] as string[],
+    allMembers: input.allMembers,
+    recipients: input.allMembers
+      ? undefined
+      : { create: input.recipientUserIds.map((userId) => ({ userId })) },
+  };
+}
+
 export class RecordCatalog {
   constructor(
     private readonly db: Db,
@@ -467,36 +496,42 @@ export class RecordCatalog {
       },
       select: { id: true, sendWeekday: true, sendTime: true },
     });
-    for (const row of settings) {
-      const alreadySent = await this.db.weeklyReport.findFirst({
+    if (settings.length === 0) return { preview: false as const };
+    const stream = {
+      workspaceId: input.workspaceId,
+      authorId: input.userId,
+      kind: "template" as const,
+      settingsId: { in: settings.map((row) => row.id) },
+    };
+    const [sent, live] = await Promise.all([
+      this.db.weeklyReport.findMany({
         where: {
-          workspaceId: input.workspaceId,
-          authorId: input.userId,
-          kind: "template",
-          settingsId: row.id,
+          ...stream,
           cycle: { year: currentWeek.year, week: currentWeek.week },
           submissions: { some: { kind: "member" } },
         },
-        select: { id: true },
-      });
-      const live = await this.db.weeklyReport.findFirst({
-        where: {
-          workspaceId: input.workspaceId,
-          authorId: input.userId,
-          kind: "template",
-          settingsId: row.id,
-          submissions: { none: { kind: "member" } },
-        },
-        select: { content: true },
-      });
+        select: { settingsId: true },
+      }),
+      this.db.weeklyReport.findMany({
+        where: { ...stream, submissions: { none: { kind: "member" } } },
+        select: { settingsId: true, content: true },
+      }),
+    ]);
+    const sentSettingsIds = new Set(sent.map((row) => row.settingsId));
+    const liveContentBySettingsId = new Map<string | null, unknown>();
+    for (const row of live) {
+      if (!liveContentBySettingsId.has(row.settingsId))
+        liveContentBySettingsId.set(row.settingsId, row.content);
+    }
+    for (const row of settings) {
       const armed = isWeeklySendArmed({
         applied: true,
-        alreadySent: Boolean(alreadySent),
+        alreadySent: sentSettingsIds.has(row.id),
         sendWeekday: row.sendWeekday,
         sendTime: row.sendTime,
         scheduleEnabled: true,
         autoSendCancelled: isAutoSendCancelled(
-          asReportContent(live?.content),
+          asReportContent(liveContentBySettingsId.get(row.id)),
           currentWeek.year,
           currentWeek.week,
         ),
@@ -1745,19 +1780,8 @@ export class RecordCatalog {
     };
   }
 
-  async createTemplate(input: {
-    workspaceId: string;
-    userId: string;
-    name: string;
-    frequency: "weekly";
-    sendTime: string;
-    sendWeekday: number;
-    scheduleEnabled: boolean;
-    sections: TemplateOutlineSection[];
-    allMembers: boolean;
-    recipientUserIds: string[];
-  }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
+  /** Rejects a malformed template or recipients outside the Workspace; returns the parsed parts. */
+  private async validateTemplateInput(input: TemplateInput & { workspaceId: string }) {
     if (!isValidTemplateName(input.name)) throw new AppError("INVALID_INPUT");
     if (input.sendWeekday < 1 || input.sendWeekday > 7) throw new AppError("INVALID_INPUT");
     if (!isHourlySendTime(input.sendTime)) throw new AppError("INVALID_INPUT");
@@ -1770,26 +1794,17 @@ export class RecordCatalog {
       });
       if (members !== input.recipientUserIds.length) throw new AppError("INVALID_INPUT");
     }
-    const sections = parseTemplateSections(input.sections);
-    const enabled = input.scheduleEnabled;
+    return { sections: parseTemplateSections(input.sections), enabled: input.scheduleEnabled };
+  }
+
+  async createTemplate(input: TemplateInput & { workspaceId: string; userId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const { sections, enabled } = await this.validateTemplateInput(input);
     const created = await this.db.weeklyReportTemplate.create({
       data: {
         workspaceId: input.workspaceId,
         ownerId: input.userId,
-        name: input.name.trim(),
-        frequency: input.frequency,
-        sendTime: input.sendTime,
-        sendWeekday: input.sendWeekday,
-        applied: enabled,
-        scheduleEnabled: enabled,
-        dimensions: sections as unknown as Prisma.InputJsonValue,
-        mainTitles: [],
-        allMembers: input.allMembers,
-        recipients: input.allMembers
-          ? undefined
-          : {
-              create: input.recipientUserIds.map((userId) => ({ userId })),
-            },
+        ...templateWriteData(input, sections),
       },
     });
     if (enabled) {
@@ -1805,59 +1820,21 @@ export class RecordCatalog {
     return { id: created.id };
   }
 
-  async updateTemplate(input: {
-    workspaceId: string;
-    userId: string;
-    templateId: string;
-    name: string;
-    frequency: "weekly";
-    sendTime: string;
-    sendWeekday: number;
-    scheduleEnabled: boolean;
-    sections: TemplateOutlineSection[];
-    allMembers: boolean;
-    recipientUserIds: string[];
-  }) {
+  async updateTemplate(
+    input: TemplateInput & { workspaceId: string; userId: string; templateId: string },
+  ) {
     await requireMembership(this.db, input.workspaceId, input.userId);
-    if (!isValidTemplateName(input.name)) throw new AppError("INVALID_INPUT");
-    if (input.sendWeekday < 1 || input.sendWeekday > 7) throw new AppError("INVALID_INPUT");
-    if (!isHourlySendTime(input.sendTime)) throw new AppError("INVALID_INPUT");
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId, ownerId: input.userId },
       select: { id: true, applied: true, name: true },
     });
     if (!template) throw new AppError("NOT_FOUND");
-    if (!input.allMembers && input.recipientUserIds.length > 0) {
-      const members = await this.db.workspaceMembership.count({
-        where: {
-          workspaceId: input.workspaceId,
-          userId: { in: input.recipientUserIds },
-        },
-      });
-      if (members !== input.recipientUserIds.length) throw new AppError("INVALID_INPUT");
-    }
-    const sections = parseTemplateSections(input.sections);
-    const enabled = input.scheduleEnabled;
+    const { sections, enabled } = await this.validateTemplateInput(input);
     await this.db.$transaction(async (tx) => {
       await tx.weeklyReportTemplateRecipient.deleteMany({ where: { templateId: template.id } });
       await tx.weeklyReportTemplate.update({
         where: { id: template.id },
-        data: {
-          name: input.name.trim(),
-          frequency: input.frequency,
-          sendTime: input.sendTime,
-          sendWeekday: input.sendWeekday,
-          applied: enabled,
-          scheduleEnabled: enabled,
-          dimensions: sections as unknown as Prisma.InputJsonValue,
-          mainTitles: [],
-          allMembers: input.allMembers,
-          recipients: input.allMembers
-            ? undefined
-            : {
-                create: input.recipientUserIds.map((userId) => ({ userId })),
-              },
-        },
+        data: templateWriteData(input, sections),
       });
     });
     if (enabled) {
