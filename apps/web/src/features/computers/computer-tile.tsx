@@ -32,12 +32,10 @@ export function ComputerTile({
         <Icon className="size-4" />
       </span>
       {upgrading ? (
-        <span className="absolute -top-1 -right-1 flex">
-          <LoadingIndicator
-            className="size-3 text-fg-brand-primary"
-            label={m.computer_upgrade_in_progress()}
-          />
-        </span>
+        <LoadingIndicator
+          className="absolute -top-1 -right-1 size-3 text-fg-brand-primary"
+          label={m.computer_upgrade_in_progress()}
+        />
       ) : (
         updateAvailableVersion && (
           <Tooltip title={m.computer_new_version({ version: updateAvailableVersion })}>
