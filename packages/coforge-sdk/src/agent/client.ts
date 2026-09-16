@@ -28,6 +28,35 @@ export type AgentAttachmentDownload = {
   contentType?: string;
 };
 
+export type GitHubCredentialRequest = Record<string, never>;
+export type GitHubCredentialResponse = {
+  username: "x-access-token";
+  password: string;
+  expiresAt: string;
+};
+
+export function decodeGitHubCredentialResponse(value: unknown): GitHubCredentialResponse {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("username" in value) ||
+    value.username !== "x-access-token" ||
+    !("password" in value) ||
+    typeof value.password !== "string" ||
+    value.password.length === 0 ||
+    !("expiresAt" in value) ||
+    typeof value.expiresAt !== "string" ||
+    Number.isNaN(Date.parse(value.expiresAt))
+  ) {
+    throw new Error("invalid GitHub credential response");
+  }
+  return {
+    username: value.username,
+    password: value.password,
+    expiresAt: value.expiresAt,
+  };
+}
+
 export { agentApiRoutes, workspaceInfoRoute } from "./routes";
 
 export type WorkspaceInfoHuman = { id: string; name: string; displayName: string; role: string };

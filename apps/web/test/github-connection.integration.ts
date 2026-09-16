@@ -21,30 +21,36 @@ const config = {
   webhookSecret: null,
 };
 
-test("authorization binds the browser and User, exchanges PKCE once, and returns no credentials", async () => {
+test("authorization binds the browser and issues the Agent owner's current user token", async () => {
   const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  const now = Date.parse("2026-09-16T20:00:00Z");
   let exchanges = 0;
   let verifier = "";
-  const connection = new GitHubConnection(db, config, async (url, init) => {
-    if (url === "https://github.com/login/oauth/access_token") {
-      exchanges++;
-      const body = new URLSearchParams(String(init.body));
-      verifier = body.get("code_verifier") ?? "";
-      expect(body.get("client_secret")).toBe("test-secret");
-      return Response.json({
-        access_token: "ghu_test_private",
-        refresh_token: "ghr_test_private",
-        expires_in: 28800,
-        refresh_token_expires_in: 15897600,
-        token_type: "bearer",
-      });
-    }
-    expect(new Headers(init.headers).get("authorization")).toBe("Bearer ghu_test_private");
-    if (url.startsWith("https://api.github.com/user/installations"))
-      return Response.json({ total_count: 0, installations: [] });
-    expect(url).toBe("https://api.github.com/user");
-    return Response.json({ id: 71, login: "test-owner" });
-  });
+  const connection = new GitHubConnection(
+    db,
+    config,
+    async (url, init) => {
+      if (url === "https://github.com/login/oauth/access_token") {
+        exchanges++;
+        const body = new URLSearchParams(String(init.body));
+        verifier = body.get("code_verifier") ?? "";
+        expect(body.get("client_secret")).toBe("test-secret");
+        return Response.json({
+          access_token: "ghu_test_private",
+          refresh_token: "ghr_test_private",
+          expires_in: 28800,
+          refresh_token_expires_in: 15897600,
+          token_type: "bearer",
+        });
+      }
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer ghu_test_private");
+      if (url.startsWith("https://api.github.com/user/installations"))
+        return Response.json({ total_count: 0, installations: [] });
+      expect(url).toBe("https://api.github.com/user");
+      return Response.json({ id: 71, login: "test-owner" });
+    },
+    () => now,
+  );
   try {
     const attempt = await connection.begin(user.id);
     const url = new URL(attempt.url);
@@ -65,6 +71,15 @@ test("authorization binds the browser and User, exchanges PKCE once, and returns
       login: "test-owner",
       installUrl: "https://github.com/apps/coforge-staging/installations/new",
     });
+    const installation = connection.beginInstallation();
+    expect(new URL(installation.url).pathname).toBe(
+      "/apps/coforge-staging/installations/select_target",
+    );
+    expect(new URL(installation.url).searchParams.get("state")).toBe(installation.state);
+    const credential = await connection.credential(user.id);
+    expect(credential.username).toBe("x-access-token");
+    expect(credential.password).toBe(["ghu", "test", "private"].join("_"));
+    expect(credential.expiresAt).toBe("2026-09-17T04:00:00.000Z");
     // Persistence is inspected only to verify the security property of encryption at rest.
     const stored = await db.gitHubConnection.findUniqueOrThrow({ where: { userId: user.id } });
     expect(JSON.stringify(stored)).not.toContain("ghu_test_private");

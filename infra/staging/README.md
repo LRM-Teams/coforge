@@ -227,9 +227,13 @@ approval gate, and promotion of the exact digest that passed staging.
 The staging App ID is `4937758`, Client ID is `Iv23lip3Ca7BRl50L2O4`, and its
 authorization callback must be
 `https://staging.coforge.cn/api/integrations/github/callback`.
-Keep expiring user access tokens enabled. Minimum repository permission is
-Metadata (read); no write, organization-member, or email permission is needed
-for this slice. Installation and personal authorization are separate actions.
+Keep expiring user access tokens enabled. Repository discovery requires Metadata
+(read). Agent HTTPS Git and the planned GitHub operations require repository
+permissions Actions (read), Checks (read), Contents (write), Pull requests
+(write), Commit statuses (read), and Workflows (write); no organization-member or
+email permission is needed. Installation and personal authorization are separate
+actions. Existing installations must approve changed permissions and select the
+repositories Agents may use.
 Set Webhook Active, with URL `https://staging.coforge.cn/api/integrations/github/webhook`
 and the generated webhook secret below. No event subscription is needed:
 GitHub delivers `installation`, `installation_repositories` and
@@ -251,11 +255,18 @@ Set these in the repository's **staging Environment** before a reviewed deployme
   route responds 503 and Settings falls back to its background/manual sync
   only, so this can be provisioned after the rest of the connection works.
 
+Keep **Request user authorization (OAuth) during installation** enabled. GitHub
+therefore disables the Setup URL and sends installation completion to the existing
+authorization callback above. Leave **Redirect on update** disabled: GitHub ignores
+it when the Setup URL is blank. CoForge validates a browser-bound installation
+`state`, ignores the untrusted returned installation ID, and resynchronizes through
+the authenticated GitHub user token. Later repository-access changes arrive through
+GitHub webhooks and are also refreshed when Settings or the Project repository selector loads.
+
 The workflow transfers these through restricted files. Compose mounts credentials
-as secrets; neither credential is stored in its `.env` or Web container environment.
-Absent credentials leave the Settings integration unconfigured without changing
-login behavior. This does not configure production or deploy automatically.
-No GitHub App private key is needed because this slice uses user tokens only.
+as secrets; none is stored in its `.env` or Web container environment.
+Absent connection credentials leave the Settings integration unconfigured without
+changing login behavior. This does not configure production or deploy automatically.
 
 Settings no longer polls GitHub on every page load: it reads a database cache
 and refreshes it in the background, kept fresh by the three webhook events

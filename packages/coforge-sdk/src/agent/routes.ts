@@ -7,6 +7,7 @@ export const agentApiRoutes = {
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
+    githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
   },
   local: {
     messages: { method: "POST", path: "/api/agent/v1/messages" },
@@ -14,6 +15,7 @@ export const agentApiRoutes = {
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
+    githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     attachments: {
       method: "GET",
       path: (attachmentId: string) =>
@@ -60,6 +62,7 @@ export const agentApiRoutes = {
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
+    githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     attachments: {
       method: "GET",
       collectionPath: "/api/agent/v1/attachments",

@@ -56,6 +56,7 @@ import { Route as ApiWorkspacesSlugRouteImport } from './routes/api/workspaces.$
 import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
 import { Route as AppProjectsProjectSlugSettingsRouteImport } from './routes/_app/projects.$projectSlug_.settings'
 import { Route as ApiAgentV1EventsRouteImport } from './routes/api/agent/v1/events'
+import { Route as ApiAgentV1GithubCredentialsRouteImport } from './routes/api/agent/v1/github-credentials'
 import { Route as ApiAgentV1MessagesRouteImport } from './routes/api/agent/v1/messages'
 import { Route as ApiAgentV1RemindersRouteImport } from './routes/api/agent/v1/reminders'
 import { Route as ApiAgentV1TasksRouteImport } from './routes/api/agent/v1/tasks'
@@ -317,6 +318,12 @@ const ApiAgentV1EventsRoute = ApiAgentV1EventsRouteImport.update({
   path: '/api/agent/v1/events',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentV1GithubCredentialsRoute =
+  ApiAgentV1GithubCredentialsRouteImport.update({
+    id: '/api/agent/v1/github-credentials',
+    path: '/api/agent/v1/github-credentials',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1MessagesRoute = ApiAgentV1MessagesRouteImport.update({
   id: '/api/agent/v1/messages',
   path: '/api/agent/v1/messages',
@@ -473,6 +480,7 @@ export interface FileRoutesByFullPath {
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
+  '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
@@ -537,6 +545,7 @@ export interface FileRoutesByTo {
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
+  '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
@@ -606,6 +615,7 @@ export interface FileRoutesById {
   '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/_app/projects/$projectSlug_/settings': typeof AppProjectsProjectSlugSettingsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
+  '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
@@ -675,6 +685,7 @@ export interface FileRouteTypes {
     | '/messages/channels/$channelId'
     | '/projects/$projectSlug/settings'
     | '/api/agent/v1/events'
+    | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
@@ -739,6 +750,7 @@ export interface FileRouteTypes {
     | '/messages/channels/$channelId'
     | '/projects/$projectSlug/settings'
     | '/api/agent/v1/events'
+    | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
@@ -807,6 +819,7 @@ export interface FileRouteTypes {
     | '/_app/messages/channels/$channelId'
     | '/_app/projects/$projectSlug_/settings'
     | '/api/agent/v1/events'
+    | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
@@ -855,6 +868,7 @@ export interface RootRouteChildren {
   ApiInternalWeeklyReportScheduleRoute: typeof ApiInternalWeeklyReportScheduleRoute
   ApiWorkspacesSlugRoute: typeof ApiWorkspacesSlugRoute
   ApiAgentV1EventsRoute: typeof ApiAgentV1EventsRoute
+  ApiAgentV1GithubCredentialsRoute: typeof ApiAgentV1GithubCredentialsRoute
   ApiAgentV1MessagesRoute: typeof ApiAgentV1MessagesRoute
   ApiAgentV1RemindersRoute: typeof ApiAgentV1RemindersRoute
   ApiAgentV1TasksRoute: typeof ApiAgentV1TasksRoute
@@ -1207,6 +1221,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1EventsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v1/github-credentials': {
+      id: '/api/agent/v1/github-credentials'
+      path: '/api/agent/v1/github-credentials'
+      fullPath: '/api/agent/v1/github-credentials'
+      preLoaderRoute: typeof ApiAgentV1GithubCredentialsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/messages': {
       id: '/api/agent/v1/messages'
       path: '/api/agent/v1/messages'
@@ -1470,6 +1491,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiInternalWeeklyReportScheduleRoute: ApiInternalWeeklyReportScheduleRoute,
   ApiWorkspacesSlugRoute: ApiWorkspacesSlugRoute,
   ApiAgentV1EventsRoute: ApiAgentV1EventsRoute,
+  ApiAgentV1GithubCredentialsRoute: ApiAgentV1GithubCredentialsRoute,
   ApiAgentV1MessagesRoute: ApiAgentV1MessagesRoute,
   ApiAgentV1RemindersRoute: ApiAgentV1RemindersRoute,
   ApiAgentV1TasksRoute: ApiAgentV1TasksRoute,

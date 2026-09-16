@@ -23,6 +23,7 @@ src/
 ├── daemon-application/             # daemon use cases and orchestration
 ├── local-rpc/                      # Computer↔Daemon IPC server and handlers
 ├── daemon-runtime/                 # child-owned one-Workspace runtime
+├── agent-proxy.ts                  # local Agent capability boundary and approved HTTPS forwarding
 ├── agent-app-inbox/                # typed Agent-scoped App items and registry
 ├── agent-reminder/                 # authoritative reminder mirror, timers, and durable fire receipts
 ├── connection/                    # Daemon WSS connection and reconnect loop

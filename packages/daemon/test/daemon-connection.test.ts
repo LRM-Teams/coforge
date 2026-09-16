@@ -365,6 +365,56 @@ test("Agent reminder HTTP transport rejects network and malformed responses with
   }
 });
 
+test("GitHub credential HTTP transport authenticates the Agent request", async () => {
+  const calls: Array<{ url: string; headers: Headers; body: unknown }> = [];
+  const client = createAgentMessageHttpClient(async (input, init) => {
+    calls.push({
+      url: String(input),
+      headers: new Headers(init?.headers),
+      body: JSON.parse(String(init?.body)),
+    });
+    return Response.json({
+      username: "x-access-token",
+      password: "short-lived-token",
+      expiresAt: "2026-09-16T21:00:00Z",
+    });
+  });
+  const result = await client.requestGitHubCredential!({
+    url: "https://server.example/api/agent/v1/github-credentials",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {},
+  });
+
+  expect(result.password).toBe("short-lived-token");
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.url).toBe("https://server.example/api/agent/v1/github-credentials");
+  expect(calls[0]?.headers.get("authorization")).toBe("Bearer daemon-token");
+  expect(calls[0]?.headers.get("x-coforge-agent-api-key")).toBe(
+    `Bearer sk_agent_${"a".repeat(43)}`,
+  );
+  expect(calls[0]?.body).toEqual({});
+});
+
+test("GitHub credential HTTP transport rejects malformed credentials", async () => {
+  const client = createAgentMessageHttpClient(async () =>
+    Response.json({
+      username: "github-app[bot]",
+      password: "installation-token",
+      expiresAt: "2026-09-16T21:00:00Z",
+    }),
+  );
+
+  await expect(
+    client.requestGitHubCredential!({
+      url: "https://server.example/api/agent/v1/github-credentials",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {},
+    }),
+  ).rejects.toThrow("invalid GitHub credential response");
+});
+
 test("waits for connected and does not send a business payload", async () => {
   const fake = fakeClient();
   let connected = false;

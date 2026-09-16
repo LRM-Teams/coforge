@@ -4,7 +4,10 @@ import { z } from "zod";
 import { AppError } from "../../lib/app-error";
 import { authMiddleware } from "../../server/auth/function-auth";
 import { configuredGitHub } from "../../server/integrations/github-config.server";
-import { githubStateCookie } from "../../server/integrations/github-http.server";
+import {
+  githubInstallationStateCookie,
+  githubStateCookie,
+} from "../../server/integrations/github-http.server";
 
 async function requiredGitHub() {
   const github = await configuredGitHub();
@@ -44,6 +47,17 @@ export const startGitHubReauthorization = createServerFn({ method: "POST" })
       throw new AppError("ACCESS_DENIED");
     const attempt = await github.connection.begin(userId, "reauthorize");
     setResponseHeader("set-cookie", githubStateCookie(attempt.state));
+    return { url: attempt.url };
+  });
+
+export const startGitHubInstallation = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const github = await requiredGitHub();
+    if (getRequest().headers.get("origin") !== new URL(github.config.callbackUrl).origin)
+      throw new AppError("ACCESS_DENIED");
+    const attempt = github.connection.beginInstallation();
+    setResponseHeader("set-cookie", githubInstallationStateCookie(attempt.state));
     return { url: attempt.url };
   });
 

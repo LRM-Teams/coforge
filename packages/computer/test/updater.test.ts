@@ -226,8 +226,13 @@ test("a manifest without gzip metadata is rejected rather than downloading raw b
   expect(input.requested).toEqual([path]);
 });
 
-test("offline rollback rejects a missing or corrupted version-local Agent launcher", async () => {
-  for (const missing of [true, false]) {
+test("offline rollback rejects a missing or corrupted version-local launcher", async () => {
+  for (const [name, missing] of [
+    ["coforge", true],
+    ["coforge", false],
+    ["gh", true],
+    ["gh", false],
+  ] as const) {
     const input = await fixture();
     const client = updater(input);
     await client.install(input.version);
@@ -235,7 +240,7 @@ test("offline rollback rejects a missing or corrupted version-local Agent launch
       join(input.directory, "active.json"),
       JSON.stringify({ schema_version: 1, current: "3.0.0", previous: input.version }),
     );
-    const launcher = join(input.directory, "versions", input.version, "coforge");
+    const launcher = join(input.directory, "versions", input.version, name);
     if (missing) await rm(launcher);
     else await writeFile(launcher, "wrong launcher");
     await expect(client.rollback()).rejects.toThrow();
@@ -373,13 +378,14 @@ test("latest and an exact version selector resolve to the same install", async (
         ),
       ),
     ).toEqual({
-      schema_version: 2,
+      schema_version: 3,
       version: input.version,
       computer: {
         size: Buffer.byteLength("computer-payload-v2"),
         checksum: sha256hex(Buffer.from("computer-payload-v2")),
       },
       agentCli: expect.any(Object),
+      githubCli: expect.any(Object),
     });
   }
 });
@@ -699,6 +705,12 @@ test("the supported platform matrix selects one complete target set", async () =
     );
     expect(agentCli).toContain(`coforge-computer${suffix}`);
     expect(agentCli).toContain("__agent-cli");
+    const githubCli = await readFile(
+      join(version, target.startsWith("windows-") ? "gh.cmd" : "gh"),
+      "utf8",
+    );
+    expect(githubCli).toContain(`coforge-computer${suffix}`);
+    expect(githubCli).toContain("__agent-cli github gh");
     const shim = target.startsWith("windows-")
       ? join(input.directory, "bin", "coforge-computer.cmd")
       : join(input.directory, "bin", "coforge-computer");

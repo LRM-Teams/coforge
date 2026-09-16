@@ -218,6 +218,10 @@ _Avoid_: Token endpoint, token store, loopback HTTP proxy
 A personal Internal User's authorization to a CoForge GitHub App. Repository access is the intersection of that user's GitHub access and the App installation's grants; the connection is not a login identity or a Workspace-wide credential.
 _Avoid_: GitHub login, Workspace GitHub account, Project
 
+**Agent GitHub credential**:
+The Agent owner's current short-lived GitHub App user token, supplied on demand through the Credential Proxy to Git or `gh` and never stored in the Agent environment. GitHub limits it to the intersection of that user’s access and the App installation grants.
+_Avoid_: installation token, Agent App, repository password
+
 **machine_id**:
 A stable internal registration identifier for one Computer installation profile. It supports identity reconciliation but is neither a credential, a user-facing Computer name, nor necessarily the primary key of a server-side Computer record.
 _Avoid_: Hardware fingerprint, machine secret, Computer token

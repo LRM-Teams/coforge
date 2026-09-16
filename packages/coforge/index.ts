@@ -16,6 +16,7 @@ import {
 import {
   createAgentApiClient,
   createMessageTransportAgentApiTransport,
+  type GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
 import {
   formatHeldSend,
@@ -123,6 +124,7 @@ export type MessageTransport = {
   task?(command: TaskCommand): Promise<TaskResult>;
   workspaceInfo?(): Promise<WorkspaceInfoResult>;
   weeklyReport?(command: WeeklyReportCommand): Promise<WeeklyReportResponse>;
+  githubCredential?(): Promise<GitHubCredentialResponse>;
 };
 
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
