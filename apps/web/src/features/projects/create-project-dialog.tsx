@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { Share04 } from "@untitledui/icons";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Select } from "@/components/base/select/select";
-import { listAccessibleGitHubRepositories } from "@/features/integrations/github.functions";
+import {
+  getGitHubConnection,
+  listAccessibleGitHubRepositories,
+} from "@/features/integrations/github.functions";
+import { m } from "@/paraglide/messages";
 import { createProject } from "./projects.functions";
 
 export function CreateProjectDialog({
@@ -16,6 +21,7 @@ export function CreateProjectDialog({
   onCreated: () => Promise<void>;
 }) {
   const repositories = useServerFn(listAccessibleGitHubRepositories);
+  const githubConnection = useServerFn(getGitHubConnection);
   const create = useServerFn(createProject);
   const [items, setItems] = useState<Awaited<ReturnType<typeof listAccessibleGitHubRepositories>>>(
     [],
@@ -23,14 +29,32 @@ export function CreateProjectDialog({
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [repositoryId, setRepositoryId] = useState(0);
+  const [installUrl, setInstallUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (open)
-      repositories()
-        .then(setItems)
-        .catch(() => setError("GitHub is disconnected or unavailable."));
-  }, [open, repositories]);
+    if (!open) return;
+    let cancelled = false;
+    setError("");
+    setItems([]);
+    setInstallUrl(null);
+    githubConnection()
+      .then((connection) => {
+        if (!cancelled) setInstallUrl(connection.installUrl);
+      })
+      .catch(() => {});
+    repositories()
+      .then((available) => {
+        if (cancelled) return;
+        setItems(available);
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [githubConnection, open, repositories]);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     const repo = items.find((item) => item.id === repositoryId);
@@ -84,24 +108,38 @@ export function CreateProjectDialog({
                 className="h-9 rounded-md border border-secondary bg-primary px-3"
               />
             </label>
-            <label className="grid gap-1">
-              GitHub repository
-              <Select
-                label="GitHub repository"
-                placeholder={
-                  items.length ? "No repository (start from scratch)" : "No accessible repositories"
-                }
-                selectedKey={repositoryId ? String(repositoryId) : null}
-                onSelectionChange={(key) =>
-                  setRepositoryId(key && key !== "none" ? Number(key) : 0)
-                }
-              >
-                <Select.Item id="none" label="No repository (start from scratch)" />
-                {items.map((item) => (
-                  <Select.Item key={item.id} id={String(item.id)} label={item.fullName} />
-                ))}
-              </Select>
-            </label>
+            <Select
+              label="GitHub repository"
+              placeholder={
+                items.length ? "No repository (start from scratch)" : "No accessible repositories"
+              }
+              selectedKey={repositoryId ? String(repositoryId) : null}
+              onSelectionChange={(key) => setRepositoryId(key && key !== "none" ? Number(key) : 0)}
+            >
+              <Select.Item id="none" label="No repository (start from scratch)" />
+              {items.map((item) => (
+                <Select.Item key={item.id} id={String(item.id)} label={item.fullName} />
+              ))}
+            </Select>
+            <p className="text-sm text-tertiary">
+              {m.github_repository_missing()}{" "}
+              {installUrl ? (
+                <a
+                  href={installUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-medium text-secondary underline underline-offset-4 hover:text-primary"
+                >
+                  {m.github_manage_repository_access()}
+                  <Share04 aria-hidden="true" className="size-4" />
+                </a>
+              ) : (
+                <span className="inline-flex items-center gap-1 font-medium text-secondary">
+                  {m.github_manage_repository_access()}
+                  <Share04 aria-hidden="true" className="size-4" />
+                </span>
+              )}
+            </p>
             {error && (
               <p role="alert" className="text-sm text-error-primary">
                 {error}
