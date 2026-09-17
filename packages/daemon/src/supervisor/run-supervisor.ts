@@ -12,6 +12,7 @@ import {
   UPGRADE_OPERATION_PENDING_TTL_MS,
   WorkspaceRecoveryError,
   type BindingStore,
+  type ManagedBinding,
 } from "./machine-supervisor";
 import { FileBindingStore } from "./binding-store";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
@@ -26,11 +27,11 @@ import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
 import { sweepLeftoverComputerUpgradeJobs } from "../platform/computer-upgrade-sweep";
 import {
   sweepComputerUpgradeReceipts,
+  watchComputerUpgradeReceipt,
   type ComputerUpgradeReceipt,
 } from "../platform/computer-upgrade-receipts";
 
-/** How long, and how often, a Coordinator watches for a receipt from a job it launched. */
-const UPGRADE_RECEIPT_WATCH_MS = 10 * 60_000;
+/** How often a Coordinator checks for a receipt from a job it is watching. */
 const UPGRADE_RECEIPT_POLL_MS = 2_000;
 
 /**
@@ -179,100 +180,156 @@ async function runWithSupervisorLock(
       return { held, busyAgents: [], unreachableWorkspaceIds: [workspaceId] };
     }
   };
+  /**
+   * Read-only settle check for `MachineSupervisor.recordUpgrade`'s blocking pending operation: a
+   * receipt already on disk, or the pending TTL already passed, settles it right there instead of
+   * refusing the new request. Captures the answer through `sweepComputerUpgradeReceipts`'
+   * `complete` callback rather than calling back into the supervisor - this runs inside
+   * `recordUpgrade`'s own serialized mutation, which a call to `supervisor.completeUpgrade` would
+   * deadlock against.
+   */
+  const settlePendingUpgrade = async (
+    workspaceId: string,
+    requestId: string,
+    requestedAt: number,
+  ) => {
+    let settlement: ComputerUpgradeReceipt | undefined;
+    await sweepComputerUpgradeReceipts(
+      [{ workspaceId, requestId, requestedAt }],
+      async (_workspaceId, _requestId, receipt) => {
+        settlement = receipt;
+      },
+      { pendingTtlMs: UPGRADE_OPERATION_PENDING_TTL_MS },
+    );
+    return settlement;
+  };
+  /**
+   * The config a Workspace daemon child reads: every operation it must still settle with the
+   * server, computed fresh from the current binding - pending ones as cloud ready hints, terminal
+   * ones as results it owes the server a report for. `start(binding)` writes this before spawning
+   * the child; `refreshChildUpgradeConfig` below writes the same shape again, without a restart,
+   * so an operation the continuous watch settles while that child keeps running is still there for
+   * it to find - `#reportUpgradeResults` re-reads this file on every reconnect (ADR 0037).
+   */
+  const buildChildConfig = (binding: ManagedBinding) => {
+    // Only the replacement receives the pending request as a cloud ready hint.
+    // Local completion still requires the application handshake and durable result.
+    const restartRequestIds = (binding.restartResults ?? [])
+      .filter((result) => result.status === "completed")
+      .map((result) => result.requestId);
+    if (binding.restart?.phase === "starting") restartRequestIds.push(binding.restart.requestId);
+    const {
+      enabled: _enabled,
+      restart: _restart,
+      restartResults: _results,
+      restartRequestIds: _legacy,
+      upgradeRequestIds: _upgrades,
+      upgradeRequests: _legacyUpgrades,
+      upgradeOperations,
+      ...config
+    } = binding;
+    const operations = (upgradeOperations ?? [])
+      .filter((operation) => operation.state !== "acknowledged")
+      .slice(-128);
+    return {
+      ...config,
+      restartRequestIds: restartRequestIds.slice(-128),
+      upgradeRequestIds: operations.map((entry) => entry.requestId),
+      upgradeExpectedVersions: Object.fromEntries(
+        operations.map((entry) => [entry.requestId, entry.expectedVersion]),
+      ),
+      upgradeOperations: operations,
+    };
+  };
+  /** Rewrites one already-running Workspace's config file with its binding's current upgrade
+   * state, without restarting it. Best-effort: a Workspace that was never started (no directory
+   * yet) or whose write fails is left for its next real start to pick up instead. */
+  const refreshChildUpgradeConfig = async (workspaceId: string): Promise<void> => {
+    try {
+      const binding = (await supervisor.snapshot()).find(
+        (entry) => entry.workspaceId === workspaceId,
+      );
+      if (!binding) return;
+      await new DaemonConfigStore(workspaceDirectory(workspaceId)).save(buildChildConfig(binding));
+    } catch (error) {
+      upgradeLogger.warn("Refreshing a Workspace's local upgrade config failed", {
+        event: "upgrade:child_config_refresh_failed",
+        workspace_id: workspaceId,
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   // Stable OS units own processes even if the Coordinator died before readiness.
   // Recovery adopts them through MainPID + the daemon handshake, never by killing PIDs.
-  const supervisor = new MachineSupervisor(bindings, {
-    async start(binding) {
-      const directory = workspaceDirectory(binding.workspaceId);
-      // Only the replacement receives the pending request as a cloud ready hint.
-      // Local completion still requires the application handshake and durable result.
-      const restartRequestIds = (binding.restartResults ?? [])
-        .filter((result) => result.status === "completed")
-        .map((result) => result.requestId);
-      if (binding.restart?.phase === "starting") restartRequestIds.push(binding.restart.requestId);
-      const {
-        enabled: _enabled,
-        restart: _restart,
-        restartResults: _results,
-        restartRequestIds: _legacy,
-        upgradeRequestIds: _upgrades,
-        upgradeRequests: _legacyUpgrades,
-        upgradeOperations,
-        ...config
-      } = binding;
-      // The replacement carries every operation it must still settle with the server: pending
-      // ones as cloud ready hints, terminal ones as results it owes the server a report for.
-      const operations = (upgradeOperations ?? [])
-        .filter((operation) => operation.state !== "acknowledged")
-        .slice(-128);
-      const childConfig = {
-        ...config,
-        restartRequestIds: restartRequestIds.slice(-128),
-        upgradeRequestIds: operations.map((entry) => entry.requestId),
-        upgradeExpectedVersions: Object.fromEntries(
-          operations.map((entry) => [entry.requestId, entry.expectedVersion]),
-        ),
-        upgradeOperations: operations,
-      };
-      await new DaemonConfigStore(directory).save(childConfig);
-      const instance = workspaceInstance(binding.workspaceId);
-      const processId = await instance.ensureStarted();
-      const observed = await instance.identity();
-      if (!observed?.active || observed.mainPid !== processId)
-        throw new Error("Workspace OS identity changed during startup");
-      const identity = {
-        workspaceId: binding.workspaceId,
-        computerId: binding.computerId,
-        enabled: true,
-        processId,
-        instanceId: "",
-        version: "",
-      };
-      children.set(binding.workspaceId, {
-        instance,
-        identity,
-        osInstanceId: observed.invocationId,
-      });
-      const client = childClient(binding.workspaceId);
-      const deadline = Date.now() + 30_000;
-      try {
-        while (Date.now() < deadline) {
-          const reported = await client.identity().catch(() => null);
-          if (reported?.processId === processId && reported.version === COFORGE_DAEMON_VERSION) {
-            const current = await instance.identity();
-            if (!current?.active || current.invocationId !== observed.invocationId)
-              throw new Error("Workspace OS identity changed during handshake");
-            identity.instanceId = reported.daemonId;
-            identity.version = reported.version;
-            return observed.invocationId;
+  const supervisor = new MachineSupervisor(
+    bindings,
+    {
+      async start(binding) {
+        const directory = workspaceDirectory(binding.workspaceId);
+        await new DaemonConfigStore(directory).save(buildChildConfig(binding));
+        const instance = workspaceInstance(binding.workspaceId);
+        const processId = await instance.ensureStarted();
+        const observed = await instance.identity();
+        if (!observed?.active || observed.mainPid !== processId)
+          throw new Error("Workspace OS identity changed during startup");
+        const identity = {
+          workspaceId: binding.workspaceId,
+          computerId: binding.computerId,
+          enabled: true,
+          processId,
+          instanceId: "",
+          version: "",
+        };
+        children.set(binding.workspaceId, {
+          instance,
+          identity,
+          osInstanceId: observed.invocationId,
+        });
+        const client = childClient(binding.workspaceId);
+        const deadline = Date.now() + 30_000;
+        try {
+          while (Date.now() < deadline) {
+            const reported = await client.identity().catch(() => null);
+            if (reported?.processId === processId && reported.version === COFORGE_DAEMON_VERSION) {
+              const current = await instance.identity();
+              if (!current?.active || current.invocationId !== observed.invocationId)
+                throw new Error("Workspace OS identity changed during handshake");
+              identity.instanceId = reported.daemonId;
+              identity.version = reported.version;
+              return observed.invocationId;
+            }
+            await Bun.sleep(50);
           }
-          await Bun.sleep(50);
+          throw new Error(`Workspace ${binding.workspaceId} failed process readiness`);
+        } catch (error) {
+          // A failed handshake is not permission to kill an adopted live unit.
+          children.delete(binding.workspaceId);
+          throw error;
         }
-        throw new Error(`Workspace ${binding.workspaceId} failed process readiness`);
-      } catch (error) {
-        // A failed handshake is not permission to kill an adopted live unit.
+      },
+      async stop(binding) {
+        const child = children.get(binding.workspaceId);
+        // Includes recovery after enabled=false was persisted but OS stop was interrupted.
+        // systemd sends SIGTERM to the Workspace main, then kills residual cgroup members.
+        await (child?.instance ?? workspaceInstance(binding.workspaceId)).stop();
         children.delete(binding.workspaceId);
-        throw error;
-      }
+      },
+      async instance(binding) {
+        const observed = await workspaceInstance(binding.workspaceId).identity();
+        return observed && observed.mainPid > 0 ? observed.invocationId : null;
+      },
+      // Per-Workspace, so a restart never reaches past its own target: an unscoped restart holds
+      // each enabled binding in turn as the loop gets to it, not the whole machine at once. The
+      // Coordinator-wide fan-out below stays the upgrade's path (ADR 0021).
+      hold: (binding, reason) =>
+        holdWorkspaceRunners(binding.workspaceId, "hold", reason, "restart"),
+      release: (binding, reason) =>
+        holdWorkspaceRunners(binding.workspaceId, "release", reason, "restart"),
     },
-    async stop(binding) {
-      const child = children.get(binding.workspaceId);
-      // Includes recovery after enabled=false was persisted but OS stop was interrupted.
-      // systemd sends SIGTERM to the Workspace main, then kills residual cgroup members.
-      await (child?.instance ?? workspaceInstance(binding.workspaceId)).stop();
-      children.delete(binding.workspaceId);
-    },
-    async instance(binding) {
-      const observed = await workspaceInstance(binding.workspaceId).identity();
-      return observed && observed.mainPid > 0 ? observed.invocationId : null;
-    },
-    // Per-Workspace, so a restart never reaches past its own target: an unscoped restart holds
-    // each enabled binding in turn as the loop gets to it, not the whole machine at once. The
-    // Coordinator-wide fan-out below stays the upgrade's path (ADR 0021).
-    hold: (binding, reason) => holdWorkspaceRunners(binding.workspaceId, "hold", reason, "restart"),
-    release: (binding, reason) =>
-      holdWorkspaceRunners(binding.workspaceId, "release", reason, "restart"),
-  });
+    Date.now,
+    {},
+    settlePendingUpgrade,
+  );
   const scopedCredentials = (workspaceId: string) =>
     new FileDaemonCredentialStore(workspaceDirectory(workspaceId));
   const snapshot = async () =>
@@ -300,13 +357,18 @@ async function runWithSupervisorLock(
       ...(receipt.version ? { version: receipt.version } : {}),
       ...(receipt.error ? { error: receipt.error } : {}),
     });
-    if (recorded)
+    if (recorded) {
       upgradeLogger.info("Computer upgrade operation reached its terminal state", {
         event: "upgrade:operation_settled",
         request_id: requestId,
         workspace_id: workspaceId,
         status: receipt.status,
       });
+      // The Workspace daemon this operation belongs to may still be running from before this
+      // settled - it is never restarted just to learn this - so its local config is refreshed
+      // here too; `#reportUpgradeResults` picks it up on its next reconnect (ADR 0037).
+      await refreshChildUpgradeConfig(workspaceId);
+    }
     return recorded;
   };
   const pendingUpgradeOperations = async () =>
@@ -333,21 +395,37 @@ async function runWithSupervisorLock(
       });
     }
   };
-  /** Best-effort in-process watch; the startup sweep above is the durable backstop. */
-  const watchUpgradeReceipt = (workspaceId: string, requestId: string, requestedAt: number) => {
-    void (async () => {
-      const deadline = Date.now() + UPGRADE_RECEIPT_WATCH_MS;
-      while (Date.now() < deadline) {
-        await Bun.sleep(UPGRADE_RECEIPT_POLL_MS);
-        // The watch only waits for a receipt; ageing a stranded operation out belongs to the
-        // startup sweep, which is the one that still runs after this process is replaced.
-        const settled = await sweepComputerUpgradeReceipts(
-          [{ workspaceId, requestId, requestedAt }],
-          completeUpgrade,
-        ).catch(() => 0);
-        if (settled) return;
-      }
-    })();
+  /**
+   * Keeps watching one pending operation - the one this process just launched, or one the startup
+   * sweep above still found pending - until its receipt appears or it ages past the pending TTL.
+   * A remote upgrade replaces the very Coordinator that launched it, so that Coordinator is never
+   * the one that gets to see the receipt (ADR 0037); only a later Coordinator's startup sweep
+   * used to see it, and only at that later Coordinator's own next startup. This keeps watching for
+   * the rest of this process's life instead, so the operation settles as soon as the receipt lands
+   * (or the TTL passes) rather than waiting for yet another restart. Cancelled at shutdown via
+   * `upgradeWatchController`, so no pending sleep ever outlives this process (ADR 0032/0037).
+   */
+  const upgradeWatchController = new AbortController();
+  const upgradeWatches = new Set<Promise<void>>();
+  const watchPendingUpgrade = (workspaceId: string, requestId: string, requestedAt: number) => {
+    const watch = watchComputerUpgradeReceipt(
+      { workspaceId, requestId, requestedAt },
+      completeUpgrade,
+      {
+        signal: upgradeWatchController.signal,
+        pollMs: UPGRADE_RECEIPT_POLL_MS,
+        ttlMs: UPGRADE_OPERATION_PENDING_TTL_MS,
+      },
+    ).catch((error) =>
+      upgradeLogger.error("Computer upgrade receipt watch failed", {
+        event: "upgrade:receipt_watch_failed",
+        workspace_id: workspaceId,
+        request_id: requestId,
+        error_message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    upgradeWatches.add(watch);
+    void watch.finally(() => upgradeWatches.delete(watch));
   };
   /**
    * Fans a runner hold (or release) out to every running Workspace daemon under this Coordinator
@@ -385,6 +463,10 @@ async function runWithSupervisorLock(
     // A remote upgrade stops and replaces this very process, so Coordinator startup is the first
     // moment anything can observe what the job the old process launched actually did.
     await settlePendingUpgradeOperations();
+    // Anything still pending after that sweep is watched for the rest of this process's life
+    // (`watchPendingUpgrade`), rather than only at the next Coordinator startup.
+    for (const operation of await pendingUpgradeOperations())
+      watchPendingUpgrade(operation.workspaceId, operation.requestId, operation.requestedAt);
     if (await Bun.file(holdPath).exists()) await supervisor.pause();
     rpc = await startDaemonLocalRpcServer({
       socketPath,
@@ -411,14 +493,20 @@ async function runWithSupervisorLock(
               request.expectedVersion,
             );
             if (created) {
+              // Pushes down any settlement `recordUpgrade` just applied to the pending operation
+              // it replaced, in addition to the new one, without restarting this Workspace.
+              await refreshChildUpgradeConfig(request.workspaceId);
               await launchComputerUpgrade(request.requestId, request.expectedVersion, {
                 stateDirectory,
               });
-              watchUpgradeReceipt(request.workspaceId, request.requestId, Date.now());
+              watchPendingUpgrade(request.workspaceId, request.requestId, Date.now());
             }
           } else if (method === "daemon:upgrade_ack") {
             if (!request.workspaceId) throw new Error("upgrade acknowledgement requires workspace");
-            await supervisor.acknowledgeUpgrade(request.workspaceId, request.requestId);
+            if (await supervisor.acknowledgeUpgrade(request.workspaceId, request.requestId))
+              // Drops the now-acknowledged operation from the child's local config too, or a
+              // later reconnect would keep re-reporting the same already-acknowledged result.
+              await refreshChildUpgradeConfig(request.workspaceId);
           } else if (method !== "daemon:snapshot") {
             const operation = method.slice("daemon:".length);
             if (operation !== "start" && operation !== "stop" && operation !== "restart")
@@ -438,6 +526,12 @@ async function runWithSupervisorLock(
       process.once("SIGINT", () => resolve());
     });
   } finally {
+    // Every upgrade receipt watch is Coordinator-owned and must not outlive this process: an
+    // uncancelled one is exactly the pending `Bun.sleep` that kept the Coordinator alive past its
+    // own shutdown (ADR 0032/0037). Aborting resolves each watch's current sleep immediately, so
+    // awaiting them here costs no meaningful time.
+    upgradeWatchController.abort();
+    await Promise.allSettled(upgradeWatches);
     let cleaned = false;
     try {
       // Startup/adoption failure must not tear down other already-running units.

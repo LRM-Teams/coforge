@@ -3,11 +3,15 @@ import {
   MachineSupervisor,
   UPGRADE_OPERATION_HISTORY,
   type ManagedBinding,
+  type PendingUpgradeSettler,
 } from "../src/supervisor/machine-supervisor";
 
 const NOW = 1_700_000_000_000;
 
-function upgradeFixture(initial: Partial<ManagedBinding> = {}) {
+function upgradeFixture(
+  initial: Partial<ManagedBinding> = {},
+  settlePendingUpgrade?: PendingUpgradeSettler,
+) {
   const state = {
     saved: [
       { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true, ...initial },
@@ -22,6 +26,8 @@ function upgradeFixture(initial: Partial<ManagedBinding> = {}) {
     },
     { start: async () => "a", stop: async () => {}, instance: async () => "a" },
     () => NOW,
+    {},
+    settlePendingUpgrade,
   );
   return { state, supervisor, operations: () => state.saved[0]?.upgradeOperations };
 }
@@ -41,6 +47,68 @@ test("only one upgrade operation may be pending, and a replay is not a second la
   expect(operations()).toEqual([
     { requestId: "request-a", expectedVersion: "1.2.3-rc.1", state: "pending", requestedAt: NOW },
   ]);
+});
+
+test("recordUpgrade settles an already-receipted pending operation instead of refusing, then accepts the new request", async () => {
+  const settleCalls: [string, string, number][] = [];
+  const { supervisor, operations } = upgradeFixture(
+    {},
+    async (workspaceId, requestId, requestedAt) => {
+      settleCalls.push([workspaceId, requestId, requestedAt]);
+      return { status: "succeeded", version: "1.2.3-rc.1", at: NOW };
+    },
+  );
+  await supervisor.recover();
+  await supervisor.recordUpgrade("a", "request-a", "1.2.3-rc.1");
+
+  expect(await supervisor.recordUpgrade("a", "request-b", "1.2.4")).toBe(true);
+  expect(settleCalls).toEqual([["a", "request-a", NOW]]);
+  expect(operations()).toEqual([
+    {
+      requestId: "request-a",
+      expectedVersion: "1.2.3-rc.1",
+      state: "succeeded",
+      requestedAt: NOW,
+      terminal: { version: "1.2.3-rc.1", at: NOW },
+    },
+    { requestId: "request-b", expectedVersion: "1.2.4", state: "pending", requestedAt: NOW },
+  ]);
+});
+
+test("recordUpgrade still refuses when the settle check reports the pending operation is genuinely in flight", async () => {
+  const { supervisor, operations } = upgradeFixture({}, async () => undefined);
+  await supervisor.recover();
+  await supervisor.recordUpgrade("a", "request-a", "1.2.3");
+
+  await expect(supervisor.recordUpgrade("a", "request-b", "1.2.4")).rejects.toThrow(
+    "request-a is still pending",
+  );
+  expect(operations()).toEqual([
+    { requestId: "request-a", expectedVersion: "1.2.3", state: "pending", requestedAt: NOW },
+  ]);
+});
+
+test("recordUpgrade still refuses when the settle check itself fails", async () => {
+  const { supervisor, operations } = upgradeFixture({}, async () => {
+    throw new Error("receipt directory is unreadable");
+  });
+  await supervisor.recover();
+  await supervisor.recordUpgrade("a", "request-a", "1.2.3");
+
+  await expect(supervisor.recordUpgrade("a", "request-b", "1.2.4")).rejects.toThrow(
+    "request-a is still pending",
+  );
+  expect(operations()?.[0]?.state).toBe("pending");
+});
+
+test("without a settle check configured, recordUpgrade keeps refusing exactly as before", async () => {
+  const { supervisor } = upgradeFixture();
+  await supervisor.recover();
+  await supervisor.recordUpgrade("a", "request-a", "1.2.3");
+
+  await expect(supervisor.recordUpgrade("a", "request-b", "1.2.4")).rejects.toThrow(
+    "request-a is still pending",
+  );
 });
 
 test("an operation moves from pending through its receipt to the server acknowledgement", async () => {

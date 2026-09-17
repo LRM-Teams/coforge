@@ -123,3 +123,72 @@ function expiredReceipt(
     at: now,
   };
 }
+
+/** Sleeps, but returns early - and clears its timer - the moment `signal` aborts, so an abandoned
+ * wait never keeps the event loop (and so the process) alive. See `watchComputerUpgradeReceipt`. */
+export function abortableSleep(milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export type WatchComputerUpgradeReceiptOptions = ComputerUpgradeReceiptOptions & {
+  /** Cancels the watch promptly; no sleep is left pending once this fires. */
+  signal: AbortSignal;
+  /** How often to check for a receipt while none exists yet. */
+  pollMs: number;
+  /** How long the operation may go without a receipt before it is settled as expired. */
+  ttlMs: number;
+  now?: () => number;
+  sleep?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
+};
+
+/**
+ * Watches one pending Computer upgrade operation - the unit the Coordinator's continuous,
+ * post-startup watch runs per operation - until one of three things happens: its job's receipt
+ * appears, it ages past `ttlMs` without one, or `signal` aborts. Each check reuses
+ * `sweepComputerUpgradeReceipts`, so a receipt or an expiry settles exactly as the Coordinator's
+ * own startup sweep does; the TTL is therefore enforced continuously, not only at startup.
+ *
+ * Checks immediately before the first sleep, so an operation that already has a receipt (or is
+ * already past its TTL) settles without waiting a full `pollMs`. An abort is observed both before
+ * and after each sleep, and every sleep passes `signal` through, so nothing here can outlive
+ * cancellation (the class of bug that kept the Coordinator alive past its own shutdown).
+ */
+export async function watchComputerUpgradeReceipt(
+  operation: PendingComputerUpgrade,
+  complete: (
+    workspaceId: string,
+    requestId: string,
+    receipt: ComputerUpgradeReceipt,
+  ) => Promise<unknown>,
+  options: WatchComputerUpgradeReceiptOptions,
+): Promise<void> {
+  const {
+    signal,
+    pollMs,
+    ttlMs,
+    now = Date.now,
+    sleep = abortableSleep,
+    ...receiptOptions
+  } = options;
+  while (!signal.aborted) {
+    const settled = await sweepComputerUpgradeReceipts([operation], complete, {
+      ...receiptOptions,
+      now,
+      pendingTtlMs: ttlMs,
+    });
+    if (settled) return;
+    if (signal.aborted) return;
+    await sleep(pollMs, signal);
+  }
+}
