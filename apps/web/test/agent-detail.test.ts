@@ -459,6 +459,7 @@ describe("Agent detail", () => {
       id: "computer-assigned",
       label: "Frank’s Mac",
       kind: "local",
+      computerVersion: null,
     });
   });
 
@@ -489,6 +490,7 @@ describe("Agent detail", () => {
       id: "computer-assigned",
       label: "build-box",
       kind: "cloud",
+      computerVersion: null,
     });
   });
 

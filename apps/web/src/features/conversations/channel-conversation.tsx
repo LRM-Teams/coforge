@@ -19,6 +19,7 @@ import {
 } from "./direct-conversation";
 import { m } from "@/paraglide/messages";
 import type { ReminderNoticeView } from "./reminder-notice";
+import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-panel-search";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
@@ -42,6 +43,7 @@ export function ChannelConversationHeader({
   onShowTasks,
   onMutedChange,
   onLeft,
+  onOpenAgentProfile,
 }: {
   conversation: ChannelConversationView;
   tasks?: TaskView[];
@@ -51,6 +53,8 @@ export function ChannelConversationHeader({
   onMutedChange: (muted: boolean) => Promise<void>;
   /** Called after the current user successfully leaves the channel via the Members dialog. */
   onLeft?: () => Promise<void>;
+  /** Opens the Agent profile panel from an Agent row in the Members dialog (closes the dialog). */
+  onOpenAgentProfile?: (agentId: string) => void;
 }) {
   const [savingMute, setSavingMute] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -122,6 +126,14 @@ export function ChannelConversationHeader({
           open={membersOpen}
           onOpenChange={setMembersOpen}
           onLeft={onLeft}
+          onOpenAgentProfile={
+            onOpenAgentProfile
+              ? (agentId: string) => {
+                  setMembersOpen(false);
+                  onOpenAgentProfile(agentId);
+                }
+              : undefined
+          }
         />
       )}
     </header>
@@ -145,6 +157,10 @@ export function ChannelConversation({
   tasks,
   onCreateTask,
   onShowTasks,
+  onOpenAgentProfile,
+  agentProfile,
+  onAgentProfileTabChange,
+  onCloseAgentProfile,
 }: {
   conversation: ChannelConversationView;
   onSend: (
@@ -177,6 +193,11 @@ export function ChannelConversation({
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   onShowTasks?: () => void;
+  /** Opens the Agent profile panel from an Agent sender's avatar/name in the message list. */
+  onOpenAgentProfile?: (agentId: string) => void;
+  agentProfile?: { agentId: string | undefined; tab: AgentProfileTab | undefined };
+  onAgentProfileTabChange?: (tab: AgentProfileTab) => void;
+  onCloseAgentProfile?: () => void;
 }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState(false);
@@ -202,6 +223,10 @@ export function ChannelConversation({
       onLoadReminderNotices={onLoadReminderNotices}
       reminderRefreshKey={reminderRefreshKey}
       onReadThread={onReadThread}
+      onOpenAgentProfile={onOpenAgentProfile}
+      agentProfile={agentProfile}
+      onAgentProfileTabChange={onAgentProfileTabChange}
+      onCloseAgentProfile={onCloseAgentProfile}
       tasks={tasks}
       onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
       threadHeaderAction={(rootMessageId) => {
@@ -230,6 +255,7 @@ export function ChannelConversation({
           onShowTasks={onShowTasks}
           onMutedChange={onMutedChange}
           onLeft={onLeft}
+          onOpenAgentProfile={onOpenAgentProfile}
         />
       }
       readOnlyNotice={

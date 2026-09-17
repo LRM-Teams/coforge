@@ -22,7 +22,11 @@ import { AgentControl } from "../../server/agents/agent-control.server";
 import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { authMiddleware, workspaceUserMiddleware } from "../../server/auth/function-auth";
+import {
+  authMiddleware,
+  workspaceUserMiddleware,
+  type WorkspaceUserContext,
+} from "../../server/auth/function-auth";
 import { ActionCards } from "../../server/conversations/action-cards.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
@@ -44,6 +48,7 @@ import {
   publicAgentRuntimeConfig,
 } from "../../server/agents/agent-runtime-config.server";
 import { getAgentStatusCache } from "../../server/agents/agent-status.server";
+import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 import { getAgentDisplay } from "../../server/agents/agent-display.server";
 import { AgentEnvironment } from "../../server/agents/agent-environment.server";
@@ -296,75 +301,119 @@ export const updateAgentRole = createServerFn({ method: "POST" })
     }),
   );
 
+/**
+ * Shared by `getAgentDetail` (the full Agent detail page) and `getAgentProfile` (the
+ * conversation-panel seam): identity, permissions, live display, runtime config summary and
+ * Activity. Neither caller runs `listComputers`/`getUserPreferences` — those stay owned by the
+ * route loaders that actually need a Computer picker or a User's time zone preference.
+ */
+async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: string) {
+  const { user, db, workspaceId } = context;
+  const activity = new AgentActivityRepository(db);
+  const query = new AgentDetailQuery(
+    {
+      findAuthorized: (workspaceId, id, userId) =>
+        db.agent
+          .findFirst({
+            where: {
+              id,
+              workspaceId,
+              workspace: { members: { some: { userId } } },
+            },
+            select: {
+              id: true,
+              workspaceId: true,
+              name: true,
+              displayName: true,
+              description: true,
+              role: true,
+              createdAt: true,
+              computerId: true,
+              computer: {
+                select: {
+                  id: true,
+                  name: true,
+                  displayName: true,
+                  kind: true,
+                  computerVersion: true,
+                },
+              },
+              runtimeConfig: true,
+              stoppedAt: true,
+              weeklyReportAssistant: { select: { id: true } },
+              owner: { select: { id: true, username: true, displayName: true } },
+            },
+          })
+          .then((agent) => agent ?? undefined),
+      listActivity: (workspaceId, id) => activity.list(workspaceId, id),
+    },
+    {
+      snapshot: (scope) => getAgentStatusCache().snapshot(scope),
+    },
+    {
+      snapshot: (scope) => getAgentDisplay().snapshot(scope),
+    },
+  );
+  const result = await query.get(workspaceId, agentId, user.id);
+  if (!result) return undefined;
+  const ownedByCurrentUser = result.owner.id === user.id;
+  const runtimeCredential = ownedByCurrentUser
+    ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
+    : null;
+  const viewerMembership = await db.workspaceMembership.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: user.id } },
+    select: { role: true },
+  });
+  const canManageAgentRole = viewerMembership
+    ? isAdminLike(viewerMembership.role as WorkspaceMemberRole)
+    : false;
+  // `findAuthorized` above already required current Workspace membership, so every viewer who
+  // reaches this point holds Raft's `controlAgentRuntime` capability (Restart/Reset session);
+  // `resetAgentWorkspace` (Full reset) is owner/admin only, same role check as agent-role
+  // management. Server-side authorization lives in AgentControl.execute(); this is UI gating.
+  const canFullResetAgent = canManageAgentRole;
+  // Best-effort: the Agent profile panel's Computer meta line ("Connected · v0.1.0-dev.35"). Redis
+  // unavailability degrades to "unknown" (`undefined`), never a false "offline".
+  const computerOnline = result.computer
+    ? await getComputerStatusCache()
+        .get({ workspaceId, computerId: result.computer.id })
+        .catch(() => undefined)
+    : undefined;
+  return {
+    ...result,
+    runtimeConfig: publicAgentRuntimeConfig(parseAgentRuntimeConfig(result.runtimeConfig)),
+    ownedByCurrentUser,
+    runtimeCredential,
+    canManageAgentRole,
+    canFullResetAgent,
+    // Always the same shape (`online` present, possibly `undefined`) whether or not a Computer is
+    // assigned, so callers never have to narrow a union between "has computer without online" and
+    // "has computer with online".
+    computer: result.computer ? { ...result.computer, online: computerOnline } : undefined,
+  };
+}
+
 export const getAgentDetail = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
-    const { user, db, workspaceId } = context;
-    const activity = new AgentActivityRepository(db);
-    const query = new AgentDetailQuery(
-      {
-        findAuthorized: (workspaceId, id, userId) =>
-          db.agent
-            .findFirst({
-              where: {
-                id,
-                workspaceId,
-                workspace: { members: { some: { userId } } },
-              },
-              select: {
-                id: true,
-                workspaceId: true,
-                name: true,
-                displayName: true,
-                description: true,
-                role: true,
-                createdAt: true,
-                computerId: true,
-                computer: { select: { id: true, name: true, displayName: true, kind: true } },
-                runtimeConfig: true,
-                stoppedAt: true,
-                weeklyReportAssistant: { select: { id: true } },
-                owner: { select: { id: true, username: true } },
-              },
-            })
-            .then((agent) => agent ?? undefined),
-        listActivity: (workspaceId, id) => activity.list(workspaceId, id),
-      },
-      {
-        snapshot: (scope) => getAgentStatusCache().snapshot(scope),
-      },
-      {
-        snapshot: (scope) => getAgentDisplay().snapshot(scope),
-      },
-    );
-    const result = await query.get(workspaceId, agentId, user.id);
+    const result = await loadAgentProfileDetail(context, agentId);
     if (!result) throw new Error("Agent not found");
     setResponseHeader("cache-control", "no-store");
-    const ownedByCurrentUser = result.owner.id === user.id;
-    const runtimeCredential = ownedByCurrentUser
-      ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
-      : null;
-    const viewerMembership = await db.workspaceMembership.findUnique({
-      where: { workspaceId_userId: { workspaceId, userId: user.id } },
-      select: { role: true },
-    });
-    const canManageAgentRole = viewerMembership
-      ? isAdminLike(viewerMembership.role as WorkspaceMemberRole)
-      : false;
-    // `findAuthorized` above already required current Workspace membership, so every viewer who
-    // reaches this point holds Raft's `controlAgentRuntime` capability (Restart/Reset session);
-    // `resetAgentWorkspace` (Full reset) is owner/admin only, same role check as agent-role
-    // management. Server-side authorization lives in AgentControl.execute(); this is UI gating.
-    const canFullResetAgent = canManageAgentRole;
-    return {
-      ...result,
-      runtimeConfig: publicAgentRuntimeConfig(parseAgentRuntimeConfig(result.runtimeConfig)),
-      ownedByCurrentUser,
-      runtimeCredential,
-      canManageAgentRole,
-      canFullResetAgent,
-    };
+    return result;
+  });
+
+/** The Agent profile side panel's data seam (see `features/agents/profile-panel/`): the same
+ * identity/permissions/runtime-config/Activity payload as `getAgentDetail`, under its own
+ * function and query key so the panel never depends on the full page's route loader. */
+export const getAgentProfile = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(agentIdSchema)
+  .handler(async ({ data: agentId, context }) => {
+    const result = await loadAgentProfileDetail(context, agentId);
+    if (!result) throw new Error("Agent not found");
+    setResponseHeader("cache-control", "no-store");
+    return result;
   });
 
 export const saveAgentRuntimeCredential = createServerFn({ method: "POST" })

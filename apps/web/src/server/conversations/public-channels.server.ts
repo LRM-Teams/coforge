@@ -88,7 +88,7 @@ const CHANNEL_MESSAGE_SELECT = {
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
-type ChannelMessageRow = {
+export type ChannelMessageRow = {
   id: string;
   sequence: number;
   threadRootId: string | null;
@@ -113,8 +113,9 @@ type ChannelMessageRow = {
 /** The browser-facing shape of one channel message, shared by page and update reads. The optional
  * `actionCard` field is attached by the caller (see `channels.functions.ts`,
  * `ActionCards.viewsFor`) in one batched lookup per page; this function never queries
- * `ActionCard` rows itself, to keep Prisma access for action cards in one place. */
-function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
+ * `ActionCard` rows itself, to keep Prisma access for action cards in one place. Exported for a
+ * pure unit test of this projection (no database needed). */
+export function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
   return {
     id: message.id,
     sequence: message.sequence,
@@ -128,6 +129,9 @@ function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
     senderName: !message.sender
       ? "System"
       : `@${message.sender.agent?.name ?? message.sender.user!.username}`,
+    /** The Agent identity behind an agent-sent message, so the browser can open that Agent's
+     * profile panel from the row (message-row.tsx). `undefined` for a user or system message. */
+    senderAgentId: message.sender?.agentId ?? undefined,
     senderAvatarUrl: message.sender?.user
       ? workspaceUserAvatarUrl(
           workspaceId,

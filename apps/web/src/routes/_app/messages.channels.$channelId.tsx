@@ -27,6 +27,12 @@ import {
   setPublicChannelMuted,
   sendPublicChannelMessage,
 } from "@/features/conversations/channels.functions";
+import {
+  agentIdFromProfileParam,
+  agentProfileParamSchema,
+  agentProfileTabParamSchema,
+} from "@/features/agents/profile-panel/profile-panel-search";
+import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
@@ -34,6 +40,8 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
     layout: z.enum(["board", "list"]).optional().catch(undefined),
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
+    profile: agentProfileParamSchema,
+    agentTab: agentProfileTabParamSchema,
   }),
   remountDeps: ({ params }) => params.channelId,
   loader: ({ context, params }) =>
@@ -47,8 +55,10 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
 
 function ChannelPage() {
   const { channelId } = Route.useParams();
-  const { view, layout } = Route.useSearch();
+  const { view, layout, profile, agentTab } = Route.useSearch();
   const taskLayout = useTaskLayout(layout);
+  const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
+  const profileAgentId = agentIdFromProfileParam(profile);
   const send = useServerFn(sendPublicChannelMessage);
   const join = useServerFn(joinPublicChannel);
   const markRead = useServerFn(markPublicChannelThreadRead);
@@ -97,6 +107,7 @@ function ChannelPage() {
             onShowChat={showChat}
             onMutedChange={changeMuted}
             onLeft={afterLeft}
+            onOpenAgentProfile={openAgentProfile}
           />
         }
         layout={taskLayout}
@@ -175,6 +186,10 @@ function ChannelPage() {
       onLoadMessageAround={page.loadMessageAround}
       onShowLatest={page.showLatest}
       onLoadOlder={page.loadOlder}
+      onOpenAgentProfile={openAgentProfile}
+      agentProfile={{ agentId: profileAgentId, tab: agentTab }}
+      onAgentProfileTabChange={setAgentProfileTab}
+      onCloseAgentProfile={closeAgentProfile}
     />
   );
 }

@@ -275,6 +275,7 @@ describe("PrismaDirectConversationRepository", () => {
               attachments: [],
               sender: {
                 userId: null,
+                agentId: "agent-helper",
                 user: null,
                 agent: { name: "helper", displayName: "Helper" },
               },
@@ -307,6 +308,7 @@ describe("PrismaDirectConversationRepository", () => {
         sequence: 12,
         threadRootId: "old-root",
         senderKind: "agent",
+        senderAgentId: "agent-helper",
       },
     ]);
   });

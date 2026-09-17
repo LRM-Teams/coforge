@@ -69,6 +69,7 @@ export function AgentActivityAvatar({
   size = "sm",
   timeZone,
   onOpen,
+  onPress,
 }: {
   agent: { name: string; displayName: string; description?: string };
   display?: AgentDisplaySnapshot;
@@ -78,6 +79,8 @@ export function AgentActivityAvatar({
   size?: AvatarSize;
   timeZone?: string | null;
   onOpen?: () => void;
+  /** A press/Enter on the avatar, independent of the hover peek popover. */
+  onPress?: () => void;
 }) {
   const view = agentDisplay(display);
   const recent = activity
@@ -96,6 +99,7 @@ export function AgentActivityAvatar({
   return (
     <HoverPopover
       onOpen={onOpen}
+      onPress={onPress}
       label={[agent.displayName, view.label, m.agent_avatar_recent()].join(", ")}
       working={view.pulse}
       triggerClassName={cn(

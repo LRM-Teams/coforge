@@ -21,6 +21,7 @@ export function HoverPopover({
   className,
   children,
   onOpen,
+  onPress,
   working,
 }: {
   label: string;
@@ -29,6 +30,9 @@ export function HoverPopover({
   className?: string;
   children: ReactNode;
   onOpen?: () => void;
+  /** A press (pointer or keyboard) on the trigger, independent of the hover peek above. React
+   * Aria's Button already gives this native Enter/Space activation. */
+  onPress?: () => void;
   working?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -57,6 +61,7 @@ export function HoverPopover({
         className={triggerClassName}
         onHoverStart={() => delay(true)}
         onHoverEnd={() => delay(false)}
+        onPress={onPress}
       >
         {trigger}
       </Button>

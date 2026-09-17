@@ -19,6 +19,7 @@ const browserMessageFields = {
   sender: {
     select: {
       userId: true,
+      agentId: true,
       user: { select: { username: true, avatarObjectKey: true } },
       agent: { select: { name: true, displayName: true } },
     },
@@ -34,11 +35,12 @@ const browserRootMessageFields = {
   },
 } satisfies Prisma.MessageSelect;
 
-type BrowserMessageRow = Prisma.MessageGetPayload<{
+export type BrowserMessageRow = Prisma.MessageGetPayload<{
   select: typeof browserMessageFields;
 }>;
 
-function mapBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
+/** Exported for a pure unit test of this projection (no database needed). */
+export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
   return {
     id: message.id,
     sequence: message.sequence,
@@ -54,6 +56,9 @@ function mapBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
       : message.sender.userId
         ? `@${message.sender.user?.username}`
         : `@${message.sender.agent?.name}`,
+    /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
+     * panel from a message row (`features/agents/profile-panel/`). */
+    senderAgentId: message.sender?.agentId ?? undefined,
     senderAvatarUrl: message.sender?.userId
       ? workspaceUserAvatarUrl(
           workspaceId,

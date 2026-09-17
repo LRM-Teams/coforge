@@ -44,6 +44,9 @@ import { cn } from "@/lib/utils";
 import { TaskBadge } from "@/features/tasks/task-board";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
+import { AgentProfilePanel } from "@/features/agents/profile-panel/agent-profile-panel";
+import { resolveVisibleConversationSlot } from "@/features/agents/profile-panel/profile-panel-slot";
+import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-panel-search";
 
 const appRoute = getRouteApi("/_app");
 
@@ -68,6 +71,7 @@ export type DirectConversationView = {
     senderKind: "user" | "agent" | "system";
     senderMemberId?: string | null;
     senderName: string;
+    senderAgentId?: string;
     senderAvatarUrl?: string | null;
     body: string;
     createdAt: Date | string;
@@ -106,6 +110,15 @@ type ConversationProps = {
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   onShowTasks?: () => void;
+  /** Opens the Agent profile panel from an Agent sender's avatar/name; absent where the
+   * conversation route does not own that slot. See `features/agents/profile-panel/`. */
+  onOpenAgentProfile?: (agentId: string) => void;
+  /** The Agent profile panel's URL state, owned by the route (`profile`/`agentTab` search
+   * params via `features/agents/profile-panel/`), not by this feature. `agentId` undefined means
+   * the panel is closed. */
+  agentProfile?: { agentId: string | undefined; tab: AgentProfileTab | undefined };
+  onAgentProfileTabChange?: (tab: AgentProfileTab) => void;
+  onCloseAgentProfile?: () => void;
 };
 
 export type ThreadedConversationProps = Omit<ConversationProps, "conversation" | "agentStatus"> & {
@@ -122,17 +135,23 @@ export function DirectConversationHeader({
   active,
   onShowChat,
   onShowTasks,
+  onOpenAgentProfile,
 }: {
   conversation: DirectConversationView;
   tasks?: TaskView[];
   active: "chat" | "tasks";
   onShowChat?: () => void;
   onShowTasks?: () => void;
+  /** Opens the Agent profile panel from this DM's own Agent identity. */
+  onOpenAgentProfile?: (agentId: string) => void;
 }) {
   const activity = useAgentRecentActivity(conversation.agent.id);
   const display = useLiveAgent(conversation.agent.id)?.display;
   const timeZone = appRoute.useLoaderData().timeZone;
   const displayLabel = agentDisplay(display).label;
+  const openProfile = onOpenAgentProfile
+    ? () => onOpenAgentProfile(conversation.agent.id)
+    : undefined;
   return (
     <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
       <div className="-mx-3 flex h-12 items-center gap-2 border-b border-secondary px-3 sm:-mx-5 sm:gap-3 sm:px-5">
@@ -142,10 +161,23 @@ export function DirectConversationHeader({
           size="sm"
           display={display}
           timeZone={timeZone}
+          onPress={openProfile}
           {...activity}
         />
         <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
+          {openProfile ? (
+            <Button
+              color="tertiary"
+              noTextPadding
+              onPress={openProfile}
+              aria-label={m.agent_open_profile({ name: conversation.agent.displayName })}
+              className="h-auto min-w-0 max-w-full rounded p-0 text-base font-semibold text-primary hover:bg-transparent hover:text-primary hover:underline"
+            >
+              <h1 className="truncate">{conversation.agent.displayName}</h1>
+            </Button>
+          ) : (
+            <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
+          )}
           <p role="status" className="truncate text-xs text-tertiary">
             {displayLabel}
           </p>
@@ -179,6 +211,7 @@ export function DirectConversation(props: ConversationProps) {
           tasks={props.tasks}
           active="chat"
           onShowTasks={props.onShowTasks}
+          onOpenAgentProfile={props.onOpenAgentProfile}
         />
       }
       emptyState={{
@@ -208,7 +241,16 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
 }
 
 function ThreadedConversationContent(props: ThreadedConversationProps) {
-  const { conversation, onReadThread, header, threadHeaderAction, ...conversationProps } = props;
+  const {
+    conversation,
+    onReadThread,
+    header,
+    threadHeaderAction,
+    agentProfile,
+    onAgentProfileTabChange,
+    onCloseAgentProfile,
+    ...conversationProps
+  } = props;
   const detailVisible = useConversationDetailVisible();
   const [selected, setSelected] = useState<string>();
   const [visited, setVisited] = useState<string[]>([]);
@@ -231,10 +273,32 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   }, [conversation.messages]);
   const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
   const selectedSequence = selected ? (repliesOf(selected).at(-1)?.sequence ?? 0) : 0;
-  // The thread pane's share of the width is the user's to set; remembered across visits.
+
+  // The conversation's shared right-hand slot: Thread (React state, above) and the Agent profile
+  // panel (URL state, `agentProfile`) can both be "open" at once; whichever was opened most
+  // recently is shown, the other keeps its own state. `lastOpened` only tracks fresh open actions
+  // (`openThread` below, and a `profileAgentId` transition into "open"), not every re-render.
+  const profileAgentId = agentProfile?.agentId;
+  const [lastOpened, setLastOpened] = useState<"thread" | "profile">();
+  const previousProfileAgentIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (profileAgentId && profileAgentId !== previousProfileAgentIdRef.current) {
+      setLastOpened("profile");
+    }
+    previousProfileAgentIdRef.current = profileAgentId;
+  }, [profileAgentId]);
+  const visibleSlot = resolveVisibleConversationSlot({
+    threadOpen: Boolean(selected),
+    profileOpen: Boolean(profileAgentId),
+    lastOpened,
+  });
+  const threadPaneVisible = (rootId: string) => visibleSlot === "thread" && selected === rootId;
+  // The thread/profile pane's share of the width is the user's to set; remembered across visits,
+  // and kept separate per slot (`react-resizable-panels` derives its storage key from `panelIds`,
+  // so ["main","thread"] and ["main","profile"] never share or corrupt each other's saved size).
   const threadLayout = useDefaultLayout({
     id: "coforge-conversation",
-    panelIds: selected ? ["main", "thread"] : ["main"],
+    panelIds: visibleSlot ? ["main", visibleSlot] : ["main"],
     onlySaveAfterUserInteractions: true,
     storage: conversationLayoutStorage,
   });
@@ -273,6 +337,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       previous.includes(rootMessageId) ? previous : [...previous, rootMessageId],
     );
     setSelected(rootMessageId);
+    setLastOpened("thread");
   }
   useLayoutEffect(() => {
     const openAnchoredThread = () => {
@@ -282,6 +347,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
         previous.includes(rootMessageId) ? previous : [...previous, rootMessageId],
       );
       setSelected(rootMessageId);
+      setLastOpened("thread");
     };
     window.addEventListener("hashchange", openAnchoredThread);
     openAnchoredThread();
@@ -299,7 +365,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
         id="main"
         // Strings are percentages of the group; numbers would be pixels.
         minSize="40"
-        className={cn("flex min-h-0 min-w-0 flex-col", selected && "max-md:hidden!")}
+        className={cn("flex min-h-0 min-w-0 flex-col", visibleSlot && "max-md:hidden!")}
       >
         <ConversationPane
           {...conversationProps}
@@ -398,19 +464,30 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           }}
         />
       </Panel>
-      {selected && (
+      {visibleSlot && (
         <>
           <Separator
-            aria-label={m.conversation_thread()}
+            aria-label={
+              visibleSlot === "thread" ? m.conversation_thread() : m.agent_profile_resize()
+            }
             className="hidden w-px shrink-0 bg-border-secondary transition-colors hover:bg-brand-solid data-[separator=active]:bg-brand-solid md:block"
           />
           <Panel
-            id="thread"
+            id={visibleSlot}
             defaultSize="35"
             minSize="25"
             maxSize="60"
             className="flex min-h-0 min-w-0 flex-col max-md:w-full! max-md:flex-[1_1_100%]!"
           >
+            {visibleSlot === "profile" && profileAgentId && (
+              <AgentProfilePanel
+                agentId={profileAgentId}
+                requestedTab={agentProfile?.tab}
+                onTabChange={(tab) => onAgentProfileTabChange?.(tab)}
+                onClose={() => onCloseAgentProfile?.()}
+              />
+            )}
+            {/* Thread panes stay mounted under the profile so drafts and scroll survive. */}
             {visited.map((rootId) => {
               const root = mainMessages.find((message) => message.id === rootId);
               if (!root) return null;
@@ -418,15 +495,15 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
                 <section
                   key={rootId}
                   aria-label={m.conversation_thread()}
-                  hidden={selected !== rootId}
+                  hidden={!threadPaneVisible(rootId)}
                   className={cn(
                     "min-h-0 min-w-0 flex-1 flex-col",
-                    selected === rootId ? "flex" : "hidden",
+                    threadPaneVisible(rootId) ? "flex" : "hidden",
                   )}
                 >
                   <ConversationPane
                     {...conversationProps}
-                    active={selected === rootId}
+                    active={threadPaneVisible(rootId)}
                     root={root}
                     onClose={() => setSelected(undefined)}
                     emptyState={{
@@ -489,6 +566,7 @@ export function ConversationPane({
   onLoadReminderNotices,
   reminderRefreshKey,
   onCreateTask,
+  onOpenAgentProfile,
   active = true,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
@@ -891,6 +969,7 @@ export function ConversationPane({
                     threadEntry={threadEntry}
                     threadPreview={threadPreview}
                     messageFooter={messageFooter}
+                    onOpenAgentProfile={onOpenAgentProfile}
                   />
                 );
               })}

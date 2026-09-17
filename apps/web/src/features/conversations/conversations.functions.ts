@@ -146,6 +146,8 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           senderKind: "user" as const,
           senderMemberId: opened.senderMemberId,
           senderName: `@${user.username}`,
+          // A human-sent echo never carries an Agent id.
+          senderAgentId: undefined,
           senderAvatarUrl: workspaceUserAvatarUrl(
             workspaceId,
             user.id,
