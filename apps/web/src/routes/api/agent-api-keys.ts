@@ -67,6 +67,64 @@ async function parseBody<T>(request: Request, schema: z.ZodType<T>) {
   return input.success ? input.data : Response.json({ error: "bad request" }, { status: 400 });
 }
 
+type LaunchIdentityComputer = {
+  name: string;
+  displayName: string;
+  platform: string | null;
+  osVersion: string | null;
+  computerVersion: string | null;
+} | null;
+
+/** Same fallback as `WorkspaceMembers.list`'s `computerName`: the human-facing Computer Name,
+ * falling back to the OS hostname, so the two surfaces never disagree. */
+function computerIdentityName(computer: LaunchIdentityComputer): string | undefined {
+  return computer?.displayName.trim() || computer?.name.trim() || undefined;
+}
+
+function computerIdentityOs(computer: LaunchIdentityComputer): string | undefined {
+  const parts = [computer?.platform?.trim(), computer?.osVersion?.trim()].filter(Boolean);
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
+/**
+ * The Agent's server-authored identity for the Daemon's standing prompt (`agent-instructions.ts`
+ * on the Daemon side). Mirrors Raft's `agent:start` `config`/`runtimeContext`, delivered here
+ * instead because this launch-config response is where CoForge's other per-launch server data
+ * (`apiKey`/`providerConfig`/`envVars`) already travels; see ADR 0036's "Prompt versus Manual
+ * placement" table. Every field is omitted rather than sent empty so an older Daemon's defensive
+ * decoder degrades cleanly.
+ */
+function buildAgentLaunchIdentity(agent: {
+  name: string;
+  displayName: string;
+  description: string;
+  workspaceId: string;
+  workspace: { slug: string; name: string } | null;
+  computerId: string;
+  computer: LaunchIdentityComputer;
+}) {
+  const computerName = computerIdentityName(agent.computer);
+  const computerOs = computerIdentityOs(agent.computer);
+  const runtimeContext = {
+    ...(agent.workspaceId ? { workspaceId: agent.workspaceId } : {}),
+    ...(agent.workspace?.slug ? { workspaceSlug: agent.workspace.slug } : {}),
+    ...(agent.workspace?.name ? { workspaceName: agent.workspace.name } : {}),
+    ...(agent.computerId ? { computerId: agent.computerId } : {}),
+    ...(computerName ? { computerName } : {}),
+    ...(computerOs ? { computerOs } : {}),
+    ...(agent.computer?.computerVersion?.trim()
+      ? { computerVersion: agent.computer.computerVersion.trim() }
+      : {}),
+  };
+  const identity = {
+    ...(agent.name ? { name: agent.name } : {}),
+    ...(agent.displayName ? { displayName: agent.displayName } : {}),
+    ...(agent.description ? { description: agent.description } : {}),
+    ...(Object.keys(runtimeContext).length > 0 ? { runtimeContext } : {}),
+  };
+  return Object.keys(identity).length > 0 ? identity : undefined;
+}
+
 export const Route = createFileRoute("/api/agent-api-keys")({
   server: {
     handlers: {
@@ -94,7 +152,20 @@ export const Route = createFileRoute("/api/agent-api-keys")({
             workspaceId: true,
             ownerId: true,
             runtimeConfig: true,
+            name: true,
+            displayName: true,
+            description: true,
             weeklyReportAssistant: { select: { id: true } },
+            workspace: { select: { slug: true, name: true } },
+            computer: {
+              select: {
+                name: true,
+                displayName: true,
+                platform: true,
+                osVersion: true,
+                computerVersion: true,
+              },
+            },
           },
         });
         if (principal.workspaceId !== input.workspaceId || !agent)
@@ -140,12 +211,23 @@ export const Route = createFileRoute("/api/agent-api-keys")({
           computerId: principal.computerId,
           repository: new PrismaAgentApiKeyRepository(db),
         });
+        const identity = buildAgentLaunchIdentity({
+          name: agent.name,
+          displayName: agent.displayName,
+          description: agent.description,
+          workspaceId: agent.workspaceId,
+          workspace: agent.workspace,
+          computerId: principal.computerId,
+          // The lookup above already requires `computerId: principal.computerId`.
+          computer: agent.computer,
+        });
         return Response.json(
           {
             apiKey,
             providerConfig,
             envVars,
             ...(agent.weeklyReportAssistant ? { assignedSkillPacks: ["weekly-report"] } : {}),
+            ...(identity ? { identity } : {}),
           },
           { headers: { "cache-control": "no-store" } },
         );

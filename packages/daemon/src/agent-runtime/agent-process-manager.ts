@@ -2,7 +2,10 @@ import { AgentStateMachine, type AgentStatus } from "./agent-state-machine";
 import type { AgentRuntimeConfig, AgentSession } from "@coforge/agent";
 import type { CodeAgentProviderFactory } from "../code-agent/contract";
 import { AgentProcessCleanupError } from "../code-agent/contract";
-import { buildCoforgeAgentInstructions } from "../code-agent/agent-instructions";
+import {
+  buildCoforgeAgentInstructions,
+  type AgentLaunchIdentity,
+} from "../code-agent/agent-instructions";
 import { installAssignedSkills, type AssignedSkillPack } from "../code-agent/assigned-skills";
 import { mkdir } from "node:fs/promises";
 
@@ -49,6 +52,8 @@ export class AgentProcessManager {
     onSessionId?: (sessionId: string, replacedSessionId?: string) => Promise<void>,
     sessionMode?: "create" | "resume",
     assignedSkillPacks: readonly AssignedSkillPack[] = [],
+    /** Server-authored Agent identity for the standing prompt (see `agent-instructions.ts`). */
+    identity?: AgentLaunchIdentity,
   ): Promise<AgentRuntime> {
     if (this.#stopping.has(agentId)) {
       throw new Error(`Agent runtime is stopping: ${agentId}`);
@@ -70,7 +75,11 @@ export class AgentProcessManager {
         agentId,
         ...(runtimeId ? { runtimeId } : {}),
         agentWorkspaceDirectory,
-        instructions: buildCoforgeAgentInstructions(agentWorkspaceDirectory),
+        instructions: buildCoforgeAgentInstructions({
+          agentWorkspaceDirectory,
+          agentId,
+          identity,
+        }),
         sessionId,
         sessionMode,
         onSessionId,
