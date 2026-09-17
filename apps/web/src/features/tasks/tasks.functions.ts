@@ -18,6 +18,7 @@ const taskCommand = z
       "unclaim",
       "update",
       "assign",
+      "unassign",
       "amend",
       "history",
       "delete",

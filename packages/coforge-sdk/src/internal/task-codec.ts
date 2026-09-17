@@ -40,6 +40,7 @@ const operations = new Set<TaskCommand["operation"]>([
   "unclaim",
   "update",
   "assign",
+  "unassign",
   "amend",
   "history",
   "delete",
@@ -187,6 +188,11 @@ export function validateTaskRequest(value: TaskRequest): void {
       value.number !== undefined &&
       value.numbers === undefined &&
       !messages) ||
+    (value.operation === "unassign" &&
+      value.number !== undefined &&
+      value.numbers === undefined &&
+      !messages &&
+      value.assignee === undefined) ||
     (value.operation === "update" &&
       value.number !== undefined &&
       value.numbers === undefined &&

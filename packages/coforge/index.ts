@@ -972,17 +972,14 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
   const reviewerIsolation =
     ["claim", "update", "amend"].includes(operation) &&
     (values.has("--reviewer-isolation") || reviewerIsolationFromEnvironment());
-  // unassign is not a wire operation: it dispatches the existing assign
-  // command with a null assignee, matching the server's "clear owner" path.
-  const wireOperation = operation === "unassign" ? "assign" : operation;
   const task = {
-    operation: wireOperation,
+    operation,
     target,
     number,
     messageId: values.get("--message-id"),
     title: values.get("--title"),
     description: values.get("--description"),
-    assignee: operation === "unassign" ? null : values.get("--assignee"),
+    assignee: values.get("--assignee"),
     ...(values.has("--clear-description") ? { description: null } : {}),
     status,
     expectedRevision,

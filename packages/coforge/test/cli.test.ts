@@ -289,9 +289,9 @@ test("Task command parsing covers Raft lifecycle actions and explicit descriptio
     });
 });
 
-test("Task unassign dispatches the assign command with a null assignee", () => {
+test("Task unassign dispatches its own protocol operation with no assignee", () => {
   expect(parseArgs(["task", "unassign", "--target", "#general", "--number", "2"])).toMatchObject({
-    task: { operation: "assign", number: 2, assignee: null },
+    task: { operation: "unassign", number: 2, assignee: undefined },
   });
   expect(
     parseArgs([
@@ -305,7 +305,7 @@ test("Task unassign dispatches the assign command with a null assignee", () => {
       "4",
     ]),
   ).toMatchObject({
-    task: { operation: "assign", number: 2, assignee: null, expectedRevision: 4 },
+    task: { operation: "unassign", number: 2, expectedRevision: 4 },
   });
   expect(() =>
     parseArgs(["task", "unassign", "--target", "#general", "--number", "2", "--assignee", "@ada"]),
@@ -456,7 +456,7 @@ test("Task unclaim reads one revision unless explicitly supplied and submits onc
   }
 });
 
-test("Task unassign submits the assign command with a null assignee", async () => {
+test("Task unassign submits its own protocol operation with no assignee", async () => {
   const calls: any[] = [];
   const output = await run(["task", "unassign", "--target", "#general", "--number", "2"], {
     check: async () => ({ messages: [] }),
@@ -481,7 +481,7 @@ test("Task unassign submits the assign command with a null assignee", async () =
     },
   });
   expect(calls).toHaveLength(1);
-  expect(calls[0]).toMatchObject({ operation: "assign", number: 2, assignee: null });
+  expect(calls[0]).toMatchObject({ operation: "unassign", number: 2, assignee: undefined });
   expect(output).toContain("#2 status=in_progress owner=unclaimed message=message-2");
 });
 
