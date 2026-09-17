@@ -16,11 +16,15 @@ import {
  */
 export function useMentionCompletion({
   mentionables,
+  recentHandles,
   value,
   onChange,
 }: {
   /** The channel's completion candidates; empty/undefined keeps the popup closed. */
   mentionables: readonly Mentionable[] | undefined;
+  /** Handles that recently sent a message in this conversation, most-recent first; ranks
+   * completion candidates ahead of alphabetical order within a match tier. */
+  recentHandles?: readonly string[];
   /** The composer text (controlled). */
   value: string;
   /** Replaces the composer text after a candidate insertion. */
@@ -48,7 +52,10 @@ export function useMentionCompletion({
   // A caret position to restore once React has committed the mention insertion.
   const pendingCaretRef = useRef<number | undefined>(undefined);
 
-  const items = query && mentionables?.length ? filterMentionables(mentionables, query.query) : [];
+  const items =
+    query && mentionables?.length
+      ? filterMentionables(mentionables, query.query, { recentHandles })
+      : [];
   const open = items.length > 0;
   const activeIndex = Math.min(highlighted, items.length - 1);
 

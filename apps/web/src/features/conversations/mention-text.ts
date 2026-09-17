@@ -67,6 +67,16 @@ export type Mentionable = {
   handle: string;
   /** Human-facing label shown next to the handle in the completion list. */
   label: string;
+  /** A short profile description shown as the completion row's second line, trimmed. Empty
+   * when the profile has none; the row renders no second line in that case. */
+  description: string;
+  /** The person's uploaded avatar image, when they have one. Agents never carry an avatar
+   * image, so this is always absent for `kind: "agent"`. */
+  avatarUrl?: string | null;
+  /** How strongly the viewer has recently and repeatedly @-mentioned this candidate in this
+   * conversation (see `mentionAffinityScores` on the server); 0 when the viewer never has.
+   * Higher ranks first within a match tier. */
+  mentionScore: number;
 };
 
 /**
@@ -87,21 +97,68 @@ export function activeMentionQuery(
 }
 
 /**
- * Completion candidates for a query: handle prefix matches first, then label substring
- * matches, each group keeping the caller's (handle-sorted) order. The empty query lists
- * everyone, capped by `limit`.
+ * The best match tier for one candidate against a lower-cased query, or `undefined` when it
+ * does not match at all. Lower is a better match: 0 exact, 1 a handle/label prefix, 2 a later
+ * label word's prefix (e.g. a surname), 3 any other substring hit. Matching reads the handle,
+ * the full label, and each whitespace-separated label word, all case-insensitively.
+ */
+function matchTier(item: Mentionable, lowerQuery: string): 0 | 1 | 2 | 3 | undefined {
+  const lowerHandle = item.handle.toLowerCase();
+  const lowerLabel = item.label.toLowerCase();
+  if (lowerHandle === lowerQuery || lowerLabel === lowerQuery) return 0;
+  if (lowerHandle.startsWith(lowerQuery) || lowerLabel.startsWith(lowerQuery)) return 1;
+  const laterWords = lowerLabel.split(/\s+/).filter(Boolean).slice(1);
+  if (laterWords.some((word) => word.startsWith(lowerQuery))) return 2;
+  if (lowerHandle.includes(lowerQuery) || lowerLabel.includes(lowerQuery)) return 3;
+  return undefined;
+}
+
+/**
+ * Completion candidates for a query, ranked the way a fast channel-mention popup should read:
+ * closer text matches first (see `matchTier`), then within a tier whoever the viewer has
+ * mentioned most (`item.mentionScore`, higher first), then whoever spoke most recently in this
+ * conversation (`recentHandles`, most-recent first), then alphabetically by label and by
+ * handle. The empty query matches everyone at the same tier, so score, recency, and alphabetical
+ * order alone decide the list. Capped by `limit`.
  */
 export function filterMentionables(
   mentionables: readonly Mentionable[],
   query: string,
-  limit = 8,
+  options: { recentHandles?: readonly string[]; limit?: number } = {},
 ): Mentionable[] {
-  const handleMatches = mentionables.filter((item) => item.handle.startsWith(query));
+  const { recentHandles = [], limit = 8 } = options;
   const lowerQuery = query.toLowerCase();
-  const labelMatches = mentionables.filter(
-    (item) => !item.handle.startsWith(query) && item.label.toLowerCase().includes(lowerQuery),
-  );
-  return [...handleMatches, ...labelMatches].slice(0, limit);
+  const recencyByHandle = new Map<string, number>();
+  recentHandles.forEach((handle, index) => {
+    const key = handle.replace(/^@+/, "").toLowerCase();
+    if (!recencyByHandle.has(key)) recencyByHandle.set(key, index);
+  });
+
+  const ranked = mentionables
+    .map((item) => {
+      const tier = matchTier(item, lowerQuery);
+      if (tier === undefined) return undefined;
+      return { item, tier, recency: recencyByHandle.get(item.handle.toLowerCase()) };
+    })
+    .filter((entry) => entry !== undefined);
+
+  ranked.sort((left, right) => {
+    if (left.tier !== right.tier) return left.tier - right.tier;
+    if (left.item.mentionScore !== right.item.mentionScore) {
+      return right.item.mentionScore - left.item.mentionScore;
+    }
+    if (left.recency !== right.recency) {
+      if (left.recency === undefined) return 1;
+      if (right.recency === undefined) return -1;
+      return left.recency - right.recency;
+    }
+    return (
+      left.item.label.localeCompare(right.item.label) ||
+      left.item.handle.localeCompare(right.item.handle)
+    );
+  });
+
+  return ranked.slice(0, limit).map((entry) => entry.item);
 }
 
 /**
