@@ -644,12 +644,7 @@ export class AgentControl {
     // operation. A completed `stop` chain also ends in phase "completed" (`advance()` has no next
     // step); it carries no `launchId`, so `sameScope` already excludes it, but the action is
     // checked explicitly so this never depends on that.
-    if (
-      state.phase === "completed" &&
-      state.action !== "stop" &&
-      sameScope &&
-      !agent.stoppedAt
-    )
+    if (state.phase === "completed" && state.action !== "stop" && sameScope && !agent.stoppedAt)
       return;
     throw new Error("Stale Agent launch");
   }
