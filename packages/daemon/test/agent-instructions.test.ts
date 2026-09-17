@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { buildCoforgeAgentInstructions } from "../src/code-agent/agent-instructions";
+import {
+  buildCoforgeAgentInstructions,
+  buildCoforgeCliGuideSections,
+} from "../src/code-agent/agent-instructions";
 
 const AGENT_WORKSPACES: [string, string] = [
   "/coforge/workspaces/workspace-a/agents/agent-a",
@@ -150,4 +153,27 @@ test("project code is discovered through workspace info and cloned with the owne
   expect(instructions).toContain("git clone https://github.com/<owner>/<repo>.git");
   expect(instructions).toContain("Never ask for a token, SSH key, or deploy key");
   expect(instructions).toContain("do not run `gh auth login`");
+});
+
+test("the prompt is its named sections, in order, each opening with its own heading", () => {
+  const sections = buildCoforgeCliGuideSections();
+  const headings: Record<keyof typeof sections, string> = {
+    communication: "## CoForge communication",
+    messages: "### Messages",
+    workspaceAndAttachments: "### Workspace and attachments",
+    projectCodeAndGitHub: "### Project code and GitHub",
+    publicChannels: "### Public channels",
+    appInbox: "### App Inbox",
+    reminders: "### Reminders",
+    tasks: "### Tasks",
+    actionCards: "### Action cards",
+    closing: "Complete the requested work",
+  };
+  expect(Object.keys(sections)).toEqual(Object.keys(headings));
+  for (const [name, heading] of Object.entries(headings))
+    expect(sections[name as keyof typeof sections].startsWith(heading)).toBe(true);
+  expect(instructions.endsWith(Object.values(sections).join("\n\n"))).toBe(true);
+  // No section leaks a heading that belongs to another one.
+  for (const section of Object.values(sections))
+    expect(section.match(/^#{2,3} /gm)?.length ?? 0).toBeLessThanOrEqual(1);
 });

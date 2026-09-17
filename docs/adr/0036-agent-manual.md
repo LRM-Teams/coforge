@@ -83,6 +83,13 @@ by audience; messages, threads, channels, reminders and the rest stay in the pro
 
 A section Raft keeps in the prompt is not moved without a recorded decision here.
 
+`agent-instructions.ts` mirrors that layout: `buildCoforgeCliGuideSections()` returns the named
+sections in rendered order, one `build<Name>Section()` each, so a step edits exactly one builder.
+Raft's `audience` parameter is not copied yet. CoForge has only daemon-spawned Agents (Raft's
+`managed-runner`), so each builder is that variant; the parameter arrives together with a
+self-hosted Agent client, at which point Manual topics can be generated from the same builders as
+Raft does instead of being written by hand.
+
 ## Alternatives rejected
 
 - **Provider-native skills** (Claude Code / Codex / Kiro / Pi each have some notion of
