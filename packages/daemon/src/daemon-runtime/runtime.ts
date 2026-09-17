@@ -11,6 +11,14 @@ import { mkdirSync } from "node:fs";
 import { readOperatingSystem } from "../platform/operating-system";
 import { ActivityTrajectory } from "../agent-runtime/activity-trajectory";
 import {
+  buildRuntimeErrorActivity,
+  buildRuntimeCrashedActivity,
+  buildRuntimeReconnectingActivity,
+  scrubRuntimeErrorText,
+  fingerprintRuntimeError,
+  type RuntimeErrorEvent,
+} from "../agent-runtime/runtime-error-activity";
+import {
   AgentProcessManager,
   type CodeAgentProviderFactory,
   type AgentRuntime,
@@ -220,7 +228,16 @@ type AgentInputQueue = {
   closed: boolean;
 };
 
-type ActivityLaunch = { launchId: string; clientSeq: number; stopping: boolean };
+type ActivityLaunch = {
+  launchId: string;
+  clientSeq: number;
+  stopping: boolean;
+  // The most recent `error` event not yet resolved by a `completed` event, if any (cleared on
+  // `completed`). Read by the process-exit handler to decide `runtime_crashed` vs `idle` wording
+  // — `AgentSession.onExit` itself carries no exit code/signal, so this is the only fact the
+  // core has for that decision (see agent-runtime/runtime-error-activity.ts).
+  crashDetail?: RuntimeErrorEvent;
+};
 
 /** An activity envelope before the launch assigns its sequence metadata. */
 type ActivityDraft = Omit<AgentActivity, "launchId" | "clientSeq" | "observedAtMs">;
@@ -1552,7 +1569,20 @@ export class DaemonRuntime {
             .then((identity) => this.#agentControl.stopped(agentId, launch.launchId, identity))
             .then(() => this.#agentSessions.replay(agentId))
             .catch(() => {});
-        this.#emitAgentActivity(agentId, launch, this.#stoppedActivity(agentId));
+        // An exit that leaves the most recent `error` event unresolved by a `completed`
+        // outcome is a crash; any other unintentional exit keeps the stopped wording, because
+        // the Agent's control state is stopped either way.
+        const crashed = launch.crashDetail && buildRuntimeCrashedActivity(launch.crashDetail);
+        this.#emitAgentActivity(
+          agentId,
+          launch,
+          crashed
+            ? this.#activity(agentId, crashed.detailKind, crashed.level, crashed.detail, {
+                entries: crashed.entries,
+                runtimeError: crashed.runtimeError,
+              })
+            : this.#stoppedActivity(agentId),
+        );
         if (this.#currentActivityLaunches.get(agentId) === launch)
           this.#currentActivityLaunches.delete(agentId);
       });
@@ -1764,7 +1794,38 @@ export class DaemonRuntime {
       );
       return;
     }
+    // Single conversion for every provider (agent-runtime/runtime-error-activity.ts): formatting,
+    // the 512-char cap, redaction, the `Error: …` entry, and runtimeError classification all live
+    // there, not in the provider. Remembered on the launch so a process exit that follows without
+    // an intervening `completed` can report `runtime_crashed` instead of a plain `idle` exit.
+    if (event.type === "error") {
+      launch.crashDetail = event;
+      const built = buildRuntimeErrorActivity(event);
+      this.#emitAgentActivity(
+        agentId,
+        launch,
+        this.#activity(agentId, built.detailKind, built.level, built.detail, {
+          entries: built.entries,
+          runtimeError: built.runtimeError,
+        }),
+      );
+      return;
+    }
+    if (event.type === "reconnecting") {
+      const built = buildRuntimeReconnectingActivity(event);
+      this.#emitAgentActivity(
+        agentId,
+        launch,
+        this.#activity(agentId, built.detailKind, built.level, built.detail, {
+          entries: built.entries,
+        }),
+      );
+      return;
+    }
     if (event.type !== "completed") return;
+    // A turn outcome (of any status) resolves any error observed mid-turn; a crash wording only
+    // applies to a process exit with no such outcome in between.
+    launch.crashDetail = undefined;
     if (controlled)
       void runtime.session
         .readSessionIdentity?.()
@@ -3157,22 +3218,19 @@ function safeRuntimeActivityMessage(activity: string, level: string, message: st
   return "Agent activity observed.";
 }
 
+// Delegates to agent-runtime/runtime-error-activity.ts's shared scrubber/fingerprint so
+// warning-level Activity text and runtime-failure classification never drift from the single
+// redaction/fingerprint implementation the new `error`/`reconnecting` event path also uses.
 function scrubActivityText(message: string): string {
-  return message
-    .replace(/(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]")
-    .replace(/sk-[A-Za-z0-9_-]+/g, "[REDACTED]")
-    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
-    .slice(0, 512);
+  return scrubRuntimeErrorText(message);
 }
 
 function runtimeFailureDiagnostic(message: string) {
   const safe = scrubActivityText(message);
-  let hash = 2166136261;
-  for (const character of safe) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
   return {
     errorClass: "AgentRuntimeError",
     errorReason: "runtime_failure",
-    fingerprint: (hash >>> 0).toString(16).padStart(8, "0"),
+    fingerprint: fingerprintRuntimeError(safe),
   };
 }
 

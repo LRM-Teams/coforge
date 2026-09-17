@@ -205,14 +205,7 @@ class ClaudeCodeAgentSession implements AgentSession {
       if (error.message !== "code agent process exited unexpectedly") {
         this.#rejectPendingInterrupt(error);
         this.#rejectWaitingNotices(error);
-        this.#emit({
-          type: "activity",
-          activity: createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-            "error",
-            error.message,
-          ),
-        });
+        this.#emit({ type: "error", message: error.message });
       }
     });
     process.onClose(() => {
@@ -234,14 +227,7 @@ class ClaudeCodeAgentSession implements AgentSession {
         this.#nativeIdentityObserved = false;
         void this.#startFresh().catch((error: unknown) => {
           this.#rejectWaitingNotices(error instanceof Error ? error : new Error(String(error)));
-          this.#emit({
-            type: "activity",
-            activity: createAgentActivity(
-              AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-              "error",
-              "Claude fresh session launch failed",
-            ),
-          });
+          this.#emit({ type: "error", message: "Claude fresh session launch failed" });
           void this.dispose().catch(() => undefined);
         });
         return;
@@ -250,16 +236,10 @@ class ClaudeCodeAgentSession implements AgentSession {
         // Every close reaches here through the same sentinel message,
         // whether the process was disposed intentionally or not; only the
         // "not disposed" branch above already excludes a requested stop.
-        this.#emit({
-          type: "activity",
-          activity: createAgentActivity(
-            failure.message === "code agent process exited unexpectedly"
-              ? AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_CRASHED
-              : AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-            "error",
-            failure.message,
-          ),
-        });
+        // Whether this reads as a crash (vs. an ordinary error) is the
+        // daemon core's call, made from this fact at the moment the process
+        // actually exits (agent-runtime/runtime-error-activity.ts).
+        this.#emit({ type: "error", message: failure.message });
       }
       this.#rejectPendingInterrupt(
         failure ?? new Error("code agent process closed during interrupt"),
@@ -668,12 +648,8 @@ class ClaudeCodeAgentSession implements AgentSession {
       })
       .catch((error) => {
         this.#emit({
-          type: "activity",
-          activity: createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-            "error",
-            error instanceof Error ? error.message : "Claude session identity report failed",
-          ),
+          type: "error",
+          message: error instanceof Error ? error.message : "Claude session identity report failed",
         });
       });
   }
@@ -718,14 +694,7 @@ class ClaudeCodeAgentSession implements AgentSession {
     );
     this.#recoveryFailed = true;
     this.#rejectWaitingNotices(error);
-    this.#emit({
-      type: "activity",
-      activity: createAgentActivity(
-        AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-        "error",
-        error.message,
-      ),
-    });
+    this.#emit({ type: "error", message: error.message });
     // Never block the event reader on process-tree cleanup.
     void this.dispose().catch(() => undefined);
   }

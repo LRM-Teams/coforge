@@ -338,17 +338,17 @@ test.each([true, false])(
     try {
       await session.sendMessage(willRetry ? "retry-error" : "final-error");
       await observed;
-      expect(events.filter((event) => event.type === "activity")).toEqual(
+      // The provider reports the raw fact only, unredacted — the daemon core
+      // (agent-runtime/runtime-error-activity.ts) is the single place that
+      // redacts and caps it for the visible Activity.
+      expect(events.filter((event) => event.type === "error")).toEqual(
         willRetry
           ? []
           : [
               {
-                type: "activity",
-                activity: expect.objectContaining({
-                  detailKind: "runtime_error",
-                  level: "error",
-                  detail: "request timed out: Bearer fixture-private-token",
-                }),
+                type: "error",
+                message: "request timed out: Bearer fixture-private-token",
+                occurredAt: expect.any(String),
               },
             ],
       );
@@ -361,51 +361,31 @@ test.each([true, false])(
   },
 );
 
+// Redaction/length-capping of this raw stderr line into the visible `runtime_reconnecting`
+// Activity is the daemon core's job now (agent-runtime/runtime-error-activity.ts, unit-tested
+// there); this adapter test only checks the raw fact — attempt parsed, text untouched.
 test.each([
-  ["plain", "Reconnecting... 3/5", "Reconnecting... 3/5"],
+  ["plain", "Reconnecting... 3/5", 3],
   [
-    "redacted",
+    "with embedded secret text",
     "Reconnecting... 2/5: Bearer fixture-private-token sk-fixture123456789 (502 Bad Gateway)",
-    "Reconnecting... 2/5: Bearer [redacted] [redacted] (502 Bad Gateway)",
-  ],
-  [
-    "499 characters",
-    "Reconnecting... 1/5 " + "x".repeat(479),
-    "Reconnecting... 1/5 " + "x".repeat(479),
-  ],
-  [
-    "500 characters",
-    "Reconnecting... 1/5 " + "x".repeat(480),
-    "Reconnecting... 1/5 " + "x".repeat(480),
-  ],
-  [
-    "501 characters",
-    "Reconnecting... 1/5 " + "x".repeat(480) + "Z",
-    "Reconnecting... 1/5 " + "x".repeat(480),
+    2,
   ],
 ])(
-  "Codex presents safe, bounded reconnect stderr as working activity (%s)",
-  async (_, diagnostic, expected) => {
+  "Codex reports a raw reconnecting event from reconnect stderr (%s)",
+  async (_, diagnostic, attempt) => {
     const session = await fixtureAdapter().createAgentSession({
       agentWorkspaceDirectory: tmpdir(),
       instructions: TEST_AGENT_INSTRUCTIONS,
     });
     const observed = new Promise<AgentRuntimeEvent>((resolve) => {
       session.subscribe((event) => {
-        if (event.type === "activity") resolve(event);
+        if (event.type === "reconnecting") resolve(event);
       });
     });
     try {
       await session.sendMessage(`reconnect-stderr:${diagnostic}`);
-      expect(await observed).toEqual({
-        type: "activity",
-        activity: expect.objectContaining({
-          detailKind: "runtime_reconnecting",
-          level: "info",
-          detail: "Codex reconnecting to provider…",
-          entries: [{ kind: "text", text: expected }],
-        }),
-      });
+      expect(await observed).toEqual({ type: "reconnecting", attempt, message: diagnostic });
       await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
     } finally {
       await session.dispose();
@@ -434,7 +414,7 @@ test("Codex reports no thinking_end when a reasoning item completes", async () =
   }
 });
 
-test("Codex reports runtime_crashed, with the error class attached, when the process exits unexpectedly", async () => {
+test("Codex reports a raw error event, not a classified activity, when the process exits unexpectedly", async () => {
   const session = await fixtureAdapter().createAgentSession({
     agentWorkspaceDirectory: tmpdir(),
     instructions: TEST_AGENT_INSTRUCTIONS,
@@ -443,11 +423,13 @@ test("Codex reports runtime_crashed, with the error class attached, when the pro
   session.subscribe((event) => events.push(event));
   try {
     await session.sendMessage("crash").catch(() => {});
-    await waitForDetailKind(events, "runtime_crashed");
-    const crash = events.find(
-      (event) => event.type === "activity" && event.activity.detailKind === "runtime_crashed",
-    );
-    expect(crash?.type === "activity" && crash.activity.level).toBe("error");
+    await waitForEvent(events, "error");
+    const error = events.find((event) => event.type === "error");
+    expect(error).toMatchObject({
+      type: "error",
+      message: "code agent process exited unexpectedly",
+    });
+    expect(events.some((event) => event.type === "activity")).toBe(false);
   } finally {
     await session.dispose().catch(() => {});
   }

@@ -4480,6 +4480,171 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
+  test("converts a provider error event into a classified runtime_error activity, and a reconnecting event into runtime_reconnecting", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+    let listener: Parameters<AgentSession["subscribe"]>[0] = () => undefined;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return {
+            ...sessionSpy(),
+            subscribe(next) {
+              listener = next;
+              return () => undefined;
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    // The provider reports a raw fact only; the daemon core is the single place
+    // that redacts, caps, and classifies it (agent-runtime/runtime-error-activity.ts).
+    listener({ type: "error", message: "provider request failed" });
+    listener({ type: "reconnecting", attempt: 2, message: "Reconnecting... 2/5" });
+    expect(activities.map(({ detailKind }) => detailKind)).toEqual([
+      "starting",
+      "runtime_error",
+      "runtime_reconnecting",
+    ]);
+    expect(activities[1]).toMatchObject({
+      level: "error",
+      detail: "provider request failed",
+      entries: [{ kind: "text", text: "Error: provider request failed" }],
+      runtimeError: { errorClass: "AgentRuntimeError", errorReason: "runtime_failure" },
+    });
+    expect(activities[2]).toMatchObject({
+      level: "info",
+      detail: "Reconnecting... 2/5",
+      entries: [{ kind: "text", text: "Reconnecting... 2/5" }],
+    });
+    await runtime.stop();
+  });
+
+  test("reports runtime_crashed with Crashed(...) wording on an unintentional exit that follows an unresolved error", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+    let listener: Parameters<AgentSession["subscribe"]>[0] = () => undefined;
+    let exit: (() => void) | undefined;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return {
+            ...sessionSpy(),
+            subscribe(next) {
+              listener = next;
+              return () => undefined;
+            },
+            onExit(next) {
+              exit = next;
+              return () => {
+                exit = undefined;
+              };
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    listener({ type: "error", message: "code agent process exited unexpectedly" });
+    exit?.();
+    // `AgentSession.onExit` itself carries no exit code/signal; "Crashed" wording can only
+    // describe the last observed error, tracked on the launch since the `error` event above.
+    expect(activities.map(({ detailKind }) => detailKind)).toEqual([
+      "starting",
+      "runtime_error",
+      "runtime_crashed",
+    ]);
+    expect(activities.at(-1)).toMatchObject({
+      level: "error",
+      detail: "Crashed (code agent process exited unexpectedly)",
+    });
+    await runtime.stop();
+  });
+
+  test("keeps the stopped wording on an unintentional exit with no unresolved error", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+    let exit: (() => void) | undefined;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return {
+            ...sessionSpy(),
+            onExit(next) {
+              exit = next;
+              return () => {
+                exit = undefined;
+              };
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    // No `error` event preceded this exit, so it is not a crash: it keeps the stopped wording.
+    exit?.();
+    expect(activities.map(({ detailKind }) => detailKind)).toEqual(["starting", "stopped"]);
+    await runtime.stop();
+  });
+
   test("publishes a completion Activity without lifecycle detail for a successful turn", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

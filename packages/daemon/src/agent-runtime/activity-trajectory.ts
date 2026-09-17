@@ -24,6 +24,7 @@ function endsThinking(event: AgentRuntimeEvent): boolean {
     case "tool-start":
     case "tool-end":
     case "completed":
+    case "error":
       return true;
     case "activity":
       return (
@@ -94,7 +95,16 @@ export class ActivityTrajectory {
       this.#timer = setTimeout(() => this.flush(), 350);
       return;
     }
-    if (event.type === "tool-start" || event.type === "activity" || event.type === "completed")
+    // "error" flushing here (rather than in the runtime-error-activity conversion itself) is
+    // also what lets a separate in-flight change treat `error` as a thinking-end trigger: by the
+    // time that trajectory entry exists, any pending thinking/text is already flushed ahead of it.
+    if (
+      event.type === "tool-start" ||
+      event.type === "activity" ||
+      event.type === "completed" ||
+      event.type === "error" ||
+      event.type === "reconnecting"
+    )
       this.flush();
     this.#forward(event);
   }

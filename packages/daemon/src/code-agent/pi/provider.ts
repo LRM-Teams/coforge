@@ -6,8 +6,7 @@ import type {
 } from "@coforge/agent";
 import { AgentSessionRecoveryError, type CodeAgentProvider } from "../contract";
 import { agentEnvironment } from "../environment";
-import { createAgentActivity } from "../../agent-runtime/agent-activity";
-import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import {
   createSession,
@@ -179,14 +178,7 @@ class AgentSessionImpl implements AgentSession {
         event.message.stopReason === "error"
       ) {
         this.#failed = true;
-        this.#emit({
-          type: "activity",
-          activity: createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-            "error",
-            event.message.errorMessage ?? "Agent failed",
-          ),
-        });
+        this.#emit({ type: "error", message: event.message.errorMessage ?? "Agent failed" });
       }
       if (event.type === "agent_settled") {
         this.#emit({
@@ -206,12 +198,8 @@ class AgentSessionImpl implements AgentSession {
       await this.#trackPrompt(this.#runtime.session.prompt(message));
     } catch (error) {
       this.#emit({
-        type: "activity",
-        activity: createAgentActivity(
-          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-          "error",
-          error instanceof Error ? error.message : "Agent failed",
-        ),
+        type: "error",
+        message: error instanceof Error ? error.message : "Agent failed",
       });
       this.#emit({ type: "completed", status: "failed" });
       if (/Cannot continue from message role:\s*assistant/i.test(errorMessage(error)))

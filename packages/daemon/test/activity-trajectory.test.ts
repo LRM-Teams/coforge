@@ -436,3 +436,27 @@ test("a tool call counts as announced, so the response after it announces itself
   ).toBeUndefined();
   trajectory.dispose();
 });
+
+test("flushes pending text before a raw error event, and before a reconnecting event", () => {
+  jest.useFakeTimers();
+  const output: AgentRuntimeEvent[] = [];
+  const trajectory = new ActivityTrajectory((event) => output.push(event));
+  const kinds = () =>
+    output.map((event) =>
+      event.type === "activity"
+        ? `${event.activity.detailKind}${event.activity.entries ? ":text" : ""}`
+        : event.type,
+    );
+  trajectory.accept({ type: "text-delta", text: "still writing" });
+  trajectory.accept({ type: "error", message: "provider failed" });
+  expect(kinds()).toEqual(["model_response_started", "model_response_started:text", "error"]);
+  trajectory.accept({ type: "thinking-delta", text: "still thinking" });
+  trajectory.accept({ type: "reconnecting", attempt: 1 });
+  // A reconnect flushes the thought but does not end the thinking run.
+  expect(kinds().slice(3)).toEqual(["thinking_started", "thinking_started:text", "reconnecting"]);
+  trajectory.accept({ type: "error", message: "gave up" });
+  expect(kinds().slice(6)).toEqual(["thinking_end", "error"]);
+  trajectory.dispose();
+  jest.advanceTimersByTime(1000);
+  expect(output).toHaveLength(8);
+});
