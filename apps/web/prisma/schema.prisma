@@ -9,35 +9,35 @@ datasource db {
 }
 
 model Workspace {
-  id                  String                  @id @default(uuid()) @db.Uuid
-  slug                String                  @unique
-  name                String
-  members             WorkspaceMembership[]
-  invitations         WorkspaceInvitation[]
-  computers           WorkspaceComputer[]
-  computerRuntimes    ComputerRuntime[]
-  modelCatalogs       ComputerModelCatalog[]
-  agents              Agent[]
+  id                     String                  @id @default(uuid()) @db.Uuid
+  slug                   String                  @unique
+  name                   String
+  members                WorkspaceMembership[]
+  invitations            WorkspaceInvitation[]
+  computers              WorkspaceComputer[]
+  computerRuntimes       ComputerRuntime[]
+  modelCatalogs          ComputerModelCatalog[]
+  agents                 Agent[]
   weeklyReportAssistants WeeklyReportAssistant[]
-  agentApiKeys        AgentApiKey[]
-  daemonApiKeys       DaemonApiKey[]
-  conversations       Conversation[]
-  conversationMembers ConversationMember[]
-  messageDeliveries   AgentMessageDelivery[]
-  agentActivity       AgentActivity[]
-  reminders           Reminder[]
-  reminderEvents      ReminderEvent[]
-  attachments         Attachment[]
-  tasks               Task[]
-  weeklyReportCycles  WeeklyReportCycle[]
-  weeklyReports       WeeklyReport[]
-  weeklyHighlights    WeeklyReportHighlight[]
-  weeklyTemplates     WeeklyReportTemplate[]
-  recordNotes         RecordNote[]
-  recordComments      RecordComment[]
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
-  projects            Project[]
+  agentApiKeys           AgentApiKey[]
+  daemonApiKeys          DaemonApiKey[]
+  conversations          Conversation[]
+  conversationMembers    ConversationMember[]
+  messageDeliveries      AgentMessageDelivery[]
+  agentActivity          AgentActivity[]
+  reminders              Reminder[]
+  reminderEvents         ReminderEvent[]
+  attachments            Attachment[]
+  tasks                  Task[]
+  weeklyReportCycles     WeeklyReportCycle[]
+  weeklyReports          WeeklyReport[]
+  weeklyHighlights       WeeklyReportHighlight[]
+  weeklyTemplates        WeeklyReportTemplate[]
+  recordNotes            RecordNote[]
+  recordComments         RecordComment[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  projects               Project[]
 
   @@map("workspaces")
 }
@@ -159,14 +159,14 @@ model GitHubAuthorization {
 /// Cache of a User's usable GitHub App installations, refreshed by GitHubConnection.sync()
 /// and kept fresh by installation/installation_repositories webhooks. Read-only for Settings.
 model GitHubUserInstallation {
-  userId               String   @db.Uuid
-  installationId       Int
-  accountLogin         String
-  repositorySelection  String
-  suspended            Boolean
-  configureUrl         String
-  syncedAt             DateTime
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId              String   @db.Uuid
+  installationId      Int
+  accountLogin        String
+  repositorySelection String
+  suspended           Boolean
+  configureUrl        String
+  syncedAt            DateTime
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, installationId])
   @@index([installationId])
@@ -199,7 +199,8 @@ model Agent {
   activity                  AgentActivity[]
   reminders                 Reminder[]
   reminderOperationReceipts ReminderOperationReceipt[]
-  weeklyReportAssistant      WeeklyReportAssistant?
+  weeklyReportAssistant     WeeklyReportAssistant?
+  attachments               Attachment[]
 
   @@unique([workspaceId, name])
   @@unique([id, workspaceId])
@@ -211,12 +212,12 @@ model Agent {
 
 /// One User's fixed Agent identity for weekly-report AI in one Workspace.
 model WeeklyReportAssistant {
-  id          String   @id @default(uuid()) @db.Uuid
-  workspaceId String   @db.Uuid
-  userId      String   @db.Uuid
-  agentId     String   @unique @db.Uuid
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  userId      String    @db.Uuid
+  agentId     String    @unique @db.Uuid
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   agent       Agent     @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
@@ -616,23 +617,28 @@ model MessageReaction {
 }
 
 model Attachment {
-  id             String       @id @default(uuid()) @db.Uuid
-  workspaceId    String       @db.Uuid
-  conversationId String       @db.Uuid
-  uploaderId     String       @db.Uuid
-  messageId      String?      @unique @db.Uuid
-  objectKey      String       @unique
-  fileName       String
-  contentType    String
-  sizeBytes      Int
-  createdAt      DateTime     @default(now())
-  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation   Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
-  uploader       User         @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
-  message        Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  id              String       @id @default(uuid()) @db.Uuid
+  workspaceId     String       @db.Uuid
+  conversationId  String       @db.Uuid
+  /// Exactly one of `uploaderId` / `uploaderAgentId` is set; enforced in
+  /// `storeAttachment`/`storeAgentAttachment`, not a DB check constraint (see ADR 0023).
+  uploaderId      String?      @db.Uuid
+  uploaderAgentId String?      @db.Uuid
+  messageId       String?      @unique @db.Uuid
+  objectKey       String       @unique
+  fileName        String
+  contentType     String
+  sizeBytes       Int
+  createdAt       DateTime     @default(now())
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation    Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  uploader        User?        @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  uploaderAgent   Agent?       @relation(fields: [uploaderAgentId], references: [id], onDelete: Cascade)
+  message         Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, workspaceId])
   @@index([uploaderId])
+  @@index([uploaderAgentId])
   @@map("attachments")
 }
 
