@@ -1,4 +1,5 @@
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import { getAgentProfile } from "../agents.functions";
@@ -38,10 +39,23 @@ export function useAgentProfileData(agentId: string | undefined) {
   return query;
 }
 
-/** Re-fetches the panel's own data after a control action or an edit; the full Agent detail page
- * uses `router.invalidate` for the same purpose, but the panel is not route-loaded data. */
+/**
+ * Re-fetches every surface that still shows this Agent after a panel edit.
+ * The panel itself is query-cached (`agent-profile`); the DM list and conversation
+ * header come from the `/_app` loader (`listAgents` → LiveAgents); message
+ * `senderName` lives on the conversation query. The full Agent detail page uses
+ * `router.invalidate` for the loader; settings avatar upload also invalidates
+ * `["conversation"]` so already-open threads pick up the new identity.
+ */
 export function useInvalidateAgentProfile(agentId: string | undefined) {
   const queryClient = useQueryClient();
-  return () =>
-    agentId ? queryClient.invalidateQueries({ queryKey: agentProfileKey(agentId) }) : undefined;
+  const router = useRouter();
+  return async () => {
+    if (!agentId) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: agentProfileKey(agentId) }),
+      queryClient.invalidateQueries({ queryKey: ["conversation"] }),
+      router.invalidate({ sync: true }),
+    ]);
+  };
 }
