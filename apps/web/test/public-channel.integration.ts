@@ -1212,9 +1212,11 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     });
 
     // Any Agent may join a non-archived channel; idempotent. `member` already joined by
-    // creating the channel; `admin` joins separately.
-    await manage.join(workspace.id, admin.id, "#eng");
-    await manage.join(workspace.id, member.id, "#eng");
+    // creating the channel; `admin` joins separately. `alreadyJoined` distinguishes the two.
+    const adminJoin = await manage.join(workspace.id, admin.id, "#eng");
+    expect(adminJoin).toEqual({ target: "#eng", joined: true, alreadyJoined: false });
+    const memberRejoin = await manage.join(workspace.id, member.id, "#eng");
+    expect(memberRejoin).toEqual({ target: "#eng", joined: true, alreadyJoined: true });
     await manage.join(workspace.id, member.id, "#eng");
     const info = await manage.info(workspace.id, member.id, "#eng");
     expect(info).toMatchObject({
@@ -1248,8 +1250,12 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     ]);
 
     // Leave, then re-join: the row is soft-left and cleared, not deleted; membership count
-    // reflects only active members while left.
-    await manage.leave(workspace.id, member.id, "#eng");
+    // reflects only active members while left. `wasMember` distinguishes an actual leave from
+    // leaving again while already left.
+    const memberLeave = await manage.leave(workspace.id, member.id, "#eng");
+    expect(memberLeave).toEqual({ target: "#eng", joined: false, wasMember: true });
+    const memberLeaveAgain = await manage.leave(workspace.id, member.id, "#eng");
+    expect(memberLeaveAgain).toEqual({ target: "#eng", joined: false, wasMember: false });
     expect((await manage.info(workspace.id, member.id, "#eng")).joined).toBe(false);
     expect((await manage.info(workspace.id, admin.id, "#eng")).memberCounts.agents).toBe(1);
     expect(
@@ -1319,23 +1325,61 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       target: "#eng",
       member: { kind: "user", handle: `@${outsider.username}` },
       added: true,
+      alreadyMember: false,
     });
     expect((await manage.info(workspace.id, admin.id, "#eng")).memberCounts.humans).toBe(1);
+    // Adding the same human again reports alreadyMember, matching Raft's "@h is already in #x.".
+    const reAddedHuman = await manage.addMember(workspace.id, member.id, "#eng", {
+      user: `@${outsider.username}`,
+    });
+    expect(reAddedHuman).toEqual({
+      target: "#eng",
+      member: { kind: "user", handle: `@${outsider.username}` },
+      added: true,
+      alreadyMember: true,
+    });
 
     // remove-member: admin required for another member; self-removal (an Agent removing
     // itself) is allowed without admin authority, the same as `leave`.
     await expect(
       manage.removeMember(workspace.id, member.id, "#eng", { user: `@${outsider.username}` }),
     ).rejects.toThrow("this Agent's owner lacks admin authority for remove-member");
-    await manage.removeMember(workspace.id, member.id, "#eng", { agent: `@${member.name}` });
+    const removedAgent = await manage.removeMember(workspace.id, member.id, "#eng", {
+      agent: `@${member.name}`,
+    });
+    expect(removedAgent).toEqual({ target: "#eng", removed: true, wasMember: true });
     expect((await manage.info(workspace.id, member.id, "#eng")).joined).toBe(false);
+    // Removing an already-left member reports wasMember: false, matching Raft's "@h was not
+    // in #x.".
+    const removedAgentAgain = await manage.removeMember(workspace.id, admin.id, "#eng", {
+      agent: `@${member.name}`,
+    });
+    expect(removedAgentAgain).toEqual({ target: "#eng", removed: true, wasMember: false });
     const removedHuman = await manage.removeMember(workspace.id, admin.id, "#eng", {
       user: `@${outsider.username}`,
     });
-    expect(removedHuman).toEqual({ target: "#eng", removed: true });
+    expect(removedHuman).toEqual({ target: "#eng", removed: true, wasMember: true });
     expect((await manage.info(workspace.id, admin.id, "#eng")).memberCounts.humans).toBe(0);
 
-    // members() also resolves the Agent-DM target form (`@user`).
+    // members() with an `@user` target looks the DM up read-only; it never creates one as a
+    // side effect (unlike `read`/`search`/`send`, which lazily create it via
+    // `getOrCreateUserAgent`). No DM exists yet between `admin` and `outsider`, so this 404s.
+    await expect(manage.members(workspace.id, admin.id, `@${outsider.username}`)).rejects.toThrow(
+      "channel not found",
+    );
+    expect(
+      await db.conversation.findFirst({
+        where: { workspaceId: workspace.id, channelName: null },
+      }),
+    ).toBeNull();
+
+    // Once a DM conversation exists (created here the same way a real `send`/`read` would),
+    // members() resolves it and tags the caller "self".
+    await new PrismaDirectConversationRepository(db).getOrCreateUserAgent(
+      workspace.id,
+      owner.id,
+      admin.id,
+    );
     const dmRoster = await manage.members(workspace.id, admin.id, `@${owner.username}`);
     expect(dmRoster).toEqual({
       target: `@${owner.username}`,

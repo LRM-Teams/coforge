@@ -20,6 +20,7 @@ test.skipIf(!connectionString)(
       id UUID PRIMARY KEY, "workspaceId" UUID NOT NULL, name TEXT NOT NULL,
       "displayName" TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', "createdAt" TIMESTAMP NOT NULL,
       "ownerId" UUID NOT NULL, "computerId" UUID, "runtimeConfig" JSONB NOT NULL,
+      role TEXT NOT NULL DEFAULT 'member',
       UNIQUE (id, "workspaceId"))`);
       await client.query(
         await Bun.file(

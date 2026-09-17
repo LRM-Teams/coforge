@@ -35,7 +35,7 @@ export async function storeAttachment(
   const conversation = await db.conversation.findFirst({
     where: {
       id: input.conversationId,
-      members: { some: { userId: input.userId } },
+      members: { some: { userId: input.userId, ...ACTIVE_MEMBER_WHERE } },
       OR: [{ channelName: null }, { workspace: { members: { some: { userId: input.userId } } } }],
     },
     select: { id: true, workspaceId: true },
@@ -141,7 +141,7 @@ export async function readAuthorizedAttachment(
             OR: [
               {
                 channelName: null,
-                members: { some: { userId: input.userId } },
+                members: { some: { userId: input.userId, ...ACTIVE_MEMBER_WHERE } },
               },
               {
                 channelName: { not: null },

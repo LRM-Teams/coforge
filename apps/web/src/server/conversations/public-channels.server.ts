@@ -527,6 +527,24 @@ export class PublicChannels {
       if (validAgents !== agentIds.length) throw new AppError("INVALID_INPUT");
     }
 
+    // Read who was already an active member before writing, so a caller (the Agent CLI) can
+    // report "already in #channel" instead of a bare success for a no-op add.
+    const alreadyActive = await this.db.conversationMember.findMany({
+      where: {
+        conversationId: channelId,
+        ...ACTIVE_MEMBER_WHERE,
+        OR: [
+          ...(userIds.length ? [{ userId: { in: userIds } }] : []),
+          ...(agentIds.length ? [{ agentId: { in: agentIds } }] : []),
+        ],
+      },
+      select: { userId: true, agentId: true },
+    });
+    const alreadyMemberUserIds = alreadyActive.flatMap((row) => (row.userId ? [row.userId] : []));
+    const alreadyMemberAgentIds = alreadyActive.flatMap((row) =>
+      row.agentId ? [row.agentId] : [],
+    );
+
     await Promise.all([
       ...userIds.map((userId) =>
         this.db.conversationMember.upsert({
@@ -544,7 +562,8 @@ export class PublicChannels {
       ),
     ]);
 
-    return this.members(workspaceId, actor, channelId);
+    const result = await this.members(workspaceId, actor, channelId);
+    return { ...result, alreadyMemberUserIds, alreadyMemberAgentIds };
   }
 
   async open(

@@ -13,6 +13,7 @@ import {
   type ReminderRepository,
   type StoredReminder,
 } from "../../reminders/reminders.server";
+import { ACTIVE_MEMBER_WHERE } from "../../conversations/active-member.server";
 
 type Scope = { workspaceId: string; computerId: string; agentId: string; userId: string };
 type ReminderRow = Prisma.ReminderGetPayload<Record<string, never>>;
@@ -106,7 +107,7 @@ export class PrismaReminderRepository implements ReminderRepository {
           where: {
             workspaceId: scope.workspaceId,
             channelName: base!.slice(1),
-            members: { some: { agentId: scope.agentId } },
+            members: { some: { agentId: scope.agentId, ...ACTIVE_MEMBER_WHERE } },
           },
           select: { id: true },
         })
@@ -115,8 +116,10 @@ export class PrismaReminderRepository implements ReminderRepository {
             workspaceId: scope.workspaceId,
             channelName: null,
             AND: [
-              { members: { some: { agentId: scope.agentId } } },
-              { members: { some: { user: { username: base!.slice(1) } } } },
+              { members: { some: { agentId: scope.agentId, ...ACTIVE_MEMBER_WHERE } } },
+              {
+                members: { some: { user: { username: base!.slice(1) }, ...ACTIVE_MEMBER_WHERE } },
+              },
             ],
           },
           select: { id: true },

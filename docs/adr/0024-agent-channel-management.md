@@ -151,11 +151,14 @@ human-facing change is hiding archived channels from the sidebar channel list
   `runtime.agentChannel(context, request, agentApiKey)`
   (`packages/daemon/src/daemon-runtime/runtime.ts`), which forwards to
   `daemon-connection.ts#agentChannel`. That method maps the operation to its cloud route/method
-  (`channelEndpointFor`) and returns the JSON response body unchanged; a non-2xx or network
-  failure throws a bare `Error`, which `classifyAgentProxyFailure` turns into the same
-  "unclassified" `502` the `tasks` path already relies on, so the CLI gets a `CliError` with the
-  same failure-classification shape as every other local-proxy route. `mute`/`unmute` are
-  untouched — they still travel through the generic message-operation proxy path.
+  (`channelEndpointFor`) and returns the JSON response body unchanged; a network failure throws
+  `AgentTransportError.preResponseTransport`, and a non-2xx upstream response throws
+  `AgentTransportError.upstreamHttpResponse` carrying the real status (e.g. `404`) — not a bare
+  `Error`, which would collapse to a generic "unclassified" `502` under `classifyAgentProxyFailure`
+  and hide a real "channel not found" behind a retry-suggesting failure. `local-client.ts#callChannel`
+  turns a classified `404` on a single-channel-target operation into `CliError` code `NOT_FOUND`.
+  `mute`/`unmute` are untouched — they still travel through the generic message-operation proxy
+  path.
 - `packages/coforge`: `channel info|members|join|leave|create|update|lifecycle archive|unarchive|
   add-member|remove-member` parse in `index.ts` (`parseChannelManagementArgs`), transported by
   `local-client.ts#channel`, and rendered by the new `src/channel-format.ts`. `channel members`
@@ -170,6 +173,64 @@ human-facing change is hiding archived channels from the sidebar channel list
   `--private`/`--public` are parsed and always rejected (`CliError` code `UNSUPPORTED`).
   `agent-instructions.ts` gained two lines: join before posting to an unjoined channel, and use
   `channel members` to see who has join/post authority before assuming someone is reachable.
+
+### Exact parity with Raft 1.0.32's channel formatters and validation
+
+A line-by-line review against the Raft 1.0.32 bundle's `formatJoinChannelResult`/
+`formatLeaveChannelResult`/`formatCreateChannelResult`/`formatUpdateChannelResult`/
+`formatArchiveChannelResult`/`formatUnarchiveChannelResult`/`formatAddMemberResult`/
+`formatRemoveMemberResult`/`formatChannelMembers`/`formatChannelInfo`/`agentStatusLabel`/
+`roleLabel`/`parseRegularChannelTarget` found several places where CoForge's first pass paraphrased
+Raft's text or behavior instead of matching it exactly (`raft` renamed to `coforge`, minus the
+parts CoForge genuinely has no equivalent for — private channels, channel-level roles beyond
+admin/owner, and the dynamic "attention" block Raft only attaches when the server supplies one).
+Fixed, all in `packages/coforge/src/channel-format.ts` and `packages/coforge/index.ts` unless noted:
+
+- **Success text and the booleans that select it.** Every write operation's route response
+  gained a boolean the CLI needs to choose between Raft's "did it" and "already/was" text, and
+  `AgentChannelManagement`/`PublicChannels.addMembers` compute it from data already read for the
+  write (no extra query): `join` → `alreadyJoined` (checked before the upsert); `leave` →
+  `wasMember` (`updateMany`'s row count); `add-member` → `alreadyMember` (`PublicChannels
+  .addMembers` now also returns `alreadyMemberUserIds`/`alreadyMemberAgentIds`, queried before the
+  write); `remove-member` → `wasMember` (`updateMany`'s row count, both the Agent- and
+  human-target branches). `create`'s and `update`'s success text became their own one-liner
+  (`formatChannelUpdate` no longer aliases `formatChannelInfo`); `join`'s success text gained
+  Raft's fixed "Still arrives" block.
+- **Roster line format.** `formatChannelMembers`'s Agent line is
+  `  - @name (<status>)<role> — <description>` — status and role in separate parens, no
+  description suffix when empty — and drops the "self" tag CoForge's first draft added: Raft's
+  formatter has no self tag, only role and status. The human line, `  - @username<role>`, was
+  already correct. `self` stays in the roster **data** (`AgentChannelRosterAgent.self`,
+  `packages/coforge-sdk/src/agent/channels.ts`) for any caller that wants it — only the CLI's text
+  renderer drops it.
+- **`channel info`'s member count is always plural**, `Members: N (a agents, h humans)`, never
+  singularized at a count of one — CoForge's first draft singularized, Raft does not.
+- **CLI-side target validation matching Raft's `parseRegularChannelTarget`.** `join`, `leave`,
+  `update`, `lifecycle archive|unarchive`, `add-member`, and `remove-member` now reject a non-
+  regular target (an `@user` DM, a `#channel:thread` target, or a bare name with no leading `#`)
+  at parse time, before any request is sent, with `CliError` code `INVALID_TARGET` and Raft's
+  fixed message (`requireRegularChannelTarget`, `packages/coforge/index.ts`). `info`/`members`
+  are unaffected — Raft accepts and normalizes a wider target grammar for those, and CoForge
+  already did (`@user` for a DM roster, `#channel:thread` for `info`). Separately, an unknown
+  channel reported by the server (a `404`) is `CliError` code `NOT_FOUND` with a fixed
+  `Channel not found: #x` message, mapped client-side in `local-client.ts#callChannel` for the
+  seven single-channel-target operations (`join`, `leave`, `update`, `archive`, `unarchive`,
+  `add-member`, `remove-member`), using the `AgentTransportError` propagation fix described above.
+- **`channel members @user` no longer creates a DM as a side effect.** Inspecting who could
+  message in a DM must not start one — the same reasoning that keeps `info`/`members` off the
+  `archivedAt` write-path gate. `AgentChannelManagement.members`'s `@user` branch now calls
+  `PrismaDirectConversationRepository.findUserAgentConversation` (new, read-only: looks the
+  `directKey` conversation up, never creates it) instead of `getOrCreateUserAgent`, and 404s
+  `channel not found` when no DM exists yet.
+- **The `attachment.server.ts` `ACTIVE_MEMBER_WHERE` sweep, completed.** Two human-membership
+  predicates this record's original sweep missed — `storeAttachment`'s `members: { some: {
+  userId } }` (~line 38) and `readAuthorizedAttachment`'s DM branch (~line 144) — now include
+  `ACTIVE_MEMBER_WHERE`; the Agent-membership branch was already correct. A repo-wide re-grep for
+  `members: { some: {` against `ConversationMember` (excluding the several `Workspace.members`/
+  `WorkspaceMembership` hits, which are a different model and correct as-is) found no further
+  gaps: `realtime.functions.ts`, `task-board.server.ts` (5 sites), `public-channels.server.ts`,
+  and `reminder.repositories.server.ts` (3 sites) were already fixed by this record's original
+  sweep or by ADR 0025/#289.
 
 ## Rejected alternatives
 
@@ -215,6 +276,17 @@ human-facing change is hiding archived channels from the sidebar channel list
 - Test fixtures whose fixed shape gained a field were updated to include it (`PublicChannels.list`
   test assertions gained `archived: false`; `AgentDetailQuery` test fixtures gained `role`) — a
   contract addition, not a weakened assertion.
+- The Raft-parity review above is also **not purely additive**: every write route's response
+  shape gained a boolean (`alreadyJoined`/`wasMember`/`alreadyMember`), `formatChannelUpdate` is
+  no longer `=== formatChannelInfo`, `formatChannelRemoveMember` gained a third parameter
+  (`wasMember`), and `formatChannelMembers`'s Agent line dropped the "self" text tag (the `self`
+  field itself is unchanged in the response data). Every call site and test asserting the old
+  shapes/text was updated to match — see the counts below.
+- Unrelated to this record: fixing `agent-session-persistence.integration.test.ts`'s hand-rolled
+  `CREATE TABLE agents` (used to replay a specific migration sequence in an isolated schema) to
+  include a `role` column. That table predates `Agent.role` and was never updated for it; the gap
+  was invisible until this review ran the full suite with `MIGRATION_TEST_DATABASE_URL` set,
+  which the deterministic-suite runs in earlier rounds of this record had not exercised.
 
 ## Validation and rollback
 
@@ -224,13 +296,29 @@ and install-script tests untouched by this change); the new
 `apps/web/test/agent-channel-management-routes-http.test.ts` (route handlers, with fakes); the new
 scenario in `apps/web/test/public-channel.integration.ts` (authority, join/leave, archive,
 add/remove-member, against local PostgreSQL); `packages/daemon/test/agent-proxy.test.ts`'s new
-validation/dispatch/404 cases; `packages/coforge/test/cli.test.ts` and the new
+validation/dispatch/404 cases; `packages/coforge/test/cli.test.ts` and
 `channel-format.test.ts`.
 
 This branch was reconciled with ADR 0025/#289 by merging `origin/main`, generalizing
 `PublicChannels.members`/`addMembers` as described above, and rewriting the affected assertions
 in `public-channel.integration.ts` (both this record's own scenario and #289's "channel members
 add humans and Agents" scenario now pass together, in the same file, against local PostgreSQL).
+
+The Raft-parity review added: `packages/coforge/test/channel-format.test.ts` was rewritten for
+every renderer's new exact text/signature; `packages/coforge/test/cli.test.ts` gained a target-
+validation test (`INVALID_TARGET` on `join`/`leave`/`update`/`lifecycle`/`add-member`/
+`remove-member`, `info`/`members` unaffected) and its one existing `channel join` dispatch
+assertion now expects the full Raft-parity text; `packages/coforge/test/local-client.test.ts`
+gained three `channel()` cases (`NOT_FOUND` mapping on a target operation's `404`, no remapping
+on `info`'s `404`, and a passthrough success case); `packages/daemon/test/daemon-connection.test.ts`
+gained four cases covering `defaultAgentChannelHttpClient`'s `AgentTransportError` classification
+(`404`, a network failure, a `2xx` passthrough) and the same classification reached through
+`DaemonConnection.agentChannel`; `apps/web/test/agent-channel-management-routes-http.test.ts`'s
+join/leave/add-member/remove-member fakes and assertions now carry the new booleans; and
+`public-channel.integration.ts`'s "Agent channel management" scenario gained explicit
+`alreadyJoined`/`wasMember`/`alreadyMember` assertions plus a DM-lookup-does-not-create-a-DM
+assertion (asserting the `404` and that no DM conversation row was created), followed by a
+success case once a DM conversation is seeded the same way a real `send`/`read` would create one.
 
 Rollback is reverting the CR before merge. Post-merge, the safest rollback is a follow-up CR that
 removes the new routes/CLI surface and stops writing `leftAt`/`archivedAt`/`role`; the columns

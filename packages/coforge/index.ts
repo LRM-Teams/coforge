@@ -581,6 +581,21 @@ function privateChannelsUnsupportedError(): CliError {
   });
 }
 
+/** Raft's `parseRegularChannelTarget`, applied the same way Raft applies it: to `join`, `leave`,
+ * `update`, `lifecycle archive|unarchive`, `add-member`, and `remove-member` — never to `info`/
+ * `members` (which accept a wider target grammar) or `create` (which has no target at all).
+ * Rejects a thread target, an `@user` DM, or a bare name with no leading `#`. */
+function requireRegularChannelTarget(target: string): string {
+  if (!/^#[a-z0-9][a-z0-9_-]{0,31}$/.test(target))
+    throw new CliError({
+      code: "INVALID_TARGET",
+      message:
+        "Target must be a regular channel in the form '#channel-name'. DMs and thread targets are not supported.",
+      retryable: false,
+    });
+  return target;
+}
+
 /** Generic `--flag value` / `--boolean-flag` parser shared by the `channel` subcommands below. */
 function parseChannelFlags(
   args: readonly string[],
@@ -620,7 +635,7 @@ function parseChannelManagementArgs(args: readonly string[]): ChannelManagementI
     if (!target) throw new Error("Usage:");
     return {
       command: "channel-manage",
-      channel: { operation: action, target },
+      channel: { operation: action, target: requireRegularChannelTarget(target) },
       json: values.has("--json"),
     };
   }
@@ -630,7 +645,7 @@ function parseChannelManagementArgs(args: readonly string[]): ChannelManagementI
     if (!target) throw new Error("Usage:");
     return {
       command: "channel-manage",
-      channel: { operation: sub, target },
+      channel: { operation: sub, target: requireRegularChannelTarget(target) },
       json: values.has("--json"),
     };
   }
@@ -667,7 +682,12 @@ function parseChannelManagementArgs(args: readonly string[]): ChannelManagementI
     if (name === undefined && description === undefined) throw new Error("Usage:");
     return {
       command: "channel-manage",
-      channel: { operation: "update", target, name, description },
+      channel: {
+        operation: "update",
+        target: requireRegularChannelTarget(target),
+        name,
+        description,
+      },
       json: values.has("--json"),
     };
   }
@@ -679,7 +699,7 @@ function parseChannelManagementArgs(args: readonly string[]): ChannelManagementI
     if (!target || (user === undefined) === (agent === undefined)) throw new Error("Usage:");
     return {
       command: "channel-manage",
-      channel: { operation: sub, target, user, agent },
+      channel: { operation: sub, target: requireRegularChannelTarget(target), user, agent },
       json: values.has("--json"),
     };
   }
@@ -761,8 +781,14 @@ export async function run(args: readonly string[], transport: MessageTransport):
         return formatChannelArchive(response as Parameters<typeof formatChannelArchive>[0]);
       case "add-member":
         return formatChannelAddMember(response as Parameters<typeof formatChannelAddMember>[0]);
-      case "remove-member":
-        return formatChannelRemoveMember(channel.target!, (channel.user ?? channel.agent)!);
+      case "remove-member": {
+        const removeResponse = response as { wasMember: boolean };
+        return formatChannelRemoveMember(
+          channel.target!,
+          (channel.user ?? channel.agent)!,
+          removeResponse.wasMember,
+        );
+      }
     }
   }
   if (invocation.command === "thread-unfollow") {

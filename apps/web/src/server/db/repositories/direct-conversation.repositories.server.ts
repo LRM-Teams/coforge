@@ -819,6 +819,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     }
   }
 
+  /** Read-only counterpart to `getOrCreateUserAgent`: looks the DM up, never creates it. Used by
+   * `channel members @user`, which must not have the side effect of starting a DM just by
+   * inspecting who could message in it. */
+  async findUserAgentConversation(workspaceId: string, userId: string, agentId: string) {
+    return this.db.conversation.findUnique({
+      where: { workspaceId_directKey: { workspaceId, directKey: keyFor(userId, agentId) } },
+      select: { id: true },
+    });
+  }
+
   /** The ids a browser send needs, without reading any messages. */
   async memberForUser(workspaceId: string, userId: string, agentId: string) {
     const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);

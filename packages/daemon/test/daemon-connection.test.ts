@@ -1,6 +1,7 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import {
   createAgentMessageHttpClient,
+  defaultAgentChannelHttpClient,
   DaemonConnection,
   type AgentMessageTransportResponse,
   type CentrifugeWorkspaceClient,
@@ -1812,6 +1813,105 @@ test("requestSend on a non-2xx upstream response surfaces the real status, not a
     upstreamStatus: 500,
     responseStarted: true,
     responseComplete: true,
+  });
+});
+
+afterEach(() => {
+  mock.restore();
+});
+
+test("defaultAgentChannelHttpClient on a non-2xx upstream response surfaces the real status (e.g. 404 'channel not found'), not a collapsed 502", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("channel not found", { status: 404 }));
+  const attempt = defaultAgentChannelHttpClient.execute({
+    url: "https://server.example/api/agent/v1/channels/%23missing/join",
+    method: "POST",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-channel",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "join",
+      target: "#missing",
+    },
+  });
+  await expect(attempt).rejects.toBeInstanceOf(AgentTransportError);
+  await expect(attempt).rejects.toMatchObject({
+    failureClass: "upstream_http_response",
+    upstreamStatus: 404,
+  });
+});
+
+test("defaultAgentChannelHttpClient classifies a network failure as pre-response transport, never a bare exception", async () => {
+  spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+  const attempt = defaultAgentChannelHttpClient.execute({
+    url: "https://server.example/api/agent/v1/channels/%23eng/join",
+    method: "POST",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-channel",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "join",
+      target: "#eng",
+    },
+  });
+  await expect(attempt).rejects.toBeInstanceOf(AgentTransportError);
+  await expect(attempt).rejects.toMatchObject({ failureClass: "pre_response_transport" });
+});
+
+test("defaultAgentChannelHttpClient returns the parsed JSON body on a 2xx response", async () => {
+  const rawResponse = {
+    protocolMajor: 1,
+    requestId: "request-channel",
+    target: "#eng",
+    joined: true,
+    alreadyJoined: false,
+  };
+  spyOn(globalThis, "fetch").mockResolvedValue(Response.json(rawResponse));
+  const result = await defaultAgentChannelHttpClient.execute({
+    url: "https://server.example/api/agent/v1/channels/%23eng/join",
+    method: "POST",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-channel",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "join",
+      target: "#eng",
+    },
+  });
+  expect(result).toEqual(rawResponse);
+});
+
+test("DaemonConnection.agentChannel routes a 404 through the same AgentTransportError classification as agentMessage/agentTask", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("channel not found", { status: 404 }));
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("daemon-token", {
+    ...config,
+    serverHttpUrl: "https://server.example/api/internal/centrifugo",
+  });
+  const attempt = transport.agentChannel(
+    {
+      protocolMajor: 1,
+      requestId: "request-channel",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "join",
+      target: "#missing",
+    },
+    `sk_agent_${"a".repeat(43)}`,
+  );
+  await expect(attempt).rejects.toBeInstanceOf(AgentTransportError);
+  await expect(attempt).rejects.toMatchObject({
+    failureClass: "upstream_http_response",
+    upstreamStatus: 404,
   });
 });
 

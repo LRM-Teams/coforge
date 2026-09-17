@@ -25,6 +25,7 @@ import type {
   AgentChannelInfoResponse,
   AgentChannelMembersResponse,
   AgentChannelJoinResponse,
+  AgentChannelLeaveResponse,
   AgentChannelCreateResponse,
   AgentChannelArchiveResponse,
   AgentChannelAddMemberResponse,
@@ -144,7 +145,7 @@ export type AgentApiClient = {
     info(channelId: string): Promise<AgentChannelInfoResponse>;
     members(channelId: string): Promise<AgentChannelMembersResponse>;
     join(channelId: string): Promise<AgentChannelJoinResponse>;
-    leave(channelId: string): Promise<AgentChannelJoinResponse>;
+    leave(channelId: string): Promise<AgentChannelLeaveResponse>;
     create(request: { name: string; description?: string }): Promise<AgentChannelCreateResponse>;
     update(
       channelId: string,
@@ -211,7 +212,7 @@ export type RawAgentApiClient = {
     info(channelId: string): Promise<AgentApiResult<AgentChannelInfoResponse>>;
     members(channelId: string): Promise<AgentApiResult<AgentChannelMembersResponse>>;
     join(channelId: string): Promise<AgentApiResult<AgentChannelJoinResponse>>;
-    leave(channelId: string): Promise<AgentApiResult<AgentChannelJoinResponse>>;
+    leave(channelId: string): Promise<AgentApiResult<AgentChannelLeaveResponse>>;
     create(request: {
       name: string;
       description?: string;
@@ -271,7 +272,7 @@ export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentA
         >,
       leave: (channelId) =>
         transport.request(agentApiRoutes.cloud.channels.leave.path(channelId)) as Promise<
-          AgentApiResult<AgentChannelJoinResponse>
+          AgentApiResult<AgentChannelLeaveResponse>
         >,
       create: (request) =>
         transport.request(agentApiRoutes.cloud.channels.create, request) as Promise<

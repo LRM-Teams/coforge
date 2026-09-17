@@ -753,8 +753,10 @@ export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
 };
 
 /** Forwards the classified channel request to its mapped cloud route and returns the JSON
- * response body unchanged. A non-2xx (or a network failure) throws a bare `Error`, which
- * `classifyAgentProxyFailure` turns into the same "unclassified" 502 the tasks path relies on. */
+ * response body unchanged. A non-2xx throws a typed `AgentTransportError` carrying the real
+ * upstream status (so, e.g., a 404 "channel not found" reaches the CLI as a 404, not a generic
+ * 502); a network failure is the same pre-response transport failure every other Agent HTTP
+ * client here reports. */
 export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
   async execute({ url, method, request, ...keys }) {
     let response: Response;
@@ -775,10 +777,14 @@ export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
           body: JSON.stringify(request),
         });
       }
-    } catch {
-      throw new Error("server Agent Channel request failed (network or timeout)");
+    } catch (cause) {
+      throw AgentTransportError.preResponseTransport("Agent Channel", cause);
     }
-    if (!response.ok) throw new Error(`server Agent Channel request failed (${response.status})`);
+    // A typed error (not a bare Error) so the real upstream status (e.g. 404 "channel not
+    // found") survives classification instead of collapsing into a generic 502; the CLI
+    // (local-client.ts#callChannel) turns a preserved 404 into CliError code NOT_FOUND.
+    if (!response.ok)
+      throw AgentTransportError.upstreamHttpResponse("Agent Channel", response.status);
     return (await response.json()) as Record<string, unknown>;
   },
 };

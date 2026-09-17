@@ -520,10 +520,29 @@ export function connectLocal(
       body: JSON.stringify({ ...command, requestId }),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok)
+    if (!response.ok) {
+      // Raft parity: an unknown channel is CliError code NOT_FOUND with a fixed message, not a
+      // generic transport failure — for the operations that resolve a single #channel target
+      // the same way Raft's join/leave/update/lifecycle/add-member/remove-member do.
+      const targetOperations = new Set([
+        "join",
+        "leave",
+        "update",
+        "archive",
+        "unarchive",
+        "add-member",
+        "remove-member",
+      ]);
+      if (response.status === 404 && command.target && targetOperations.has(command.operation))
+        throw new CliError({
+          code: "NOT_FOUND",
+          message: `Channel not found: ${command.target}`,
+          retryable: false,
+        });
       throw new Error(
         `agent channel ${command.operation} request failed (${response.status}): ${await response.text()}`,
       );
+    }
     return response.json();
   }
 

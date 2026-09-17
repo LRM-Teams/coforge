@@ -1,6 +1,12 @@
 /** Text renderers for `coforge channel info|members|join|leave|create|update|lifecycle|
- * add-member|remove-member`. Every subcommand's `--json` mode prints the response object these
- * functions render, unchanged; see `run()` in `../index.ts`. */
+ * add-member|remove-member`. Success text matches Raft 1.0.32's channel formatters verbatim
+ * (`raft` renamed to `coforge`, from the Raft 1.0.32 bundle's `formatJoinChannelResult`/
+ * `formatLeaveChannelResult`/`formatCreateChannelResult`/`formatUpdateChannelResult`/
+ * `formatArchiveChannelResult`/`formatUnarchiveChannelResult`/`formatAddMemberResult`/
+ * `formatRemoveMemberResult`/`formatChannelMembers`/`formatChannelInfo`), minus the parts of
+ * Raft's shape CoForge has no equivalent for (private channels, channel-level roles, the
+ * `attention` block on leave/remove-member). Every subcommand's `--json` mode prints the
+ * response object these functions render, unchanged; see `run()` in `../index.ts`. */
 
 export type ChannelInfoLike = {
   id: string;
@@ -17,7 +23,6 @@ export type ChannelRosterAgentLike = {
   displayName: string;
   description: string;
   role: string;
-  self: boolean;
   status: "online" | "offline" | "unknown";
   activity?: string;
   activityDetail?: string;
@@ -25,7 +30,7 @@ export type ChannelRosterAgentLike = {
 
 export type ChannelRosterHumanLike = { username: string; role: string };
 
-/** `(admin)` / nothing — `member` never prints a role marker for a human. */
+/** Raft's `roleLabel`: ` (admin)`/` (owner)`, or nothing for an ordinary member. */
 function roleSuffix(role: string): string {
   return role === "admin" || role === "owner" ? ` (${role})` : "";
 }
@@ -40,16 +45,6 @@ function agentStatusLabel(
   return agent.status;
 }
 
-/** `(self, admin, online; working: running tests)` — self/role tags plus the live status,
- * always present for an Agent (status is never omitted). */
-function agentTagSuffix(agent: ChannelRosterAgentLike): string {
-  const parts: string[] = [];
-  if (agent.self) parts.push("self");
-  if (agent.role === "admin" || agent.role === "owner") parts.push(agent.role);
-  parts.push(agentStatusLabel(agent));
-  return ` (${parts.join(", ")})`;
-}
-
 function yesNo(value: boolean): string {
   return value ? "yes" : "no";
 }
@@ -57,8 +52,6 @@ function yesNo(value: boolean): string {
 export function formatChannelInfo(response: { channel: ChannelInfoLike }): string {
   const channel = response.channel;
   const total = channel.memberCounts.agents + channel.memberCounts.humans;
-  const agentsNoun = channel.memberCounts.agents === 1 ? "agent" : "agents";
-  const humansNoun = channel.memberCounts.humans === 1 ? "human" : "humans";
   return [
     "## Channel",
     "",
@@ -69,15 +62,15 @@ export function formatChannelInfo(response: { channel: ChannelInfoLike }): strin
     `Muted: ${yesNo(channel.muted)}`,
     `Archived: ${yesNo(channel.archived)}`,
     `Description: ${channel.description || "(none)"}`,
-    `Members: ${total} (${channel.memberCounts.agents} ${agentsNoun}, ${channel.memberCounts.humans} ${humansNoun})`,
+    // Always plural, like Raft's formatChannelInfo — never singularized for a count of 1.
+    `Members: ${total} (${channel.memberCounts.agents} agents, ${channel.memberCounts.humans} humans)`,
     "",
     `More: coforge channel members "${channel.name}"`,
   ].join("\n");
 }
 
-/** `channel update` returns the same info shape as `channel info`, after applying its patch. */
-export const formatChannelUpdate = formatChannelInfo;
-
+/** Raft's `formatChannelMembers`: `  - @name (<status>)<role> — <description>` for an Agent
+ * (no "self" tag; Raft has none), `  - @username<role>` for a human. */
 export function formatChannelMembers(response: {
   target: string;
   agents: ChannelRosterAgentLike[];
@@ -93,12 +86,15 @@ export function formatChannelMembers(response: {
   ];
   if (response.agents.length === 0) lines.push("  (none)");
   else
-    for (const agent of response.agents)
+    for (const agent of response.agents) {
+      const status = `(${agentStatusLabel(agent)})`;
+      const role = roleSuffix(agent.role);
       lines.push(
-        `  - @${agent.name}${agentTagSuffix(agent)}${
-          agent.description ? ` — ${agent.description}` : ""
-        }`,
+        agent.description
+          ? `  - @${agent.name} ${status}${role} — ${agent.description}`
+          : `  - @${agent.name} ${status}${role}`,
       );
+    }
   lines.push("", "### Humans");
   if (response.humans.length === 0) lines.push("  (none)");
   else
@@ -107,31 +103,61 @@ export function formatChannelMembers(response: {
   return lines.join("\n");
 }
 
-export function formatChannelJoin(response: { target: string }): string {
-  return `Joined ${response.target}.`;
+/** Raft's `formatJoinChannelResult`/`formatAlreadyJoined`. */
+export function formatChannelJoin(response: { target: string; alreadyJoined: boolean }): string {
+  if (response.alreadyJoined) return `Already joined ${response.target}.`;
+  return [
+    `Joined ${response.target}. You can now send messages there and receive ordinary channel delivery.`,
+    "Still arrives:",
+    "- Personal @mentions still reach you even if you later mute ordinary channel updates.",
+    "- Threads you started or follow stay followed even if you later mute this channel.",
+  ].join("\n");
 }
 
-export function formatChannelLeave(response: { target: string }): string {
-  return `Left ${response.target}.`;
+/** Raft's `formatLeaveChannelResult`/`formatAlreadyNotJoined`. */
+export function formatChannelLeave(response: { target: string; wasMember: boolean }): string {
+  if (!response.wasMember) return `Already not joined in ${response.target}.`;
+  return `Left ${response.target}. You can still inspect visible public channel history there, but you can no longer send or receive ordinary channel delivery until you join the public channel again or a human re-adds you to a private channel.`;
 }
 
-export function formatChannelCreate(response: { channel: { id: string; name: string } }): string {
-  return `Created ${response.channel.name}. ID: ${response.channel.id}`;
+/** Raft's `formatCreateChannelResult`; CoForge has no private channels, so visibility is
+ * always "(public)". */
+export function formatChannelCreate(response: { channel: { name: string } }): string {
+  return `Created ${response.channel.name} (public). You are joined and can send messages there.`;
 }
 
+/** Raft's `formatUpdateChannelResult` — not the info block. */
+export function formatChannelUpdate(response: { channel: { name: string } }): string {
+  return `Updated ${response.channel.name} (public).`;
+}
+
+/** Raft's `formatArchiveChannelResult`/`formatUnarchiveChannelResult`. */
 export function formatChannelArchive(response: { target: string; archived: boolean }): string {
-  return response.archived ? `Archived ${response.target}.` : `Unarchived ${response.target}.`;
+  return response.archived
+    ? `Archived ${response.target}. The channel is read-only until unarchived.`
+    : `Unarchived ${response.target}. Messages and other writes are enabled again.`;
 }
 
+/** Raft's `formatAddMemberResult`. */
 export function formatChannelAddMember(response: {
   target: string;
-  member: { handle: string };
+  member: { kind: "user" | "agent"; handle: string };
+  alreadyMember: boolean;
 }): string {
-  return `Added ${response.member.handle} to ${response.target}.`;
+  if (response.alreadyMember) return `${response.member.handle} is already in ${response.target}.`;
+  return `Added ${response.member.handle} to ${response.target} as ${
+    response.member.kind === "agent" ? "an agent" : "a user"
+  }.`;
 }
 
-/** `channel remove-member`'s response carries no member handle (`{ target, removed: true }`);
- * the CLI already knows which `--user`/`--agent` it asked to remove. */
-export function formatChannelRemoveMember(target: string, handle: string): string {
+/** Raft's `formatRemoveMemberResult`. The route's `{ target, removed: true, wasMember }`
+ * response carries no member handle; the CLI already knows which `--user`/`--agent` it asked
+ * to remove. */
+export function formatChannelRemoveMember(
+  target: string,
+  handle: string,
+  wasMember: boolean,
+): string {
+  if (!wasMember) return `${handle} was not in ${target}.`;
   return `Removed ${handle} from ${target}.`;
 }

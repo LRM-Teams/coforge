@@ -94,11 +94,12 @@ export class AgentChannelManagement {
     const username = parentTarget.slice(1);
     const user = await this.db.user.findUnique({ where: { username }, select: { id: true } });
     if (!user) throw new AgentChannelManagementError(404, "channel not found");
-    const conversation = await new PrismaDirectConversationRepository(this.db).getOrCreateUserAgent(
-      workspaceId,
-      user.id,
-      agentId,
-    );
+    // Look up only: inspecting who could message in a DM must not have the side effect of
+    // starting one (unlike `read`/`search`/`send`, which lazily create it).
+    const conversation = await new PrismaDirectConversationRepository(
+      this.db,
+    ).findUserAgentConversation(workspaceId, user.id, agentId);
+    if (!conversation) throw new AgentChannelManagementError(404, "channel not found");
     return this.roster(workspaceId, conversation.id, agentId, parentTarget);
   }
 
@@ -106,12 +107,16 @@ export class AgentChannelManagement {
     const channelName = this.parseChannelTarget(target);
     const channel = await this.findChannel(workspaceId, channelName);
     if (channel.archivedAt) throw new AgentChannelManagementError(409, "channel is archived");
+    const existing = await this.db.conversationMember.findFirst({
+      where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
+      select: { id: true },
+    });
     await this.db.conversationMember.upsert({
       where: { conversationId_agentId: { conversationId: channel.id, agentId } },
       create: { conversationId: channel.id, workspaceId, agentId },
       update: { leftAt: null },
     });
-    return { target: `#${channel.channelName}`, joined: true };
+    return { target: `#${channel.channelName}`, joined: true, alreadyJoined: Boolean(existing) };
   }
 
   async leave(workspaceId: string, agentId: string, target: string) {
@@ -119,11 +124,11 @@ export class AgentChannelManagement {
     if (channelName === "general")
       throw new AgentChannelManagementError(400, "cannot leave #general");
     const channel = await this.findChannel(workspaceId, channelName);
-    await this.db.conversationMember.updateMany({
+    const result = await this.db.conversationMember.updateMany({
       where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
       data: { leftAt: new Date() },
     });
-    return { target: `#${channel.channelName}`, joined: false };
+    return { target: `#${channel.channelName}`, joined: false, wasMember: result.count > 0 };
   }
 
   async create(
@@ -251,11 +256,20 @@ export class AgentChannelManagement {
       if (!agentRow) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
       resolvedAgentId = agentRow.id;
     }
+    let alreadyMember = false;
     try {
-      await this.channels.addMembers(workspaceId, { agentId: callingAgentId }, channel.id, {
-        userIds: userId ? [userId] : [],
-        agentIds: resolvedAgentId ? [resolvedAgentId] : [],
-      });
+      const result = await this.channels.addMembers(
+        workspaceId,
+        { agentId: callingAgentId },
+        channel.id,
+        {
+          userIds: userId ? [userId] : [],
+          agentIds: resolvedAgentId ? [resolvedAgentId] : [],
+        },
+      );
+      alreadyMember = userId
+        ? result.alreadyMemberUserIds.includes(userId)
+        : result.alreadyMemberAgentIds.includes(resolvedAgentId!);
     } catch (error) {
       if (isAppError(error) && error.code === "ACCESS_DENIED")
         throw new AgentChannelManagementError(
@@ -270,6 +284,7 @@ export class AgentChannelManagement {
       target: `#${channel.channelName}`,
       member: { kind, handle: `@${handle}` },
       added: true as const,
+      alreadyMember,
     };
   }
 
@@ -284,6 +299,7 @@ export class AgentChannelManagement {
     if (channelName === "general")
       throw new AgentChannelManagementError(400, "cannot remove a member from #general");
     const channel = await this.findChannel(workspaceId, channelName);
+    let wasMember: boolean;
     if (kind === "agent") {
       const agentRow = await this.db.agent.findFirst({
         where: { workspaceId, name: handle },
@@ -293,21 +309,23 @@ export class AgentChannelManagement {
       const isSelf = agentRow.id === callingAgentId;
       if (!isSelf && !(await agentHasAdminAuthority(this.db, workspaceId, callingAgentId)))
         throw channelAuthorityDeniedError("remove-member");
-      await this.db.conversationMember.updateMany({
+      const result = await this.db.conversationMember.updateMany({
         where: { conversationId: channel.id, agentId: agentRow.id, ...ACTIVE_MEMBER_WHERE },
         data: { leftAt: new Date() },
       });
+      wasMember = result.count > 0;
     } else {
       if (!(await agentHasAdminAuthority(this.db, workspaceId, callingAgentId)))
         throw channelAuthorityDeniedError("remove-member");
       const user = await this.db.user.findUnique({ where: { username: handle } });
       if (!user) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
-      await this.db.conversationMember.updateMany({
+      const result = await this.db.conversationMember.updateMany({
         where: { conversationId: channel.id, userId: user.id, ...ACTIVE_MEMBER_WHERE },
         data: { leftAt: new Date() },
       });
+      wasMember = result.count > 0;
     }
-    return { target: `#${channel.channelName}`, removed: true as const };
+    return { target: `#${channel.channelName}`, removed: true as const, wasMember };
   }
 
   private async findChannel(workspaceId: string, channelName: string): Promise<Conversation> {

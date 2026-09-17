@@ -23,6 +23,9 @@ export type AgentChannelRosterAgent = {
   displayName: string;
   description: string;
   role: string;
+  /** True for the calling Agent's own roster row. Kept in the response for callers that need
+   * it, but not surfaced by the CLI's text renderer — Raft's `formatChannelMembers` has no
+   * self tag. */
   self: boolean;
   /** Live lifecycle; "unknown" only when the server has no data (no Computer, or the display
    * snapshot itself could not be read). */
@@ -44,12 +47,24 @@ export type AgentChannelMembersResponse = {
   humans: AgentChannelRosterHuman[];
 };
 
-/** Response for `channel join`/`channel leave`. */
+/** Response for `channel join`. `alreadyJoined` distinguishes Raft's "Already joined #x." text
+ * from the full join confirmation. */
 export type AgentChannelJoinResponse = {
   protocolMajor: 1;
   requestId: string;
   target: string;
-  joined: boolean;
+  joined: true;
+  alreadyJoined: boolean;
+};
+
+/** Response for `channel leave`. `wasMember` distinguishes Raft's "Already not joined in #x."
+ * text from the full leave confirmation. */
+export type AgentChannelLeaveResponse = {
+  protocolMajor: 1;
+  requestId: string;
+  target: string;
+  joined: false;
+  wasMember: boolean;
 };
 
 /** Response for `channel create` (POST /api/agent/v1/channels). */
@@ -68,19 +83,23 @@ export type AgentChannelArchiveResponse = {
   archived: boolean;
 };
 
-/** Response for `channel add-member`. */
+/** Response for `channel add-member`. `alreadyMember` distinguishes Raft's "@h is already in
+ * #x." text from the full add-member confirmation. */
 export type AgentChannelAddMemberResponse = {
   protocolMajor: 1;
   requestId: string;
   target: string;
   member: { kind: "user" | "agent"; handle: string };
   added: true;
+  alreadyMember: boolean;
 };
 
-/** Response for `channel remove-member`. */
+/** Response for `channel remove-member`. `wasMember` distinguishes Raft's "@h was not in #x."
+ * text from the full remove-member confirmation. */
 export type AgentChannelRemoveMemberResponse = {
   protocolMajor: 1;
   requestId: string;
   target: string;
   removed: true;
+  wasMember: boolean;
 };

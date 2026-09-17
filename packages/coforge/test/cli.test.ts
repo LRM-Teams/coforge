@@ -1013,11 +1013,55 @@ test("channel management commands parse into a channel operation and dispatch th
     },
     channel: async (command) => {
       calls.push(command);
-      return { protocolMajor: 1, requestId: "r-1", target: "#engineering", joined: true };
+      return {
+        protocolMajor: 1,
+        requestId: "r-1",
+        target: "#engineering",
+        joined: true,
+        alreadyJoined: false,
+      };
     },
   });
   expect(calls).toEqual([{ operation: "join", target: "#engineering" }]);
-  expect(result).toBe("Joined #engineering.");
+  expect(result).toBe(
+    [
+      "Joined #engineering. You can now send messages there and receive ordinary channel delivery.",
+      "Still arrives:",
+      "- Personal @mentions still reach you even if you later mute ordinary channel updates.",
+      "- Threads you started or follow stay followed even if you later mute this channel.",
+    ].join("\n"),
+  );
+});
+
+test("channel join/leave/update/lifecycle/add-member/remove-member reject a non-regular target", () => {
+  for (const args of [
+    ["channel", "join", "--target", "@alice"],
+    ["channel", "leave", "--target", "#general:12345678"],
+    ["channel", "update", "--target", "general", "--description", "x"],
+    ["channel", "lifecycle", "archive", "--target", "@alice"],
+    ["channel", "add-member", "--target", "@alice", "--user", "@bob"],
+    ["channel", "remove-member", "--target", "thread-123", "--user", "@bob"],
+  ]) {
+    try {
+      parseArgs(args);
+      throw new Error(`expected a CliError for ${args.join(" ")}`);
+    } catch (error) {
+      expect(error).toBeInstanceOf(CliError);
+      expect((error as CliError).code).toBe("INVALID_TARGET");
+      expect((error as CliError).message).toBe(
+        "Target must be a regular channel in the form '#channel-name'. DMs and thread targets are not supported.",
+      );
+    }
+  }
+  // info/members accept a wider target grammar (thread targets, @user) and are unaffected.
+  expect(parseArgs(["channel", "info", "@alice"])).toEqual({
+    command: "channel-manage",
+    channel: { operation: "info", target: "@alice" },
+  });
+  expect(parseArgs(["channel", "members", "#general:12345678"])).toEqual({
+    command: "channel-manage",
+    channel: { operation: "members", target: "#general:12345678" },
+  });
 });
 
 test("channel management commands reject malformed arguments and require exactly one of --user/--agent", () => {

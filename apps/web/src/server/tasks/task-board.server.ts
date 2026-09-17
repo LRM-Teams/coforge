@@ -15,6 +15,7 @@ import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { ConversationRealtime } from "../conversations/conversation-realtime.server";
 import { mentionedNames } from "../conversations/mentions";
+import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import { MAX_ACTIVE_REMINDERS } from "../reminders/reminders.server";
@@ -176,8 +177,8 @@ export class TaskBoard {
             { channelName: { not: null } },
             {
               directKey: { not: null },
-              members: { some: { userId } },
-              AND: { members: { some: { agentId: { not: null } } } },
+              members: { some: { userId, ...ACTIVE_MEMBER_WHERE } },
+              AND: { members: { some: { agentId: { not: null }, ...ACTIVE_MEMBER_WHERE } } },
             },
           ],
         },
@@ -235,7 +236,9 @@ export class TaskBoard {
             command.status === "all"
               ? undefined
               : (command.status ?? { notIn: ["done", "closed"] }),
-          conversation: { members: { some: { agentId: principal.agentId } } },
+          conversation: {
+            members: { some: { agentId: principal.agentId, ...ACTIVE_MEMBER_WHERE } },
+          },
         },
         orderBy: [{ conversationId: "asc" }, { number: "asc" }],
         select: {
@@ -475,7 +478,7 @@ export class TaskBoard {
           where: {
             workspaceId: principal.workspaceId,
             channelName: target.slice(1),
-            members: { some: { agentId: principal.agentId } },
+            members: { some: { agentId: principal.agentId, ...ACTIVE_MEMBER_WHERE } },
           },
           select: {
             id: true,
@@ -492,8 +495,12 @@ export class TaskBoard {
             workspaceId: principal.workspaceId,
             directKey: { not: null },
             AND: [
-              { members: { some: { agentId: principal.agentId } } },
-              { members: { some: { user: { username: target.slice(1) } } } },
+              { members: { some: { agentId: principal.agentId, ...ACTIVE_MEMBER_WHERE } } },
+              {
+                members: {
+                  some: { user: { username: target.slice(1) }, ...ACTIVE_MEMBER_WHERE },
+                },
+              },
             ],
           },
           select: {

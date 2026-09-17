@@ -215,13 +215,18 @@ test("POST /channels/:channel/members adds a member and returns its envelope", a
     fakeRepository({
       addMember: async (...args) => {
         calls.push(args);
-        return { target: "#eng", member: { kind: "user", handle: "@alice" }, added: true };
+        return {
+          target: "#eng",
+          member: { kind: "user", handle: "@alice" },
+          added: true,
+          alreadyMember: false,
+        };
       },
     }),
   );
   expect(calls).toEqual([["workspace-1", "agent-1", "#eng", { user: "@alice", agent: undefined }]]);
   expect(result.status).toBe(200);
-  expect(await result.json()).toMatchObject({ target: "#eng", added: true });
+  expect(await result.json()).toMatchObject({ target: "#eng", added: true, alreadyMember: false });
 });
 
 test("POST /channels/:channel/members maps an unknown handle to its declared 404 status and text", async () => {
@@ -248,7 +253,7 @@ test("DELETE /channels/:channel/members removes a member and returns its envelop
     fakeRepository({
       removeMember: async (...args) => {
         calls.push(args);
-        return { target: "#eng", removed: true };
+        return { target: "#eng", removed: true, wasMember: true };
       },
     }),
   );
@@ -256,7 +261,7 @@ test("DELETE /channels/:channel/members removes a member and returns its envelop
     ["workspace-1", "agent-1", "#eng", { user: undefined, agent: "@reviewer" }],
   ]);
   expect(result.status).toBe(200);
-  expect(await result.json()).toMatchObject({ target: "#eng", removed: true });
+  expect(await result.json()).toMatchObject({ target: "#eng", removed: true, wasMember: true });
 });
 
 test("join/leave/archive/unarchive routes forward the target and return their declared envelopes", async () => {
@@ -264,17 +269,29 @@ test("join/leave/archive/unarchive routes forward the target and return their de
     post("/api/agent/v1/channels/%23eng/join"),
     "#eng",
     principal,
-    fakeRepository({ join: async () => ({ target: "#eng", joined: true }) }),
+    fakeRepository({
+      join: async () => ({ target: "#eng", joined: true, alreadyJoined: false }),
+    }),
   );
-  expect(await joinResult.json()).toMatchObject({ target: "#eng", joined: true });
+  expect(await joinResult.json()).toMatchObject({
+    target: "#eng",
+    joined: true,
+    alreadyJoined: false,
+  });
 
   const leaveResult = await handleAgentChannelLeavePost(
     post("/api/agent/v1/channels/%23eng/leave"),
     "#eng",
     principal,
-    fakeRepository({ leave: async () => ({ target: "#eng", joined: false }) }),
+    fakeRepository({
+      leave: async () => ({ target: "#eng", joined: false, wasMember: true }),
+    }),
   );
-  expect(await leaveResult.json()).toMatchObject({ target: "#eng", joined: false });
+  expect(await leaveResult.json()).toMatchObject({
+    target: "#eng",
+    joined: false,
+    wasMember: true,
+  });
 
   const leaveDenied = await handleAgentChannelLeavePost(
     post("/api/agent/v1/channels/%23general/leave"),

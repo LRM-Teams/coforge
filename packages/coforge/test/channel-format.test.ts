@@ -41,8 +41,7 @@ test("formatChannelInfo renders the full info block, including an empty descript
   );
 });
 
-test("formatChannelInfo prints a real description, singular member nouns, and update shares the renderer", () => {
-  expect(formatChannelUpdate).toBe(formatChannelInfo);
+test("formatChannelInfo prints a real description and always uses plural member nouns, like Raft, even for a count of one", () => {
   const text = formatChannelInfo({
     channel: {
       id: "id",
@@ -58,10 +57,19 @@ test("formatChannelInfo prints a real description, singular member nouns, and up
   expect(text).toContain("Joined: no");
   expect(text).toContain("Muted: yes");
   expect(text).toContain("Archived: yes");
-  expect(text).toContain("Members: 2 (1 agent, 1 human)");
+  // Never singularized, unlike the old brief's draft: Raft's formatChannelInfo always says
+  // "agents"/"humans", even at a count of one.
+  expect(text).toContain("Members: 2 (1 agents, 1 humans)");
 });
 
-test("formatChannelMembers tags self, admin/owner roles, and live status on Agents; role only on humans", () => {
+test("formatChannelUpdate is its own renderer, distinct from formatChannelInfo, matching Raft's one-line update confirmation", () => {
+  expect(formatChannelUpdate).not.toBe(formatChannelInfo);
+  expect(formatChannelUpdate({ channel: { name: "#engineering" } })).toBe(
+    "Updated #engineering (public).",
+  );
+});
+
+test("formatChannelMembers renders admin/owner roles and live status on Agents, with no self tag; role only on humans", () => {
   const text = formatChannelMembers({
     target: "#engineering",
     agents: [
@@ -70,7 +78,6 @@ test("formatChannelMembers tags self, admin/owner roles, and live status on Agen
         displayName: "Assistant",
         description: "helper",
         role: "member",
-        self: true,
         status: "online",
         activity: "working",
         activityDetail: "running tests",
@@ -80,7 +87,6 @@ test("formatChannelMembers tags self, admin/owner roles, and live status on Agen
         displayName: "Reviewer",
         description: "",
         role: "admin",
-        self: false,
         status: "offline",
       },
     ],
@@ -97,8 +103,8 @@ test("formatChannelMembers tags self, admin/owner roles, and live status on Agen
       "Members means join/post authority for this surface.",
       "",
       "### Agents",
-      "  - @assistant (self, online; working: running tests) — helper",
-      "  - @reviewer (admin, offline)",
+      "  - @assistant (online; working: running tests) — helper",
+      "  - @reviewer (offline) (admin)",
       "",
       "### Humans",
       "  - @frank (owner)",
@@ -112,7 +118,7 @@ test("agent status label composition: plain online, activity with and without de
     formatChannelMembers({ target: "#x", agents: [agent], humans: [] })
       .split("\n")
       .find((line) => line.startsWith("  - @"));
-  const base = { name: "a", displayName: "A", description: "", role: "member", self: false };
+  const base = { name: "a", displayName: "A", description: "", role: "member" } as const;
   expect(label({ ...base, status: "online" })).toBe("  - @a (online)");
   expect(label({ ...base, status: "online", activity: "thinking" })).toBe(
     "  - @a (online; thinking)",
@@ -130,22 +136,73 @@ test("formatChannelMembers prints (none) for an empty section", () => {
   expect(text).toContain("### Humans\n  (none)");
 });
 
-test("channel action renderers match the brief's exact one-line confirmations", () => {
-  expect(formatChannelJoin({ target: "#engineering" })).toBe("Joined #engineering.");
-  expect(formatChannelLeave({ target: "#engineering" })).toBe("Left #engineering.");
-  expect(formatChannelCreate({ channel: { id: "abc-123", name: "#engineering" } })).toBe(
-    "Created #engineering. ID: abc-123",
+test("formatChannelJoin matches Raft's join confirmation, including the still-arrives block, and its already-joined variant", () => {
+  expect(formatChannelJoin({ target: "#engineering", alreadyJoined: false })).toBe(
+    [
+      "Joined #engineering. You can now send messages there and receive ordinary channel delivery.",
+      "Still arrives:",
+      "- Personal @mentions still reach you even if you later mute ordinary channel updates.",
+      "- Threads you started or follow stay followed even if you later mute this channel.",
+    ].join("\n"),
   );
+  expect(formatChannelJoin({ target: "#engineering", alreadyJoined: true })).toBe(
+    "Already joined #engineering.",
+  );
+});
+
+test("formatChannelLeave matches Raft's leave confirmation and its not-a-member variant", () => {
+  expect(formatChannelLeave({ target: "#engineering", wasMember: true })).toBe(
+    "Left #engineering. You can still inspect visible public channel history there, but you can no longer send or receive ordinary channel delivery until you join the public channel again or a human re-adds you to a private channel.",
+  );
+  expect(formatChannelLeave({ target: "#engineering", wasMember: false })).toBe(
+    "Already not joined in #engineering.",
+  );
+});
+
+test("formatChannelCreate matches Raft's create confirmation; CoForge channels are always (public)", () => {
+  expect(formatChannelCreate({ channel: { name: "#engineering" } })).toBe(
+    "Created #engineering (public). You are joined and can send messages there.",
+  );
+});
+
+test("formatChannelArchive/unarchive match Raft's archive confirmations", () => {
   expect(formatChannelArchive({ target: "#engineering", archived: true })).toBe(
-    "Archived #engineering.",
+    "Archived #engineering. The channel is read-only until unarchived.",
   );
   expect(formatChannelArchive({ target: "#engineering", archived: false })).toBe(
-    "Unarchived #engineering.",
+    "Unarchived #engineering. Messages and other writes are enabled again.",
   );
-  expect(formatChannelAddMember({ target: "#engineering", member: { handle: "@alice" } })).toBe(
-    "Added @alice to #engineering.",
-  );
-  expect(formatChannelRemoveMember("#engineering", "@alice")).toBe(
+});
+
+test("formatChannelAddMember matches Raft's add-member confirmation, agent vs. user wording, and the already-a-member variant", () => {
+  expect(
+    formatChannelAddMember({
+      target: "#engineering",
+      member: { kind: "agent", handle: "@reviewer" },
+      alreadyMember: false,
+    }),
+  ).toBe("Added @reviewer to #engineering as an agent.");
+  expect(
+    formatChannelAddMember({
+      target: "#engineering",
+      member: { kind: "user", handle: "@alice" },
+      alreadyMember: false,
+    }),
+  ).toBe("Added @alice to #engineering as a user.");
+  expect(
+    formatChannelAddMember({
+      target: "#engineering",
+      member: { kind: "user", handle: "@alice" },
+      alreadyMember: true,
+    }),
+  ).toBe("@alice is already in #engineering.");
+});
+
+test("formatChannelRemoveMember matches Raft's remove-member confirmation and its not-a-member variant", () => {
+  expect(formatChannelRemoveMember("#engineering", "@alice", true)).toBe(
     "Removed @alice from #engineering.",
+  );
+  expect(formatChannelRemoveMember("#engineering", "@alice", false)).toBe(
+    "@alice was not in #engineering.",
   );
 });
