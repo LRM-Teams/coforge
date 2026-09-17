@@ -23,6 +23,14 @@ export function assertCanCreateAgents(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
+/** Removing a human or Agent from a public channel requires Workspace owner/admin authority
+ * (Slack's default: "By default, Workspace Owners and Admins can remove people from public
+ * channels"). Built on `isAdminLike`, like `assertCanCreateAgents`; see ADR 0031. A plain member
+ * may still leave a channel themselves (`PublicChannels.leave`), which this gate does not cover. */
+export function assertCanRemoveChannelMembers(actorRole: WorkspaceMemberRole): void {
+  if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
+}
+
 export function normalizeInvitableRole(role: string): InvitableWorkspaceRole {
   if (role === "admin" || role === "member") return role;
   throw new AppError("INVALID_INPUT");
