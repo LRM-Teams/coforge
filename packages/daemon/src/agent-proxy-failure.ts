@@ -52,9 +52,16 @@ const TRANSPORT_PUBLIC_ERRORS: Record<AgentTransportFailureClass, string> = {
   protocol_mismatch: "upstream response could not be decoded",
 };
 
-/** Whitespace-normalises and bounds an error message so it never carries secrets by sheer size. */
+// Agent API keys (`sk_agent_…`), Local Proxy tokens (`sfp_…`) and bearer credentials: the detail is
+// returned to the Agent and written to the daemon log, so none of them may ride along in a message.
+const CREDENTIAL_IN_DETAIL = /\b(?:sk_[a-z]+_|sfp_)[A-Za-z0-9_-]{16,}|\bBearer\s+\S+/g;
+
+/** Whitespace-normalises, strips credentials from, and bounds an error message. */
 function boundedDetail(message: string): string {
-  const normalized = message.replace(/\s+/g, " ").trim();
+  const normalized = message
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(CREDENTIAL_IN_DETAIL, "[redacted]");
   return normalized.length > MAX_DETAIL_CHARS
     ? `${normalized.slice(0, MAX_DETAIL_CHARS)}…`
     : normalized;

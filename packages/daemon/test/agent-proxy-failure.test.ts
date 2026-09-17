@@ -144,3 +144,13 @@ test("an unclassified failure logs its bounded detail, and a reviewer-isolated o
   });
   expect(redacted.logFields.detail).toBeUndefined();
 });
+
+test("credentials never ride along in the detail that is returned and logged", () => {
+  const key = `sk_agent_${"a".repeat(43)}`;
+  const classified = classifyAgentProxyFailure(
+    new Error(`upstream rejected ${key} sent as Bearer sfp_${"b".repeat(43)}`),
+    context,
+  );
+  expect(classified.logFields.detail).toBe("upstream rejected [redacted] sent as [redacted]");
+  expect(JSON.stringify(classified.body)).not.toContain(key);
+});
