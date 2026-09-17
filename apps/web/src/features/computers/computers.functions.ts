@@ -26,6 +26,7 @@ import {
 } from "../../server/centrifugo/server-api.server";
 import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
 import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
+import { isWorkspaceMemberComputer } from "../../server/computers/computer-membership.server";
 import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
 import { RestartComputer } from "../../server/computers/restart-computer.server";
@@ -41,17 +42,7 @@ export const restartComputer = createServerFn({ method: "POST" })
     const { user, db, workspaceId } = context;
     return new RestartComputer(
       {
-        canRestart: async (scope) =>
-          Boolean(
-            await db.workspaceComputer.findFirst({
-              where: {
-                workspaceId: scope.workspaceId,
-                computerId: scope.computerId,
-                workspace: { memberships: { some: { userId: scope.userId } } },
-              },
-              select: { id: true },
-            }),
-          ),
+        canRestart: (scope) => isWorkspaceMemberComputer(db, scope),
       },
       createCentrifugoServerApi(),
       getComputerRestartStore(),
@@ -63,19 +54,10 @@ export const readComputerRestartStatus = createServerFn({ method: "GET" })
   .validator(readRestartStatusInputSchema)
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
-    const connection = await db.workspaceComputer.findFirst({
-      where: {
-        workspaceId,
-        computerId: data.computerId,
-        workspace: { memberships: { some: { userId: user.id } } },
-      },
-      select: { id: true },
-    });
-    if (!connection) throw new Error("Computer is not available");
-    const status = await getComputerRestartStore().status(
-      { workspaceId, computerId: data.computerId },
-      data.requestId,
-    );
+    const scope = { workspaceId, computerId: data.computerId };
+    if (!(await isWorkspaceMemberComputer(db, { userId: user.id, ...scope })))
+      throw new Error("Computer is not available");
+    const status = await getComputerRestartStore().status(scope, data.requestId);
     if (!status) throw new Error("Restart request is not available");
     return status;
   });
@@ -183,19 +165,10 @@ export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(readRestartStatusInputSchema)
   .handler(async ({ context: { user, db, workspaceId }, data }) => {
-    const connection = await db.workspaceComputer.findFirst({
-      where: {
-        workspaceId,
-        computerId: data.computerId,
-        workspace: { memberships: { some: { userId: user.id } } },
-      },
-      select: { id: true },
-    });
-    if (!connection) throw new Error("Computer is not available");
-    const status = await getComputerUpgradeStore().status(
-      { workspaceId, computerId: data.computerId },
-      data.requestId,
-    );
+    const scope = { workspaceId, computerId: data.computerId };
+    if (!(await isWorkspaceMemberComputer(db, { userId: user.id, ...scope })))
+      throw new Error("Computer is not available");
+    const status = await getComputerUpgradeStore().status(scope, data.requestId);
     if (!status) throw new Error("Upgrade request is not available");
     return status;
   });
