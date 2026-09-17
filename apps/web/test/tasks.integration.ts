@@ -126,12 +126,12 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       await db.message.findUnique({
         where: { id: directTask.tasks[0]!.messageId },
         select: {
-          attachment: { select: { id: true } },
+          attachments: { select: { id: true } },
           deliveries: { select: { agentId: true } },
         },
       }),
     ).toEqual({
-      attachment: { id: attachment.id },
+      attachments: [{ id: attachment.id }],
       deliveries: [{ agentId: agent.id }],
     });
     const directResource = await directBoard.execute(

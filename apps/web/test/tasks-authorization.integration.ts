@@ -277,7 +277,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         senderMemberId: direct.members.find((member) => member.userId === alice!.id)!.id,
         sequence: 2,
         body: "Uses attachment",
-        attachment: { connect: { id: usedAttachment.id } },
+        attachments: { connect: [{ id: usedAttachment.id }] },
       },
     });
     const otherAttachment = await db.attachment.create({

@@ -55,6 +55,7 @@ const message = {
   sequence: 1,
   workspaceId: "workspace-a",
   agentId: "agent-a",
+  attachments: [],
 };
 
 describe("RedisMessageRequestIdempotency", () => {

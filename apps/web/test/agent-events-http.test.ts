@@ -40,6 +40,7 @@ test("returns the canonical response shape with hasMore passthrough", async () =
             target: "@ada",
             body: "hello",
             createdAt: new Date("2026-09-15T00:00:00.000Z"),
+            attachments: [],
           },
         ],
         hasMore: true,
@@ -60,6 +61,7 @@ test("returns the canonical response shape with hasMore passthrough", async () =
         target: "@ada",
         body: "hello",
         createdAt: "2026-09-15T00:00:00.000Z",
+        attachments: [],
       },
     ],
   });

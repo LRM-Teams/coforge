@@ -2,6 +2,19 @@ import { z } from "zod";
 
 const uuid = z.uuid();
 
+/** Attachments already uploaded to this conversation, unlinked to any message, in send order.
+ * Bounded and unique, mirroring `isValidMentionSelectorArray`'s shape (array, max length,
+ * per-item validity) in `@lrm/coforge-sdk/internal/mentions.ts`. This composer migrates fully
+ * to the array field rather than keeping the old singular `attachmentId` for compatibility:
+ * browser and server deploy together in this monorepo, so there is no external client to break. */
+export const attachmentIdsSchema = z
+  .array(uuid)
+  .max(10)
+  .refine((ids) => new Set(ids).size === ids.length, {
+    message: "attachmentIds must not contain duplicates",
+  })
+  .optional();
+
 export const agentConversationInputSchema = z.object({ agentId: uuid });
 export const agentConversationPageInputSchema = agentConversationInputSchema.extend({
   beforeSequence: z.number().int().positive().optional(),
@@ -19,7 +32,7 @@ export const agentConversationUpdatesInputSchema = agentConversationInputSchema.
 export const sendConversationMessageInputSchema = agentConversationInputSchema.extend({
   requestId: uuid,
   body: z.string().trim().min(1).max(8_000),
-  attachmentId: uuid.optional(),
+  attachmentIds: attachmentIdsSchema,
   threadRootId: uuid.optional(),
 });
 

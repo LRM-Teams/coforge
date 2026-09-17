@@ -116,7 +116,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
             senderMemberId: opened.senderMemberId,
             senderUserId: user.id,
             body: data.body,
-            attachmentId: data.attachmentId,
+            attachmentIds: data.attachmentIds,
             threadRootId: data.threadRootId,
           });
         });
@@ -138,7 +138,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           ),
           body: message.body,
           createdAt: message.createdAt,
-          attachment: message.attachment,
+          attachments: message.attachments,
           reactions: undefined,
         };
       },

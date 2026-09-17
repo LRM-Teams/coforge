@@ -32,7 +32,8 @@ export type DirectConversationPage = {
     body: string;
     createdAt: Date;
     target: string;
-    attachment?: AttachmentMetadata;
+    /** Always present, possibly empty; order matches send/upload order. */
+    attachments: AttachmentMetadata[];
     task?: MessageTaskMetadata;
   }[];
   hasOlder: boolean;
@@ -80,9 +81,11 @@ const PUBLIC_USERNAME_TARGET = /^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
 const MESSAGE_ANCHOR =
   /^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
+/** Per-message attachment projection, ordered by stable send/upload position. */
 const ATTACHMENT_SELECT = {
   select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
-} satisfies Prisma.MessageSelect["attachment"];
+  orderBy: { position: "asc" },
+} satisfies Prisma.MessageSelect["attachments"];
 
 /** Message projection sent to the browser client. */
 const BROWSER_MESSAGE_SELECT = {
@@ -91,7 +94,7 @@ const BROWSER_MESSAGE_SELECT = {
   threadRootId: true,
   body: true,
   createdAt: true,
-  attachment: ATTACHMENT_SELECT,
+  attachments: ATTACHMENT_SELECT,
   sender: {
     select: {
       userId: true,
@@ -127,7 +130,7 @@ const TASK_METADATA_SELECT = {
 /** Message projection sent to an Agent. */
 const AGENT_MESSAGE_INCLUDE = {
   sender: MESSAGE_SENDER_SELECT,
-  attachment: true,
+  attachments: { orderBy: { position: "asc" } },
   task: TASK_METADATA_SELECT,
 } satisfies Prisma.MessageInclude;
 
@@ -168,7 +171,7 @@ function toAgentMessage(
   row: Pick<DirectConversationMessageRow, "id" | "sequence" | "body" | "createdAt"> & {
     sender: Parameters<typeof agentSenderHandle>[0];
     task: Parameters<typeof messageTask>[0];
-    attachment?: AttachmentMetadata | null;
+    attachments: AttachmentMetadata[];
   },
   target: string,
 ) {
@@ -180,7 +183,7 @@ function toAgentMessage(
     body: row.body,
     createdAt: row.createdAt,
     target,
-    ...(row.attachment ? { attachment: row.attachment } : {}),
+    attachments: row.attachments,
     ...(task ? { task } : {}),
   };
 }
@@ -209,7 +212,7 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
       : null,
     body: message.body,
     createdAt: message.createdAt,
-    attachment: message.attachment ? attachmentView(message.attachment) : undefined,
+    attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
   };
 }
@@ -341,7 +344,7 @@ export type DirectConversationRepository = {
     senderMemberId: string,
     senderUserId: string,
     body: string,
-    attachmentId?: string,
+    attachmentIds?: string[],
     threadRootId?: string,
   ): Promise<{
     id: string;
@@ -355,7 +358,8 @@ export type DirectConversationRepository = {
     target?: string;
     latestSender?: string;
     deliveryTarget?: string;
-    attachment?: AttachmentMetadata;
+    /** Always present, possibly empty; order matches send order. */
+    attachments: AttachmentMetadata[];
   }>;
   receiveDeliveryAck?(input: {
     workspaceId: string;
@@ -378,7 +382,8 @@ export type DirectConversationRepository = {
       body: string;
       createdAt: Date;
       target: string;
-      attachment?: AttachmentMetadata;
+      /** Always present, possibly empty; order matches send/upload order. */
+      attachments: AttachmentMetadata[];
       task?: MessageTaskMetadata;
     }[]
   >;
@@ -404,7 +409,8 @@ export type DirectConversationRepository = {
     body: string;
     createdAt: Date;
     target: string;
-    attachment?: AttachmentMetadata;
+    /** Always present, possibly empty; order matches send/upload order. */
+    attachments: AttachmentMetadata[];
     task?: MessageTaskMetadata;
   }>;
   setAgentMessageReaction?(
@@ -440,7 +446,8 @@ export type DirectConversationRepository = {
       body: string;
       createdAt: Date;
       target: string;
-      attachment?: AttachmentMetadata;
+      /** Always present, possibly empty; order matches send/upload order. */
+      attachments: AttachmentMetadata[];
       task?: MessageTaskMetadata;
     }[];
     hasMore: boolean;
@@ -459,7 +466,7 @@ export type DirectConversationRepository = {
     conversationId: string,
     agentId: string,
     body: string,
-    attachmentId?: string,
+    attachmentIds?: string[],
     threadRootId?: string,
     mentions?: readonly AgentMentionBinding[],
   ): Promise<{
@@ -471,7 +478,8 @@ export type DirectConversationRepository = {
     workspaceId: string;
     agentId: string;
     target: string;
-    attachment?: AttachmentMetadata;
+    /** Always present, possibly empty; order matches send order. */
+    attachments: AttachmentMetadata[];
   }>;
   openForUser?(
     workspaceId: string,
@@ -494,7 +502,8 @@ export type DirectConversationRepository = {
       body: string;
       createdAt: Date;
       threadRootId?: string;
-      attachment?: AttachmentMetadata;
+      /** Always present, possibly empty; order matches send/upload order. */
+      attachments: AttachmentMetadata[];
     }>;
   }>;
 };
@@ -675,8 +684,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       skip: offset,
       take: limit,
       include: {
-        sender: MESSAGE_SENDER_SELECT,
-        task: TASK_METADATA_SELECT,
+        ...AGENT_MESSAGE_INCLUDE,
         conversation: {
           include: {
             members: {
@@ -716,8 +724,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       },
       take: 2,
       include: {
-        sender: MESSAGE_SENDER_SELECT,
-        task: TASK_METADATA_SELECT,
+        ...AGENT_MESSAGE_INCLUDE,
         conversation: {
           include: {
             members: {
@@ -943,7 +950,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     senderMemberId: string,
     senderUserId: string,
     body: string,
-    attachmentId?: string,
+    attachmentIds?: string[],
     threadRootId?: string,
   ) {
     const conversation = await this.db.conversation.findUnique({
@@ -974,7 +981,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       : undefined;
     const message = await this.db.$transaction(async (tx) => {
       const sequence = await allocateSequence(tx, conversationId);
-      if (attachmentId) {
+      // Validated before the message exists, then linked (messageId + position) once it does; see
+      // the multi-attachment transaction pattern shared by every send path in this file.
+      const attachments: {
+        id: string;
+        fileName: string;
+        contentType: string;
+        sizeBytes: number;
+        objectKey: string;
+      }[] = [];
+      for (const attachmentId of attachmentIds ?? []) {
         const attachment = await tx.attachment.findFirst({
           where: {
             id: attachmentId,
@@ -983,18 +999,18 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             uploaderId: senderUserId,
             messageId: null,
           },
-          select: { id: true },
+          select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
         });
         if (!attachment) throw new Error("attachment is not available for this message");
+        attachments.push(attachment);
       }
-      return tx.message.create({
+      const created = await tx.message.create({
         data: {
           conversationId,
           workspaceId: conversation.workspaceId,
           senderMemberId,
           threadRootId: root?.id,
           body,
-          attachment: attachmentId ? { connect: { id: attachmentId } } : undefined,
           sequence,
           deliveries: {
             create: {
@@ -1011,9 +1027,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           createdAt: true,
           sequence: true,
           deliveries: { select: { deliveryId: true } },
-          attachment: ATTACHMENT_SELECT,
         },
       });
+      await Promise.all(
+        attachments.map((attachment, position) =>
+          tx.attachment.update({
+            where: { id: attachment.id },
+            data: { messageId: created.id, position },
+          }),
+        ),
+      );
+      return { ...created, attachments };
     });
     return {
       ...message,
@@ -1024,7 +1048,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       target: `@${agents[0].agent?.name ?? "unknown"}`,
       latestSender: `@${sender.user?.username}`,
       deliveryTarget: deliveryTarget(`@${sender.user?.username}`, root?.id),
-      attachment: message.attachment ? attachmentView(message.attachment) : undefined,
+      attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     };
   }
 
@@ -1482,7 +1506,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       where,
       orderBy: { sequence: "desc" },
       take: 3,
-      include: { sender: MESSAGE_SENDER_SELECT, attachment: true },
+      include: {
+        sender: MESSAGE_SENDER_SELECT,
+        attachments: { orderBy: { position: "asc" } },
+      },
     });
     return rows.reverse().map((m) => ({
       id: m.id,
@@ -1491,7 +1518,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       body: m.body,
       createdAt: m.createdAt,
       target: canonicalTarget,
-      attachment: m.attachment ?? undefined,
+      attachments: m.attachments,
     }));
   }
 
@@ -1515,7 +1542,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     conversationId: string,
     agentId: string,
     body: string,
-    attachmentId?: string,
+    attachmentIds?: string[],
     threadRootId?: string,
     mentions?: readonly AgentMentionBinding[],
   ) {
@@ -1533,21 +1560,30 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       : undefined;
     const result = await this.db.$transaction(async (tx) => {
       const sequence = await allocateSequence(tx, conversationId);
-      if (attachmentId) {
-        // Agents have no upload route today (`Attachment.uploaderId` is a `User`), so this
-        // deliberately never checks `uploaderId`: the only ids that pass are unlinked attachments
-        // already sitting in this conversation (see ADR 0022, "Known limitation").
+      // The sending Agent must be the same Agent that uploaded each attachment (ADR 0022's
+      // "Known limitation" of never checking uploader identity, closed by ADR 0023's Agent
+      // upload route: `uploaderAgentId` now names the uploading Agent). Validated before the
+      // message exists, then linked (messageId + position) once it does.
+      const attachments: {
+        id: string;
+        fileName: string;
+        contentType: string;
+        sizeBytes: number;
+      }[] = [];
+      for (const attachmentId of attachmentIds ?? []) {
         const attachment = await tx.attachment.findFirst({
           where: {
             id: attachmentId,
             conversationId,
             workspaceId: conversation.workspaceId,
+            uploaderAgentId: agentId,
             messageId: null,
           },
-          select: { id: true },
+          select: { id: true, fileName: true, contentType: true, sizeBytes: true },
         });
         if (!attachment)
           throw new AgentSendRejectedError(403, "attachment is not available for this message");
+        attachments.push(attachment);
       }
       const mentionedMemberIds: string[] = [];
       if (mentions?.length) {
@@ -1599,14 +1635,13 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           skipDuplicates: true,
         });
       }
-      return tx.message.create({
+      const created = await tx.message.create({
         data: {
           conversationId,
           workspaceId: conversation.workspaceId,
           senderMemberId: sender.id,
           threadRootId: root?.id,
           body,
-          attachment: attachmentId ? { connect: { id: attachmentId } } : undefined,
           sequence,
         },
         select: {
@@ -1615,9 +1650,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           createdAt: true,
           sequence: true,
           deliveries: { select: { deliveryId: true } },
-          attachment: ATTACHMENT_SELECT,
         },
       });
+      await Promise.all(
+        attachments.map((attachment, position) =>
+          tx.attachment.update({
+            where: { id: attachment.id },
+            data: { messageId: created.id, position },
+          }),
+        ),
+      );
+      return { ...created, attachments };
     });
     return {
       ...result,
@@ -1628,15 +1671,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       target: conversation.channelName
         ? deliveryTarget(`#${conversation.channelName}`, root?.id)
         : "",
-      // Agent-facing shape: metadata only; the object key never leaves the backend.
-      attachment: result.attachment
-        ? {
-            id: result.attachment.id,
-            fileName: result.attachment.fileName,
-            contentType: result.attachment.contentType,
-            sizeBytes: result.attachment.sizeBytes,
-          }
-        : undefined,
+      // Agent-facing shape: metadata only; the object key never leaves the backend (never
+      // selected above, unlike the browser-facing ATTACHMENT_SELECT).
+      attachments: result.attachments,
     };
   }
 }

@@ -21,6 +21,7 @@ const persisted = {
   sequence: 1,
   target: "@agent",
   latestSender: "@ada",
+  attachments: [],
 };
 
 class MemoryMessageRequestIdempotency implements MessageRequestIdempotency {
@@ -63,6 +64,59 @@ describe("SendDirectMessage", () => {
       target: "@ada:12345678",
       latestSender: "@ada",
     });
+  });
+
+  test("forwards multiple attachmentIds from a human send to the repository, in order", async () => {
+    const calls: unknown[] = [];
+    const attachmentIds = ["attachment-b", "attachment-a"];
+    const repository = {
+      async getOrCreateUserAgent() {
+        return { id: "conversation-a" };
+      },
+      async sendMessage(
+        conversationId: string,
+        senderMemberId: string,
+        senderUserId: string,
+        body: string,
+        attachmentIdsArg?: string[],
+      ) {
+        calls.push({ conversationId, senderMemberId, senderUserId, body, attachmentIdsArg });
+        return {
+          ...persisted,
+          attachments: (attachmentIdsArg ?? []).map((id) => ({
+            id,
+            fileName: `${id}.txt`,
+            contentType: "text/plain",
+            sizeBytes: 1,
+          })),
+        };
+      },
+    } satisfies DirectConversationRepository;
+    const useCase = new SendDirectMessage(repository, new MemoryMessageRequestIdempotency(), {
+      async publish() {},
+    });
+
+    const result = await useCase.execute({
+      requestId: "multi-attachment-request",
+      workspaceId: "workspace-a",
+      conversationId: "conversation-a",
+      senderMemberId: "member-a",
+      senderUserId: "user-a",
+      body: "two files",
+      attachmentIds,
+    });
+
+    expect(calls).toEqual([
+      {
+        conversationId: "conversation-a",
+        senderMemberId: "member-a",
+        senderUserId: "user-a",
+        body: "two files",
+        attachmentIdsArg: attachmentIds,
+      },
+    ]);
+    // Order matches send order, not upload order or any other reordering.
+    expect(result.attachments.map((a) => a.id)).toEqual(["attachment-b", "attachment-a"]);
   });
 
   test("persists before publishing the canonical message to its Workspace", async () => {
@@ -296,11 +350,11 @@ describe("SendDirectMessage", () => {
         conversationId: string,
         agentId: string,
         body: string,
-        attachmentId?: string,
+        attachmentIds?: string[],
         threadRootId?: string,
       ) {
         calls.push(
-          `send:${conversationId}:${agentId}:${body}:${attachmentId ?? ""}:${threadRootId ?? ""}`,
+          `send:${conversationId}:${agentId}:${body}:${(attachmentIds ?? []).join(",")}:${threadRootId ?? ""}`,
         );
         return {
           ...persisted,
@@ -341,9 +395,10 @@ describe("SendDirectMessage", () => {
     ]);
   });
 
-  test("forwards attachmentId and mentions from an Agent send to the repository", async () => {
+  test("forwards attachmentIds and mentions from an Agent send to the repository, in order", async () => {
     const calls: unknown[] = [];
     const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
+    const attachmentIds = ["attachment-1", "attachment-2"];
     const repository = {
       async sendMessage() {
         throw new Error("not used");
@@ -358,11 +413,11 @@ describe("SendDirectMessage", () => {
         conversationId: string,
         agentId: string,
         body: string,
-        attachmentId?: string,
+        attachmentIdsArg?: string[],
         threadRootId?: string,
         mentionsArg?: unknown,
       ) {
-        calls.push({ conversationId, agentId, body, attachmentId, threadRootId, mentionsArg });
+        calls.push({ conversationId, agentId, body, attachmentIdsArg, threadRootId, mentionsArg });
         return { ...persisted, deliveryId: undefined, target: "@frank" };
       },
     } satisfies DirectConversationRepository;
@@ -376,7 +431,7 @@ describe("SendDirectMessage", () => {
       agentId: "agent-a",
       target: "@frank",
       body: "hi @ada",
-      attachmentId: "attachment-1",
+      attachmentIds,
       mentions,
     });
 
@@ -385,7 +440,7 @@ describe("SendDirectMessage", () => {
         conversationId: "conversation-a",
         agentId: "agent-a",
         body: "hi @ada",
-        attachmentId: "attachment-1",
+        attachmentIdsArg: attachmentIds,
         threadRootId: undefined,
         mentionsArg: mentions,
       },
@@ -637,6 +692,7 @@ describe("ReadDirectMessages", () => {
         body: "Hello",
         createdAt: new Date("2026-08-28T00:00:00Z"),
         target: "@user",
+        attachments: [],
       },
     ];
     const repository = {
