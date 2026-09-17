@@ -2441,6 +2441,50 @@ export class DaemonRuntime {
     return this.#transport.agentAttachmentUpload(request, agentApiKey);
   }
 
+  async agentAttachmentUploadSessionCreate(
+    context: string,
+    body: unknown,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUploadSessionCreate)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUploadSessionCreate(body, agentApiKey);
+  }
+
+  async agentAttachmentUploadSessionComplete(
+    context: string,
+    uploadId: string,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUploadSessionComplete)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUploadSessionComplete(uploadId, agentApiKey);
+  }
+
+  async agentAttachmentUploadSessionCancel(
+    context: string,
+    uploadId: string,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUploadSessionCancel)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUploadSessionCancel(uploadId, agentApiKey);
+  }
+
+  async agentAttachmentUploadSessionGet(
+    context: string,
+    uploadId: string,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUploadSessionGet)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUploadSessionGet(uploadId, agentApiKey);
+  }
+
   #contextFor(agentId: string): string {
     const context = crypto.randomUUID();
     this.#agentContexts.set(agentId, context);

@@ -333,6 +333,10 @@ export interface DaemonConnectionClient {
   ): Promise<WeeklyReportResponse>;
   agentAttachment?(attachmentId: string, agentApiKey?: string): Promise<Response>;
   agentAttachmentUpload?(request: Request, agentApiKey?: string): Promise<Response>;
+  agentAttachmentUploadSessionCreate?(body: unknown, agentApiKey?: string): Promise<Response>;
+  agentAttachmentUploadSessionComplete?(uploadId: string, agentApiKey?: string): Promise<Response>;
+  agentAttachmentUploadSessionCancel?(uploadId: string, agentApiKey?: string): Promise<Response>;
+  agentAttachmentUploadSessionGet?(uploadId: string, agentApiKey?: string): Promise<Response>;
   requestAgentApiKey?(input: { agentId: string; workspaceId: string }): Promise<string>;
   requestAgentLaunchConfig?(input: {
     agentId: string;
@@ -1226,6 +1230,71 @@ export class DaemonConnection implements DaemonConnectionClient {
         headers: { ...agentHeaders(this.#agentKeys(agentApiKey)), "content-type": contentType },
         body,
       },
+    );
+  }
+
+  /**
+   * The direct-upload session routes (ADR 0027) are plain JSON, unlike the multipart upload
+   * above; each simply forwards its body (if any) to the matching cloud route with the same
+   * Agent-scoped headers `agentAttachment`/`agentAttachmentUpload` already add.
+   */
+  async agentAttachmentUploadSessionCreate(body: unknown, agentApiKey?: string): Promise<Response> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    return fetch(
+      this.#serverEndpoint(
+        "Agent attachment upload session create",
+        agentApiRoutes.cloud.attachmentUploadSessions.create.path,
+      ),
+      {
+        method: agentApiRoutes.cloud.attachmentUploadSessions.create.method,
+        headers: agentHeaders(this.#agentKeys(agentApiKey), true),
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
+  async agentAttachmentUploadSessionComplete(
+    uploadId: string,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    return fetch(
+      this.#serverEndpoint(
+        "Agent attachment upload session complete",
+        agentApiRoutes.cloud.attachmentUploadSessions.complete.path(uploadId),
+      ),
+      {
+        method: agentApiRoutes.cloud.attachmentUploadSessions.complete.method,
+        headers: agentHeaders(this.#agentKeys(agentApiKey)),
+      },
+    );
+  }
+
+  async agentAttachmentUploadSessionCancel(
+    uploadId: string,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    return fetch(
+      this.#serverEndpoint(
+        "Agent attachment upload session cancel",
+        agentApiRoutes.cloud.attachmentUploadSessions.cancel.path(uploadId),
+      ),
+      {
+        method: agentApiRoutes.cloud.attachmentUploadSessions.cancel.method,
+        headers: agentHeaders(this.#agentKeys(agentApiKey)),
+      },
+    );
+  }
+
+  async agentAttachmentUploadSessionGet(uploadId: string, agentApiKey?: string): Promise<Response> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    return fetch(
+      this.#serverEndpoint(
+        "Agent attachment upload session get",
+        agentApiRoutes.cloud.attachmentUploadSessions.get.path(uploadId),
+      ),
+      { headers: agentHeaders(this.#agentKeys(agentApiKey)) },
     );
   }
 

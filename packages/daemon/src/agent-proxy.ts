@@ -39,8 +39,20 @@ const LOCAL_ATTACHMENT_UPLOAD_PATH = agentApiRoutes.local.attachments.upload.pat
 // Mirrors `apps/web`'s `ATTACHMENT_MAX_BYTES` (10 MiB) plus slack for multipart framing
 // overhead (boundary markers, field headers); the daemon package cannot import from `apps/web`.
 const ATTACHMENT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024 + 64 * 1024;
+// The four presigned-direct-upload session routes (ADR 0027) are plain JSON, so they reuse the
+// JSON body path below rather than the multipart forwarding above. `create` is a fixed path;
+// `complete`/`cancel`/`get` share a `/:uploadId[/complete]` prefix.
+const LOCAL_UPLOAD_SESSION_CREATE_PATH = agentApiRoutes.local.attachmentUploadSessions.create.path;
+const LOCAL_UPLOAD_SESSION_ROUTE_PREFIX =
+  agentApiRoutes.local.attachmentUploadSessions.get.path("");
+const UPLOAD_SESSION_COMPLETE_SUFFIX = "/complete";
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
+
+/** Forwards a cloud `Response` back through the local proxy unchanged. */
+function forwardResponse(response: Response): Response {
+  return new Response(response.body, { status: response.status, headers: response.headers });
+}
 
 /** The `route_family` tag on a classified failure: which local proxy route it came from. */
 function routeFamilyFor(pathname: string, payload: Record<string, unknown> | undefined): string {
@@ -87,6 +99,26 @@ export function startAgentProxy(input: {
     agentAttachmentUpload?(
       context: string,
       request: Request,
+      agentApiKey: string,
+    ): Promise<Response>;
+    agentAttachmentUploadSessionCreate?(
+      context: string,
+      body: unknown,
+      agentApiKey: string,
+    ): Promise<Response>;
+    agentAttachmentUploadSessionComplete?(
+      context: string,
+      uploadId: string,
+      agentApiKey: string,
+    ): Promise<Response>;
+    agentAttachmentUploadSessionCancel?(
+      context: string,
+      uploadId: string,
+      agentApiKey: string,
+    ): Promise<Response>;
+    agentAttachmentUploadSessionGet?(
+      context: string,
+      uploadId: string,
       agentApiKey: string,
     ): Promise<Response>;
     inbox?(context: string, request: LocalInboxRequest): Promise<unknown>;
@@ -150,7 +182,9 @@ export function startAgentProxy(input: {
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.githubCredentials.path) &&
         (request.method !== "GET" ||
           !requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX)) &&
-        (request.method !== "POST" || requestUrl.pathname !== LOCAL_ATTACHMENT_UPLOAD_PATH)
+        (request.method !== "POST" || requestUrl.pathname !== LOCAL_ATTACHMENT_UPLOAD_PATH) &&
+        (request.method !== "POST" || requestUrl.pathname !== LOCAL_UPLOAD_SESSION_CREATE_PATH) &&
+        !requestUrl.pathname.startsWith(LOCAL_UPLOAD_SESSION_ROUTE_PREFIX)
       )
         return new Response("not found", { status: 404 });
       const authorization = request.headers.get("authorization");
@@ -233,6 +267,115 @@ export function startAgentProxy(input: {
             agentId: binding.agentId,
           });
         }
+      }
+      if (request.method === "POST" && requestUrl.pathname === LOCAL_UPLOAD_SESSION_CREATE_PATH) {
+        if (!input.runtime.agentAttachmentUploadSessionCreate)
+          return new Response("not found", { status: 404 });
+        let body: unknown;
+        try {
+          const contentLength = request.headers.get("content-length");
+          if (
+            contentLength &&
+            (!/^\d+$/.test(contentLength) || Number(contentLength) > maxBodyBytes)
+          )
+            return new Response("payload too large", { status: 413 });
+          const raw = await request.text();
+          if (new TextEncoder().encode(raw).byteLength > maxBodyBytes)
+            return new Response("payload too large", { status: 413 });
+          body = JSON.parse(raw);
+        } catch {
+          return new Response("bad request", { status: 400 });
+        }
+        try {
+          return forwardResponse(
+            await input.runtime.agentAttachmentUploadSessionCreate(
+              binding.context,
+              body,
+              binding.agentApiKey,
+            ),
+          );
+        } catch (error) {
+          return proxyFailureResponse(error, {
+            method: request.method,
+            path: requestUrl.pathname,
+            routeFamily: "agent-api/attachment-upload-session-create",
+            agentId: binding.agentId,
+          });
+        }
+      }
+      if (requestUrl.pathname.startsWith(LOCAL_UPLOAD_SESSION_ROUTE_PREFIX)) {
+        const remainder = requestUrl.pathname.slice(LOCAL_UPLOAD_SESSION_ROUTE_PREFIX.length);
+        const isComplete = remainder.endsWith(UPLOAD_SESSION_COMPLETE_SUFFIX);
+        let uploadId: string;
+        try {
+          uploadId = decodeURIComponent(
+            isComplete ? remainder.slice(0, -UPLOAD_SESSION_COMPLETE_SUFFIX.length) : remainder,
+          );
+        } catch {
+          return new Response("bad request", { status: 400 });
+        }
+        if (!uploadId) return new Response("bad request", { status: 400 });
+        if (isComplete && request.method === "POST") {
+          if (!input.runtime.agentAttachmentUploadSessionComplete)
+            return new Response("not found", { status: 404 });
+          try {
+            return forwardResponse(
+              await input.runtime.agentAttachmentUploadSessionComplete(
+                binding.context,
+                uploadId,
+                binding.agentApiKey,
+              ),
+            );
+          } catch (error) {
+            return proxyFailureResponse(error, {
+              method: request.method,
+              path: requestUrl.pathname,
+              routeFamily: "agent-api/attachment-upload-session-complete",
+              agentId: binding.agentId,
+            });
+          }
+        }
+        if (!isComplete && request.method === "GET") {
+          if (!input.runtime.agentAttachmentUploadSessionGet)
+            return new Response("not found", { status: 404 });
+          try {
+            return forwardResponse(
+              await input.runtime.agentAttachmentUploadSessionGet(
+                binding.context,
+                uploadId,
+                binding.agentApiKey,
+              ),
+            );
+          } catch (error) {
+            return proxyFailureResponse(error, {
+              method: request.method,
+              path: requestUrl.pathname,
+              routeFamily: "agent-api/attachment-upload-session-get",
+              agentId: binding.agentId,
+            });
+          }
+        }
+        if (!isComplete && request.method === "DELETE") {
+          if (!input.runtime.agentAttachmentUploadSessionCancel)
+            return new Response("not found", { status: 404 });
+          try {
+            return forwardResponse(
+              await input.runtime.agentAttachmentUploadSessionCancel(
+                binding.context,
+                uploadId,
+                binding.agentApiKey,
+              ),
+            );
+          } catch (error) {
+            return proxyFailureResponse(error, {
+              method: request.method,
+              path: requestUrl.pathname,
+              routeFamily: "agent-api/attachment-upload-session-cancel",
+              agentId: binding.agentId,
+            });
+          }
+        }
+        return new Response("not found", { status: 404 });
       }
       if (request.headers.get("content-type")?.toLowerCase() !== "application/json")
         return new Response("unsupported media type", { status: 415 });
