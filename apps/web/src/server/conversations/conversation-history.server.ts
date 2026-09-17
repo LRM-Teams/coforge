@@ -24,6 +24,7 @@ const browserMessageFields = {
       agent: { select: { name: true, displayName: true } },
     },
   },
+  mentions: { select: { kind: true, actorId: true, handle: true } },
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
@@ -68,6 +69,11 @@ export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: strin
       : null,
     body: message.body,
     createdAt: message.createdAt,
+    mentions: message.mentions.map((mention) => ({
+      kind: mention.kind as "user" | "agent",
+      actorId: mention.actorId,
+      handle: mention.handle,
+    })),
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
     // Attached by the caller (`conversations.functions.ts`, `ActionCards.viewsFor`) in one

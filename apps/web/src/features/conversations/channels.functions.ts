@@ -245,6 +245,11 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       ),
       body: message.body,
       createdAt: message.createdAt,
+      mentions: message.mentions.map((mention) => ({
+        kind: mention.kind as "user" | "agent",
+        actorId: mention.actorId,
+        handle: mention.handle,
+      })),
       attachments: message.attachments.map((attachment) => attachmentView(attachment)),
       reactions: undefined,
       // A human-sent message never carries an action card (those are Agent-authored only).

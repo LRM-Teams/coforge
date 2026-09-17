@@ -149,5 +149,6 @@
   "action_card_cancelled": "Cancelled",
   "action_card_required_computer": "Must run on {name}",
   "action_card_suggested_computer": "Suggested computer: {name}",
-  "action_card_initial_members": "Initial members"
+  "action_card_initial_members": "Initial members",
+  "conversation_mention_suggestions": "Mention suggestions"
 }

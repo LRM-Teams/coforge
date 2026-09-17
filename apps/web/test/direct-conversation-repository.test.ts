@@ -189,6 +189,7 @@ describe("PrismaDirectConversationRepository", () => {
       body: id,
       createdAt: new Date(sequence),
       attachments: [],
+      mentions: [],
       sender: { userId: "user-1", user: { username: "alice" }, agent: null },
       replies,
     });
@@ -273,6 +274,7 @@ describe("PrismaDirectConversationRepository", () => {
               body: "new reply",
               createdAt: new Date(12),
               attachments: [],
+              mentions: [],
               sender: {
                 userId: null,
                 agentId: "agent-helper",
@@ -617,6 +619,7 @@ describe("PrismaDirectConversationRepository", () => {
         queries.push(flattenSqlValues(values));
         return rows;
       },
+      messageMention: { findMany: async () => [] },
     } as unknown as PrismaClient;
 
     const result = await new PrismaDirectConversationRepository(db).readAgentRecoveryContext(
@@ -652,6 +655,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("names channel senders individually and direct senders by the conversation user", async () => {
     const db = {
+      messageMention: { findMany: async () => [] },
       $queryRaw: async () => [
         {
           id: "message-1",
@@ -698,6 +702,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("rejects recovery when an unread message has no Agent delivery", async () => {
     const db = {
+      messageMention: { findMany: async () => [] },
       $queryRaw: async () => [
         {
           id: "message-1",
@@ -723,6 +728,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("rejects recovery for a conversation without a public target", async () => {
     const db = {
+      messageMention: { findMany: async () => [] },
       $queryRaw: async () => [
         {
           id: "message-1",
@@ -762,6 +768,7 @@ describe("PrismaDirectConversationRepository", () => {
               message: {
                 body: "pending body",
                 sender: { user: { username: "alice" } },
+                mentions: [],
               },
             },
           ];

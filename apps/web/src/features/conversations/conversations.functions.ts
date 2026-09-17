@@ -155,6 +155,8 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           ),
           body: message.body,
           createdAt: message.createdAt,
+          // DMs carry no mention structure; only channel bodies are normalized to token form.
+          mentions: [],
           attachments: message.attachments,
           reactions: undefined,
           // A human-sent message never carries an action card (those are Agent-authored only).

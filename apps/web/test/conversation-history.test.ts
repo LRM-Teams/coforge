@@ -158,6 +158,7 @@ describe("ConversationHistory", () => {
       body: id,
       createdAt: new Date(sequence),
       attachments: [],
+      mentions: [],
       sender:
         sequence === 11
           ? {

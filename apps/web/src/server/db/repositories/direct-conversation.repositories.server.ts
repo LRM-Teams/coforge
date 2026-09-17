@@ -1,11 +1,12 @@
 import { lockConversation } from "../../conversations/conversation-lock.server";
 import type { MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
+import { normalizeMentionBody } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AppError } from "../../../lib/app-error";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
 import { ACTIVE_MEMBER_WHERE } from "../../conversations/active-member.server";
-import { mentionedNames } from "../../conversations/mentions";
+import { agentReadableBody, mentionedNames } from "../../conversations/mentions";
 import { AgentSendRejectedError } from "../../conversations/agent-send-rejected-error.server";
 import {
   MESSAGE_REACTIONS_SELECT,
@@ -90,6 +91,11 @@ const ATTACHMENT_SELECT = {
   orderBy: { position: "asc" },
 } satisfies Prisma.MessageSelect["attachments"];
 
+/** Resolved mention rows: translates a body token (`<@kind:actorId>`) back to its `@handle`. */
+const MESSAGE_MENTIONS_SELECT = {
+  select: { kind: true, actorId: true, handle: true },
+} satisfies NonNullable<Prisma.MessageSelect["mentions"]>;
+
 /** Message projection sent to the browser client. */
 const BROWSER_MESSAGE_SELECT = {
   id: true,
@@ -106,6 +112,7 @@ const BROWSER_MESSAGE_SELECT = {
       agent: { select: { name: true, displayName: true } },
     },
   },
+  mentions: MESSAGE_MENTIONS_SELECT,
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
@@ -142,6 +149,7 @@ const AGENT_MESSAGE_INCLUDE = {
   attachments: { orderBy: { position: "asc" } },
   task: TASK_METADATA_SELECT,
   actionCard: ACTION_CARD_STATE_SELECT,
+  mentions: MESSAGE_MENTIONS_SELECT,
 } satisfies Prisma.MessageInclude;
 
 type DirectConversationMessageRow = Prisma.MessageGetPayload<{
@@ -183,17 +191,21 @@ function toAgentMessage(
     task: Parameters<typeof messageTask>[0];
     attachments: AttachmentMetadata[];
     actionCard?: { state: string } | null;
+    mentions?: { kind: string; actorId: string; handle: string }[];
   },
   target: string,
 ) {
   const task = messageTask(row.task);
+  // Agents read plain `@handle` text: the embedded-UUID token form is a storage/browser concern
+  // and never crosses onto the Agent channel.
+  const body = agentReadableBody(row.body, row.mentions ?? []);
   return {
     id: row.id,
     sequence: row.sequence,
     sender: agentSenderHandle(row.sender),
     // An Agent reads message text, not the browser card UI; append the card's current state so it
     // never claims a resource exists before a human has actually committed the card (ADR 0027).
-    body: row.actionCard ? `${row.body} [action card: ${row.actionCard.state}]` : row.body,
+    body: row.actionCard ? `${body} [action card: ${row.actionCard.state}]` : body,
     createdAt: row.createdAt,
     target,
     attachments: row.attachments,
@@ -228,6 +240,11 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
       : null,
     body: message.body,
     createdAt: message.createdAt,
+    mentions: message.mentions.map((mention) => ({
+      kind: mention.kind as "user" | "agent",
+      actorId: mention.actorId,
+      handle: mention.handle,
+    })),
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
     // Attached by the caller (`conversations.functions.ts`, `ActionCards.viewsFor`) in one
@@ -502,6 +519,12 @@ export type DirectConversationRepository = {
     workspaceId: string;
     agentId: string;
     target: string;
+    /** `@name` of the sending Agent, for delivery envelopes. */
+    latestSender?: string;
+    /** Attention rows created for other Agents @mentioned in a channel message (never the sender). */
+    deliveries?: { deliveryId: string; agentId: string; computerId: string | null }[];
+    /** Resolved mention rows (empty for DMs); translates the body's embedded mention tokens. */
+    mentions?: { kind: string; actorId: string; handle: string }[];
     /** Always present, possibly empty; order matches send order. */
     attachments: AttachmentMetadata[];
   }>;
@@ -1135,6 +1158,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             body: true,
             threadRootId: true,
             sender: { select: { user: { select: { username: true } } } },
+            mentions: MESSAGE_MENTIONS_SELECT,
           },
         },
       },
@@ -1156,7 +1180,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         sequence: delivery.sequence,
         target,
         latestSender: sender,
-        body: delivery.message.body,
+        body: agentReadableBody(delivery.message.body, delivery.message.mentions),
       };
     });
   }
@@ -1319,6 +1343,23 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       ORDER BY "globalRank"`;
     const resumeMessages: AgentRecoveryContext["resumeMessages"] = [];
     const unreadSummary: Record<string, number> = {};
+    // The raw statement cannot join the mention rows, so translate embedded tokens in a second
+    // pass; Agents only ever read plain `@handle` text.
+    const mentionRows = rows.length
+      ? await this.db.messageMention.findMany({
+          where: { messageId: { in: rows.map((row) => row.id) } },
+          select: { messageId: true, kind: true, actorId: true, handle: true },
+        })
+      : [];
+    const mentionsByMessage = new Map<
+      string,
+      { kind: string; actorId: string; handle: string }[]
+    >();
+    for (const mention of mentionRows) {
+      const list = mentionsByMessage.get(mention.messageId) ?? [];
+      list.push(mention);
+      mentionsByMessage.set(mention.messageId, list);
+    }
     for (const row of rows) {
       if (!row.channelName && !row.userUsername)
         throw new Error("Agent conversation has no public user target");
@@ -1339,7 +1380,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           row.senderMemberId === null
             ? "system"
             : `@${row.channelName ? row.senderUsername : row.userUsername}`,
-        body: row.body,
+        body: agentReadableBody(row.body, mentionsByMessage.get(row.id) ?? []),
       });
     }
     return { resumeMessages, unreadSummary };
@@ -1543,13 +1584,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       include: {
         sender: MESSAGE_SENDER_SELECT,
         attachments: { orderBy: { position: "asc" } },
+        mentions: MESSAGE_MENTIONS_SELECT,
       },
     });
     return rows.reverse().map((m) => ({
       id: m.id,
       sequence: m.sequence,
       sender: m.sender ? `@${m.sender.user?.username}` : "system",
-      body: m.body,
+      body: agentReadableBody(m.body, m.mentions),
       createdAt: m.createdAt,
       target: canonicalTarget,
       attachments: m.attachments,
@@ -1582,7 +1624,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   ) {
     const conversation = await this.db.conversation.findUnique({
       where: { id: conversationId },
-      include: { members: true },
+      include: {
+        members: {
+          include: {
+            agent: { select: { name: true } },
+            user: { select: { username: true } },
+          },
+        },
+      },
     });
     if (!conversation) throw new Error("conversation scope is not authorized");
     if (conversation.channelName && conversation.archivedAt) throw new AppError("CONFLICT");
@@ -1622,18 +1671,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       }
       const mentionedMemberIds: string[] = [];
       if (mentions?.length) {
-        const members = await tx.conversationMember.findMany({
-          where: { conversationId },
-          select: {
-            id: true,
-            userId: true,
-            agentId: true,
-            user: { select: { username: true } },
-            agent: { select: { name: true } },
-          },
-        });
         for (const mention of mentions) {
-          const match = members.find((member) =>
+          const match = conversation.members.find((member) =>
             mention.type === "user"
               ? member.userId === mention.id && member.user?.username === mention.name
               : member.agentId === mention.id && member.agent?.name === mention.name,
@@ -1646,6 +1685,41 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           mentionedMemberIds.push(match.id);
         }
       }
+      // Channel bodies are persisted in the Slack-style token form: every @mention that
+      // resolves to an active member — whether given as a structured `--mention` selector or
+      // written plainly — becomes a `<@kind:uuid>` token plus a MessageMention row. DMs keep
+      // plain text (no mention structure there).
+      const resolution = conversation.channelName
+        ? normalizeMentionBody(
+            body,
+            conversation.members
+              .filter((member) => !member.leftAt)
+              .map((member) =>
+                member.userId
+                  ? {
+                      key: member.id,
+                      type: "user" as const,
+                      id: member.userId,
+                      handle: member.user!.username,
+                    }
+                  : {
+                      key: member.id,
+                      type: "agent" as const,
+                      id: member.agentId!,
+                      handle: member.agent!.name,
+                    },
+              ),
+            mentions ?? [],
+          )
+        : { body, mentions: [] };
+      // Other Agents this channel message wakes: every resolved Agent mention. An Agent message
+      // without an Agent mention never notifies another Agent, and an Agent never wakes itself.
+      const mentionedAgentIds = new Set(
+        resolution.mentions
+          .filter((mention) => mention.type === "agent")
+          .map((mention) => mention.id),
+      );
+      mentionedAgentIds.delete(agentId);
       if (conversation.channelName && root) {
         const names = mentionedNames(body);
         const mentioned = await tx.conversationMember.findMany({
@@ -1677,15 +1751,44 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           workspaceId: conversation.workspaceId,
           senderMemberId: sender.id,
           threadRootId: root?.id,
-          body,
+          body: resolution.body,
           sequence,
+          mentions: resolution.mentions.length
+            ? {
+                create: resolution.mentions.map((mention) => ({
+                  memberId: mention.key,
+                  workspaceId: conversation.workspaceId,
+                  conversationId,
+                  kind: mention.type,
+                  actorId: mention.id,
+                  handle: mention.handle,
+                })),
+              }
+            : undefined,
+          deliveries: mentionedAgentIds.size
+            ? {
+                create: [...mentionedAgentIds].map((wakeAgentId) => ({
+                  workspaceId: conversation.workspaceId,
+                  conversationId,
+                  agentId: wakeAgentId,
+                  sequence,
+                })),
+              }
+            : undefined,
         },
         select: {
           id: true,
           body: true,
           createdAt: true,
           sequence: true,
-          deliveries: { select: { deliveryId: true } },
+          mentions: { select: { kind: true, actorId: true, handle: true } },
+          deliveries: {
+            select: {
+              deliveryId: true,
+              agentId: true,
+              agent: { select: { computerId: true } },
+            },
+          },
         },
       });
       await Promise.all(
@@ -1704,6 +1807,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       deliveryId: undefined,
       workspaceId: conversation.workspaceId,
       agentId,
+      latestSender: `@${sender.agent?.name ?? agentId}`,
+      deliveries: result.deliveries.map((delivery) => ({
+        deliveryId: delivery.deliveryId,
+        agentId: delivery.agentId,
+        computerId: delivery.agent.computerId,
+      })),
       target: conversation.channelName
         ? deliveryTarget(`#${conversation.channelName}`, root?.id)
         : "",

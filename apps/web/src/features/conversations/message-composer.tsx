@@ -27,6 +27,9 @@ import {
   filesFromPaste,
   shouldSendOnEnter,
 } from "./composer-behavior";
+import type { Mentionable } from "./mention-text";
+import { useMentionCompletion } from "./use-mention-completion";
+import { MentionSuggestionList } from "./mention-suggestions";
 import { fileIconType } from "./message-row";
 import { useAppToast } from "@/components/ui/toast";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
@@ -210,6 +213,7 @@ function AttachmentChip({
 export function MessageComposer({
   conversationId,
   inThread,
+  mentionables,
   onSend,
   onCreateTask,
   onSent,
@@ -217,6 +221,8 @@ export function MessageComposer({
   conversationId: string;
   /** Thread composers cannot create Tasks. */
   inThread: boolean;
+  /** The channel's @-completion candidates; absent outside channels (no popup, no mention). */
+  mentionables?: readonly Mentionable[];
   onSend: (
     body: string,
     requestId: string,
@@ -230,15 +236,24 @@ export function MessageComposer({
   const hydrated = useHydrated();
   const toast = useAppToast();
   const [body, setBody] = useState("");
+  // A failed send keeps its request id so a retry of the same text is idempotent.
+  const retryRef = useRef<{ body: string; requestId: string; asTask: boolean } | undefined>(
+    undefined,
+  );
+  // @-completion (channels only): query tracking, popup state, and keyboard interaction.
+  const mention = useMentionCompletion({
+    mentionables,
+    value: body,
+    onChange: (next) => {
+      setBody(next);
+      if (retryRef.current && next.trim() !== retryRef.current.body) retryRef.current = undefined;
+    },
+  });
   const [sending, guard] = useSubmitGuard();
   const [error, setError] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [asTask, setAsTask] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // A failed send keeps its request id so a retry of the same text is idempotent.
-  const retryRef = useRef<{ body: string; requestId: string; asTask: boolean } | undefined>(
-    undefined,
-  );
   // IME composition tracking for Enter-to-send: see composer-behavior.ts.
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef<number | null>(null);
@@ -314,6 +329,7 @@ export function MessageComposer({
         if (sentMessage) onSent?.(sentMessage);
         retryRef.current = undefined;
         setBody("");
+        mention.close();
         setAttachments([]);
         setAsTask(false);
       } catch (cause) {
@@ -325,6 +341,9 @@ export function MessageComposer({
   }
 
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // The open @-completion owns navigation and confirmation keys; Enter must not send while a
+    // candidate is being picked. During IME composition the keys belong to the IME.
+    if (mention.handleKeyDown(event, isComposingRef.current)) return;
     const send = shouldSendOnEnter(
       {
         key: event.key,
@@ -421,21 +440,40 @@ export function MessageComposer({
       </label>
       <textarea
         id={composerId}
+        ref={mention.textareaRef}
         rows={1}
         value={body}
         disabled={composerDisabled}
         onChange={(event) => {
           setBody(event.target.value);
+          mention.track(event.target.value, event.target.selectionStart);
           if (retryRef.current && event.target.value.trim() !== retryRef.current.body)
             retryRef.current = undefined;
         }}
+        onSelect={(event) =>
+          mention.track(event.currentTarget.value, event.currentTarget.selectionStart)
+        }
+        onBlur={mention.close}
         onKeyDown={keyDown}
         onCompositionStart={compositionStart}
         onCompositionEnd={compositionEnd}
         onPaste={paste}
+        aria-expanded={mention.open || undefined}
+        aria-controls={mention.open ? mention.listboxId : undefined}
+        aria-activedescendant={mention.open ? mention.optionId(mention.activeIndex) : undefined}
         placeholder={m.conversation_message_placeholder()}
         className="max-h-40 min-h-10 w-full resize-none bg-transparent px-2 py-1 text-md leading-6 outline-none [field-sizing:content] placeholder:text-placeholder disabled:opacity-50"
       />
+      {mention.open && (
+        <MentionSuggestionList
+          id={mention.listboxId}
+          items={mention.items}
+          activeIndex={mention.activeIndex}
+          optionId={mention.optionId}
+          onChoose={mention.choose}
+          onHighlight={mention.setActiveIndex}
+        />
+      )}
       {error && (
         <p role="alert" className="text-sm text-error-primary">
           {error}

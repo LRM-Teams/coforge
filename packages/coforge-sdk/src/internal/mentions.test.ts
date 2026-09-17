@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { isValidMentionSelectorArray, mentionsInContent, parseMentionSelector } from "./mentions";
+import {
+  isValidMentionSelectorArray,
+  mentionToken,
+  mentionsInContent,
+  normalizeMentionBody,
+  parseMentionSelector,
+  replaceMentionTokens,
+  splitCodeSpans,
+} from "./mentions";
 
 test("parses a human mention selector as type user", () => {
   expect(parseMentionSelector("human:11111111-1111-4111-8111-111111111111:ada")).toEqual({
@@ -107,4 +115,109 @@ test("isValidMentionSelectorArray rejects a non-uuid id, an invalid type, or a b
       { type: "user", id: "11111111-1111-4111-8111-111111111111", name: "Ada" },
     ]),
   ).toBe(false);
+});
+
+const ADA = {
+  key: "member-ada",
+  type: "user" as const,
+  id: "11111111-1111-4111-8111-111111111111",
+  handle: "ada",
+};
+const HELPER = {
+  key: "member-helper",
+  type: "agent" as const,
+  id: "22222222-2222-4222-8222-222222222222",
+  handle: "helper",
+};
+
+test("mentionToken embeds the lowercased actor uuid with the selector kind word", () => {
+  expect(mentionToken("user", ADA.id)).toBe(`<@human:${ADA.id}>`);
+  expect(mentionToken("agent", HELPER.id.toUpperCase())).toBe(`<@agent:${HELPER.id}>`);
+});
+
+test("replaceMentionTokens resolves known tokens and keeps unknown ones intact", () => {
+  const body = `hi <@human:${ADA.id}> and <@agent:${HELPER.id}> plus <@agent:33333333-3333-4333-8333-333333333333>`;
+  const out = replaceMentionTokens(body, (type, id) =>
+    type === "user" && id === ADA.id
+      ? "@ada"
+      : type === "agent" && id === HELPER.id
+        ? "@helper"
+        : undefined,
+  );
+  expect(out).toBe("hi @ada and @helper plus <@agent:33333333-3333-4333-8333-333333333333>");
+});
+
+test("replaceMentionTokens round-trips normalizeMentionBody output", () => {
+  const { body, mentions } = normalizeMentionBody("ping @ada and @helper", [ADA, HELPER]);
+  expect(body).toBe(`ping <@human:${ADA.id}> and <@agent:${HELPER.id}>`);
+  expect(mentions).toEqual([ADA, HELPER]);
+  const handleByKey = new Map([
+    [`user:${ADA.id}`, "@ada"],
+    [`agent:${HELPER.id}`, "@helper"],
+  ]);
+  expect(replaceMentionTokens(body, (type, id) => handleByKey.get(`${type}:${id}`))).toBe(
+    "ping @ada and @helper",
+  );
+});
+
+test("normalizeMentionBody leaves unresolved handles and code spans as written", () => {
+  const body = "hey @ada, `@ada` in code, @nobody ```\n@ada fenced\n```";
+  const { body: normalized, mentions } = normalizeMentionBody(body, [ADA]);
+  expect(normalized).toBe(
+    `hey <@human:${ADA.id}>, \`@ada\` in code, @nobody \`\`\`\n@ada fenced\n\`\`\``,
+  );
+  expect(mentions).toEqual([ADA]);
+});
+
+test("normalizeMentionBody resolves bindings and ignores bindings that match no target", () => {
+  const { body, mentions } = normalizeMentionBody(
+    "taking this",
+    [ADA, HELPER],
+    [
+      { type: "agent", id: HELPER.id, name: "helper" },
+      { type: "user", id: "99999999-9999-4999-8999-999999999999", name: "ghost" },
+    ],
+  );
+  expect(body).toBe("taking this");
+  expect(mentions).toEqual([HELPER]);
+});
+
+test("normalizeMentionBody rewrites a bound handle's plain-text occurrences", () => {
+  const { body } = normalizeMentionBody(
+    "@helper take it, @helper?",
+    [HELPER],
+    [{ type: "agent", id: HELPER.id, name: "helper" }],
+  );
+  expect(body).toBe(`<@agent:${HELPER.id}> take it, <@agent:${HELPER.id}>?`);
+});
+
+test("normalizeMentionBody lets the Agent win a handle shared with a User", () => {
+  const frankUser = {
+    key: "member-frank-user",
+    type: "user" as const,
+    id: ADA.id,
+    handle: "frank",
+  };
+  const frankAgent = {
+    key: "member-frank-agent",
+    type: "agent" as const,
+    id: HELPER.id,
+    handle: "frank",
+  };
+  const { body, mentions } = normalizeMentionBody("hey @frank", [frankUser, frankAgent]);
+  expect(mentions).toEqual([frankAgent]);
+  expect(body).toBe(`hey <@agent:${HELPER.id}>`);
+});
+
+test("splitCodeSpans preserves every byte and flags code", () => {
+  const body = "a `b` c ```\nd @x\n``` e";
+  const segments = splitCodeSpans(body);
+  expect(segments.map((s) => s.text).join("")).toBe(body);
+  expect(segments).toEqual([
+    { text: "a ", code: false },
+    { text: "`b`", code: true },
+    { text: " c ", code: false },
+    { text: "```\nd @x\n```", code: true },
+    { text: " e", code: false },
+  ]);
 });

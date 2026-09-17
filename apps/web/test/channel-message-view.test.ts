@@ -17,6 +17,7 @@ function row(overrides: Partial<ChannelMessageRow>): ChannelMessageRow {
     createdAt: new Date("2026-09-17T10:00:00Z"),
     sender: null,
     attachments: [],
+    mentions: [],
     reactions: [],
     ...overrides,
   };
