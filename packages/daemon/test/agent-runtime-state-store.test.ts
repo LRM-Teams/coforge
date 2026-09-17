@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileAgentRuntimeStateStore } from "../src/persistence/agent-runtime-state-store";
@@ -30,6 +30,37 @@ test("workspace reset deletes only Agent contents, unlinks internal links and re
     await symlink(home, workspace);
     await expect(store.clearWorkspace("a")).rejects.toThrow("symbolic");
     expect(await Bun.file(join(home, "keep")).text()).toBe("global");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("workspace reset continues past an entry it cannot delete and still removes the rest", async () => {
+  const root = await mkdtemp(join(tempRoot, "control-store-partial-"));
+  try {
+    const workspace = join(root, "workspaces", "w", "agents", "a");
+    const blocked = join(workspace, "blocked-dir");
+    await mkdir(blocked, { recursive: true });
+    await Bun.write(join(workspace, "keep-a"), "a");
+    await Bun.write(join(workspace, "keep-b"), "b");
+    await Bun.write(join(blocked, "undeletable"), "stuck");
+    // No write permission on `blocked`: unlinking its contents fails (EACCES/EPERM), so the
+    // recursive delete of that one entry cannot complete.
+    await chmod(blocked, 0o500);
+    const store = new FileAgentRuntimeStateStore(
+      join(root, "state"),
+      join(root, "workspaces"),
+      "w",
+    );
+    try {
+      await expect(store.clearWorkspace("a")).rejects.toThrow();
+      // The failing entry did not stop the other entries from being removed.
+      expect(await readdir(workspace)).toEqual(["blocked-dir"]);
+      expect(await readdir(blocked)).toEqual(["undeletable"]);
+    } finally {
+      // Restore permissions so the outer `finally` can clean up the temp root.
+      await chmod(blocked, 0o700);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

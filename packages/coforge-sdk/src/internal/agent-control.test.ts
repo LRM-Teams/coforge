@@ -109,6 +109,50 @@ test("enforces lifecycle payload and safe error-code limits", () => {
   expect(() => decodeAgentWorkspaceResetRequest(new Uint8Array(32_769))).toThrow();
 });
 
+test("round-trips a non-fatal workspace-reset warning code", () => {
+  const result = {
+    ...scope,
+    phase: "workspace-reset" as const,
+    sequence: 4,
+    warningCode: "workspace_clear_incomplete",
+  };
+  const decoded = decodeAgentControlResult(encodeAgentControlResult(result));
+  expect(decoded).toEqual(result);
+  expect(decoded).not.toHaveProperty("errorCode");
+});
+
+test("enforces the same safe-code shape for warning codes as error codes", () => {
+  expect(() =>
+    encodeAgentControlResult({
+      ...scope,
+      phase: "workspace-reset",
+      sequence: 1,
+      warningCode: "x".repeat(81),
+    }),
+  ).toThrow();
+  expect(() =>
+    encodeAgentControlResult({
+      ...scope,
+      phase: "workspace-reset",
+      sequence: 1,
+      warningCode: "has spaces",
+    }),
+  ).toThrow();
+});
+
+test("decodes a payload with no warning code field at all (an old daemon's result)", () => {
+  const legacy = create(AgentControlResultSchema, {
+    ...scope,
+    phase: "workspace-reset",
+    sequence: 1,
+    messageType: "coforge.rpc.v1.AgentControlResult",
+    // No warningCode set: matches what a daemon built before this field existed would send.
+  });
+  const decoded = decodeAgentControlResult(toBinary(AgentControlResultSchema, legacy));
+  expect(decoded).not.toHaveProperty("warningCode");
+  expect(decoded).toMatchObject({ phase: "workspace-reset", sequence: 1 });
+});
+
 test("exports stable lifecycle methods", () => {
   expect(AGENT_WORKSPACE_RESET_METHOD).toBe("agent:reset-workspace");
   expect(AGENT_CONTROL_RESULT_METHOD).toBe("agent:control:result");

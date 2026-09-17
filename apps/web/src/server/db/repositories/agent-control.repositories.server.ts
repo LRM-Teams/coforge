@@ -8,7 +8,7 @@ import type {
 } from "../../agents/agent-control.server";
 import type { WorkspaceMemberRole } from "../../workspaces/member-role.server";
 
-const stateSchema = z
+export const stateSchema = z
   .object({
     version: z.literal(1),
     protocolMajor: z.literal(1),
@@ -43,6 +43,7 @@ const stateSchema = z
     sessionSequence: z.number().int().nonnegative(),
     errorCode: z.string().optional(),
     updatedAtMs: z.number().nonnegative().optional(),
+    warningCode: z.string().optional(),
   })
   .strict();
 

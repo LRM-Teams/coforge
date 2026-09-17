@@ -130,6 +130,7 @@
   "agent_control_confirm_description": "This permanently deletes all files in this Agent workspace, including hidden files, Workspace Skills, and Pi sessions. This is irreversible. Global Skills, other Agents, cloud messages, and native HOME transcripts are not deleted.",
   "agent_control_submit_error": "The control request could not be confirmed. Check Agent Activity before trying again.",
   "agent_control_access_denied": "You don't have permission to do this. Full reset requires Workspace owner or admin.",
+  "agent_control_warning_workspace_clear_incomplete": "Some workspace files could not be deleted. The Agent started with a new session.",
   "agent_skills_title": "Skills",
   "agent_skills_caveat": "Directory metadata, not session loading status. Plugins and additional configured sources are not included.",
   "agent_skills_refresh": "Refresh skills",

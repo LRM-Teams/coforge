@@ -205,26 +205,30 @@ export class AgentControl {
       record.action = "reset-workspace";
       record.phase = "clearing";
       await this.store.write(scope.agentId, record);
+      // A clear failure is non-fatal (liveness over durable receipts): it never latches the
+      // Agent into a terminal state only an explicit reset retry could leave. The session
+      // association is still cleared locally and the chain still proceeds to Start; the caller
+      // is told through a warning, not an error.
+      let clearWarningCode: string | undefined;
       try {
         await this.store.clearWorkspace(scope.agentId);
-        this.sessions.clear(record);
-        record.phase = "workspace-reset";
-        record.workspaceResetResult = {
-          ...scope,
-          phase: "workspace-reset",
-          sequence: ++record.sequence,
-        };
-        record.lastResult = record.workspaceResetResult;
-      } catch {
-        record.phase = "failed";
-        record.workspaceResetResult = {
-          ...scope,
-          phase: "failed",
-          sequence: ++record.sequence,
-          errorCode: "workspace_clear_failed",
-        };
-        record.lastResult = record.workspaceResetResult;
+      } catch (error) {
+        clearWarningCode = "workspace_clear_incomplete";
+        logger.error("Agent workspace clear did not complete", {
+          event: "agent_control:workspace_clear_failed",
+          agent_id: scope.agentId,
+          error_code: diagnosticErrorCode(error),
+        });
       }
+      this.sessions.clear(record);
+      record.phase = "workspace-reset";
+      record.workspaceResetResult = {
+        ...scope,
+        phase: "workspace-reset",
+        sequence: ++record.sequence,
+        ...(clearWarningCode ? { warningCode: clearWarningCode } : {}),
+      };
+      record.lastResult = record.workspaceResetResult;
       await this.store.write(scope.agentId, record);
       await this.runtime.result(record.lastResult).catch(() => {});
     });
@@ -262,8 +266,7 @@ export class AgentControl {
       if (
         record &&
         (["stopping", "clearing", "starting"].includes(record.phase) ||
-          (record.phase === "failed" &&
-            (record.scope.epoch === scope.epoch || record.action === "reset-workspace")))
+          (record.phase === "failed" && record.scope.epoch === scope.epoch))
       )
         throw new Error("previous_control_not_completed");
       if (this.runtime.running(intent.agentId)) throw new Error("agent_already_running");

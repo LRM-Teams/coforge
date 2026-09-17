@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { AlertCircle, RefreshCcw01 as RotateCcw, XClose as X } from "@untitledui/icons";
+import {
+  AlertCircle,
+  AlertTriangle,
+  RefreshCcw01 as RotateCcw,
+  XClose as X,
+} from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 
 import { Button } from "@/components/base/buttons/button";
@@ -15,6 +20,13 @@ type AgentControlRequest = {
   confirmed?: boolean;
 };
 
+/** Known non-fatal control warning codes; never render a raw code (toast-vs-inline-rule). */
+function warningMessage(code: string): string | undefined {
+  if (code === "workspace_clear_incomplete")
+    return m.agent_control_warning_workspace_clear_incomplete();
+  return undefined;
+}
+
 export function AgentControl({
   agentId,
   agentName,
@@ -27,9 +39,10 @@ export function AgentControl({
   agentId: string;
   agentName: string;
   canFullReset: boolean;
-  onExecute: (request: AgentControlRequest) => Promise<void>;
+  onExecute: (request: AgentControlRequest) => Promise<{ warning?: string } | void>;
 }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [warningCode, setWarningCode] = useState<string | undefined>(undefined);
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState<AgentControlRequest["action"]>("restart");
   const options = [
@@ -59,18 +72,21 @@ export function AgentControl({
   function submit() {
     setOpen(false);
     setSubmitError(null);
+    setWarningCode(undefined);
     void onExecute({
       agentId,
       action,
       requestId: crypto.randomUUID(),
       ...(destructive && { confirmed: true }),
-    }).catch((cause: unknown) => {
-      setSubmitError(
-        isAppError(cause) && cause.code === "ACCESS_DENIED"
-          ? m.agent_control_access_denied()
-          : m.agent_control_submit_error(),
-      );
-    });
+    })
+      .then((result) => setWarningCode(result?.warning))
+      .catch((cause: unknown) => {
+        setSubmitError(
+          isAppError(cause) && cause.code === "ACCESS_DENIED"
+            ? m.agent_control_access_denied()
+            : m.agent_control_submit_error(),
+        );
+      });
   }
 
   return (
@@ -92,6 +108,15 @@ export function AgentControl({
         <p className="mt-4 text-sm text-error-primary" role="alert">
           {submitError}
         </p>
+      )}
+      {warningCode && warningMessage(warningCode) && (
+        <div
+          className="mt-4 flex items-start gap-3 rounded-lg border border-secondary bg-warning-primary p-3 text-sm text-primary"
+          role="status"
+        >
+          <AlertTriangle aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+          <p>{warningMessage(warningCode)}</p>
+        </div>
       )}
       <ModalOverlay isOpen={open} onOpenChange={setOpen}>
         <Modal className="w-[calc(100vw-2rem)] max-w-lg">
