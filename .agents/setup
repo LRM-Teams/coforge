@@ -99,6 +99,6 @@ run_step "Install Claude Code CLI" install_claude_code
 run_step "Install Docker" install_docker
 run_step "Install Linux credential store" install_linux_credential_store
 run_step "Install pinned toolchain" "$mise_bin" install --locked
-run_step "Install Bun dependencies" "$mise_bin" run install
+run_step "Install Bun dependencies" "$mise_bin" run setup
 
 printf 'Orb setup complete.\n'
