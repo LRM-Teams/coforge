@@ -232,7 +232,7 @@ test("the Agent Manual is introduced as a short capability pointer, not a restru
   expect(publicChannelsIndex - manualBulletIndex).toBeGreaterThan(200);
 });
 
-test("channel management authority matches Raft's per-channel rule and disclaims Agent role changes", () => {
+test("channel management authority is per channel and disclaims Agent role changes", () => {
   expect(instructions).toContain(
     "Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`, `add-member`, `remove-member`) are authorized per channel",
   );
@@ -285,7 +285,7 @@ test("resolve and react are scoped to proving/reading an id and deliberate ackno
   expect(instructions).toContain("never react automatically on routine updates");
 });
 
-test("Tasks keep Raft's managed-runner summary and defer the full reference to the Manual", () => {
+test("Tasks keep a short summary and defer the full reference to the Manual", () => {
   expect(instructions).toContain("**Claim rule:**");
   expect(instructions).toContain("Task commands use the parent target");
   expect(instructions).toContain("claim its root Message, not the reply Message");
@@ -671,4 +671,21 @@ test("Compaction safety says MEMORY.md is the recovery point after context compr
   expect(section).toContain("**MEMORY.md must be self-sufficient as a recovery point.**");
   expect(section).toContain('write a brief "Active Context" note in MEMORY.md');
   expect(instructions).toContain(section);
+});
+
+test("states true facts an Agent would otherwise have to guess", () => {
+  expect(instructions).toContain(
+    "Sending to an `@username` you have no conversation with yet starts a new direct message",
+  );
+  expect(instructions).toContain(
+    "a check shows only the new message, not the thread's earlier replies",
+  );
+  expect(instructions).toContain("`coforge channel leave --target '#name'`");
+  expect(instructions).toContain("#general cannot be left");
+  expect(instructions).toContain(
+    "check its description with `coforge channel info <target>` first",
+  );
+  expect(instructions).toContain("A reminder wakes only the Agent that scheduled it.");
+  // The Agent CLI has no per-command help, so the prompt must not promise one.
+  expect(instructions).not.toContain("--help");
 });

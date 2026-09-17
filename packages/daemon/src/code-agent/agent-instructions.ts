@@ -1,18 +1,17 @@
 /**
- * Standing instructions for a daemon-spawned Agent, one builder per section. The layout follows
- * Raft 1.0.32's `buildRaftCliGuideSections`, so a section can be compared with, and aligned to,
- * its Raft counterpart on its own (ADR 0036, "Prompt versus Manual placement"). Raft's builders
- * also take an `audience`; CoForge has only daemon-spawned Agents (Raft's `managed-runner`), so
- * every section here is that variant and there is no parameter yet.
+ * Standing instructions for a daemon-spawned Agent, one builder per section, so a section can be
+ * read, tested and changed on its own. Every Agent today is spawned by the Daemon, so there is
+ * one variant of each section; a self-hosted Agent client would add an audience parameter. Why
+ * each section exists and what it was compared against: ADR 0036, "Prompt versus Manual
+ * placement".
  */
 
 /**
  * The Agent's server-authored identity, decoded from the launch-config wire response (see
  * `daemon-connection.ts#parseAgentLaunchIdentity`). Every field is optional: an older Web sends
- * none of this, and a garbage or missing value must never fail a launch. `runtimeContext` mirrors
- * Raft's `agent:start` `config.runtimeContext`, except CoForge carries it over the launch-config
- * response (where the Agent's other per-launch server data already travels), not a dedicated
- * start message, and never repeats `agentId`: the daemon always knows that locally already.
+ * none of this, and a garbage or missing value must never fail a launch. It travels in the
+ * launch-config response, where the Agent's other per-launch server data already travels, and
+ * never repeats `agentId`: the daemon always knows that locally already.
  */
 export type AgentLaunchIdentity = {
   name?: string;
@@ -32,9 +31,8 @@ export type AgentLaunchIdentity = {
 
 /**
  * Everything `buildCoforgeAgentInstructions` needs. `agentWorkspaceDirectory` and `agentId` are
- * local facts the daemon always has; `identity` is server-authored and optional end to end,
- * matching Raft's `withLocalRuntimeContext(config, agentId, workspacePath)`: the daemon's only
- * local contribution is the Agent workspace path and an `agentId` fallback.
+ * local facts the daemon always has; `identity` is server-authored and optional end to end. The
+ * daemon's only local contribution is the Agent workspace path and the `agentId`.
  */
 export type CoforgeAgentPromptContext = {
   agentWorkspaceDirectory: string;
@@ -69,7 +67,7 @@ export function stripHeadingMarkers(text: string): string {
     .join("\n");
 }
 
-/** Appends Raft's "This may evolve." suffix without doubling a sentence-ending punctuation mark
+/** Appends the "This may evolve." suffix without doubling a sentence-ending punctuation mark
  * the description may already end with. */
 function appendMayEvolve(description: string): string {
   const endsWithPunctuation = /[.!?。！？]$/.test(description.trim());
@@ -94,23 +92,19 @@ function buildWhoYouAreSection(): string {
 Your Agent workspace and MEMORY.md persist across turns, so you can recover context when resumed. Think of yourself as a colleague who is always available, accumulates knowledge over time, and develops expertise through interactions.`;
 }
 
-/** Same fallback Raft uses for `machineName`/`machineId`: prefer "label (id)", fall back to
- * whichever single value is present. */
+/** Prefers "label (id)" and falls back to whichever single value is present. */
 function labelWithId(label: string | undefined, id: string | undefined): string | undefined {
   if (label && id) return `${label} (${id})`;
   return label || id;
 }
 
 /**
- * `## Current Runtime Context`, in Raft's bullet order with CoForge's divergences: a `Username`
- * bullet (Raft has none), a `Workspace` bullet in place of Raft's `Server ID` (CoForge's
- * Workspace is the tenant, distinct from the Agent workspace directory below), and the existing
- * `Agent workspace` label kept instead of Raft's `Workspace` for that last bullet, since in
- * CoForge "Workspace" already names the tenant. Raft's `Daemon: v…` bullet is `Computer version`
- * here: the server records the Computer executable's version, which bundles the Daemon. The
- * `Hostname` bullet is server-authored like every other bullet here: the server sends the
- * Computer record's `name`, which is the OS hostname the Computer registered with, and this
- * Daemon only renders the value it is handed — it never reads the local hostname itself.
+ * `## Current Runtime Context`: bullets only for known values. `Workspace` names the tenant, so
+ * the directory bullet is labelled `Agent workspace`. `Computer version` is the Computer
+ * executable's version, which bundles the Daemon. Every value but the Agent workspace path and
+ * `agentId` is server-authored, including `Hostname` (the Computer record's `name`, the OS
+ * hostname it registered with): the Daemon renders what it is handed and never reads the local
+ * hostname itself.
  */
 function buildRuntimeContextSection(context: CoforgeAgentPromptContext): string {
   const identity = context.identity;
@@ -246,6 +240,7 @@ function buildMessagesSection(): string {
 
 - Main chat targets are \`@username\`; a thread target is \`@username:12345678\`, using the first eight hexadecimal characters of its top-level root Message UUID. All targets share your existing runtime session. Replies to a thread stay in that thread; never create a nested thread.
 - To see a thread's root background, use the ordinary parent range read: \`coforge message read --target @username --around 12345678\`. Range reads support \`--before\`, \`--after\`, \`--around\`, and \`--limit\`; an unanchored read keeps the normal unread behavior. Ambiguous short IDs require the full Message UUID. Root text is not included automatically in notices or checks. A read prints a window header with "Older exist"/"Newer exist" cursor commands you can paste to page further, numbered message lines that each carry a \`replyTarget\` to reuse when replying in that thread, and a closing "End of window" line.
+- If you are @mentioned in a thread you have not read this turn, read it with \`coforge message read --target <thread-target>\` before replying: a check shows only the new message, not the thread's earlier replies.
 - When a user refers to older context that is absent from the current session, first use \`coforge message search\`, then inspect a hit with \`coforge message read --target <target> --around <message-id>\`. Only ask the user when search cannot find the referenced context. Do not read all message history on every restart. Search results come as \`<result ref="msg:...">\` blocks whose \`<preview>\` marks the matched text and rewrites quoted \`@name\`/\`#chan\`/\`task #n\` references to \`user:name\`/\`channel:name\`/\`task:n\` so they are never mistaken for real targets.
 - Use \`coforge message resolve <message-id>\` only to prove a message id exists or to read exactly one message by id when you do not already know its target. Use \`coforge message react --message-id <id> --emoji <emoji> [--remove]\` only when a human explicitly asks for a reaction or as a clear, deliberate acknowledgement; never react automatically on routine updates or as a substitute for a reply.
 
@@ -258,6 +253,8 @@ function buildMessagesSection(): string {
   \`coforge message send --target "@username" <<'COFORGE_MESSAGE'\`
   \`Your reply\`
   \`COFORGE_MESSAGE\`
+
+- Sending to an \`@username\` you have no conversation with yet starts a new direct message; there is no separate command for starting one.
 
 - If sending is held because newer context arrived, the hold output lists the newer messages as preview lines before the draft instructions; review the returned messages. To keep the saved reply unchanged, retry with the exact target: \`coforge message send --target "@username" --send-draft\`. To replace it, send revised content normally. Use \`--anyway\` only with \`--send-draft\` when repeated newer context keeps holding the same still-correct reply.
 - If \`coforge message send\` fails and its error shows \`Draft saved: yes\`, delivery is unknown, not failed: do not resend. Wait, or tell a person what happened; running \`coforge message read\` or seeing no reply neither confirms nor rules out that it already sent. \`coforge message send --send-draft\` after such a failure is a person's deliberate decision to accept a possible duplicate, not something you decide on your own.
@@ -295,6 +292,7 @@ function buildPublicChannelsSection(): string {
 - Use \`coforge channel mute --target '#general'\` to suppress subsequent ordinary parent-channel notifications, and \`coforge channel unmute --target '#general'\` to resume them. A parent channel mute does not suppress replies in threads you follow; unfollow the exact thread to stop those replies. Human personal @mentions still notify you while muted. Muting does not leave the channel or remove your read/write permissions. Unmuting does not replay messages from the muted period. Previously eligible notifications can still be recovered.
 - Channel messages are visible to Workspace members. Do not disclose private conversation contents or secrets learned in another conversation without permission to share them with this audience. A shared runtime session is not a strict confidentiality boundary.
 - Before posting to a channel you have not joined, run \`coforge channel join --target '#name'\` (idempotent; fails on an archived channel). Use \`coforge channel members <target>\` to see who currently has join/post authority for a channel, thread, or DM before assuming someone is reachable there.
+- Use \`coforge channel leave --target '#name'\` to leave a channel you joined; #general cannot be left. When you are unsure whether something belongs in a channel, check its description with \`coforge channel info <target>\` first.
 - Channel management commands (\`channel create\`, \`update\`, \`lifecycle archive|unarchive\`, \`add-member\`, \`remove-member\`) are authorized per channel; a channel-admin role never grants delete, visibility, federation, or server-profile actions. There is no Agent command for changing channel roles. \`channel info\`/\`channel members\` show your server and stored channel roles separately when available.`;
 }
 
@@ -310,7 +308,8 @@ function buildRemindersSection(): string {
 
 - Use \`coforge reminder schedule --title <title> --target <target> --message-id <id>\` with exactly one of \`--delay-seconds\` (a plain integer or a duration like \`30m\`), \`--fire-at\`, or \`--repeat\`; recurring reminders may include \`--tz\`.
 - Use \`coforge reminder list|update|snooze|cancel|log\` to manage reminders; \`--id\` accepts a full UUID or an unambiguous prefix of at least 8 hex characters. \`snooze\` also accepts \`--by <duration>\` in place of \`--delay-seconds\`, and \`update\` accepts \`--in <duration>\` in place of \`--fire-at\`. A due App Inbox item is completed with \`coforge reminder ack --id <full-reminder-uuid-or-prefix> --revision <exact-positive-revision>\` (or \`dismiss\`) exactly as shown by the item.
-- For future work, schedule a reminder rather than sleeping or polling for a long time. A reminder marked fired means its authoritative due event was accepted, not that the requested work ran or completed.`;
+- For future work, schedule a reminder rather than sleeping or polling for a long time. A reminder marked fired means its authoritative due event was accepted, not that the requested work ran or completed.
+- A reminder wakes only the Agent that scheduled it. To bring someone else in when it fires, @mention them in the message you send then, or have them schedule their own.`;
 }
 
 function buildTasksSection(): string {
