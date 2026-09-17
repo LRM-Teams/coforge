@@ -1,51 +1,78 @@
-import { Fragment, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Fragment, useMemo, useState } from "react";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { Link, notFound } from "@tanstack/react-router";
 import {
   ArrowLeft,
   ArrowUpRight,
-  ChevronDown,
   ChevronRight,
   File02,
   Folder,
+  LayoutLeft,
+  LayoutRight,
 } from "@untitledui/icons";
 import { Button as AriaButton, Disclosure, DisclosurePanel, Heading } from "react-aria-components";
-import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
+import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { Button } from "@/components/base/buttons/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { RelativeTime } from "@/components/ui/relative-time";
-import { CodeBlockStatic } from "@/features/records/report-editor/code-block-static";
-import { ContentEditor } from "@/features/records/report-editor/content-editor";
-import { formatFileSize, getFileExtension } from "@/features/records/report-editor/utils/file-meta";
-import { extensionToLanguage } from "@/features/records/report-editor/utils/preview";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import type { getProject, getProjectPath } from "./projects.functions";
+import { downloadUrl, ProjectFileTree } from "./project-file-tree";
+import { ProjectFileView, ProjectFileViewSkeleton } from "./project-file-view";
+import {
+  projectDirectoryCommitsQuery,
+  projectObjectQuery,
+  projectQuery,
+  projectTreeQuery,
+} from "./project-tree-queries";
 import { RepositoryStatusMessage } from "./repository-status";
+import { buildTreeIndex, childrenOf, type TreeEntry } from "./tree-index";
 
-type Project = NonNullable<Awaited<ReturnType<typeof getProject>>>;
-// The route's loader already throws notFound() for a "not_found" path, so the component
-// only ever receives the remaining statuses.
-type PathResult = Exclude<Awaited<ReturnType<typeof getProjectPath>>, { status: "not_found" }>;
-type FileType = "file" | "dir" | "symlink" | "submodule";
-type Entry = { name: string; path: string; type: FileType };
-type Level = { path: string; entries: Entry[] };
+type LastCommit = { sha: string; message: string; date: string } | null;
+type TreeSide = "left" | "right";
 
-const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
+const TREE_SIDE_KEY = "coforge-project-tree-side";
 const crumbLinkClassName =
   "max-w-32 shrink-0 truncate rounded p-1 outline-focus-ring hover:text-primary hover:underline focus-visible:outline-2";
 
-export function ProjectTree({
-  project,
-  repository,
-  path,
-}: {
-  project: Project;
-  repository: PathResult;
-  path: string;
-}) {
+/** Per-device preference, like the rail labels: which side the file tree sits on. */
+function readTreeSide(): TreeSide {
+  try {
+    return localStorage.getItem(TREE_SIDE_KEY) === "left" ? "left" : "right";
+  } catch {
+    return "right";
+  }
+}
+
+/**
+ * The repository browser. The header, breadcrumb and side tree stay mounted while the User
+ * moves between files; only the content pane waits on a request, behind its own skeleton.
+ */
+export function ProjectTree({ slug, path }: { slug: string; path: string }) {
+  const queryClient = useQueryClient();
+  const { data: project } = useSuspenseQuery(projectQuery(slug));
+  const { data: repository } = useSuspenseQuery(projectTreeQuery(slug));
+  const [treeSide, setTreeSide] = useState(readTreeSide);
+  // One tree instance at a time: a second, hidden copy would double the rows and the prefetches.
+  const isDesktop = useBreakpoint("lg");
+  const layout = useDefaultLayout({
+    id: "coforge-project-tree",
+    panelIds: isDesktop ? ["main", "tree"] : ["main"],
+    onlySaveAfterUserInteractions: true,
+    storage: conversationLayoutStorage,
+  });
+  const index = useMemo(
+    () => buildTreeIndex(repository.status === "ready" ? repository.entries : []),
+    [repository],
+  );
+  // The route loader already turned a missing Project into notFound().
+  if (!project) throw notFound();
   const segments = path === "" ? [] : path.split("/");
 
   if (repository.status !== "ready") {
+    if (repository.status === "not_found") throw notFound();
     return (
       <main className="flex h-svh min-w-0 flex-col bg-primary">
         <PageHeader
@@ -57,22 +84,158 @@ export function ProjectTree({
           }
         />
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          <RepositoryStatusMessage status={repository.status} />
+          <RepositoryStatusMessage
+            status={repository.status}
+            onRetry={() => queryClient.invalidateQueries({ queryKey: ["project", slug] })}
+          />
         </div>
       </main>
     );
   }
 
-  const { fullName, defaultBranch, ancestors, node } = repository;
-  const heading = segments.at(-1) ?? defaultBranch;
-  const githubUrl = buildGithubUrl(fullName, defaultBranch, path, node.kind);
-  const levels: Level[] =
-    node.kind === "tree" ? [...ancestors, { path, entries: node.entries }] : ancestors;
+  const { fullName, defaultBranch } = repository;
+  const entry = path === "" ? undefined : index.byPath.get(path);
+  const isFile = entry ? entry.type !== "dir" : false;
+  const githubUrl = buildGithubUrl(fullName, defaultBranch, path, isFile ? "blob" : "tree");
+
+  function toggleTreeSide() {
+    const next = treeSide === "right" ? "left" : "right";
+    setTreeSide(next);
+    try {
+      localStorage.setItem(TREE_SIDE_KEY, next);
+    } catch {
+      // Private mode or blocked storage: the choice still holds for this visit.
+    }
+  }
+
+  const tree = (className?: string) => (
+    <ProjectFileTree
+      slug={slug}
+      projectId={project.id}
+      index={index}
+      currentPath={path}
+      className={className}
+    />
+  );
+  const truncatedNotice = repository.truncated && (
+    <p className="px-3 py-2 text-xs text-tertiary">{m.project_tree_truncated()}</p>
+  );
+
+  const mainPanel = (
+    <Panel
+      key="main"
+      id="main"
+      // Strings are percentages of the group; numbers would be pixels.
+      minSize="50"
+      className="flex min-h-0 min-w-0 flex-col"
+    >
+      {!isDesktop && (
+        <Disclosure className="border-b border-secondary">
+          {({ isExpanded }) => (
+            <>
+              <Heading>
+                <AriaButton
+                  slot="trigger"
+                  className="flex w-full cursor-pointer items-center gap-2 px-4 py-3 text-sm font-medium text-primary outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2"
+                >
+                  <ChevronRight
+                    aria-hidden="true"
+                    className={cn(
+                      "size-4 shrink-0 transition-transform",
+                      isExpanded && "rotate-90",
+                    )}
+                  />
+                  {m.project_tree_files()}
+                </AriaButton>
+              </Heading>
+              <DisclosurePanel className="border-t border-secondary px-3 py-2">
+                {tree("max-h-[50vh]")}
+                {truncatedNotice}
+              </DisclosurePanel>
+            </>
+          )}
+        </Disclosure>
+      )}
+      {!entry && path !== "" ? (
+        // Only reachable when GitHub truncated the tree: the path is not in the index.
+        <UnindexedPath
+          slug={slug}
+          projectId={project.id}
+          path={path}
+          fullName={fullName}
+          defaultBranch={defaultBranch}
+          treeSha={repository.sha}
+        />
+      ) : !entry || entry.type === "dir" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          <DirectoryBody
+            slug={slug}
+            path={path}
+            entries={childrenOf(index, path)}
+            fullName={fullName}
+            defaultBranch={defaultBranch}
+            treeSha={repository.sha}
+          />
+        </div>
+      ) : entry.type === "file" ? (
+        <FileBody
+          slug={slug}
+          projectId={project.id}
+          path={path}
+          oid={entry.sha}
+          githubUrl={githubUrl}
+        />
+      ) : (
+        <ProjectFileView
+          path={path}
+          name={entry.name}
+          byteSize={0}
+          text={null}
+          githubUrl={githubUrl}
+          downloadUrl={downloadUrl(project.id, path)}
+        />
+      )}
+    </Panel>
+  );
+  const treePanel = (
+    <Panel
+      key="tree"
+      id="tree"
+      defaultSize="22"
+      minSize="14"
+      maxSize="45"
+      className="flex min-h-0 min-w-0 flex-col"
+    >
+      <div className="flex items-center justify-between pt-3 pr-2 pb-1 pl-5">
+        <h2 className="text-xs font-semibold tracking-wide text-quaternary uppercase">
+          {m.project_tree_files()}
+        </h2>
+        <Button
+          size="sm"
+          color="tertiary"
+          iconLeading={treeSide === "right" ? LayoutLeft : LayoutRight}
+          aria-label={
+            treeSide === "right" ? m.project_tree_move_left() : m.project_tree_move_right()
+          }
+          onPress={toggleTreeSide}
+        />
+      </div>
+      {tree("min-h-0 flex-1 px-2 pb-3")}
+      {truncatedNotice}
+    </Panel>
+  );
+  const separator = (
+    <Separator
+      key="separator"
+      aria-label={m.project_tree_files()}
+      className="w-px shrink-0 bg-border-secondary transition-colors hover:bg-brand-solid data-[separator=active]:bg-brand-solid"
+    />
+  );
 
   return (
     <main className="flex h-svh min-w-0 flex-col bg-primary">
       <PageHeader
-        heading={heading}
+        heading={segments.at(-1) ?? defaultBranch}
         leading={
           <div className="flex min-w-0 items-center gap-1">
             <BackLink />
@@ -96,59 +259,99 @@ export function ProjectTree({
           </a>
         }
       />
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          {node.kind === "tree" ? (
-            <TreeBody
-              projectSlug={project.slug}
-              path={path}
-              entries={node.entries}
-              fullName={fullName}
-              defaultBranch={defaultBranch}
-            />
-          ) : (
-            <BlobBody
-              name={node.name}
-              byteSize={node.byteSize}
-              text={node.text}
-              githubUrl={githubUrl}
-            />
-          )}
-        </div>
-        <aside className="shrink-0 lg:w-72 lg:overflow-y-auto lg:border-l lg:border-secondary">
-          <Disclosure className="mx-4 mb-4 rounded-xl border border-secondary sm:mx-6 sm:mb-6 lg:hidden">
-            {({ isExpanded }) => (
-              <>
-                <Heading>
-                  <AriaButton
-                    slot="trigger"
-                    className="flex w-full cursor-pointer items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-primary outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2"
-                  >
-                    <ChevronRight
-                      aria-hidden="true"
-                      className={cn(
-                        "size-4 shrink-0 transition-transform",
-                        isExpanded && "rotate-90",
-                      )}
-                    />
-                    {m.project_tree_files()}
-                  </AriaButton>
-                </Heading>
-                <DisclosurePanel className="max-h-[50vh] overflow-y-auto border-t border-secondary px-3 py-2">
-                  <FileTree projectSlug={project.slug} levels={levels} currentPath={path} />
-                </DisclosurePanel>
-              </>
-            )}
-          </Disclosure>
-          <div className="hidden lg:block lg:px-3 lg:py-2">
-            <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-quaternary uppercase tracking-wide">
-              {m.project_tree_files()}
-            </h2>
-            <FileTree projectSlug={project.slug} levels={levels} currentPath={path} />
-          </div>
-        </aside>
-      </div>
+      <Group
+        // The saved widths belong to a panel order, so each side keeps its own.
+        key={isDesktop ? treeSide : "stacked"}
+        id={`project-tree-${treeSide}`}
+        orientation="horizontal"
+        defaultLayout={layout.defaultLayout}
+        onLayoutChanged={layout.onLayoutChanged}
+        className="flex min-h-0 min-w-0 flex-1"
+      >
+        {treeSide === "left"
+          ? [treePanel, separator, mainPanel]
+          : [mainPanel, separator, treePanel]}
+      </Group>
     </main>
+  );
+}
+
+/** A file's content is the one thing a click waits for; everything around it is already there. */
+function FileBody({
+  slug,
+  projectId,
+  path,
+  oid,
+  githubUrl,
+}: {
+  slug: string;
+  projectId: string;
+  path: string;
+  oid?: string;
+  githubUrl: string;
+}) {
+  const queryClient = useQueryClient();
+  const name = path.split("/").pop() ?? path;
+  const { data } = useQuery(projectObjectQuery(slug, path, oid));
+  if (!data) return <ProjectFileViewSkeleton name={name} />;
+  if (data.status === "not_found") throw notFound();
+  if (data.status !== "ready" || data.node.kind !== "blob")
+    return (
+      <RepositoryStatusMessage
+        status={data.status === "ready" ? "unavailable" : data.status}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: ["project", slug, "object"] })}
+      />
+    );
+  return (
+    <ProjectFileView
+      // Tab and copy state belong to one file.
+      key={path}
+      path={path}
+      name={name}
+      byteSize={data.node.byteSize}
+      text={data.node.text}
+      githubUrl={githubUrl}
+      downloadUrl={downloadUrl(projectId, path)}
+    />
+  );
+}
+
+function UnindexedPath({
+  slug,
+  projectId,
+  path,
+  fullName,
+  defaultBranch,
+  treeSha,
+}: {
+  slug: string;
+  projectId: string;
+  path: string;
+  fullName: string;
+  defaultBranch: string;
+  treeSha: string;
+}) {
+  const { data } = useQuery(projectObjectQuery(slug, path));
+  if (data?.status === "ready" && data.node.kind === "tree")
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <DirectoryBody
+          slug={slug}
+          path={path}
+          entries={data.node.entries}
+          fullName={fullName}
+          defaultBranch={defaultBranch}
+          treeSha={treeSha}
+        />
+      </div>
+    );
+  return (
+    <FileBody
+      slug={slug}
+      projectId={projectId}
+      path={path}
+      githubUrl={buildGithubUrl(fullName, defaultBranch, path, "blob")}
+    />
   );
 }
 
@@ -237,19 +440,25 @@ function Breadcrumb({
   );
 }
 
-function TreeBody({
-  projectSlug,
+function DirectoryBody({
+  slug,
   path,
   entries,
   fullName,
   defaultBranch,
+  treeSha,
 }: {
-  projectSlug: string;
+  slug: string;
   path: string;
-  entries: Array<Entry & { lastCommit: { sha: string; message: string; date: string } | null }>;
+  entries: ReadonlyArray<Pick<TreeEntry, "name" | "path" | "type">>;
   fullName: string;
   defaultBranch: string;
+  treeSha: string;
 }) {
+  const projectSlug = slug;
+  // The listing renders from the tree at once; last commits fill in when their request lands.
+  const { data: history } = useQuery(projectDirectoryCommitsQuery(slug, path, treeSha));
+  const commits: Record<string, LastCommit> = history?.status === "ready" ? history.commits : {};
   const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   const rowClassName =
     "flex min-w-0 items-center gap-3 px-4 py-2.5 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2";
@@ -288,11 +497,11 @@ function TreeBody({
                   {entry.name}
                 </span>
                 <span className="hidden min-w-0 flex-1 truncate text-xs text-tertiary sm:block">
-                  {entry.lastCommit?.message.split("\n")[0]}
+                  {commits[entry.path]?.message.split("\n")[0]}
                 </span>
-                {entry.lastCommit?.date && (
+                {commits[entry.path]?.date && (
                   <RelativeTime
-                    value={entry.lastCommit.date}
+                    value={commits[entry.path]!.date}
                     plain
                     className="shrink-0 text-xs text-tertiary"
                   />
@@ -331,143 +540,6 @@ function TreeBody({
       </ul>
     </div>
   );
-}
-
-function BlobBody({
-  name,
-  byteSize,
-  text,
-  githubUrl,
-}: {
-  name: string;
-  byteSize: number;
-  text: string | null;
-  githubUrl: string;
-}) {
-  const isMarkdown = MARKDOWN_EXTENSIONS.has(getFileExtension(name));
-  const [tab, setTab] = useState<"preview" | "source">("preview");
-  return (
-    <div className="overflow-hidden rounded-xl border border-secondary">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-secondary px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <File02 aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
-          <span className="truncate text-sm font-medium text-primary">{name}</span>
-          <span className="shrink-0 text-xs text-tertiary">{formatFileSize(byteSize)}</span>
-        </div>
-        {isMarkdown && text !== null && (
-          <ButtonGroup
-            aria-label={m.project_file_preview()}
-            size="sm"
-            selectedKeys={[tab]}
-            disallowEmptySelection
-            onSelectionChange={(keys) => {
-              const next = [...keys][0];
-              if (next === "preview" || next === "source") setTab(next);
-            }}
-          >
-            <ButtonGroupItem id="preview">{m.project_file_preview()}</ButtonGroupItem>
-            <ButtonGroupItem id="source">{m.project_file_source()}</ButtonGroupItem>
-          </ButtonGroup>
-        )}
-      </div>
-      {text === null ? (
-        <div className="flex flex-col items-center gap-3 px-5 py-16 text-center">
-          <p className="text-sm text-tertiary">{m.project_file_not_previewable()}</p>
-          <Button
-            size="sm"
-            color="secondary"
-            href={githubUrl}
-            target="_blank"
-            rel="noreferrer"
-            iconTrailing={ArrowUpRight}
-          >
-            {m.project_open_on_github()}
-          </Button>
-        </div>
-      ) : isMarkdown && tab === "preview" ? (
-        <div className="min-w-0 px-6 py-4">
-          <div className="mx-auto max-w-3xl">
-            <ContentEditor editable={false} defaultValue={text} />
-          </div>
-        </div>
-      ) : (
-        <div className="min-w-0 overflow-x-auto">
-          <CodeBlockStatic
-            language={isMarkdown ? "markdown" : extensionToLanguage(name)}
-            body={text}
-            className="p-4 text-sm"
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Root first: `ancestors` from the server, plus (for a directory target) its own entries. */
-function FileTree({
-  projectSlug,
-  levels,
-  currentPath,
-}: {
-  projectSlug: string;
-  levels: Level[];
-  currentPath: string;
-}) {
-  return renderLevel(0, 0);
-
-  function renderLevel(index: number, depth: number) {
-    const level = levels[index];
-    if (!level) return null;
-    const expandedPath = levels[index + 1]?.path;
-    const indent = 12 + depth * 16;
-    if (level.entries.length === 0)
-      return (
-        <p className="py-1 text-xs text-tertiary" style={{ paddingLeft: indent }}>
-          {m.project_tree_empty()}
-        </p>
-      );
-    return (
-      <ul className={depth === 0 ? "space-y-0.5" : undefined}>
-        {level.entries.map((entry) => {
-          const isExpanded = entry.type === "dir" && entry.path === expandedPath;
-          const isCurrent = entry.path === currentPath;
-          return (
-            <li key={entry.path}>
-              <Link
-                to="/projects/$projectSlug/tree/$"
-                params={{ projectSlug, _splat: entry.path }}
-                aria-current={isCurrent ? "page" : undefined}
-                style={{ paddingLeft: indent }}
-                className={cn(
-                  "flex min-w-0 items-center gap-1.5 rounded-md py-1 pr-2 text-sm outline-focus-ring focus-visible:outline-2",
-                  isCurrent
-                    ? "bg-sidebar-accent font-semibold text-brand-secondary"
-                    : "text-tertiary hover:bg-primary_hover",
-                )}
-              >
-                {entry.type === "dir" ? (
-                  isExpanded ? (
-                    <ChevronDown aria-hidden="true" className="size-3.5 shrink-0" />
-                  ) : (
-                    <ChevronRight aria-hidden="true" className="size-3.5 shrink-0" />
-                  )
-                ) : (
-                  <span className="inline-block size-3.5 shrink-0" aria-hidden="true" />
-                )}
-                {entry.type === "dir" ? (
-                  <Folder aria-hidden="true" className="size-4 shrink-0" />
-                ) : (
-                  <File02 aria-hidden="true" className="size-4 shrink-0" />
-                )}
-                <span className="truncate">{entry.name}</span>
-              </Link>
-              {isExpanded && renderLevel(index + 1, depth + 1)}
-            </li>
-          );
-        })}
-      </ul>
-    );
-  }
 }
 
 function buildGithubUrl(

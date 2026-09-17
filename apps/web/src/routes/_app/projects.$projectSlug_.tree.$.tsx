@@ -2,29 +2,41 @@ import { createFileRoute, notFound } from "@tanstack/react-router";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { ProjectsPending } from "@/features/projects/projects-content";
 import { ProjectTree } from "@/features/projects/project-tree";
-import { getProject, getProjectPath } from "@/features/projects/projects.functions";
+import {
+  projectObjectQuery,
+  projectQuery,
+  projectTreeQuery,
+} from "@/features/projects/project-tree-queries";
 
 export const Route = createFileRoute("/_app/projects/$projectSlug_/tree/$")({
   // The markdown Preview toggle renders ContentEditor (TipTap), which must not SSR.
   ssr: "data-only",
-  loader: async ({ params }) => {
+  loader: async ({ params, context: { queryClient } }) => {
+    const slug = params.projectSlug;
     const path = params._splat ?? "";
-    const [project, repository] = await Promise.all([
-      getProject({ data: { slug: params.projectSlug } }),
-      getProjectPath({ data: { slug: params.projectSlug, path } }),
+    // Only the first visit waits here: afterwards both are cache hits ("static" = any cached
+    // value will do; the mounted page revalidates the tree on its own), so moving between
+    // files never blocks on the loader and the page shell stays mounted.
+    const [project, tree] = await Promise.all([
+      queryClient.query({ ...projectQuery(slug), staleTime: "static" }),
+      queryClient.query({ ...projectTreeQuery(slug), staleTime: "static" }),
     ]);
     if (!project) throw notFound();
-    if (repository.status === "not_found") throw notFound();
-    return { project, repository, path };
+    if (tree.status === "ready") {
+      const entry = path === "" ? undefined : tree.entries.find((item) => item.path === path);
+      if (path !== "" && !entry && !tree.truncated) throw notFound();
+      // Started, not awaited: the content pane shows its own skeleton while this is in flight,
+      // and intent preloading (hover) usually finishes it before the click.
+      if (entry?.type === "file")
+        void queryClient.query(projectObjectQuery(slug, path, entry.sha)).catch(() => {});
+    }
   },
-  pendingMs: 300,
-  pendingMinMs: 0,
   pendingComponent: ProjectsPending,
   errorComponent: PageLoadError,
   component: ProjectTreeRoute,
 });
 
 function ProjectTreeRoute() {
-  const { project, repository, path } = Route.useLoaderData();
-  return <ProjectTree project={project} repository={repository} path={path} />;
+  const { projectSlug, _splat } = Route.useParams();
+  return <ProjectTree slug={projectSlug} path={_splat ?? ""} />;
 }

@@ -157,32 +157,43 @@ const pathHistoryQuerySchema = z.object({
   errors: z.array(graphqlErrorSchema).optional(),
 });
 /**
- * `object(expression:)` on a `GitObject`. Only the `Tree`/`Blob` fragments are ever
- * requested, so a Commit/Tag target (not reachable through a `branch:path` expression
- * in practice) parses with neither `entries` nor `byteSize` present.
+ * `object(expression:|oid:)` on a `GitObject`. Only the `Tree`/`Blob` fragments are ever
+ * requested, so a Commit/Tag target parses with neither `entries` nor `byteSize` present.
  */
 const graphqlPathObjectSchema = z
   .object({
+    oid: z
+      .string()
+      .regex(/^[a-f0-9]{40,64}$/i)
+      .optional(),
     entries: z.array(graphqlTreeEntrySchema).optional(),
     byteSize: z.number().int().nonnegative().optional(),
-    isBinary: z.boolean().optional(),
+    isBinary: z.boolean().nullable().optional(),
     isTruncated: z.boolean().optional(),
     text: z.string().nullable().optional(),
   })
   .nullable();
-const graphqlAncestorObjectSchema = z
-  .object({ entries: z.array(graphqlTreeEntrySchema).optional() })
-  .nullable();
-const repositoryPathQuerySchema = z.object({
+const repositoryObjectQuerySchema = z.object({
   data: z
     .object({
       repository: z
-        .object({ target: graphqlPathObjectSchema })
-        .catchall(graphqlAncestorObjectSchema)
+        .object({ databaseId: idSchema.nullable(), object: graphqlPathObjectSchema })
         .nullable(),
     })
     .nullable(),
   errors: z.array(graphqlErrorSchema).optional(),
+});
+const restTreeSchema = z.object({
+  sha: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  truncated: z.boolean(),
+  tree: z.array(
+    z.object({
+      path: z.string().min(1).max(4096),
+      mode: z.string(),
+      type: z.enum(["blob", "tree", "commit"]),
+      sha: z.string().regex(/^[a-f0-9]{40,64}$/i),
+    }),
+  ),
 });
 
 /**
@@ -293,7 +304,6 @@ function buildPathHistoryQuery(count: number): string {
 }
 
 const MAX_PATH_LENGTH = 4096;
-const MAX_ANCESTOR_LEVELS = 32;
 const MAX_BLOB_PREVIEW_BYTES = 1_048_576;
 
 /**
@@ -311,44 +321,22 @@ function validateRepositoryPath(path: string): string {
   return path;
 }
 
-/** Root first, then each parent directory of `path` (never `path` itself), capped for safety. */
-function ancestorPathsFor(path: string): string[] {
-  const segments = path === "" ? [] : path.split("/").slice(0, -1);
-  const paths = [""];
-  let current = "";
-  for (const segment of segments) {
-    current = current ? `${current}/${segment}` : segment;
-    paths.push(current);
-  }
-  return paths.slice(0, MAX_ANCESTOR_LEVELS);
-}
-
 /**
- * `target` is the requested path; `a0..aN` are its ancestor directories (root first),
- * used to populate the side tree without a client-side lazy fetch per directory.
+ * One request per file click: the repository's `databaseId` rides along so the identity
+ * check needs no separate REST call. Exactly one of `$expression` / `$oid` is non-null.
  */
-function buildRepositoryPathQuery(ancestorCount: number): string {
-  const ancestorDeclarations = Array.from(
-    { length: ancestorCount },
-    (_, index) => `$a${index}: String!`,
-  ).join(", ");
-  const ancestorFields = Array.from(
-    { length: ancestorCount },
-    (_, index) =>
-      `a${index}: object(expression: $a${index}) { ... on Tree { entries { name type path mode } } }`,
-  ).join("\n");
-  return `
-    query($owner: String!, $name: String!, $target: String!, ${ancestorDeclarations}) {
-      repository(owner: $owner, name: $name) {
-        target: object(expression: $target) {
-          ... on Tree { entries { name type path mode } }
-          ... on Blob { byteSize isBinary isTruncated text }
-        }
-        ${ancestorFields}
+const REPOSITORY_OBJECT_QUERY = `
+  query($owner: String!, $name: String!, $expression: String, $oid: GitObjectID) {
+    repository(owner: $owner, name: $name) {
+      databaseId
+      object(expression: $expression, oid: $oid) {
+        oid
+        ... on Tree { entries { name type path mode } }
+        ... on Blob { byteSize isBinary isTruncated text }
       }
     }
-  `;
-}
+  }
+`;
 
 type ApiInstallation = {
   id: number;
@@ -367,6 +355,19 @@ const MAX_PATHS_PER_QUERY = 50;
 // Module-level: configuredGitHub() builds a new GitHubConnection per request, so an
 // instance field would never throttle anything.
 const lastProactiveRefresh = new Map<string, number>();
+// Recursive trees keyed by repository id and revalidated with `If-None-Match` on every read.
+// GitHub answers 304 only to a token that may read the repository, so a cached body is
+// never served to a User GitHub would refuse. Module-level for the same reason as above.
+const MAX_CACHED_TREES = 50;
+type RepositoryTree = {
+  sha: string;
+  truncated: boolean;
+  entries: Array<{ path: string; type: "file" | "dir" | "symlink" | "submodule"; sha: string }>;
+};
+const repositoryTrees = new Map<
+  number,
+  { etag: string; defaultBranch: string; tree: RepositoryTree }
+>();
 
 /** Personal GitHub integration. Only its HTTP adapter handles bearer credentials. */
 export class GitHubConnection {
@@ -738,101 +739,179 @@ export class GitHubConnection {
   }
 
   /**
-   * A single path of the default branch: its Tree entries (with a per-entry last commit)
-   * or Blob text, plus each ancestor directory's entries for the side tree. Mirrors
-   * `repositoryOverview`'s access/identity check via `withVerifiedRepository`.
+   * The whole default-branch tree in one REST request (`recursive=1`), revalidated with
+   * `If-None-Match` so an unchanged branch costs a 304 that GitHub does not count against
+   * the rate limit. `truncated` is GitHub's own flag (over 100,000 entries or 7 MB); the
+   * caller then falls back to `repositoryObject()` per directory.
    */
-  async repositoryPath(
+  async repositoryTree(
+    userId: string,
+    repository: { installationId: number; repositoryId: number; fullName: string },
+  ) {
+    return this.withRepository(userId, repository, async (token, selected) => {
+      const metadata = repositoryMetadataSchema.parse(
+        await this.api(`/repos/${selected.fullName}`, token),
+      );
+      if (metadata.id !== selected.repositoryId || metadata.full_name !== selected.fullName)
+        throw new AppError("ACCESS_DENIED");
+      const defaultBranch = metadata.default_branch;
+      const cached = repositoryTrees.get(selected.repositoryId);
+      const reusable = cached?.defaultBranch === defaultBranch ? cached : undefined;
+      const response = await this.send(
+        `https://api.github.com/repos/${selected.fullName}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`,
+        {
+          headers: {
+            ...this.restHeaders(token),
+            ...(reusable ? { "if-none-match": reusable.etag } : {}),
+          },
+        },
+        reusable ? [304] : [],
+      );
+      if (response.status === 304 && reusable) return { defaultBranch, ...reusable.tree };
+      const parsed = restTreeSchema.parse(await response.json());
+      const tree: RepositoryTree = {
+        sha: parsed.sha,
+        truncated: parsed.truncated,
+        entries: parsed.tree.map((entry) => ({
+          path: entry.path,
+          type:
+            entry.type === "tree"
+              ? "dir"
+              : entry.type === "commit"
+                ? "submodule"
+                : entry.mode === "120000"
+                  ? "symlink"
+                  : "file",
+          sha: entry.sha,
+        })),
+      };
+      const etag = response.headers.get("etag");
+      if (etag) {
+        repositoryTrees.delete(selected.repositoryId);
+        repositoryTrees.set(selected.repositoryId, { etag, defaultBranch, tree });
+        if (repositoryTrees.size > MAX_CACHED_TREES)
+          repositoryTrees.delete(repositoryTrees.keys().next().value as number);
+      }
+      return { defaultBranch, ...tree };
+    });
+  }
+
+  /**
+   * One Tree or Blob in a single GraphQL request. `oid` (from `repositoryTree()`) addresses
+   * immutable content; without it the path resolves against `HEAD`. The response's
+   * `databaseId` is the identity check, so a renamed-and-replaced repository is refused
+   * without a second call. Access is GitHub's: a user access token only reaches what both
+   * the User and the App installation can read.
+   */
+  async repositoryObject(
+    userId: string,
+    repository: { installationId: number; repositoryId: number; fullName: string },
+    target: { path: string; oid?: string },
+  ) {
+    const validPath = validateRepositoryPath(target.path);
+    return this.withRepository(userId, repository, async (token, selected) => {
+      const [owner, name] = selected.fullName.split("/");
+      const response = assertGraphQLOk(
+        repositoryObjectQuerySchema.parse(
+          await this.graphql(
+            REPOSITORY_OBJECT_QUERY,
+            target.oid
+              ? { owner, name, oid: target.oid, expression: null }
+              : { owner, name, oid: null, expression: `HEAD:${validPath}` },
+            token,
+          ),
+        ),
+      );
+      const repo = response.data?.repository;
+      if (repo && repo.databaseId !== selected.repositoryId) throw new AppError("ACCESS_DENIED");
+      const object = repo?.object;
+      if (!object) throw new AppError("NOT_FOUND");
+      if (object.entries !== undefined)
+        return { kind: "tree" as const, path: validPath, entries: mapEntries(object.entries) };
+      if (object.byteSize === undefined) throw new AppError("NOT_FOUND");
+      const reason: "binary" | "truncated" | "too_large" | undefined = object.isBinary
+        ? "binary"
+        : object.isTruncated
+          ? "truncated"
+          : object.byteSize > MAX_BLOB_PREVIEW_BYTES
+            ? "too_large"
+            : undefined;
+      return {
+        kind: "blob" as const,
+        path: validPath,
+        name: validPath.split("/").pop() || validPath,
+        oid: object.oid ?? null,
+        byteSize: object.byteSize,
+        text: reason ? null : (object.text ?? null),
+        ...(reason ? { reason } : {}),
+      };
+    });
+  }
+
+  /**
+   * The last commit touching each entry of one directory, keyed by entry path. Loaded after
+   * the listing is already on screen, so its extra history request never delays navigation.
+   */
+  async repositoryDirectoryCommits(
+    userId: string,
+    repository: { installationId: number; repositoryId: number; fullName: string },
+    path: string,
+  ) {
+    const directory = await this.repositoryObject(userId, repository, { path });
+    if (directory.kind !== "tree") throw new AppError("NOT_FOUND");
+    const paths = directory.entries.slice(0, MAX_LAST_COMMIT_PATHS).map((entry) => entry.path);
+    const result = await this.withToken(userId, (token) => {
+      const [owner, name] = repository.fullName.split("/");
+      return this.lastCommitsForPaths(owner, name, paths, token);
+    });
+    if (!result.ok) throw new AppError("ACCESS_DENIED");
+    return Object.fromEntries(paths.map((entryPath, index) => [entryPath, result.data[index]]));
+  }
+
+  /** The file's bytes, streamed for Download/Raw. Up to GitHub's 100 MB contents limit. */
+  async repositoryRaw(
     userId: string,
     repository: { installationId: number; repositoryId: number; fullName: string },
     path: string,
   ) {
     const validPath = validateRepositoryPath(path);
-    return this.withVerifiedRepository(
-      userId,
-      repository,
-      async (token, { owner, name, defaultBranch }) => {
-        const ancestorPathsList = ancestorPathsFor(validPath);
-        const variables: Record<string, string> = {
-          owner,
-          name,
-          target: `${defaultBranch}:${validPath}`,
-        };
-        ancestorPathsList.forEach((ancestorPath, index) => {
-          variables[`a${index}`] = `${defaultBranch}:${ancestorPath}`;
-        });
-        const response = assertGraphQLOk(
-          repositoryPathQuerySchema.parse(
-            await this.graphql(
-              buildRepositoryPathQuery(ancestorPathsList.length),
-              variables,
-              token,
-            ),
-          ),
-        );
-        const repo = response.data?.repository;
-        const target = repo?.target;
-        if (!target) throw new AppError("NOT_FOUND");
-
-        const ancestors = ancestorPathsList.map((ancestorPath, index) => ({
-          path: ancestorPath,
-          entries: mapEntries(repo?.[`a${index}`]?.entries ?? []),
-        }));
-
-        if (target.entries !== undefined) {
-          const entries = mapEntries(target.entries);
-          const withCommits = entries.slice(0, MAX_LAST_COMMIT_PATHS);
-          const withoutCommits = entries.slice(MAX_LAST_COMMIT_PATHS);
-          const lastCommits = await this.lastCommitsForPaths(
-            owner,
-            name,
-            withCommits.map((entry) => entry.path),
-            token,
-          );
-          return {
-            defaultBranch,
-            path: validPath,
-            ancestors,
-            node: {
-              kind: "tree" as const,
-              entries: [
-                ...withCommits.map((entry, index) => ({
-                  ...entry,
-                  lastCommit: lastCommits[index] ?? null,
-                })),
-                ...withoutCommits.map((entry) => ({ ...entry, lastCommit: null })),
-              ],
-            },
-          };
-        }
-
-        const byteSize = target.byteSize ?? 0;
-        const reason: "binary" | "truncated" | "too_large" | undefined = target.isBinary
-          ? "binary"
-          : target.isTruncated
-            ? "truncated"
-            : byteSize > MAX_BLOB_PREVIEW_BYTES
-              ? "too_large"
-              : undefined;
-        return {
-          defaultBranch,
-          path: validPath,
-          ancestors,
-          node: {
-            kind: "blob" as const,
-            name: validPath.split("/").pop() || validPath,
-            byteSize,
-            text: reason ? null : (target.text ?? null),
-            ...(reason ? { reason } : {}),
-          },
-        };
-      },
-    );
+    if (validPath === "") throw new AppError("NOT_FOUND");
+    return this.withRepository(userId, repository, async (token, selected) => {
+      const metadata = repositoryMetadataSchema.parse(
+        await this.api(`/repos/${selected.fullName}`, token),
+      );
+      if (metadata.id !== selected.repositoryId || metadata.full_name !== selected.fullName)
+        throw new AppError("ACCESS_DENIED");
+      const encodedPath = validPath.split("/").map(encodeURIComponent).join("/");
+      return this.send(
+        `https://api.github.com/repos/${selected.fullName}/contents/${encodedPath}`,
+        { headers: { ...this.restHeaders(token), accept: "application/vnd.github.raw+json" } },
+        [],
+        // The signal also bounds reading the body, and a download streams well past 8 s.
+        120_000,
+      );
+    });
   }
 
   /**
-   * Access check + REST metadata identity check shared by `repositoryOverview()` and
-   * `repositoryPath()`: verifies the selected repository is still reachable through an
+   * Hot read path for browsing: a current user token and nothing else. Unlike
+   * `withVerifiedRepository()` it does not enumerate the User's installations — GitHub
+   * already limits a user access token to repositories both the User and the App
+   * installation can read — so each caller checks repository identity in its own request.
+   */
+  private async withRepository<T>(
+    userId: string,
+    repository: { installationId: number; repositoryId: number; fullName: string },
+    action: (token: string, selected: z.infer<typeof repositorySelectionSchema>) => Promise<T>,
+  ): Promise<T> {
+    const selected = repositorySelectionSchema.parse(repository);
+    const result = await this.withToken(userId, (token) => action(token, selected));
+    if (!result.ok) throw new AppError("ACCESS_DENIED");
+    return result.data;
+  }
+
+  /**
+   * Access check + REST metadata identity check used by `repositoryOverview()`: verifies the selected repository is still reachable through an
    * installation this user can use, then confirms GitHub's REST metadata still matches
    * the selected id/full name. `action` runs with the verified user token.
    */
@@ -1062,15 +1141,17 @@ export class GitHubConnection {
     return tokensSchema.parse(result);
   }
 
+  private restHeaders(token: string) {
+    return {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${token}`,
+      "x-github-api-version": "2026-03-10",
+      "user-agent": "CoForge",
+    };
+  }
+
   private api(path: string, token: string) {
-    return this.request(`https://api.github.com${path}`, {
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: `Bearer ${token}`,
-        "x-github-api-version": "2026-03-10",
-        "user-agent": "CoForge",
-      },
-    });
+    return this.request(`https://api.github.com${path}`, { headers: this.restHeaders(token) });
   }
 
   /** Every GraphQL caller goes through `request()`, so 401/403/404/timeout semantics stay identical. */
@@ -1089,10 +1170,20 @@ export class GitHubConnection {
 
   private async request(url: string, init: RequestInit): Promise<unknown> {
     try {
+      return await (await this.send(url, init)).json();
+    } catch (error) {
+      if (error instanceof GitHubUnauthorized || error instanceof AppError) throw error;
+      throw new AppError("TEMPORARILY_UNAVAILABLE");
+    }
+  }
+
+  /** `request()` without the JSON read, for conditional (304) and streamed responses. */
+  private async send(url: string, init: RequestInit, alsoAccept: number[] = [], timeoutMs = 8000) {
+    try {
       const response = await this.http(url, {
         ...init,
         redirect: "error",
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (response.status === 401) throw new GitHubUnauthorized();
       if (
@@ -1102,8 +1193,9 @@ export class GitHubConnection {
           !response.headers.has("retry-after"))
       )
         throw new AppError("ACCESS_DENIED");
-      if (!response.ok) throw new AppError("TEMPORARILY_UNAVAILABLE");
-      return await response.json();
+      if (!response.ok && !alsoAccept.includes(response.status))
+        throw new AppError("TEMPORARILY_UNAVAILABLE");
+      return response;
     } catch (error) {
       if (error instanceof GitHubUnauthorized || error instanceof AppError) throw error;
       throw new AppError("TEMPORARILY_UNAVAILABLE");

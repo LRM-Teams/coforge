@@ -1,0 +1,80 @@
+/*
+ * ProjectFileView code rendering.
+ *
+ * Line numbers render through a `data-line` attribute plus `::before`
+ * instead of as real text — generated content isn't part of the DOM text
+ * the browser searches or copies, so numbers never show up in
+ * find-in-page results or in a select-all/copy of the code.
+ */
+.pfv-lineno::before {
+  content: attr(data-line);
+}
+
+/*
+ * Gutter width depends on the file's line count (digit width), computed at
+ * render time and passed in via `--pfv-gutter-w` — not something a static
+ * Tailwind utility class can express.
+ */
+.pfv-lineno {
+  width: calc(var(--pfv-gutter-w, 2ch) + 1.5rem);
+}
+
+/*
+ * Divider between the gutter and the code, continuing below the last line
+ * for short files. Each row already draws its own `border-r` on
+ * `.pfv-lineno`, which is enough while rows exist; this `::before` on the
+ * container extends the same line (same width calc, same colors) down to
+ * the bottom of the pane for the empty space below the last row. It isn't
+ * itself sticky, so on a short-and-very-wide file it can scroll out of sync
+ * with the (sticky) per-row gutters during horizontal scroll — an accepted,
+ * narrow trade-off for not needing a second sticky-tracking mechanism.
+ */
+.pfv-code-root {
+  position: relative;
+  /* Own stacking context, so the z-index: -1 filler stays above the scroller's background. */
+  isolation: isolate;
+}
+
+.pfv-code-root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: calc(var(--pfv-gutter-w, 2ch) + 1.5rem);
+  background-color: var(--color-bg-primary);
+  border-right: 1px solid var(--color-border-secondary);
+}
+
+/*
+ * Line wrapping. Off by default (`white-space: pre`, rows sized to their
+ * content so long lines scroll horizontally). Toggling `data-wrap` flips
+ * this in CSS only — the chunk HTML strings are never rebuilt.
+ */
+.pfv-code-root {
+  white-space: pre;
+}
+
+.pfv-code-root[data-wrap="on"] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pfv-code-root[data-wrap="on"] .pfv-row {
+  width: 100%;
+  min-width: 0;
+}
+
+/*
+ * Find-in-file highlights via the CSS Custom Highlight API — the matched
+ * ranges are never mutated into the DOM, so this can't fight with the
+ * highlighter's own spans or with find-in-page/selection. `::highlight()`
+ * only accepts color/background-color/text-decoration/text-shadow.
+ */
+::highlight(pfv-find) {
+  background-color: var(--color-utility-yellow-200);
+}
+
+::highlight(pfv-find-active) {
+  background-color: var(--color-bg-brand-solid);
+  color: white;
+}
