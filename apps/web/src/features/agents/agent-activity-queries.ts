@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { queryOptions, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 
@@ -12,6 +11,15 @@ import {
 } from "./agent-activity";
 import { useRealtimeSubscription } from "../realtime/browser-realtime";
 
+// Realtime keeps these entries current, so they never go stale by age. A tab
+// coming back into view or the network returning refetches anyway: pushes may
+// have been missed while the page was hidden or offline.
+const liveQuery = {
+  staleTime: Infinity,
+  refetchOnWindowFocus: "always",
+  refetchOnReconnect: "always",
+} as const;
+
 /**
  * One Workspace's recent Activity per Agent (newest first, capped at 5 — the
  * avatar popover's limit). The sidebar and every open avatar read this same
@@ -20,7 +28,7 @@ import { useRealtimeSubscription } from "../realtime/browser-realtime";
 export const workspaceActivityQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ["agent-activity", "workspace", workspaceId] as const,
-    staleTime: Infinity,
+    ...liveQuery,
     queryFn: async ({ client, queryKey }) => {
       const snapshot = await getWorkspaceActivity();
       if (snapshot.workspaceId !== workspaceId) throw new Error("Workspace changed");
@@ -38,7 +46,7 @@ export const workspaceActivityQuery = (workspaceId: string) =>
 export const agentActivityFeedQuery = (agentId: string) =>
   queryOptions({
     queryKey: ["agent-activity", "agent", agentId] as const,
-    staleTime: Infinity,
+    ...liveQuery,
     queryFn: async ({ client, queryKey }) => {
       const detail = await getAgentDetail({ data: agentId });
       const current = client.getQueryData<ActivityEntry[]>(queryKey) ?? [];
@@ -49,22 +57,16 @@ export const agentActivityFeedQuery = (agentId: string) =>
 /**
  * The app shell's one Activity subscription. Every (re)subscribe invalidates
  * both query shapes so a gap left by a disconnect is closed by a refetch;
- * publications in between patch the cache directly. `stale` reflects the
- * subscription's own connection health, not the freshness of cached data, so
- * it is plain component state rather than something Query would track.
+ * publications in between patch the cache directly.
  */
-export function useWorkspaceActivityRealtime(workspaceId?: string): { stale: boolean } {
+export function useWorkspaceActivityRealtime(workspaceId?: string) {
   const queryClient = useQueryClient();
   const getConnectionToken = useServerFn(getAgentActivitySubscriptionToken);
-  const [stale, setStale] = useState(false);
 
   useRealtimeSubscription({
     channel: workspaceId ? agentActivityChannel(workspaceId) : undefined,
     getToken: getConnectionToken,
-    onSubscribed: () => {
-      setStale(false);
-      void queryClient.invalidateQueries({ queryKey: ["agent-activity"] });
-    },
+    onSubscribed: () => void queryClient.invalidateQueries({ queryKey: ["agent-activity"] }),
     onPublication: (publication) => {
       if (!workspaceId) return;
       const observation = decodeActivityObservation(publication.data, { workspaceId });
@@ -84,8 +86,5 @@ export function useWorkspaceActivityRealtime(workspaceId?: string): { stale: boo
         (current: ActivityEntry[] | undefined) => current && mergeAgentActivity(current, [entry]),
       );
     },
-    onError: () => setStale(true),
   });
-
-  return { stale };
 }

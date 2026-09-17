@@ -22,12 +22,10 @@ export type LiveAgent = {
   display?: AgentDisplaySnapshot;
 };
 
-type ActivityConnection = { workspaceId?: string; stale: boolean };
-
 // Both contexts are module-private: everything outside reads them through the
 // hooks below, so a consumer can never reach in and subscribe on its own.
 const LiveAgentsContext = createContext<LiveAgent[]>([]);
-const ActivityConnectionContext = createContext<ActivityConnection>({ stale: false });
+const WorkspaceIdContext = createContext<string | undefined>(undefined);
 
 /**
  * Owns the app shell's one Agent status subscription and one Activity
@@ -47,7 +45,7 @@ export function WorkspaceAgentsProvider({
 }) {
   const refreshAgents = useServerFn(listAgents);
   const getStatusToken = useServerFn(getAgentStatusSubscriptionToken);
-  const { stale } = useWorkspaceActivityRealtime(workspaceId);
+  useWorkspaceActivityRealtime(workspaceId);
   const visibleAgents = useAgentStatuses({
     agents,
     workspaceId,
@@ -56,9 +54,7 @@ export function WorkspaceAgentsProvider({
   });
   return (
     <LiveAgentsContext value={visibleAgents}>
-      <ActivityConnectionContext value={{ workspaceId, stale }}>
-        {children}
-      </ActivityConnectionContext>
+      <WorkspaceIdContext value={workspaceId}>{children}</WorkspaceIdContext>
     </LiveAgentsContext>
   );
 }
@@ -75,7 +71,7 @@ export function useLiveAgent(agentId: string): LiveAgent | undefined {
 
 /** One Agent's recent activity (≤5, newest first), for its avatar popover. */
 export function useAgentRecentActivity(agentId: string) {
-  const { workspaceId, stale } = useContext(ActivityConnectionContext);
+  const workspaceId = useContext(WorkspaceIdContext);
   const query = useQuery({
     ...workspaceActivityQuery(workspaceId ?? "-"),
     enabled: Boolean(workspaceId),
@@ -85,7 +81,6 @@ export function useAgentRecentActivity(agentId: string) {
     activity: query.data ?? EMPTY_ACTIVITY,
     loading: query.isPending && Boolean(workspaceId),
     error: query.isError && !query.data,
-    stale,
   };
 }
 
