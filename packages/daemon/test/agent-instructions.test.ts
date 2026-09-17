@@ -298,6 +298,7 @@ test("the prompt is its named sections, in order, each opening with its own head
   const sections = buildCoforgeCliGuideSections();
   const headings: Record<keyof typeof sections, string> = {
     communication: "## CoForge communication",
+    startupSequence: "## Startup sequence",
     messages: "### Messages",
     workspaceAndAttachments: "### Workspace and attachments",
     projectCodeAndGitHub: "### Project code and GitHub",
@@ -315,4 +316,24 @@ test("the prompt is its named sections, in order, each opening with its own head
   // No section leaks a heading that belongs to another one.
   for (const section of Object.values(sections))
     expect(section.match(/^#{2,3} /gm)?.length ?? 0).toBeLessThanOrEqual(1);
+});
+
+test("Startup sequence lists five ordered steps and recovers context without a memory file", () => {
+  const section = buildCoforgeCliGuideSections().startupSequence;
+  expect(section.match(/^\d\. /gm)).toEqual(["1. ", "2. ", "3. ", "4. ", "5. "]);
+  expect(section).toContain(
+    "send it early with `coforge message send` before deep context gathering",
+  );
+  expect(section).toContain("`coforge message search` and `coforge message read`");
+  expect(section).toContain("If there is no pending work, stop.");
+  expect(section).toContain("**Complete ALL your work before stopping.**");
+  expect(section).not.toContain("MEMORY.md");
+  expect(section).not.toContain("Runtime Profile Control");
+  // Sits between the communication intro and Messages.
+  expect(instructions.indexOf("## CoForge communication")).toBeLessThan(
+    instructions.indexOf("## Startup sequence"),
+  );
+  expect(instructions.indexOf("## Startup sequence")).toBeLessThan(
+    instructions.indexOf("### Messages"),
+  );
 });
