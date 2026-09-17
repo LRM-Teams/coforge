@@ -28,6 +28,7 @@ model Workspace {
   reminders              Reminder[]
   reminderEvents         ReminderEvent[]
   attachments            Attachment[]
+  attachmentUploadSessions AttachmentUploadSession[]
   tasks                  Task[]
   actionCards            ActionCard[]
   weeklyReportCycles     WeeklyReportCycle[]
@@ -204,6 +205,7 @@ model Agent {
   preparedActionCards       ActionCard[]
   weeklyReportAssistant     WeeklyReportAssistant?
   attachments               Attachment[]
+  attachmentUploadSessions  AttachmentUploadSession[]
 
   @@unique([workspaceId, name])
   @@unique([id, workspaceId])
@@ -460,6 +462,7 @@ model Conversation {
   messages       Message[]
   deliveries     AgentMessageDelivery[]
   attachments    Attachment[]
+  attachmentUploadSessions AttachmentUploadSession[]
   tasks          Task[]
   actionCards    ActionCard[]
   project        Project?               @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
@@ -675,6 +678,36 @@ model Attachment {
   @@index([uploaderId])
   @@index([uploaderAgentId])
   @@map("attachments")
+}
+
+/// A reserved presigned-upload session (ADR 0028): the Agent PUTs bytes straight to storage,
+/// then `complete` verifies the object and creates the `Attachment` row that `attachmentId`
+/// reserves ahead of time. `attachmentId` is not a foreign key — that row does not exist until
+/// verification succeeds — only a unique reservation the eventual `Attachment.id` must match.
+model AttachmentUploadSession {
+  id              String       @id @default(uuid()) @db.Uuid
+  workspaceId     String       @db.Uuid
+  conversationId  String       @db.Uuid
+  agentId         String       @db.Uuid
+  attachmentId    String       @unique @db.Uuid
+  objectKey       String       @unique
+  fileName        String
+  contentType     String
+  sizeBytes       Int
+  clientRequestId String       @db.Uuid
+  state           String       @default("pending")
+  terminalReason  String?
+  expiresAt       DateTime
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation    Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  agent           Agent        @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([agentId, clientRequestId])
+  @@index([conversationId, workspaceId])
+  @@index([expiresAt])
+  @@map("attachment_upload_sessions")
 }
 
 model AgentMessageDelivery {
