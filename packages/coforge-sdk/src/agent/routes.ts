@@ -22,6 +22,7 @@ export const agentApiRoutes = {
       method: "GET",
       path: (attachmentId: string) =>
         `/api/agent/v1/attachments/${encodeURIComponent(attachmentId)}`,
+      upload: { method: "POST", path: "/api/agent/v1/attachments" },
     },
   },
   cloud: {
@@ -113,6 +114,7 @@ export const agentApiRoutes = {
       collectionPath: "/api/agent/v1/attachments",
       path: (attachmentId: string) =>
         `/api/agent/v1/attachments/${encodeURIComponent(attachmentId)}`,
+      upload: { method: "POST", path: "/api/agent/v1/attachments" },
     },
   },
   workspace: {

@@ -438,3 +438,50 @@ test("forgets the oldest deliveries so a long-lived Agent does not grow without 
   await index.receive({ ...delivery("1"), sequence: 1 });
   expect(notices).toBe(remembered + 2);
 });
+
+test("recordReadContext tracks a monotonically increasing per-Agent read order", () => {
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session() },
+    async () => {},
+  );
+  expect(index.readOrder("agent-1", "#general")).toBeUndefined();
+  index.recordReadContext("agent-1", "#general");
+  const first = index.readOrder("agent-1", "#general");
+  expect(first).toBeDefined();
+  index.recordReadContext("agent-1", "#general:11111111");
+  const second = index.readOrder("agent-1", "#general:11111111");
+  expect(second).toBeDefined();
+  expect(second!).toBeGreaterThan(first!);
+});
+
+test("latestThreadReadUnderParent finds the most recently read thread rooted under a parent", () => {
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session() },
+    async () => {},
+  );
+  expect(index.latestThreadReadUnderParent("agent-1", "#general")).toBeUndefined();
+  index.recordReadContext("agent-1", "#general:11111111");
+  index.recordReadContext("agent-1", "#other:22222222");
+  index.recordReadContext("agent-1", "#general:33333333");
+  const latest = index.latestThreadReadUnderParent("agent-1", "#general");
+  expect(latest?.target).toBe("#general:33333333");
+  // A read of the parent target itself is not a thread read under it.
+  index.recordReadContext("agent-1", "#general");
+  expect(index.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
+    "#general:33333333",
+  );
+});
+
+test("clearAgent forgets an Agent's read-context state", () => {
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session() },
+    async () => {},
+  );
+  index.recordReadContext("agent-1", "#general:11111111");
+  index.clearAgent("agent-1");
+  expect(index.readOrder("agent-1", "#general:11111111")).toBeUndefined();
+  expect(index.latestThreadReadUnderParent("agent-1", "#general")).toBeUndefined();
+});

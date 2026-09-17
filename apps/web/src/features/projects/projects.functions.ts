@@ -4,8 +4,9 @@ import { configuredGitHub } from "../../server/integrations/github-config.server
 import { AppError, isAppError } from "../../lib/app-error";
 import { ProjectSettings } from "../../server/projects/project-settings.server";
 import { z } from "zod";
-import { projectIconUploadInput, updateProjectInput } from "./projects.schemas";
+import { createProjectInput, projectIconUploadInput, updateProjectInput } from "./projects.schemas";
 import { ProjectImages, projectIconUrl } from "../../server/projects/project-images.server";
+import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
 
 export const uploadProjectIcon = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
@@ -40,6 +41,37 @@ export const getProjectRepository = createServerFn({ method: "GET" })
     }
   });
 
+export const getProjectPath = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ slug: z.string().min(1), path: z.string().max(4096) }))
+  .handler(async ({ data, context }) => {
+    const project = await context.db.project.findFirst({
+      where: { workspaceId: context.workspaceId, slug: data.slug },
+      select: { githubInstallationId: true, githubRepositoryId: true, githubFullName: true },
+    });
+    if (!project) throw new AppError("NOT_FOUND");
+    if (!project.githubFullName || !project.githubInstallationId || !project.githubRepositoryId)
+      return { status: "unlinked" as const };
+    try {
+      const github = await configuredGitHub();
+      if (!github) return { status: "unavailable" as const };
+      const result = await github.connection.repositoryPath(
+        context.user.id,
+        {
+          installationId: project.githubInstallationId,
+          repositoryId: project.githubRepositoryId,
+          fullName: project.githubFullName,
+        },
+        data.path,
+      );
+      return { status: "ready" as const, fullName: project.githubFullName, ...result };
+    } catch (error) {
+      if (isAppError(error) && error.code === "ACCESS_DENIED") return { status: "denied" as const };
+      if (isAppError(error) && error.code === "NOT_FOUND") return { status: "not_found" as const };
+      return { status: "unavailable" as const };
+    }
+  });
+
 export const getProject = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(z.object({ slug: z.string().min(1) }))
@@ -60,15 +92,66 @@ export const getProject = createServerFn({ method: "GET" })
             id: true,
             channelName: true,
             createdAt: true,
-            _count: { select: { members: true } },
+            _count: { select: { members: true, messages: true } },
+            messages: {
+              take: 1,
+              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+              select: {
+                createdAt: true,
+                sender: {
+                  select: {
+                    user: {
+                      select: {
+                        id: true,
+                        displayName: true,
+                        username: true,
+                        avatarObjectKey: true,
+                      },
+                    },
+                    agent: { select: { displayName: true } },
+                  },
+                },
+              },
+            },
           },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         },
       },
     });
     if (!project) return null;
-    const { iconObjectKey, ...view } = project;
-    return { ...view, iconUrl: projectIconUrl(project.id, iconObjectKey) };
+    const { iconObjectKey, conversations, ...view } = project;
+    const mappedConversations = conversations
+      .map(({ _count, messages, ...conversation }) => {
+        const lastMessage = messages[0];
+        const sender = lastMessage?.sender;
+        const lastSender = sender
+          ? sender.user
+            ? {
+                name: sender.user.displayName ?? sender.user.username,
+                avatarUrl: workspaceUserAvatarUrl(
+                  workspaceId,
+                  sender.user.id,
+                  sender.user.avatarObjectKey,
+                ),
+              }
+            : sender.agent
+              ? { name: sender.agent.displayName, avatarUrl: null }
+              : null
+          : null;
+        return {
+          ...conversation,
+          memberCount: _count.members,
+          messageCount: _count.messages,
+          lastActivityAt: (lastMessage?.createdAt ?? conversation.createdAt).toISOString(),
+          lastSender,
+        };
+      })
+      .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+    return {
+      ...view,
+      conversations: mappedConversations,
+      iconUrl: projectIconUrl(project.id, iconObjectKey),
+    };
   });
 
 export const updateProject = createServerFn({ method: "POST" })
@@ -121,24 +204,7 @@ export const listProjects = createServerFn({ method: "GET" })
 
 export const createProject = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator(
-    z.object({
-      name: z.string().trim().min(1).max(100),
-      slug: z
-        .string()
-        .trim()
-        .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-        .max(100),
-      installationId: z.number().int().positive().safe().optional(),
-      repositoryId: z.number().int().positive().safe().optional(),
-      fullName: z
-        .string()
-        .trim()
-        .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
-        .max(300)
-        .optional(),
-    }),
-  )
+  .validator(createProjectInput)
   .handler(async ({ data, context }) => {
     const { db, workspaceId } = context;
     let repository: { id: number; fullName: string; installationId: number } | undefined;
@@ -153,31 +219,23 @@ export const createProject = createServerFn({ method: "POST" })
       if (!repository || repository.installationId !== data.installationId)
         throw new AppError("ACCESS_DENIED");
     }
-    return db.project.create({
-      data: {
-        workspaceId,
-        name: data.name,
-        slug: data.slug,
-        githubInstallationId: data.installationId,
-        githubRepositoryId: data.repositoryId,
-        githubFullName: data.fullName,
-        githubHtmlUrl: repository ? `https://github.com/${repository.fullName}` : null,
-        conversations: {
-          create: {
-            workspaceId,
-            channelName: data.slug,
-            members: { create: { userId: context.user.id } },
-          },
+    try {
+      return await db.project.create({
+        data: {
+          workspaceId,
+          name: data.name,
+          slug: data.slug,
+          githubInstallationId: data.installationId,
+          githubRepositoryId: data.repositoryId,
+          githubFullName: data.fullName,
+          githubHtmlUrl: repository ? `https://github.com/${repository.fullName}` : null,
         },
-      },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        conversations: {
-          select: { id: true },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        },
-      },
-    });
+        select: { id: true, name: true, slug: true },
+      });
+    } catch (error) {
+      // The slug is unique per Workspace; surface a taken slug as CONFLICT like workspace creation.
+      if (error instanceof Error && "code" in error && error.code === "P2002")
+        throw new AppError("CONFLICT");
+      throw error;
+    }
   });

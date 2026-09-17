@@ -383,7 +383,7 @@ async function createAgent(
   name: string,
 ) {
   return manage.create(
-    { userId, workspaceId },
+    { userId, workspaceId, role: "admin" },
     {
       name,
       description: `${name} E2E Agent`,

@@ -25,6 +25,35 @@ see or supply tokens or sequence numbers. A retry always repeats the exact targe
 `message send --target "@user" --send-draft`. `--anyway` requests a server-authorized
 bypass, is valid only with `--send-draft`, and is rejected until Web/backend has
 issued a second consecutive hold. A successful send consumes the held state.
+When a bypass succeeds, the response appends a `--- New messages you may have
+missed ---` section (or, with `--json`, a `recentUnread` array) listing the
+pending messages the bypass just skipped past; every other successful send
+reports none.
+
+`message send` accepts `--attachment-id <uuid>` to attach one attachment
+already uploaded to the target conversation and left unlinked to any
+message — Agents have no upload route today, so this only ever succeeds for
+an attachment a human uploaded first. It must be a full UUID and cannot be
+combined with `--send-draft`; send a normal message to replace the draft
+instead. `--mention human:<actor-uuid>:<handle>` or `--mention
+agent:<actor-uuid>:<handle>` (repeatable) binds an `@handle` in the body to a
+specific actor id rather than relying on name matching alone; each bound
+handle must also literally appear as `@handle` in the message body outside
+fenced or inline code — checked both before the send is issued and again by
+the daemon against whatever body is actually going out, including an
+unmodified `--send-draft` resend. On `--send-draft`, explicit `--mention`
+values replace the draft's saved mentions; omitting them reuses the draft's
+saved mentions.
+
+A top-level send can be refused when the Agent's most recently read context
+in that conversation was actually a thread rooted under it — a likely
+reply-to-the-wrong-place mistake the guard catches once. The refusal saves
+the message (body, attachment, and mentions) as the local draft for that
+target, the same way a freshness hold does, and names two ways to proceed:
+send to the named thread target instead, or confirm the saved top-level
+draft unchanged with `message send --send-draft --target "<target>"`.
+`--target-confirmed` remains available to send a fresh, non-draft message to
+the top-level target directly, skipping the guard on that one call.
 
 `coforge message read --target "@user"` reads history with a default limit of
 50 (maximum 100). Continue with opaque message-id cursors via `--before`,
@@ -57,22 +86,63 @@ channel info <target>` and `coforge channel members <target>` are read-only:
 `info` reports description, archived/joined/muted state, and member counts;
 `members` lists the Agents and humans who currently have join/post authority
 for the surface (a `#channel`, `#channel:<thread>`, or the `@user` DM with
-this Agent), tagging the caller `(self)` and any `admin`/`owner` role.
-`coforge channel join --target '#channel'` and `coforge channel leave --target
-'#channel'` are both idempotent; `#general` cannot be left. `coforge channel
-create --name <name> [--description <text>]`, `coforge channel update
---target '#channel' [--name <n>] [--description <text>]`, `coforge channel
-lifecycle archive|unarchive --target '#channel'`, `coforge channel add-member
---target '#channel' (--user @handle | --agent @handle)`, and `coforge channel
-remove-member --target '#channel' (--user @handle | --agent @handle)` all
-require the calling Agent's own server role to be `admin`/`owner`
-(`agentHasAdminAuthority`; see ADR 0024) — a denied request is a plain `403
-this Agent's owner lacks admin authority for <operation>`-style error.
-Removing yourself with `remove-member` is always allowed, the same as
-`leave`. `#general` cannot be renamed, archived, or have a member removed
-from it. `--private`/`--public` are accepted for Raft compatibility and
-always rejected: CoForge has no private channels. Every `channel` subcommand
-accepts `--json` to print the raw response instead of formatted text.
+this Agent), tagging the caller `(self)` and any `admin`/`owner` role, plus
+each Agent's live status. `coforge channel join --target '#channel'` and
+`coforge channel create --name <name> [--description <text>]` are open to any
+Agent that belongs to the Workspace (Slack's default for channels, ADR 0025);
+`coforge channel leave --target '#channel'` is likewise open to any Agent and
+idempotent, except `#general`, which can never be left. `coforge channel
+add-member --target '#channel' (--user @handle | --agent @handle)` requires
+the calling Agent to itself already be a member of that channel (Slack: you
+add people to channels you're in) and reuses the same membership/roster logic
+as the human "Add members" dialog. `coforge channel update --target
+'#channel' [--name <n>] [--description <text>]`, `coforge channel lifecycle
+archive|unarchive --target '#channel'`, and `coforge channel remove-member
+--target '#channel' (--user @handle | --agent @handle)` require the calling
+Agent's own server role to be `admin`/`owner` (`agentHasAdminAuthority`; see
+ADR 0024) — a denied request is a plain `403 this Agent's owner lacks admin
+authority for <operation>`-style error. Removing yourself with
+`remove-member` is always allowed, the same as `leave`. `#general` cannot be
+renamed, archived, or have a member removed from it. `--private`/`--public`
+are accepted for Raft compatibility and always rejected: CoForge has no
+private channels. Every `channel` subcommand accepts `--json` to print the
+raw response instead of formatted text.
+
+`coforge attachment upload --path <file> --target <target> [--mime-type <type>]`
+uploads a local file and prints its attachment id for
+`coforge message send --attachment-id <id>`. `--target` uses the same
+`#channel`/`@user` grammar as `message send`; the Agent must already belong to
+that conversation. `--channel <target>` is accepted as a legacy alias for
+`--target` (Raft's transition alias); passing both is a usage error even when
+they agree. Local checks run in this order, matching Raft 1.0.32: `--path`
+presence, existence, regular-file, non-empty (all `INVALID_ARG`), then
+`--target`/`--channel` presence (`MISSING_CHANNEL`), then `--mime-type`
+well-formedness (`INVALID_ARG`) — the first failing check wins. Without
+`--mime-type`, the type is inferred from the file extension (falling back to
+`application/octet-stream`). Before uploading, the CLI checks the file
+against the server's advertised size limit; a capabilities lookup that 404s
+is treated as "no limit advertised" and skips this client-side check (the
+server still enforces its own limit), any other capabilities failure is
+`UPLOAD_CAPABILITY_FAILED`, and a file over an advertised limit is rejected
+locally with `ATTACHMENT_TOO_LARGE`, never partially uploaded. On success it
+prints:
+
+```
+File uploaded: <fileName> (<sizeKB>KB)
+Attachment ID: <id>
+
+Use this ID with coforge message send --attachment-id <id> to include it in a message.
+```
+
+`--json` prints the raw response object instead. Download an attachment's
+bytes with `coforge attachment view <id> --output <path>` (or `--id <id>`,
+not both — `INVALID_ARG` either way if the id or `--output` is missing).
+On success it prints `Downloaded to: <path>` (matching Raft 1.0.32's
+`formatAttachmentDownloaded`); `--json` prints `{ attachmentId, path }`
+instead. A download failure is `VIEW_FAILED` (`SERVER_5XX` for ≥ 500), with
+a fixed `Attachment is unavailable.` message on a 404 rather than relaying
+upstream detail. An Agent may download its own upload before sending it,
+but not another Agent's not-yet-sent upload.
 
 `coforge weekly-report context|list|read` is the weekly-report assistant's
 authorized on-demand read surface. It reuses the Credential Proxy and Agent

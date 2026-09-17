@@ -326,8 +326,10 @@ staging 与 production 使用不同 App 和密钥，并要求 expiring user acce
 [Amp GitHub integration](https://ampcode.com/docs/github)。
 
 Project 属于一个 Workspace，可关联一个 GitHub 仓库和多个讨论组；讨论组复用
-PublicChannel，不是 Message Thread。创建 Project 时保留自动创建首个讨论组的行为；
-后续讨论组通过 `PublicChannels.create` 校验与 Project 同 Workspace 后建立关联。
+PublicChannel，不是 Message Thread。创建 Project 不再自动创建首个讨论组（见
+[ADR 0026](adr/0026-projects-without-default-discussion-group.md)）；新项目的讨论组列表
+从空开始，讨论组只通过项目详情的“新建讨论组”按钮或频道创建弹窗的项目选择器建立，二者
+都经 `PublicChannels.create` 校验与 Project 同 Workspace 后建立关联。
 `Conversation.projectId` 使用普通索引，不再使用一对一唯一约束；迁移不重建或删除既有讨论。
 此修复由 Frank 在本线程确认按项目详情实现范围执行。
 
@@ -340,14 +342,25 @@ Project 独立设置页允许 Workspace 成员修改名称、描述、上传项�
 
 项目详情的仓库概览由 `GitHubConnection.repositoryOverview` 使用当前查看者的个人
 user token 读取。先校验 installation、repository ID 和完整名称均仍可访问，再校验仓库
-metadata 身份；Workspace 内的 Project 可见性不授予 GitHub 内容访问权，不回退到公共
-匿名请求或 installation token。只读默认分支最近五条提交及根目录文件（GitHub Contents
-API 最多 1,000 项），不持久化代码或向浏览器传递 token；文件与提交链接跳转 GitHub。
-未关联、未授权、空仓库和服务暂不可用分别显示状态，不阻断项目讨论组的使用。
-需要 App 的 repository Contents: read 权限，但本次实现不修改任何现有 App 授权配置。
+metadata 身份（REST）；Workspace 内的 Project 可见性不授予 GitHub 内容访问权，不回退到
+公共匿名请求或 installation token。身份校验通过后改用 GitHub GraphQL 读取默认分支：
+一次查询取最近五条提交历史（含 signature 校验状态与 statusCheckRollup）及根目录 Tree，
+再按需分批（每批最多 50 个路径、最多覆盖前 100 个路径）用别名 `history(first:1, path:$p)`
+查询各路径最后一次改动的提交；空仓库（`defaultBranchRef` 为 null）视为无提交、无文件。
+不持久化代码或向浏览器传递 token；文件与提交链接跳转 GitHub。未关联、未授权、空仓库和
+服务暂不可用分别显示状态，不阻断项目讨论组的使用。需要 App 的 repository Contents: read
+权限，以及 Checks: read / Commit statuses: read 权限以获取 statusCheckRollup（均已按
+`infra/staging/README.md` 授予），本次实现不修改任何现有 App 授权配置。
+项目详情同时支持在 CoForge 内浏览默认分支任意路径（`/projects/$projectSlug/tree/$`，
+`GitHubConnection.repositoryPath`）：目录路径返回该目录的 Tree 及其每个祖先目录的 Tree
+（供右侧文件树仅展开当前路径），并复用同一按路径分批查询最后提交的逻辑；文本文件通过
+GraphQL `object(expression:"<branch>:<path>")` 读取正文，1 MB 以内、非二进制且未被截断的
+Markdown 以只读方式用 Records 编辑器渲染或显示高亮源码，其余文本文件仅显示高亮源码；二进制、
+超过 1 MB、被截断的文件以及图片（GraphQL 无法返回图片字节）均不在站内预览，链接跳转 GitHub。
+同样仅使用查看者个人 user token 读取，不做任何持久化。
 依据：[repository metadata](https://docs.github.com/en/rest/repos/repos#get-a-repository)、
-[commits](https://docs.github.com/en/rest/commits/commits#list-commits)、
-[contents](https://docs.github.com/en/rest/repos/contents#get-repository-content)。
+[GraphQL Commit object](https://docs.github.com/en/graphql/reference/objects#commit)、
+[GraphQL Blob/Tree objects](https://docs.github.com/en/graphql/reference/objects#blob)。
 
 PostgreSQL 的首要领域对象是：
 
@@ -1028,10 +1041,19 @@ runtime 生命周期和单条 WSS。Web 使用会话实时信号与 canonical HT
 ### 6.4 Workspace 公开频道
 
 公开仅指同一 Workspace：现有真人成员可以发现频道、读取完整历史及已发送的附件，
-Workspace 外部用户无权访问。任意现有真人成员可创建频道；创建者自动加入，
-其他成员主动加入后才能发送消息或上传附件。Workspace 人类成员分为 owner、admin、member：
-创建者成为不可转让的 owner；owner/admin 可通过用户名邀请 admin/member，被邀请人接受后加入；
-owner 不可离开或被移除。频道层不另建角色体系，也不引入私有频道。
+Workspace 外部用户无权访问。任意 Workspace 成员均可创建频道（ADR 0025，对齐 Slack 默认设置，
+["By default, members can create channels"](https://slack.com/help/articles/201402297-Create-a-channel)）；
+创建者自动加入，其他成员主动加入后才能发送消息或上传附件。Workspace 人类成员分为 owner、admin、
+member：创建者成为不可转让的 owner；owner/admin 可通过用户名邀请 admin/member，被邀请人接受后
+加入；owner 不可离开或被移除。频道成员（不论 Workspace 角色）均可将 Workspace 真人或 Agent 添加
+为该频道的成员（`PublicChannels.members`/`addMembers`，ADR 0025，对齐 Slack
+["All members ... can add people to channels"](https://slack.com/help/articles/201980108-Add-people-to-a-channel)）；
+频道层复用 Workspace 角色，不另建独立角色体系；私有频道已规划但本次未引入。当前未实现频道成员
+移除：`Message.sender` 外键对 `ConversationMember` 是 `onDelete: Restrict`，删除已发过消息的
+成员会被数据库拒绝；规划规则是 owner/admin 可将成员移出公开频道、但不能移出 `#general`（对齐
+Slack
+["By default, Workspace Owners and Admins can remove people from public channels"](https://slack.com/help/articles/201898668-Remove-someone-from-a-channel)），
+留待后续决策实现（ADR 0025）。
 每个 Workspace 有一个保留名称 `#general`，所有真人成员与 Agent 自动加入；迁移回填旧数据，
 Workspace 创建事务写入默认频道，Agent 创建事务同步加入，频道发现和打开时补齐现有成员。
 
@@ -1044,7 +1066,9 @@ conversation 行锁分配单调 sequence，沿用 Redis 请求幂等机制；sen
 Web 复用聊天气泡、输入框和附件，增加频道列表、创建与加入入口；未加入时只读。
 沿用会话实时信号和 canonical Message 历史恢复，不新增真人持久化未读游标。
 Agent 通过已有独立 HTTPS RPC 使用 CLI `#channel` target 读写已加入的频道，
-仍复用单 Agent runtime session，不创建频道 session。当前不新增非默认频道的 Agent 加入入口。
+仍复用单 Agent runtime session，不创建频道 session。频道成员可在 Web 侧将 Agent 加入其所在的
+非默认公开频道（ADR 0025）；这只增加 Web 端加入入口，不新增 Agent CLI join/leave 命令或
+action card。
 频道 Thread 的 root 必须是同频道顶层 Message；Workspace 真人可随父频道可见性读取，只有
 已加入成员可回复或上传附件。主频道与每个 Thread 的 Agent/Human ThreadRead 独立；读取
 `#general:<root>` 只返回并推进该 Thread 回复，root 与父频道上下文需另用
@@ -1081,10 +1105,20 @@ check 才能继续排空。恢复沿用 canonical Message/read 边界，不建�
 mute 不压制已 follow Thread。CoForge 额外要求短 target 经父频道 authenticated `around`
 canonicalization、Web/backend 始终输出完整 UUID、主频道/各 Thread 分别维护 read/recovery/
 freshness 边界、notice 与 channel recovery 不含正文，并保持单 Agent shared runtime session。
-CoForge 现已提供 Raft 对齐的 Agent channel `info`/`members`/`join`/`leave`/`create`/`update`/
-`lifecycle archive|unarchive`/`add-member`/`remove-member`（ADR 0024，Agent 自身 `role` 字段
-决定 admin 权限，而非其 owner 的 Workspace 角色）；仍缺少 private channel 与 DM Thread
-follow/unfollow 能力，standing instructions 不得声称或复制这两项。Raft 官方默认频道名为
+CoForge 现已提供 Agent CLI channel `info`/`members`/`join`/`leave`/`create`/`update`/
+`lifecycle archive|unarchive`/`add-member`/`remove-member`（ADR 0024，建立在 ADR 0025 之上）。
+权限对齐 ADR 0025 的 Slack 默认设置，而非 Raft 的 server-admin 门禁：`create`/`join`/`leave`
+只要求 Agent 属于该 Workspace（`leave` 对 #general 例外，永远不可离开）；`add-member` 要求发起
+Agent 本身已是该频道的活跃成员（"你只能把人加进你所在的频道"），复用 Web 侧
+`PublicChannels.members`/`addMembers`（ADR 0025）判定该活跃成员资格，不再各自实现；`update`
+（改名/描述）与 `lifecycle archive|unarchive`、`remove-member` 仍要求 Agent 自身 `role` 字段为
+`admin`/`owner`（Raft 的门禁，ADR 0025 未涉及这两类操作，故保留）。`remove-member` 实现了
+ADR 0025 记录但推迟的"频道成员移除"后续规则：Workspace owner/admin 可移除，`#general` 永远不可
+移除，且以 `ConversationMember.leftAt` 软离开（`Message.sender`/`Task.owner` 的 `onDelete:
+Restrict` 使硬删除不可行）代替删除，保留历史。Agent 创建仍要求 Workspace owner/admin
+（`assertCanCreateAgents`），对齐 Raft 仅由真人提交 action card 创建 agent；不新增 action card。
+CoForge 仍缺少 private channel 与 DM Thread follow/unfollow 能力，standing instructions 不得
+声称或复制这两项。Raft 官方默认频道名为
 [#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
 [Thread 文档](https://docs.raft.build/features/messaging/threads/)定义上述 follow/unfollow 行为；
 已核对的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)

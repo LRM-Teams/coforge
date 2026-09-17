@@ -79,7 +79,7 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
       { canRun: async () => true },
       { run: async (_id, callback) => callback() },
     ).create(
-      { userId: DEV_BROWSER_USER.id, workspaceId },
+      { userId: DEV_BROWSER_USER.id, workspaceId, role: "owner" },
       {
         name: `kiro-e2e-${crypto.randomUUID().slice(0, 8)}`,
         description: "Native Kiro end-to-end verification",

@@ -194,6 +194,8 @@ export type AgentMessageTransportResponse = {
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
   hasMore?: boolean;
+  /** `send` only: pending messages bypassed via `continueAnyway`; empty otherwise. */
+  recentUnread?: AgentMessage[];
 };
 
 /** Adapts the read route's response into the shape `DaemonRuntime` consumes. */
@@ -248,6 +250,7 @@ function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransp
     anywayAllowed: response.anywayAllowed,
     freshnessContextMode: response.freshnessContextMode,
     withheldMessageCount: response.withheldMessageCount,
+    recentUnread: response.recentUnread,
   };
 }
 
@@ -345,6 +348,7 @@ export interface DaemonConnectionClient {
     agentApiKey?: string,
   ): Promise<WeeklyReportResponse>;
   agentAttachment?(attachmentId: string, agentApiKey?: string): Promise<Response>;
+  agentAttachmentUpload?(request: Request, agentApiKey?: string): Promise<Response>;
   requestAgentApiKey?(input: { agentId: string; workspaceId: string }): Promise<string>;
   requestAgentLaunchConfig?(input: {
     agentId: string;
@@ -581,6 +585,8 @@ export const createAgentMessageHttpClient = (
           continueAnyway: request.continueAnyway,
           seenUpToSequence: request.seenUpToSequence,
           freshnessContextMode: request.freshnessContextMode,
+          attachmentId: request.attachmentId,
+          mentions: request.mentions,
         }),
       },
       "agent send",
@@ -1291,6 +1297,28 @@ export class DaemonConnection implements DaemonConnectionClient {
     return fetch(
       this.#serverEndpoint("Agent attachment", agentApiRoutes.cloud.attachments.path(attachmentId)),
       { headers: agentHeaders(this.#agentKeys(agentApiKey)) },
+    );
+  }
+
+  /**
+   * Forwards a multipart upload to the cloud attachment-upload route. Buffered to a `Blob`
+   * rather than streamed: the local proxy already caps the body well under the size the daemon
+   * can hold in memory, and buffering avoids depending on `duplex: "half"` for a streamed
+   * `fetch` body. The original request's `content-type` (its multipart boundary) is forwarded
+   * unchanged; only the Agent-scoped authorization headers are added.
+   */
+  async agentAttachmentUpload(request: Request, agentApiKey?: string): Promise<Response> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    const contentType = request.headers.get("content-type");
+    if (!contentType) throw new Error("multipart content-type is missing");
+    const body = await request.blob();
+    return fetch(
+      this.#serverEndpoint("Agent attachment upload", agentApiRoutes.cloud.attachments.upload.path),
+      {
+        method: agentApiRoutes.cloud.attachments.upload.method,
+        headers: { ...agentHeaders(this.#agentKeys(agentApiKey)), "content-type": contentType },
+        body,
+      },
     );
   }
 

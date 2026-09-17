@@ -532,6 +532,128 @@ test("proxy forwards an authorized attachment download without exposing the Agen
   expect(legacyResponse.status).toBe(404);
 });
 
+test("proxy forwards an authorized multipart attachment upload without exposing the Agent API key", async () => {
+  const calls: Array<{
+    context: string;
+    apiKey: string;
+    body: string;
+    contentType: string | null;
+  }> = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      agentAttachmentUpload: async (context, request, apiKey) => {
+        calls.push({
+          context,
+          apiKey,
+          body: await request.text(),
+          contentType: request.headers.get("content-type"),
+        });
+        return Response.json({
+          id: "attachment-1",
+          fileName: "note.txt",
+          contentType: "text/plain",
+          sizeBytes: 4,
+        });
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+  const boundary = "coforge-test-boundary";
+  const body = [
+    `--${boundary}`,
+    'Content-Disposition: form-data; name="target"',
+    "",
+    "#general",
+    `--${boundary}`,
+    'Content-Disposition: form-data; name="file"; filename="note.txt"',
+    "Content-Type: text/plain",
+    "",
+    "body",
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.local.attachments.upload.path,
+    ),
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "content-length": String(new TextEncoder().encode(body).byteLength),
+      },
+      body,
+    },
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    id: "attachment-1",
+    fileName: "note.txt",
+    contentType: "text/plain",
+    sizeBytes: 4,
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.apiKey).toMatch(/^sk_agent_/);
+  expect(calls[0]?.contentType).toBe(`multipart/form-data; boundary=${boundary}`);
+  expect(calls[0]?.body).toBe(body);
+});
+
+test("proxy rejects an attachment upload without a trustworthy content-length", async () => {
+  let calls = 0;
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      agentAttachmentUpload: async () => {
+        calls++;
+        throw new Error("must not forward an unbounded body");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+  const uploadUrl = proxy.url.replace(
+    agentApiRoutes.proxy.messages.path,
+    agentApiRoutes.local.attachments.upload.path,
+  );
+
+  // A streamed body carries no known length, so `fetch` sends it chunked without a
+  // content-length header at all (verified against `Bun.serve` directly).
+  const chunkedBody = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1]));
+      controller.close();
+    },
+  });
+  const missingLength = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "multipart/form-data; boundary=b",
+    },
+    body: chunkedBody,
+    duplex: "half",
+  });
+  expect(missingLength.status).toBe(413);
+
+  // `fetch` recomputes content-length from the real body, so the cap is exercised with a
+  // genuinely oversized body rather than a spoofed header (`fetch` ignores the latter).
+  const oversizedBody = new Uint8Array(10 * 1024 * 1024 + 64 * 1024 + 1);
+  const overCap = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "multipart/form-data; boundary=b",
+    },
+    body: oversizedBody,
+  });
+  expect(overCap.status).toBe(413);
+  expect(calls).toBe(0);
+});
+
 test("proxy forwards resolve and react without accepting caller identity", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const proxy = startAgentProxy({

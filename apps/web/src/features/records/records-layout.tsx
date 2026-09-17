@@ -60,6 +60,7 @@ function matchesQuery(text: string, query: string) {
 export function RecordsLayout({
   catalog,
   selectedRecordId,
+  selectedWeekKey,
   selectedPanel,
   tab,
   onTabChange,
@@ -68,6 +69,8 @@ export function RecordsLayout({
 }: {
   catalog: RecordsCatalog;
   selectedRecordId?: string;
+  /** `year-week` key when the week empty route (or landing) is active. */
+  selectedWeekKey?: string;
   /** True only when the URL is a record or panel — keeps the mobile list on `/records`. */
   detailOpen?: boolean;
   selectedPanel?: RecordsPanel | null;
@@ -80,13 +83,11 @@ export function RecordsLayout({
   const toast = useAppToast();
   const createNote = useServerFn(createRecordNote);
   const loadAssistantStatus = useServerFn(loadWeeklyReportAssistantStatus);
-  const recordOpen = detailOpen ?? Boolean(selectedRecordId || selectedPanel);
+  const recordOpen = detailOpen ?? Boolean(selectedRecordId || selectedPanel || selectedWeekKey);
   const [showMobileList, setShowMobileList] = useState(!recordOpen);
   const [query, setQuery] = useState("");
   const [favoritesOpen, setFavoritesOpen] = useState(true);
-  const [highlightsOpen, setHighlightsOpen] = useState(true);
   const [favoritesExpanded, setFavoritesExpanded] = useState(false);
-  const [highlightsExpanded, setHighlightsExpanded] = useState(false);
   const [membersExpanded, setMembersExpanded] = useState(false);
   const [formatEditing, setFormatEditing] = useState(false);
   const [settingsHintDismissed, setSettingsHintDismissed] = useState(false);
@@ -105,20 +106,9 @@ export function RecordsLayout({
     () => catalog.favorites.filter((item) => matchesQuery(item.title, query)),
     [catalog.favorites, query],
   );
-  const filteredHighlights = useMemo(
-    () =>
-      catalog.highlights.filter(
-        (item) => matchesQuery(item.title, query) || matchesQuery(String(item.week), query),
-      ),
-    [catalog.highlights, query],
-  );
   const previewFavorites = useMemo(
     () => sidebarPreview(filteredFavorites, Boolean(query) || favoritesExpanded),
     [filteredFavorites, query, favoritesExpanded],
-  );
-  const previewHighlights = useMemo(
-    () => sidebarPreview(filteredHighlights, Boolean(query) || highlightsExpanded),
-    [filteredHighlights, query, highlightsExpanded],
   );
   const filteredMyReports = useMemo(
     () => catalog.myReports.filter((item) => matchesQuery(item.title, query)),
@@ -270,35 +260,6 @@ export function RecordsLayout({
                   </CollapsibleSection>
 
                   <CollapsibleSection
-                    title={m.records_section_highlights()}
-                    open={highlightsOpen}
-                    onOpenChange={setHighlightsOpen}
-                  >
-                    {filteredHighlights.length === 0 ? null : (
-                      <ul className="space-y-0.5">
-                        {previewHighlights.visible.map((item) => (
-                          <li key={item.id}>
-                            <RecordLink
-                              recordId={item.id}
-                              selected={item.id === selectedRecordId}
-                              onSelect={() => setShowMobileList(false)}
-                            >
-                              <WeekBadge week={item.week} />
-                              <span className="truncate">
-                                {item.generating ? m.records_highlight_generating() : item.title}
-                              </span>
-                            </RecordLink>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <SidebarMore
-                      hiddenCount={previewHighlights.hiddenCount}
-                      onExpand={() => setHighlightsExpanded(true)}
-                    />
-                  </CollapsibleSection>
-
-                  <CollapsibleSection
                     title={m.records_section_mine()}
                     open={myReportsOpen}
                     onOpenChange={setMyReportsOpen}
@@ -344,9 +305,13 @@ export function RecordsLayout({
                       <ul className="space-y-1">
                         {previewMemberWeeks.visible.map((week) => {
                           const hasSubmissions = week.submissions.length > 0;
+                          const weekSelected =
+                            selectedWeekKey === week.key ||
+                            (week.highlightId != null && week.highlightId === selectedRecordId);
                           const expanded =
                             expandedWeeks[week.key] ??
                             ((Boolean(query) && hasSubmissions) ||
+                              weekSelected ||
                               week.submissions.some((item) => item.id === selectedRecordId));
                           return (
                             <li key={week.key} className="space-y-0.5">
@@ -382,10 +347,32 @@ export function RecordsLayout({
                                 ) : (
                                   <span className="size-7 shrink-0" aria-hidden="true" />
                                 )}
-                                <div className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-sm font-medium text-primary">
-                                  <WeekBadge week={week.week} />
-                                  <span className="truncate">{week.title}</span>
-                                </div>
+                                {week.highlightId ? (
+                                  <RecordLink
+                                    recordId={week.highlightId}
+                                    selected={weekSelected}
+                                    onSelect={() => setShowMobileList(false)}
+                                    className="min-w-0 flex-1 font-medium"
+                                  >
+                                    <WeekBadge week={week.week} />
+                                    <span className="truncate">
+                                      {week.highlightGenerating
+                                        ? m.records_highlight_generating()
+                                        : week.title}
+                                    </span>
+                                  </RecordLink>
+                                ) : (
+                                  <WeekHighlightLink
+                                    year={week.year}
+                                    week={week.week}
+                                    selected={weekSelected}
+                                    onSelect={() => setShowMobileList(false)}
+                                    className="min-w-0 flex-1 font-medium"
+                                  >
+                                    <WeekBadge week={week.week} />
+                                    <span className="truncate">{week.title}</span>
+                                  </WeekHighlightLink>
+                                )}
                               </div>
                               {hasSubmissions && expanded ? (
                                 <ul className="ml-7 space-y-0.5">
@@ -776,6 +763,40 @@ function RecordLink({
     <Link
       to="/records/$recordId"
       params={{ recordId }}
+      search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
+      aria-current={selected ? "page" : undefined}
+      resetScroll={false}
+      onClick={onSelect}
+      className={cn(
+        "flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-primary transition-colors hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+        selected && "bg-primary_hover font-medium",
+        className,
+      )}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function WeekHighlightLink({
+  year,
+  week,
+  selected,
+  onSelect,
+  className,
+  children,
+}: {
+  year: number;
+  week: number;
+  selected: boolean;
+  onSelect: () => void;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      to="/records/weeks/$year/$week"
+      params={{ year: String(year), week: String(week) }}
       search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
       aria-current={selected ? "page" : undefined}
       resetScroll={false}

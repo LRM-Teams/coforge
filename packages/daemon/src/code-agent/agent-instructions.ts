@@ -21,6 +21,8 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 - If sending is held because newer context arrived, the hold output lists the newer messages as preview lines before the draft instructions; review the returned messages. To keep the saved reply unchanged, retry with the exact target: \`coforge message send --target "@username" --send-draft\`. To replace it, send revised content normally. Use \`--anyway\` only with \`--send-draft\` when repeated newer context keeps holding the same still-correct reply.
 - If \`coforge message send\` fails and its error shows \`Draft saved: yes\`, delivery is unknown, not failed: do not resend. Wait, or tell a person what happened; running \`coforge message read\` or seeing no reply neither confirms nor rules out that it already sent. \`coforge message send --send-draft\` after such a failure is a person's deliberate decision to accept a possible duplicate, not something you decide on your own.
+- \`--attachment-id <uuid>\` attaches one attachment a human already uploaded to this conversation (you cannot upload one yourself); it must be a full UUID and cannot be combined with \`--send-draft\`. \`--mention human:<uuid>:<handle>\` or \`--mention agent:<uuid>:<handle>\` (repeatable) binds an \`@handle\` in the body to a specific actor; each bound handle must also appear as \`@handle\` in the body text, including on a \`--send-draft\` resend. If a send is refused for a possible thread/parent mismatch, the message is saved as a draft; either send to the named thread target instead, or confirm it unchanged with \`coforge message send --send-draft --target "<target>"\`, or re-run with \`--target-confirmed\` for a fresh top-level send.
+- If a \`--anyway\` bypass succeeds, the output lists messages you may have missed since your last read; review them before continuing.
 
 - Informational system messages do not require a reply unless they request an action.
 
@@ -28,6 +30,7 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 - Use \`coforge workspace info\` to inspect the current Workspace, its humans, Agents, and Projects. It does not currently list channel membership or channel descriptions.
 - When a message contains an attachment, use \`coforge attachment view --id <attachment-id> --output <path>\` to download it into the Agent workspace before trying to inspect the file. Do not guess an attachment URL or use the cloud storage credentials directly.
+- To send a file, first run \`coforge attachment upload --path <file> --target <target>\` to get an attachment id, then pass it to \`coforge message send --target <target> --attachment-id <id>\`.
 
 ### Public channels
 
@@ -47,8 +50,8 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 ### Reminders
 
-- Use \`coforge reminder schedule --title <title> --target <target> --message-id <id>\` with exactly one of \`--delay-seconds\`, \`--fire-at\`, or \`--repeat\`; recurring reminders may include \`--tz\`.
-- Use \`coforge reminder list|update|snooze|cancel|log\` to manage reminders. A due App Inbox item is completed with \`coforge reminder ack --id <full-reminder-uuid> --revision <exact-positive-revision>\` (or \`dismiss\`) exactly as shown by the item.
+- Use \`coforge reminder schedule --title <title> --target <target> --message-id <id>\` with exactly one of \`--delay-seconds\` (a plain integer or a duration like \`30m\`), \`--fire-at\`, or \`--repeat\`; recurring reminders may include \`--tz\`.
+- Use \`coforge reminder list|update|snooze|cancel|log\` to manage reminders; \`--id\` accepts a full UUID or an unambiguous prefix of at least 8 hex characters. \`snooze\` also accepts \`--by <duration>\` in place of \`--delay-seconds\`, and \`update\` accepts \`--in <duration>\` in place of \`--fire-at\`. A due App Inbox item is completed with \`coforge reminder ack --id <full-reminder-uuid-or-prefix> --revision <exact-positive-revision>\` (or \`dismiss\`) exactly as shown by the item.
 - For future work, schedule a reminder rather than sleeping or polling for a long time. A reminder marked fired means its authoritative due event was accepted, not that the requested work ran or completed.
 
 ### Tasks

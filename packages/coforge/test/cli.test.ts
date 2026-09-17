@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { parseArgs, run } from "../index";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseArgs, resolveReminderId, run } from "../index";
 import { CliError, renderCliErrorJson, renderCliErrorText } from "../src/cli-error";
 import { validateTaskRequest } from "@lrm/coforge-sdk/internal";
 import {
@@ -169,7 +172,7 @@ test("parses recurring reminders with an explicit default timezone and dispatche
 });
 
 test("rejects malformed and ambiguous reminder commands", () => {
-  expect(() => parseArgs(["reminder", "cancel", "--id", "12345678"])).toThrow("full UUID");
+  expect(() => parseArgs(["reminder", "cancel", "--id", "1234567"])).toThrow("full UUID");
   expect(() => parseArgs(["reminder", "list", "--all", "--status", "scheduled"])).toThrow("Usage:");
   expect(() =>
     parseArgs([
@@ -187,6 +190,408 @@ test("rejects malformed and ambiguous reminder commands", () => {
     "Duplicate",
   );
   expect(() => parseArgs(["reminder", "log", "--wat", "x"])).toThrow("Unknown");
+});
+
+test("accepts a short hex id prefix, and the --by/--in duration and --cadence/--channel/--msg-id aliases", () => {
+  expect(parseArgs(["reminder", "cancel", "--id", "12345678"])).toEqual({
+    command: "reminder",
+    operation: "cancel",
+    reminderId: "12345678",
+  });
+  expect(parseArgs(["reminder", "snooze", "--id", reminderId, "--by", "5m"])).toEqual({
+    command: "reminder",
+    operation: "snooze",
+    reminderId,
+    delaySeconds: 300,
+  });
+  expect(parseArgs(["reminder", "update", "--id", reminderId, "--in", "10m"])).toEqual({
+    command: "reminder",
+    operation: "update",
+    reminderId,
+    delaySeconds: 600,
+  });
+  expect(
+    parseArgs([
+      "reminder",
+      "schedule",
+      "--title",
+      "Standup",
+      "--channel",
+      "#general",
+      "--msg-id",
+      "deadbeef",
+      "--delay-seconds",
+      "30m",
+    ]),
+  ).toEqual({
+    command: "reminder",
+    operation: "schedule",
+    title: "Standup",
+    target: "#general",
+    messageId: "deadbeef",
+    delaySeconds: 1800,
+  });
+  expect(parseArgs(["reminder", "update", "--id", reminderId, "--cadence", "none"])).toEqual({
+    command: "reminder",
+    operation: "update",
+    reminderId,
+    repeat: "none",
+  });
+});
+
+test("rejects a reminder alias combined with its canonical flag, and an invalid duration", () => {
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--repeat", "none", "--cadence", "none"]),
+  ).toThrow("Cannot combine");
+  expect(() =>
+    parseArgs([
+      "reminder",
+      "schedule",
+      "--title",
+      "a",
+      "--target",
+      "#g",
+      "--channel",
+      "#g2",
+      "--message-id",
+      "deadbeef",
+      "--delay-seconds",
+      "5",
+    ]),
+  ).toThrow("Cannot combine");
+  expect(() =>
+    parseArgs([
+      "reminder",
+      "schedule",
+      "--title",
+      "a",
+      "--target",
+      "#g",
+      "--message-id",
+      "deadbeef",
+      "--msg-id",
+      "deadbee0",
+      "--delay-seconds",
+      "5",
+    ]),
+  ).toThrow("Cannot combine");
+  expect(() =>
+    parseArgs(["reminder", "snooze", "--id", reminderId, "--by", "notaduration"]),
+  ).toThrow("Invalid duration");
+  expect(() =>
+    parseArgs(["reminder", "snooze", "--id", reminderId, "--by", "5m", "--delay-seconds", "5"]),
+  ).toThrow("Cannot combine");
+  expect(() =>
+    parseArgs([
+      "reminder",
+      "update",
+      "--id",
+      reminderId,
+      "--in",
+      "5m",
+      "--fire-at",
+      "2026-09-09T00:00:00Z",
+    ]),
+  ).toThrow("Usage:");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--in", "5m", "--delay-seconds", "300"]),
+  ).toThrow("Cannot combine");
+});
+
+test("update requires exactly one mutation, and --tz only alongside a cadence change", () => {
+  expect(() => parseArgs(["reminder", "update", "--id", reminderId])).toThrow(
+    "Pass exactly one of --fire-at, --in, --cadence, or --title",
+  );
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--title", "New", "--cadence", "none"]),
+  ).toThrow("Pass exactly one of --fire-at, --in, --cadence, or --title");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--title", "New", "--in", "5m"]),
+  ).toThrow("Pass exactly one of --fire-at, --in, --cadence, or --title");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--tz", "Asia/Shanghai"]),
+  ).toThrow("Pass exactly one of --fire-at, --in, --cadence, or --title");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--title", "New", "--tz", "UTC"]),
+  ).toThrow("--tz may only accompany a cadence change");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--in", "5m", "--tz", "UTC"]),
+  ).toThrow("--tz may only accompany a cadence change");
+  expect(
+    parseArgs([
+      "reminder",
+      "update",
+      "--id",
+      reminderId,
+      "--cadence",
+      "daily@09:00",
+      "--tz",
+      "UTC",
+    ]),
+  ).toEqual({
+    command: "reminder",
+    operation: "update",
+    reminderId,
+    repeat: "daily@09:00",
+    timezone: "UTC",
+  });
+  expect(parseArgs(["reminder", "update", "--id", reminderId, "--title", "New title"])).toEqual({
+    command: "reminder",
+    operation: "update",
+    reminderId,
+    title: "New title",
+  });
+});
+
+test("list defaults to no explicit status filter, accepts a comma-separated status set, and still rejects --all with --status", () => {
+  expect(parseArgs(["reminder", "list"])).toEqual({ command: "reminder", operation: "list" });
+  expect(parseArgs(["reminder", "list", "--status", "scheduled,fired"])).toEqual({
+    command: "reminder",
+    operation: "list",
+    status: "scheduled,fired",
+  });
+  expect(parseArgs(["reminder", "list", "--all"])).toEqual({
+    command: "reminder",
+    operation: "list",
+    all: true,
+  });
+  expect(() => parseArgs(["reminder", "list", "--all", "--status", "scheduled,fired"])).toThrow(
+    "Usage:",
+  );
+  expect(() => parseArgs(["reminder", "list", "--status", "scheduled,scheduled"])).toThrow(
+    "invalid reminder status",
+  );
+  expect(() => parseArgs(["reminder", "list", "--status", "bogus"])).toThrow(
+    "invalid reminder status",
+  );
+});
+
+test("resolveReminderId matches a dash-stripped id prefix, and rejects zero or many matches", async () => {
+  const first = {
+    reminderId: "12345678-1234-4123-8123-123456789abc",
+    ownerAgentId: "agent",
+    version: 1,
+    title: "First",
+    target: "#g",
+    messageId: "deadbeef",
+    fireAt: "2026-09-09T00:00:00Z",
+    status: "scheduled" as const,
+    createdAt: "2026-09-08T00:00:00Z",
+  };
+  const second = {
+    ...first,
+    reminderId: "12345679-1234-4123-8123-123456789abc",
+    title: "Second",
+  };
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  const calls: unknown[] = [];
+  const listing = (reminders: (typeof first)[]) => ({
+    reminder: async (request: unknown) => {
+      calls.push(request);
+      return { ...scopeFields, accepted: true, events: [], reminders };
+    },
+  });
+  await expect(resolveReminderId(listing([first, second]), "123456781234")).resolves.toBe(
+    first.reminderId,
+  );
+  expect(calls.at(-1)).toEqual({ operation: "list", all: true });
+  await expect(resolveReminderId(listing([]), "ffffffff")).rejects.toMatchObject({
+    code: "NOT_FOUND",
+    message: "No reminder matches id prefix 'ffffffff'.",
+  });
+  const ambiguousFirst = { ...first, reminderId: "aaaaaaaa-1111-4111-8111-111111111111" };
+  const ambiguousSecond = { ...first, reminderId: "aaaaaaaa-2222-4222-8222-222222222222" };
+  await expect(
+    resolveReminderId(listing([ambiguousFirst, ambiguousSecond]), "aaaaaaaa"),
+  ).rejects.toMatchObject({
+    code: "AMBIGUOUS",
+    message: "Ambiguous id prefix 'aaaaaaaa' matches 2 reminders; pass a longer id.",
+  });
+});
+
+test("resolveReminderId scopes the lookup to scheduled/fired for cancel/snooze, and names that scope in NOT_FOUND", async () => {
+  const calls: unknown[] = [];
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  const transport = {
+    reminder: async (request: unknown) => {
+      calls.push(request);
+      return { ...scopeFields, accepted: true, events: [], reminders: [] };
+    },
+  };
+  await expect(
+    resolveReminderId(transport, "ffffffff", { statuses: ["scheduled", "fired"] }),
+  ).rejects.toMatchObject({
+    code: "NOT_FOUND",
+    message: "No scheduled/fired reminder matches id prefix 'ffffffff'.",
+  });
+  expect(calls).toEqual([{ operation: "list", status: "scheduled,fired" }]);
+});
+
+test("run resolves a short --id prefix by listing reminders before dispatching the real request", async () => {
+  const base = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  const calls: unknown[] = [];
+  const output = await run(["reminder", "cancel", "--id", "12345678"], {
+    ...base,
+    reminder: async (request) => {
+      calls.push(request);
+      if (request.operation === "list")
+        return {
+          ...scopeFields,
+          accepted: true,
+          events: [],
+          reminders: [
+            {
+              reminderId,
+              ownerAgentId: "agent",
+              version: 3,
+              title: "Deploy",
+              target: "#release",
+              messageId: "deadbeef",
+              fireAt: "2026-09-09T01:00:00Z",
+              status: "scheduled" as const,
+              createdAt: "2026-09-08T01:00:00Z",
+            },
+          ],
+        };
+      return { ...scopeFields, accepted: true, events: [], reminders: [] };
+    },
+  });
+  expect(calls).toEqual([
+    { operation: "list", status: "scheduled,fired" },
+    { operation: "cancel", reminderId },
+  ]);
+  expect(output).toBe("Accepted reminder cancel request.");
+});
+
+test("run resolves a short --id prefix unscoped (across every status) for update and log", async () => {
+  const base = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  const listResponse = {
+    ...scopeFields,
+    accepted: true,
+    events: [],
+    reminders: [
+      {
+        reminderId,
+        ownerAgentId: "agent",
+        version: 3,
+        title: "Deploy",
+        target: "#release",
+        messageId: "deadbeef",
+        fireAt: "2026-09-09T01:00:00Z",
+        status: "scheduled" as const,
+        createdAt: "2026-09-08T01:00:00Z",
+      },
+    ],
+  };
+  const updateCalls: unknown[] = [];
+  await run(["reminder", "update", "--id", "12345678", "--title", "Renamed"], {
+    ...base,
+    reminder: async (request) => {
+      updateCalls.push(request);
+      if (request.operation === "list") return listResponse;
+      return { ...scopeFields, accepted: true, events: [], reminders: [] };
+    },
+  });
+  expect(updateCalls).toEqual([
+    { operation: "list", all: true },
+    { operation: "update", reminderId, title: "Renamed" },
+  ]);
+
+  const logCalls: unknown[] = [];
+  await run(["reminder", "log", "--id", "12345678"], {
+    ...base,
+    reminder: async (request) => {
+      logCalls.push(request);
+      if (request.operation === "list") return listResponse;
+      return { ...scopeFields, accepted: true, events: [], reminders: [] };
+    },
+  });
+  expect(logCalls).toEqual([
+    { operation: "list", all: true },
+    { operation: "log", reminderId },
+  ]);
+});
+
+test("run rejects a short --id prefix that matches no reminder or more than one", async () => {
+  const base = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  await expect(
+    run(["reminder", "cancel", "--id", "ffffffff"], {
+      ...base,
+      reminder: async () => ({ ...scopeFields, accepted: true, events: [], reminders: [] }),
+    }),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const ambiguousFields = {
+    ownerAgentId: "agent",
+    version: 1,
+    title: "T",
+    target: "#g",
+    messageId: "deadbeef",
+    fireAt: "2026-09-09T00:00:00Z",
+    status: "scheduled" as const,
+    createdAt: "2026-09-08T00:00:00Z",
+  };
+  await expect(
+    run(["reminder", "cancel", "--id", "aaaaaaaa"], {
+      ...base,
+      reminder: async () => ({
+        ...scopeFields,
+        accepted: true,
+        events: [],
+        reminders: [
+          { ...ambiguousFields, reminderId: "aaaaaaaa-1111-4111-8111-111111111111" },
+          { ...ambiguousFields, reminderId: "aaaaaaaa-2222-4222-8222-222222222222" },
+        ],
+      }),
+    }),
+  ).rejects.toMatchObject({ code: "AMBIGUOUS" });
 });
 
 test("formats usable reminder lists, empty logs, and receipt acknowledgements", async () => {
@@ -287,6 +692,30 @@ test("Task command parsing covers Raft lifecycle actions and explicit descriptio
     expect(parseArgs(["task", operation, "--target", "#general", "--number", "2"])).toMatchObject({
       task: { operation, number: 2 },
     });
+});
+
+test("Task unassign dispatches its own protocol operation with no assignee", () => {
+  expect(parseArgs(["task", "unassign", "--target", "#general", "--number", "2"])).toMatchObject({
+    task: { operation: "unassign", number: 2, assignee: undefined },
+  });
+  expect(
+    parseArgs([
+      "task",
+      "unassign",
+      "--target",
+      "#general",
+      "--number",
+      "2",
+      "--expected-revision",
+      "4",
+    ]),
+  ).toMatchObject({
+    task: { operation: "unassign", number: 2, expectedRevision: 4 },
+  });
+  expect(() =>
+    parseArgs(["task", "unassign", "--target", "#general", "--number", "2", "--assignee", "@ada"]),
+  ).toThrow("Usage:");
+  expect(() => parseArgs(["task", "unassign", "--target", "#general"])).toThrow("Usage:");
 });
 
 test("Task receipt forwards all seven fields through the backend contract", async () => {
@@ -430,6 +859,35 @@ test("Task unclaim reads one revision unless explicitly supplied and submits onc
     expect(calls.at(-1)).toMatchObject({ operation: "unclaim", expectedRevision: 4 });
     expect(calls).toHaveLength(args.includes("--expected-revision") ? 1 : 2);
   }
+});
+
+test("Task unassign submits its own protocol operation with no assignee", async () => {
+  const calls: any[] = [];
+  const output = await run(["task", "unassign", "--target", "#general", "--number", "2"], {
+    check: async () => ({ messages: [] }),
+    read: async () => ({}),
+    send: async () => ({}),
+    view: async () => ({ bytes: new Uint8Array() }),
+    task: async (command) => {
+      calls.push(command);
+      return {
+        tasks: [
+          {
+            messageId: "message-2",
+            conversationId: "conversation",
+            number: 2,
+            title: "Verify",
+            status: "in_progress",
+            revision: 4,
+            owner: null,
+          },
+        ],
+      };
+    },
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ operation: "unassign", number: 2, assignee: undefined });
+  expect(output).toContain("#2 status=in_progress owner=unclaimed message=message-2");
 });
 
 test("Agent channel mute and unmute change its own setting without sending a message", async () => {
@@ -846,6 +1304,336 @@ test("parses attachment view with an output path", () => {
     attachmentId: "attachment-1",
     output: "/tmp/file.txt",
   });
+});
+
+test("parses attachment view with a positional id, Raft-style", () => {
+  expect(parseArgs(["attachment", "view", "attachment-1", "--output", "/tmp/file.txt"])).toEqual({
+    command: "attachment.view",
+    attachmentId: "attachment-1",
+    output: "/tmp/file.txt",
+  });
+});
+
+test("parses attachment view --json", () => {
+  expect(
+    parseArgs(["attachment", "view", "attachment-1", "--output", "/tmp/file.txt", "--json"]),
+  ).toEqual({
+    command: "attachment.view",
+    attachmentId: "attachment-1",
+    output: "/tmp/file.txt",
+    json: true,
+  });
+});
+
+test("attachment view rejects both a positional id and --id, matching Raft's validateViewOpts", () => {
+  expect(() =>
+    parseArgs(["attachment", "view", "attachment-1", "--id", "attachment-2", "--output", "/tmp/f"]),
+  ).toThrow(CliError);
+  try {
+    parseArgs(["attachment", "view", "attachment-1", "--id", "attachment-2", "--output", "/tmp/f"]);
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("INVALID_ARG");
+    expect((error as CliError).message).toBe(
+      "pass the attachment id either positionally or with --id, not both",
+    );
+  }
+});
+
+test("attachment view rejects a missing id with Raft's exact code and message", () => {
+  expect(() => parseArgs(["attachment", "view", "--output", "/tmp/file.txt"])).toThrow(CliError);
+  try {
+    parseArgs(["attachment", "view", "--output", "/tmp/file.txt"]);
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("INVALID_ARG");
+    expect((error as CliError).message).toBe(
+      "attachment id is required (pass <attachmentId> or --id)",
+    );
+  }
+});
+
+test("attachment view rejects a missing --output with Raft's exact code and message", () => {
+  expect(() => parseArgs(["attachment", "view", "attachment-1"])).toThrow(CliError);
+  try {
+    parseArgs(["attachment", "view", "attachment-1"]);
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("INVALID_ARG");
+    expect((error as CliError).message).toBe("--output is required");
+  }
+});
+
+test("dispatches attachment view and prints Raft's exact download-destination line", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  const output = join(dir, "downloaded.txt");
+  try {
+    const result = await run(["attachment", "view", "attachment-1", "--output", output], {
+      check: async () => {
+        throw new Error("unused");
+      },
+      read: async () => {
+        throw new Error("unused");
+      },
+      send: async () => {
+        throw new Error("unused");
+      },
+      view: async () => ({ bytes: new TextEncoder().encode("hello") }),
+    });
+    expect(result).toBe(`Downloaded to: ${output}`);
+    expect(await Bun.file(output).text()).toBe("hello");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("attachment view --json prints the attachment id and output path as an object", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  const output = join(dir, "downloaded.txt");
+  try {
+    const result = await run(["attachment", "view", "attachment-1", "--output", output, "--json"], {
+      check: async () => {
+        throw new Error("unused");
+      },
+      read: async () => {
+        throw new Error("unused");
+      },
+      send: async () => {
+        throw new Error("unused");
+      },
+      view: async () => ({ bytes: new TextEncoder().encode("hello") }),
+    });
+    expect(JSON.parse(result as string)).toEqual({ attachmentId: "attachment-1", path: output });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("parses attachment upload with target, mime type, and --json", () => {
+  expect(
+    parseArgs(["attachment", "upload", "--path", "/tmp/file.txt", "--target", "@ada"]),
+  ).toEqual({
+    command: "attachment.upload",
+    path: "/tmp/file.txt",
+    target: "@ada",
+    mimeType: undefined,
+  });
+  expect(
+    parseArgs([
+      "attachment",
+      "upload",
+      "--path",
+      "/tmp/file.txt",
+      "--target",
+      "@ada",
+      "--mime-type",
+      "image/png",
+      "--json",
+    ]),
+  ).toEqual({
+    command: "attachment.upload",
+    path: "/tmp/file.txt",
+    target: "@ada",
+    mimeType: "image/png",
+    json: true,
+  });
+});
+
+test("parses attachment upload's legacy --channel alias for --target", () => {
+  expect(
+    parseArgs(["attachment", "upload", "--path", "/tmp/file.txt", "--channel", "#general"]),
+  ).toEqual({
+    command: "attachment.upload",
+    path: "/tmp/file.txt",
+    target: "#general",
+    mimeType: undefined,
+  });
+});
+
+test("rejects attachment upload given both --target and --channel, even when equal", () => {
+  expect(() =>
+    parseArgs([
+      "attachment",
+      "upload",
+      "--path",
+      "/tmp/file.txt",
+      "--target",
+      "@ada",
+      "--channel",
+      "@ada",
+    ]),
+  ).toThrow("Usage:");
+  expect(() =>
+    parseArgs([
+      "attachment",
+      "upload",
+      "--path",
+      "/tmp/file.txt",
+      "--target",
+      "@ada",
+      "--channel",
+      "#other",
+    ]),
+  ).toThrow("Usage:");
+});
+
+test("dispatches attachment upload through the injected transport with an inferred mime type", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  const path = join(dir, "note.txt");
+  await writeFile(path, "hello");
+  try {
+    const calls: unknown[] = [];
+    const result = await run(["attachment", "upload", "--path", path, "--target", "@ada"], {
+      check: async () => {
+        throw new Error("unused");
+      },
+      read: async () => {
+        throw new Error("unused");
+      },
+      send: async () => {
+        throw new Error("unused");
+      },
+      view: async () => {
+        throw new Error("unused");
+      },
+      upload: async (input) => {
+        calls.push(input);
+        return {
+          id: "attachment-1",
+          fileName: "note.txt",
+          contentType: "text/plain",
+          sizeBytes: 5,
+        };
+      },
+    });
+    expect(calls).toEqual([{ path, target: "@ada", mimeType: "text/plain" }]);
+    expect(result).toBe(
+      "File uploaded: note.txt (0.0KB)\n" +
+        "Attachment ID: attachment-1\n\n" +
+        "Use this ID with coforge message send --attachment-id attachment-1 to include it in a message.",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("attachment upload --json prints the raw response object", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  const path = join(dir, "image.png");
+  await writeFile(path, "fake-png-bytes");
+  try {
+    const result = await run(
+      ["attachment", "upload", "--path", path, "--target", "#general", "--json"],
+      {
+        check: async () => {
+          throw new Error("unused");
+        },
+        read: async () => {
+          throw new Error("unused");
+        },
+        send: async () => {
+          throw new Error("unused");
+        },
+        view: async () => {
+          throw new Error("unused");
+        },
+        upload: async () => ({
+          id: "attachment-1",
+          fileName: "image.png",
+          contentType: "image/png",
+          sizeBytes: 14,
+        }),
+      },
+    );
+    expect(JSON.parse(result as string)).toEqual({
+      id: "attachment-1",
+      fileName: "image.png",
+      contentType: "image/png",
+      sizeBytes: 14,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("attachment upload rejects local preconditions before any transport call", async () => {
+  const transport = {
+    check: async () => {
+      throw new Error("unused");
+    },
+    read: async () => {
+      throw new Error("unused");
+    },
+    send: async () => {
+      throw new Error("unused");
+    },
+    view: async () => {
+      throw new Error("unused");
+    },
+    upload: async () => {
+      throw new Error("must not upload: a local precondition failed");
+    },
+  };
+  await expect(run(["attachment", "upload", "--target", "@ada"], transport)).rejects.toMatchObject({
+    code: "INVALID_ARG",
+    message: "--path is required",
+  });
+  await expect(
+    run(
+      ["attachment", "upload", "--path", "/tmp/coforge-does-not-exist.bin", "--target", "@ada"],
+      transport,
+    ),
+  ).rejects.toMatchObject({ code: "INVALID_ARG" });
+
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  try {
+    const emptyPath = join(dir, "empty.txt");
+    await writeFile(emptyPath, "");
+    await expect(
+      run(["attachment", "upload", "--path", emptyPath, "--target", "@ada"], transport),
+    ).rejects.toMatchObject({
+      code: "INVALID_ARG",
+      message: "--path is empty; refusing to upload a 0-byte attachment",
+    });
+    await expect(
+      run(["attachment", "upload", "--path", dir, "--target", "@ada"], transport),
+    ).rejects.toMatchObject({ code: "INVALID_ARG" });
+
+    const filePath = join(dir, "note.txt");
+    await writeFile(filePath, "hello");
+    await expect(
+      run(
+        [
+          "attachment",
+          "upload",
+          "--path",
+          filePath,
+          "--target",
+          "@ada",
+          "--mime-type",
+          "not-a-mime-type",
+        ],
+        transport,
+      ),
+    ).rejects.toMatchObject({
+      code: "INVALID_ARG",
+      message: "--mime-type must look like type/subtype, got: not-a-mime-type",
+    });
+    // Missing --target surfaces after the path checks, as Raft's MISSING_CHANNEL, and wins
+    // over a bad --mime-type since the target check runs first.
+    await expect(
+      run(
+        ["attachment", "upload", "--path", filePath, "--mime-type", "not-a-mime-type"],
+        transport,
+      ),
+    ).rejects.toMatchObject({
+      code: "MISSING_CHANNEL",
+      message:
+        "A target is required to attach the upload to. Pass --target '#name', '@user', or a thread target.",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("rejects agent-internal arguments", () => {
@@ -1419,5 +2207,217 @@ test("message send --json reports a sent message as one JSON object", async () =
     state: "sent",
     target: "@ada",
     messageId: "message-1",
+    recentUnread: [],
   });
+});
+
+test("message send --json appends recentUnread from a bypass send", async () => {
+  const output = await run(["message", "send", "--target", "@ada", "--send-draft", "--json"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => ({
+      accepted: true,
+      messageId: "message-1",
+      recentUnread: [
+        {
+          id: "message-2",
+          sequence: 5,
+          sender: "@ada",
+          target: "@ada",
+          body: "missed while you were held",
+          createdAt: "2026-09-17T10:00:00Z",
+        },
+      ],
+    }),
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  const parsed = JSON.parse(output as string);
+  expect(parsed.recentUnread).toHaveLength(1);
+  expect(parsed.recentUnread[0].body).toBe("missed while you were held");
+});
+
+test("message send text mode appends a recentUnread section after the sent line", async () => {
+  const output = await run(["message", "send", "--target", "@ada", "--send-draft"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => ({
+      accepted: true,
+      messageId: "message-1",
+      recentUnread: [
+        {
+          id: "message-2",
+          sequence: 5,
+          sender: "@frank",
+          target: "@ada",
+          body: "missed while you were held",
+          createdAt: "2026-09-17T10:00:00Z",
+        },
+      ],
+    }),
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  expect(output).toContain("Message sent to @ada.");
+  expect(output).toContain("--- New messages you may have missed ---");
+  expect(output).toContain("missed while you were held");
+});
+
+test("message send parses --attachment-id, --mention, and --target-confirmed", () => {
+  const invocation = parseArgs([
+    "message",
+    "send",
+    "--target",
+    "@ada",
+    "--attachment-id",
+    "11111111-1111-4111-8111-111111111111",
+    "--mention",
+    "human:22222222-2222-4222-8222-222222222222:ada",
+    "--target-confirmed",
+  ]);
+  expect(invocation).toMatchObject({
+    command: "send",
+    target: "@ada",
+    attachmentId: "11111111-1111-4111-8111-111111111111",
+    mentions: [{ type: "user", id: "22222222-2222-4222-8222-222222222222", name: "ada" }],
+    targetConfirmed: true,
+  });
+});
+
+test("message send rejects a second --attachment-id occurrence", () => {
+  expect(() =>
+    parseArgs([
+      "message",
+      "send",
+      "--target",
+      "@ada",
+      "--send-draft",
+      "--attachment-id",
+      "11111111-1111-4111-8111-111111111111",
+      "--attachment-id",
+      "22222222-2222-4222-8222-222222222222",
+    ]),
+  ).toThrow("Usage:");
+});
+
+test("message send rejects a non-uuid --attachment-id with a typed usage error", () => {
+  const error = (() => {
+    try {
+      parseArgs(["message", "send", "--target", "@ada", "--attachment-id", "abc"]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("INVALID_ARG");
+  expect(cliError.message).toBe("--attachment-id must be a full attachment UUID.");
+  expect(cliError.draftSaved).toBe(false);
+});
+
+test("message send --json reports a non-uuid --attachment-id as structured JSON", () => {
+  const error = (() => {
+    try {
+      parseArgs(["message", "send", "--target", "@ada", "--attachment-id", "abc", "--json"]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  expect((error as CliError).outputMode).toBe("json");
+  const parsed = JSON.parse(renderCliErrorJson(error as CliError));
+  expect(parsed.error.code).toBe("INVALID_ARG");
+  expect(parsed.error.draft_saved).toBe(false);
+});
+
+test("--attachment-id combined with --send-draft is a typed usage error", () => {
+  const error = (() => {
+    try {
+      parseArgs([
+        "message",
+        "send",
+        "--target",
+        "@ada",
+        "--send-draft",
+        "--attachment-id",
+        "11111111-1111-4111-8111-111111111111",
+      ]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("INVALID_ARG");
+  expect(cliError.message).toBe(
+    "--attachment-id cannot be used with --send-draft. Use a normal send to replace the draft.",
+  );
+  expect(cliError.draftSaved).toBe(false);
+});
+
+test("an invalid --mention selector is a typed usage error", () => {
+  const error = (() => {
+    try {
+      parseArgs(["message", "send", "--target", "@ada", "--send-draft", "--mention", "not-valid"]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  expect((error as CliError).code).toBe("INVALID_MENTION_SELECTOR");
+  expect((error as CliError).draftSaved).toBe(false);
+});
+
+test("two --mention flags binding the same handle to different actors conflict", () => {
+  const error = (() => {
+    try {
+      parseArgs([
+        "message",
+        "send",
+        "--target",
+        "@ada",
+        "--send-draft",
+        "--mention",
+        "human:11111111-1111-4111-8111-111111111111:ada",
+        "--mention",
+        "agent:22222222-2222-4222-8222-222222222222:ada",
+      ]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("MENTION_BINDING_CONFLICT");
+  expect(cliError.message).toBe("@ada cannot be bound to more than one actor in the same message.");
+});
+
+test("message send forwards mentions and targetConfirmed to the transport on --send-draft", async () => {
+  const calls: unknown[] = [];
+  await run(["message", "send", "--target", "@ada", "--send-draft", "--target-confirmed"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async (target, body, options) => {
+      calls.push({ target, body, options });
+      return { accepted: true, messageId: "message-1" };
+    },
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  expect(calls).toEqual([
+    {
+      target: "@ada",
+      body: undefined,
+      options: {
+        sendDraft: true,
+        continueAnyway: undefined,
+        freshnessContextMode: undefined,
+        attachmentId: undefined,
+        mentions: undefined,
+        targetConfirmed: true,
+      },
+    },
+  ]);
 });

@@ -8,6 +8,7 @@ import {
   type AgentReminderOperationResponse,
   type ChannelCommand,
   type LocalReminderRequest,
+  type MentionSelectorInput as MentionSelector,
   type TaskCommand,
   type TaskResult,
   type WorkspaceInfoResponse,
@@ -43,6 +44,7 @@ type AgentProxyErrorBody = {
     upstream_status?: number;
     response_started?: boolean;
     response_complete?: boolean;
+    draft_saved?: boolean;
   };
 };
 
@@ -91,6 +93,9 @@ function proxyHttpFailure(
   const isSend = operation === "send";
   const proxy = body.json?.proxy;
   const isLocalPrecondition = proxy?.failure_class === "local_precondition";
+  // A local precondition usually means nothing was saved, but a guard that saves a draft before
+  // refusing (e.g. --target-confirmed) says so explicitly via `draft_saved`; honour it when present.
+  const draftSaved = proxy?.draft_saved !== undefined ? proxy.draft_saved : !isLocalPrecondition;
   const legacyText = body.text && SAFE_LEGACY_PROXY_TEXT.has(body.text) ? body.text : undefined;
   const message = body.json?.error || legacyText || `HTTP ${status}`;
   const code = failureCode(operation, status, body.json);
@@ -98,7 +103,7 @@ function proxyHttpFailure(
     code,
     message,
     retryable: false,
-    ...(isSend ? { draftSaved: !isLocalPrecondition } : {}),
+    ...(isSend ? { draftSaved } : {}),
     correlationId: proxy?.correlation_id,
     proxy: proxy
       ? {
@@ -196,6 +201,9 @@ export function connectLocal(
       offset?: number;
       messageId?: string;
       emoji?: string;
+      attachmentId?: string;
+      mentions?: MentionSelector[];
+      targetConfirmed?: boolean;
     },
   ) => {
     if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
@@ -257,6 +265,9 @@ export function connectLocal(
         sendDraft?: boolean;
         continueAnyway?: boolean;
         freshnessContextMode?: "withheld";
+        attachmentId?: string;
+        mentions?: MentionSelector[];
+        targetConfirmed?: boolean;
       },
     ) => call("send", target, body, options),
     resolve: (messageId: string) => call("resolve", undefined, undefined, { messageId }),
@@ -302,13 +313,135 @@ export function connectLocal(
         headers: { authorization: `Bearer ${context}` },
         signal: AbortSignal.timeout(60_000),
       });
-      if (!response.ok) throw new Error(`attachment download failed (${response.status})`);
+      if (!response.ok) {
+        // Mirrors Raft 1.0.32's attachmentViewCommand: VIEW_FAILED (SERVER_5XX for >= 500), with
+        // a fixed message for a 404 rather than relaying upstream detail for a missing attachment.
+        const text = await response.text().catch(() => "");
+        let message = text;
+        try {
+          const parsed = JSON.parse(text) as { error?: string };
+          if (parsed && typeof parsed.error === "string") message = parsed.error;
+        } catch {
+          // Not JSON: keep the raw text (e.g. a legacy bare-text proxy error).
+        }
+        throw new CliError({
+          code: response.status >= 500 ? "SERVER_5XX" : "VIEW_FAILED",
+          message:
+            response.status === 404
+              ? "Attachment is unavailable."
+              : message || `HTTP ${response.status}`,
+          retryable: false,
+        });
+      }
       return {
         bytes: new Uint8Array(await response.arrayBuffer()),
         fileName: response.headers.get("content-disposition") ?? undefined,
       };
     },
+    upload: (input: { path: string; target: string; mimeType?: string }) =>
+      callAttachmentUpload(input),
   };
+
+  /**
+   * `null` means "no capability endpoint" (a 404, matching Raft 1.0.32's `attachmentUploadCommand`:
+   * `capabilityResponse.status === 404` falls back rather than failing) — the caller skips its
+   * client-side size check and lets the server enforce its own limit on the real upload.
+   */
+  async function callAttachmentCapabilities(): Promise<{ maxBytes: number } | null> {
+    if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    const endpoint = new URL(proxyUrl);
+    // The GET attachment-download forwarding (`agent-proxy.ts`) treats any segment after the
+    // attachment route prefix as an opaque attachment id and reaches the identical cloud URL
+    // unchanged. "capabilities" is itself a literal cloud sub-route registered ahead of
+    // `$attachmentId`, so this coincidentally-shaped request reaches it without any daemon
+    // change. Covered by a `local-client.test.ts` case; if a future daemon route ordering
+    // change breaks this, add explicit forwarding in `agent-proxy.ts` instead of relying on it.
+    endpoint.pathname = agentApiRoutes.local.attachments.path("capabilities");
+    endpoint.search = "";
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        headers: { authorization: `Bearer ${context}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new CliError({
+        code: "UPLOAD_CAPABILITY_FAILED",
+        message: "attachment capabilities request failed (network or timeout)",
+        retryable: false,
+      });
+    }
+    if (response.status === 404) return null;
+    if (!response.ok)
+      throw new CliError({
+        code: "UPLOAD_CAPABILITY_FAILED",
+        message: `attachment capabilities request failed (${response.status})`,
+        retryable: false,
+      });
+    return (await response.json()) as { maxBytes: number };
+  }
+
+  async function callAttachmentUpload(input: { path: string; target: string; mimeType?: string }) {
+    if (!context) throw new Error("coforge agent context is not configured");
+    if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    const file = Bun.file(input.path);
+    const sizeBytes = file.size;
+    const capabilities = await callAttachmentCapabilities();
+    if (capabilities && sizeBytes > capabilities.maxBytes)
+      throw new CliError({
+        code: "ATTACHMENT_TOO_LARGE",
+        message: `File is ${sizeBytes} bytes; the server allows at most ${capabilities.maxBytes} bytes.`,
+        retryable: false,
+      });
+    const fileName = input.path.split("/").pop() || "attachment";
+    const form = new FormData();
+    form.set("file", new Blob([await file.arrayBuffer()], { type: input.mimeType }), fileName);
+    form.set("target", input.target);
+    if (input.mimeType) form.set("mimeType", input.mimeType);
+    const endpoint = new URL(proxyUrl);
+    endpoint.pathname = agentApiRoutes.local.attachments.upload.path;
+    endpoint.search = "";
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: agentApiRoutes.local.attachments.upload.method,
+        headers: { authorization: `Bearer ${context}` },
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch {
+      throw new CliError({
+        code: "UPLOAD_FAILED",
+        message: "attachment upload request failed (network or timeout)",
+        retryable: false,
+      });
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let message = text;
+      try {
+        const parsed = JSON.parse(text) as { error?: string };
+        if (parsed && typeof parsed.error === "string") message = parsed.error;
+      } catch {
+        // Not JSON: keep the raw text (e.g. a legacy bare-text proxy error).
+      }
+      throw new CliError({
+        code: response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED",
+        message: message || `HTTP ${response.status}`,
+        retryable: false,
+      });
+    }
+    return (await response.json()) as {
+      id: string;
+      fileName: string;
+      contentType: string;
+      sizeBytes: number;
+    };
+  }
 
   async function callInbox() {
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))

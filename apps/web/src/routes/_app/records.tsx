@@ -9,7 +9,7 @@ import {
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { RecordsLayout, type RecordsTab } from "@/features/records/records-layout";
 import { loadRecordsCatalog } from "@/features/records/records.functions";
-import { latestWeeklyHighlight } from "@/features/records/records-sidebar";
+import { latestWeeklyLanding } from "@/features/records/records-sidebar";
 
 export const Route = createFileRoute("/_app/records")({
   validateSearch: (search: Record<string, unknown>): { tab: RecordsTab } => ({
@@ -28,6 +28,10 @@ function RecordsPage() {
     from: "/_app/records/$recordId",
     shouldThrow: false,
   });
+  const weekParams = useParams({
+    from: "/_app/records/weeks/$year/$week",
+    shouldThrow: false,
+  });
   const matchRoute = useMatchRoute();
   const selectedPanel = matchRoute({ to: "/records/settings", fuzzy: false })
     ? "settings"
@@ -35,16 +39,23 @@ function RecordsPage() {
       ? "stats"
       : null;
   const routeRecordId = params?.recordId;
-  const landingHighlightId =
-    tab === "weekly" && !selectedPanel && !routeRecordId
-      ? latestWeeklyHighlight(catalog.highlights)?.id
+  const selectedWeekKey = weekParams ? `${weekParams.year}-${weekParams.week}` : undefined;
+  const landing =
+    tab === "weekly" && !selectedPanel && !routeRecordId && !selectedWeekKey
+      ? latestWeeklyLanding({
+          memberWeeks: catalog.memberWeeks,
+          highlights: catalog.highlights,
+        })
       : undefined;
+  const landingHighlightId = landing?.kind === "highlight" ? landing.id : undefined;
+  const landingWeekKey = landing?.kind === "week" ? `${landing.year}-${landing.week}` : undefined;
 
   return (
     <RecordsLayout
       catalog={catalog}
       selectedRecordId={routeRecordId ?? landingHighlightId}
-      detailOpen={Boolean(routeRecordId || selectedPanel)}
+      selectedWeekKey={selectedWeekKey ?? landingWeekKey}
+      detailOpen={Boolean(routeRecordId || selectedPanel || selectedWeekKey)}
       selectedPanel={selectedPanel}
       tab={tab}
       onTabChange={(next) => {

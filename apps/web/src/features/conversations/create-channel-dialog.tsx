@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { XClose } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
@@ -13,18 +13,28 @@ export function CreateChannelDialog({
   onOpenChange,
   onCreate,
   projects = [],
+  defaultName = "",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreate: (name: string, projectId?: string) => Promise<void>;
   projects?: { id: string; name: string; slug: string }[];
+  /** Prefills, but does not force, the channel name — e.g. the project slug when
+   * creating a project's first discussion group. */
+  defaultName?: string;
 }) {
   const id = useId();
-  const [name, setName] = useState("");
+  const [name, setName] = useState(defaultName);
   const [projectId, setProjectId] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
+  useEffect(() => {
+    if (!open) return;
+    setName(defaultName);
+    setProjectId("");
+    setError("");
+  }, [open, defaultName]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy.current) return;

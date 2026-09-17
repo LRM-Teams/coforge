@@ -1,11 +1,16 @@
 import {
   decodeLocalReminderRequest,
   encodeLocalReminderRequest,
+  isReminderId,
   isValidReactionEmoji,
+  mentionsInContent,
+  parseMentionSelector,
   type AgentMessageRecord,
   type AgentReminderOperationResponse,
   type ChannelCommand,
   type LocalReminderRequest,
+  type MentionSelectorInput as MentionSelector,
+  type ReminderSummaryRecord,
   type TaskCommand,
   type TaskResult,
   type TaskStatus,
@@ -14,12 +19,15 @@ import {
   type WeeklyReportResponse,
   WEEKLY_REPORT_SUBJECT_TYPES,
 } from "@lrm/coforge-sdk/internal";
+import { parseDurationSeconds } from "./src/reminder-duration";
 import {
   createAgentApiClient,
   createMessageTransportAgentApiTransport,
   type GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
 import {
+  formatAttachmentDownloadSuccess,
+  formatAttachmentUploadSuccess,
   formatHeldSend,
   formatMessageLine,
   formatReadWindow,
@@ -37,7 +45,13 @@ import {
   formatChannelRemoveMember,
   formatChannelUpdate,
 } from "./src/channel-format";
-import { CliError, unknownDeliveryNextAction, withOutputMode } from "./src/cli-error";
+import {
+  CliError,
+  NO_MESSAGE_SENT_NEXT_ACTION,
+  unknownDeliveryNextAction,
+  withOutputMode,
+} from "./src/cli-error";
+import { attachmentMimeType, validateAttachmentUploadArgs } from "./src/attachment-upload";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 
@@ -70,6 +84,9 @@ export type MessageInvocation =
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
       json?: boolean;
+      attachmentId?: string;
+      mentions?: MentionSelector[];
+      targetConfirmed?: boolean;
     }
   | { command: "resolve"; messageId: string }
   | { command: "react"; messageId: string; emoji: string; remove?: true };
@@ -77,6 +94,14 @@ export type AttachmentInvocation = {
   command: "attachment.view";
   attachmentId: string;
   output: string;
+  json?: boolean;
+};
+export type AttachmentUploadInvocation = {
+  command: "attachment.upload";
+  path?: string;
+  target?: string;
+  mimeType?: string;
+  json?: boolean;
 };
 export type InboxInvocation = { command: "inbox-check" };
 export type ChannelInvocation = { command: "mute" | "unmute"; target: string };
@@ -129,9 +154,17 @@ export type MessageTransport = {
       sendDraft?: boolean;
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
+      attachmentId?: string;
+      mentions?: MentionSelector[];
+      targetConfirmed?: boolean;
     },
   ): Promise<unknown>;
   view(attachmentId: string): Promise<{ bytes: Uint8Array; fileName?: string }>;
+  upload?(input: {
+    path: string;
+    target: string;
+    mimeType?: string;
+  }): Promise<{ id: string; fileName: string; contentType: string; sizeBytes: number }>;
   resolve?(messageId: string): Promise<unknown>;
   react?(messageId: string, emoji: string, remove?: boolean): Promise<unknown>;
   inboxCheck?(): Promise<unknown>;
@@ -150,12 +183,15 @@ export type MessageTransport = {
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
 const MESSAGE_ANCHOR_PATTERN =
   /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A full UUID; `--attachment-id` never accepts an eight-hex short form. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function parseArgs(
   args: readonly string[],
 ):
   | MessageInvocation
   | AttachmentInvocation
+  | AttachmentUploadInvocation
   | InboxInvocation
   | ChannelInvocation
   | ChannelManagementInvocation
@@ -191,10 +227,78 @@ export function parseArgs(
   if (args[0] === "inbox" && args[1] === "check" && args.length === 2)
     return { command: "inbox-check" };
   if (args[0] === "attachment" && args[1] === "view") {
-    const attachmentId = args[2] === "--id" ? args[3] : undefined;
-    const output = args[4] === "--output" ? args[5] : undefined;
-    if (attachmentId && output && args.length === 6)
-      return { command: "attachment.view", attachmentId, output };
+    let positionalId: string | undefined;
+    let explicitId: string | undefined;
+    let output: string | undefined;
+    let json = false;
+    let index = 2;
+    // A positional id (`coforge attachment view <id> --output <path>`), as Raft accepts, in
+    // addition to `--id <id>`.
+    if (
+      args[index] !== undefined &&
+      args[index] !== "--id" &&
+      args[index] !== "--output" &&
+      args[index] !== "--json"
+    ) {
+      positionalId = args[index];
+      index++;
+    }
+    for (; index < args.length; index++) {
+      if (args[index] === "--id" && args[index + 1]) explicitId = args[++index];
+      else if (args[index] === "--output" && args[index + 1]) output = args[++index];
+      else if (args[index] === "--json") json = true;
+      else throw new Error("Usage:");
+    }
+    // Raft's `validateViewOpts`: the same three preconditions, same codes and messages.
+    if (positionalId && explicitId)
+      throw new CliError({
+        code: "INVALID_ARG",
+        message: "pass the attachment id either positionally or with --id, not both",
+        retryable: false,
+      });
+    const attachmentId = positionalId || explicitId;
+    if (!attachmentId)
+      throw new CliError({
+        code: "INVALID_ARG",
+        message: "attachment id is required (pass <attachmentId> or --id)",
+        retryable: false,
+      });
+    if (!output)
+      throw new CliError({
+        code: "INVALID_ARG",
+        message: "--output is required",
+        retryable: false,
+      });
+    return {
+      command: "attachment.view",
+      attachmentId,
+      output,
+      ...(json ? { json: true as const } : {}),
+    };
+  }
+  if (args[0] === "attachment" && args[1] === "upload") {
+    let path: string | undefined;
+    let target: string | undefined;
+    // Legacy alias for --target (Raft's transition alias); giving both is a usage error.
+    let channelAlias: string | undefined;
+    let mimeType: string | undefined;
+    let json = false;
+    for (let index = 2; index < args.length; index++) {
+      if (args[index] === "--path" && args[index + 1]) path = args[++index];
+      else if (args[index] === "--target" && args[index + 1]) target = args[++index];
+      else if (args[index] === "--channel" && args[index + 1]) channelAlias = args[++index];
+      else if (args[index] === "--mime-type" && args[index + 1]) mimeType = args[++index];
+      else if (args[index] === "--json") json = true;
+      else throw new Error("Usage:");
+    }
+    if (target !== undefined && channelAlias !== undefined) throw new Error("Usage:");
+    return {
+      command: "attachment.upload",
+      path,
+      target: target ?? channelAlias,
+      mimeType,
+      ...(json ? { json: true as const } : {}),
+    };
   }
   if (args[0] === "message" && isMessageCommand(args[1])) {
     if (args[1] === "check" && args.length === 2) return { command: "check" };
@@ -307,14 +411,51 @@ export function parseArgs(
       let continueAnyway = false;
       let json = false;
       let reviewerIsolation = reviewerIsolationFromEnvironment();
+      let attachmentId: string | undefined;
+      let attachmentIdSeen = false;
+      const rawMentions: string[] = [];
+      let targetConfirmed = false;
       for (let index = 2; index < args.length; index++) {
         if (args[index] === "--target" && args[index + 1]) target = args[++index];
         else if (args[index] === "--send-draft") sendDraft = true;
         else if (args[index] === "--anyway") continueAnyway = true;
         else if (args[index] === "--reviewer-isolation") reviewerIsolation = true;
         else if (args[index] === "--json") json = true;
+        else if (args[index] === "--target-confirmed") targetConfirmed = true;
+        else if (args[index] === "--attachment-id" && args[index + 1]) {
+          if (attachmentIdSeen) throw new Error("Usage:");
+          attachmentIdSeen = true;
+          attachmentId = args[++index];
+        } else if (args[index] === "--mention" && args[index + 1]) rawMentions.push(args[++index]!);
         else throw new Error("Usage:");
       }
+      const outputMode = json ? "json" : "text";
+      if (attachmentId !== undefined && !UUID_PATTERN.test(attachmentId))
+        throw withOutputMode(
+          new CliError({
+            code: "INVALID_ARG",
+            message: "--attachment-id must be a full attachment UUID.",
+            retryable: false,
+            draftSaved: false,
+            suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+          }),
+          outputMode,
+        );
+      if (attachmentId !== undefined && sendDraft)
+        throw withOutputMode(
+          new CliError({
+            code: "INVALID_ARG",
+            message:
+              "--attachment-id cannot be used with --send-draft. Use a normal send to replace the draft.",
+            retryable: false,
+            draftSaved: false,
+            suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+          }),
+          outputMode,
+        );
+      const mentions = rawMentions.length
+        ? parseMentionSelectors(rawMentions, outputMode)
+        : undefined;
       if (target && (!continueAnyway || sendDraft))
         return {
           command: "send",
@@ -323,12 +464,60 @@ export function parseArgs(
           ...(continueAnyway ? { continueAnyway: true } : {}),
           ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
           ...(json ? { json: true as const } : {}),
+          ...(attachmentId !== undefined ? { attachmentId } : {}),
+          ...(mentions ? { mentions } : {}),
+          ...(targetConfirmed ? { targetConfirmed: true } : {}),
         };
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path> | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>] [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
   );
+}
+
+/**
+ * Validates each `--mention` value's shape and rejects a handle bound to two different actors in
+ * the same message. Duplicate identical bindings (same handle, same actor) collapse to one entry.
+ * Whether each bound handle actually appears in the message body is checked separately in `run()`,
+ * once the body is known.
+ */
+function parseMentionSelectors(
+  raw: readonly string[],
+  outputMode: "text" | "json",
+): MentionSelector[] {
+  const byHandle = new Map<string, MentionSelector>();
+  const result: MentionSelector[] = [];
+  for (const value of raw) {
+    const parsed = parseMentionSelector(value);
+    if (!parsed)
+      throw withOutputMode(
+        new CliError({
+          code: "INVALID_MENTION_SELECTOR",
+          message: "--mention must be human:<actor-uuid>:<handle> or agent:<actor-uuid>:<handle>.",
+          retryable: false,
+          draftSaved: false,
+          suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+        }),
+        outputMode,
+      );
+    const existing = byHandle.get(parsed.name);
+    if (existing && (existing.type !== parsed.type || existing.id !== parsed.id))
+      throw withOutputMode(
+        new CliError({
+          code: "MENTION_BINDING_CONFLICT",
+          message: `@${parsed.name} cannot be bound to more than one actor in the same message.`,
+          retryable: false,
+          draftSaved: false,
+          suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+        }),
+        outputMode,
+      );
+    if (!existing) {
+      byHandle.set(parsed.name, parsed);
+      result.push(parsed);
+    }
+  }
+  return result;
 }
 
 function parseWorkspaceInfoArgs(args: readonly string[]): WorkspaceInfoInvocation {
@@ -506,7 +695,8 @@ export async function run(args: readonly string[], transport: MessageTransport):
   if (invocation.command === "reminder") {
     if (!transport.reminder) throw new Error("Reminder transport is unavailable");
     const { command: _command, ...request } = invocation;
-    return formatReminderResponse(request.operation, await transport.reminder(request));
+    const resolved = await resolveReminderRequestId(transport, request);
+    return formatReminderResponse(resolved.operation, await transport.reminder(resolved));
   }
   if (invocation.command === "task") {
     if (!transport.task) throw new Error("Task transport is unavailable");
@@ -586,22 +776,49 @@ export async function run(args: readonly string[], transport: MessageTransport):
   if (invocation.command === "attachment.view") {
     const result = await transport.view(invocation.attachmentId);
     await Bun.write(invocation.output, result.bytes);
-    return { attachmentId: invocation.attachmentId, path: invocation.output };
+    if (invocation.json)
+      return JSON.stringify({ attachmentId: invocation.attachmentId, path: invocation.output });
+    return formatAttachmentDownloadSuccess(invocation.output);
+  }
+  if (invocation.command === "attachment.upload") {
+    if (!transport.upload) throw new Error("Attachment upload transport is unavailable");
+    const { path, target } = await validateAttachmentUploadArgs(invocation);
+    const mimeType = attachmentMimeType(path, invocation.mimeType);
+    const result = await transport.upload({ path, target, mimeType });
+    if (invocation.json) return JSON.stringify(result);
+    return formatAttachmentUploadSuccess(result);
   }
   const { command } = invocation;
   if (command === "send") {
     const outputMode = invocation.json ? "json" : "text";
+    const body = invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text();
+    // With `--send-draft`, the body (and thus content presence) is only known to the daemon, which
+    // already re-sends the draft's own saved mentions when no explicit override is given.
+    if (invocation.mentions?.length && body !== undefined) {
+      const present = mentionsInContent(body);
+      for (const mention of invocation.mentions)
+        if (!present.has(mention.name))
+          throw withOutputMode(
+            new CliError({
+              code: "MENTION_NOT_IN_CONTENT",
+              message: `Structured mention @${mention.name} is not present in the message body.`,
+              retryable: false,
+              draftSaved: false,
+              suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+            }),
+            outputMode,
+          );
+    }
     let result: unknown;
     try {
-      result = await transport.send(
-        invocation.target,
-        invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text(),
-        {
-          sendDraft: invocation.sendDraft,
-          continueAnyway: invocation.continueAnyway,
-          freshnessContextMode: invocation.freshnessContextMode,
-        },
-      );
+      result = await transport.send(invocation.target, body, {
+        sendDraft: invocation.sendDraft,
+        continueAnyway: invocation.continueAnyway,
+        freshnessContextMode: invocation.freshnessContextMode,
+        attachmentId: invocation.attachmentId,
+        mentions: invocation.mentions,
+        targetConfirmed: invocation.targetConfirmed,
+      });
     } catch (error) {
       // The transport (`local-client.ts`) already redacts upstream detail for a withheld request;
       // this fallback only covers a transport that throws a bare `Error` without going through it.
@@ -631,14 +848,15 @@ export async function run(args: readonly string[], transport: MessageTransport):
         ),
         outputMode,
       );
-    const sent = result as { messageId?: string };
+    const sent = result as { messageId?: string; recentUnread?: AgentMessageRecord[] };
     if (invocation.json)
       return JSON.stringify({
         state: "sent",
         target: invocation.target,
         messageId: sent.messageId,
+        recentUnread: sent.recentUnread ?? [],
       });
-    return formatSendSuccess(invocation.target, sent as { messageId: string });
+    return formatSendSuccess(invocation.target, sent as { messageId: string }, sent.recentUnread);
   }
   if (command === "search") {
     if (!transport.search) throw new Error("Message search transport is unavailable");
@@ -812,7 +1030,10 @@ function isMessageCommand(value: string | undefined): value is MessageCommand {
 }
 
 const REMINDER_USAGE =
-  "Usage: coforge reminder schedule --title <title> --target <target> --message-id <full UUID|8hex> (--delay-seconds <n> | --fire-at <timestamp> | --repeat <rule>) [--repeat <rule>] [--tz <timezone>] | coforge reminder list (--all | --status scheduled|fired|canceled) | coforge reminder update --id <full UUID> [--title <title>] [--fire-at <timestamp>] [--repeat <rule|none>] [--tz <timezone>] | coforge reminder snooze --id <full UUID> (--delay-seconds <n> | --fire-at <timestamp>) | coforge reminder cancel|log --id <full UUID> | coforge reminder ack|dismiss --id <full UUID> --revision <n>";
+  "Usage: coforge reminder schedule --title <title> (--target <target>|--channel <target>) (--message-id <full UUID|8hex>|--msg-id <full UUID|8hex>) (--delay-seconds <n|duration> | --fire-at <timestamp> | --repeat <rule>) [--repeat <rule>] [--tz <timezone>] | coforge reminder list [--all | --status <comma-list of scheduled,fired,canceled; default scheduled,fired>] | coforge reminder update --id <full UUID|8hex+> (--fire-at <timestamp> | --in <duration> | --repeat <rule|none>|--cadence <rule|none> | --title <title>) [--tz <timezone>] | coforge reminder snooze --id <full UUID|8hex+> (--delay-seconds <n|duration> | --by <duration> | --fire-at <timestamp>) | coforge reminder cancel|log --id <full UUID|8hex+> | coforge reminder ack|dismiss --id <full UUID|8hex+> --revision <n>";
+
+/** A resolvable `--id` is a full UUID or a case-insensitive hex prefix of at least 8 characters. */
+const REMINDER_ID_PREFIX = /^[0-9a-f]{8,}$/i;
 
 function parseReminderArgs(args: readonly string[]): ReminderInvocation {
   const operation = args[0];
@@ -825,16 +1046,29 @@ function parseReminderArgs(args: readonly string[]): ReminderInvocation {
     "--id": "reminderId",
     "--title": "title",
     "--target": "target",
+    "--channel": "target",
     "--message-id": "messageId",
+    "--msg-id": "messageId",
     "--delay-seconds": "delaySeconds",
     "--fire-at": "fireAt",
     "--repeat": "repeat",
+    "--cadence": "repeat",
     "--tz": "timezone",
     "--status": "status",
     "--revision": "revision",
   };
   const request: Record<string, unknown> = { command: "reminder", operation };
   const seen = new Set<string>();
+  // Tracks which literal flag last claimed each logical field, so an alias used together with its
+  // canonical spelling (or with another alias of the same field) is a usage error even though the
+  // two flags are spelled differently and so never collide in `seen`.
+  const flagForField = new Map<string, string>();
+  const claimField = (field: string, flag: string) => {
+    const existing = flagForField.get(field);
+    if (existing !== undefined && existing !== flag)
+      throw new Error(`Cannot combine ${flag} with ${existing}.\n${REMINDER_USAGE}`);
+    flagForField.set(field, flag);
+  };
   for (let index = 1; index < args.length; index++) {
     const flag = args[index]!;
     if (seen.has(flag)) throw new Error(`Duplicate reminder flag: ${flag}\n${REMINDER_USAGE}`);
@@ -843,11 +1077,32 @@ function parseReminderArgs(args: readonly string[]): ReminderInvocation {
       request.all = true;
       continue;
     }
+    if (flag === "--by" || flag === "--in") {
+      // Both are duration spellings of the same wire field, `delaySeconds`: `--by` on snooze and
+      // `--in` on update. Neither computes an absolute `fireAt` locally — the daemon/server derive
+      // the due time from `delaySeconds` exactly as they already do for snooze.
+      const value = args[++index];
+      if (value === undefined || value.startsWith("--"))
+        throw new Error(`Unknown or incomplete reminder flag: ${flag}\n${REMINDER_USAGE}`);
+      const seconds = parseDurationSeconds(value);
+      if (seconds === null)
+        throw new Error(`Invalid duration for ${flag}: '${value}'.\n${REMINDER_USAGE}`);
+      claimField("delaySeconds", flag);
+      request.delaySeconds = seconds;
+      continue;
+    }
     const field = names[flag];
     const value = args[++index];
     if (!field || value === undefined || value.startsWith("--"))
       throw new Error(`Unknown or incomplete reminder flag: ${flag}\n${REMINDER_USAGE}`);
-    if (field === "delaySeconds" || field === "revision") {
+    claimField(field, flag);
+    if (field === "delaySeconds") {
+      const integer = Number(value);
+      const seconds =
+        Number.isSafeInteger(integer) && integer >= 1 ? integer : parseDurationSeconds(value);
+      if (seconds === null) throw new Error(REMINDER_USAGE);
+      request[field] = seconds;
+    } else if (field === "revision") {
       const number = Number(value);
       if (!Number.isSafeInteger(number) || number < 1) throw new Error(REMINDER_USAGE);
       request[field] = number;
@@ -860,9 +1115,16 @@ function parseReminderArgs(args: readonly string[]): ReminderInvocation {
   )
     request.timezone = "Asia/Shanghai";
   validateReminderShape(request as ReminderInvocation);
+  // The wire-level round trip below requires a full UUID for `reminderId` (the daemon and server
+  // never see a bare prefix — it is resolved to a full ID before the real request goes out; see
+  // `resolveReminderRequestId`). Substitute a throwaway, well-formed UUID so this local check still
+  // validates every other field early; the substitution is discarded and never sent anywhere.
+  const rawId = request.reminderId as string | undefined;
+  const needsIdProbe = rawId !== undefined && !isReminderId(rawId);
   decodeLocalReminderRequest(
     encodeLocalReminderRequest({
       ...request,
+      ...(needsIdProbe ? { reminderId: "12345678-1234-4123-8123-123456789abc" } : {}),
       requestId: "cli-validation",
       context: "cli-validation",
     } as LocalReminderRequest),
@@ -875,7 +1137,7 @@ function validateReminderShape(value: ReminderInvocation): void {
   const allowed: Record<string, readonly (keyof ReminderTransportRequest)[]> = {
     schedule: ["title", "target", "messageId", "delaySeconds", "fireAt", "repeat", "timezone"],
     list: ["all", "status"],
-    update: ["reminderId", "title", "fireAt", "repeat", "timezone"],
+    update: ["reminderId", "title", "fireAt", "delaySeconds", "repeat", "timezone"],
     snooze: ["reminderId", "delaySeconds", "fireAt"],
     cancel: ["reminderId"],
     log: ["reminderId"],
@@ -888,11 +1150,10 @@ function validateReminderShape(value: ReminderInvocation): void {
   if (fields.some((field) => !allowed[value.operation]!.includes(field)))
     throw new Error(REMINDER_USAGE);
   const id = value.reminderId;
-  if (
-    id !== undefined &&
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
-  )
-    throw new Error(`Invalid reminder ID; full UUID required.\n${REMINDER_USAGE}`);
+  if (id !== undefined && !isReminderId(id) && !REMINDER_ID_PREFIX.test(id))
+    throw new Error(
+      `Invalid reminder ID; full UUID or an id prefix of at least 8 hex characters required.\n${REMINDER_USAGE}`,
+    );
   const timed = Number(present("delaySeconds")) + Number(present("fireAt"));
   if (
     value.operation === "schedule" &&
@@ -904,18 +1165,105 @@ function validateReminderShape(value: ReminderInvocation): void {
       value.repeat === "none")
   )
     throw new Error(REMINDER_USAGE);
-  if (value.operation === "list" && Number(present("all")) + Number(present("status")) !== 1)
+  // Raft's `list` defaults to scheduled,fired when neither `--all` nor `--status` is given
+  // (the server already applies that default); only passing both together is a usage error.
+  if (value.operation === "list" && present("all") && present("status"))
     throw new Error(REMINDER_USAGE);
   if (["cancel", "log"].includes(value.operation) && !id) throw new Error(REMINDER_USAGE);
   if (value.operation === "snooze" && (!id || timed !== 1)) throw new Error(REMINDER_USAGE);
-  if (
-    value.operation === "update" &&
-    (!id ||
-      ![value.title, value.fireAt, value.repeat, value.timezone].some((item) => item !== undefined))
-  )
-    throw new Error(REMINDER_USAGE);
+  if (value.operation === "update") {
+    if (!id || timed > 1) throw new Error(REMINDER_USAGE);
+    // Raft: "Pass exactly one of --fire-at, --in, --cadence, or --title" (code INVALID_ARG).
+    // --fire-at and --in both land in `timed` (the time mutation), so they count as one slot.
+    const mutations = [timed === 1, value.repeat !== undefined, value.title !== undefined].filter(
+      Boolean,
+    ).length;
+    if (mutations !== 1)
+      throw new Error(
+        `Pass exactly one of --fire-at, --in, --cadence, or --title.\n${REMINDER_USAGE}`,
+      );
+    if (value.timezone !== undefined && value.repeat === undefined)
+      throw new Error(
+        `--tz may only accompany a cadence change (--cadence/--repeat).\n${REMINDER_USAGE}`,
+      );
+  }
   if (["ack", "dismiss"].includes(value.operation) && (!id || !value.revision))
     throw new Error(REMINDER_USAGE);
+}
+
+/** The `list` scope an `--id` prefix lookup runs under, matching Raft's per-command scoping. */
+export type ReminderIdResolutionScope = { all: true } | { statuses: readonly string[] };
+
+/**
+ * Reminder operations that take `--id`, and the `list` scope each resolves a short prefix within.
+ * `cancel`/`snooze` only ever act on an active reminder, so they resolve within scheduled/fired,
+ * same as Raft. `update`, `log`, `ack`, and `dismiss` can target any status (Raft's `update` passes
+ * `all: true`; `log` doesn't resolve client-side at all in Raft, but our wire protocol always
+ * requires a full UUID, so we resolve unscoped — the "if it resolves with all, use all" case).
+ */
+const REMINDER_ID_RESOLUTION_SCOPE: Record<string, ReminderIdResolutionScope> = {
+  cancel: { statuses: ["scheduled", "fired"] },
+  snooze: { statuses: ["scheduled", "fired"] },
+  update: { all: true },
+  log: { all: true },
+  ack: { all: true },
+  dismiss: { all: true },
+};
+
+/**
+ * Resolves `request.reminderId` to a full UUID when it is a short prefix, leaving every other
+ * request untouched. A full UUID never triggers the lookup (the brief's "skip the lookup" case).
+ */
+async function resolveReminderRequestId(
+  transport: Pick<MessageTransport, "reminder">,
+  request: ReminderTransportRequest,
+): Promise<ReminderTransportRequest> {
+  const scope = REMINDER_ID_RESOLUTION_SCOPE[request.operation];
+  if (!scope || !request.reminderId) return request;
+  if (isReminderId(request.reminderId)) return request;
+  return {
+    ...request,
+    reminderId: await resolveReminderId(transport, request.reminderId, scope),
+  };
+}
+
+/**
+ * Resolves an `--id` prefix (at least 8 hex characters, case-insensitive) to the one full reminder
+ * ID it matches, by listing reminders within `scope` and comparing prefixes against each id with
+ * its formatting dashes stripped. Takes the transport directly (rather than reaching for the
+ * ambient one) so it is unit-testable with a fake transport.
+ */
+export async function resolveReminderId(
+  transport: Pick<MessageTransport, "reminder">,
+  prefix: string,
+  scope: ReminderIdResolutionScope = { all: true },
+): Promise<string> {
+  if (!transport.reminder) throw new Error("Reminder transport is unavailable");
+  const response = (await transport.reminder(
+    "all" in scope
+      ? { operation: "list", all: true }
+      : { operation: "list", status: scope.statuses.join(",") },
+  )) as AgentReminderOperationResponse;
+  const lowerPrefix = prefix.toLowerCase();
+  const matches = (response.reminders ?? []).filter((item: ReminderSummaryRecord) =>
+    item.reminderId.replace(/-/g, "").toLowerCase().startsWith(lowerPrefix),
+  );
+  // Mirrors Raft's `resolveReminderId`: an unscoped ("all") lookup just says "reminder"; a
+  // status-scoped lookup names the scope, e.g. "scheduled/fired reminder".
+  const scopeLabel = "all" in scope ? "reminder" : `${scope.statuses.join("/")} reminder`;
+  if (matches.length === 0)
+    throw new CliError({
+      code: "NOT_FOUND",
+      message: `No ${scopeLabel} matches id prefix '${prefix}'.`,
+      retryable: false,
+    });
+  if (matches.length > 1)
+    throw new CliError({
+      code: "AMBIGUOUS",
+      message: `Ambiguous id prefix '${prefix}' matches ${matches.length} reminders; pass a longer id.`,
+      retryable: false,
+    });
+  return matches[0]!.reminderId;
 }
 
 function formatReminderResponse(
@@ -1046,6 +1394,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
       "claim",
       "unclaim",
       "assign",
+      "unassign",
       "update",
       "amend",
       "history",
@@ -1074,6 +1423,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     claim: ["--target", "--number", "--message-id", "--reviewer-isolation"],
     unclaim: ["--target", "--number", "--expected-revision"],
     assign: ["--target", "--number", "--assignee", "--expected-revision"],
+    unassign: ["--target", "--number", "--expected-revision"],
     update: ["--target", "--number", "--status", "--expected-revision", "--reviewer-isolation"],
     amend: [
       "--target",
@@ -1160,6 +1510,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     (operation === "claim" && (number !== undefined) !== Boolean(task.messageId)) ||
     (operation === "unclaim" && number !== undefined) ||
     (operation === "assign" && number !== undefined && Boolean(task.assignee)) ||
+    (operation === "unassign" && number !== undefined) ||
     (operation === "update" && number !== undefined && Boolean(status)) ||
     (operation === "amend" &&
       number !== undefined &&

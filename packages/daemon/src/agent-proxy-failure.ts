@@ -31,6 +31,8 @@ export type AgentProxyFailureBody = {
     upstream_status?: number;
     response_started: boolean;
     response_complete: boolean;
+    /** Only ever set for `failure_class: "local_precondition"`; see `AgentPreflightError.draftSaved`. */
+    draft_saved?: boolean;
   };
 };
 
@@ -81,6 +83,7 @@ export function classifyAgentProxyFailure(
       upstreamStatus?: number;
       responseStarted?: boolean;
       responseComplete?: boolean;
+      draftSaved?: boolean;
     } = {},
   ): AgentProxyClassifiedFailure => {
     const body: AgentProxyFailureBody = {
@@ -99,6 +102,7 @@ export function classifyAgentProxyFailure(
           : {}),
         response_started: options.responseStarted ?? false,
         response_complete: options.responseComplete ?? false,
+        ...(options.draftSaved !== undefined ? { draft_saved: options.draftSaved } : {}),
       },
     };
     return {
@@ -126,6 +130,7 @@ export function classifyAgentProxyFailure(
       topLevelCode: error.code,
       responseStarted: false,
       responseComplete: false,
+      draftSaved: error.draftSaved,
     });
 
   if (context.redact)

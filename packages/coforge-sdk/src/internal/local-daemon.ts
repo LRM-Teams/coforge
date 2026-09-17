@@ -23,6 +23,7 @@ import {
   UsageScanResponseSchema,
   DaemonHoldRequestSchema,
   DaemonHoldResponseSchema,
+  MentionSelectorSchema,
 } from "./gen/coforge/rpc/v1/local_rpc_pb";
 
 export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
@@ -180,6 +181,9 @@ export const decodeUsageScanResponse = (b: Uint8Array): UsageScanResponse => {
     snapshotJson: v.snapshotJson.length ? v.snapshotJson : undefined,
   };
 };
+/** A structured @mention binding: a handle claimed to name a specific actor. */
+export type LocalMentionSelector = { type: "user" | "agent"; id: string; name: string };
+
 export type LocalAgentMessageRequest = {
   requestId: string;
   context: string;
@@ -209,6 +213,12 @@ export type LocalAgentMessageRequest = {
   freshnessContextMode?: "inline" | "withheld";
   messageId?: string;
   emoji?: string;
+  /** `message send` only: a single attachment already uploaded to this conversation. */
+  attachmentId?: string;
+  /** `message send` only: structured @mention bindings; replaces the draft's saved mentions on `--send-draft` when non-empty. */
+  mentions?: LocalMentionSelector[];
+  /** `message send` only: confirms a top-level send despite newer thread read context under the same parent. Never leaves the daemon. */
+  targetConfirmed?: boolean;
 };
 export type AgentMessageRecord = {
   id: string;
@@ -300,6 +310,8 @@ export type AgentMessageResponse = {
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
   hasMore?: boolean;
+  /** `message send` only: up to three pending messages bypassed via `--anyway`; empty otherwise. */
+  recentUnread?: AgentMessageRecord[];
 };
 export type MessageAttentionSummary = {
   target: string;
@@ -316,7 +328,15 @@ export function encodeLocalAgentMessageRequest(value: LocalAgentMessageRequest):
     value.freshnessContextMode !== "withheld"
   )
     throw new Error("invalid Agent message freshness context mode");
-  return toBinary(LocalAgentMessageRequestSchema, create(LocalAgentMessageRequestSchema, value));
+  if (value.mentions?.some((mention) => mention.type !== "user" && mention.type !== "agent"))
+    throw new Error("invalid Agent message mention type");
+  return toBinary(
+    LocalAgentMessageRequestSchema,
+    create(LocalAgentMessageRequestSchema, {
+      ...value,
+      mentions: value.mentions?.map((mention) => create(MentionSelectorSchema, mention)),
+    }),
+  );
 }
 export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMessageRequest {
   const v = fromBinary(LocalAgentMessageRequestSchema, bytes);
@@ -326,6 +346,8 @@ export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMes
     v.freshnessContextMode !== "withheld"
   )
     throw new Error("invalid Agent message freshness context mode");
+  if (v.mentions.some((mention) => mention.type !== "user" && mention.type !== "agent"))
+    throw new Error("invalid Agent message mention type");
   return {
     requestId: v.requestId,
     context: v.context,
@@ -348,8 +370,51 @@ export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMes
       | undefined,
     messageId: v.messageId || undefined,
     emoji: v.emoji || undefined,
+    attachmentId: v.attachmentId || undefined,
+    mentions: v.mentions.length
+      ? v.mentions.map((mention) => ({
+          type: mention.type as LocalMentionSelector["type"],
+          id: mention.id,
+          name: mention.name,
+        }))
+      : undefined,
+    targetConfirmed: v.targetConfirmed || undefined,
   };
 }
+function encodeAgentMessageRecords(records: readonly AgentMessageRecord[]) {
+  return records.map((m) => ({
+    ...m,
+    sequence: BigInt(m.sequence),
+    createdAt: m.createdAt,
+    attachment: m.attachment ? encodeLocalAttachment(m.attachment) : undefined,
+    task: m.task,
+  }));
+}
+
+function decodeAgentMessageRecords(
+  records: readonly {
+    id: string;
+    sequence: bigint;
+    sender: string;
+    target: string;
+    body: string;
+    createdAt: string;
+    attachment?: Parameters<typeof decodeLocalAttachment>[0];
+    task?: Parameters<typeof decodeMessageTask>[0];
+  }[],
+): AgentMessageRecord[] {
+  return records.map((m) => ({
+    id: m.id,
+    sequence: Number(m.sequence),
+    sender: m.sender,
+    target: m.target,
+    body: m.body,
+    createdAt: m.createdAt,
+    ...decodeLocalAttachment(m.attachment),
+    ...(m.task ? { task: decodeMessageTask(m.task) } : {}),
+  }));
+}
+
 export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Array {
   const safeValue =
     value.freshnessContextMode === "withheld"
@@ -363,19 +428,15 @@ export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Ar
           newerCursor: undefined,
           withheldMessageCount: value.withheldMessageCount ?? value.attentionCount,
           hasMore: undefined,
+          recentUnread: [],
         }
       : value;
   return toBinary(
     AgentMessageResponseSchema,
     create(AgentMessageResponseSchema, {
       ...safeValue,
-      messages: safeValue.messages.map((m) => ({
-        ...m,
-        sequence: BigInt(m.sequence),
-        createdAt: m.createdAt,
-        attachment: m.attachment ? encodeLocalAttachment(m.attachment) : undefined,
-        task: m.task,
-      })),
+      messages: encodeAgentMessageRecords(safeValue.messages),
+      recentUnread: encodeAgentMessageRecords(safeValue.recentUnread ?? []),
       summaries: safeValue.summaries.map((summary) => ({
         ...summary,
         firstPendingSequence: BigInt(summary.firstPendingSequence),
@@ -407,6 +468,7 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       anywayAllowed: v.anywayAllowed || undefined,
       freshnessContextMode: "withheld",
       withheldMessageCount: v.withheldMessageCount ?? v.attentionCount,
+      recentUnread: [],
     };
   return {
     requestId: v.requestId,
@@ -421,16 +483,8 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       ...(summary.latestSender !== undefined ? { latestSender: summary.latestSender } : {}),
       flags: summary.flags,
     })),
-    messages: v.messages.map((m) => ({
-      id: m.id,
-      sequence: Number(m.sequence),
-      sender: m.sender,
-      target: m.target,
-      body: m.body,
-      createdAt: m.createdAt,
-      ...decodeLocalAttachment(m.attachment),
-      ...(m.task ? { task: decodeMessageTask(m.task) } : {}),
-    })),
+    messages: decodeAgentMessageRecords(v.messages),
+    recentUnread: v.recentUnread.length ? decodeAgentMessageRecords(v.recentUnread) : undefined,
     sideEffectDecision: v.sideEffectDecision
       ? (v.sideEffectDecision as AgentMessageResponse["sideEffectDecision"])
       : undefined,

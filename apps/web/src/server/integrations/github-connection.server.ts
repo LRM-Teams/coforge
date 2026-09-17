@@ -74,40 +74,281 @@ const repositoryMetadataSchema = z.object({
   full_name: z.string().min(3).max(300),
   default_branch: z.string().min(1).max(255),
 });
-const commitsSchema = z
-  .array(
-    z.object({
-      sha: z.string().regex(/^[a-f0-9]{40,64}$/i),
-      author: z
-        .object({ login: z.string().min(1).max(100) })
-        .nullable()
-        .optional(),
-      commit: z.object({
-        message: z.string().max(100_000),
-        author: z
-          .object({
-            name: z.string().min(1).max(500),
-            date: z.string().datetime().nullable(),
-          })
-          .nullable(),
-        committer: z
-          .object({ name: z.string().min(1).max(500) })
-          .nullable()
-          .optional(),
-      }),
-    }),
-  )
-  .max(5);
-const rootContentsSchema = z
-  .array(
-    z.object({
-      name: z.string().min(1).max(255),
-      path: z.string().min(1).max(4096),
-      type: z.enum(["file", "dir", "symlink", "submodule"]),
-    }),
-  )
-  // GitHub's Contents API returns at most 1,000 entries for a directory.
-  .max(1000);
+/** GraphQL `avatarUrl` values are validated against the CDN host GitHub actually serves from. */
+const avatarUrlSchema = z
+  .string()
+  .nullable()
+  .transform((value) => {
+    if (!value) return null;
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "avatars.githubusercontent.com"
+        ? value
+        : null;
+    } catch {
+      return null;
+    }
+  });
+const graphqlErrorSchema = z.object({ type: z.string().optional() });
+const graphqlIdentitySchema = z.object({ login: z.string().min(1).max(100) }).nullable();
+const graphqlCommitNodeSchema = z.object({
+  oid: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  messageHeadline: z.string().max(100_000),
+  committedDate: z.string().datetime().nullable(),
+  author: z
+    .object({
+      name: z.string().nullable(),
+      avatarUrl: avatarUrlSchema,
+      user: graphqlIdentitySchema,
+    })
+    .nullable(),
+  committer: z.object({ name: z.string().nullable(), user: graphqlIdentitySchema }).nullable(),
+  signature: z.object({ isValid: z.boolean() }).nullable(),
+  statusCheckRollup: z.object({ state: z.string() }).nullable(),
+});
+const graphqlTreeEntrySchema = z.object({
+  name: z.string().min(1).max(255),
+  path: z.string().min(1).max(4096),
+  type: z.enum(["blob", "tree", "commit"]),
+  mode: z.number().int(),
+});
+const repositoryOverviewQuerySchema = z.object({
+  data: z
+    .object({
+      repository: z
+        .object({
+          defaultBranchRef: z
+            .object({
+              target: z
+                .object({
+                  history: z.object({ nodes: z.array(graphqlCommitNodeSchema) }).optional(),
+                })
+                .nullable(),
+            })
+            .nullable(),
+          object: z.object({ entries: z.array(graphqlTreeEntrySchema).optional() }).nullable(),
+        })
+        .nullable(),
+    })
+    .nullable(),
+  errors: z.array(graphqlErrorSchema).optional(),
+});
+const graphqlPathCommitSchema = z.object({
+  oid: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  messageHeadline: z.string().max(100_000),
+  committedDate: z.string().datetime().nullable(),
+});
+const pathHistoryQuerySchema = z.object({
+  data: z
+    .object({
+      repository: z
+        .object({
+          defaultBranchRef: z
+            .object({
+              target: z
+                .record(z.string(), z.object({ nodes: z.array(graphqlPathCommitSchema) }))
+                .nullable(),
+            })
+            .nullable(),
+        })
+        .nullable(),
+    })
+    .nullable(),
+  errors: z.array(graphqlErrorSchema).optional(),
+});
+/**
+ * `object(expression:)` on a `GitObject`. Only the `Tree`/`Blob` fragments are ever
+ * requested, so a Commit/Tag target (not reachable through a `branch:path` expression
+ * in practice) parses with neither `entries` nor `byteSize` present.
+ */
+const graphqlPathObjectSchema = z
+  .object({
+    entries: z.array(graphqlTreeEntrySchema).optional(),
+    byteSize: z.number().int().nonnegative().optional(),
+    isBinary: z.boolean().optional(),
+    isTruncated: z.boolean().optional(),
+    text: z.string().nullable().optional(),
+  })
+  .nullable();
+const graphqlAncestorObjectSchema = z
+  .object({ entries: z.array(graphqlTreeEntrySchema).optional() })
+  .nullable();
+const repositoryPathQuerySchema = z.object({
+  data: z
+    .object({
+      repository: z
+        .object({ target: graphqlPathObjectSchema })
+        .catchall(graphqlAncestorObjectSchema)
+        .nullable(),
+    })
+    .nullable(),
+  errors: z.array(graphqlErrorSchema).optional(),
+});
+
+/**
+ * Rejects a GraphQL response with a top-level error and no repository data. Field-level
+ * errors (e.g. `statusCheckRollup` when the App lacks Checks read) leave `data.repository`
+ * populated and are tolerated — the affected field just parses as null.
+ */
+function assertGraphQLOk<
+  T extends { data: { repository: unknown } | null; errors?: Array<{ type?: string }> },
+>(response: T): T {
+  if (response.errors?.length && !response.data?.repository) {
+    const denied = response.errors.some(
+      (error) =>
+        error.type === "FORBIDDEN" ||
+        error.type === "NOT_FOUND" ||
+        error.type === "INSUFFICIENT_SCOPES",
+    );
+    throw new AppError(denied ? "ACCESS_DENIED" : "TEMPORARILY_UNAVAILABLE");
+  }
+  return response;
+}
+
+function mapChecksState(
+  state: string | null | undefined,
+): "success" | "failure" | "pending" | null {
+  switch (state) {
+    case "SUCCESS":
+      return "success";
+    case "FAILURE":
+    case "ERROR":
+      return "failure";
+    case "PENDING":
+    case "EXPECTED":
+      return "pending";
+    default:
+      return null;
+  }
+}
+
+function mapTreeEntryType(
+  entry: z.infer<typeof graphqlTreeEntrySchema>,
+): "file" | "dir" | "symlink" | "submodule" {
+  if (entry.type === "tree") return "dir";
+  if (entry.type === "commit") return "submodule";
+  return entry.mode === 40960 ? "symlink" : "file";
+}
+
+/** Maps raw Tree entries to the UI shape and sorts dirs first, then name order. */
+function mapEntries(entries: Array<z.infer<typeof graphqlTreeEntrySchema>>) {
+  return entries
+    .map((entry) => ({ name: entry.name, path: entry.path, type: mapTreeEntryType(entry) }))
+    .sort(
+      (a, b) => Number(b.type === "dir") - Number(a.type === "dir") || a.name.localeCompare(b.name),
+    );
+}
+
+const REPOSITORY_OVERVIEW_QUERY = `
+  query($owner: String!, $name: String!, $expression: String!) {
+    repository(owner: $owner, name: $name) {
+      defaultBranchRef {
+        target {
+          ... on Commit {
+            history(first: 5) {
+              nodes {
+                oid
+                messageHeadline
+                committedDate
+                author { name avatarUrl(size: 80) user { login } }
+                committer { name user { login } }
+                signature { isValid }
+                statusCheckRollup { state }
+              }
+            }
+          }
+        }
+      }
+      object(expression: $expression) {
+        ... on Tree { entries { name type path mode } }
+      }
+    }
+  }
+`;
+
+/** Builds a `history(first: 1, path: $pN)` alias per path, chunked by the caller. */
+function buildPathHistoryQuery(count: number): string {
+  const variableDeclarations = Array.from(
+    { length: count },
+    (_, index) => `$p${index}: String!`,
+  ).join(", ");
+  const aliasFields = Array.from(
+    { length: count },
+    (_, index) =>
+      `p${index}: history(first: 1, path: $p${index}) { nodes { oid messageHeadline committedDate } }`,
+  ).join("\n");
+  return `
+    query($owner: String!, $name: String!, ${variableDeclarations}) {
+      repository(owner: $owner, name: $name) {
+        defaultBranchRef {
+          target {
+            ... on Commit {
+              ${aliasFields}
+            }
+          }
+        }
+      }
+    }
+  `;
+}
+
+const MAX_PATH_LENGTH = 4096;
+const MAX_ANCESTOR_LEVELS = 32;
+const MAX_BLOB_PREVIEW_BYTES = 1_048_576;
+
+/**
+ * Rejects absolute paths, `.`/`..` segments, empty segments, and control characters
+ * before any GitHub read. `""` is the repository root and is always valid.
+ */
+function validateRepositoryPath(path: string): string {
+  if (typeof path !== "string" || path.length > MAX_PATH_LENGTH) throw new AppError("NOT_FOUND");
+  // eslint-disable-next-line no-control-regex -- deliberately rejecting control characters, including NUL.
+  if (/[\x00-\x1f\x7f]/.test(path)) throw new AppError("NOT_FOUND");
+  if (path === "") return path;
+  if (path.startsWith("/")) throw new AppError("NOT_FOUND");
+  if (path.split("/").some((segment) => segment === "" || segment === "." || segment === ".."))
+    throw new AppError("NOT_FOUND");
+  return path;
+}
+
+/** Root first, then each parent directory of `path` (never `path` itself), capped for safety. */
+function ancestorPathsFor(path: string): string[] {
+  const segments = path === "" ? [] : path.split("/").slice(0, -1);
+  const paths = [""];
+  let current = "";
+  for (const segment of segments) {
+    current = current ? `${current}/${segment}` : segment;
+    paths.push(current);
+  }
+  return paths.slice(0, MAX_ANCESTOR_LEVELS);
+}
+
+/**
+ * `target` is the requested path; `a0..aN` are its ancestor directories (root first),
+ * used to populate the side tree without a client-side lazy fetch per directory.
+ */
+function buildRepositoryPathQuery(ancestorCount: number): string {
+  const ancestorDeclarations = Array.from(
+    { length: ancestorCount },
+    (_, index) => `$a${index}: String!`,
+  ).join(", ");
+  const ancestorFields = Array.from(
+    { length: ancestorCount },
+    (_, index) =>
+      `a${index}: object(expression: $a${index}) { ... on Tree { entries { name type path mode } } }`,
+  ).join("\n");
+  return `
+    query($owner: String!, $name: String!, $target: String!, ${ancestorDeclarations}) {
+      repository(owner: $owner, name: $name) {
+        target: object(expression: $target) {
+          ... on Tree { entries { name type path mode } }
+          ... on Blob { byteSize isBinary isTruncated text }
+        }
+        ${ancestorFields}
+      }
+    }
+  `;
+}
 
 type ApiInstallation = {
   id: number;
@@ -119,6 +360,10 @@ type ApiInstallation = {
 
 const REFRESH_THROTTLE_MS = 60_000;
 const PROACTIVE_REFRESH_WINDOW_MS = 3_600_000;
+// Compute a last-touching commit for at most this many root entries (dirs first, then name
+// order — the same order the UI shows), chunked into GraphQL requests of this size.
+const MAX_LAST_COMMIT_PATHS = 100;
+const MAX_PATHS_PER_QUERY = 50;
 // Module-level: configuredGitHub() builds a new GitHubConnection per request, so an
 // instance field would never throttle anything.
 const lastProactiveRefresh = new Map<string, number>();
@@ -437,6 +682,168 @@ export class GitHubConnection {
     userId: string,
     repository: { installationId: number; repositoryId: number; fullName: string },
   ) {
+    return this.withVerifiedRepository(
+      userId,
+      repository,
+      async (token, { owner, name, defaultBranch }) => {
+        const overview = assertGraphQLOk(
+          repositoryOverviewQuerySchema.parse(
+            await this.graphql(
+              REPOSITORY_OVERVIEW_QUERY,
+              { owner, name, expression: `${defaultBranch}:` },
+              token,
+            ),
+          ),
+        );
+        const branchRef = overview.data?.repository?.defaultBranchRef;
+        if (!branchRef) return { defaultBranch, commits: [], files: [] };
+
+        const commits = (branchRef.target?.history?.nodes ?? []).map((node) => {
+          const authorLogin = node.author?.user?.login;
+          const author = authorLogin ?? node.author?.name ?? "Unknown";
+          const committerLogin = node.committer?.user?.login;
+          const committerDisplay = committerLogin ?? node.committer?.name ?? null;
+          return {
+            sha: node.oid,
+            message: node.messageHeadline,
+            author,
+            authorAvatarUrl: node.author?.avatarUrl ?? null,
+            committer: committerDisplay && committerDisplay !== author ? committerDisplay : null,
+            date: node.committedDate ?? null,
+            verified: node.signature?.isValid ?? false,
+            checks: mapChecksState(node.statusCheckRollup?.state),
+          };
+        });
+
+        const entries = mapEntries(overview.data?.repository?.object?.entries ?? []);
+        const withCommits = entries.slice(0, MAX_LAST_COMMIT_PATHS);
+        const withoutCommits = entries.slice(MAX_LAST_COMMIT_PATHS);
+        const lastCommits = await this.lastCommitsForPaths(
+          owner,
+          name,
+          withCommits.map((entry) => entry.path),
+          token,
+        );
+        const files = [
+          ...withCommits.map((entry, index) => ({
+            ...entry,
+            lastCommit: lastCommits[index] ?? null,
+          })),
+          ...withoutCommits.map((entry) => ({ ...entry, lastCommit: null })),
+        ];
+
+        return { defaultBranch, commits, files };
+      },
+    );
+  }
+
+  /**
+   * A single path of the default branch: its Tree entries (with a per-entry last commit)
+   * or Blob text, plus each ancestor directory's entries for the side tree. Mirrors
+   * `repositoryOverview`'s access/identity check via `withVerifiedRepository`.
+   */
+  async repositoryPath(
+    userId: string,
+    repository: { installationId: number; repositoryId: number; fullName: string },
+    path: string,
+  ) {
+    const validPath = validateRepositoryPath(path);
+    return this.withVerifiedRepository(
+      userId,
+      repository,
+      async (token, { owner, name, defaultBranch }) => {
+        const ancestorPathsList = ancestorPathsFor(validPath);
+        const variables: Record<string, string> = {
+          owner,
+          name,
+          target: `${defaultBranch}:${validPath}`,
+        };
+        ancestorPathsList.forEach((ancestorPath, index) => {
+          variables[`a${index}`] = `${defaultBranch}:${ancestorPath}`;
+        });
+        const response = assertGraphQLOk(
+          repositoryPathQuerySchema.parse(
+            await this.graphql(
+              buildRepositoryPathQuery(ancestorPathsList.length),
+              variables,
+              token,
+            ),
+          ),
+        );
+        const repo = response.data?.repository;
+        const target = repo?.target;
+        if (!target) throw new AppError("NOT_FOUND");
+
+        const ancestors = ancestorPathsList.map((ancestorPath, index) => ({
+          path: ancestorPath,
+          entries: mapEntries(repo?.[`a${index}`]?.entries ?? []),
+        }));
+
+        if (target.entries !== undefined) {
+          const entries = mapEntries(target.entries);
+          const withCommits = entries.slice(0, MAX_LAST_COMMIT_PATHS);
+          const withoutCommits = entries.slice(MAX_LAST_COMMIT_PATHS);
+          const lastCommits = await this.lastCommitsForPaths(
+            owner,
+            name,
+            withCommits.map((entry) => entry.path),
+            token,
+          );
+          return {
+            defaultBranch,
+            path: validPath,
+            ancestors,
+            node: {
+              kind: "tree" as const,
+              entries: [
+                ...withCommits.map((entry, index) => ({
+                  ...entry,
+                  lastCommit: lastCommits[index] ?? null,
+                })),
+                ...withoutCommits.map((entry) => ({ ...entry, lastCommit: null })),
+              ],
+            },
+          };
+        }
+
+        const byteSize = target.byteSize ?? 0;
+        const reason: "binary" | "truncated" | "too_large" | undefined = target.isBinary
+          ? "binary"
+          : target.isTruncated
+            ? "truncated"
+            : byteSize > MAX_BLOB_PREVIEW_BYTES
+              ? "too_large"
+              : undefined;
+        return {
+          defaultBranch,
+          path: validPath,
+          ancestors,
+          node: {
+            kind: "blob" as const,
+            name: validPath.split("/").pop() || validPath,
+            byteSize,
+            text: reason ? null : (target.text ?? null),
+            ...(reason ? { reason } : {}),
+          },
+        };
+      },
+    );
+  }
+
+  /**
+   * Access check + REST metadata identity check shared by `repositoryOverview()` and
+   * `repositoryPath()`: verifies the selected repository is still reachable through an
+   * installation this user can use, then confirms GitHub's REST metadata still matches
+   * the selected id/full name. `action` runs with the verified user token.
+   */
+  private async withVerifiedRepository<T>(
+    userId: string,
+    repository: { installationId: number; repositoryId: number; fullName: string },
+    action: (
+      token: string,
+      repo: { owner: string; name: string; defaultBranch: string },
+    ) => Promise<T>,
+  ): Promise<T> {
     const selected = repositorySelectionSchema.parse(repository);
     const accessible = await this.accessibleRepositories(userId);
     if (
@@ -454,37 +861,38 @@ export class GitHubConnection {
       const metadata = repositoryMetadataSchema.parse(await this.api(path, token));
       if (metadata.id !== selected.repositoryId || metadata.full_name !== selected.fullName)
         throw new AppError("ACCESS_DENIED");
-
-      const branch = encodeURIComponent(metadata.default_branch);
-      const commitsResponse = await this.api(
-        `${path}/commits?sha=${branch}&per_page=5`,
-        token,
-        true,
-      );
-      if (commitsResponse === null)
-        return { defaultBranch: metadata.default_branch, commits: [], files: [] };
-
-      const commits = commitsSchema.parse(commitsResponse).map((item) => ({
-        sha: item.sha,
-        message: item.commit.message,
-        author:
-          item.author?.login ??
-          item.commit.author?.name ??
-          item.commit.committer?.name ??
-          "Unknown",
-        date: item.commit.author?.date ?? null,
-      }));
-      const files = rootContentsSchema.parse(
-        await this.api(`${path}/contents?ref=${branch}`, token),
-      );
-      return {
-        defaultBranch: metadata.default_branch,
-        commits,
-        files: files.map(({ name, path: filePath, type }) => ({ name, path: filePath, type })),
-      };
+      const [owner, name] = selected.fullName.split("/");
+      return action(token, { owner, name, defaultBranch: metadata.default_branch });
     });
     if (!result.ok) throw new AppError("ACCESS_DENIED");
     return result.data;
+  }
+
+  /** At most one GraphQL request per `MAX_PATHS_PER_QUERY` paths; each aliased history costs 1 point. */
+  private async lastCommitsForPaths(owner: string, name: string, paths: string[], token: string) {
+    const results: Array<{ sha: string; message: string; date: string } | null> = [];
+    for (let offset = 0; offset < paths.length; offset += MAX_PATHS_PER_QUERY) {
+      const chunk = paths.slice(offset, offset + MAX_PATHS_PER_QUERY);
+      const variables: Record<string, string> = { owner, name };
+      chunk.forEach((value, index) => {
+        variables[`p${index}`] = value;
+      });
+      const response = assertGraphQLOk(
+        pathHistoryQuerySchema.parse(
+          await this.graphql(buildPathHistoryQuery(chunk.length), variables, token),
+        ),
+      );
+      const target = response.data?.repository?.defaultBranchRef?.target;
+      chunk.forEach((_, index) => {
+        const node = target?.[`p${index}`]?.nodes.at(0);
+        results.push(
+          node
+            ? { sha: node.oid, message: node.messageHeadline, date: node.committedDate ?? "" }
+            : null,
+        );
+      });
+    }
+    return results;
   }
 
   /** A current user token for one Agent-owned GitHub operation; never persisted by the caller. */
@@ -654,22 +1062,32 @@ export class GitHubConnection {
     return tokensSchema.parse(result);
   }
 
-  private api(path: string, token: string, conflictAsNull = false) {
-    return this.request(
-      `https://api.github.com${path}`,
-      {
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: `Bearer ${token}`,
-          "x-github-api-version": "2026-03-10",
-          "user-agent": "CoForge",
-        },
+  private api(path: string, token: string) {
+    return this.request(`https://api.github.com${path}`, {
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${token}`,
+        "x-github-api-version": "2026-03-10",
+        "user-agent": "CoForge",
       },
-      conflictAsNull,
-    );
+    });
   }
 
-  private async request(url: string, init: RequestInit, conflictAsNull = false): Promise<unknown> {
+  /** Every GraphQL caller goes through `request()`, so 401/403/404/timeout semantics stay identical. */
+  private graphql(query: string, variables: Record<string, unknown>, token: string) {
+    return this.request("https://api.github.com/graphql", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+        "user-agent": "CoForge",
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+  }
+
+  private async request(url: string, init: RequestInit): Promise<unknown> {
     try {
       const response = await this.http(url, {
         ...init,
@@ -677,7 +1095,6 @@ export class GitHubConnection {
         signal: AbortSignal.timeout(8000),
       });
       if (response.status === 401) throw new GitHubUnauthorized();
-      if (conflictAsNull && response.status === 409) return null;
       if (
         response.status === 404 ||
         (response.status === 403 &&

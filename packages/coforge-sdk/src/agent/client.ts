@@ -37,6 +37,13 @@ export type AgentAttachmentDownload = {
   contentType?: string;
 };
 
+export type AgentAttachmentUploadResponse = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+};
+
 export type GitHubCredentialRequest = Record<string, never>;
 export type GitHubCredentialResponse = {
   username: "x-access-token";
@@ -155,7 +162,10 @@ export type AgentApiClient = {
     ): Promise<AgentChannelRemoveMemberResponse>;
   };
   threads: { unfollow(threadId: string): Promise<AgentThreadAttentionResponse> };
-  attachments: { download(attachmentId: string): Promise<AgentAttachmentDownload> };
+  attachments: {
+    download(attachmentId: string): Promise<AgentAttachmentDownload>;
+    upload(form: FormData): Promise<AgentAttachmentUploadResponse>;
+  };
 };
 
 export type AgentApiTransport = {
@@ -222,7 +232,10 @@ export type RawAgentApiClient = {
     ): Promise<AgentApiResult<AgentChannelRemoveMemberResponse>>;
   };
   threads: { unfollow(threadId: string): Promise<AgentApiResult<AgentThreadAttentionResponse>> };
-  attachments: { download(attachmentId: string): Promise<AgentApiResult<AgentAttachmentDownload>> };
+  attachments: {
+    download(attachmentId: string): Promise<AgentApiResult<AgentAttachmentDownload>>;
+    upload(form: FormData): Promise<AgentApiResult<AgentAttachmentUploadResponse>>;
+  };
 };
 
 export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentApiClient {
@@ -298,6 +311,10 @@ export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentA
         transport.request(agentApiRoutes.cloud.attachments.path(attachmentId)) as Promise<
           AgentApiResult<AgentAttachmentDownload>
         >,
+      upload: (form) =>
+        transport.request(agentApiRoutes.cloud.attachments.upload, form) as Promise<
+          AgentApiResult<AgentAttachmentUploadResponse>
+        >,
     },
   };
 }
@@ -361,6 +378,7 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
     },
     attachments: {
       download: async (attachmentId) => unwrap(await rawClient.attachments.download(attachmentId)),
+      upload: async (form) => unwrap(await rawClient.attachments.upload(form)),
     },
   };
 }

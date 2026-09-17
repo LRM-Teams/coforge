@@ -61,6 +61,8 @@ import {
   type WeeklyReportCommand,
   type WeeklyReportResponse,
   WEEKLY_REPORT_PROTOCOL_MAJOR,
+  threadParentTarget,
+  mentionsInContent,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -126,6 +128,33 @@ const CLEANUP_UNCONFIRMED =
   "Agent process cleanup could not be confirmed. Replacement launch is blocked.";
 /** Bounds how many events pages one `check` drains before reporting `hasMore: true` and yielding. */
 const MAX_EVENT_DRAIN_ROUNDS = 50;
+
+/**
+ * The `--target-confirmed` guard's message: `target` is the top-level target the send is about to
+ * hit, `threadTarget` is the most recently read thread rooted under it. Raft-aligned recovery: the
+ * outgoing content is saved as the local draft for `target` before this is thrown (`draftSaved:
+ * true`, carried through `AgentPreflightError.draftSaved`/`agent-proxy-failure.ts`'s `draft_saved`
+ * field), so the saved-draft resend below is `--send-draft`, not retyped content.
+ * `#sendAgentMessage` still cannot carry a `suggestedNextAction` through
+ * `AgentPreflightError`/`agent-proxy-failure.ts` today, so the equivalent guidance is folded into
+ * the message text itself instead.
+ */
+function targetConfirmationRequiredMessage(target: string, threadTarget: string): string {
+  return [
+    `Possible thread target mismatch: your latest read context under ${target} is ${threadTarget}, but this send targets ${target} top-level.`,
+    "This guard is intentionally narrow: moving a thread conclusion to the parent channel can be correct, but it is uncommon enough to confirm once.",
+    "",
+    "If this reply belongs in the thread, send the message to the thread target instead:",
+    `  coforge message send --target "${threadTarget}" <<'COFORGE_MESSAGE'`,
+    "  message body",
+    "  COFORGE_MESSAGE",
+    "",
+    "If the top-level channel message is intentional, send the saved draft unchanged:",
+    `  coforge message send --send-draft --target "${target}"`,
+    "",
+    `No message was sent. Send to ${threadTarget} if this belongs in the thread, or confirm the saved top-level draft with \`coforge message send --send-draft --target "${target}"\`.`,
+  ].join("\n");
+}
 
 type AgentInputCompletion = {
   resolve: () => void;
@@ -1835,8 +1864,10 @@ export class DaemonRuntime {
       const current = maxSequenceByTarget.get(message.target) ?? 0;
       if (message.sequence > current) maxSequenceByTarget.set(message.target, message.sequence);
     }
-    for (const [target, sequence] of maxSequenceByTarget)
+    for (const [target, sequence] of maxSequenceByTarget) {
       this.#messageAttention.recordModelSeen(agentId, target, sequence);
+      this.#messageAttention.recordReadContext(agentId, target);
+    }
     logger.info("Agent checked pending messages", {
       event: "agent.message.checked",
       ...this.#agentLogScope(agentId, request.requestId),
@@ -1876,11 +1907,58 @@ export class DaemonRuntime {
         "Agent message body is required",
         "AGENT_MESSAGE_BODY_REQUIRED",
       );
+    // `--send-draft` re-sends the saved draft's attachment/mentions unless the Agent explicitly
+    // supplies new `--mention` values, which replace them (Feature 2's documented override).
+    const attachmentId = request.sendDraft ? draft?.attachmentId : request.attachmentId;
+    const mentions = request.sendDraft
+      ? request.mentions?.length
+        ? request.mentions
+        : draft?.mentions
+      : request.mentions;
+    // Raft-aligned: the presence check runs against the EFFECTIVE outgoing content on every path,
+    // including a `--send-draft` resend of the daemon-held body (the CLI can only run this check
+    // client-side when it has the body in hand, i.e. never for an unmodified draft resend).
+    if (mentions?.length) {
+      const present = mentionsInContent(body);
+      for (const mention of mentions)
+        if (!present.has(mention.name))
+          throw new AgentPreflightError(
+            `Structured mention @${mention.name} is not present in the message body.`,
+            "MENTION_NOT_IN_CONTENT",
+          );
+    }
+    // Narrow local guard, decided entirely from volatile read-context state, before any transport
+    // call is made: a top-level send whose parent was read less recently than a thread rooted
+    // under it is an easy typo (replying to the channel instead of the thread), and moving a
+    // thread conclusion to the parent channel is uncommon enough to confirm once. `--send-draft`
+    // itself skips this guard (it can only re-target what was already confirmed once, at worst).
+    if (
+      !request.sendDraft &&
+      !request.targetConfirmed &&
+      threadParentTarget(target) === undefined
+    ) {
+      const latestThread = this.#messageAttention.latestThreadReadUnderParent(agentId, target);
+      if (latestThread) {
+        const parentOrder = this.#messageAttention.readOrder(agentId, target);
+        if (parentOrder === undefined || parentOrder < latestThread.order) {
+          // Raft-aligned: the outgoing content is saved as the local draft (no holdToken) before
+          // refusing, so the documented recovery is resending that exact draft, not retyping it.
+          await inbox.save(target, body, attachmentId, mentions);
+          throw new AgentPreflightError(
+            targetConfirmationRequiredMessage(target, latestThread.target),
+            "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
+            true,
+          );
+        }
+      }
+    }
     // `inbox.save` persists the draft locally BEFORE the request is issued to the transport below;
     // any failure past this point leaves delivery state unknown, never "not sent" (see
     // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
-    if (!request.sendDraft) await inbox.save(target, body);
-    if (request.sendDraft && !draft?.holdToken)
+    if (!request.sendDraft) await inbox.save(target, body, attachmentId, mentions);
+    // A tokenless draft (saved by the guard above, or by a failed transport before ever reaching a
+    // hold) resends as a plain send: no holdToken to send, and nothing for `--anyway` to bypass.
+    if (request.sendDraft && !draft?.holdToken && request.continueAnyway)
       throw new AgentPreflightError(
         `Held draft token is unavailable for target: ${target}`,
         "HELD_DRAFT_TOKEN_UNAVAILABLE",
@@ -1898,19 +1976,34 @@ export class DaemonRuntime {
         continueAnyway: request.continueAnyway,
         seenUpToSequence: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
         freshnessContextMode: request.freshnessContextMode,
+        attachmentId,
+        mentions: mentions ? [...mentions] : undefined,
       },
       agentApiKey,
     );
     const held = result.sideEffectDecision === "hold";
-    if (held && result.holdToken) await inbox.replace(target, body, result.holdToken);
+    if (held && result.holdToken)
+      await inbox.replace(target, body, result.holdToken, attachmentId, mentions);
     else if (result.accepted) await inbox.clear(target);
     const withheld = request.freshnessContextMode === "withheld";
     const targetMessages = result.messages.filter((message) => message.target === target);
-    if (!withheld && targetMessages.length > 0)
+    if (!withheld && targetMessages.length > 0) {
       this.#messageAttention.recordModelSeen(
         agentId,
         target,
         Math.max(...targetMessages.map(({ sequence }) => sequence)),
+      );
+      // The held-context read inside `send`: the Agent just consumed these messages for `target`.
+      this.#messageAttention.recordReadContext(agentId, target);
+    }
+    const recentUnread = withheld
+      ? []
+      : (result.recentUnread ?? []).filter((message) => message.target === target);
+    if (recentUnread.length > 0)
+      this.#messageAttention.recordModelSeen(
+        agentId,
+        target,
+        Math.max(...recentUnread.map(({ sequence }) => sequence)),
       );
     if (held)
       this.#emitCurrentActivity(
@@ -1949,6 +2042,7 @@ export class DaemonRuntime {
       withheldMessageCount: withheld
         ? (result.withheldMessageCount ?? result.attentionCount)
         : undefined,
+      recentUnread,
     };
   }
 
@@ -1999,6 +2093,10 @@ export class DaemonRuntime {
       else if (result.messages.length === 0 && attentionUpperBound !== undefined)
         this.#messageAttention.clearThrough(agentId, target, attentionUpperBound);
     }
+    // The `--target-confirmed` guard's read-context tracking: any successful `read` (anchored or
+    // not) counts as the Agent having consumed messages for `target`.
+    if (operation === "read" && target && result.accepted)
+      this.#messageAttention.recordReadContext(agentId, target);
     return {
       requestId: request.requestId,
       accepted: result.accepted,
@@ -2353,6 +2451,17 @@ export class DaemonRuntime {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.agentAttachment) throw new Error("daemon connection is not connected");
     return this.#transport.agentAttachment(attachmentId, agentApiKey);
+  }
+
+  async agentAttachmentUpload(
+    context: string,
+    request: Request,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUpload)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUpload(request, agentApiKey);
   }
 
   #contextFor(agentId: string): string {

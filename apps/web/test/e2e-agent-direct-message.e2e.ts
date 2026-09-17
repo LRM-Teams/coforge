@@ -83,6 +83,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       name: "E2E Workspace",
       members: {
         create: {
+          role: "owner",
           user: {
             create: {
               id: DEV_BROWSER_USER.id,
@@ -127,7 +128,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     { canRun: async () => true },
     { run: async (_agentId, callback) => callback() },
   ).create(
-    { userId: DEV_BROWSER_USER.id, workspaceId },
+    { userId: DEV_BROWSER_USER.id, workspaceId, role: "owner" },
     {
       name: "e2e-agent",
       description: "End-to-end test Agent",

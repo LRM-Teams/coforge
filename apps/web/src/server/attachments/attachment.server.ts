@@ -67,9 +67,55 @@ export async function storeAttachment(
 }
 
 /**
+ * Stores a file an Agent uploaded through the Agent HTTP API, mirroring `storeAttachment` but
+ * writing `uploaderAgentId` instead of `uploaderId`. `conversationId` is already resolved and
+ * membership-checked by the caller (the Agent target grammar), so no further authorization
+ * happens here.
+ */
+export async function storeAgentAttachment(
+  db: PrismaClient,
+  input: {
+    agentId: string;
+    conversationId: string;
+    workspaceId: string;
+    file: File;
+    contentType: string;
+  },
+  storage: () => Promise<FileStorage> = getFileStorage,
+) {
+  if (input.file.size === 0 || input.file.size > ATTACHMENT_MAX_BYTES)
+    throw new AppError("INVALID_INPUT");
+  const id = crypto.randomUUID();
+  const objectKey = `workspaces/${input.workspaceId}/attachments/${id}/original`;
+  const files = await storage();
+  await files.put(objectKey, input.file, input.contentType);
+  try {
+    return await db.attachment.create({
+      data: {
+        id,
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        uploaderId: null,
+        uploaderAgentId: input.agentId,
+        objectKey,
+        fileName: input.file.name || "attachment",
+        contentType: input.contentType,
+        sizeBytes: input.file.size,
+      },
+      select: { id: true, fileName: true, contentType: true, sizeBytes: true },
+    });
+  } catch (error) {
+    await files.remove(objectKey);
+    throw error;
+  }
+}
+
+/**
  * Resolves an attachment the requester may download and hands back a lazy `open` for its
  * bytes. Authorization happens here, against the committed message and the requester's
- * conversation access; the storage backend only ever sees the stable object key.
+ * conversation access; the storage backend only ever sees the stable object key. The one
+ * exception is an Agent downloading its own not-yet-linked upload (`uploaderAgentId ===
+ * agentId`): every other Agent still needs the attachment linked to a message first.
  */
 export async function readAuthorizedAttachment(
   db: PrismaClient,
@@ -84,7 +130,9 @@ export async function readAuthorizedAttachment(
   const attachment = await db.attachment.findUnique({
     where: { id: input.attachmentId },
   });
-  if (!attachment || !attachment.messageId) throw new AppError("NOT_FOUND");
+  if (!attachment) throw new AppError("NOT_FOUND");
+  const isOwnUpload = Boolean(input.agentId) && attachment.uploaderAgentId === input.agentId;
+  if (!attachment.messageId && !isOwnUpload) throw new AppError("NOT_FOUND");
   const allowed = input.userId
     ? Boolean(
         await db.conversation.findFirst({

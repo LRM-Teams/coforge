@@ -212,12 +212,52 @@ type SendResponse = {
   messageId?: string;
 };
 
-export function formatSendSuccess(target: string, response: SendResponse): string {
-  if (!response.messageId) return `Message sent to ${target}.`;
-  const hint = isThreadTarget(target)
-    ? ""
-    : ` (to reply in this message's thread, use target "${target}:${shortId(response.messageId)}")`;
-  return `Message sent to ${target}. Message ID: ${response.messageId}${hint}`;
+/**
+ * `recentUnread` is only ever non-empty when the send bypassed a freshness hold via `--anyway`
+ * (see ADR 0022); every other successful send passes an empty array or `undefined`.
+ */
+export function formatSendSuccess(
+  target: string,
+  response: SendResponse,
+  recentUnread?: readonly AgentMessageRecord[],
+): string {
+  const base = !response.messageId
+    ? `Message sent to ${target}.`
+    : (() => {
+        const hint = isThreadTarget(target)
+          ? ""
+          : ` (to reply in this message's thread, use target "${target}:${shortId(response.messageId!)}")`;
+        return `Message sent to ${target}. Message ID: ${response.messageId}${hint}`;
+      })();
+  if (!recentUnread?.length) return base;
+  return [
+    base,
+    "",
+    "--- New messages you may have missed ---",
+    ...recentUnread.map(formatMessageLine),
+  ].join("\n");
+}
+
+type AttachmentUploadResponse = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+};
+
+/** Matches Raft 1.0.32's `formatAttachmentUploaded` shape exactly, `raft` swapped for `coforge`. */
+export function formatAttachmentUploadSuccess(response: AttachmentUploadResponse): string {
+  const sizeKB = (response.sizeBytes / 1024).toFixed(1);
+  return (
+    `File uploaded: ${response.fileName} (${sizeKB}KB)\n` +
+    `Attachment ID: ${response.id}\n\n` +
+    `Use this ID with coforge message send --attachment-id ${response.id} to include it in a message.`
+  );
+}
+
+/** Matches Raft 1.0.32's `formatAttachmentDownloaded` shape exactly. */
+export function formatAttachmentDownloadSuccess(output: string): string {
+  return `Downloaded to: ${output}`;
 }
 
 type HeldSendResponse = {

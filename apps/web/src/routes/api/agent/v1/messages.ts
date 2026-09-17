@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentHistoryResponse, AgentSendResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
+import { isValidMentionSelectorArray } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
   readAgentMessages,
   executeAgentSendMessageWithPolicy,
+  type AgentMentionSelector,
   type AgentMessageRepository,
   type AgentSendMessageResult,
 } from "#/server/agents/agent-messages.service";
@@ -14,6 +16,7 @@ import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server
 import { CentrifugoConversationRealtime } from "#/server/conversations/conversation-realtime.server";
 import { bestEffortMessageNotifier } from "#/server/notifications/web-push-composition.server";
 import { isAppError } from "#/lib/app-error";
+import { AgentSendRejectedError } from "#/server/conversations/agent-send-rejected-error.server";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 
@@ -78,15 +81,16 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult & { mes
     ...message,
     createdAt: message.createdAt.toISOString(),
   })) as AgentMessage[];
+  const state =
+    result.sideEffectDecision === "hold"
+      ? "held"
+      : result.sideEffectDecision === "anyway_denied"
+        ? "denied"
+        : "sent";
   const response: AgentSendResponse = {
     protocolMajor: 1,
     requestId,
-    state:
-      result.sideEffectDecision === "hold"
-        ? "held"
-        : result.sideEffectDecision === "anyway_denied"
-          ? "denied"
-          : "sent",
+    state,
     messageId: result.messageId,
     holdToken: result.holdToken,
     bypass: result.sideEffectDecision === "anyway_accepted" ? true : undefined,
@@ -96,9 +100,19 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult & { mes
     context: result.freshnessContextMode === "withheld" ? [] : context,
     freshnessContextMode: result.freshnessContextMode,
     withheldMessageCount: result.withheldMessageCount,
+    // Only ever populated for `state: "sent"`; every other result carries none.
+    recentUnread:
+      state === "sent"
+        ? ((result.recentUnread ?? []).map((message) => ({
+            ...message,
+            createdAt: message.createdAt.toISOString(),
+          })) as AgentMessage[])
+        : [],
   };
   return response;
 }
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type AgentMessagesPostPrincipal = { workspaceId: string; agentId: string };
 
@@ -123,6 +137,13 @@ export async function handleAgentMessagesPost(
     freshnessContextMode !== "withheld"
   )
     return Response.json({ error: "invalid freshnessContextMode" }, { status: 400 });
+  if (
+    body.attachmentId !== undefined &&
+    (typeof body.attachmentId !== "string" || !UUID_PATTERN.test(body.attachmentId))
+  )
+    return Response.json({ error: "invalid attachmentId" }, { status: 400 });
+  if (body.mentions !== undefined && !isValidMentionSelectorArray(body.mentions))
+    return Response.json({ error: "invalid mentions" }, { status: 400 });
   const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
   try {
     const result = await executeAgentSendMessageWithPolicy(dependencies, {
@@ -136,9 +157,19 @@ export async function handleAgentMessagesPost(
       seenUpToSequence:
         typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
       freshnessContextMode,
+      attachmentId: typeof body.attachmentId === "string" ? body.attachmentId : undefined,
+      mentions: body.mentions as AgentMentionSelector[] | undefined,
     });
     return Response.json(mapSendResult(requestId, result));
   } catch (error) {
+    // Only this send-specific class is mapped here; every other error (including any AppError
+    // raised elsewhere, e.g. getAgentChannel's ACCESS_DENIED for a non-member) propagates
+    // unchanged, exactly as it did before this class existed.
+    if (error instanceof AgentSendRejectedError)
+      return Response.json({ error: error.message }, { status: error.status });
+    // An archived channel refuses posting (AppError("CONFLICT") from PublicChannels.send /
+    // sendAgentMessage); reported the same way the rest of this route family reports a plain
+    // text failure.
     if (isAppError(error) && error.code === "CONFLICT")
       return new Response("channel is archived", { status: 409 });
     throw error;

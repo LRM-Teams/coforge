@@ -1,3 +1,5 @@
+import { nameToSlug } from "../../lib/slug";
+
 export const WORKSPACE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const RESERVED_WORKSPACE_SLUGS = new Set([
@@ -16,11 +18,7 @@ const RESERVED_WORKSPACE_SLUGS = new Set([
 ]);
 
 export function nameToWorkspaceSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 48);
+  return nameToSlug(name, 48);
 }
 
 export function isReservedWorkspaceSlug(slug: string): boolean {
