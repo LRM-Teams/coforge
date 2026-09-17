@@ -9,8 +9,11 @@ import { m } from "@/paraglide/messages";
  */
 export function RepositoryStatusMessage({
   status,
+  onRetry,
 }: {
   status: "unlinked" | "denied" | "unavailable";
+  /** Pages that read through React Query refetch here; the default reruns the route loaders. */
+  onRetry?: () => Promise<unknown>;
 }) {
   const router = useRouter();
   const [retrying, setRetrying] = useState(false);
@@ -39,7 +42,7 @@ export function RepositoryStatusMessage({
             onPress={async () => {
               setRetrying(true);
               try {
-                await router.invalidate({ sync: true });
+                await (onRetry ? onRetry() : router.invalidate({ sync: true }));
               } finally {
                 setRetrying(false);
               }

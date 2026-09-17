@@ -76,6 +76,7 @@ import { Route as ApiAgentV1AttachmentsIndexRouteImport } from './routes/api/age
 import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/api/agent/v1/attachments/$attachmentId'
 import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
 import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent/v1/messages_.search'
+import { Route as ApiProjectsProjectIdRawSplatRouteImport } from './routes/api/projects.$projectId.raw.$'
 import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/$uploadId.complete'
 import { Route as ApiAgentV1ChannelsChannelMuteRouteImport } from './routes/api/agent/v1/channels_.$channel.mute'
 import { Route as ApiAgentV1ChannelsChannelUnmuteRouteImport } from './routes/api/agent/v1/channels_.$channel.unmute'
@@ -438,6 +439,12 @@ const ApiAgentV1MessagesSearchRoute =
     path: '/api/agent/v1/messages/search',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiProjectsProjectIdRawSplatRoute =
+  ApiProjectsProjectIdRawSplatRouteImport.update({
+    id: '/api/projects/$projectId/raw/$',
+    path: '/api/projects/$projectId/raw/$',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute =
   ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport.update({
     id: '/complete',
@@ -546,6 +553,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
+  '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
@@ -618,6 +626,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
+  '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/api/agent/v1/attachment-upload-sessions': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
@@ -695,6 +704,7 @@ export interface FileRoutesById {
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages_/search': typeof ApiAgentV1MessagesSearchRoute
+  '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
@@ -772,6 +782,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages/search'
+    | '/api/projects/$projectId/raw/$'
     | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
@@ -844,6 +855,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages/search'
+    | '/api/projects/$projectId/raw/$'
     | '/api/agent/v1/attachment-upload-sessions'
     | '/api/agent/v1/attachments'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
@@ -920,6 +932,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages_/search'
+    | '/api/projects/$projectId/raw/$'
     | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
@@ -974,6 +987,7 @@ export interface RootRouteChildren {
   ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
   ApiAgentV1MessagesSearchRoute: typeof ApiAgentV1MessagesSearchRoute
+  ApiProjectsProjectIdRawSplatRoute: typeof ApiProjectsProjectIdRawSplatRoute
   ApiAgentV1AttachmentUploadSessionsIndexRoute: typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   ApiAgentV1AttachmentsIndexRoute: typeof ApiAgentV1AttachmentsIndexRoute
   ApiAgentV1ChannelsChannelMuteRoute: typeof ApiAgentV1ChannelsChannelMuteRoute
@@ -1455,6 +1469,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1MessagesSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/projects/$projectId/raw/$': {
+      id: '/api/projects/$projectId/raw/$'
+      path: '/api/projects/$projectId/raw/$'
+      fullPath: '/api/projects/$projectId/raw/$'
+      preLoaderRoute: typeof ApiProjectsProjectIdRawSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': {
       id: '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
       path: '/complete'
@@ -1673,6 +1694,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1AttachmentsCapabilitiesRoute:
     ApiAgentV1AttachmentsCapabilitiesRoute,
   ApiAgentV1MessagesSearchRoute: ApiAgentV1MessagesSearchRoute,
+  ApiProjectsProjectIdRawSplatRoute: ApiProjectsProjectIdRawSplatRoute,
   ApiAgentV1AttachmentUploadSessionsIndexRoute:
     ApiAgentV1AttachmentUploadSessionsIndexRoute,
   ApiAgentV1AttachmentsIndexRoute: ApiAgentV1AttachmentsIndexRoute,

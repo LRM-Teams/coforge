@@ -1337,24 +1337,265 @@ test("overview() rotates a token expiring within the hour in the background, onc
   }
 });
 
-const isRepositoryPathQuery = (init: RequestInit) =>
-  graphqlBody(init).variables.target !== undefined;
+function randomRepositoryId(): number {
+  return 100_000_000 + Math.floor(Math.random() * 800_000_000);
+}
+const isForbiddenReadEndpoint = (url: string) =>
+  url === "https://api.github.com/user" || url.includes("/user/installations");
 
-test("repositoryPath rejects invalid paths before touching GitHub or the database", async () => {
-  const connection = new GitHubConnection(db, config, async () => {
-    throw new Error("repositoryPath must not call GitHub for an invalid path");
+test("repositoryTree fetches the recursive default-branch tree and maps entry types", async () => {
+  const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  const repositoryId = randomRepositoryId();
+  const requested: string[] = [];
+  const connection = new GitHubConnection(db, config, async (url, init) => {
+    requested.push(url);
+    if (url.endsWith("/access_token"))
+      return Response.json({
+        access_token: "user-access",
+        refresh_token: "refresh",
+        expires_in: 28800,
+        refresh_token_expires_in: 15897600,
+        token_type: "bearer",
+      });
+    if (url === "https://api.github.com/user")
+      return Response.json({ id: 501, login: "tree-fetch-owner" });
+    if (url.includes("/user/installations"))
+      return Response.json({ total_count: 0, installations: [] });
+    if (url === "https://api.github.com/repos/example-org/tree-map-repo")
+      return Response.json({
+        id: repositoryId,
+        full_name: "example-org/tree-map-repo",
+        default_branch: "main",
+      });
+    if (
+      url === "https://api.github.com/repos/example-org/tree-map-repo/git/trees/main?recursive=1"
+    ) {
+      expect(new Headers(init.headers).has("if-none-match")).toBe(false);
+      return new Response(
+        JSON.stringify({
+          sha: "1".repeat(40),
+          truncated: true,
+          tree: [
+            { path: "src", mode: "040000", type: "tree", sha: "2".repeat(40) },
+            { path: "vendor", mode: "160000", type: "commit", sha: "3".repeat(40) },
+            { path: "bin/tool", mode: "120000", type: "blob", sha: "4".repeat(40) },
+            { path: "README.md", mode: "100644", type: "blob", sha: "5".repeat(40) },
+          ],
+        }),
+        { headers: { etag: '"tree-etag"' } },
+      );
+    }
+    return Response.json({}, { status: 404 });
   });
-  const selected = { installationId: 42, repositoryId: 99, fullName: "example-org/invalid-paths" };
+  const selected = { installationId: 42, repositoryId, fullName: "example-org/tree-map-repo" };
+  try {
+    const { state } = await connection.begin(user.id);
+    expect(await connection.complete(user.id, state, state, "code")).toBe(true);
+    const afterSetup = requested.length;
+    expect(await connection.repositoryTree(user.id, selected)).toEqual({
+      defaultBranch: "main",
+      sha: "1".repeat(40),
+      truncated: true,
+      entries: [
+        { path: "src", type: "dir", sha: "2".repeat(40) },
+        { path: "vendor", type: "submodule", sha: "3".repeat(40) },
+        { path: "bin/tool", type: "symlink", sha: "4".repeat(40) },
+        { path: "README.md", type: "file", sha: "5".repeat(40) },
+      ],
+    });
+    expect(requested.slice(afterSetup).some(isForbiddenReadEndpoint)).toBe(false);
+  } finally {
+    await db.user.delete({ where: { id: user.id } });
+  }
+});
+
+test("repositoryTree revalidates with If-None-Match and serves the cached tree on 304", async () => {
+  const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  const repositoryId = randomRepositoryId();
+  let treeRequests = 0;
+  const connection = new GitHubConnection(db, config, async (url, init) => {
+    if (url.endsWith("/access_token"))
+      return Response.json({
+        access_token: "user-access",
+        refresh_token: "refresh",
+        expires_in: 28800,
+        refresh_token_expires_in: 15897600,
+        token_type: "bearer",
+      });
+    if (url === "https://api.github.com/user")
+      return Response.json({ id: 502, login: "tree-cache-owner" });
+    if (url.includes("/user/installations"))
+      return Response.json({ total_count: 0, installations: [] });
+    if (url === "https://api.github.com/repos/example-org/tree-cache-repo")
+      return Response.json({
+        id: repositoryId,
+        full_name: "example-org/tree-cache-repo",
+        default_branch: "main",
+      });
+    if (
+      url === "https://api.github.com/repos/example-org/tree-cache-repo/git/trees/main?recursive=1"
+    ) {
+      treeRequests++;
+      if (treeRequests === 1) {
+        expect(new Headers(init.headers).has("if-none-match")).toBe(false);
+        return new Response(
+          JSON.stringify({
+            sha: "6".repeat(40),
+            truncated: false,
+            tree: [{ path: "README.md", mode: "100644", type: "blob", sha: "7".repeat(40) }],
+          }),
+          { headers: { etag: '"cache-etag"' } },
+        );
+      }
+      expect(new Headers(init.headers).get("if-none-match")).toBe('"cache-etag"');
+      return new Response(null, { status: 304 });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  const selected = { installationId: 42, repositoryId, fullName: "example-org/tree-cache-repo" };
+  try {
+    const { state } = await connection.begin(user.id);
+    expect(await connection.complete(user.id, state, state, "code")).toBe(true);
+    const first = await connection.repositoryTree(user.id, selected);
+    const second = await connection.repositoryTree(user.id, selected);
+    expect(second).toEqual(first);
+    expect(treeRequests).toBe(2);
+  } finally {
+    await db.user.delete({ where: { id: user.id } });
+  }
+});
+
+test("repositoryTree denies a repository identity mismatch and never requests the tree", async () => {
+  const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  const repositoryId = randomRepositoryId();
+  const requested: string[] = [];
+  const connection = new GitHubConnection(db, config, async (url) => {
+    requested.push(url);
+    if (url.endsWith("/access_token"))
+      return Response.json({
+        access_token: "user-access",
+        refresh_token: "refresh",
+        expires_in: 28800,
+        refresh_token_expires_in: 15897600,
+        token_type: "bearer",
+      });
+    if (url === "https://api.github.com/user")
+      return Response.json({ id: 503, login: "tree-identity-owner" });
+    if (url.includes("/user/installations"))
+      return Response.json({ total_count: 0, installations: [] });
+    if (url === "https://api.github.com/repos/example-org/tree-identity-repo")
+      return Response.json({
+        id: repositoryId + 1,
+        full_name: "example-org/tree-identity-repo",
+        default_branch: "main",
+      });
+    return Response.json({}, { status: 404 });
+  });
+  const selected = { installationId: 42, repositoryId, fullName: "example-org/tree-identity-repo" };
+  try {
+    const { state } = await connection.begin(user.id);
+    expect(await connection.complete(user.id, state, state, "code")).toBe(true);
+    const afterSetup = requested.length;
+    await expect(connection.repositoryTree(user.id, selected)).rejects.toMatchObject({
+      code: "ACCESS_DENIED",
+    });
+    expect(requested.slice(afterSetup).some((url) => url.includes("/git/trees/"))).toBe(false);
+    expect(requested.slice(afterSetup).some(isForbiddenReadEndpoint)).toBe(false);
+  } finally {
+    await db.user.delete({ where: { id: user.id } });
+  }
+});
+
+test("repositoryObject rejects invalid paths before touching GitHub or the database", async () => {
+  const connection = new GitHubConnection(db, config, async () => {
+    throw new Error("repositoryObject must not call GitHub for an invalid path");
+  });
+  const selected = {
+    installationId: 42,
+    repositoryId: randomRepositoryId(),
+    fullName: "example-org/invalid-paths",
+  };
   const invalidPaths = ["../x", "/x", "a//b", "a/./b", "a/..", "..", "a/b/", "a b"];
   for (const path of invalidPaths) {
     await expect(
-      connection.repositoryPath(crypto.randomUUID(), selected, path),
+      connection.repositoryObject(crypto.randomUUID(), selected, { path }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   }
 });
 
-test("repositoryPath returns a Tree node with per-entry last commits and the ancestor chain for the side tree", async () => {
+test("repositoryObject resolves a path against HEAD, sorts entries dirs-first, and makes exactly one request", async () => {
   const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  const repositoryId = randomRepositoryId();
+  const requested: string[] = [];
+  let graphqlCalls = 0;
+  const connection = new GitHubConnection(db, config, async (url, init) => {
+    requested.push(url);
+    if (url.endsWith("/access_token"))
+      return Response.json({
+        access_token: "user-access",
+        refresh_token: "refresh",
+        expires_in: 28800,
+        refresh_token_expires_in: 15897600,
+        token_type: "bearer",
+      });
+    if (url === "https://api.github.com/user")
+      return Response.json({ id: 504, login: "object-tree-owner" });
+    if (url.includes("/user/installations"))
+      return Response.json({ total_count: 0, installations: [] });
+    if (url === "https://api.github.com/graphql") {
+      graphqlCalls++;
+      const body = graphqlBody(init);
+      expect(body.variables).toEqual({
+        owner: "example-org",
+        name: "object-tree-repo",
+        expression: "HEAD:src",
+        oid: null,
+      });
+      return Response.json({
+        data: {
+          repository: {
+            databaseId: repositoryId,
+            object: {
+              entries: [
+                { name: "index.ts", type: "blob", path: "src/index.ts", mode: 33188 },
+                { name: "lib", type: "tree", path: "src/lib", mode: 16384 },
+              ],
+            },
+          },
+        },
+      });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  const selected = { installationId: 42, repositoryId, fullName: "example-org/object-tree-repo" };
+  try {
+    const { state } = await connection.begin(user.id);
+    expect(await connection.complete(user.id, state, state, "code")).toBe(true);
+    const afterSetup = requested.length;
+    expect(await connection.repositoryObject(user.id, selected, { path: "src" })).toEqual({
+      kind: "tree",
+      path: "src",
+      entries: [
+        { name: "lib", path: "src/lib", type: "dir" },
+        { name: "index.ts", path: "src/index.ts", type: "file" },
+      ],
+    });
+    expect(graphqlCalls).toBe(1);
+    expect(requested.slice(afterSetup)).toHaveLength(1);
+    expect(requested.slice(afterSetup).some(isForbiddenReadEndpoint)).toBe(false);
+  } finally {
+    await db.user.delete({ where: { id: user.id } });
+  }
+});
+
+test("repositoryObject addresses content by oid, denies a databaseId mismatch, and treats a null object as NOT_FOUND", async () => {
+  const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  const repositoryId = randomRepositoryId();
+  const oid = "8".repeat(40);
+  let response: { databaseId: number; object: unknown } = {
+    databaseId: repositoryId,
+    object: null,
+  };
   const connection = new GitHubConnection(db, config, async (url, init) => {
     if (url.endsWith("/access_token"))
       return Response.json({
@@ -1364,221 +1605,55 @@ test("repositoryPath returns a Tree node with per-entry last commits and the anc
         refresh_token_expires_in: 15897600,
         token_type: "bearer",
       });
-    if (url.endsWith("/user")) return Response.json({ id: 201, login: "tree-owner" });
-    if (url.includes("/user/installations/42/repositories"))
-      return Response.json({
-        total_count: 1,
-        repositories: [{ id: 99, full_name: "example-org/tree-repo", private: true }],
-      });
+    if (url === "https://api.github.com/user")
+      return Response.json({ id: 505, login: "object-oid-owner" });
     if (url.includes("/user/installations"))
-      return Response.json({
-        total_count: 1,
-        installations: [
-          {
-            id: 42,
-            app_id: config.appId,
-            account: { login: "example-org" },
-            repository_selection: "selected",
-          },
-        ],
-      });
-    if (url === "https://api.github.com/repos/example-org/tree-repo")
-      return Response.json({ id: 99, full_name: "example-org/tree-repo", default_branch: "main" });
+      return Response.json({ total_count: 0, installations: [] });
     if (url === "https://api.github.com/graphql") {
       const body = graphqlBody(init);
-      if (isRepositoryPathQuery(init)) {
-        expect(body.variables).toEqual({
-          owner: "example-org",
-          name: "tree-repo",
-          target: "main:docs/adr",
-          a0: "main:",
-          a1: "main:docs",
-        });
-        return Response.json({
-          data: {
-            repository: {
-              target: {
-                entries: [
-                  {
-                    name: "0001-example.md",
-                    type: "blob",
-                    path: "docs/adr/0001-example.md",
-                    mode: 33188,
-                  },
-                ],
-              },
-              a0: {
-                entries: [
-                  { name: "docs", type: "tree", path: "docs", mode: 16384 },
-                  { name: "README.md", type: "blob", path: "README.md", mode: 33188 },
-                ],
-              },
-              a1: {
-                entries: [
-                  { name: "adr", type: "tree", path: "docs/adr", mode: 16384 },
-                  { name: "design.md", type: "blob", path: "docs/design.md", mode: 33188 },
-                ],
-              },
-            },
-          },
-        });
-      }
-      // Per-path last-commit lookup on the Tree target's own entries.
       expect(body.variables).toEqual({
         owner: "example-org",
-        name: "tree-repo",
-        p0: "docs/adr/0001-example.md",
+        name: "object-oid-repo",
+        expression: null,
+        oid,
       });
-      return Response.json({
-        data: {
-          repository: {
-            defaultBranchRef: {
-              target: {
-                p0: {
-                  nodes: [
-                    {
-                      oid: "1111111111111111111111111111111111111111",
-                      messageHeadline: "Add ADR 0001",
-                      committedDate: "2026-01-01T00:00:00Z",
-                    },
-                  ],
-                },
-              },
-            },
-          },
-        },
-      });
+      return Response.json({ data: { repository: response } });
     }
     return Response.json({}, { status: 404 });
   });
-  const selected = { installationId: 42, repositoryId: 99, fullName: "example-org/tree-repo" };
+  const selected = { installationId: 42, repositoryId, fullName: "example-org/object-oid-repo" };
   try {
     const { state } = await connection.begin(user.id);
     expect(await connection.complete(user.id, state, state, "code")).toBe(true);
-    expect(await connection.repositoryPath(user.id, selected, "docs/adr")).toEqual({
-      defaultBranch: "main",
-      path: "docs/adr",
-      ancestors: [
-        {
-          path: "",
-          entries: [
-            { name: "docs", path: "docs", type: "dir" },
-            { name: "README.md", path: "README.md", type: "file" },
-          ],
-        },
-        {
-          path: "docs",
-          entries: [
-            { name: "adr", path: "docs/adr", type: "dir" },
-            { name: "design.md", path: "docs/design.md", type: "file" },
-          ],
-        },
-      ],
-      node: {
-        kind: "tree",
-        entries: [
-          {
-            name: "0001-example.md",
-            path: "docs/adr/0001-example.md",
-            type: "file",
-            lastCommit: {
-              sha: "1111111111111111111111111111111111111111",
-              message: "Add ADR 0001",
-              date: "2026-01-01T00:00:00Z",
-            },
-          },
-        ],
-      },
-    });
+
+    await expect(
+      connection.repositoryObject(user.id, selected, { path: "README.md", oid }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    response = { databaseId: repositoryId + 1, object: { oid, entries: [] } };
+    await expect(
+      connection.repositoryObject(user.id, selected, { path: "README.md", oid }),
+    ).rejects.toMatchObject({ code: "ACCESS_DENIED" });
   } finally {
     await db.user.delete({ where: { id: user.id } });
   }
 });
 
-test("repositoryPath returns Blob text for a small text file", async () => {
+test("repositoryObject returns Blob text for a small file and marks binary, truncated, and oversized blobs unpreviewable", async () => {
   const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
-  const connection = new GitHubConnection(db, config, async (url, init) => {
-    if (url.endsWith("/access_token"))
-      return Response.json({
-        access_token: "user-access",
-        refresh_token: "refresh",
-        expires_in: 28800,
-        refresh_token_expires_in: 15897600,
-        token_type: "bearer",
-      });
-    if (url.endsWith("/user")) return Response.json({ id: 202, login: "blob-text-owner" });
-    if (url.includes("/user/installations/42/repositories"))
-      return Response.json({
-        total_count: 1,
-        repositories: [{ id: 99, full_name: "example-org/blob-repo", private: true }],
-      });
-    if (url.includes("/user/installations"))
-      return Response.json({
-        total_count: 1,
-        installations: [
-          {
-            id: 42,
-            app_id: config.appId,
-            account: { login: "example-org" },
-            repository_selection: "selected",
-          },
-        ],
-      });
-    if (url === "https://api.github.com/repos/example-org/blob-repo")
-      return Response.json({ id: 99, full_name: "example-org/blob-repo", default_branch: "main" });
-    if (url === "https://api.github.com/graphql") {
-      const body = graphqlBody(init);
-      expect(body.variables).toEqual({
-        owner: "example-org",
-        name: "blob-repo",
-        target: "main:docs/design.md",
-        a0: "main:",
-        a1: "main:docs",
-      });
-      return Response.json({
-        data: {
-          repository: {
-            target: {
-              byteSize: 27,
-              isBinary: false,
-              isTruncated: false,
-              text: "# CoForge design guidance",
-            },
-            a0: { entries: [{ name: "docs", type: "tree", path: "docs", mode: 16384 }] },
-            a1: {
-              entries: [{ name: "design.md", type: "blob", path: "docs/design.md", mode: 33188 }],
-            },
-          },
-        },
-      });
-    }
-    return Response.json({}, { status: 404 });
-  });
-  const selected = { installationId: 42, repositoryId: 99, fullName: "example-org/blob-repo" };
-  try {
-    const { state } = await connection.begin(user.id);
-    expect(await connection.complete(user.id, state, state, "code")).toBe(true);
-    expect(await connection.repositoryPath(user.id, selected, "docs/design.md")).toEqual({
-      defaultBranch: "main",
-      path: "docs/design.md",
-      ancestors: [
-        { path: "", entries: [{ name: "docs", path: "docs", type: "dir" }] },
-        { path: "docs", entries: [{ name: "design.md", path: "docs/design.md", type: "file" }] },
-      ],
-      node: { kind: "blob", name: "design.md", byteSize: 27, text: "# CoForge design guidance" },
-    });
-  } finally {
-    await db.user.delete({ where: { id: user.id } });
-  }
-});
-
-test("repositoryPath marks binary, truncated, and oversized blobs unpreviewable with the right reason", async () => {
-  const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
-  let blob: { byteSize: number; isBinary: boolean; isTruncated: boolean; text: string | null } = {
-    byteSize: 10,
-    isBinary: true,
+  const repositoryId = randomRepositoryId();
+  let object: {
+    oid: string;
+    byteSize: number;
+    isBinary: boolean;
+    isTruncated: boolean;
+    text: string | null;
+  } = {
+    oid: "9".repeat(40),
+    byteSize: 27,
+    isBinary: false,
     isTruncated: false,
-    text: null,
+    text: "# CoForge design guidance",
   };
   const connection = new GitHubConnection(db, config, async (url) => {
     if (url.endsWith("/access_token"))
@@ -1589,60 +1664,70 @@ test("repositoryPath marks binary, truncated, and oversized blobs unpreviewable 
         refresh_token_expires_in: 15897600,
         token_type: "bearer",
       });
-    if (url.endsWith("/user")) return Response.json({ id: 203, login: "blob-variant-owner" });
-    if (url.includes("/user/installations/42/repositories"))
-      return Response.json({
-        total_count: 1,
-        repositories: [{ id: 99, full_name: "example-org/blob-variants", private: true }],
-      });
+    if (url === "https://api.github.com/user")
+      return Response.json({ id: 506, login: "object-blob-owner" });
     if (url.includes("/user/installations"))
-      return Response.json({
-        total_count: 1,
-        installations: [
-          {
-            id: 42,
-            app_id: config.appId,
-            account: { login: "example-org" },
-            repository_selection: "selected",
-          },
-        ],
-      });
-    if (url === "https://api.github.com/repos/example-org/blob-variants")
-      return Response.json({
-        id: 99,
-        full_name: "example-org/blob-variants",
-        default_branch: "main",
-      });
+      return Response.json({ total_count: 0, installations: [] });
     if (url === "https://api.github.com/graphql")
-      return Response.json({ data: { repository: { target: blob, a0: { entries: [] } } } });
+      return Response.json({ data: { repository: { databaseId: repositoryId, object } } });
     return Response.json({}, { status: 404 });
   });
-  const selected = { installationId: 42, repositoryId: 99, fullName: "example-org/blob-variants" };
+  const selected = { installationId: 42, repositoryId, fullName: "example-org/object-blob-repo" };
   try {
     const { state } = await connection.begin(user.id);
     expect(await connection.complete(user.id, state, state, "code")).toBe(true);
 
-    expect((await connection.repositoryPath(user.id, selected, "image.png")).node).toEqual({
+    expect(
+      await connection.repositoryObject(user.id, selected, { path: "docs/design.md" }),
+    ).toEqual({
       kind: "blob",
+      path: "docs/design.md",
+      name: "design.md",
+      oid: "9".repeat(40),
+      byteSize: 27,
+      text: "# CoForge design guidance",
+    });
+
+    object = { oid: "a".repeat(40), byteSize: 10, isBinary: true, isTruncated: false, text: null };
+    expect(await connection.repositoryObject(user.id, selected, { path: "image.png" })).toEqual({
+      kind: "blob",
+      path: "image.png",
       name: "image.png",
+      oid: "a".repeat(40),
       byteSize: 10,
       text: null,
       reason: "binary",
     });
 
-    blob = { byteSize: 20, isBinary: false, isTruncated: true, text: "partial" };
-    expect((await connection.repositoryPath(user.id, selected, "huge.log")).node).toEqual({
+    object = {
+      oid: "b".repeat(40),
+      byteSize: 20,
+      isBinary: false,
+      isTruncated: true,
+      text: "partial",
+    };
+    expect(await connection.repositoryObject(user.id, selected, { path: "huge.log" })).toEqual({
       kind: "blob",
+      path: "huge.log",
       name: "huge.log",
+      oid: "b".repeat(40),
       byteSize: 20,
       text: null,
       reason: "truncated",
     });
 
-    blob = { byteSize: 1_048_577, isBinary: false, isTruncated: false, text: "x".repeat(10) };
-    expect((await connection.repositoryPath(user.id, selected, "large.txt")).node).toEqual({
+    object = {
+      oid: "c".repeat(40),
+      byteSize: 1_048_577,
+      isBinary: false,
+      isTruncated: false,
+      text: "x".repeat(10),
+    };
+    expect(await connection.repositoryObject(user.id, selected, { path: "large.txt" })).toEqual({
       kind: "blob",
+      path: "large.txt",
       name: "large.txt",
+      oid: "c".repeat(40),
       byteSize: 1_048_577,
       text: null,
       reason: "too_large",
@@ -1652,8 +1737,9 @@ test("repositoryPath marks binary, truncated, and oversized blobs unpreviewable 
   }
 });
 
-test("repositoryPath treats a null object as NOT_FOUND", async () => {
+test("repositoryDirectoryCommits maps each entry to its last commit and rejects a blob path", async () => {
   const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  const repositoryId = randomRepositoryId();
   const connection = new GitHubConnection(db, config, async (url, init) => {
     if (url.endsWith("/access_token"))
       return Response.json({
@@ -1663,44 +1749,145 @@ test("repositoryPath treats a null object as NOT_FOUND", async () => {
         refresh_token_expires_in: 15897600,
         token_type: "bearer",
       });
-    if (url.endsWith("/user")) return Response.json({ id: 204, login: "null-object-owner" });
-    if (url.includes("/user/installations/42/repositories"))
-      return Response.json({
-        total_count: 1,
-        repositories: [{ id: 99, full_name: "example-org/missing-paths", private: true }],
-      });
+    if (url === "https://api.github.com/user")
+      return Response.json({ id: 507, login: "dir-commits-owner" });
     if (url.includes("/user/installations"))
-      return Response.json({
-        total_count: 1,
-        installations: [
-          {
-            id: 42,
-            app_id: config.appId,
-            account: { login: "example-org" },
-            repository_selection: "selected",
-          },
-        ],
-      });
-    if (url === "https://api.github.com/repos/example-org/missing-paths")
-      return Response.json({
-        id: 99,
-        full_name: "example-org/missing-paths",
-        default_branch: "main",
-      });
+      return Response.json({ total_count: 0, installations: [] });
     if (url === "https://api.github.com/graphql") {
       const body = graphqlBody(init);
-      expect(body.variables.target).toBe("main:missing.txt");
-      return Response.json({ data: { repository: { target: null, a0: { entries: [] } } } });
+      if (body.variables.expression === "HEAD:docs") {
+        expect(body.variables).toEqual({
+          owner: "example-org",
+          name: "dir-commits-repo",
+          expression: "HEAD:docs",
+          oid: null,
+        });
+        return Response.json({
+          data: {
+            repository: {
+              databaseId: repositoryId,
+              object: {
+                entries: [
+                  { name: "adr", type: "tree", path: "docs/adr", mode: 16384 },
+                  { name: "guide.md", type: "blob", path: "docs/guide.md", mode: 33188 },
+                ],
+              },
+            },
+          },
+        });
+      }
+      if (body.variables.expression === "HEAD:docs/guide.md") {
+        return Response.json({
+          data: {
+            repository: {
+              databaseId: repositoryId,
+              object: {
+                oid: "d".repeat(40),
+                byteSize: 5,
+                isBinary: false,
+                isTruncated: false,
+                text: "hello",
+              },
+            },
+          },
+        });
+      }
+      expect(body.variables).toEqual({
+        owner: "example-org",
+        name: "dir-commits-repo",
+        p0: "docs/adr",
+        p1: "docs/guide.md",
+      });
+      return Response.json({
+        data: {
+          repository: {
+            defaultBranchRef: {
+              target: {
+                p0: {
+                  nodes: [
+                    {
+                      oid: "e".repeat(40),
+                      messageHeadline: "Reorganize ADRs",
+                      committedDate: "2026-02-01T00:00:00Z",
+                    },
+                  ],
+                },
+                p1: { nodes: [] },
+              },
+            },
+          },
+        },
+      });
     }
     return Response.json({}, { status: 404 });
   });
-  const selected = { installationId: 42, repositoryId: 99, fullName: "example-org/missing-paths" };
+  const selected = { installationId: 42, repositoryId, fullName: "example-org/dir-commits-repo" };
   try {
     const { state } = await connection.begin(user.id);
     expect(await connection.complete(user.id, state, state, "code")).toBe(true);
-    await expect(connection.repositoryPath(user.id, selected, "missing.txt")).rejects.toMatchObject(
-      { code: "NOT_FOUND" },
-    );
+    expect(await connection.repositoryDirectoryCommits(user.id, selected, "docs")).toEqual({
+      "docs/adr": {
+        sha: "e".repeat(40),
+        message: "Reorganize ADRs",
+        date: "2026-02-01T00:00:00Z",
+      },
+      "docs/guide.md": null,
+    });
+    await expect(
+      connection.repositoryDirectoryCommits(user.id, selected, "docs/guide.md"),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  } finally {
+    await db.user.delete({ where: { id: user.id } });
+  }
+});
+
+test("repositoryRaw fetches raw contents after an identity check and rejects an empty path", async () => {
+  const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
+  const repositoryId = randomRepositoryId();
+  const requested: string[] = [];
+  const connection = new GitHubConnection(db, config, async (url, init) => {
+    requested.push(url);
+    if (url.endsWith("/access_token"))
+      return Response.json({
+        access_token: "user-access",
+        refresh_token: "refresh",
+        expires_in: 28800,
+        refresh_token_expires_in: 15897600,
+        token_type: "bearer",
+      });
+    if (url === "https://api.github.com/user")
+      return Response.json({ id: 508, login: "raw-owner" });
+    if (url.includes("/user/installations"))
+      return Response.json({ total_count: 0, installations: [] });
+    if (url === "https://api.github.com/repos/example-org/raw-repo")
+      return Response.json({
+        id: repositoryId,
+        full_name: "example-org/raw-repo",
+        default_branch: "main",
+      });
+    if (
+      url === "https://api.github.com/repos/example-org/raw-repo/contents/docs/design%20notes.md"
+    ) {
+      expect(new Headers(init.headers).get("accept")).toBe("application/vnd.github.raw+json");
+      return new Response("# design notes", { status: 200 });
+    }
+    return Response.json({}, { status: 404 });
+  });
+  const selected = { installationId: 42, repositoryId, fullName: "example-org/raw-repo" };
+  try {
+    const { state } = await connection.begin(user.id);
+    expect(await connection.complete(user.id, state, state, "code")).toBe(true);
+    const afterSetup = requested.length;
+    const response = await connection.repositoryRaw(user.id, selected, "docs/design notes.md");
+    expect(await response.text()).toBe("# design notes");
+    expect(requested.slice(afterSetup)).toEqual([
+      "https://api.github.com/repos/example-org/raw-repo",
+      "https://api.github.com/repos/example-org/raw-repo/contents/docs/design%20notes.md",
+    ]);
+
+    await expect(connection.repositoryRaw(user.id, selected, "")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   } finally {
     await db.user.delete({ where: { id: user.id } });
   }

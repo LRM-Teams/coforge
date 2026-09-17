@@ -351,13 +351,27 @@ metadata 身份（REST）；Workspace 内的 Project 可见性不授予 GitHub �
 服务暂不可用分别显示状态，不阻断项目讨论组的使用。需要 App 的 repository Contents: read
 权限，以及 Checks: read / Commit statuses: read 权限以获取 statusCheckRollup（均已按
 `infra/staging/README.md` 授予），本次实现不修改任何现有 App 授权配置。
-项目详情同时支持在 CoForge 内浏览默认分支任意路径（`/projects/$projectSlug/tree/$`，
-`GitHubConnection.repositoryPath`）：目录路径返回该目录的 Tree 及其每个祖先目录的 Tree
-（供右侧文件树仅展开当前路径），并复用同一按路径分批查询最后提交的逻辑；文本文件通过
-GraphQL `object(expression:"<branch>:<path>")` 读取正文，1 MB 以内、非二进制且未被截断的
-Markdown 以只读方式用 Records 编辑器渲染或显示高亮源码，其余文本文件仅显示高亮源码；二进制、
-超过 1 MB、被截断的文件以及图片（GraphQL 无法返回图片字节）均不在站内预览，链接跳转 GitHub。
-同样仅使用查看者个人 user token 读取，不做任何持久化。
+项目详情同时支持在 CoForge 内浏览默认分支任意路径（`/projects/$projectSlug/tree/$`）。
+浏览是高频读路径，因此不重复关联仓库时的完整校验（不调 `sync`、不枚举 installation 下的
+仓库）：GitHub 保证 user access token 只能访问「用户有权限」且「App 已安装并有权限」的
+资源，越权由 GitHub 拒绝；仓库身份（改名后被同名仓库顶替）在各自的请求内校验。
+`repositoryTree` 先读 repository metadata（ID、完整名称、默认分支），再用 Git Trees
+`recursive=1` 一次取回整棵树，服务端按仓库 ID 缓存 ETag，以 `If-None-Match` 复验（304 不计入
+限额，且只会返回给 GitHub 认可的 token）；超过 100,000 条或 7 MB 时 GitHub 置 `truncated`，
+此时未进入索引的路径退回按路径读取。浏览器端整树只取一次，目录展开不发请求。
+`repositoryObject` 用一次 GraphQL 读取单个 Blob/Tree，并在同一响应里用 `databaseId` 校验
+仓库身份；带树中 blob SHA 时按 `object(oid:)` 读取（内容不可变，浏览器端永久缓存，悬停即
+预取），否则按 `HEAD:<path>`。目录各条目的最后提交（`repositoryDirectoryCommits`，复用同一
+按路径分批逻辑）在列表显示之后再加载。1 MB 以内、非二进制且未被截断的 Markdown 以只读方式
+用 Records 编辑器渲染或显示高亮源码，其余文本文件显示带行号的高亮源码（全部行进入 DOM，以
+CSS `content-visibility` 跳过屏外渲染，保留浏览器查找与全选）；二进制、超过 1 MB、被截断的
+文件以及图片不在站内预览。下载经 `/api/projects/$projectId/raw/$`（`repositoryRaw`，REST
+contents raw）以 `attachment` + `application/octet-stream` + `nosniff` 流式返回，不在本站
+origin 渲染仓库内容。同样仅使用查看者个人 user token 读取，不做任何持久化。
+依据：[user access token 的访问范围](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-with-a-github-app-on-behalf-of-a-user)、
+[Git Trees](https://docs.github.com/en/rest/git/trees)、
+[条件请求](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)、
+[content-visibility](https://developer.mozilla.org/en-US/docs/Web/CSS/content-visibility)。
 依据：[repository metadata](https://docs.github.com/en/rest/repos/repos#get-a-repository)、
 [GraphQL Commit object](https://docs.github.com/en/graphql/reference/objects#commit)、
 [GraphQL Blob/Tree objects](https://docs.github.com/en/graphql/reference/objects#blob)。

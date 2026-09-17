@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { PrismaClient } from "../../../generated/client";
 import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { configuredGitHub } from "../../server/integrations/github-config.server";
 import { AppError, isAppError } from "../../lib/app-error";
@@ -41,36 +42,77 @@ export const getProjectRepository = createServerFn({ method: "GET" })
     }
   });
 
-export const getProjectPath = createServerFn({ method: "GET" })
+type LinkedRepository = { installationId: number; repositoryId: number; fullName: string };
+type GitHubReads = NonNullable<Awaited<ReturnType<typeof configuredGitHub>>>["connection"];
+
+/**
+ * Shared shell of the file-browser reads: resolves the Project's linked repository, runs one
+ * GitHub read, and maps failures to a status the page renders inline instead of an error page.
+ */
+async function readLinkedRepository<T>(
+  context: { db: PrismaClient; workspaceId: string },
+  slug: string,
+  read: (github: GitHubReads, repository: LinkedRepository) => Promise<T>,
+) {
+  const project = await context.db.project.findFirst({
+    where: { workspaceId: context.workspaceId, slug },
+    select: { githubInstallationId: true, githubRepositoryId: true, githubFullName: true },
+  });
+  if (!project) throw new AppError("NOT_FOUND");
+  if (!project.githubFullName || !project.githubInstallationId || !project.githubRepositoryId)
+    return { status: "unlinked" as const };
+  try {
+    const github = await configuredGitHub();
+    if (!github) return { status: "unavailable" as const };
+    const result = await read(github.connection, {
+      installationId: project.githubInstallationId,
+      repositoryId: project.githubRepositoryId,
+      fullName: project.githubFullName,
+    });
+    return { status: "ready" as const, fullName: project.githubFullName, ...result };
+  } catch (error) {
+    if (isAppError(error) && error.code === "ACCESS_DENIED") return { status: "denied" as const };
+    if (isAppError(error) && error.code === "NOT_FOUND") return { status: "not_found" as const };
+    return { status: "unavailable" as const };
+  }
+}
+
+const gitObjectId = z.string().regex(/^[a-f0-9]{40,64}$/i);
+
+/** The whole default-branch tree; the file browser fetches it once and expands folders locally. */
+export const getProjectTree = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ slug: z.string().min(1) }))
+  .handler(({ data, context }) =>
+    readLinkedRepository(context, data.slug, (github, repository) =>
+      github.repositoryTree(context.user.id, repository),
+    ),
+  );
+
+/** One file (or, when the tree was truncated, one directory). `oid` addresses immutable content. */
+export const getProjectObject = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({ slug: z.string().min(1), path: z.string().max(4096), oid: gitObjectId.optional() }),
+  )
+  .handler(({ data, context }) =>
+    readLinkedRepository(context, data.slug, async (github, repository) => ({
+      node: await github.repositoryObject(context.user.id, repository, {
+        path: data.path,
+        oid: data.oid,
+      }),
+    })),
+  );
+
+/** Last commit per entry of one directory, loaded after the listing is already visible. */
+export const getProjectDirectoryCommits = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(z.object({ slug: z.string().min(1), path: z.string().max(4096) }))
-  .handler(async ({ data, context }) => {
-    const project = await context.db.project.findFirst({
-      where: { workspaceId: context.workspaceId, slug: data.slug },
-      select: { githubInstallationId: true, githubRepositoryId: true, githubFullName: true },
-    });
-    if (!project) throw new AppError("NOT_FOUND");
-    if (!project.githubFullName || !project.githubInstallationId || !project.githubRepositoryId)
-      return { status: "unlinked" as const };
-    try {
-      const github = await configuredGitHub();
-      if (!github) return { status: "unavailable" as const };
-      const result = await github.connection.repositoryPath(
-        context.user.id,
-        {
-          installationId: project.githubInstallationId,
-          repositoryId: project.githubRepositoryId,
-          fullName: project.githubFullName,
-        },
-        data.path,
-      );
-      return { status: "ready" as const, fullName: project.githubFullName, ...result };
-    } catch (error) {
-      if (isAppError(error) && error.code === "ACCESS_DENIED") return { status: "denied" as const };
-      if (isAppError(error) && error.code === "NOT_FOUND") return { status: "not_found" as const };
-      return { status: "unavailable" as const };
-    }
-  });
+  .handler(({ data, context }) =>
+    readLinkedRepository(context, data.slug, async (github, repository) => ({
+      commits: await github.repositoryDirectoryCommits(context.user.id, repository, data.path),
+    })),
+  );
 
 export const getProject = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
