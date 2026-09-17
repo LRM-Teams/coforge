@@ -649,7 +649,7 @@ function isMessageCommand(value: string | undefined): value is MessageCommand {
 }
 
 const REMINDER_USAGE =
-  "Usage: coforge reminder schedule --title <title> (--target <target>|--channel <target>) (--message-id <full UUID|8hex>|--msg-id <full UUID|8hex>) (--delay-seconds <n|duration> | --fire-at <timestamp> | --repeat <rule>) [--repeat <rule>] [--tz <timezone>] | coforge reminder list (--all | --status scheduled|fired|canceled) | coforge reminder update --id <full UUID|8hex+> [--title <title>] (--fire-at <timestamp> | --in <duration>) [--repeat <rule|none>|--cadence <rule|none>] [--tz <timezone>] | coforge reminder snooze --id <full UUID|8hex+> (--delay-seconds <n|duration> | --by <duration> | --fire-at <timestamp>) | coforge reminder cancel|log --id <full UUID|8hex+> | coforge reminder ack|dismiss --id <full UUID|8hex+> --revision <n>";
+  "Usage: coforge reminder schedule --title <title> (--target <target>|--channel <target>) (--message-id <full UUID|8hex>|--msg-id <full UUID|8hex>) (--delay-seconds <n|duration> | --fire-at <timestamp> | --repeat <rule>) [--repeat <rule>] [--tz <timezone>] | coforge reminder list [--all | --status <comma-list of scheduled,fired,canceled; default scheduled,fired>] | coforge reminder update --id <full UUID|8hex+> (--fire-at <timestamp> | --in <duration> | --repeat <rule|none>|--cadence <rule|none> | --title <title>) [--tz <timezone>] | coforge reminder snooze --id <full UUID|8hex+> (--delay-seconds <n|duration> | --by <duration> | --fire-at <timestamp>) | coforge reminder cancel|log --id <full UUID|8hex+> | coforge reminder ack|dismiss --id <full UUID|8hex+> --revision <n>";
 
 /** A resolvable `--id` is a full UUID or a case-insensitive hex prefix of at least 8 characters. */
 const REMINDER_ID_PREFIX = /^[0-9a-f]{8,}$/i;
@@ -784,25 +784,50 @@ function validateReminderShape(value: ReminderInvocation): void {
       value.repeat === "none")
   )
     throw new Error(REMINDER_USAGE);
-  if (value.operation === "list" && Number(present("all")) + Number(present("status")) !== 1)
+  // Raft's `list` defaults to scheduled,fired when neither `--all` nor `--status` is given
+  // (the server already applies that default); only passing both together is a usage error.
+  if (value.operation === "list" && present("all") && present("status"))
     throw new Error(REMINDER_USAGE);
   if (["cancel", "log"].includes(value.operation) && !id) throw new Error(REMINDER_USAGE);
   if (value.operation === "snooze" && (!id || timed !== 1)) throw new Error(REMINDER_USAGE);
-  if (
-    value.operation === "update" &&
-    (!id ||
-      timed > 1 ||
-      ![value.title, value.fireAt, value.delaySeconds, value.repeat, value.timezone].some(
-        (item) => item !== undefined,
-      ))
-  )
-    throw new Error(REMINDER_USAGE);
+  if (value.operation === "update") {
+    if (!id || timed > 1) throw new Error(REMINDER_USAGE);
+    // Raft: "Pass exactly one of --fire-at, --in, --cadence, or --title" (code INVALID_ARG).
+    // --fire-at and --in both land in `timed` (the time mutation), so they count as one slot.
+    const mutations = [timed === 1, value.repeat !== undefined, value.title !== undefined].filter(
+      Boolean,
+    ).length;
+    if (mutations !== 1)
+      throw new Error(
+        `Pass exactly one of --fire-at, --in, --cadence, or --title.\n${REMINDER_USAGE}`,
+      );
+    if (value.timezone !== undefined && value.repeat === undefined)
+      throw new Error(
+        `--tz may only accompany a cadence change (--cadence/--repeat).\n${REMINDER_USAGE}`,
+      );
+  }
   if (["ack", "dismiss"].includes(value.operation) && (!id || !value.revision))
     throw new Error(REMINDER_USAGE);
 }
 
-/** Reminder operations that take `--id` and so may need short-prefix resolution before dispatch. */
-const REMINDER_ID_OPERATIONS = new Set(["cancel", "log", "snooze", "update", "ack", "dismiss"]);
+/** The `list` scope an `--id` prefix lookup runs under, matching Raft's per-command scoping. */
+export type ReminderIdResolutionScope = { all: true } | { statuses: readonly string[] };
+
+/**
+ * Reminder operations that take `--id`, and the `list` scope each resolves a short prefix within.
+ * `cancel`/`snooze` only ever act on an active reminder, so they resolve within scheduled/fired,
+ * same as Raft. `update`, `log`, `ack`, and `dismiss` can target any status (Raft's `update` passes
+ * `all: true`; `log` doesn't resolve client-side at all in Raft, but our wire protocol always
+ * requires a full UUID, so we resolve unscoped — the "if it resolves with all, use all" case).
+ */
+const REMINDER_ID_RESOLUTION_SCOPE: Record<string, ReminderIdResolutionScope> = {
+  cancel: { statuses: ["scheduled", "fired"] },
+  snooze: { statuses: ["scheduled", "fired"] },
+  update: { all: true },
+  log: { all: true },
+  ack: { all: true },
+  dismiss: { all: true },
+};
 
 /**
  * Resolves `request.reminderId` to a full UUID when it is a short prefix, leaving every other
@@ -812,34 +837,43 @@ async function resolveReminderRequestId(
   transport: Pick<MessageTransport, "reminder">,
   request: ReminderTransportRequest,
 ): Promise<ReminderTransportRequest> {
-  if (!REMINDER_ID_OPERATIONS.has(request.operation) || !request.reminderId) return request;
+  const scope = REMINDER_ID_RESOLUTION_SCOPE[request.operation];
+  if (!scope || !request.reminderId) return request;
   if (isReminderId(request.reminderId)) return request;
-  return { ...request, reminderId: await resolveReminderId(transport, request.reminderId) };
+  return {
+    ...request,
+    reminderId: await resolveReminderId(transport, request.reminderId, scope),
+  };
 }
 
 /**
  * Resolves an `--id` prefix (at least 8 hex characters, case-insensitive) to the one full reminder
- * ID it matches, by listing every reminder and comparing prefixes against each id with its
- * formatting dashes stripped. Takes the transport directly (rather than reaching for the ambient
- * one) so it is unit-testable with a fake transport.
+ * ID it matches, by listing reminders within `scope` and comparing prefixes against each id with
+ * its formatting dashes stripped. Takes the transport directly (rather than reaching for the
+ * ambient one) so it is unit-testable with a fake transport.
  */
 export async function resolveReminderId(
   transport: Pick<MessageTransport, "reminder">,
   prefix: string,
+  scope: ReminderIdResolutionScope = { all: true },
 ): Promise<string> {
   if (!transport.reminder) throw new Error("Reminder transport is unavailable");
-  const response = (await transport.reminder({
-    operation: "list",
-    all: true,
-  })) as AgentReminderOperationResponse;
+  const response = (await transport.reminder(
+    "all" in scope
+      ? { operation: "list", all: true }
+      : { operation: "list", status: scope.statuses.join(",") },
+  )) as AgentReminderOperationResponse;
   const lowerPrefix = prefix.toLowerCase();
   const matches = (response.reminders ?? []).filter((item: ReminderSummaryRecord) =>
     item.reminderId.replace(/-/g, "").toLowerCase().startsWith(lowerPrefix),
   );
+  // Mirrors Raft's `resolveReminderId`: an unscoped ("all") lookup just says "reminder"; a
+  // status-scoped lookup names the scope, e.g. "scheduled/fired reminder".
+  const scopeLabel = "all" in scope ? "reminder" : `${scope.statuses.join("/")} reminder`;
   if (matches.length === 0)
     throw new CliError({
       code: "NOT_FOUND",
-      message: `No reminder matches id prefix '${prefix}'.`,
+      message: `No ${scopeLabel} matches id prefix '${prefix}'.`,
       retryable: false,
     });
   if (matches.length > 1)
