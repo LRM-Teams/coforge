@@ -289,6 +289,30 @@ test("Task command parsing covers Raft lifecycle actions and explicit descriptio
     });
 });
 
+test("Task unassign dispatches the assign command with a null assignee", () => {
+  expect(parseArgs(["task", "unassign", "--target", "#general", "--number", "2"])).toMatchObject({
+    task: { operation: "assign", number: 2, assignee: null },
+  });
+  expect(
+    parseArgs([
+      "task",
+      "unassign",
+      "--target",
+      "#general",
+      "--number",
+      "2",
+      "--expected-revision",
+      "4",
+    ]),
+  ).toMatchObject({
+    task: { operation: "assign", number: 2, assignee: null, expectedRevision: 4 },
+  });
+  expect(() =>
+    parseArgs(["task", "unassign", "--target", "#general", "--number", "2", "--assignee", "@ada"]),
+  ).toThrow("Usage:");
+  expect(() => parseArgs(["task", "unassign", "--target", "#general"])).toThrow("Usage:");
+});
+
 test("Task receipt forwards all seven fields through the backend contract", async () => {
   const receipt = {
     object: "bucket preview-719",
@@ -430,6 +454,35 @@ test("Task unclaim reads one revision unless explicitly supplied and submits onc
     expect(calls.at(-1)).toMatchObject({ operation: "unclaim", expectedRevision: 4 });
     expect(calls).toHaveLength(args.includes("--expected-revision") ? 1 : 2);
   }
+});
+
+test("Task unassign submits the assign command with a null assignee", async () => {
+  const calls: any[] = [];
+  const output = await run(["task", "unassign", "--target", "#general", "--number", "2"], {
+    check: async () => ({ messages: [] }),
+    read: async () => ({}),
+    send: async () => ({}),
+    view: async () => ({ bytes: new Uint8Array() }),
+    task: async (command) => {
+      calls.push(command);
+      return {
+        tasks: [
+          {
+            messageId: "message-2",
+            conversationId: "conversation",
+            number: 2,
+            title: "Verify",
+            status: "in_progress",
+            revision: 4,
+            owner: null,
+          },
+        ],
+      };
+    },
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ operation: "assign", number: 2, assignee: null });
+  expect(output).toContain("#2 status=in_progress owner=unclaimed message=message-2");
 });
 
 test("Agent channel mute and unmute change its own setting without sending a message", async () => {
