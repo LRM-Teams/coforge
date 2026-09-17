@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import type { HeldBusyAgent } from "@lrm/coforge-sdk/internal";
 import {
+  answeredWithin,
   holdRunnersUntilQuiescent,
   RUNNER_HOLD_MS,
   RUNNER_HOLD_POLL_MS,
@@ -114,5 +116,28 @@ describe("runner hold quiescence wait", () => {
     expect(outcome.quiescent).toBe(true);
     expect(calls).toBe(2);
     expect(outcome.elapsedMs).toBe(RUNNER_HOLD_POLL_MS);
+  });
+});
+
+describe("answeredWithin", () => {
+  test("rejects with the given message once the timeout passes", async () => {
+    await expect(answeredWithin(new Promise(() => {}), 10, "no answer")).rejects.toThrow(
+      "no answer",
+    );
+  });
+
+  test("an answered race leaves nothing that keeps the process alive (ADR 0032)", async () => {
+    // The 2026-09-17 incident: the losing `Bun.sleep(5_000)` of a settled race kept the
+    // Coordinator alive 5 s past its own shutdown. Only a real process exit can prove the absence
+    // of a pending timer, so this measures one.
+    const source = `
+      import { answeredWithin } from ${JSON.stringify(join(import.meta.dir, "../src/supervisor/runner-hold"))};
+      console.log(await answeredWithin(Promise.resolve("answered"), 5_000, "timeout"));
+    `;
+    const started = performance.now();
+    const child = Bun.spawn([process.execPath, "-e", source], { stdout: "pipe", stderr: "pipe" });
+    const [code, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+    expect({ code, stdout: stdout.trim() }).toEqual({ code: 0, stdout: "answered" });
+    expect(performance.now() - started).toBeLessThan(3_000);
   });
 });

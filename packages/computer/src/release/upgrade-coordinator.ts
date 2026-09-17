@@ -117,18 +117,28 @@ function plural(count: number): string {
 /** The `==>` stage wording for one stop/activate/start/probe/healthy switch, shared by the
  * candidate path and the restore path. When the supervisor was not running before the switch,
  * there is no process tree to stop or start, so those stages collapse into a single fact and the
- * probe is described as checking the activated executable rather than a live supervisor. */
-function switchStageText(snapshot: ManagedRuntimeSnapshot) {
+ * probe is described as checking the activated executable rather than a live supervisor.
+ *
+ * When `restartsInPlace` is true (launchd, ADR 0032), `lifecycle.stop()` never actually stops
+ * anything - it only checks the label can be restarted - so there is no truthful "stopping" stage
+ * to print before the switch; and `lifecycle.start()` kickstarts the already-running job rather
+ * than starting a fresh one, hence "Restarting" rather than "Starting". */
+function switchStageText(snapshot: ManagedRuntimeSnapshot, restartsInPlace: boolean) {
   const { running, stopped } = runtimeCounts(snapshot);
   return {
-    stopping: snapshot.supervisorRunning
-      ? `Stopping Computer supervisor and ${running} Workspace runtime${plural(running)}`
-      : "Computer supervisor is not running; no processes to restart",
+    stopping: !snapshot.supervisorRunning
+      ? "Computer supervisor is not running; no processes to restart"
+      : restartsInPlace
+        ? undefined
+        : `Stopping Computer supervisor and ${running} Workspace runtime${plural(running)}`,
     switching: (version: string) => `Switching the active executable to ${version}`,
-    starting: (version: string) =>
-      snapshot.supervisorRunning
-        ? `Starting Computer supervisor ${version} (${running} running Workspace runtime${plural(running)}, ${stopped} stopped Workspace binding${plural(stopped)} left as is)`
-        : undefined,
+    starting: (version: string) => {
+      if (!snapshot.supervisorRunning) return undefined;
+      const verb = restartsInPlace
+        ? "Restarting Computer supervisor as"
+        : "Starting Computer supervisor";
+      return `${verb} ${version} (${running} running Workspace runtime${plural(running)}, ${stopped} stopped Workspace binding${plural(stopped)} left as is)`;
+    },
     waiting: (version: string) =>
       snapshot.supervisorRunning
         ? `Waiting for the supervisor and Workspace runtimes to report ${version}`
@@ -142,7 +152,9 @@ function switchStageText(snapshot: ManagedRuntimeSnapshot) {
 
 /** Stops (if running), activates one version, starts it back up (if it was running), and waits
  * for it to report healthy. Used for both the candidate switch and, on candidate failure, the
- * restore back to the previous version. */
+ * restore back to the previous version. For a `restartsInPlace` lifecycle this is really
+ * check → activate → kickstart → probe (ADR 0032); `lifecycle.stop`/`lifecycle.start` and
+ * `switchStageText` carry that distinction so this function's shape stays the same for both. */
 async function performSwitch(
   lifecycle: UpgradeLifecycle,
   snapshot: ManagedRuntimeSnapshot,
@@ -151,8 +163,8 @@ async function performSwitch(
   previousProcessIds: readonly number[],
   onStage: (stage: string) => void,
 ): Promise<void> {
-  const stage = switchStageText(snapshot);
-  onStage(stage.stopping);
+  const stage = switchStageText(snapshot, lifecycle.restartsInPlace);
+  if (stage.stopping) onStage(stage.stopping);
   await lifecycle.stop(snapshot);
   onStage(stage.switching(version));
   await activate();
@@ -177,9 +189,13 @@ async function switchRuntime(
     .map((binding) => binding.processId!);
   let paused = true;
   try {
-    // Quiesce before the stop, never after: `stop` is the ~2s SIGTERM/SIGKILL ladder this hold
-    // exists to keep away from a live tool call (ADR 0020). The rollback `stop` below is
-    // deliberately not held - that path is already a failure recovery and speed wins there.
+    // Quiesce before the switch, never after: for a stop-then-start lifecycle, `stop` runs the
+    // ~2s SIGTERM/SIGKILL ladder this hold exists to keep away from a live tool call. For a
+    // lifecycle that restarts in place (ADR 0032), that same ladder runs inside the later
+    // `start`'s kickstart instead, but the hold must still be in place before it - only where it
+    // runs moved, not whether it needs to happen first (ADR 0020). The rollback `stop` below is
+    // deliberately not held either way - that path is already a failure recovery and speed wins
+    // there.
     if (snapshot.supervisorRunning) onStage("Holding Agent runners until they are idle");
     await lifecycle.holdRunners();
     await performSwitch(

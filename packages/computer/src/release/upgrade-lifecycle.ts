@@ -34,8 +34,14 @@ export type UpgradeProbe = {
 
 /** Machine lifecycle boundary implemented by the Computer supervisor integration. `stop` must
  * stop the old supervisor, daemon, and Agent process trees; `probe` must reject a wrong version,
- * a missing previously-running binding, or reuse of an old process ID. */
+ * a missing previously-running binding, or reuse of an old process ID.
+ *
+ * When `restartsInPlace` is true (launchd, ADR 0032), `stop` performs only the pre-switch
+ * restartability check and `start` performs the in-place kickstart; neither one actually stops or
+ * starts a process tree, so `switchStageText` (`upgrade-coordinator.ts`) must not describe them
+ * as if they did. */
 export interface UpgradeLifecycle {
+  readonly restartsInPlace: boolean;
   snapshot(): Promise<ManagedRuntimeSnapshot>;
   pauseLaunches(): Promise<void>;
   /** Stops every Agent admitting new turns and waits, bounded, for in-flight work to finish.
@@ -94,7 +100,17 @@ export function createSupervisorUpgradeLifecycle(
         : "cn.coforge.computer.daemon");
   let previousSupervisorId: string | undefined;
   let supervisorWasRunning = false;
+  // Capability check (ADR 0032), never an `instanceof`/platform branch: only `LaunchdDaemonHost`
+  // declares this, so `host` narrows through the `in` checks below wherever it matters.
+  const restartsInPlace = "restartsInPlace" in host && host.restartsInPlace === true;
+  // Set once this upgrade has proven the label was loaded (the first, pre-activation `stop()`
+  // call). A *second* `stop()` finding it not loaded is the rollback path re-entering after a
+  // kickstart that never completed, not a foreground-supervised Computer that never had a
+  // launchd job at all — `restart()`'s own bootstrap fallback recovers that, so it must not abort
+  // the restore (ADR 0032).
+  let inPlaceRestartVerified = false;
   return {
+    restartsInPlace,
     async snapshot() {
       if (!supervisorWasRunning) {
         const file = Bun.file(join(options.supervisorStatePath, "bindings.json"));
@@ -161,6 +177,48 @@ export function createSupervisorUpgradeLifecycle(
     },
     async stop() {
       if (!supervisorWasRunning) return;
+      if (restartsInPlace && "assertRestartable" in host) {
+        logger.info("Checking the Computer coordinator can be restarted in place", {
+          event: "upgrade:coordinator_stop_requested",
+          label: coordinatorLabel,
+          operation: "stop",
+        });
+        try {
+          await host.assertRestartable();
+          inPlaceRestartVerified = true;
+        } catch (error) {
+          if (inPlaceRestartVerified) {
+            // Already proven loaded once this upgrade; a missing label now is the rollback
+            // re-entering after a kickstart that never completed, which `restart()`'s own
+            // bootstrap fallback recovers - not a foreground supervisor to refuse.
+            logger.info(
+              "Computer coordinator label is not currently loaded; restart will recreate it",
+              {
+                event: "upgrade:coordinator_stopped",
+                label: coordinatorLabel,
+                operation: "stop",
+              },
+            );
+            return;
+          }
+          logger.error("Computer coordinator is not restartable in place", {
+            event: "upgrade:coordinator_stop_failed",
+            label: coordinatorLabel,
+            operation: "stop",
+            error_message: errorMessage(error),
+          });
+          throw new Error(
+            "Cannot upgrade a foreground externally supervised Computer while it is running. Stop it through its external supervisor before upgrading, or install the supported user service.",
+            { cause: error },
+          );
+        }
+        logger.info("Computer coordinator is restartable in place", {
+          event: "upgrade:coordinator_stopped",
+          label: coordinatorLabel,
+          operation: "stop",
+        });
+        return;
+      }
       logger.info("Stopping Computer coordinator for upgrade", {
         event: "upgrade:coordinator_stop_requested",
         label: coordinatorLabel,
@@ -201,6 +259,30 @@ export function createSupervisorUpgradeLifecycle(
     },
     async start() {
       if (!supervisorWasRunning) return;
+      if (restartsInPlace && "restart" in host) {
+        logger.info("Restarting Computer coordinator in place after upgrade", {
+          event: "upgrade:coordinator_start_requested",
+          label: coordinatorLabel,
+          operation: "start",
+        });
+        try {
+          await host.restart();
+        } catch (error) {
+          logger.error("Computer coordinator restart failed", {
+            event: "upgrade:coordinator_start_failed",
+            label: coordinatorLabel,
+            operation: "start",
+            error_message: errorMessage(error),
+          });
+          throw error;
+        }
+        logger.info("Computer coordinator restarted", {
+          event: "upgrade:coordinator_started",
+          label: coordinatorLabel,
+          operation: "start",
+        });
+        return;
+      }
       logger.info("Starting Computer coordinator after upgrade", {
         event: "upgrade:coordinator_start_requested",
         label: coordinatorLabel,
