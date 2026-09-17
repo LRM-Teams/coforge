@@ -1,7 +1,8 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
   "computer_page_title": "电脑",
-  "computer_version": "Computer 版本",
+  "computer_version": "CoForge 版本",
+  "computer_system": "系统",
   "computer_os": "操作系统",
   "computer_creator": "创建者",
   "computer_metadata_unknown": "未知",
@@ -120,7 +121,6 @@
   "computer_new_version": "新版本 {version}",
   "computer_upgrade_action": "升级到 {version}",
   "computer_upgrade_succeeded_toast": "已升级到 {version}",
-  "computer_upgrade_retry": "重试升级",
   "computer_upgrade_offline": "这台 Computer 当前未连接，无法升级",
   "computer_upgrade_identity_unknown": "这台 Computer 还没有上报当前运行的版本；请先重启它，再重试升级",
   "computer_upgrade_feed_unavailable": "无法读取发布源",
