@@ -74,6 +74,21 @@ test("a local precondition is its own 400 class, never confused with a transport
   expect(classified.body.code).toBe("AGENT_API_KEY_MISSING");
   expect(classified.body.proxy.failure_class).toBe("local_precondition");
   expect(classified.body.proxy.response_started).toBe(false);
+  expect(classified.body.proxy.draft_saved).toBeUndefined();
+});
+
+test("a preflight error that saved a draft (e.g. the --target-confirmed guard) carries draft_saved: true", () => {
+  const classified = classifyAgentProxyFailure(
+    new AgentPreflightError(
+      "Possible thread target mismatch",
+      "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
+      true,
+    ),
+    context,
+  );
+  expect(classified.status).toBe(400);
+  expect(classified.body.proxy.failure_class).toBe("local_precondition");
+  expect(classified.body.proxy.draft_saved).toBe(true);
 });
 
 test("a known-safe validation error passes its message through as its own failure class", () => {

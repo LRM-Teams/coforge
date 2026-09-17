@@ -274,6 +274,39 @@ test("a send that fails after the daemon reports a local precondition keeps the 
   expect(cliError.suggestedNextAction).toContain("No message was sent");
 });
 
+test("a local precondition that explicitly saved a draft (e.g. --target-confirmed) reports draftSaved: true", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        error: "Possible thread target mismatch: ...",
+        code: "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
+        proxy: {
+          correlation_id: "corr-2",
+          route_family: "agent-api/send",
+          failure_class: "local_precondition",
+          cause_code: "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
+          response_started: false,
+          response_complete: false,
+          draft_saved: true,
+        },
+      },
+      { status: 400 },
+    ),
+  );
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@ada", "top-level reply")
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED");
+  expect(cliError.draftSaved).toBe(true);
+  expect(cliError.retryable).toBe(false);
+});
+
 test("a send that fails after a transport/protocol failure marks the draft saved and refuses to say it is safe to retry", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json(

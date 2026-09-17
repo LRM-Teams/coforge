@@ -61,6 +61,7 @@ import {
   type WeeklyReportResponse,
   WEEKLY_REPORT_PROTOCOL_MAJOR,
   threadParentTarget,
+  mentionsInContent,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -129,9 +130,13 @@ const MAX_EVENT_DRAIN_ROUNDS = 50;
 
 /**
  * The `--target-confirmed` guard's message: `target` is the top-level target the send is about to
- * hit, `threadTarget` is the most recently read thread rooted under it. `#sendAgentMessage` cannot
- * carry a `suggestedNextAction` through `AgentPreflightError`/`agent-proxy-failure.ts` today, so
- * the equivalent guidance is folded into the message text itself instead.
+ * hit, `threadTarget` is the most recently read thread rooted under it. Raft-aligned recovery: the
+ * outgoing content is saved as the local draft for `target` before this is thrown (`draftSaved:
+ * true`, carried through `AgentPreflightError.draftSaved`/`agent-proxy-failure.ts`'s `draft_saved`
+ * field), so the saved-draft resend below is `--send-draft`, not retyped content.
+ * `#sendAgentMessage` still cannot carry a `suggestedNextAction` through
+ * `AgentPreflightError`/`agent-proxy-failure.ts` today, so the equivalent guidance is folded into
+ * the message text itself instead.
  */
 function targetConfirmationRequiredMessage(target: string, threadTarget: string): string {
   return [
@@ -143,9 +148,10 @@ function targetConfirmationRequiredMessage(target: string, threadTarget: string)
     "  message body",
     "  COFORGE_MESSAGE",
     "",
-    "If the top-level message is intentional, re-run the same send with --target-confirmed.",
+    "If the top-level channel message is intentional, send the saved draft unchanged:",
+    `  coforge message send --send-draft --target "${target}"`,
     "",
-    `No message was sent. Send to ${threadTarget} if this belongs in the thread, or re-run with --target-confirmed.`,
+    `No message was sent. Send to ${threadTarget} if this belongs in the thread, or confirm the saved top-level draft with \`coforge message send --send-draft --target "${target}"\`.`,
   ].join("\n");
 }
 
@@ -1890,25 +1896,6 @@ export class DaemonRuntime {
     agentApiKey: string,
   ): Promise<AgentMessageResponse> {
     const startedAt = performance.now();
-    // Narrow local guard, decided entirely from volatile read-context state, before any draft is
-    // saved or transport call is made: a top-level send whose parent was read less recently than a
-    // thread rooted under it is an easy typo (replying to the channel instead of the thread), and
-    // moving a thread conclusion to the parent channel is uncommon enough to confirm once.
-    if (
-      !request.sendDraft &&
-      !request.targetConfirmed &&
-      threadParentTarget(target) === undefined
-    ) {
-      const latestThread = this.#messageAttention.latestThreadReadUnderParent(agentId, target);
-      if (latestThread) {
-        const parentOrder = this.#messageAttention.readOrder(agentId, target);
-        if (parentOrder === undefined || parentOrder < latestThread.order)
-          throw new AgentPreflightError(
-            targetConfirmationRequiredMessage(target, latestThread.target),
-            "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
-          );
-      }
-    }
     const inbox = this.#agentInbox(agentId);
     const draft = request.sendDraft ? await inbox.draft(target) : undefined;
     if (request.sendDraft && !draft)
@@ -1927,11 +1914,50 @@ export class DaemonRuntime {
         ? request.mentions
         : draft?.mentions
       : request.mentions;
+    // Raft-aligned: the presence check runs against the EFFECTIVE outgoing content on every path,
+    // including a `--send-draft` resend of the daemon-held body (the CLI can only run this check
+    // client-side when it has the body in hand, i.e. never for an unmodified draft resend).
+    if (mentions?.length) {
+      const present = mentionsInContent(body);
+      for (const mention of mentions)
+        if (!present.has(mention.name))
+          throw new AgentPreflightError(
+            `Structured mention @${mention.name} is not present in the message body.`,
+            "MENTION_NOT_IN_CONTENT",
+          );
+    }
+    // Narrow local guard, decided entirely from volatile read-context state, before any transport
+    // call is made: a top-level send whose parent was read less recently than a thread rooted
+    // under it is an easy typo (replying to the channel instead of the thread), and moving a
+    // thread conclusion to the parent channel is uncommon enough to confirm once. `--send-draft`
+    // itself skips this guard (it can only re-target what was already confirmed once, at worst).
+    if (
+      !request.sendDraft &&
+      !request.targetConfirmed &&
+      threadParentTarget(target) === undefined
+    ) {
+      const latestThread = this.#messageAttention.latestThreadReadUnderParent(agentId, target);
+      if (latestThread) {
+        const parentOrder = this.#messageAttention.readOrder(agentId, target);
+        if (parentOrder === undefined || parentOrder < latestThread.order) {
+          // Raft-aligned: the outgoing content is saved as the local draft (no holdToken) before
+          // refusing, so the documented recovery is resending that exact draft, not retyping it.
+          await inbox.save(target, body, attachmentId, mentions);
+          throw new AgentPreflightError(
+            targetConfirmationRequiredMessage(target, latestThread.target),
+            "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
+            true,
+          );
+        }
+      }
+    }
     // `inbox.save` persists the draft locally BEFORE the request is issued to the transport below;
     // any failure past this point leaves delivery state unknown, never "not sent" (see
     // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
     if (!request.sendDraft) await inbox.save(target, body, attachmentId, mentions);
-    if (request.sendDraft && !draft?.holdToken)
+    // A tokenless draft (saved by the guard above, or by a failed transport before ever reaching a
+    // hold) resends as a plain send: no holdToken to send, and nothing for `--anyway` to bypass.
+    if (request.sendDraft && !draft?.holdToken && request.continueAnyway)
       throw new AgentPreflightError(
         `Held draft token is unavailable for target: ${target}`,
         "HELD_DRAFT_TOKEN_UNAVAILABLE",

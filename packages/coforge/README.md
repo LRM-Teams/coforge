@@ -33,18 +33,27 @@ reports none.
 `message send` accepts `--attachment-id <uuid>` to attach one attachment
 already uploaded to the target conversation and left unlinked to any
 message — Agents have no upload route today, so this only ever succeeds for
-an attachment a human uploaded first. It cannot be combined with
-`--send-draft`; send a normal message to replace the draft instead.
-`--mention human:<actor-uuid>:<handle>` or `--mention agent:<actor-uuid>:<handle>`
-(repeatable) binds an `@handle` in the body to a specific actor id rather than
-relying on name matching alone; each bound handle must also literally appear
-as `@handle` in the message body outside fenced or inline code. On
-`--send-draft`, explicit `--mention` values replace the draft's saved
-mentions; omitting them reuses the draft's saved mentions.
-`--target-confirmed` re-runs a top-level send that was refused because the
-Agent's most recently read context in that conversation was actually a
-thread rooted under it — a likely reply-to-the-wrong-place mistake the guard
-catches once; the refusal names the thread target as the other option.
+an attachment a human uploaded first. It must be a full UUID and cannot be
+combined with `--send-draft`; send a normal message to replace the draft
+instead. `--mention human:<actor-uuid>:<handle>` or `--mention
+agent:<actor-uuid>:<handle>` (repeatable) binds an `@handle` in the body to a
+specific actor id rather than relying on name matching alone; each bound
+handle must also literally appear as `@handle` in the message body outside
+fenced or inline code — checked both before the send is issued and again by
+the daemon against whatever body is actually going out, including an
+unmodified `--send-draft` resend. On `--send-draft`, explicit `--mention`
+values replace the draft's saved mentions; omitting them reuses the draft's
+saved mentions.
+
+A top-level send can be refused when the Agent's most recently read context
+in that conversation was actually a thread rooted under it — a likely
+reply-to-the-wrong-place mistake the guard catches once. The refusal saves
+the message (body, attachment, and mentions) as the local draft for that
+target, the same way a freshness hold does, and names two ways to proceed:
+send to the named thread target instead, or confirm the saved top-level
+draft unchanged with `message send --send-draft --target "<target>"`.
+`--target-confirmed` remains available to send a fresh, non-draft message to
+the top-level target directly, skipping the guard on that one call.
 
 `coforge message read --target "@user"` reads history with a default limit of
 50 (maximum 100). Continue with opaque message-id cursors via `--before`,

@@ -42,22 +42,37 @@ than left ambiguous:
 ## Decision
 
 **1. `--attachment-id <uuid>` attaches one already-uploaded, unlinked
-attachment.** At most one occurrence; combined with `--send-draft` it is a
-usage error (`INVALID_ARG`, `draftSaved: false`, no request issued) because a
-draft resend already carries whatever attachment it was saved with — "use a
-normal send to replace the draft" is the correct escape hatch, not a second
-flag. The id travels CLI → daemon (`LocalAgentMessageRequest.attachmentId`,
-persisted on the draft) → Web (`AgentMessagesSendRequest.attachmentId`, 400
-`{ error: "invalid attachmentId" }` if not a UUID) → repository. Inside
+attachment.** At most one occurrence; a non-UUID value is a typed usage error
+(`INVALID_ARG`, `draftSaved: false`, the same `withOutputMode` pre-issuance
+path other flag errors use); combined with `--send-draft` it is the same
+typed error family because a draft resend already carries whatever attachment
+it was saved with — "use a normal send to replace the draft" is the correct
+escape hatch, not a second flag. The id travels CLI → daemon
+(`LocalAgentMessageRequest.attachmentId`, persisted on the draft) → Web
+(`AgentMessagesSendRequest.attachmentId`, 400 `{ error: "invalid attachmentId"
+}` if not a UUID) → repository. Inside
 `PrismaDirectConversationRepository.sendAgentMessage`'s transaction, the
 attachment row must exist with the same `workspaceId`, the same
 `conversationId` as the resolved target, and `messageId: null`; otherwise the
-transaction throws `AppError("ACCESS_DENIED")`, which `handleAgentMessagesPost`
-now catches and maps to 403 (previously any thrown error here surfaced as a
-framework 500 — this route did not catch `AppError` at all before this
-record). The hold store's `bodyHash` stays computed on the body only, so a
+transaction throws a new, send-specific `AgentSendRejectedError(403, "attachment
+is not available for this message")` (next to
+`agent-message-validation-error.server.ts`), which `handleAgentMessagesPost`
+catches and maps to 403 (previously any thrown error here surfaced as a
+framework 500 — this route did not catch anything at all before this record).
+The hold store's `bodyHash` stays computed on the body only, so a
 `--send-draft` resend of a held reply is unaffected by which attachment (if
 any) rides along with it.
+
+*Why a dedicated error class, not `AppError`:* the first version of this
+change threw `AppError("ACCESS_DENIED")`/`AppError("INVALID_INPUT")` for these
+two conditions and mapped those codes in the route. Review caught that this
+was wrong: `getAgentChannel` (called earlier in the same request, resolving a
+channel target) already throws exactly those two `AppError` codes for a
+non-member Agent or a malformed channel name, and the route's blanket mapping
+mis-reported both as an attachment/mention failure. `AgentSendRejectedError`
+is a distinct class the route matches with `instanceof`, so it is only ever
+thrown for the two conditions this record introduces; every other error
+(`AppError` included) propagates exactly as it did before this class existed.
 
 *Known limitation:* because Agents have no upload route, the only ids that
 ever pass validation are attachments a human uploaded into the same
@@ -67,33 +82,51 @@ silently worked around; `coforge attachment upload` is the named follow-up.
 **2. `--mention <actor>` (repeatable) binds a handle to a specific actor id.**
 Value shape is `human:<actor-uuid>:<handle>` (`human` → type `user`) or
 `agent:<actor-uuid>:<handle>`; the handle must match the server's mention
-grammar (`^[a-z0-9][a-z0-9_-]*$`, ≤128 chars) — the same grammar
-`apps/web/src/server/conversations/mentions.ts` already uses, duplicated (with
-a comment naming that file as the source of truth) into a new
-`packages/coforge/src/mentions.ts` because the CLI package cannot import from
-`apps/web`. Three failures are pre-issuance `CliError`s (`draftSaved: false`,
-nothing sent, `--json`-aware via the existing `withOutputMode` path): a
-malformed selector (`INVALID_MENTION_SELECTOR`), the same handle bound to two
-different actors in one message (`MENTION_BINDING_CONFLICT`), and a bound
-handle that does not literally appear as `@handle` in the body outside fenced
-or inline code (`MENTION_NOT_IN_CONTENT`, checked once the body is known, so
-it does not apply when `--send-draft` reuses a saved body without an
-explicit override). `--mention` values on `--send-draft` replace the draft's
-saved mentions when given, and are otherwise reused from the draft — mirroring
-`--attachment-id`'s draft persistence, both live on `AgentMessageDraft` as
-optional fields so an older draft file without them still loads. Web
-validates shape (array, max 32, `type` in `user|agent`, `id` a UUID, `name`
-matching the grammar) before calling the repository, which — inside the same
-transaction as the attachment check — resolves each binding against a
-`conversationMember` of the target conversation (`type: "user"` → `userId`
-+`user.username`; `type: "agent"` → `agentId` + `agent.name`); any miss throws
-`AppError("INVALID_INPUT", { errorId: <handle> })`, mapped by the route to 400
-`{ error: "mention binding does not match a conversation member: @<handle>" }`
-(the id embeds only the already-grammar-validated handle, never a raw UUID).
-Every validated binding's member id joins the existing name-resolved
-`mentionedNames` set when creating `ThreadFollow` rows for a channel thread
-reply — a union, not a replacement, so an already-correct plain `@handle`
-mention keeps working exactly as before.
+grammar (`^[a-z0-9][a-z0-9_-]*$`, ≤128 chars). The grammar, the selector
+parser, the content-presence check, and the wire-shape array validator live in
+exactly one place — `packages/coforge-sdk/src/internal/mentions.ts`, exported
+from `internal/index.ts` — imported by the CLI (`packages/coforge/index.ts`;
+the package no longer has its own `src/mentions.ts`), the daemon
+(`agent-proxy.ts`'s payload validation and `runtime.ts`'s presence check), and
+Web (the send route's shape validation; `apps/web/src/server/conversations/
+mentions.ts`'s plain-text `mentionedNames` scan now imports the same
+`MENTION_PATTERN` instead of keeping its own copy). This CLI package cannot
+import from `apps/web`, which is why the definition lives in the SDK rather
+than in either endpoint.
+
+Three failures are pre-issuance `CliError`s (`draftSaved: false`, nothing
+sent, `--json`-aware via the existing `withOutputMode` path): a malformed
+selector (`INVALID_MENTION_SELECTOR`), the same handle bound to two different
+actors in one message (`MENTION_BINDING_CONFLICT`), and — client-side, only
+when the body is already known, i.e. never for an unmodified `--send-draft`
+resend — a bound handle that does not literally appear as `@handle` in the
+body outside fenced or inline code (`MENTION_NOT_IN_CONTENT`). The daemon runs
+the same presence check again, unconditionally, inside `#sendAgentMessage`,
+against the *effective* mentions (an explicit `--mention` override, or the
+draft's saved mentions) and the *effective* body (fresh or the draft's saved
+body) — Raft checks `structuredRaftMentionStillAppears` against the outgoing
+content on every path, including a saved draft, and the daemon is the one
+place that always holds both a `--send-draft` resend's real body and its
+mentions. This authoritative daemon-side check throws the same
+`AgentPreflightError`/`MENTION_NOT_IN_CONTENT` before anything is (re)saved,
+so a resend with a bad override never reaches the transport. `--mention`
+values on `--send-draft` replace the draft's saved mentions when given, and
+are otherwise reused from the draft — mirroring `--attachment-id`'s draft
+persistence, both live on `AgentMessageDraft` as optional fields so an older
+draft file without them still loads.
+
+Web validates shape (array, max 32, `type` in `user|agent`, `id` a UUID,
+`name` matching the grammar, via the same SDK validator) before calling the
+repository, which — inside the same transaction as the attachment check —
+resolves each binding against a `conversationMember` of the target
+conversation (`type: "user"` → `userId` + `user.username`; `type: "agent"` →
+`agentId` + `agent.name`); any miss throws
+`AgentSendRejectedError(400, "mention binding does not match a conversation
+member: @<handle>")` (see point 1 for why this is its own class, not
+`AppError`). Every validated binding's member id joins the existing
+name-resolved `mentionedNames` set when creating `ThreadFollow` rows for a
+channel thread reply — a union, not a replacement, so an already-correct
+plain `@handle` mention keeps working exactly as before.
 
 **3. `--target-confirmed` guards an unusual top-level send.** The attention
 index (`AgentMessageAttentionIndex`) gains a volatile, per-Agent,
@@ -102,27 +135,54 @@ target)`, `readOrder(agentId, target)`, `latestThreadReadUnderParent(agentId,
 parentTarget)` — recorded at every point the Agent already consumes messages
 for a target: an explicit `read`, each `check`/events-drain page (per
 target), and the held-context messages `#sendAgentMessage` returns for the
-send's own target. `#sendAgentMessage` checks this, before saving any draft or
-issuing any transport call, only when the request is not `--send-draft`, not
-already `--target-confirmed`, and the target is top-level
+send's own target. `#sendAgentMessage` checks this, before issuing any
+transport call, only when the request is not `--send-draft`, not already
+`--target-confirmed`, and the target is top-level
 (`threadParentTarget(target) === undefined` — a small helper added next to
 `isChannelMessageTarget` in `packages/coforge-sdk/src/internal/index.ts` and
-shared by the CLI and the daemon). If the most recently read thread rooted
-under that parent has a higher read order than the parent's own last read (or
-the parent was never read at all), the send is refused with
-`AgentPreflightError` (`THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED`): no
-draft saved, no request issued (`draftSaved: false` via the CLI's existing
-`local_precondition` mapping, the same path `NO_HELD_DRAFT` already uses). The
-message names the mismatch, explains that the guard is deliberately narrow
-(moving a thread's conclusion to the parent channel can be correct), and gives
-both escape hatches — send to the thread target instead, or re-run with
-`--target-confirmed`. `AgentPreflightError` cannot currently carry a
-`suggestedNextAction` through `agent-proxy-failure.ts` to the CLI (that field
-is defined on the wire contract but no branch of
-`classifyAgentProxyFailure` populates it yet), so the equivalent one-sentence
-next action is folded into the message text itself rather than widening that
-shared path for one caller. `targetConfirmed` never leaves the daemon — it is
-not part of `AgentMessageRequest`, the daemon-to-Web wire type.
+shared by the CLI and the daemon). `--send-draft` itself always skips this
+guard, matching Raft's `if (!opts.sendDraft && !opts.targetConfirmed)`.
+
+If the most recently read thread rooted under that parent has a higher read
+order than the parent's own last read (or the parent was never read at all),
+**the guard saves the outgoing content — body, `attachmentId`, and
+`mentions` — as the local draft for `target` (no hold token) before
+refusing**, matching Raft exactly: the recovery is resending that saved
+draft unchanged, not retyping the message. It then throws
+`AgentPreflightError` (`THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED`,
+`draftSaved: true`). The message names the mismatch, explains that the guard
+is deliberately narrow (moving a thread's conclusion to the parent channel
+can be correct), and gives both escape hatches — send to the thread target
+instead, or confirm the saved top-level draft with `coforge message send
+--send-draft --target "<target>"` (the CLI's own `--attachment-id` +
+`--send-draft` restriction is unaffected: `--send-draft` never needs a new
+attachment, since the guard already saved whichever one was on the original
+attempt). `--target-confirmed` remains the other, direct bypass for a fresh
+(non-draft) send.
+
+`AgentPreflightError` gained an optional `draftSaved` field (default
+`undefined`, rendered as `false`) so this one caller can report `true`
+without changing any other preflight error's behaviour (every other one —
+`NO_HELD_DRAFT`, `AGENT_MESSAGE_BODY_REQUIRED`, `HELD_DRAFT_TOKEN_UNAVAILABLE`,
+… — still reports `false`, since none of them persist a draft).
+`agent-proxy-failure.ts` carries it into the proxy error JSON as a new
+`proxy.draft_saved` field (only ever present for `failure_class:
+"local_precondition"`), and `local-client.ts#proxyHttpFailure` honours it when
+present, falling back to its existing `!isLocalPrecondition` default
+otherwise — so every other local-precondition error is unaffected.
+`AgentPreflightError` still cannot carry a `suggestedNextAction` through this
+path (see "Rejected alternatives"), so the equivalent guidance stays folded
+into the message text. `targetConfirmed` never leaves the daemon — it is not
+part of `AgentMessageRequest`, the daemon-to-Web wire type.
+
+**A `--send-draft` resend of a tokenless draft — one saved by this guard, or
+by a transport failure before ever reaching a hold — sends as a plain send.**
+`#sendAgentMessage` no longer refuses a tokenless draft outright: it omits
+`holdToken` from the transport request (there is none) and only refuses with
+`HELD_DRAFT_TOKEN_UNAVAILABLE` when the caller also passed `--anyway`, since
+there is no hold for `--anyway` to bypass. `inbox.clear`/`inbox.replace`
+after the transport call are unchanged, so a successful plain resend still
+clears the draft exactly like an ordinary accepted send.
 
 **4. A successful `--anyway` bypass returns what it bypassed.**
 `executeAgentSendMessageWithPolicy`, on the `sideEffectDecision:
@@ -165,6 +225,23 @@ entirely).
   contract for plain-text `@handle` mentions; structured mentions are an
   additional, stronger guarantee (an explicit id/name binding a server can
   verify), not a replacement. Union, not override.
+- **Reusing generic `AppError` codes for the attachment/mention send
+  rejections.** Tried first, then rejected on review: `getAgentChannel`
+  already throws `AppError("ACCESS_DENIED")`/`AppError("INVALID_INPUT")` for
+  an ordinary non-member/malformed-channel failure earlier in the same
+  request, and a route-level mapping keyed only on those codes cannot tell
+  the two situations apart — it mis-reported a channel-access denial as an
+  attachment failure. `AgentSendRejectedError` is a dedicated class the route
+  matches with `instanceof`, so only the two conditions this record
+  introduces are ever mapped; everything else propagates unchanged.
+- **Re-run with `--target-confirmed` as the guard's only recovery
+  (this record's original decision).** Superseded on review to match Raft
+  exactly: Raft saves the outgoing content as the local draft before
+  refusing and documents `--send-draft` as the primary recovery, with
+  `--target-confirmed` as the other option, not the only one. The original
+  "re-run the same send with `--target-confirmed`" text required retyping
+  the message from scratch, which Raft does not require and which is worse
+  UX than resending a preserved draft.
 
 ## Consequences
 
@@ -176,26 +253,38 @@ entirely).
   `mentions` (never `targetConfirmed`). `agent/messages.ts` gains
   `AgentMessagesSendRequest.attachmentId`/`mentions` and
   `AgentSendResponse.recentUnread`. `internal/index.ts` gains
-  `threadParentTarget`.
+  `threadParentTarget`, plus a new `mentions.ts` module (`parseMentionSelector`,
+  `stripCodeSpans`/`mentionsInContent`, `MENTION_PATTERN`,
+  `isValidMentionSelectorArray`) that is the one definition of the mention
+  grammar for every layer.
 - `packages/daemon`: `AgentMessageDraftStore`/`AgentInboxStateMachine` persist
   `attachmentId`/`mentions` on a draft (backward compatible — an older draft
   file without them still loads); `AgentMessageAttentionIndex` gains
   `recordReadContext`/`readOrder`/`latestThreadReadUnderParent`;
-  `#sendAgentMessage` gains the target-confirmed guard, forwards the new
-  fields, and adapts `recentUnread`; `agent-proxy.ts` validates the new
-  payload fields; `daemon-connection.ts` forwards `attachmentId`/`mentions`
-  in the send HTTP body and adapts `recentUnread` back.
+  `#sendAgentMessage` gains the target-confirmed guard (now saving a draft
+  before refusing) and the unconditional mention-presence check, forwards the
+  new fields, sends a tokenless `--send-draft` resend as a plain send, and
+  adapts `recentUnread`; `agent-proxy.ts` validates the new payload fields
+  using the SDK's shared mention validator; `daemon-connection.ts` forwards
+  `attachmentId`/`mentions` in the send HTTP body and adapts `recentUnread`
+  back; `AgentPreflightError` gains `draftSaved`; `agent-proxy-failure.ts`
+  carries it as `proxy.draft_saved`.
 - `apps/web`: the send route validates and forwards the new fields, catches
-  `AppError` and maps `ACCESS_DENIED`/`INVALID_INPUT` to 4xx (previously
-  unhandled → 500); `agent-messages.service.ts` computes `recentUnread`;
-  `direct-message.server.ts` forwards `attachmentId`/`mentions` (previously
-  hardcoded `undefined` for the attachment); the repository validates both
-  inside the existing send transaction and unions mention-bound member ids
-  into the thread-follow set.
-- `packages/coforge`: new `src/mentions.ts` (parsing and the content-presence
-  check); `index.ts` parses and validates the three flags and renders
-  `recentUnread`; `local-client.ts` and `message-format.ts` carry the new
-  fields through.
+  the new `AgentSendRejectedError` and maps its `status`/`message` directly
+  (previously unhandled on this route → 500); `agent-messages.service.ts`
+  computes `recentUnread`; `direct-message.server.ts` forwards
+  `attachmentId`/`mentions` (previously hardcoded `undefined` for the
+  attachment); the repository validates both inside the existing send
+  transaction (throwing the new error class, not `AppError`) and unions
+  mention-bound member ids into the thread-follow set;
+  `server/conversations/mentions.ts` now imports `MENTION_PATTERN` from the
+  SDK instead of keeping its own copy of the regex.
+- `packages/coforge`: `index.ts` imports mention parsing/validation from
+  `@lrm/coforge-sdk/internal` (no local `src/mentions.ts` any more), parses
+  and validates the three flags — including a typed `CliError` for a
+  non-UUID `--attachment-id` — and renders `recentUnread`; `local-client.ts`
+  and `message-format.ts` carry the new fields through, and `local-client.ts`
+  honours a proxy-reported `draft_saved` on a local-precondition failure.
 - No schema or migration change: attachment and mention-binding validation
   read existing tables (`Attachment`, `ConversationMember`) without adding
   any.
@@ -203,16 +292,24 @@ entirely).
 ## Validation and rollback
 
 Validation is `bun run check`, `bun run test`, and `bun run build` from the
-repository root, covering: `packages/coforge-sdk`'s codec round-trip tests;
-`packages/coforge`'s CLI parsing/rendering tests including the new
-`mentions.ts` unit tests; `packages/daemon`'s attention-index, draft-store,
-and daemon-runtime tests (the target-confirmed guard, attachment/mention
-forwarding and draft persistence, and `recentUnread` advancing `modelSeen`);
-and `apps/web`'s send-route, service, and direct-message tests (attachment/
-mention shape validation, the `AppError`-to-4xx mapping, and a full
-hold→hold→bypass flow asserting `recentUnread`). The Web integration suites
-that need a live Postgres/Redis (`*.integration.ts`) are unaffected by this
-change's default `bun test` selection and continue to require their
+repository root, covering: `packages/coforge-sdk`'s codec round-trip tests
+and the new `mentions.ts` unit tests (the grammar's single definition);
+`packages/coforge`'s CLI parsing/rendering tests, including the typed
+`--attachment-id`/`--mention` usage errors; `packages/daemon`'s
+attention-index, draft-store, agent-proxy-failure, and daemon-runtime tests
+(the target-confirmed guard saving a draft and reporting `draftSaved: true`,
+a tokenless-draft `--send-draft` resend sending as a plain send and rejecting
+`--anyway`, the mention-presence check firing on a `--send-draft` override,
+attachment/mention forwarding and draft persistence, and `recentUnread`
+advancing `modelSeen`); and `apps/web`'s send-route, service, and
+direct-message tests (attachment/mention shape validation,
+`AgentSendRejectedError`'s mapping — and the regression test confirming a
+plain `AppError("ACCESS_DENIED")` from channel resolution is never
+mis-reported as an attachment error — and a full hold→hold→bypass flow
+asserting `recentUnread`). `packages/coforge`'s `local-client.test.ts` covers
+`draft_saved` propagation into `CliError.draftSaved`. The Web integration
+suites that need a live Postgres/Redis (`*.integration.ts`) are unaffected by
+this change's default `bun test` selection and continue to require their
 documented `*_TEST_DATABASE_URL` environment variables to run.
 
 Rollback is reverting this change's CRs before merge (no schema migration is
