@@ -490,6 +490,26 @@ export class AgentControl {
       await this.store.write(agentId, record);
     });
   }
+  /**
+   * The mirror image of `stopped()` (docs/adr/0042): a daemon-initiated (self-launched) wake
+   * that reused this Agent's remembered `launchId` makes the on-disk record truthful again —
+   * without it, a later server Start would find `phase: "stopped"` (or a stale `launchId`) and
+   * either fail to rebind or spawn a second process. Never touches `scope`/`requestId`/`epoch`:
+   * a wake carries no new server scope of its own, only the identity it reused, so the existing
+   * fence in `start()`/`stop()` is unaffected. A no-op unless the record is exactly the one this
+   * launch resumed (`phase === "stopped"` and the same `launchId`) — any other phase means a
+   * concurrent server operation (Stop, a fresh Start, a rebind) already moved the record on, and
+   * that operation's own writes must win, not this best-effort local wake.
+   */
+  wake(agentId: string, launchId: string, identity?: SessionIdentity) {
+    return this.state.run(agentId, async () => {
+      const record = await this.store.read(agentId);
+      if (!record || record.phase !== "stopped" || record.launchId !== launchId) return;
+      record.phase = "running";
+      this.sessions.capture(record, identity ?? record.identity);
+      await this.store.write(agentId, record);
+    });
+  }
   async replay() {
     for (const id of this.#known)
       await this.state.run(id, async () => {
