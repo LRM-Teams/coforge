@@ -199,7 +199,11 @@ export class ManageAgents {
         }))
       )
         throw new AppError("INVALID_INPUT", { errorId: "agent-runtime-unavailable" });
-      if (runtimeChanged && current.computerId)
+      // ADR 0038: a stopped Agent has nothing running under the old configuration, so config
+      // changes persist without the stop -> ... -> start dance; a confirmed Stop would make a
+      // stopped Agent on an offline Computer uneditable.
+      const stopped = Boolean(current.stoppedAt);
+      if (runtimeChanged && current.computerId && !stopped)
         await this.runtimeControl.stop(
           {
             protocolMajor: 1,
@@ -222,6 +226,7 @@ export class ManageAgents {
       );
       if (!runtimeChanged && !computerChanged)
         return { agent: publicAgent(agent), restart: "not-required" as const };
+      if (stopped) return { agent: publicAgent(agent), restart: "deferred" as const };
       try {
         await this.runtimeControl.start(
           agentStartIntent(agent, current.computerId),

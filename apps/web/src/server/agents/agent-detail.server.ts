@@ -26,6 +26,8 @@ type DetailAgent = {
   owner: { id: string; username: string };
   runtimeConfig: Prisma.JsonValue;
   weeklyReportAssistant?: { id: string } | null;
+  /** Set when a user stopped this Agent (ADR 0038). */
+  stoppedAt?: Date | null;
 };
 
 export type AgentDetailSource = {
@@ -96,6 +98,7 @@ export class AgentDetailQuery {
       owner: agent.owner,
       runtimeConfig: agent.runtimeConfig,
       isWeeklyReportAssistant: Boolean(agent.weeklyReportAssistant),
+      stopped: Boolean(agent.stoppedAt),
       ...(display ? { display } : {}),
       status: {
         value: statusReadFailed ? ("unknown" as const) : (status?.status ?? ("inactive" as const)),

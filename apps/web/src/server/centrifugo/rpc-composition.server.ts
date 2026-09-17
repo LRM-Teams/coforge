@@ -172,6 +172,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     ensureAgentActivitySweep();
     const sessions = createAgentSessions(db);
     const controlStore = new PrismaAgentControlStore(db);
+    const directConversations = new PrismaDirectConversationRepository(db);
     const control = new AgentControl(
       controlStore,
       centrifugo,
@@ -179,6 +180,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       undefined,
       sessions,
       getAgentControlSignal(),
+      directConversations,
     );
     const sessionReceiver = new AgentSessionReceiver(controlStore);
     const reminderRepository = new PrismaReminderRepository(db);
@@ -196,7 +198,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
         [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(
           new WorkspaceAgentRecovery(
             agentRepository,
-            new PrismaDirectConversationRepository(db),
+            directConversations,
             centrifugo,
             getAgentRuntimeLock(),
             sessions,

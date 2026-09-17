@@ -66,6 +66,7 @@ export class PrismaAgentControlStore implements AgentControlStore {
         runtimeConfig: true,
         runtimeSession: true,
         controlState: true,
+        stoppedAt: true,
         currentSessionId: true,
         currentSession: true,
         owner: { select: { memberships: { select: { workspaceId: true } } } },
@@ -103,6 +104,7 @@ export class PrismaAgentControlStore implements AgentControlStore {
       storedRuntimeConfig: agent.runtimeConfig,
       storedRuntimeSession: agent.runtimeSession,
       currentSessionId: agent.currentSessionId,
+      stoppedAt: agent.stoppedAt,
       state,
       ...(identity ? { identity } : {}),
     };
@@ -110,7 +112,7 @@ export class PrismaAgentControlStore implements AgentControlStore {
   async replace(
     before: AgentControlAgent,
     state: AgentControlState,
-    options?: { clearSession: boolean },
+    options?: { clearSession?: boolean; stoppedAt?: Date | null },
   ) {
     const checked = stateSchema.parse(state);
     return this.db.$transaction(async (tx) => {
@@ -173,6 +175,9 @@ export class PrismaAgentControlStore implements AgentControlStore {
           controlState: controlState(checked),
           ...(clearSession || changedRequest ? { runtimeSession: Prisma.DbNull } : {}),
           ...(clearSession ? { currentSessionId: null } : {}),
+          // ADR 0038: last-writer-wins, not part of the CAS predicate above — the caller already
+          // decided this write is safe to make in the same statement as the control state.
+          ...(options?.stoppedAt !== undefined ? { stoppedAt: options.stoppedAt } : {}),
         },
       });
       if (result.count !== 1) return false;

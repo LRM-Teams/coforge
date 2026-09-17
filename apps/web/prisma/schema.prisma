@@ -194,6 +194,9 @@ model Agent {
   runtimeSession            Json?
   /// Current control request and fencing only, not Session history or a job queue.
   controlState              Json?
+  /// Set when a user stopped this Agent (ADR 0038): nothing may start or wake it except an
+  /// explicit user Start, Restart, Reset session or Full reset. Independent of `controlState`.
+  stoppedAt                 DateTime?
   currentSessionId          String?                    @db.Uuid
   currentSession            AgentSession?              @relation("CurrentAgentSession", fields: [currentSessionId], references: [id], onDelete: SetNull)
   sessions                  AgentSession[]             @relation("AgentSessions")

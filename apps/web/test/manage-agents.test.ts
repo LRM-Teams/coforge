@@ -640,6 +640,40 @@ describe("ManageAgents", () => {
     }
   });
 
+  test("a stopped Agent persists a runtime update without the stop -> ... -> start dance (ADR 0038)", async () => {
+    const { agentManagement, records, controls } = fixture();
+    records.push({
+      id: "agent-1",
+      workspaceId: "workspace-1",
+      ownerId: "user-1",
+      computerId: "computer-1",
+      name: "builder",
+      displayName: "builder",
+      createdAt: new Date(),
+      stoppedAt: new Date("2026-09-17T00:00:00Z"),
+      runtimeConfig: {
+        runtime: RUNTIME_PROVIDER.PI,
+        provider: { kind: "default" },
+        model: "old",
+        modelProvider: "",
+        reasoning: "",
+      },
+    });
+    const result = await agentManagement.update(
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
+      {
+        agentId: "agent-1",
+        description: "",
+        provider: RUNTIME_PROVIDER.PI,
+        model: "new",
+        modelProvider: "",
+      },
+    );
+    expect(result.restart).toBe("deferred");
+    expect(controls).toEqual(["persist"]);
+    expect(records[0]!.runtimeConfig.model).toBe("new");
+  });
+
   test("does not persist after stop failure and reports a deferred start failure", async () => {
     const stopped = fixture({ stopFails: true });
     const created = await stopped.agentManagement.create(

@@ -10,7 +10,12 @@ import type { AgentRecord } from "../src/server/db/repositories/agent.repositori
 
 const principal = { workspaceId: "workspace-1", userId: "owner-1" };
 function fixture(
-  options: { writeFails?: boolean; startFails?: boolean; stopFails?: boolean } = {},
+  options: {
+    writeFails?: boolean;
+    startFails?: boolean;
+    stopFails?: boolean;
+    stopped?: boolean;
+  } = {},
 ) {
   const events: string[] = [];
   const starts: unknown[] = [];
@@ -22,6 +27,7 @@ function fixture(
     name: "builder",
     displayName: "Builder",
     createdAt: new Date(),
+    ...(options.stopped ? { stoppedAt: new Date("2026-09-17T00:00:00Z") } : {}),
     runtimeConfig: {
       runtime: RUNTIME_PROVIDER.PI,
       provider: { kind: "default" },
@@ -173,6 +179,15 @@ test("invalid maps fail before stop and never echo values", async () => {
       ),
     ),
   ).toHaveLength(64);
+});
+
+test("a stopped Agent saves the environment without the stop -> ... -> start dance (ADR 0038)", async () => {
+  const f = fixture({ stopped: true });
+  expect(await f.environment.save(principal, "agent-1", { TOKEN: "secret" })).toEqual({
+    restart: "deferred",
+  });
+  expect(f.events).toEqual(["lock", "write", "unlock"]);
+  expect(await f.environment.get(principal, "agent-1")).toEqual({ TOKEN: "secret" });
 });
 
 test("stop failure prevents writes; start failure retains saved settings with deferred restart", async () => {

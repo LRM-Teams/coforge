@@ -189,6 +189,7 @@ export const listAgents = createServerFn({ method: "GET" })
         }
         return {
           ...agent,
+          stopped: Boolean(agent.stoppedAt),
           ...(displaySnapshot ? { display: displaySnapshot } : {}),
           status: {
             value: status?.status ?? ("inactive" as const),
@@ -322,6 +323,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
                 computerId: true,
                 computer: { select: { id: true, name: true, displayName: true, kind: true } },
                 runtimeConfig: true,
+                stoppedAt: true,
                 weeklyReportAssistant: { select: { id: true } },
                 owner: { select: { id: true, username: true } },
               },
