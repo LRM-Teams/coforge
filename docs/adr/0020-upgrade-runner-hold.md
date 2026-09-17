@@ -15,7 +15,9 @@ Nothing in that sequence reaches an Agent. `MachineSupervisor.pause()` only sets
 a private `#paused` flag that makes `configure`, `command` and `recordUpgrade`
 throw, plus a `launch-hold` marker that makes the Coordinator's own local RPC
 refuse callers — it blocks *lifecycle commands*, not work. `lifecycle.stop()`
-then stops the OS job, and `DaemonRuntime.stop()`
+then stops the OS job (on launchd, that moved into `lifecycle.start()`'s
+in-place kickstart - see [ADR 0032](0032-launchd-in-place-restart.md) - but the
+hold still has to land before it either way), and `DaemonRuntime.stop()`
 (`packages/daemon/src/daemon-runtime/runtime.ts`) rejects every queued input
 synchronously and hands each Agent process group a ~1 s SIGTERM / 1 s SIGKILL
 ladder. The effective grace period for an Agent halfway through a tool call is

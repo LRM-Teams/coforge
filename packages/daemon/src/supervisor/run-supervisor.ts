@@ -20,6 +20,7 @@ import { COFORGE_DAEMON_VERSION } from "../version";
 import { SystemdWorkspaceInstance } from "./systemd-workspace-instance";
 import { LaunchdWorkspaceInstance } from "./launchd-workspace-instance";
 import type { WorkspaceInstance } from "./workspace-instance";
+import { answeredWithin } from "./runner-hold";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
 import { sweepLeftoverComputerUpgradeJobs } from "../platform/computer-upgrade-sweep";
@@ -152,12 +153,11 @@ async function runWithSupervisorLock(
   ): Promise<DaemonHoldReport & { unreachableWorkspaceIds: string[] }> => {
     const held = operation === "hold";
     try {
-      const response = await Promise.race([
+      const response = await answeredWithin(
         childClient(workspaceId).hold(operation, reason),
-        Bun.sleep(RUNNER_HOLD_WORKSPACE_TIMEOUT_MS).then(() => {
-          throw new Error(`Workspace ${workspaceId} did not answer the runner hold`);
-        }),
-      ]);
+        RUNNER_HOLD_WORKSPACE_TIMEOUT_MS,
+        `Workspace ${workspaceId} did not answer the runner hold`,
+      );
       if (!response.accepted)
         return { held, busyAgents: [], unreachableWorkspaceIds: [workspaceId] };
       return {

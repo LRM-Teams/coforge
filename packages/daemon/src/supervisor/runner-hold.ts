@@ -14,6 +14,31 @@ export const RUNNER_HOLD_MS = 30_000;
  * simply a repeat call; 250ms keeps the common "already idle" case effectively instant. */
 export const RUNNER_HOLD_POLL_MS = 250;
 
+/**
+ * Settles with `answer`, or rejects with `message` once `timeoutMs` passes. The timer is always
+ * cleared: racing against a bare `Bun.sleep` leaves the losing sleep pending, which keeps the
+ * event loop - and so the process - alive for the full timeout after the caller has moved on. An
+ * upgrade's last hold lands just before the stop, so that pending sleep made the Coordinator
+ * outlive its own shutdown by exactly launchd's 5 s SIGKILL window (ADR 0032).
+ */
+export async function answeredWithin<T>(
+  answer: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      answer,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type RunnerHoldSnapshot = {
   busyAgents: readonly HeldBusyAgent[];
   unreachableWorkspaceIds: readonly string[];

@@ -35,6 +35,7 @@ async function harness(failCandidateProbe = false, failRestore = false) {
   directories.push(installRoot);
   const calls: string[] = [];
   const lifecycle: UpgradeLifecycle = {
+    restartsInPlace: false,
     async snapshot() {
       calls.push("snapshot");
       return snapshot;
@@ -207,6 +208,7 @@ test("stages describe an executable-only switch when no supervisor is running", 
   };
   const calls: string[] = [];
   options.lifecycle = {
+    restartsInPlace: false,
     async snapshot() {
       calls.push("snapshot");
       return notRunningSnapshot;
@@ -248,6 +250,116 @@ test("stages describe an executable-only switch when no supervisor is running", 
     "Checking the activated executable reports 2.0.0",
     "Activated executable 2.0.0 confirmed",
     "Resuming Workspace launches",
+  ]);
+});
+
+test("an in-place lifecycle switches by check, activate, restart, probe with no stop/start stage text (ADR 0032)", async () => {
+  const { calls, options } = await harness();
+  const stages: string[] = [];
+  options.lifecycle = {
+    restartsInPlace: true,
+    async snapshot() {
+      calls.push("snapshot");
+      return snapshot;
+    },
+    async pauseLaunches() {
+      calls.push("pause");
+    },
+    async holdRunners() {
+      calls.push("hold");
+    },
+    async stop(value) {
+      expect(value).toBe(snapshot);
+      calls.push("check");
+    },
+    async start(value, version) {
+      expect(value).toBe(snapshot);
+      calls.push(`restart:${version}`);
+    },
+    async probe(value, expected) {
+      expect(value).toBe(snapshot);
+      calls.push(`probe:${expected.version}`);
+    },
+    async resumeLaunches() {
+      calls.push("resume");
+    },
+  };
+
+  await expect(coordinateUpgrade(options, (stage) => stages.push(stage))).resolves.toMatchObject({
+    status: "succeeded",
+    version: "2.0.0",
+  });
+  expect(calls).toEqual([
+    "prepare",
+    "pause",
+    "snapshot",
+    "hold",
+    "check",
+    "activate:2.0.0",
+    "restart:2.0.0",
+    "probe:2.0.0",
+    "resume",
+  ]);
+  expect(stages).toEqual([
+    "Pausing new Workspace launches",
+    "Holding Agent runners until they are idle",
+    "Switching the active executable to 2.0.0",
+    "Restarting Computer supervisor as 2.0.0 (1 running Workspace runtime, 1 stopped Workspace binding left as is)",
+    "Waiting for the supervisor and Workspace runtimes to report 2.0.0",
+    "Computer supervisor 2.0.0 healthy with 1 Workspace runtime",
+    "Resuming Workspace launches",
+  ]);
+});
+
+test("an in-place rollback re-checks, restores, and restarts when the candidate restart fails (ADR 0032)", async () => {
+  const { calls, options } = await harness();
+  let starts = 0;
+  options.lifecycle = {
+    restartsInPlace: true,
+    async snapshot() {
+      calls.push("snapshot");
+      return snapshot;
+    },
+    async pauseLaunches() {
+      calls.push("pause");
+    },
+    async holdRunners() {
+      calls.push("hold");
+    },
+    async stop(value) {
+      expect(value).toBe(snapshot);
+      calls.push("check");
+    },
+    async start(value, version) {
+      expect(value).toBe(snapshot);
+      starts += 1;
+      calls.push(`restart:${version}`);
+      if (starts === 1) throw new Error("kickstart never spawned the new process");
+    },
+    async probe(value, expected) {
+      calls.push(`probe:${expected.version}`);
+    },
+    async resumeLaunches() {
+      calls.push("resume");
+    },
+  };
+
+  await expect(coordinateUpgrade(options)).rejects.toMatchObject({
+    result: { status: "failed", restoredVersion: "1.0.0" },
+  });
+  expect(calls).toEqual([
+    "prepare",
+    "pause",
+    "snapshot",
+    "hold",
+    "check",
+    "activate:2.0.0",
+    "restart:2.0.0",
+    "check",
+    "restore:1.0.0",
+    "restart:1.0.0",
+    "probe:1.0.0",
+    "resume",
   ]);
 });
 
