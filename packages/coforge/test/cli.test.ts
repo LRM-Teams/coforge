@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseArgs, run } from "../index";
+import { parseArgs, resolveReminderId, run } from "../index";
 import { CliError, renderCliErrorJson, renderCliErrorText } from "../src/cli-error";
 import { validateTaskRequest } from "@lrm/coforge-sdk/internal";
 import {
@@ -172,7 +172,7 @@ test("parses recurring reminders with an explicit default timezone and dispatche
 });
 
 test("rejects malformed and ambiguous reminder commands", () => {
-  expect(() => parseArgs(["reminder", "cancel", "--id", "12345678"])).toThrow("full UUID");
+  expect(() => parseArgs(["reminder", "cancel", "--id", "1234567"])).toThrow("full UUID");
   expect(() => parseArgs(["reminder", "list", "--all", "--status", "scheduled"])).toThrow("Usage:");
   expect(() =>
     parseArgs([
@@ -190,6 +190,408 @@ test("rejects malformed and ambiguous reminder commands", () => {
     "Duplicate",
   );
   expect(() => parseArgs(["reminder", "log", "--wat", "x"])).toThrow("Unknown");
+});
+
+test("accepts a short hex id prefix, and the --by/--in duration and --cadence/--channel/--msg-id aliases", () => {
+  expect(parseArgs(["reminder", "cancel", "--id", "12345678"])).toEqual({
+    command: "reminder",
+    operation: "cancel",
+    reminderId: "12345678",
+  });
+  expect(parseArgs(["reminder", "snooze", "--id", reminderId, "--by", "5m"])).toEqual({
+    command: "reminder",
+    operation: "snooze",
+    reminderId,
+    delaySeconds: 300,
+  });
+  expect(parseArgs(["reminder", "update", "--id", reminderId, "--in", "10m"])).toEqual({
+    command: "reminder",
+    operation: "update",
+    reminderId,
+    delaySeconds: 600,
+  });
+  expect(
+    parseArgs([
+      "reminder",
+      "schedule",
+      "--title",
+      "Standup",
+      "--channel",
+      "#general",
+      "--msg-id",
+      "deadbeef",
+      "--delay-seconds",
+      "30m",
+    ]),
+  ).toEqual({
+    command: "reminder",
+    operation: "schedule",
+    title: "Standup",
+    target: "#general",
+    messageId: "deadbeef",
+    delaySeconds: 1800,
+  });
+  expect(parseArgs(["reminder", "update", "--id", reminderId, "--cadence", "none"])).toEqual({
+    command: "reminder",
+    operation: "update",
+    reminderId,
+    repeat: "none",
+  });
+});
+
+test("rejects a reminder alias combined with its canonical flag, and an invalid duration", () => {
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--repeat", "none", "--cadence", "none"]),
+  ).toThrow("Cannot combine");
+  expect(() =>
+    parseArgs([
+      "reminder",
+      "schedule",
+      "--title",
+      "a",
+      "--target",
+      "#g",
+      "--channel",
+      "#g2",
+      "--message-id",
+      "deadbeef",
+      "--delay-seconds",
+      "5",
+    ]),
+  ).toThrow("Cannot combine");
+  expect(() =>
+    parseArgs([
+      "reminder",
+      "schedule",
+      "--title",
+      "a",
+      "--target",
+      "#g",
+      "--message-id",
+      "deadbeef",
+      "--msg-id",
+      "deadbee0",
+      "--delay-seconds",
+      "5",
+    ]),
+  ).toThrow("Cannot combine");
+  expect(() =>
+    parseArgs(["reminder", "snooze", "--id", reminderId, "--by", "notaduration"]),
+  ).toThrow("Invalid duration");
+  expect(() =>
+    parseArgs(["reminder", "snooze", "--id", reminderId, "--by", "5m", "--delay-seconds", "5"]),
+  ).toThrow("Cannot combine");
+  expect(() =>
+    parseArgs([
+      "reminder",
+      "update",
+      "--id",
+      reminderId,
+      "--in",
+      "5m",
+      "--fire-at",
+      "2026-09-09T00:00:00Z",
+    ]),
+  ).toThrow("Usage:");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--in", "5m", "--delay-seconds", "300"]),
+  ).toThrow("Cannot combine");
+});
+
+test("update requires exactly one mutation, and --tz only alongside a cadence change", () => {
+  expect(() => parseArgs(["reminder", "update", "--id", reminderId])).toThrow(
+    "Pass exactly one of --fire-at, --in, --cadence, or --title",
+  );
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--title", "New", "--cadence", "none"]),
+  ).toThrow("Pass exactly one of --fire-at, --in, --cadence, or --title");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--title", "New", "--in", "5m"]),
+  ).toThrow("Pass exactly one of --fire-at, --in, --cadence, or --title");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--tz", "Asia/Shanghai"]),
+  ).toThrow("Pass exactly one of --fire-at, --in, --cadence, or --title");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--title", "New", "--tz", "UTC"]),
+  ).toThrow("--tz may only accompany a cadence change");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--in", "5m", "--tz", "UTC"]),
+  ).toThrow("--tz may only accompany a cadence change");
+  expect(
+    parseArgs([
+      "reminder",
+      "update",
+      "--id",
+      reminderId,
+      "--cadence",
+      "daily@09:00",
+      "--tz",
+      "UTC",
+    ]),
+  ).toEqual({
+    command: "reminder",
+    operation: "update",
+    reminderId,
+    repeat: "daily@09:00",
+    timezone: "UTC",
+  });
+  expect(parseArgs(["reminder", "update", "--id", reminderId, "--title", "New title"])).toEqual({
+    command: "reminder",
+    operation: "update",
+    reminderId,
+    title: "New title",
+  });
+});
+
+test("list defaults to no explicit status filter, accepts a comma-separated status set, and still rejects --all with --status", () => {
+  expect(parseArgs(["reminder", "list"])).toEqual({ command: "reminder", operation: "list" });
+  expect(parseArgs(["reminder", "list", "--status", "scheduled,fired"])).toEqual({
+    command: "reminder",
+    operation: "list",
+    status: "scheduled,fired",
+  });
+  expect(parseArgs(["reminder", "list", "--all"])).toEqual({
+    command: "reminder",
+    operation: "list",
+    all: true,
+  });
+  expect(() => parseArgs(["reminder", "list", "--all", "--status", "scheduled,fired"])).toThrow(
+    "Usage:",
+  );
+  expect(() => parseArgs(["reminder", "list", "--status", "scheduled,scheduled"])).toThrow(
+    "invalid reminder status",
+  );
+  expect(() => parseArgs(["reminder", "list", "--status", "bogus"])).toThrow(
+    "invalid reminder status",
+  );
+});
+
+test("resolveReminderId matches a dash-stripped id prefix, and rejects zero or many matches", async () => {
+  const first = {
+    reminderId: "12345678-1234-4123-8123-123456789abc",
+    ownerAgentId: "agent",
+    version: 1,
+    title: "First",
+    target: "#g",
+    messageId: "deadbeef",
+    fireAt: "2026-09-09T00:00:00Z",
+    status: "scheduled" as const,
+    createdAt: "2026-09-08T00:00:00Z",
+  };
+  const second = {
+    ...first,
+    reminderId: "12345679-1234-4123-8123-123456789abc",
+    title: "Second",
+  };
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  const calls: unknown[] = [];
+  const listing = (reminders: (typeof first)[]) => ({
+    reminder: async (request: unknown) => {
+      calls.push(request);
+      return { ...scopeFields, accepted: true, events: [], reminders };
+    },
+  });
+  await expect(resolveReminderId(listing([first, second]), "123456781234")).resolves.toBe(
+    first.reminderId,
+  );
+  expect(calls.at(-1)).toEqual({ operation: "list", all: true });
+  await expect(resolveReminderId(listing([]), "ffffffff")).rejects.toMatchObject({
+    code: "NOT_FOUND",
+    message: "No reminder matches id prefix 'ffffffff'.",
+  });
+  const ambiguousFirst = { ...first, reminderId: "aaaaaaaa-1111-4111-8111-111111111111" };
+  const ambiguousSecond = { ...first, reminderId: "aaaaaaaa-2222-4222-8222-222222222222" };
+  await expect(
+    resolveReminderId(listing([ambiguousFirst, ambiguousSecond]), "aaaaaaaa"),
+  ).rejects.toMatchObject({
+    code: "AMBIGUOUS",
+    message: "Ambiguous id prefix 'aaaaaaaa' matches 2 reminders; pass a longer id.",
+  });
+});
+
+test("resolveReminderId scopes the lookup to scheduled/fired for cancel/snooze, and names that scope in NOT_FOUND", async () => {
+  const calls: unknown[] = [];
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  const transport = {
+    reminder: async (request: unknown) => {
+      calls.push(request);
+      return { ...scopeFields, accepted: true, events: [], reminders: [] };
+    },
+  };
+  await expect(
+    resolveReminderId(transport, "ffffffff", { statuses: ["scheduled", "fired"] }),
+  ).rejects.toMatchObject({
+    code: "NOT_FOUND",
+    message: "No scheduled/fired reminder matches id prefix 'ffffffff'.",
+  });
+  expect(calls).toEqual([{ operation: "list", status: "scheduled,fired" }]);
+});
+
+test("run resolves a short --id prefix by listing reminders before dispatching the real request", async () => {
+  const base = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  const calls: unknown[] = [];
+  const output = await run(["reminder", "cancel", "--id", "12345678"], {
+    ...base,
+    reminder: async (request) => {
+      calls.push(request);
+      if (request.operation === "list")
+        return {
+          ...scopeFields,
+          accepted: true,
+          events: [],
+          reminders: [
+            {
+              reminderId,
+              ownerAgentId: "agent",
+              version: 3,
+              title: "Deploy",
+              target: "#release",
+              messageId: "deadbeef",
+              fireAt: "2026-09-09T01:00:00Z",
+              status: "scheduled" as const,
+              createdAt: "2026-09-08T01:00:00Z",
+            },
+          ],
+        };
+      return { ...scopeFields, accepted: true, events: [], reminders: [] };
+    },
+  });
+  expect(calls).toEqual([
+    { operation: "list", status: "scheduled,fired" },
+    { operation: "cancel", reminderId },
+  ]);
+  expect(output).toBe("Accepted reminder cancel request.");
+});
+
+test("run resolves a short --id prefix unscoped (across every status) for update and log", async () => {
+  const base = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  const listResponse = {
+    ...scopeFields,
+    accepted: true,
+    events: [],
+    reminders: [
+      {
+        reminderId,
+        ownerAgentId: "agent",
+        version: 3,
+        title: "Deploy",
+        target: "#release",
+        messageId: "deadbeef",
+        fireAt: "2026-09-09T01:00:00Z",
+        status: "scheduled" as const,
+        createdAt: "2026-09-08T01:00:00Z",
+      },
+    ],
+  };
+  const updateCalls: unknown[] = [];
+  await run(["reminder", "update", "--id", "12345678", "--title", "Renamed"], {
+    ...base,
+    reminder: async (request) => {
+      updateCalls.push(request);
+      if (request.operation === "list") return listResponse;
+      return { ...scopeFields, accepted: true, events: [], reminders: [] };
+    },
+  });
+  expect(updateCalls).toEqual([
+    { operation: "list", all: true },
+    { operation: "update", reminderId, title: "Renamed" },
+  ]);
+
+  const logCalls: unknown[] = [];
+  await run(["reminder", "log", "--id", "12345678"], {
+    ...base,
+    reminder: async (request) => {
+      logCalls.push(request);
+      if (request.operation === "list") return listResponse;
+      return { ...scopeFields, accepted: true, events: [], reminders: [] };
+    },
+  });
+  expect(logCalls).toEqual([
+    { operation: "list", all: true },
+    { operation: "log", reminderId },
+  ]);
+});
+
+test("run rejects a short --id prefix that matches no reminder or more than one", async () => {
+  const base = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const scopeFields = {
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "agent",
+  };
+  await expect(
+    run(["reminder", "cancel", "--id", "ffffffff"], {
+      ...base,
+      reminder: async () => ({ ...scopeFields, accepted: true, events: [], reminders: [] }),
+    }),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const ambiguousFields = {
+    ownerAgentId: "agent",
+    version: 1,
+    title: "T",
+    target: "#g",
+    messageId: "deadbeef",
+    fireAt: "2026-09-09T00:00:00Z",
+    status: "scheduled" as const,
+    createdAt: "2026-09-08T00:00:00Z",
+  };
+  await expect(
+    run(["reminder", "cancel", "--id", "aaaaaaaa"], {
+      ...base,
+      reminder: async () => ({
+        ...scopeFields,
+        accepted: true,
+        events: [],
+        reminders: [
+          { ...ambiguousFields, reminderId: "aaaaaaaa-1111-4111-8111-111111111111" },
+          { ...ambiguousFields, reminderId: "aaaaaaaa-2222-4222-8222-222222222222" },
+        ],
+      }),
+    }),
+  ).rejects.toMatchObject({ code: "AMBIGUOUS" });
 });
 
 test("formats usable reminder lists, empty logs, and receipt acknowledgements", async () => {

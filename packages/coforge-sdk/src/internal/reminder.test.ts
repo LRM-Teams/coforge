@@ -13,6 +13,7 @@ import {
   encodeReminderFireResponse,
   encodeReminderSync,
   isReminderMessageAnchor,
+  isValidReminderStatusFilter,
 } from "./index";
 
 const scope = {
@@ -182,6 +183,21 @@ test("enforces operation-specific reminder fields", () => {
       target: "@frank",
     }),
   ).toThrow();
+  const updateByDelay = {
+    ...scope,
+    operation: "update" as const,
+    reminderId,
+    delaySeconds: 600,
+  };
+  expect(
+    decodeAgentReminderOperationRequest(encodeAgentReminderOperationRequest(updateByDelay)),
+  ).toEqual(updateByDelay);
+  expect(() =>
+    encodeAgentReminderOperationRequest({
+      ...updateByDelay,
+      fireAt: "2026-09-08T10:00:00Z",
+    }),
+  ).toThrow();
   expect(() =>
     encodeAgentReminderOperationRequest({ ...scope, operation: "cancel", reminderId, title: "No" }),
   ).toThrow();
@@ -193,6 +209,37 @@ test("enforces operation-specific reminder fields", () => {
       all: true,
     }),
   ).not.toThrow();
+  expect(() =>
+    encodeAgentReminderOperationRequest({ ...scope, operation: "list", status: "scheduled,fired" }),
+  ).not.toThrow();
+  expect(() =>
+    encodeAgentReminderOperationRequest({
+      ...scope,
+      operation: "list",
+      status: "scheduled,fired,canceled",
+    }),
+  ).not.toThrow();
+  expect(() =>
+    encodeAgentReminderOperationRequest({
+      ...scope,
+      operation: "list",
+      status: "scheduled,scheduled",
+    }),
+  ).toThrow();
+  expect(() =>
+    encodeAgentReminderOperationRequest({ ...scope, operation: "list", status: "scheduled,bogus" }),
+  ).toThrow();
+  expect(() =>
+    encodeAgentReminderOperationRequest({ ...scope, operation: "list", status: "" }),
+  ).toThrow();
+  expect(isValidReminderStatusFilter("scheduled,fired")).toBe(true);
+  expect(isValidReminderStatusFilter("scheduled, fired")).toBe(true);
+  expect(isValidReminderStatusFilter("scheduled,scheduled")).toBe(false);
+  expect(isValidReminderStatusFilter("scheduled,bogus")).toBe(false);
+  const commaList = { ...scope, operation: "list" as const, status: "scheduled,fired" };
+  expect(
+    decodeAgentReminderOperationRequest(encodeAgentReminderOperationRequest(commaList)),
+  ).toEqual(commaList);
   expect(() =>
     encodeAgentReminderOperationRequest({ ...schedule, title: "bad\u0000control" }),
   ).toThrow();

@@ -219,17 +219,19 @@ export class PrismaReminderRepository implements ReminderRepository {
   }
 
   async list(scope: Scope, status?: string, all = false) {
+    // `status` is a comma-separated, duplicate-free subset of scheduled/fired/canceled (the SDK's
+    // wire validation already checked that); it always wins over `all` when both are given. With
+    // neither given, default to scheduled,fired — `all` alone requests every status.
+    const statuses = status ? status.split(",").map((entry) => entry.trim()) : undefined;
     const rows = await this.db.reminder.findMany({
       where: {
         workspaceId: scope.workspaceId,
         ownerAgentId: scope.agentId,
-        ...(!all
-          ? status
-            ? { status }
-            : { status: { in: ["scheduled", "fired"] } }
-          : status
-            ? { status }
-            : {}),
+        ...(statuses
+          ? { status: { in: statuses } }
+          : all
+            ? {}
+            : { status: { in: ["scheduled", "fired"] } }),
       },
       orderBy: { fireAt: "asc" },
       take: 101,
