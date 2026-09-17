@@ -203,7 +203,33 @@ The User-owned Agent identity used for weekly-report AI within one Workspace.
 Each User has at most one WeeklyReportAssistant per Workspace; assistants are
 not shared between Users and are not independently managed from Members. Its
 Computer and Agent runtime remain the existing configurable Agent resources.
-_Avoid_: Workspace-wide report Agent, shared report bot, Agent runtime
+In the collect→synthesize flow ([ADR 0032](docs/adr/0032-weekly-report-collectors-and-collect-run.md)),
+this Agent is the synthesizer and side-chat voice only — it does not harvest
+another Computer's OS.
+_Avoid_: Workspace-wide report Agent, shared report bot, Agent runtime,
+WeeklyReportCollector
+
+**WeeklyReportCollector**:
+A User-owned Agent bound to exactly one Computer the User owns, dedicated to
+harvesting in-window work evidence on that machine into a Collect pack. One
+collector slot per owned Computer; never another member's machine. Not the
+WeeklyReportAssistant. Not independently managed from Members (same product
+pattern as WeeklyReportAssistant). See ADR 0032.
+_Avoid_: WeeklyReportAssistant, generic Agent, Task, Job
+
+**WeeklyReportCollectRun**:
+The platform ledger for one weekly-report harvest cycle: plan confirmation,
+parallel per-Computer collection, settle, and synthesis handoff into a
+confirmation-backed report suggestion. Narrow to weekly-report collect — not a
+Workspace workflow engine, durable command mailbox, or generic job system.
+See ADR 0032.
+_Avoid_: Task, Job, workflow, Agent Activity completion
+
+**Collect pack**:
+The structured Markdown evidence package one WeeklyReportCollector submits for
+a Collect Run slot. It is input to synthesis, not the finished member
+WeeklyReport body. See ADR 0032.
+_Avoid_: WeeklyReport body, Message, highlight
 
 **Code Agent installation**:
 An external provider executable, currently Codex or Claude Code, discovered from the Daemon's effective executable search path on one Computer. That path includes the service environment and the user's standard local executable directory. Its reported provider and version form a replaceable observation, not a credential or Agent runtime. Built-in Pi is not part of this inventory.

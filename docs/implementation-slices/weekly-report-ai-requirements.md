@@ -346,3 +346,16 @@ exclusion of the weekly-report assistant are in place.
 - Whether write suggestions should be stored as assistant message payloads, separate drafts, or transient UI state.
 - Whether non-CoForge providers receive weekly-report writes through provider-native tool APIs or the existing `coforge` CLI bridge. Reads currently use the CLI bridge.
 - Whether assistant-generated output should record source citations in structured payloads.
+
+## 17. Follow-on: multi-Computer collect → synthesize
+
+OS harvest from the User's Computers, parallel collectors, Collect Run settle,
+and template synthesis into the member report are specified separately:
+
+- Product contract:
+  [`weekly-report-collect-requirements.md`](weekly-report-collect-requirements.md)
+- ADR 0032 (accepted):
+  [`../adr/0032-weekly-report-collectors-and-collect-run.md`](../adr/0032-weekly-report-collectors-and-collect-run.md)
+
+That work must preserve this document's rules: confirmation before body writes,
+and no automatic send by the assistant.

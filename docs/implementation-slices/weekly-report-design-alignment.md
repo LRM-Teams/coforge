@@ -28,8 +28,14 @@
 | **M4** | `front/Leader 收到员工的周报_4.png` | 侧聊选择部分成员生成要点 |
 | **M5** | `front/Leader 收到员工的周报_5.png` | 要点生成中：列表「正在生成」、内容区空态 |
 | **M6** | `front/Leader 收到员工的周报_6.png` | 要点生成完成：正文 + @成员；侧聊完成确认 |
+| **E1** | `front/员工 收到模板_1.png` | 成员收到模板：侧聊主动问是否生成 +「需要」 |
+| **E2** | `front/员工 收到模板_2.png` | 「需要」后：采集计划卡（时间 / 电脑 / 路径 / 齿轮） |
 
 文案层导出 `front/Untitled` 仅作交叉核对，不作为布局依据。
+
+员工侧「采集 → 总结 → 发送」产品契约与切片见
+[`weekly-report-collect-requirements.md`](weekly-report-collect-requirements.md)
+与 [ADR 0032](../adr/0032-weekly-report-collectors-and-collect-run.md)（accepted）；本清单的 WR-* 条目仍以 Leader/要点对齐为主，E1/E2 行为以该契约为准。
 
 ## 2. 当前实现快照（对齐基线）
 
