@@ -354,15 +354,16 @@ metadata 身份（REST）；Workspace 内的 Project 可见性不授予 GitHub �
 项目详情同时支持在 CoForge 内浏览默认分支任意路径（`/projects/$projectSlug/tree/$`）。
 浏览是高频读路径，因此不重复关联仓库时的完整校验（不调 `sync`、不枚举 installation 下的
 仓库）：GitHub 保证 user access token 只能访问「用户有权限」且「App 已安装并有权限」的
-资源，越权由 GitHub 拒绝；仓库身份（改名后被同名仓库顶替）在各自的请求内校验。
+资源，越权由 GitHub 拒绝（决策记录见 ADR 0030）；仓库身份（改名后被同名仓库顶替）在各自的请求内校验。
 `repositoryTree` 先读 repository metadata（ID、完整名称、默认分支），再用 Git Trees
-`recursive=1` 一次取回整棵树，服务端按仓库 ID 缓存 ETag，以 `If-None-Match` 复验（304 不计入
-限额，且只会返回给 GitHub 认可的 token）；超过 100,000 条或 7 MB 时 GitHub 置 `truncated`，
+`recursive=1` 一次取回整棵树，服务端按「仓库 ID + 用户」缓存 ETag（GitHub 的 ETag 随 token 变化，见 github/docs#34689），
+以 `If-None-Match` 复验（304 不计入限额，且只会返回给 GitHub 认可的 token），缓存按总条目数设上限；超过 100,000 条或 7 MB 时 GitHub 置 `truncated`，
 此时未进入索引的路径退回按路径读取。浏览器端整树只取一次，目录展开不发请求。
 `repositoryObject` 用一次 GraphQL 读取单个 Blob/Tree，并在同一响应里用 `databaseId` 校验
 仓库身份；带树中 blob SHA 时按 `object(oid:)` 读取（内容不可变，浏览器端永久缓存，悬停即
 预取），否则按 `HEAD:<path>`。目录各条目的最后提交（`repositoryDirectoryCommits`，复用同一
-按路径分批逻辑）在列表显示之后再加载。1 MB 以内、非二进制且未被截断的 Markdown 以只读方式
+按路径分批逻辑）连同该目录自身的最近一次提交（列表表头：作者与不同于作者的提交者、短 SHA、时间）
+在列表显示之后再加载。1 MB 以内、非二进制且未被截断的 Markdown 以只读方式
 用 Records 编辑器渲染或显示高亮源码，其余文本文件显示带行号的高亮源码（全部行进入 DOM，以
 CSS `content-visibility` 跳过屏外渲染，保留浏览器查找与全选）；二进制、超过 1 MB、被截断的
 文件以及图片不在站内预览。下载经 `/api/projects/$projectId/raw/$`（`repositoryRaw`，REST

@@ -1,11 +1,14 @@
 import {
+  forwardRef,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type FC,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
 } from "react";
 import {
   ArrowUpRight,
@@ -20,6 +23,7 @@ import {
   SearchLg,
   XClose,
 } from "@untitledui/icons";
+import { useKeyboard } from "react-aria";
 import { ToggleButton as AriaToggleButton } from "react-aria-components";
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { Button } from "@/components/base/buttons/button";
@@ -34,8 +38,9 @@ import { extensionToLanguage } from "@/features/records/report-editor/utils/prev
 import "@/features/records/report-editor/styles/code.css";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import { findMatches, FIND_MATCH_CAP, type FindMatch } from "./find-in-text";
+import { FIND_MATCH_CAP } from "./find-in-text";
 import { splitHighlightedLines, type HastRoot } from "./split-highlighted-lines";
+import { useFindInFile } from "./use-find-in-file";
 import "./project-file-view.css";
 
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
@@ -53,9 +58,6 @@ const LINE_HEIGHT_PX = 20;
 const MAX_HIGHLIGHT_CHARS = 512_000;
 
 const WRAP_STORAGE_KEY = "coforge-file-wrap";
-const FIND_DEBOUNCE_MS = 120;
-const FIND_HIGHLIGHT = "pfv-find";
-const FIND_ACTIVE_HIGHLIGHT = "pfv-find-active";
 
 // Zen mode's fullscreen overlay sits below every existing overlay layer in
 // this codebase (Modal, Tooltip, the slim sidebar nav, bubble-menu — all
@@ -89,10 +91,12 @@ export function ProjectFileView({
 }: {
   path: string;
   name: string;
-  byteSize: number;
+  /** Omitted for entries with no meaningful size (symlinks, submodules). */
+  byteSize?: number;
   text: string | null;
   githubUrl: string;
-  downloadUrl: string;
+  /** Omitted for entries that can't be downloaded (symlinks, submodules). */
+  downloadUrl?: string;
 }) {
   const isMarkdown = MARKDOWN_EXTENSIONS.has(getFileExtension(name));
   const [tab, setTab] = useState<"preview" | "source">("preview");
@@ -101,46 +105,29 @@ export function ProjectFileView({
   const [zen, setZen] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Find-in-file state. Kept here (not in CodeView) because the toolbar's
-  // search button and the keyboard shortcut both live at this level; the
-  // matches themselves are computed off the raw `text` prop, independent of
-  // highlighting or the DOM.
-  const [findOpen, setFindOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [activeMatchIndex, setActiveMatchIndex] = useState(-1);
-  const findInputRef = useRef<HTMLInputElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const findSupported = useMemo(() => supportsFindHighlighting(), []);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const codeRootRef = useRef<HTMLDivElement>(null);
+  const zenButtonRef = useRef<HTMLButtonElement>(null);
+
+  const lines = useMemo(() => computeLines(text, name), [text, name]);
+  const showCode = text !== null && (!isMarkdown || tab === "source");
+
+  // Find-in-file state (query, matches, active index, the CSS Custom
+  // Highlight API registration) lives in this hook; tabs, copy, wrap and zen
+  // stay here since they're specific to this component's toolbar.
+  const find = useFindInFile({ text, codeRootRef, enabled: showCode });
 
   useEffect(() => () => clearTimeout(copyTimeoutRef.current), []);
 
-  useEffect(() => {
-    const timeout = setTimeout(() => setDebouncedQuery(query), FIND_DEBOUNCE_MS);
-    return () => clearTimeout(timeout);
-  }, [query]);
-
-  const matches = useMemo(
-    () => (text !== null && findOpen ? findMatches(text, debouncedQuery, { caseSensitive }) : []),
-    [text, findOpen, debouncedQuery, caseSensitive],
-  );
-
-  useEffect(() => {
-    setActiveMatchIndex(matches.length > 0 ? 0 : -1);
-  }, [matches]);
-
-  useEffect(() => {
-    if (findOpen) findInputRef.current?.focus();
-  }, [findOpen]);
-
-  const lines = useMemo(() => computeLines(text, name), [text, name]);
   const dir =
     path.length > name.length && path.endsWith(name)
       ? path.slice(0, path.length - name.length)
       : "";
-  const sizeLabel = formatFileSize(byteSize);
-  const showCode = text !== null && (!isMarkdown || tab === "source");
+  const sizeLabel = byteSize !== undefined ? formatFileSize(byteSize) : undefined;
+  const metaText = [text !== null ? m.project_file_lines({ count: lines.length }) : null, sizeLabel]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
 
   async function handleCopy() {
     if (text === null) return;
@@ -151,75 +138,105 @@ export function ProjectFileView({
   }
 
   function openFind() {
-    if (text === null) return;
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (isMarkdown && tab === "preview") setTab("source");
-    setFindOpen(true);
-  }
-
-  function closeFind() {
-    setFindOpen(false);
-    setQuery("");
-    previousFocusRef.current?.focus();
-  }
-
-  function goToNextMatch() {
-    if (matches.length === 0) return;
-    setActiveMatchIndex((index) => (index + 1) % matches.length);
-  }
-
-  function goToPreviousMatch() {
-    if (matches.length === 0) return;
-    setActiveMatchIndex((index) => (index - 1 + matches.length) % matches.length);
+    find.open();
   }
 
   function handleTabChange(next: "preview" | "source") {
     setTab(next);
-    if (next === "preview" && findOpen) closeFind();
+    if (next === "preview" && find.findOpen) find.close();
   }
 
-  function handleRootKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const isFindShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f";
-    if (isFindShortcut) {
-      // A second Cmd/Ctrl+F while the find bar already has focus falls
-      // through to the browser's native find-in-page instead of being
-      // hijacked again.
-      if (
-        findOpen &&
-        event.currentTarget.querySelector("[data-find-bar]")?.contains(document.activeElement)
-      ) {
+  // Entering zen moves focus into the pane so it's immediately
+  // keyboard-scrollable; leaving it returns focus to the control that
+  // toggles it, regardless of whether zen was exited by clicking the
+  // toggle, pressing Escape with focus in the view, or pressing Escape with
+  // focus on `<body>` (see the document-level listener below).
+  const setZenMode = useCallback((next: boolean) => {
+    setZen(next);
+    if (next) scrollerRef.current?.focus();
+    else zenButtonRef.current?.focus();
+  }, []);
+
+  // Escape and Cmd/Ctrl+F while focus is anywhere inside this view (the
+  // toolbar, the find bar, or the now-focusable code scroller).
+  const { keyboardProps } = useKeyboard({
+    onKeyDown(event) {
+      const isFindShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f";
+      if (isFindShortcut) {
+        if (!find.findSupported) {
+          // The Highlight API this feature depends on isn't available:
+          // never intercept the shortcut, let the browser's native find run.
+          event.continuePropagation();
+          return;
+        }
+        const findBarHasFocus =
+          find.findOpen &&
+          Boolean(
+            rootRef.current?.querySelector("[data-find-bar]")?.contains(document.activeElement),
+          );
+        if (findBarHasFocus) {
+          // A second Cmd/Ctrl+F while the find bar already has focus falls
+          // through to the browser's native find-in-page instead of being
+          // hijacked again.
+          event.continuePropagation();
+          return;
+        }
+        event.preventDefault();
+        openFind();
         return;
       }
-      event.preventDefault();
-      openFind();
-      return;
-    }
-    if (event.key === "Escape") {
-      // The find bar's Escape takes priority over exiting zen mode.
-      if (findOpen) {
-        closeFind();
+      if (event.key === "Escape" && find.findOpen) {
+        // The find bar's Escape takes priority over exiting zen mode.
+        find.close();
         return;
       }
-      if (zen) setZen(false);
+      if (event.key === "Escape" && zen) {
+        setZenMode(false);
+        return;
+      }
+      event.continuePropagation();
+    },
+  });
+
+  // While zen is on, the view is a full-screen layer and focus may land on
+  // `<body>` (e.g. after clicking non-focusable code text before the
+  // scroller existed, or a browser chrome interaction) where the keyboard
+  // handler above — attached to a descendant of the root — never sees the
+  // keydown, since it never bubbles into this subtree. This listens at the
+  // document level, only while zen is actually on, to catch that case too.
+  const findRef = useRef(find);
+  findRef.current = find;
+  useEffect(() => {
+    if (!zen) return;
+    function onDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (findRef.current.findOpen) {
+        findRef.current.close();
+        return;
+      }
+      setZenMode(false);
     }
-  }
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => document.removeEventListener("keydown", onDocumentKeyDown);
+  }, [zen, setZenMode]);
 
   function handleFindKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === "Enter") {
       event.preventDefault();
-      if (event.shiftKey) goToPreviousMatch();
-      else goToNextMatch();
+      if (event.shiftKey) find.previous();
+      else find.next();
     }
   }
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "flex min-h-0 flex-1 flex-col",
         zen && `fixed inset-0 ${ZEN_Z_INDEX} bg-primary`,
       )}
-      onKeyDown={handleRootKeyDown}
+      {...keyboardProps}
     >
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-secondary px-4 py-2">
         <div className="flex min-w-0 items-center gap-2">
@@ -227,11 +244,9 @@ export function ProjectFileView({
             <span className="min-w-0 truncate text-sm text-tertiary">{dir}</span>
             <span className="shrink-0 text-sm font-medium text-primary">{name}</span>
           </span>
-          <span className="shrink-0 text-xs text-tertiary tabular-nums">
-            {text !== null
-              ? `${m.project_file_lines({ count: lines.length })} · ${sizeLabel}`
-              : sizeLabel}
-          </span>
+          {metaText !== "" && (
+            <span className="shrink-0 text-xs text-tertiary tabular-nums">{metaText}</span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {isMarkdown && text !== null && (
@@ -250,14 +265,14 @@ export function ProjectFileView({
               <ButtonGroupItem id="source">{m.project_file_source()}</ButtonGroupItem>
             </ButtonGroup>
           )}
-          {showCode && findSupported && (
+          {showCode && find.findSupported && (
             <Tooltip title={m.project_file_find()}>
               <Button
                 size="sm"
                 color="tertiary"
                 aria-label={m.project_file_find()}
                 iconLeading={SearchLg}
-                onPress={() => (findOpen ? closeFind() : openFind())}
+                onPress={() => (find.findOpen ? find.close() : openFind())}
               />
             </Tooltip>
           )}
@@ -265,22 +280,29 @@ export function ProjectFileView({
             <Tooltip title={m.project_file_wrap()}>
               <ToolbarToggle
                 aria-label={m.project_file_wrap()}
-                icon={ParagraphWrap}
                 isSelected={wrap}
                 onChange={(next) => {
                   setWrap(next);
                   writeWrapPreference(next);
                 }}
-              />
+              >
+                <ParagraphWrap data-icon="leading" className={buttonStyles.common.icon} />
+              </ToolbarToggle>
             </Tooltip>
           )}
           <Tooltip title={zen ? m.project_file_zen_exit() : m.project_file_zen()}>
             <ToolbarToggle
+              ref={zenButtonRef}
               aria-label={zen ? m.project_file_zen_exit() : m.project_file_zen()}
-              icon={zen ? Minimize01 : Expand01}
               isSelected={zen}
-              onChange={setZen}
-            />
+              onChange={setZenMode}
+            >
+              {zen ? (
+                <Minimize01 data-icon="leading" className={buttonStyles.common.icon} />
+              ) : (
+                <Expand01 data-icon="leading" className={buttonStyles.common.icon} />
+              )}
+            </ToolbarToggle>
           </Tooltip>
           {text !== null && (
             <Tooltip title={copied ? m.project_file_copied() : m.project_file_copy()}>
@@ -293,16 +315,18 @@ export function ProjectFileView({
               />
             </Tooltip>
           )}
-          <Tooltip title={m.project_file_download()}>
-            <Button
-              size="sm"
-              color="tertiary"
-              aria-label={m.project_file_download()}
-              iconLeading={Download01}
-              href={downloadUrl}
-              download={name}
-            />
-          </Tooltip>
+          {downloadUrl !== undefined && (
+            <Tooltip title={m.project_file_download()}>
+              <Button
+                size="sm"
+                color="tertiary"
+                aria-label={m.project_file_download()}
+                iconLeading={Download01}
+                href={downloadUrl}
+                download={name}
+              />
+            </Tooltip>
+          )}
           <Tooltip title={m.project_open_on_github()}>
             <Button
               size="sm"
@@ -318,7 +342,13 @@ export function ProjectFileView({
       </div>
       {/* The find bar docks to this frame, not to the scroller, so it stays put while scrolling. */}
       <div className="relative flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-auto bg-primary">
+        <div
+          ref={scrollerRef}
+          tabIndex={0}
+          role="region"
+          aria-label={name}
+          className="min-h-0 flex-1 overflow-auto bg-primary outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2"
+        >
           {text === null ? (
             <NotPreviewable githubUrl={githubUrl} downloadUrl={downloadUrl} name={name} />
           ) : isMarkdown && tab === "preview" ? (
@@ -326,26 +356,21 @@ export function ProjectFileView({
               <ContentEditor editable={false} defaultValue={text} />
             </div>
           ) : (
-            <CodeView
-              lines={lines}
-              wrap={wrap}
-              matches={matches}
-              activeMatchIndex={activeMatchIndex}
-            />
+            <CodeView lines={lines} wrap={wrap} codeRootRef={codeRootRef} />
           )}
         </div>
-        {showCode && findOpen && (
+        {showCode && find.findOpen && (
           <FindBar
-            inputRef={findInputRef}
-            query={query}
-            onQueryChange={setQuery}
-            caseSensitive={caseSensitive}
-            onCaseSensitiveChange={setCaseSensitive}
-            matchCount={matches.length}
-            activeMatchIndex={activeMatchIndex}
-            onNext={goToNextMatch}
-            onPrevious={goToPreviousMatch}
-            onClose={closeFind}
+            inputRef={find.inputRef}
+            query={find.query}
+            onQueryChange={find.setQuery}
+            caseSensitive={find.caseSensitive}
+            onCaseSensitiveChange={find.setCaseSensitive}
+            matchCount={find.matches.length}
+            activeMatchIndex={find.activeMatchIndex}
+            onNext={find.next}
+            onPrevious={find.previous}
+            onClose={find.close}
             onKeyDown={handleFindKeyDown}
           />
         )}
@@ -382,7 +407,7 @@ function NotPreviewable({
   name,
 }: {
   githubUrl: string;
-  downloadUrl: string;
+  downloadUrl?: string;
   name: string;
 }) {
   return (
@@ -399,49 +424,62 @@ function NotPreviewable({
         >
           {m.project_open_on_github()}
         </Button>
-        <Button
-          size="sm"
-          color="secondary"
-          href={downloadUrl}
-          download={name}
-          iconLeading={Download01}
-        >
-          {m.project_file_download()}
-        </Button>
+        {downloadUrl !== undefined && (
+          <Button
+            size="sm"
+            color="secondary"
+            href={downloadUrl}
+            download={name}
+            iconLeading={Download01}
+          >
+            {m.project_file_download()}
+          </Button>
+        )}
       </div>
     </div>
   );
 }
 
-/** A quiet icon toggle matching `Button`'s tertiary icon-only look, styled selected/pressed. */
-function ToolbarToggle({
-  isSelected,
-  onChange,
-  icon: Icon,
-  "aria-label": ariaLabel,
-}: {
-  isSelected: boolean;
-  onChange: (isSelected: boolean) => void;
-  icon: FC<{ className?: string }>;
-  "aria-label": string;
-}) {
+/**
+ * A quiet icon (or, with `iconOnly={false}`, text) toggle matching `Button`'s
+ * tertiary look, styled selected/pressed. Shared by the toolbar's
+ * wrap/zen toggles and the find bar's "Aa" case-sensitivity toggle so the
+ * pressed/hover styling lives in one place.
+ */
+const ToolbarToggle = forwardRef<
+  HTMLButtonElement,
+  {
+    isSelected: boolean;
+    onChange: (isSelected: boolean) => void;
+    "aria-label": string;
+    className?: string;
+    /** @default true */
+    iconOnly?: boolean;
+    children: ReactNode;
+  }
+>(function ToolbarToggle(
+  { isSelected, onChange, "aria-label": ariaLabel, className, iconOnly = true, children },
+  ref,
+) {
   return (
     <AriaToggleButton
+      ref={ref}
       aria-label={ariaLabel}
       isSelected={isSelected}
       onChange={onChange}
-      data-icon-only
+      data-icon-only={iconOnly ? true : undefined}
       className={cn(
         buttonStyles.common.root,
         buttonStyles.sizes.sm.root,
         buttonStyles.colors.tertiary.root,
         isSelected && "bg-secondary text-primary",
+        className,
       )}
     >
-      <Icon data-icon="leading" className={buttonStyles.common.icon} />
+      {children}
     </AriaToggleButton>
   );
-}
+});
 
 function FindBar({
   inputRef,
@@ -456,7 +494,7 @@ function FindBar({
   onClose,
   onKeyDown,
 }: {
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: RefObject<HTMLInputElement | null>;
   query: string;
   onQueryChange: (value: string) => void;
   caseSensitive: boolean;
@@ -513,20 +551,15 @@ function FindBar({
         />
       </Tooltip>
       <Tooltip title={m.project_file_find_case()}>
-        <AriaToggleButton
+        <ToolbarToggle
           aria-label={m.project_file_find_case()}
           isSelected={caseSensitive}
           onChange={onCaseSensitiveChange}
-          className={cn(
-            buttonStyles.common.root,
-            buttonStyles.sizes.sm.root,
-            buttonStyles.colors.tertiary.root,
-            "px-2 text-xs font-semibold",
-            caseSensitive && "bg-secondary text-primary",
-          )}
+          iconOnly={false}
+          className="px-2 text-xs font-semibold"
         >
           Aa
-        </AriaToggleButton>
+        </ToolbarToggle>
       </Tooltip>
       <Tooltip title={m.project_file_find_close()}>
         <Button
@@ -550,15 +583,12 @@ function formatMatchCount(count: number, activeIndex: number): string {
 function CodeView({
   lines,
   wrap,
-  matches,
-  activeMatchIndex,
+  codeRootRef,
 }: {
   lines: string[];
   wrap: boolean;
-  matches: FindMatch[];
-  activeMatchIndex: number;
+  codeRootRef: RefObject<HTMLDivElement | null>;
 }) {
-  const chunkRefs = useRef<Array<HTMLDivElement | null>>([]);
   const chunks = useMemo(() => {
     const result: string[][] = [];
     for (let i = 0; i < lines.length; i += CHUNK_SIZE) result.push(lines.slice(i, i + CHUNK_SIZE));
@@ -566,66 +596,9 @@ function CodeView({
   }, [lines]);
   const gutterWidth = `${String(lines.length).length}ch`;
 
-  // The full set of matches is rebuilt only when the match list itself
-  // changes (not on every next/prev navigation) — `matches` is memoised by
-  // the parent, so this stays cheap even while the user is just stepping
-  // through results.
-  useEffect(() => {
-    if (!supportsFindHighlighting()) return;
-    if (matches.length === 0) {
-      CSS.highlights.delete(FIND_HIGHLIGHT);
-      return;
-    }
-    const ranges: Range[] = [];
-    for (const match of matches) {
-      const range = rangeForMatch(chunkRefs.current, match);
-      if (range) ranges.push(range);
-    }
-    if (ranges.length > 0) CSS.highlights.set(FIND_HIGHLIGHT, new Highlight(...ranges));
-    else CSS.highlights.delete(FIND_HIGHLIGHT);
-    return () => {
-      CSS.highlights.delete(FIND_HIGHLIGHT);
-    };
-  }, [matches]);
-
-  useEffect(() => {
-    if (!supportsFindHighlighting()) return;
-    const match = matches[activeMatchIndex];
-    if (!match) {
-      CSS.highlights.delete(FIND_ACTIVE_HIGHLIGHT);
-      return;
-    }
-    const chunkEl = chunkRefs.current[Math.floor((match.line - 1) / CHUNK_SIZE)];
-    const found = chunkEl ? findRow(chunkEl, match.line) : null;
-    if (!found) {
-      CSS.highlights.delete(FIND_ACTIVE_HIGHLIGHT);
-      return;
-    }
-    const range = buildRangeForMatch(found.code, match.start, match.end);
-    if (range) CSS.highlights.set(FIND_ACTIVE_HIGHLIGHT, new Highlight(range));
-    // `content-visibility: auto` chunks report an estimated intrinsic size
-    // until they're actually laid out; scrolling to them can settle at a
-    // slightly wrong offset the first time, so nudge again once the browser
-    // has had a frame to lay the now-visible chunk out for real.
-    found.row.scrollIntoView({ block: "center" });
-    const frame = requestAnimationFrame(() => found.row.scrollIntoView({ block: "center" }));
-    return () => {
-      cancelAnimationFrame(frame);
-      CSS.highlights.delete(FIND_ACTIVE_HIGHLIGHT);
-    };
-  }, [matches, activeMatchIndex]);
-
-  useEffect(
-    () => () => {
-      if (!supportsFindHighlighting()) return;
-      CSS.highlights.delete(FIND_HIGHLIGHT);
-      CSS.highlights.delete(FIND_ACTIVE_HIGHLIGHT);
-    },
-    [],
-  );
-
   return (
     <div
+      ref={codeRootRef}
       // `rich-text-editor` scopes the shared `.hljs-*` token color rules
       // from report-editor's code.css. Deliberately no `<code>` element
       // anywhere below — `.rich-text-editor code` carries inline-code
@@ -637,9 +610,6 @@ function CodeView({
       {chunks.map((chunkLines, chunkIndex) => (
         <div
           key={chunkIndex}
-          ref={(el) => {
-            chunkRefs.current[chunkIndex] = el;
-          }}
           style={{
             contentVisibility: "auto",
             containIntrinsicSize: `auto ${chunkLines.length * LINE_HEIGHT_PX}px`,
@@ -706,68 +676,4 @@ function writeWrapPreference(wrap: boolean) {
   } catch {
     // Private mode or blocked storage: the choice still holds for this visit.
   }
-}
-
-function supportsFindHighlighting(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof Highlight !== "undefined" &&
-    typeof CSS !== "undefined" &&
-    Boolean(CSS.highlights)
-  );
-}
-
-/** Finds the `.pfv-row`/`.pfv-code` pair for a line, scoped to one chunk (never `document`-wide). */
-function findRow(
-  chunkEl: HTMLElement,
-  line: number,
-): { row: HTMLElement; code: HTMLElement } | null {
-  const lineNoEl = chunkEl.querySelector(`[data-line="${line}"]`);
-  const row = lineNoEl?.parentElement;
-  const code = row?.querySelector<HTMLElement>(".pfv-code");
-  if (row instanceof HTMLElement && code) return { row, code };
-  return null;
-}
-
-function rangeForMatch(chunkEls: Array<HTMLDivElement | null>, match: FindMatch): Range | null {
-  const chunkEl = chunkEls[Math.floor((match.line - 1) / CHUNK_SIZE)];
-  if (!chunkEl) return null;
-  const found = findRow(chunkEl, match.line);
-  if (!found) return null;
-  return buildRangeForMatch(found.code, match.start, match.end);
-}
-
-/**
- * Maps a (start, end) character offset within a row's plain text back onto a
- * DOM `Range`, by walking the row's text nodes (which may be split across
- * several highlighting `<span>`s — a match can straddle a token boundary,
- * and `Range` endpoints don't need to share a text node).
- */
-function buildRangeForMatch(codeEl: HTMLElement, start: number, end: number): Range | null {
-  const walker = document.createTreeWalker(codeEl, NodeFilter.SHOW_TEXT);
-  let offset = 0;
-  let startNode: Text | null = null;
-  let startOffset = 0;
-  let endNode: Text | null = null;
-  let endOffset = 0;
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    const text = node as Text;
-    const length = text.data.length;
-    if (startNode === null && offset + length >= start) {
-      startNode = text;
-      startOffset = start - offset;
-    }
-    if (offset + length >= end) {
-      endNode = text;
-      endOffset = end - offset;
-      break;
-    }
-    offset += length;
-  }
-  if (!startNode || !endNode) return null;
-  const range = new Range();
-  range.setStart(startNode, startOffset);
-  range.setEnd(endNode, endOffset);
-  return range;
 }

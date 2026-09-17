@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import {
   ChevronRight,
   Copy01,
+  DotsVertical,
   Download01,
   File02,
   Folder,
@@ -20,11 +21,21 @@ import {
   type Key,
 } from "react-aria-components";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { useAppToast } from "@/components/ui/toast";
 import { copyText } from "@/features/records/report-editor/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import { projectFileDownloadUrl } from "./project-file-urls";
 import { projectObjectQuery } from "./project-tree-queries";
-import { ancestorPaths, childrenOf, type TreeEntry, type TreeIndex } from "./tree-index";
+import {
+  ancestorPaths,
+  childrenOf,
+  isBrowsable,
+  type TreeEntry,
+  type TreeIndex,
+} from "./tree-index";
+
+const HOVER_PREFETCH_DELAY_MS = 80;
 
 /**
  * The repository's side tree. Folders expand from the already-loaded index, so the only
@@ -45,6 +56,10 @@ export function ProjectFileTree({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const toast = useAppToast();
+  // Hover intent, as the router's own preloading does it: a pointer sweeping across the tree
+  // must not turn every row it crosses into a GitHub request.
+  const hoverPrefetch = useRef<ReturnType<typeof setTimeout>>(undefined);
   const hrefOf = (path: string) =>
     router.buildLocation({
       to: "/projects/$projectSlug/tree/$",
@@ -63,18 +78,21 @@ export function ProjectFileTree({
 
   function renderEntry(entry: TreeEntry) {
     const isDirectory = entry.type === "dir";
-    const isBrowsable = isDirectory || entry.type === "file";
+    const browsable = isBrowsable(entry.type);
     const href = hrefOf(entry.path);
     return (
       <NavigationTreeItem
         id={entry.path}
         textValue={entry.name}
-        href={isBrowsable ? href : undefined}
+        href={browsable ? href : undefined}
         hasChildItems={isDirectory}
         onHoverStart={() => {
-          if (entry.type === "file")
+          if (entry.type !== "file") return;
+          hoverPrefetch.current = setTimeout(() => {
             void queryClient.query(projectObjectQuery(slug, entry.path, entry.sha)).catch(() => {});
+          }, HOVER_PREFETCH_DELAY_MS);
         }}
+        onHoverEnd={() => clearTimeout(hoverPrefetch.current)}
         className="group/row block rounded-md outline-none data-current:bg-sidebar-accent data-focus-visible:outline-2 data-focus-visible:-outline-offset-2 data-focus-visible:outline-focus-ring data-hovered:bg-primary_hover"
       >
         <NavigationTreeItemContent>
@@ -113,13 +131,16 @@ export function ProjectFileTree({
                 <span className="truncate">{entry.name}</span>
               </AriaLink>
               <Dropdown.Root>
-                <Dropdown.DotsButton
+                {/* Our own trigger: the official DotsButton fixes its label to "Open menu". */}
+                <AriaButton
                   aria-label={m.project_file_actions({ name: entry.name })}
-                  className="flex size-6 shrink-0 items-center justify-center opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 aria-expanded:opacity-100 [&_svg]:size-4"
-                />
+                  className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-fg-quaternary opacity-0 outline-focus-ring group-focus-within/row:opacity-100 group-hover/row:opacity-100 hover:text-fg-quaternary_hover focus-visible:outline-2 aria-expanded:opacity-100"
+                >
+                  <DotsVertical aria-hidden="true" className="size-4" />
+                </AriaButton>
                 <Dropdown.Popover className="w-48" placement="left top">
                   <Dropdown.Menu>
-                    {isBrowsable && (
+                    {browsable && (
                       <Dropdown.Item
                         icon={LinkExternal01}
                         label={m.project_file_open_new_tab()}
@@ -127,19 +148,22 @@ export function ProjectFileTree({
                         target="_blank"
                       />
                     )}
-                    {isBrowsable && <Dropdown.Separator />}
+                    {browsable && <Dropdown.Separator />}
                     {entry.type === "file" && (
                       <Dropdown.Item
                         icon={Download01}
                         label={m.project_file_download()}
-                        href={downloadUrl(projectId, entry.path)}
+                        href={projectFileDownloadUrl(projectId, entry.path)}
                         download={entry.name}
                       />
                     )}
                     <Dropdown.Item
                       icon={Copy01}
                       label={m.project_file_copy_path()}
-                      onAction={() => void copyText(entry.path)}
+                      onAction={async () => {
+                        if (await copyText(entry.path)) toast.success(m.project_file_path_copied());
+                        else toast.error(m.project_file_path_copy_failed());
+                      }}
                     />
                   </Dropdown.Menu>
                 </Dropdown.Popover>
@@ -174,8 +198,4 @@ export function ProjectFileTree({
       </NavigationTree>
     </RouterProvider>
   );
-}
-
-export function downloadUrl(projectId: string, path: string) {
-  return `/api/projects/${projectId}/raw/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
