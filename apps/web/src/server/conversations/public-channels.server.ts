@@ -24,7 +24,7 @@ import {
 } from "../centrifugo/server-api.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import { normalizeMentionBody } from "@lrm/coforge-sdk/internal";
-import { agentReadableBody } from "./mentions";
+import { agentReadableBody, mentionAffinityScores } from "./mentions";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
@@ -762,7 +762,7 @@ export class PublicChannels {
   ) {
     const channel = await this.channel(workspaceId, userId, channelId);
     const limit = Math.min(page.limit ?? 50, 100);
-    const [member, messages, mentionRows] = await Promise.all([
+    const [member, messages, mentionRows, viewerRecentMentions] = await Promise.all([
       // Filtered through ACTIVE_MEMBER_WHERE (not findUnique on the raw row): a human who left or
       // was removed must see the read-only preview (`senderMemberId` empty) like anyone who never
       // joined, not their old member state. The row itself survives untouched for a later rejoin.
@@ -787,15 +787,36 @@ export class PublicChannels {
           replies: { orderBy: { sequence: "asc" }, select: CHANNEL_MESSAGE_SELECT },
         },
       }),
-      // The composer's @-completion source: every active member's public handle.
+      // The composer's @-completion source: every other active member's public profile.
       this.db.conversationMember.findMany({
         where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
         select: {
-          user: { select: { id: true, username: true, displayName: true } },
-          agent: { select: { id: true, name: true, displayName: true } },
+          user: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              description: true,
+              avatarObjectKey: true,
+            },
+          },
+          agent: { select: { id: true, name: true, displayName: true, description: true } },
         },
       }),
+      // The viewer's own recent @-mentions in this channel, newest first: scores each
+      // completion candidate by how recently and how often the viewer has mentioned them (see
+      // `mentionAffinityScores`). Filtered through the message's sender relation rather than
+      // the already-loading `member` above, so this stays part of the same parallel fetch; a
+      // viewer with no messages here (never joined, or joined but never mentioned anyone)
+      // naturally gets an empty list and every candidate scores 0.
+      this.db.messageMention.findMany({
+        where: { conversationId: channelId, message: { sender: { userId } } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: { kind: true, actorId: true, createdAt: true },
+      }),
     ]);
+    const mentionScores = mentionAffinityScores(viewerRecentMentions);
     const hasOlder = messages.length > limit;
     const pageMessages = messages
       .slice(0, limit)
@@ -813,7 +834,9 @@ export class PublicChannels {
         (member?.threadReads ?? []).map((read) => [read.rootMessageId, read.readThroughSequence]),
       ),
       followedThreadRootIds: (member?.threadFollows ?? []).map((follow) => follow.rootMessageId),
+      // The viewer never mentions themself, so their own row is left out of the candidate list.
       mentionables: mentionRows
+        .filter((row) => row.user?.id !== userId)
         .map((row) =>
           row.user
             ? {
@@ -821,12 +844,21 @@ export class PublicChannels {
                 id: row.user.id,
                 handle: row.user.username,
                 label: row.user.displayName?.trim() || row.user.username,
+                description: row.user.description.trim(),
+                avatarUrl: workspaceUserAvatarUrl(
+                  workspaceId,
+                  row.user.id,
+                  row.user.avatarObjectKey,
+                ),
+                mentionScore: mentionScores.get(`user:${row.user.id}`) ?? 0,
               }
             : {
                 kind: "agent" as const,
                 id: row.agent!.id,
                 handle: row.agent!.name,
                 label: row.agent!.displayName?.trim() || row.agent!.name,
+                description: row.agent!.description.trim(),
+                mentionScore: mentionScores.get(`agent:${row.agent!.id}`) ?? 0,
               },
         )
         .sort((left, right) => left.handle.localeCompare(right.handle)),

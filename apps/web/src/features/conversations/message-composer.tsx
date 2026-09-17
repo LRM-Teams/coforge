@@ -214,6 +214,7 @@ export function MessageComposer({
   conversationId,
   inThread,
   mentionables,
+  recentHandles,
   onSend,
   onCreateTask,
   onSent,
@@ -223,6 +224,9 @@ export function MessageComposer({
   inThread: boolean;
   /** The channel's @-completion candidates; absent outside channels (no popup, no mention). */
   mentionables?: readonly Mentionable[];
+  /** Handles that recently sent a message in this conversation, most-recent first (channels
+   * only); ranks @-completion candidates ahead of alphabetical order. */
+  recentHandles?: readonly string[];
   onSend: (
     body: string,
     requestId: string,
@@ -243,6 +247,7 @@ export function MessageComposer({
   // @-completion (channels only): query tracking, popup state, and keyboard interaction.
   const mention = useMentionCompletion({
     mentionables,
+    recentHandles,
     value: body,
     onChange: (next) => {
       setBody(next);

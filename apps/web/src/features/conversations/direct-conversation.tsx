@@ -607,6 +607,24 @@ export function ConversationPane({
   loadReminderNoticesRef.current = onLoadReminderNotices;
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
+  // Handles that recently sent a message here, most-recent first: the mention completion popup
+  // ranks these candidates ahead of alphabetical order within a match tier. Deduplicated by
+  // handle so the same person's older messages don't push their own recent one down.
+  const recentHandles = useMemo(() => {
+    const handles: string[] = [];
+    const seen = new Set<string>();
+    for (const message of [...conversation.messages].sort(
+      (left, right) => right.sequence - left.sequence,
+    )) {
+      if (message.senderKind === "system") continue;
+      const handle = message.senderName.replace(/^@+/, "");
+      const key = handle.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      handles.push(handle);
+    }
+    return handles;
+  }, [conversation.messages]);
   const isOwn = (message: DirectConversationView["messages"][number]) =>
     message.senderMemberId != null
       ? message.senderMemberId === conversation.senderMemberId
@@ -1054,6 +1072,7 @@ export function ConversationPane({
           conversationId={conversation.conversationId}
           inThread={Boolean(root)}
           mentionables={conversation.mentionables}
+          recentHandles={recentHandles}
           onSend={onSend}
           onCreateTask={onCreateTask}
           onSent={ownIndex.add}

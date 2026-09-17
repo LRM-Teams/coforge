@@ -707,6 +707,7 @@ model MessageMention {
   message        Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
 
   @@id([messageId, memberId])
+  @@index([conversationId, createdAt])
   @@map("message_mentions")
 }
 
