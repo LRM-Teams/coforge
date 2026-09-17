@@ -19,7 +19,11 @@ new service, runtime version, database schema or local product is introduced.
 
 The compatibility baseline is CLI 2.21.2 with `--agent-engine v3 --auth-method cli`,
 which launched Kiro Agent Server 0.58.7 in the probe. CLI version and engine version
-are distinct. v2 is deliberately unsupported: its busy prompt rejects input and
+are distinct. Daemon runtime discovery (`packages/daemon/src/code-agent/runtime-inventory.ts`)
+enforces this 2.21.2 baseline: a confidently-parsed lower `kiro-cli --version` is not reported
+as an available runtime, cached or freshly probed, since older CLIs reject `--auth-method`
+outright (observed on staging Computer s144 with 2.12.0 and 2.16.0, 2026-09-17). v2 is
+deliberately unsupported: its busy prompt rejects input and
 its shell cancellation probe continued execution. v3 accepts busy prompt by
 cancelling the old turn and starting a new turn, rather than Codex-style steering.
 The user authorized implementation after this behavior was reported. Waiting

@@ -12,6 +12,11 @@ import { COFORGE_DAEMON_VERSION } from "../../version";
 
 export const KIRO_ACP_ARGS = ["acp", "--agent-engine", "v3", "--auth-method", "cli"] as const;
 
+/** ADR 0010's compatibility baseline: `--auth-method` and the v3 engine require at least this
+ * kiro-cli release. Older CLIs reject `--auth-method` outright, so runtime discovery must gate on
+ * this version before ever offering the Kiro runtime. */
+export const KIRO_MIN_CLI_VERSION = "2.21.2";
+
 /** ACP owns RPC framing/validation; JsonlProcess retains the existing process-tree lifecycle. */
 export class KiroConnection {
   readonly process: JsonlProcess;

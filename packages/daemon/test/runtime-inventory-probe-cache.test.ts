@@ -8,6 +8,7 @@ import {
   loadCachedCodeAgentCatalogs,
   type ExternalCodeAgentProbe,
 } from "../src/code-agent/runtime-inventory";
+import { fileStatCacheKey, writeInventoryCache } from "../src/code-agent/runtime-inventory-cache";
 
 describe("Code Agent probe cache", () => {
   test("skips the version spawn when the cached probe key still matches the executable", async () => {
@@ -58,6 +59,44 @@ describe("Code Agent probe cache", () => {
       );
       expect(third).toEqual(first);
       expect(spawnCalls).toBe(2);
+    } finally {
+      await rm(stateDirectory, { recursive: true, force: true });
+      await rm(binDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("re-validates a cached Kiro runtime and drops it when below the ADR 0010 baseline", async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), "coforge-probe-cache-state-"));
+    const binDirectory = await mkdtemp(join(tmpdir(), "coforge-probe-cache-bin-"));
+    const kiroPath = join(binDirectory, "kiro-cli");
+    await Bun.write(kiroPath, "#!/bin/sh\necho kiro-cli\n");
+    try {
+      // Simulate a cache entry an older daemon build wrote before the version gate existed.
+      const key = await fileStatCacheKey([kiroPath]);
+      await writeInventoryCache(stateDirectory, {
+        kiro: { key: key!, runtime: { provider: "kiro", version: "2.16.0", displayName: "Kiro" } },
+      });
+      let spawnCalls = 0;
+      const probe: ExternalCodeAgentProbe = {
+        which: (name) => (name === "kiro-cli" ? kiroPath : undefined),
+        spawn: () => {
+          spawnCalls++;
+          return { stdout: new Blob(["kiro-cli 2.16.0"]).stream(), exited: Promise.resolve(0) };
+        },
+      };
+
+      const runtimes = await discoverExternalCodeAgents(
+        probe,
+        { PATH: "" },
+        undefined,
+        undefined,
+        stateDirectory,
+      );
+
+      expect(runtimes).toEqual([]);
+      // The executable itself is unchanged, so a stale cache hit is rejected without re-spawning;
+      // a live re-probe would only reproduce the same gate outcome.
+      expect(spawnCalls).toBe(0);
     } finally {
       await rm(stateDirectory, { recursive: true, force: true });
       await rm(binDirectory, { recursive: true, force: true });

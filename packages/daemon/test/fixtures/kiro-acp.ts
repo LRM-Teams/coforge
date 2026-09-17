@@ -8,6 +8,15 @@ type Message = {
   result?: unknown;
 };
 const sid = "sess-fixture-kiro";
+// The spawn-time version gate probes with `[...command, "--version"]`; answer that before any
+// other flag is interpreted so it never touches the ACP/workspace simulation below.
+if (process.argv.includes("--version")) {
+  const override = process.argv.find((arg) => arg.startsWith("--version-output="));
+  process.stdout.write(
+    `${override ? override.slice("--version-output=".length) : "kiro-cli 2.21.2"}\n`,
+  );
+  process.exit(0);
+}
 if (process.argv.includes("--agent")) process.exit(2);
 const catalog = process.argv.includes("--catalog");
 const delayedConfig = process.argv.includes("--delayed-config");

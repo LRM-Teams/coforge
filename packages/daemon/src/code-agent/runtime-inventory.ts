@@ -18,6 +18,7 @@ import {
 } from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 import { discoverKiroCatalog } from "./kiro/catalog";
+import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "./kiro/version";
 import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";
@@ -95,9 +96,12 @@ async function probeRuntimeVersion(
     return undefined;
   }
   const version = lastWord(output);
-  return version
-    ? { provider, version, displayName: externalRuntimeDisplayName(provider) }
-    : undefined;
+  if (!version) return undefined;
+  if (provider === RUNTIME_PROVIDER.KIRO && isKiroVersionUnsupported(version)) {
+    logKiroVersionUnsupported(name, version);
+    return undefined;
+  }
+  return { provider, version, displayName: externalRuntimeDisplayName(provider) };
 }
 
 export async function discoverExternalCodeAgents(
@@ -128,6 +132,16 @@ export async function discoverExternalCodeAgents(
       const cacheKey = cache ? await fileStatCacheKey([executable]) : undefined;
       const cached = cacheKey ? cache?.[provider] : undefined;
       if (cacheKey && cached?.key === cacheKey && cached.runtime) {
+        // A cache entry written by an older daemon build must be re-validated against the
+        // current minimum before it is trusted; the executable itself has not changed, so a
+        // too-old cached version would only reproduce the same gate on a live re-probe.
+        if (
+          provider === RUNTIME_PROVIDER.KIRO &&
+          isKiroVersionUnsupported(cached.runtime.version)
+        ) {
+          logKiroVersionUnsupported(name, cached.runtime.version);
+          continue;
+        }
         runtimes.push(cached.runtime);
         logger.info("Code Agent runtime probe served from cache", {
           event: "code_agent_runtime:cache_hit",
