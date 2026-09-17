@@ -13,8 +13,6 @@ import {
   decodeLocalRpcRequest,
   encodeLocalRpcResponse,
   LOCAL_RPC_METHODS,
-  decodeLocalAgentMessageRequest,
-  encodeAgentMessageResponse,
   decodeLocalInboxRequest,
   encodeInboxResponse,
   decodeUsageScanRequest,
@@ -23,9 +21,7 @@ import {
   encodeDaemonHoldResponse,
   type HeldBusyAgent,
   type UsageScanResponse,
-  type AgentMessageResponse,
   type InboxResponse,
-  type LocalAgentMessageRequest,
   type LocalInboxRequest,
   type DaemonCommandRequest,
   type ManagedRuntimeIdentity,
@@ -54,7 +50,6 @@ type DaemonRuntimePort = Partial<{
   start(): Promise<void>;
   stopAll(): Promise<void>;
   restart(): Promise<void>;
-  agentMessage(context: string, request: LocalAgentMessageRequest): Promise<unknown>;
   inbox(context: string, request: LocalInboxRequest): Promise<InboxResponse>;
   scanUsage(provider: string): Promise<UsageScanResponse>;
   command(method: string, request: DaemonCommandRequest): Promise<ManagedRuntimeIdentity[]>;
@@ -133,7 +128,6 @@ class LocalRpcDispatcher {
     this.#serverUrl = input.serverUrl ?? COFORGE_DAEMON_SERVER_URL;
     this.#handlers = {
       [LOCAL_RPC_METHODS.HANDSHAKE]: (payload) => this.#handshake(payload),
-      [LOCAL_RPC_METHODS.AGENT_MESSAGE]: (payload) => this.#agentMessage(payload),
       [LOCAL_RPC_METHODS.AGENT_INBOX]: (payload) => this.#inbox(payload),
       [LOCAL_RPC_METHODS.USAGE_SCAN]: (payload) => this.#usageScan(payload),
       [LOCAL_RPC_METHODS.CONFIGURE]: (payload) => this.#configure(payload),
@@ -200,15 +194,6 @@ class LocalRpcDispatcher {
       version: this.input.version,
       processId: process.pid,
     });
-  }
-
-  async #agentMessage(payload: Uint8Array): Promise<Uint8Array> {
-    const request = decodeLocalAgentMessageRequest(payload);
-    const { runtime } = this.input;
-    if (!request.context || !runtime.agentMessage)
-      throw new Error("agent local context is not bound");
-    const result = await runtime.agentMessage(request.context, request);
-    return encodeAgentMessageResponse(result as AgentMessageResponse);
   }
 
   async #inbox(payload: Uint8Array): Promise<Uint8Array> {

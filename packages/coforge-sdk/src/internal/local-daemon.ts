@@ -12,7 +12,6 @@ import {
 import {
   LocalRpcRequestSchema,
   LocalRpcResponseSchema,
-  LocalAgentMessageRequestSchema,
   AgentMessageResponseSchema,
   LocalInboxRequestSchema,
   InboxResponseSchema,
@@ -23,7 +22,6 @@ import {
   UsageScanResponseSchema,
   DaemonHoldRequestSchema,
   DaemonHoldResponseSchema,
-  MentionSelectorSchema,
 } from "./gen/coforge/rpc/v1/local_rpc_pb";
 
 export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
@@ -40,7 +38,6 @@ export const LOCAL_RPC_METHODS = {
   UPGRADE_ACKNOWLEDGE: "daemon:upgrade_ack",
   HOLD: "daemon:hold",
   RELEASE: "daemon:release",
-  AGENT_MESSAGE: "agent:message",
   AGENT_INBOX: "agent:inbox",
   USAGE_SCAN: "usage:scan",
 } as const;
@@ -319,66 +316,6 @@ export type MessageAttentionSummary = {
   latestSender?: string;
   flags: string[];
 };
-export function encodeLocalAgentMessageRequest(value: LocalAgentMessageRequest): Uint8Array {
-  if (
-    value.freshnessContextMode !== undefined &&
-    value.freshnessContextMode !== "inline" &&
-    value.freshnessContextMode !== "withheld"
-  )
-    throw new Error("invalid Agent message freshness context mode");
-  if (value.mentions?.some((mention) => mention.type !== "user" && mention.type !== "agent"))
-    throw new Error("invalid Agent message mention type");
-  return toBinary(
-    LocalAgentMessageRequestSchema,
-    create(LocalAgentMessageRequestSchema, {
-      ...value,
-      mentions: value.mentions?.map((mention) => create(MentionSelectorSchema, mention)),
-    }),
-  );
-}
-export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMessageRequest {
-  const v = fromBinary(LocalAgentMessageRequestSchema, bytes);
-  if (
-    v.freshnessContextMode &&
-    v.freshnessContextMode !== "inline" &&
-    v.freshnessContextMode !== "withheld"
-  )
-    throw new Error("invalid Agent message freshness context mode");
-  if (v.mentions.some((mention) => mention.type !== "user" && mention.type !== "agent"))
-    throw new Error("invalid Agent message mention type");
-  return {
-    requestId: v.requestId,
-    context: v.context,
-    operation: v.operation as LocalAgentMessageRequest["operation"],
-    target: v.target || undefined,
-    body: v.body || undefined,
-    sendDraft: v.sendDraft || undefined,
-    continueAnyway: v.continueAnyway || undefined,
-    before: v.before || undefined,
-    after: v.after || undefined,
-    around: v.around || undefined,
-    limit: v.limit || undefined,
-    query: v.query || undefined,
-    sender: v.sender || undefined,
-    sort: (v.sort || undefined) as LocalAgentMessageRequest["sort"],
-    offset: v.offset || undefined,
-    freshnessContextMode: (v.freshnessContextMode || undefined) as
-      | "inline"
-      | "withheld"
-      | undefined,
-    messageId: v.messageId || undefined,
-    emoji: v.emoji || undefined,
-    attachmentIds: v.attachmentIds.length ? [...v.attachmentIds] : undefined,
-    mentions: v.mentions.length
-      ? v.mentions.map((mention) => ({
-          type: mention.type as LocalMentionSelector["type"],
-          id: mention.id,
-          name: mention.name,
-        }))
-      : undefined,
-    targetConfirmed: v.targetConfirmed || undefined,
-  };
-}
 function encodeAgentMessageRecords(records: readonly AgentMessageRecord[]) {
   return records.map((m) => ({
     ...m,

@@ -12,43 +12,6 @@ message LocalRpcResponse {
   bytes payload = 2;
 }
 
-message LocalAgentMessageRequest {
-  string request_id = 1;
-  string context = 2;
-  string operation = 3;
-  string target = 4;
-  string body = 5;
-  bool continue_anyway = 6;
-  bool send_draft = 7;
-  string before = 8;
-  string after = 9;
-  string around = 10;
-  uint32 limit = 11;
-  string query = 12;
-  string sender = 13;
-  string sort = 14;
-  uint32 offset = 15;
-  string freshness_context_mode = 16;
-  string message_id = 17;
-  string emoji = 18;
-  // `message send` only: attachments already uploaded to this conversation, in send order.
-  repeated string attachment_ids = 19;
-  // `message send` only: structured @mention bindings; replaces the draft's saved
-  // mentions on `--send-draft` when non-empty.
-  repeated MentionSelector mentions = 20;
-  // `message send` only: confirms a top-level send despite newer thread read context
-  // under the same parent. Never leaves the daemon.
-  bool target_confirmed = 21;
-}
-
-// One structured @mention binding: a handle claimed to name a specific actor.
-message MentionSelector {
-  // "user" or "agent".
-  string type = 1;
-  string id = 2;
-  string name = 3;
-}
-
 message AgentMessageRecord {
   string id = 1;
   uint64 sequence = 2;

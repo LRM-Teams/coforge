@@ -9,8 +9,6 @@ import {
   encodeAgentMessageDelivery,
   encodeAgentMessageResponse,
   validateAgentMessageRequest,
-  decodeLocalAgentMessageRequest,
-  encodeLocalAgentMessageRequest,
   isChannelMessageTarget,
 } from "./index";
 
@@ -27,31 +25,19 @@ test("accepts the targetless events-drain check operation", () => {
   expect(validateAgentMessageRequest(request)).toBe(request);
 });
 
-test.each(["mute", "unmute"] as const)(
-  "accepts Agent channel %s and round-trips the local envelope",
-  (operation) => {
-    const request = {
-      protocolMajor: 1,
-      requestId: "request-mute",
-      workspaceId: "workspace-a",
-      agentId: "agent-a",
-      operation,
-      target: "#general",
-    };
-    expect(validateAgentMessageRequest(request)).toBe(request);
-    const local = {
-      requestId: "request-mute",
-      context: "context-a",
-      operation,
-      target: "#general",
-    };
-    expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(local))).toMatchObject(
-      local,
-    );
-  },
-);
+test.each(["mute", "unmute"] as const)("accepts Agent channel %s", (operation) => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-mute",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation,
+    target: "#general",
+  };
+  expect(validateAgentMessageRequest(request)).toBe(request);
+});
 
-test("accepts Agent channel thread unfollow and round-trips the local envelope", () => {
+test("accepts Agent channel thread unfollow", () => {
   const request = {
     protocolMajor: 1,
     requestId: "request-unfollow",
@@ -61,18 +47,9 @@ test("accepts Agent channel thread unfollow and round-trips the local envelope",
     target: "#general:12345678-1234-4234-8234-123456789abc",
   };
   expect(validateAgentMessageRequest(request)).toBe(request);
-  const local = {
-    requestId: "request-unfollow",
-    context: "context-a",
-    operation: "thread-unfollow" as const,
-    target: "#general:12345678",
-  };
-  expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(local))).toMatchObject(
-    local,
-  );
 });
 
-test("accepts Agent message resolve and round-trips the local envelope", () => {
+test("accepts Agent message resolve", () => {
   const request = {
     protocolMajor: 1,
     requestId: "request-resolve",
@@ -83,43 +60,21 @@ test("accepts Agent message resolve and round-trips the local envelope", () => {
     messageId: "12345678",
   };
   expect(validateAgentMessageRequest(request)).toBe(request);
-  const local = {
-    requestId: "request-resolve",
-    context: "context-a",
-    operation: "resolve" as const,
-    messageId: "12345678",
-  };
-  expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(local))).toMatchObject(
-    local,
-  );
 });
 
-test.each(["react", "unreact"] as const)(
-  "accepts Agent message %s and round-trips the local envelope",
-  (operation) => {
-    const request = {
-      protocolMajor: 1,
-      requestId: "request-react",
-      workspaceId: "workspace-a",
-      agentId: "agent-a",
-      operation,
-      target: "",
-      messageId: "12345678-1234-4234-8234-123456789abc",
-      emoji: "👍",
-    };
-    expect(validateAgentMessageRequest(request)).toBe(request);
-    const local = {
-      requestId: "request-react",
-      context: "context-a",
-      operation,
-      messageId: "12345678-1234-4234-8234-123456789abc",
-      emoji: "👍",
-    };
-    expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(local))).toMatchObject(
-      local,
-    );
-  },
-);
+test.each(["react", "unreact"] as const)("accepts Agent message %s", (operation) => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-react",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation,
+    target: "",
+    messageId: "12345678-1234-4234-8234-123456789abc",
+    emoji: "👍",
+  };
+  expect(validateAgentMessageRequest(request)).toBe(request);
+});
 
 test("rejects a cloud react request without an emoji", () => {
   const request = {
@@ -278,16 +233,7 @@ test("round-trips daemon-local message attention summaries", () => {
   expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
 });
 
-test("round-trips Agent Inbox freshness request and held response", () => {
-  const request = {
-    requestId: "retry",
-    context: "context",
-    operation: "send" as const,
-    target: "@ada",
-    body: "reply",
-    continueAnyway: true,
-  };
-  expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(request))).toEqual(request);
+test("round-trips an Agent Inbox held response", () => {
   const response = {
     requestId: "held",
     accepted: false,

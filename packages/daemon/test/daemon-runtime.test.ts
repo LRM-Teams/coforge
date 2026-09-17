@@ -2095,6 +2095,44 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("workspace info without a valid Agent API key is the AGENT_API_KEY_MISSING precondition", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let forwarded = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          requestAgentApiKey: async () => `sk_agent_${"a".repeat(43)}`,
+          async workspaceInfo() {
+            forwarded += 1;
+            return {} as never;
+          },
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    const context = runtime.issueAgentContext("agent-a");
+
+    const rejected = await runtime
+      .workspaceInfo(context, { requestId: "r", protocolMajor: 1 }, "not-an-agent-key")
+      .catch((error: unknown) => error);
+
+    expect(rejected).toBeInstanceOf(AgentPreflightError);
+    expect((rejected as AgentPreflightError).code).toBe("AGENT_API_KEY_MISSING");
+    expect(forwarded).toBe(0);
+    await runtime.stop();
+  });
+
   test("message check drains multiple event pages, stops when hasMore is false, and clears attention only for returned targets", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -4688,11 +4726,15 @@ describe("DaemonRuntime", () => {
     expect(proxyRevokes).toEqual(["proxy-token"]);
     await expect(runtime.startAgent("agent-b", config)).rejects.toThrow("not running");
     await expect(
-      runtime.agentMessage("proxy-token", {
-        requestId: "r",
-        operation: "check",
-        context: "proxy-token",
-      }),
+      runtime.agentMessage(
+        "proxy-token",
+        {
+          requestId: "r",
+          operation: "check",
+          context: "proxy-token",
+        },
+        `sk_agent_${"a".repeat(43)}`,
+      ),
     ).rejects.toThrow("not running");
     releaseStop();
     // Revoke stays best-effort at shutdown too (docs/adr/0033): the failed revoke above never

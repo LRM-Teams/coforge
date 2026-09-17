@@ -225,6 +225,33 @@ test("proxy registration rejects Local Proxy tokens as Agent API keys", () => {
   );
 });
 
+test("proxy forwards workspace info with the token-bound Agent API key", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      workspaceInfo: async (context, request, agentApiKey) => {
+        calls.push({ context, protocolMajor: request.protocolMajor, agentApiKey });
+        return { requestId: request.requestId, protocolMajor: 1 } as never;
+      },
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  const response = await fetch(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.workspace.path),
+    {
+      method: agentApiRoutes.proxy.workspace.method,
+      headers: { authorization: `Bearer ${token}` },
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(calls).toEqual([{ context: "agent-a", protocolMajor: 1, agentApiKey }]);
+});
+
 test("proxy forwards validated GitHub credential requests without caching", async () => {
   const calls: unknown[] = [];
   const proxy = startAgentProxy({
@@ -1026,6 +1053,230 @@ test("a local precondition failure (missing API key, no held draft, ...) is a cl
   });
 });
 
+test("every route forwards the token-bound context and Agent API key to its runtime handler", async () => {
+  const calls: Record<string, { context: string; agentApiKey?: string }> = {};
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async (context, _request, agentApiKey) => {
+        calls.messages = { context, agentApiKey };
+        return {};
+      },
+      agentAttachment: async (context, _attachmentId, agentApiKey) => {
+        calls.attachmentDownload = { context, agentApiKey };
+        return new Response("file contents", { headers: { "content-type": "text/plain" } });
+      },
+      agentAttachmentUpload: async (context, _request, agentApiKey) => {
+        calls.attachmentUpload = { context, agentApiKey };
+        return Response.json({ id: "attachment-1" });
+      },
+      agentAttachmentUploadSessionCreate: async (context, _body, agentApiKey) => {
+        calls.sessionCreate = { context, agentApiKey };
+        return Response.json({ uploadId: "upload-1" });
+      },
+      agentAttachmentUploadSessionComplete: async (context, _uploadId, agentApiKey) => {
+        calls.sessionComplete = { context, agentApiKey };
+        return Response.json({ uploadId: "upload-1", state: "completed" });
+      },
+      agentAttachmentUploadSessionGet: async (context, _uploadId, agentApiKey) => {
+        calls.sessionGet = { context, agentApiKey };
+        return Response.json({ uploadId: "upload-1", state: "pending" });
+      },
+      agentAttachmentUploadSessionCancel: async (context, _uploadId, agentApiKey) => {
+        calls.sessionCancel = { context, agentApiKey };
+        return Response.json({ uploadId: "upload-1", state: "canceled" });
+      },
+      reminder: async (context, _request, agentApiKey) => {
+        calls.reminders = { context, agentApiKey };
+        return {};
+      },
+      agentTask: async (context, _request, agentApiKey) => {
+        calls.tasks = { context, agentApiKey };
+        return {};
+      },
+      agentChannel: async (context, _request, agentApiKey) => {
+        calls.channels = { context, agentApiKey };
+        return {};
+      },
+      agentActionPrepare: async (context, _request, agentApiKey) => {
+        calls.actionPrepare = { context, agentApiKey };
+        return {} as never;
+      },
+      agentWeeklyReport: async (context, _request, agentApiKey) => {
+        calls.weeklyReports = { context, agentApiKey };
+        return {};
+      },
+      workspaceInfo: async (context, request, agentApiKey) => {
+        calls.workspace = { context, agentApiKey };
+        return { requestId: request.requestId, protocolMajor: 1 } as never;
+      },
+      githubCredential: async (context, _request, agentApiKey) => {
+        calls.githubCredentials = { context, agentApiKey };
+        return {} as never;
+      },
+      manualGet: async (context, _request, agentApiKey) => {
+        calls.manualGet = { context, agentApiKey };
+        return {} as never;
+      },
+      manualSearch: async (context, _request, agentApiKey) => {
+        calls.manualSearch = { context, agentApiKey };
+        return {} as never;
+      },
+      inbox: async (context) => {
+        calls.inbox = { context };
+        return {};
+      },
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  const auth = { authorization: `Bearer ${token}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const at = (path: string) => proxy.url.replace(agentApiRoutes.proxy.messages.path, path);
+
+  const responses = await Promise.all([
+    fetch(proxy.url, {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({ requestId: "r-messages", operation: "check" }),
+    }),
+    fetch(at(agentApiRoutes.proxy.workspace.path), {
+      method: agentApiRoutes.proxy.workspace.method,
+      headers: auth,
+    }),
+    fetch(at(agentApiRoutes.local.attachments.path("attachment-1")), { headers: auth }),
+    fetch(at(agentApiRoutes.local.attachments.upload.path), {
+      method: "POST",
+      headers: {
+        ...auth,
+        "content-type": "multipart/form-data; boundary=b",
+        "content-length": "1",
+      },
+      body: new Uint8Array([1]),
+    }),
+    fetch(at(agentApiRoutes.local.attachmentUploadSessions.create.path), {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({}),
+    }),
+    fetch(`${at(agentApiRoutes.local.attachmentUploadSessions.get.path("upload-1"))}/complete`, {
+      method: "POST",
+      headers: auth,
+    }),
+    fetch(at(agentApiRoutes.local.attachmentUploadSessions.get.path("upload-1")), {
+      headers: auth,
+    }),
+    fetch(at(agentApiRoutes.local.attachmentUploadSessions.get.path("upload-1")), {
+      method: "DELETE",
+      headers: auth,
+    }),
+    fetch(at(agentApiRoutes.proxy.reminders.path), {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({ requestId: "r-1", operation: "list" }),
+    }),
+    fetch(at(agentApiRoutes.proxy.tasks.path), {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({ requestId: "r-1", operation: "list", target: "#general" }),
+    }),
+    fetch(at(agentApiRoutes.proxy.channels.path), {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({ requestId: "r-1", operation: "info", target: "#general" }),
+    }),
+    fetch(at(agentApiRoutes.proxy.actionPrepare.path), {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({
+        target: "#general",
+        action: { type: "channel:create", name: "general" },
+      }),
+    }),
+    fetch(at(agentApiRoutes.proxy.weeklyReports.path), {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({ operation: "list" }),
+    }),
+    fetch(at(agentApiRoutes.proxy.githubCredentials.path), {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({}),
+    }),
+    fetch(at(agentApiRoutes.proxy.inbox.path), {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({ requestId: "r-1", operation: "check" }),
+    }),
+    fetch(`${at(agentApiRoutes.proxy.manual.get.path)}?topic=tasks&intent=i&reason=r`, {
+      headers: auth,
+    }),
+    fetch(`${at(agentApiRoutes.proxy.manual.search.path)}?query=tasks&intent=i&reason=r`, {
+      headers: auth,
+    }),
+  ]);
+  for (const response of responses) expect(response.status).toBeLessThan(300);
+
+  const withKey = [
+    "messages",
+    "workspace",
+    "attachmentDownload",
+    "attachmentUpload",
+    "sessionCreate",
+    "sessionComplete",
+    "sessionGet",
+    "sessionCancel",
+    "reminders",
+    "tasks",
+    "channels",
+    "actionPrepare",
+    "weeklyReports",
+    "githubCredentials",
+    "manualGet",
+    "manualSearch",
+  ];
+  for (const route of withKey)
+    expect(calls[route], `route: ${route}`).toEqual({ context: "agent-a", agentApiKey });
+  // `inbox` takes no Agent API key; it must receive only the token-bound context.
+  expect(calls.inbox).toEqual({ context: "agent-a" });
+});
+
+test("proxy 404s an attachment download when the runtime has no handler", async () => {
+  const proxy = startAgentProxy({ runtime: { agentMessage: async () => ({}) } });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.local.attachments.path("attachment-1"),
+    ),
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  expect(response.status).toBe(404);
+  expect(await response.text()).toBe("not found");
+});
+
+test("a runtime SyntaxError is classified, not treated as a bare body-parsing 400", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        throw new SyntaxError("x");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(proxy.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ requestId: "request-1", operation: "check" }),
+  });
+  expect(response.status).toBe(502);
+  const body = (await response.json()) as AgentProxyFailureBody;
+  expect(body.code).toBe("agent_proxy_failed");
+});
+
 test("the incident: an upstream 200 whose body cannot be trusted is a protocol-mismatch failure, not a bare 502", async () => {
   const proxy = startAgentProxy({
     runtime: {
@@ -1057,4 +1308,48 @@ test("the incident: an upstream 200 whose body cannot be trusted is a protocol-m
   expect(body.proxy.response_complete).toBe(true);
   expect(body.proxy.route_family).toBe("agent-api/send");
   expect(body.detail).toContain("response state is not one of");
+});
+
+test("an unknown method under the upload-session prefix is 404 before the token is checked", async () => {
+  const proxy = startAgentProxy({
+    runtime: { issueAgentContext: (agentId) => agentId, agentMessage: async () => ({}) },
+  });
+  proxies.push(proxy);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.local.attachmentUploadSessions.get.path("upload-1"),
+    ),
+    { method: "PUT" },
+  );
+  expect(response.status).toBe(404);
+});
+
+test("a GitHub credential failure is classified under its own route family", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      githubCredential: async () => {
+        throw new Error("GitHub credential endpoint is not configured");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.githubCredentials.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+  expect(response.status).toBe(502);
+  const body = (await response.json()) as { code: string; proxy: { route_family: string } };
+  expect(body.code).toBe("agent_proxy_failed");
+  expect(body.proxy.route_family).toBe("agent-api/github-credential");
 });

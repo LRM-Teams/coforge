@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { LocalInboxRequest } from "@lrm/coforge-sdk/internal";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
-import { startAgentProxy } from "./src/agent-proxy";
+import { startAgentProxy, type AgentProxyRuntime } from "./src/agent-proxy";
 import { createCodeAgentProvider } from "./src/code-agent/registry";
 import {
   DaemonRuntime,
@@ -173,7 +173,9 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           agentAttachmentUploadSessionGet: async (...input) =>
             requireRuntime().agentAttachmentUploadSessionGet(...input),
           inbox: async (...input) => requireRuntime().inbox(...input),
+          reminder: async (...input) => requireRuntime().reminder(...input),
           agentTask: async (...input) => requireRuntime().agentTask(...input),
+          agentChannel: async (...input) => requireRuntime().agentChannel(...input),
           agentActionPrepare: async (...input) => requireRuntime().agentActionPrepare(...input),
           agentWeeklyReport: async (...input) => requireRuntime().agentWeeklyReport(...input),
           workspaceInfo: async (...input) => requireRuntime().workspaceInfo(...input),
@@ -181,7 +183,9 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           manualGet: async (...input) => requireRuntime().manualGet(...input),
           manualSearch: async (...input) => requireRuntime().manualSearch(...input),
           issueAgentContext: (agentId) => requireRuntime().issueAgentContext(agentId),
-        },
+          // Every proxy route must reach the runtime here: an unwired handler is a 404 for the
+          // Agent's CLI, so a new `AgentProxyRuntime` member fails to compile until it is added.
+        } satisfies Required<AgentProxyRuntime>,
       });
       process.env.COFORGE_AGENT_PROXY_URL = agentProxy.url;
       let config = await configStore.load();

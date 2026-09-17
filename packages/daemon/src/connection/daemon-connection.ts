@@ -319,16 +319,16 @@ type HttpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<
 export interface DaemonConnectionClient {
   workspaceInfo?(
     request: WorkspaceInfoRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<WorkspaceInfoResponse>;
   githubCredential?(
     request: GitHubCredentialRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<GitHubCredentialResponse>;
-  manualGet?(request: AgentManualGetRequest, agentApiKey?: string): Promise<AgentManualGetResponse>;
+  manualGet?(request: AgentManualGetRequest, agentApiKey: string): Promise<AgentManualGetResponse>;
   manualSearch?(
     request: AgentManualSearchRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentManualSearchResponse>;
   onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
   sendAgentControlResult?(result: AgentControlResult): Promise<void>;
@@ -362,27 +362,27 @@ export interface DaemonConnectionClient {
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
   agentMessage?(
     request: AgentMessageRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentMessageTransportResponse>;
-  agentTask?(request: TaskRequest, agentApiKey?: string): Promise<TaskResponse>;
+  agentTask?(request: TaskRequest, agentApiKey: string): Promise<TaskResponse>;
   agentChannel?(
     request: AgentChannelRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Record<string, unknown>>;
   agentActionPrepare?(
     request: AgentActionPrepareRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentActionPrepareResponse>;
   agentWeeklyReport?(
     request: WeeklyReportRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<WeeklyReportResponse>;
-  agentAttachment?(attachmentId: string, agentApiKey?: string): Promise<Response>;
-  agentAttachmentUpload?(request: Request, agentApiKey?: string): Promise<Response>;
-  agentAttachmentUploadSessionCreate?(body: unknown, agentApiKey?: string): Promise<Response>;
-  agentAttachmentUploadSessionComplete?(uploadId: string, agentApiKey?: string): Promise<Response>;
-  agentAttachmentUploadSessionCancel?(uploadId: string, agentApiKey?: string): Promise<Response>;
-  agentAttachmentUploadSessionGet?(uploadId: string, agentApiKey?: string): Promise<Response>;
+  agentAttachment?(attachmentId: string, agentApiKey: string): Promise<Response>;
+  agentAttachmentUpload?(request: Request, agentApiKey: string): Promise<Response>;
+  agentAttachmentUploadSessionCreate?(body: unknown, agentApiKey: string): Promise<Response>;
+  agentAttachmentUploadSessionComplete?(uploadId: string, agentApiKey: string): Promise<Response>;
+  agentAttachmentUploadSessionCancel?(uploadId: string, agentApiKey: string): Promise<Response>;
+  agentAttachmentUploadSessionGet?(uploadId: string, agentApiKey: string): Promise<Response>;
   requestAgentApiKey?(input: { agentId: string; workspaceId: string }): Promise<string>;
   requestAgentLaunchConfig?(input: {
     agentId: string;
@@ -1261,14 +1261,14 @@ export class DaemonConnection implements DaemonConnectionClient {
     await this.#rpc(AGENT_MESSAGE_ACK_METHOD, encodeAgentMessageDeliveryAck(ack));
   }
 
-  /** Credentials for one Agent-scoped HTTP call; the daemon key stands in when no Agent key is given. */
-  #agentKeys(agentApiKey: string | undefined) {
-    return { agentApiKey: agentApiKey ?? this.#token, daemonApiKey: this.#token };
+  /** Credentials for one Agent-scoped HTTP call: the Agent's own key plus the daemon key. */
+  #agentKeys(agentApiKey: string) {
+    return { agentApiKey, daemonApiKey: this.#token };
   }
 
   async agentMessage(
     request: AgentMessageRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentMessageTransportResponse> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     const {
@@ -1394,7 +1394,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async workspaceInfo(
     request: WorkspaceInfoRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<WorkspaceInfoResponse> {
     if (!this.#connected || !this.#serverHttpUrl)
       throw new Error("Agent workspace_info HTTP endpoint is not configured");
@@ -1407,7 +1407,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     });
   }
 
-  async githubCredential(request: GitHubCredentialRequest, agentApiKey?: string) {
+  async githubCredential(request: GitHubCredentialRequest, agentApiKey: string) {
     if (!this.#connected || !this.#serverHttpUrl)
       throw new Error("GitHub credential endpoint is not configured");
     if (!this.agentMessageHttpClient.requestGitHubCredential)
@@ -1421,7 +1421,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async manualGet(
     request: AgentManualGetRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentManualGetResponse> {
     if (!this.#connected || !this.#serverHttpUrl)
       throw new Error("Agent Manual endpoint is not configured");
@@ -1436,7 +1436,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async manualSearch(
     request: AgentManualSearchRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentManualSearchResponse> {
     if (!this.#connected || !this.#serverHttpUrl)
       throw new Error("Agent Manual endpoint is not configured");
@@ -1482,7 +1482,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     return decodeReminderSync(rpcData(reply));
   }
 
-  async agentTask(request: TaskRequest, agentApiKey?: string): Promise<TaskResponse> {
+  async agentTask(request: TaskRequest, agentApiKey: string): Promise<TaskResponse> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return this.agentTaskHttpClient.execute({
       url: this.#serverEndpoint("Agent Task HTTP", agentApiRoutes.cloud.tasks.path),
@@ -1493,7 +1493,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async agentChannel(
     request: AgentChannelRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Record<string, unknown>> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     const endpoint = channelEndpointFor(request.operation, request.target);
@@ -1507,7 +1507,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async agentActionPrepare(
     request: AgentActionPrepareRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentActionPrepareResponse> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return this.agentActionPrepareHttpClient.execute({
@@ -1522,7 +1522,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async agentWeeklyReport(
     request: WeeklyReportRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<WeeklyReportResponse> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return this.agentWeeklyReportHttpClient.request({
@@ -1535,7 +1535,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     });
   }
 
-  async agentAttachment(attachmentId: string, agentApiKey?: string): Promise<Response> {
+  async agentAttachment(attachmentId: string, agentApiKey: string): Promise<Response> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return fetch(
       this.#serverEndpoint("Agent attachment", agentApiRoutes.cloud.attachments.path(attachmentId)),
@@ -1550,7 +1550,7 @@ export class DaemonConnection implements DaemonConnectionClient {
    * `fetch` body. The original request's `content-type` (its multipart boundary) is forwarded
    * unchanged; only the Agent-scoped authorization headers are added.
    */
-  async agentAttachmentUpload(request: Request, agentApiKey?: string): Promise<Response> {
+  async agentAttachmentUpload(request: Request, agentApiKey: string): Promise<Response> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     const contentType = request.headers.get("content-type");
     if (!contentType) throw new Error("multipart content-type is missing");
@@ -1570,7 +1570,7 @@ export class DaemonConnection implements DaemonConnectionClient {
    * above; each simply forwards its body (if any) to the matching cloud route with the same
    * Agent-scoped headers `agentAttachment`/`agentAttachmentUpload` already add.
    */
-  async agentAttachmentUploadSessionCreate(body: unknown, agentApiKey?: string): Promise<Response> {
+  async agentAttachmentUploadSessionCreate(body: unknown, agentApiKey: string): Promise<Response> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return fetch(
       this.#serverEndpoint(
@@ -1587,7 +1587,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async agentAttachmentUploadSessionComplete(
     uploadId: string,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Response> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return fetch(
@@ -1604,7 +1604,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async agentAttachmentUploadSessionCancel(
     uploadId: string,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Response> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return fetch(
@@ -1619,7 +1619,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     );
   }
 
-  async agentAttachmentUploadSessionGet(uploadId: string, agentApiKey?: string): Promise<Response> {
+  async agentAttachmentUploadSessionGet(uploadId: string, agentApiKey: string): Promise<Response> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return fetch(
       this.#serverEndpoint(

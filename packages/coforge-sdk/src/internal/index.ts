@@ -520,8 +520,6 @@ export {
   decodeDaemonCommandRequest,
   encodeDaemonCommandResponse,
   decodeDaemonCommandResponse,
-  encodeLocalAgentMessageRequest,
-  decodeLocalAgentMessageRequest,
   encodeAgentMessageResponse,
   decodeAgentMessageResponse,
   encodeLocalInboxRequest,
