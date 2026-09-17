@@ -492,8 +492,16 @@ export class ActionCards {
     workspaceId: string,
     actorUserId: string,
     messageId: string,
+    computerId: string,
   ): Promise<void> {
     await this.loadPendingCard(workspaceId, actorUserId, messageId, "agent:create");
+    // `requiredComputer` is a placement contract, not a UI hint: never fall back to another Computer.
+    const card = await this.db.actionCard.findUniqueOrThrow({
+      where: { messageId },
+      select: { payload: true },
+    });
+    const required = (card.payload as { requiredComputerId?: string }).requiredComputerId;
+    if (required && required !== computerId) throw new AppError("INVALID_INPUT");
   }
 
   async completeAgentCreate(

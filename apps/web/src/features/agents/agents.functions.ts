@@ -249,6 +249,7 @@ export const createAgent = createServerFn({ method: "POST" })
         workspaceId,
         user.id,
         data.actionCardMessageId,
+        data.computerId,
       );
     const created = await manageAgents(db).create({ userId: user.id, workspaceId, role }, data);
     if (data.actionCardMessageId)

@@ -480,14 +480,31 @@ test("agent:create guard/mark: pending precheck, workspace scoping, and marking 
   try {
     const prepared = await ctx.actionCards.prepare(ctx.principal, {
       target: `#${ctx.hub.channelName}`,
-      action: { type: "agent:create", name: `newagent-${ctx.suffix}` },
+      action: {
+        type: "agent:create",
+        name: `newagent-${ctx.suffix}`,
+        requiredComputer: ctx.computer.name,
+      },
     });
 
-    // Guard passes while pending and the viewer can read the conversation.
+    // Guard passes while pending, the viewer can read the conversation, and the required Computer
+    // is the one being used.
     await ctx.actionCards.assertAgentCreateCommittable(
       ctx.workspace.id,
       ctx.alice.id,
       prepared.messageId,
+      ctx.computer.id,
+    );
+
+    // `requiredComputer` is a placement contract: another Computer is rejected server-side.
+    await expectAppErrorCode(
+      ctx.actionCards.assertAgentCreateCommittable(
+        ctx.workspace.id,
+        ctx.alice.id,
+        prepared.messageId,
+        crypto.randomUUID(),
+      ),
+      "INVALID_INPUT",
     );
 
     // A viewer who cannot read the conversation (not a Workspace member of this Workspace) is
@@ -499,6 +516,7 @@ test("agent:create guard/mark: pending precheck, workspace scoping, and marking 
           ctx.workspace.id,
           stranger.id,
           prepared.messageId,
+          ctx.computer.id,
         ),
         "ACCESS_DENIED",
       );
@@ -537,6 +555,7 @@ test("agent:create guard/mark: pending precheck, workspace scoping, and marking 
         ctx.workspace.id,
         ctx.alice.id,
         prepared.messageId,
+        ctx.computer.id,
       ),
       "CONFLICT",
     );
