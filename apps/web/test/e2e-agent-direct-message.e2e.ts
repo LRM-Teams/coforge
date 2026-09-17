@@ -350,7 +350,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       senderMemberId: opened.senderMemberId,
       senderUserId: DEV_BROWSER_USER.id,
       body: "E2E User message",
-      attachmentId: attachment.id,
+      attachmentIds: [attachment.id],
     };
     const first = await sender.execute(input);
     const retried = await sender.execute(input);

@@ -21,7 +21,7 @@ test("models a message send request without internal transport fields", () => {
   expect(request).toEqual({ target: "#general", body: "hello", sendDraft: false });
 });
 
-test("models the read route's own response shape, including the attachment and Task metadata", () => {
+test("models the read route's own response shape, including multiple attachments and Task metadata", () => {
   const response: AgentHistoryResponse = {
     protocolMajor: 1,
     requestId: "request-1",
@@ -33,12 +33,20 @@ test("models the read route's own response shape, including the attachment and T
         target: "#general",
         body: "hello",
         createdAt: "2026-09-15T00:00:00.000Z",
-        attachment: {
-          id: "attachment-1",
-          fileName: "notes.txt",
-          contentType: "text/plain",
-          sizeBytes: 5,
-        },
+        attachments: [
+          {
+            id: "attachment-1",
+            fileName: "notes.txt",
+            contentType: "text/plain",
+            sizeBytes: 5,
+          },
+          {
+            id: "attachment-2",
+            fileName: "diagram.png",
+            contentType: "image/png",
+            sizeBytes: 10,
+          },
+        ],
         task: {
           number: 42,
           status: "in_progress",
@@ -49,7 +57,8 @@ test("models the read route's own response shape, including the attachment and T
     hasOlder: false,
     hasNewer: false,
   };
-  expect(response.messages[0]?.attachment?.contentType).toBe("text/plain");
+  expect(response.messages[0]?.attachments).toHaveLength(2);
+  expect(response.messages[0]?.attachments[0]?.contentType).toBe("text/plain");
   expect(response.messages[0]?.task?.status).toBe("in_progress");
 });
 
@@ -76,6 +85,7 @@ test("models the send route's state discriminant and held context", () => {
         target: "#general",
         body: "newer",
         createdAt: "2026-09-15T00:00:01.000Z",
+        attachments: [],
       },
     ],
   };
@@ -105,6 +115,7 @@ test("models the resolve route's own response shape", () => {
       target: "#general",
       body: "resolved",
       createdAt: "2026-09-15T00:00:02.000Z",
+      attachments: [],
     },
   };
   expect(response.message.id).toBe("message-4");

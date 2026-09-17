@@ -540,8 +540,9 @@ export function startAgentProxy(input: {
               !MESSAGE_ID_ANCHOR.test(payload.messageId))) ||
           (["react", "unreact"].includes(payload.operation as string) &&
             (typeof payload.emoji !== "string" || !isValidReactionEmoji(payload.emoji))) ||
-          (payload.attachmentId !== undefined &&
-            (typeof payload.attachmentId !== "string" || !UUID.test(payload.attachmentId))) ||
+          (payload.attachmentIds !== undefined &&
+            (!Array.isArray(payload.attachmentIds) ||
+              payload.attachmentIds.some((id) => typeof id !== "string" || !UUID.test(id)))) ||
           (payload.targetConfirmed !== undefined && typeof payload.targetConfirmed !== "boolean") ||
           (payload.mentions !== undefined && !isValidMentionSelectorArray(payload.mentions))
         )
@@ -571,8 +572,9 @@ export function startAgentProxy(input: {
                 : undefined,
             messageId: typeof payload.messageId === "string" ? payload.messageId : undefined,
             emoji: typeof payload.emoji === "string" ? payload.emoji : undefined,
-            attachmentId:
-              typeof payload.attachmentId === "string" ? payload.attachmentId : undefined,
+            attachmentIds: Array.isArray(payload.attachmentIds)
+              ? (payload.attachmentIds as string[])
+              : undefined,
             mentions: Array.isArray(payload.mentions)
               ? (payload.mentions as LocalAgentMessageRequest["mentions"])
               : undefined,

@@ -45,7 +45,7 @@ export class SendDirectMessage {
     senderMemberId: string;
     senderUserId: string;
     body: string;
-    attachmentId?: string;
+    attachmentIds?: string[];
     threadRootId?: string;
   }) {
     if (!input.requestId || !input.body) throw new Error("invalid direct message");
@@ -62,7 +62,7 @@ export class SendDirectMessage {
           input.senderMemberId,
           input.senderUserId,
           input.body,
-          input.attachmentId,
+          input.attachmentIds,
           input.threadRootId,
         ),
     );
@@ -81,7 +81,7 @@ export class SendDirectMessage {
     agentId: string;
     target: string;
     body: string;
-    attachmentId?: string;
+    attachmentIds?: string[];
     mentions?: readonly { type: "user" | "agent"; id: string; name: string }[];
   }) {
     if (
@@ -114,7 +114,7 @@ export class SendDirectMessage {
           conversation.id,
           input.agentId,
           input.body,
-          input.attachmentId,
+          input.attachmentIds,
           input.target.split(":")[1],
           input.mentions,
         );

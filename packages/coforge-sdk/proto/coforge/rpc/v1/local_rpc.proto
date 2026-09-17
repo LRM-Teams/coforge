@@ -31,8 +31,8 @@ message LocalAgentMessageRequest {
   string freshness_context_mode = 16;
   string message_id = 17;
   string emoji = 18;
-  // `message send` only: a single attachment already uploaded to this conversation.
-  string attachment_id = 19;
+  // `message send` only: attachments already uploaded to this conversation, in send order.
+  repeated string attachment_ids = 19;
   // `message send` only: structured @mention bindings; replaces the draft's saved
   // mentions on `--send-draft` when non-empty.
   repeated MentionSelector mentions = 20;
@@ -57,7 +57,7 @@ message AgentMessageRecord {
   string target = 4;
   string body = 5;
   string created_at = 6;
-  LocalAttachmentMetadata attachment = 7;
+  repeated LocalAttachmentMetadata attachments = 7;
   LocalMessageTaskMetadata task = 8;
 }
 

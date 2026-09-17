@@ -58,28 +58,34 @@ test("expires drafts after Raft's ten-minute local draft TTL", async () => {
   expect(await store.load("@ada")).toBeUndefined();
 });
 
-test("saves and loads a draft's attachmentId and mentions", async () => {
+test("saves and loads a draft's attachmentIds and mentions", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
   const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
 
-  await store.save("@ada", "draft reply", "opaque-hold-token", "attachment-1", mentions);
+  await store.save(
+    "@ada",
+    "draft reply",
+    "opaque-hold-token",
+    ["attachment-1", "attachment-2"],
+    mentions,
+  );
 
   expect(await store.load("@ada")).toEqual({
     target: "@ada",
     body: "draft reply",
     holdToken: "opaque-hold-token",
-    attachmentId: "attachment-1",
+    attachmentIds: ["attachment-1", "attachment-2"],
     mentions,
     savedAt: 1_000,
   });
 });
 
-test("loads an older draft file written before attachmentId and mentions existed", async () => {
+test("loads an older draft file written before attachmentIds and mentions existed", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
   // Simulate an older daemon build's on-disk shape by writing the legacy fields directly,
-  // bypassing `save` (which would now also write `attachmentId`/`mentions` when present).
+  // bypassing `save` (which would now also write `attachmentIds`/`mentions` when present).
   const path = join(userDirectory(stateDirectory), "agent-a", "continue-state.json");
   await mkdir(join(userDirectory(stateDirectory), "agent-a"), { recursive: true, mode: 0o700 });
   await Bun.write(

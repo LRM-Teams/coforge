@@ -46,6 +46,7 @@ test("withheld hold response carries state and a count, never message bodies", a
       target: "@ada",
       body: "do not leak this body",
       createdAt: new Date("2026-09-10T00:00:00Z"),
+      attachments: [],
     },
     {
       id: "message-2",
@@ -54,6 +55,7 @@ test("withheld hold response carries state and a count, never message bodies", a
       target: "@ada",
       body: "nor this one",
       createdAt: new Date("2026-09-10T00:01:00Z"),
+      attachments: [],
     },
   ];
   const holds = new Map<string, AgentMessageHold>();
@@ -99,6 +101,7 @@ test("inline hold response still carries the presented message bodies", async ()
       target: "@ada",
       body: "shown inline",
       createdAt: new Date("2026-09-10T00:00:00Z"),
+      attachments: [],
     },
   ];
   const holds = new Map<string, AgentMessageHold>();
@@ -134,18 +137,64 @@ test("inline hold response still carries the presented message bodies", async ()
       target: "@ada",
       body: "shown inline",
       createdAt: "2026-09-10T00:00:00.000Z",
+      attachments: [],
     },
   ]);
 });
 
-test("rejects a non-uuid attachmentId with 400", async () => {
+test("rejects a non-uuid entry in attachmentIds with 400", async () => {
   const result = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "hello", attachmentId: "not-a-uuid" }),
+    request({ target: "@ada", body: "hello", attachmentIds: ["not-a-uuid"] }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
   );
   expect(result.status).toBe(400);
-  expect(await result.json()).toEqual({ error: "invalid attachmentId" });
+  expect(await result.json()).toEqual({ error: "invalid attachmentIds" });
+});
+
+test("rejects attachmentIds with more than 10 entries with 400", async () => {
+  const ids = Array.from(
+    { length: 11 },
+    (_, index) => `11111111-1111-4111-8111-11111111111${index.toString(16)}`,
+  );
+  const result = await handleAgentMessagesPost(
+    request({ target: "@ada", body: "hello", attachmentIds: ids }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
+  );
+  expect(result.status).toBe(400);
+  expect(await result.json()).toEqual({ error: "invalid attachmentIds" });
+});
+
+test("rejects a duplicate id in attachmentIds with 400", async () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const result = await handleAgentMessagesPost(
+    request({ target: "@ada", body: "hello", attachmentIds: [id, id] }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
+  );
+  expect(result.status).toBe(400);
+  expect(await result.json()).toEqual({ error: "invalid attachmentIds" });
+});
+
+test("accepts two distinct attachmentIds and forwards them in order to the sender", async () => {
+  const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
+  let received: unknown;
+  const result = await handleAgentMessagesPost(
+    request({ target: "@ada", body: "hello", attachmentIds: ids }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      repository: {},
+      sender: {
+        executeFromAgent: async (input: { attachmentIds?: string[] }) => {
+          received = input.attachmentIds;
+          return { id: "sent-1" };
+        },
+      },
+    },
+  );
+  expect(result.status).toBe(200);
+  expect(received).toEqual(ids);
 });
 
 test("rejects malformed mentions with 400", async () => {
@@ -163,7 +212,7 @@ test("maps an AgentSendRejectedError from the sender to its own status and messa
     request({
       target: "@ada",
       body: "hello",
-      attachmentId: "11111111-1111-4111-8111-111111111111",
+      attachmentIds: ["11111111-1111-4111-8111-111111111111"],
     }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
@@ -254,6 +303,7 @@ test("a bypassed hold's sent response carries recentUnread; every other response
           target: "@ada",
           body: "missed while held",
           createdAt: new Date("2026-09-10T00:00:00Z"),
+          attachments: [],
         },
       ],
     },
@@ -307,6 +357,7 @@ test("a bypassed hold's sent response carries recentUnread; every other response
       target: "@ada",
       body: "missed while held",
       createdAt: "2026-09-10T00:00:00.000Z",
+      attachments: [],
     },
   ]);
 });

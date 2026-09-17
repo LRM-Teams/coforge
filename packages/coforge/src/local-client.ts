@@ -208,7 +208,7 @@ export function connectLocal(
       offset?: number;
       messageId?: string;
       emoji?: string;
-      attachmentId?: string;
+      attachmentIds?: string[];
       mentions?: MentionSelector[];
       targetConfirmed?: boolean;
     },
@@ -272,7 +272,7 @@ export function connectLocal(
         sendDraft?: boolean;
         continueAnyway?: boolean;
         freshnessContextMode?: "withheld";
-        attachmentId?: string;
+        attachmentIds?: string[];
         mentions?: MentionSelector[];
         targetConfirmed?: boolean;
       },

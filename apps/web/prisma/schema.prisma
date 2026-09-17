@@ -513,7 +513,7 @@ model Message {
   conversation   Conversation           @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   sender         ConversationMember?    @relation(fields: [senderMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
   deliveries     AgentMessageDelivery[]
-  attachment     Attachment?
+  attachments    Attachment[]
   threadRootId   String?                @db.Uuid
   threadRoot     Message?               @relation("MessageThread", fields: [threadRootId, conversationId], references: [id, conversationId], onDelete: Cascade)
   replies        Message[]              @relation("MessageThread")
@@ -662,7 +662,9 @@ model Attachment {
   /// `storeAttachment`/`storeAgentAttachment`, not a DB check constraint (see ADR 0023).
   uploaderId      String?      @db.Uuid
   uploaderAgentId String?      @db.Uuid
-  messageId       String?      @unique @db.Uuid
+  messageId       String?      @db.Uuid
+  /// Stable per-message ordering for multiple attachments; irrelevant while messageId is null.
+  position        Int          @default(0)
   objectKey       String       @unique
   fileName        String
   contentType     String
@@ -677,6 +679,7 @@ model Attachment {
   @@index([conversationId, workspaceId])
   @@index([uploaderId])
   @@index([uploaderAgentId])
+  @@index([messageId, position])
   @@map("attachments")
 }
 

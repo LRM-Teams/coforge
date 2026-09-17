@@ -551,7 +551,7 @@ export const createAgentMessageHttpClient = (
           continueAnyway: request.continueAnyway,
           seenUpToSequence: request.seenUpToSequence,
           freshnessContextMode: request.freshnessContextMode,
-          attachmentId: request.attachmentId,
+          attachmentIds: request.attachmentIds,
           mentions: request.mentions,
         }),
       },

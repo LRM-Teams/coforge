@@ -410,6 +410,7 @@ function messageRecord(
     target,
     body: `body-${sequence}`,
     createdAt: "2026-09-03T00:00:00Z",
+    attachments: [],
   };
 }
 
@@ -1194,6 +1195,7 @@ describe("DaemonRuntime", () => {
                           target: "@ada",
                           body: "old message",
                           createdAt: "2026-09-03T00:00:00Z",
+                          attachments: [],
                         },
                       ]
                     : round === 2
@@ -1205,6 +1207,7 @@ describe("DaemonRuntime", () => {
                             target: "@ada",
                             body: "new message",
                             createdAt: "2026-09-03T00:01:00Z",
+                            attachments: [],
                           },
                         ]
                       : [],
@@ -1314,6 +1317,7 @@ describe("DaemonRuntime", () => {
                       target: "@ada",
                       body: "root",
                       createdAt: "2026-09-03T00:00:00Z",
+                      attachments: [],
                     },
                   ],
                 };
@@ -1805,7 +1809,7 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("forwards attachmentId and mentions on send; --send-draft resend reuses them unless overridden", async () => {
+  test("forwards attachmentIds and mentions on send; --send-draft resend reuses them unless overridden", async () => {
     const sends: AgentMessageRequest[] = [];
     const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
     const harness = await messageHarness(async (request) => {
@@ -1839,12 +1843,15 @@ describe("DaemonRuntime", () => {
           operation: "send",
           target: "@ada",
           body: "first body @ada",
-          attachmentId: "attachment-1",
+          attachmentIds: ["attachment-1", "attachment-2"],
           mentions,
         },
         harness.apiKey,
       );
-      expect(sends[0]).toMatchObject({ attachmentId: "attachment-1", mentions });
+      expect(sends[0]).toMatchObject({
+        attachmentIds: ["attachment-1", "attachment-2"],
+        mentions,
+      });
 
       await harness.runtime.agentMessage(
         harness.context,
@@ -1857,7 +1864,10 @@ describe("DaemonRuntime", () => {
         },
         harness.apiKey,
       );
-      expect(sends[1]).toMatchObject({ attachmentId: "attachment-1", mentions });
+      expect(sends[1]).toMatchObject({
+        attachmentIds: ["attachment-1", "attachment-2"],
+        mentions,
+      });
     } finally {
       await harness.runtime.stop();
     }
@@ -2195,6 +2205,7 @@ describe("DaemonRuntime", () => {
                       target: "@agent",
                       body: "new context",
                       createdAt: "2026-09-03T00:00:00Z",
+                      attachments: [],
                     },
                   ],
                 }

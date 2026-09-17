@@ -7,6 +7,7 @@ import {
 import { PublicChannels } from "../../server/conversations/public-channels.server";
 import { attachActionCardViews } from "../../server/conversations/action-cards.server";
 import { attachmentView } from "../../server/attachments/attachment-view.server";
+import { attachmentIdsSchema } from "./conversation.schemas";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
@@ -162,7 +163,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
     channelInput.extend({
       requestId: z.uuid(),
       body: z.string().trim().min(1).max(8_000),
-      attachmentId: z.uuid().optional(),
+      attachmentIds: attachmentIdsSchema,
       threadRootId: z.uuid().optional(),
     }),
   )
@@ -191,7 +192,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       ),
       body: message.body,
       createdAt: message.createdAt,
-      attachment: message.attachment ? attachmentView(message.attachment) : undefined,
+      attachments: message.attachments.map((attachment) => attachmentView(attachment)),
       reactions: undefined,
       // A human-sent message never carries an action card (those are Agent-authored only).
       actionCard: undefined,

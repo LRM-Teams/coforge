@@ -997,6 +997,7 @@ test("Agent resolve HTTP GET request carries the request id", async () => {
         sender: "@ada",
         body: "hi",
         createdAt: "now",
+        attachments: [],
         target: "@ada",
       },
     });
@@ -1344,6 +1345,7 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
       target: "@ada",
       body: "hi",
       createdAt: "2026-09-16T00:00:00.000Z",
+      attachments: [],
     },
   };
   const reactionResponse = {
@@ -1432,6 +1434,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
             target: "@ada",
             body: "hello",
             createdAt: "2026-09-16T00:00:00.000Z",
+            attachments: [],
           },
         ],
         hasMore: true,
@@ -1536,6 +1539,7 @@ test("adapts the read route's AgentHistoryResponse into the transport shape", as
           target: "@ada",
           body: "hi",
           createdAt: "2026-09-16T00:00:00.000Z",
+          attachments: [],
         },
       ],
       hasOlder: true,
@@ -1581,6 +1585,7 @@ test("adapts the dedicated search route's AgentSearchResponse (results -> messag
           target: "@ada",
           body: "hi",
           createdAt: "2026-09-16T00:00:00.000Z",
+          attachments: [],
         },
       ],
     }),
@@ -1616,6 +1621,7 @@ test("adapts the resolve route's AgentResolveResponse (message -> messages: [mes
         target: "@ada",
         body: "hi",
         createdAt: "2026-09-16T00:00:00.000Z",
+        attachments: [],
       },
     }),
   });
@@ -1680,6 +1686,7 @@ const sendAdapterCases: Array<{
           target: "@ada",
           body: "hi",
           createdAt: "2026-09-16T00:00:00.000Z",
+          attachments: [],
         },
       ],
     },

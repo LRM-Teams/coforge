@@ -12,8 +12,9 @@ const browserMessageFields = {
   senderMemberId: true,
   body: true,
   createdAt: true,
-  attachment: {
+  attachments: {
     select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
+    orderBy: { position: "asc" as const },
   },
   sender: {
     select: {
@@ -62,12 +63,24 @@ function mapBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
       : null,
     body: message.body,
     createdAt: message.createdAt,
-    attachment: message.attachment ? attachmentView(message.attachment) : undefined,
+    attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
     // Attached by the caller (`conversations.functions.ts`, `ActionCards.viewsFor`) in one
     // batched lookup per page; this function never queries `ActionCard` rows itself.
     actionCard: undefined as ActionCardView | undefined,
   };
+}
+
+/**
+ * The own-messages index shows one derived filename per message, not a full attachment list
+ * (it is a lightweight jump index, not the message itself). With several attachments, this
+ * names the first (send order) and counts the rest, e.g. `photo.png (+2 more)`, rather than
+ * picking one arbitrarily or silently dropping the count.
+ */
+function attachmentFileNameSummary(attachments: { fileName: string }[]): string | undefined {
+  const [first, ...rest] = attachments;
+  if (!first) return undefined;
+  return rest.length ? `${first.fileName} (+${rest.length} more)` : first.fileName;
 }
 
 /** Bounded browser history reads shared by direct conversations and public channels. */
@@ -118,7 +131,10 @@ export class ConversationHistory {
         sequence: true,
         body: true,
         createdAt: true,
-        attachment: { select: { fileName: true } },
+        attachments: {
+          select: { fileName: true },
+          orderBy: { position: "asc" as const },
+        },
       },
     });
     return {
@@ -131,7 +147,7 @@ export class ConversationHistory {
           sequence: message.sequence,
           body: message.body,
           createdAt: message.createdAt,
-          attachmentFileName: message.attachment?.fileName,
+          attachmentFileName: attachmentFileNameSummary(message.attachments),
         })),
     };
   }

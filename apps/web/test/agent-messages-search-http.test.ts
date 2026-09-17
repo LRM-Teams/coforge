@@ -22,6 +22,7 @@ test("search returns the canonical response shape and echoes the request id", as
             target: "@ada",
             body: "hello",
             createdAt: new Date("2026-09-15T00:00:00.000Z"),
+            attachments: [],
           },
         ];
       },
@@ -51,6 +52,7 @@ test("search returns the canonical response shape and echoes the request id", as
         target: "@ada",
         body: "hello",
         createdAt: "2026-09-15T00:00:00.000Z",
+        attachments: [],
       },
     ],
   });

@@ -131,9 +131,9 @@ function ChannelPage() {
         await taskView.command({ operation: "create", title, requestId, attachmentId });
         await page.invalidate();
       }}
-      onSend={async (body, requestId, attachmentId, threadRootId) => {
+      onSend={async (body, requestId, attachmentIds, threadRootId) => {
         const message = await send({
-          data: { channelId, body, requestId, attachmentId, threadRootId },
+          data: { channelId, body, requestId, attachmentIds, threadRootId },
         });
         page.mergeUpdates([message]);
         if (threadRootId) followThread(threadRootId);
