@@ -24,14 +24,24 @@ const apiKeySchema = z.preprocess(
   z.string().trim().min(8).max(4096).optional(),
 );
 
+// The @mention username: fixed at creation (Raft 1.0.32 alignment), never renamed afterward.
+const nameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+export const AGENT_DISPLAY_NAME_MAX_LENGTH = 80;
+
+// Free-text label, independent of `name`; any charset. Editable only after creation, where it
+// defaults to the username.
+const displayNameSchema = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().trim().min(1).max(AGENT_DISPLAY_NAME_MAX_LENGTH).optional(),
+);
+
 const agentInputShape = {
-  name: z
-    .string()
-    .trim()
-    .min(1)
-    // 64 covers `weekly-report-assistant-<uuid>` (60), the stable weekly-report assistant Agent name.
-    .max(64)
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   description: z.string().trim().max(500).default(""),
   provider: z.enum(["coforge", "pi", "codex", "claude-code", "kiro"]),
   model: z.string().trim().max(200).optional(),
@@ -63,6 +73,7 @@ function validateRuntimeKey(
 export const createAgentInputSchema = z
   .object({
     ...agentInputShape,
+    name: nameSchema,
     computerId: z.string().min(1),
     /** Present when this create submits an Agent-prepared `agent:create` action card
      * (ADR 0027 "Commit and cancel"); marks the card `executed` after the Agent is created. */
@@ -73,7 +84,12 @@ export const createAgentInputSchema = z
 export type CreateAgentInput = z.infer<typeof createAgentInputSchema>;
 
 export const updateAgentInputSchema = z
-  .object({ ...agentInputShape, agentId: z.uuid(), computerId: z.string().min(1).optional() })
+  .object({
+    ...agentInputShape,
+    displayName: displayNameSchema,
+    agentId: z.uuid(),
+    computerId: z.string().min(1).optional(),
+  })
   .superRefine(validateRuntimeKey);
 export type UpdateAgentInput = z.infer<typeof updateAgentInputSchema>;
 

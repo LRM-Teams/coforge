@@ -44,7 +44,6 @@ import {
   publicAgentRuntimeConfig,
 } from "../../server/agents/agent-runtime-config.server";
 import { getAgentStatusCache } from "../../server/agents/agent-status.server";
-import { weeklyReportAssistantAgentName } from "../../server/records/weekly-report-assistant.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 import { getAgentDisplay } from "../../server/agents/agent-display.server";
 import { AgentEnvironment } from "../../server/agents/agent-environment.server";
@@ -275,7 +274,10 @@ export const updateAgent = createServerFn({ method: "POST" })
     });
     return manageAgents(db).update(
       { userId: user.id, workspaceId },
-      assistant ? { ...data, name: weeklyReportAssistantAgentName(user.id) } : data,
+      // The weekly-report assistant's display label (周报助手) is server-owned; drop any
+      // client-supplied value so `ManageAgents.update` falls back to the existing displayName.
+      // Its username (`name`) is fixed at creation and is never part of an update.
+      assistant ? { ...data, displayName: undefined } : data,
     );
   });
 

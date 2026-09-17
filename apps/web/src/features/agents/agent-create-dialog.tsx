@@ -135,12 +135,13 @@ export function AgentCreateDialog({
                     ))}
                   </Select>
                   <Input
-                    label={m.agent_form_name()}
+                    label={m.agent_form_username()}
                     name="name"
                     isRequired
                     defaultValue={defaults?.name}
                     pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                     placeholder="release-fix"
+                    hint={m.agent_form_username_hint()}
                     className="min-w-0 sm:col-span-2"
                   />
                   <TextArea

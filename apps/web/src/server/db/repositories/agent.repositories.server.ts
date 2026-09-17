@@ -57,9 +57,10 @@ export interface AgentRepository {
   listForComputer(workspaceId: string, computerId: string): Promise<AgentRecord[]>;
   listOwnedInWorkspace(workspaceId: string, ownerId: string): Promise<AgentRecord[]>;
   create(input: Omit<AgentRecord, "id" | "createdAt"> & { id?: string }): Promise<AgentRecord>;
+  /** `name` (the @mention username) is fixed at creation and is never part of an update. */
   update(
     id: string,
-    input: Pick<AgentRecord, "name" | "displayName" | "description"> &
+    input: Pick<AgentRecord, "displayName" | "description"> &
       Partial<Pick<AgentRecord, "runtimeConfig" | "computerId">>,
   ): Promise<AgentRecord>;
 }
@@ -106,7 +107,7 @@ export class PrismaAgentRepository implements AgentRepository {
 
   async update(
     id: string,
-    input: Pick<AgentRecord, "name" | "displayName" | "description"> &
+    input: Pick<AgentRecord, "displayName" | "description"> &
       Partial<Pick<AgentRecord, "runtimeConfig" | "computerId">>,
   ) {
     return mapAgent(await this.db.agent.update({ where: { id }, data: input }));

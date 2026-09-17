@@ -505,7 +505,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       { userId: DEV_BROWSER_USER.id, workspaceId },
       {
         agentId: created.agent.id,
-        name: "e2e-agent-updated",
+        displayName: "e2e-agent-updated",
         description: "Updated end-to-end test Agent",
         provider: "pi",
         model: "e2e-model-updated",

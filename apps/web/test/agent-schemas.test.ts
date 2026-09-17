@@ -4,13 +4,18 @@ import {
   createAgentInputSchema,
   updateAgentInputSchema,
 } from "../src/features/agents/agent.schemas";
-import { weeklyReportAssistantAgentName } from "../src/server/records/weekly-report-assistant.server";
 
 const validInput = {
   name: "release-helper",
   description: "Builds and releases the project.",
   provider: "coforge" as const,
   computerId: "computer-1",
+};
+
+const validUpdate = {
+  agentId: "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da",
+  description: "Builds and releases the project.",
+  provider: "coforge" as const,
 };
 
 describe("createAgentInputSchema", () => {
@@ -48,19 +53,21 @@ describe("createAgentInputSchema", () => {
     });
   });
 
+  test("strips a displayName from create input; the create shape has no such field", () => {
+    expect(
+      createAgentInputSchema.parse({ ...validInput, displayName: "周报 Helper" }),
+    ).not.toHaveProperty("displayName");
+  });
+
   test("defaults omitted and blank descriptions to an empty string", () => {
     const { description: _, ...withoutDescription } = validInput;
+    const { description: __, ...updateWithoutDescription } = validUpdate;
 
     expect(createAgentInputSchema.parse(withoutDescription).description).toBe("");
     expect(createAgentInputSchema.parse({ ...validInput, description: "   " }).description).toBe(
       "",
     );
-    expect(
-      updateAgentInputSchema.parse({
-        ...withoutDescription,
-        agentId: "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da",
-      }).description,
-    ).toBe("");
+    expect(updateAgentInputSchema.parse(updateWithoutDescription).description).toBe("");
   });
 
   test("rejects invalid names, oversized descriptions, providers, and computers", () => {
@@ -111,9 +118,7 @@ describe("createAgentInputSchema", () => {
 
   test("applies API key validation independently to updates", () => {
     const update = {
-      ...validInput,
-      agentId: "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da",
-      provider: "coforge" as const,
+      ...validUpdate,
       modelProvider: "anthropic",
       apiKey: "replacement-key",
     };
@@ -130,33 +135,52 @@ describe("createAgentInputSchema", () => {
     expect(createAgentInputSchema.safeParse(input).success).toBe(false);
     expect(
       updateAgentInputSchema.safeParse({
-        ...input,
-        agentId: "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da",
+        ...validUpdate,
+        provider: "pi",
+        modelProvider: "custom-unsupported",
+        apiKey: "fixture-key",
       }).success,
     ).toBe(false);
   });
 
-  test("accepts the stable weekly-report assistant Agent name on update", () => {
-    const userId = "7bd89875-1671-4866-9b4a-3da1522ef63b";
-    const name = weeklyReportAssistantAgentName(userId);
-    expect(name.length).toBeGreaterThan(48);
+  test("strips a name from update input, even if one is supplied; the handle can't be renamed", () => {
+    expect(updateAgentInputSchema.parse({ ...validUpdate, name: "renamed" })).not.toHaveProperty(
+      "name",
+    );
+  });
+
+  test("accepts a free-text displayName on update, independent of the handle charset", () => {
     expect(
-      updateAgentInputSchema.parse({
-        agentId: userId,
-        name,
-        description: "",
-        provider: "pi",
-        modelProvider: "anthropic",
-        computerId: userId,
-      }).name,
-    ).toBe(name);
+      updateAgentInputSchema.parse({ ...validUpdate, displayName: "周报 Helper" }).displayName,
+    ).toBe("周报 Helper");
+  });
+
+  test("preprocesses a blank or whitespace-only displayName to undefined", () => {
+    expect(
+      updateAgentInputSchema.parse({ ...validUpdate, displayName: "" }).displayName,
+    ).toBeUndefined();
+    expect(
+      updateAgentInputSchema.parse({ ...validUpdate, displayName: "   " }).displayName,
+    ).toBeUndefined();
+  });
+
+  test("accepts a displayName up to 80 characters and rejects longer", () => {
+    expect(
+      updateAgentInputSchema.safeParse({ ...validUpdate, displayName: "x".repeat(80) }).success,
+    ).toBe(true);
+    expect(
+      updateAgentInputSchema.safeParse({ ...validUpdate, displayName: "x".repeat(81) }).success,
+    ).toBe(false);
+  });
+
+  test("omitting displayName on update is valid", () => {
+    expect(updateAgentInputSchema.parse(validUpdate).displayName).toBeUndefined();
   });
 
   test("forwards a CoForge API key from the Agent edit form", () => {
     const agentId = "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da";
     const computerId = "8c2b1a70-2d11-4f0e-9c3a-1f6e0b9d4a21";
     const form = new FormData();
-    form.set("name", weeklyReportAssistantAgentName(agentId));
     form.set("description", "");
     form.set("provider", "coforge");
     form.set("modelProvider", "openai");
@@ -164,14 +188,33 @@ describe("createAgentInputSchema", () => {
     form.set("reasoning", "");
     form.set("computerId", computerId);
     form.set("apiKey", "sk-assistant-runtime-key");
+    form.set("displayName", "周报助手");
     expect(updateAgentInputSchema.parse(updateAgentInputFromForm(form, { agentId }))).toMatchObject(
       {
         agentId,
         provider: "coforge",
         modelProvider: "openai",
         apiKey: "sk-assistant-runtime-key",
+        displayName: "周报助手",
         computerId,
       },
     );
+  });
+
+  test("never emits a name from the update form payload, even if the form carries one", () => {
+    const agentId = "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da";
+    const form = new FormData();
+    form.set("name", "release-helper");
+    form.set("description", "");
+    form.set("provider", "coforge");
+    expect(updateAgentInputFromForm(form, { agentId })).not.toHaveProperty("name");
+  });
+
+  test("omits displayName from the update form payload when left blank", () => {
+    const agentId = "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da";
+    const form = new FormData();
+    form.set("description", "");
+    form.set("provider", "coforge");
+    expect(updateAgentInputFromForm(form, { agentId })).not.toHaveProperty("displayName");
   });
 });

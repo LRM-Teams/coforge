@@ -48,6 +48,12 @@ type RuntimeAvailability = {
   ): Promise<boolean>;
 };
 
+type AgentUpdateInput = Omit<AgentCreateInput, "computerId" | "name"> & {
+  agentId: string;
+  computerId?: string;
+  displayName?: string;
+};
+
 export class ManageAgents {
   constructor(
     private readonly agents: AgentRepository,
@@ -132,10 +138,7 @@ export class ManageAgents {
     }
   }
 
-  async update(
-    principal: AgentPrincipal,
-    input: Omit<AgentCreateInput, "computerId"> & { agentId: string; computerId?: string },
-  ) {
+  async update(principal: AgentPrincipal, input: AgentUpdateInput) {
     return this.runtimeLock.run(input.agentId, async () => {
       const current = await this.agents.getById(input.agentId);
       if (
@@ -146,8 +149,6 @@ export class ManageAgents {
         throw new Error("Agent is not authorized");
       const computerId = input.computerId ?? current.computerId;
       if (!computerId) throw new AppError("INVALID_INPUT", { errorId: "agent-computer-required" });
-      const name = input.name.trim().toLowerCase();
-      if (!name) throw new Error("name is required");
       if (!providers.has(input.provider)) throw new Error("provider is not supported");
       const apiKeyInput = input.apiKey?.trim();
       const selection = {
@@ -209,10 +210,10 @@ export class ManageAgents {
           },
           principal.userId,
         );
+      // The username (`name`) is fixed at creation and is never written here; only `displayName`
+      // is editable after creation.
       const metadata = {
-        name,
-        // Keep an intentional display label (e.g. 周报助手) when the Agent name is unchanged.
-        displayName: name === current.name ? current.displayName : name,
+        displayName: input.displayName?.trim() || current.displayName,
         description: input.description.trim(),
       };
       const agent = await this.agents.update(
