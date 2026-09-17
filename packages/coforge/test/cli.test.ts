@@ -95,6 +95,142 @@ test("workspace info rejects invalid pagination and conflicting sections", () =>
   expect(() => parseArgs(["workspace", "info", "--full", "--agents"])).toThrow("Usage:");
 });
 
+const FULL_RUNTIME_CONTEXT = {
+  agentId: "agent-1",
+  agentName: "scout",
+  runtime: "codex",
+  model: "gpt-5-codex",
+  reasoning: "medium",
+  workspaceId: "workspace-1",
+  workspaceSlug: "acme",
+  workspaceName: "Acme",
+  computerId: "computer-1",
+  computerName: "Builder Box",
+  computerHostname: "workstation-7",
+  computerOs: "darwin 15.6",
+  computerVersion: "0.1.0-dev.40",
+};
+const WORKSPACE_INFO_BASE = {
+  protocolMajor: 1,
+  requestId: "r",
+  workspace: { id: "w", name: "Acme", slug: "acme" },
+  humans: [],
+  agents: [],
+  projects: [],
+};
+
+function withAgentWorkspacePathEnv<T>(value: string | undefined, run: () => Promise<T>) {
+  const previous = Bun.env.COFORGE_CURRENT_AGENT_WORKSPACE_PATH;
+  if (value === undefined) delete Bun.env.COFORGE_CURRENT_AGENT_WORKSPACE_PATH;
+  else Bun.env.COFORGE_CURRENT_AGENT_WORKSPACE_PATH = value;
+  return run().finally(() => {
+    if (previous === undefined) delete Bun.env.COFORGE_CURRENT_AGENT_WORKSPACE_PATH;
+    else Bun.env.COFORGE_CURRENT_AGENT_WORKSPACE_PATH = previous;
+  });
+}
+
+test("workspace info default summary prints a Current Runtime block for a full runtimeContext", async () => {
+  const output = await withAgentWorkspacePathEnv(undefined, () =>
+    run(["workspace", "info"], {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      workspaceInfo: async () => ({ ...WORKSPACE_INFO_BASE, runtimeContext: FULL_RUNTIME_CONTEXT }),
+    }),
+  );
+  expect(output).toBe(
+    [
+      "### Current Runtime",
+      "Authoritative context for this Agent process. Do not infer Computer identity from hostname or cwd when this section is present.",
+      "- Agent: @scout (agent-1)",
+      "- Provider: codex",
+      "- Model: gpt-5-codex",
+      "- Reasoning: medium",
+      "- Workspace: Acme (acme)",
+      "- Computer: Builder Box (computer-1)",
+      "- Hostname: workstation-7",
+      "- OS: darwin 15.6",
+      "- Computer version: v0.1.0-dev.40",
+      "",
+      "Acme (acme)\nagents=0 humans=0 projects=0",
+    ].join("\n"),
+  );
+});
+
+test("workspace info default summary prints only the known bullets for a partial runtimeContext", async () => {
+  const output = await withAgentWorkspacePathEnv(undefined, () =>
+    run(["workspace", "info"], {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      workspaceInfo: async () => ({
+        ...WORKSPACE_INFO_BASE,
+        runtimeContext: { agentName: "scout", runtime: "codex" },
+      }),
+    }),
+  );
+  expect(output).toBe(
+    [
+      "### Current Runtime",
+      "Authoritative context for this Agent process. Do not infer Computer identity from hostname or cwd when this section is present.",
+      "- Agent: @scout",
+      "- Provider: codex",
+      "",
+      "Acme (acme)\nagents=0 humans=0 projects=0",
+    ].join("\n"),
+  );
+});
+
+test("workspace info default summary omits the Current Runtime block when nothing is known", async () => {
+  const output = await withAgentWorkspacePathEnv(undefined, () =>
+    run(["workspace", "info"], {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      workspaceInfo: async () => WORKSPACE_INFO_BASE,
+    }),
+  );
+  expect(output).toBe("Acme (acme)\nagents=0 humans=0 projects=0");
+});
+
+test("workspace info fills Agent workspace from the env var, both in the summary block and --full JSON", async () => {
+  const transport = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+    workspaceInfo: async () => ({ ...WORKSPACE_INFO_BASE, runtimeContext: { agentId: "agent-1" } }),
+  };
+  const summary = await withAgentWorkspacePathEnv("/home/agent/workspaces/w/agents/agent-1", () =>
+    run(["workspace", "info"], transport),
+  );
+  expect(summary).toContain("- Agent workspace: /home/agent/workspaces/w/agents/agent-1");
+
+  const full = await withAgentWorkspacePathEnv("/home/agent/workspaces/w/agents/agent-1", () =>
+    run(["workspace", "info", "--full"], transport),
+  );
+  expect(JSON.parse(full as string).runtimeContext).toEqual({
+    agentId: "agent-1",
+    agentWorkspacePath: "/home/agent/workspaces/w/agents/agent-1",
+  });
+});
+
+test("workspace info --full omits runtimeContext entirely when nothing is known", async () => {
+  const full = await withAgentWorkspacePathEnv(undefined, () =>
+    run(["workspace", "info", "--full"], {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      workspaceInfo: async () => WORKSPACE_INFO_BASE,
+    }),
+  );
+  expect(JSON.parse(full as string).runtimeContext).toBeUndefined();
+});
+
 const reminderId = "12345678-1234-4123-8123-123456789abc";
 
 test("parses recurring reminders with an explicit default timezone and dispatches them", async () => {

@@ -150,6 +150,30 @@ export type WorkspaceInfoProject = {
   githubFullName: string;
   githubHtmlUrl: string;
 };
+/**
+ * The calling Agent's own authoritative identity: the same shape as the launch-config response's
+ * `identity.runtimeContext`. Every field is optional and omitted rather than sent empty, so an
+ * older server's absence of this field (or of any one field within it) decodes cleanly. Never
+ * carries another Agent's runtime config.
+ */
+export type WorkspaceInfoRuntimeContext = {
+  agentId?: string;
+  agentName?: string;
+  runtime?: string;
+  model?: string;
+  reasoning?: string;
+  workspaceId?: string;
+  workspaceSlug?: string;
+  workspaceName?: string;
+  computerId?: string;
+  computerName?: string;
+  computerHostname?: string;
+  computerOs?: string;
+  computerVersion?: string;
+  // The CLI fills this from `COFORGE_CURRENT_AGENT_WORKSPACE_PATH`; the server never sends it
+  // (only the local Computer knows the Agent workspace path).
+  agentWorkspacePath?: string;
+};
 export type WorkspaceInfoResult = {
   protocolMajor: number;
   requestId: string;
@@ -157,6 +181,7 @@ export type WorkspaceInfoResult = {
   humans: WorkspaceInfoHuman[];
   agents: WorkspaceInfoAgent[];
   projects: WorkspaceInfoProject[];
+  runtimeContext?: WorkspaceInfoRuntimeContext;
 };
 
 export type MessageTransport = {
