@@ -1758,7 +1758,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 create: resolution.mentions.map((mention) => ({
                   memberId: mention.key,
                   workspaceId: conversation.workspaceId,
-                  conversationId,
                   kind: mention.type,
                   actorId: mention.id,
                   handle: mention.handle,
