@@ -91,17 +91,18 @@ const avatarUrlSchema = z
   });
 const graphqlErrorSchema = z.object({ type: z.string().optional() });
 const graphqlIdentitySchema = z.object({ login: z.string().min(1).max(100) }).nullable();
+const graphqlGitActorSchema = z.object({
+  name: z.string().nullable(),
+  avatarUrl: avatarUrlSchema,
+  user: graphqlIdentitySchema,
+});
 const graphqlCommitNodeSchema = z.object({
   oid: z.string().regex(/^[a-f0-9]{40,64}$/i),
   messageHeadline: z.string().max(100_000),
   committedDate: z.string().datetime().nullable(),
-  author: z
-    .object({
-      name: z.string().nullable(),
-      avatarUrl: avatarUrlSchema,
-      user: graphqlIdentitySchema,
-    })
-    .nullable(),
+  author: graphqlGitActorSchema.nullable(),
+  /** Git author plus `Co-authored-by` trailers; the git author is always first. */
+  authors: z.object({ nodes: z.array(graphqlGitActorSchema).max(5) }),
   committer: z.object({ name: z.string().nullable(), user: graphqlIdentitySchema }).nullable(),
   signature: z.object({ isValid: z.boolean() }).nullable(),
   statusCheckRollup: z.object({ state: z.string() }).nullable(),
@@ -251,6 +252,7 @@ const REPOSITORY_OVERVIEW_QUERY = `
                 messageHeadline
                 committedDate
                 author { name avatarUrl(size: 80) user { login } }
+                authors(first: 5) { nodes { name avatarUrl(size: 80) user { login } } }
                 committer { name user { login } }
                 signature { isValid }
                 statusCheckRollup { state }
@@ -703,11 +705,20 @@ export class GitHubConnection {
           const author = authorLogin ?? node.author?.name ?? "Unknown";
           const committerLogin = node.committer?.user?.login;
           const committerDisplay = committerLogin ?? node.committer?.name ?? null;
+          // `Co-authored-by` trailer identities; the git author (always first) and an
+          // already-shown committer are not repeated.
+          const coAuthors = node.authors.nodes
+            .map((actor) => ({
+              name: actor.user?.login ?? actor.name ?? "Unknown",
+              avatarUrl: actor.avatarUrl ?? null,
+            }))
+            .filter((actor) => actor.name !== author && actor.name !== committerDisplay);
           return {
             sha: node.oid,
             message: node.messageHeadline,
             author,
             authorAvatarUrl: node.author?.avatarUrl ?? null,
+            coAuthors,
             committer: committerDisplay && committerDisplay !== author ? committerDisplay : null,
             date: node.committedDate ?? null,
             verified: node.signature?.isValid ?? false,

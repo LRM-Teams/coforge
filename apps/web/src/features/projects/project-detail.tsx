@@ -254,21 +254,38 @@ function RepositoryContents({ data, projectSlug }: { data: Repository; projectSl
                   rel="noreferrer"
                   className="flex min-w-0 items-center gap-3 px-4 py-3 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2"
                 >
-                  <Avatar
-                    size="xs"
-                    src={commit.authorAvatarUrl ?? undefined}
-                    initials={avatarInitial(commit.author)}
-                    contentClassName={avatarToneClassName(commit.author)}
-                    alt=""
-                  />
+                  <span className="flex shrink-0 -space-x-1">
+                    <Avatar
+                      size="xs"
+                      src={commit.authorAvatarUrl ?? undefined}
+                      initials={avatarInitial(commit.author)}
+                      contentClassName={avatarToneClassName(commit.author)}
+                      className="ring-2 ring-primary"
+                      alt=""
+                    />
+                    {commit.coAuthors.slice(0, 2).map((coAuthor) => (
+                      <Avatar
+                        key={coAuthor.name}
+                        size="xs"
+                        src={coAuthor.avatarUrl ?? undefined}
+                        initials={avatarInitial(coAuthor.name)}
+                        contentClassName={avatarToneClassName(coAuthor.name)}
+                        className="ring-2 ring-primary"
+                        alt=""
+                      />
+                    ))}
+                  </span>
                   <span className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-primary">
                       {commit.message.split("\n")[0]}
                     </p>
                     <p className="mt-0.5 flex min-w-0 gap-2 text-xs text-tertiary">
                       <span className="truncate">
-                        {commit.author}
-                        {commit.committer && `, ${commit.committer}`}
+                        {[
+                          commit.author,
+                          ...commit.coAuthors.map((coAuthor) => coAuthor.name),
+                          ...(commit.committer ? [commit.committer] : []),
+                        ].join(", ")}
                       </span>
                       <span className="shrink-0 font-mono">{commit.sha.slice(0, 7)}</span>
                     </p>
