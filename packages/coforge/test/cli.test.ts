@@ -201,9 +201,12 @@ test("accepts a short hex id prefix, and the --by/--in duration and --cadence/--
     reminderId,
     delaySeconds: 300,
   });
-  const updated = parseArgs(["reminder", "update", "--id", reminderId, "--in", "10m"]);
-  expect(updated).toMatchObject({ command: "reminder", operation: "update", reminderId });
-  expect(Number.isFinite(Date.parse((updated as { fireAt: string }).fireAt))).toBe(true);
+  expect(parseArgs(["reminder", "update", "--id", reminderId, "--in", "10m"])).toEqual({
+    command: "reminder",
+    operation: "update",
+    reminderId,
+    delaySeconds: 600,
+  });
   expect(
     parseArgs([
       "reminder",
@@ -286,6 +289,9 @@ test("rejects a reminder alias combined with its canonical flag, and an invalid 
       "--fire-at",
       "2026-09-09T00:00:00Z",
     ]),
+  ).toThrow("Usage:");
+  expect(() =>
+    parseArgs(["reminder", "update", "--id", reminderId, "--in", "5m", "--delay-seconds", "300"]),
   ).toThrow("Cannot combine");
 });
 

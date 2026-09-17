@@ -697,19 +697,17 @@ function parseReminderArgs(args: readonly string[]): ReminderInvocation {
       continue;
     }
     if (flag === "--by" || flag === "--in") {
+      // Both are duration spellings of the same wire field, `delaySeconds`: `--by` on snooze and
+      // `--in` on update. Neither computes an absolute `fireAt` locally — the daemon/server derive
+      // the due time from `delaySeconds` exactly as they already do for snooze.
       const value = args[++index];
       if (value === undefined || value.startsWith("--"))
         throw new Error(`Unknown or incomplete reminder flag: ${flag}\n${REMINDER_USAGE}`);
       const seconds = parseDurationSeconds(value);
       if (seconds === null)
         throw new Error(`Invalid duration for ${flag}: '${value}'.\n${REMINDER_USAGE}`);
-      if (flag === "--by") {
-        claimField("delaySeconds", flag);
-        request.delaySeconds = seconds;
-      } else {
-        claimField("fireAt", flag);
-        request.fireAt = new Date(Date.now() + seconds * 1000).toISOString();
-      }
+      claimField("delaySeconds", flag);
+      request.delaySeconds = seconds;
       continue;
     }
     const field = names[flag];
@@ -758,7 +756,7 @@ function validateReminderShape(value: ReminderInvocation): void {
   const allowed: Record<string, readonly (keyof ReminderTransportRequest)[]> = {
     schedule: ["title", "target", "messageId", "delaySeconds", "fireAt", "repeat", "timezone"],
     list: ["all", "status"],
-    update: ["reminderId", "title", "fireAt", "repeat", "timezone"],
+    update: ["reminderId", "title", "fireAt", "delaySeconds", "repeat", "timezone"],
     snooze: ["reminderId", "delaySeconds", "fireAt"],
     cancel: ["reminderId"],
     log: ["reminderId"],
@@ -793,7 +791,10 @@ function validateReminderShape(value: ReminderInvocation): void {
   if (
     value.operation === "update" &&
     (!id ||
-      ![value.title, value.fireAt, value.repeat, value.timezone].some((item) => item !== undefined))
+      timed > 1 ||
+      ![value.title, value.fireAt, value.delaySeconds, value.repeat, value.timezone].some(
+        (item) => item !== undefined,
+      ))
   )
     throw new Error(REMINDER_USAGE);
   if (["ack", "dismiss"].includes(value.operation) && (!id || !value.revision))
