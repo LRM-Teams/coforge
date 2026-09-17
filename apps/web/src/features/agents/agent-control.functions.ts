@@ -9,13 +9,14 @@ import { AgentControl } from "../../server/agents/agent-control.server";
 import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
+import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
 import { getAgentRuntimeLock } from "../../server/agents/agent-runtime-lock.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 
 const agentId = z.string().uuid();
 const executeInput = z.object({
   agentId,
-  action: z.enum(["restart", "reset-session", "full-reset"]),
+  action: z.enum(["start", "stop", "restart", "reset-session", "full-reset"]),
   requestId: z.string().uuid(),
   confirmed: z.boolean().optional(),
 });
@@ -28,6 +29,7 @@ function agentControl(db: WorkspaceUserContext["db"]) {
     undefined,
     createAgentSessions(db),
     getAgentControlSignal(),
+    new PrismaDirectConversationRepository(db),
   );
 }
 

@@ -17,6 +17,9 @@ export type AgentRecord = {
   ownerId: string;
   computerId?: string;
   runtimeConfig: AgentRuntimeConfig;
+  /** Set when a user stopped this Agent (ADR 0038); undefined/null means not stopped. Config,
+   * credential and environment mutations read this to skip the stop→…→start dance. */
+  stoppedAt?: Date | null;
 };
 
 function mapAgent(agent: {
@@ -30,6 +33,7 @@ function mapAgent(agent: {
   computerId: string | null;
   runtimeConfig: unknown;
   runtimeSession?: unknown;
+  stoppedAt?: Date | null;
 }): AgentRecord {
   let runtimeConfig;
   try {
@@ -48,6 +52,7 @@ function mapAgent(agent: {
     description: description ?? "",
     ...(computerId ? { computerId } : {}),
     runtimeConfig,
+    stoppedAt: agent.stoppedAt ?? null,
   };
 }
 

@@ -489,23 +489,42 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   expose scheduled Reminders only. Reminder lifecycle and history persistence remain in
   `server/reminders/` and its repository.
 - `server/agents/agent-control.server.ts` owns Agent control operations: fixed
-  command chains for Restart, Reset Session and Full Reset, receipt-driven state
-  transitions, and request/epoch fences. `execute()` — the user-initiated path
-  behind `features/agents/agent-control.functions.ts` — authorizes by the
-  actor's current Workspace membership and Raft capability (ADR 0034):
-  `controlAgentRuntime` (Restart, Reset Session) is held by any current member;
-  `resetAgentWorkspace` (Full Reset) is owner/admin only, even for the Agent's
-  own owner. The internal/system paths — `recover`, `publishStart`, `publishStop`
-  (called with the Agent owner's id or the editing user's id, still checked
-  against Agent ownership) and `authorizeLaunch` (Workspace/Computer scope
-  only, no actor identity at all) — are untouched by ADR 0034. It
-  clears the Session binding at the local chain step; Session observations
-  remain independently owned below. Transport receivers under
-  `server/centrifugo/` authenticate claims before applying conditional
-  Session/control updates. Current operation progress is not a new Agent status
-  or a generic durable command mailbox. Profile buttons submit without waiting
-  UI or control-state queries; runtime observations stay in Activity. Full
-  Reset still requires destructive confirmation.
+  command chains for Start, Stop, Restart, Reset Session and Full Reset,
+  receipt-driven state transitions, and request/epoch fences. `execute()` — the
+  user-initiated path behind `features/agents/agent-control.functions.ts` —
+  authorizes by the actor's current Workspace membership and Raft capability
+  (ADR 0034): `controlAgentRuntime` (Start, Stop, Restart, Reset Session) is
+  held by any current member; `resetAgentWorkspace` (Full Reset) is owner/admin
+  only, even for the Agent's own owner. The internal/system paths — `recover`,
+  `publishStart`, `publishStop` (called with the Agent owner's id or the
+  editing user's id, still checked against Agent ownership) and
+  `authorizeLaunch` (Workspace/Computer scope only, no actor identity at all) —
+  are untouched by ADR 0034. It clears the Session binding at the local chain
+  step; Session observations remain independently owned below. Transport
+  receivers under `server/centrifugo/` authenticate claims before applying
+  conditional Session/control updates. Current operation progress is not a new
+  Agent status or a generic durable command mailbox. Profile buttons submit
+  without waiting UI or control-state queries; runtime observations stay in
+  Activity. Full Reset still requires destructive confirmation.
+- ADR 0038: `Agent.stoppedAt` (nullable) is the persisted "a user stopped this
+  Agent" intent, independent of `controlState` (current control request and
+  fencing only). `execute()`'s `stop` persists `stoppedAt` before running the
+  stop chain, so the intent survives even when the Computer never answers;
+  `start`/`restart`/`reset-session`/`full-reset` clear it first. A user `start`
+  carries the same recovery context (`conversations.readAgentRecoveryContext`)
+  a Daemon-ready recovery start carries. `WorkspaceAgentRecovery.recoverWorkspace`
+  skips a stopped Agent and, if the Daemon still reports it running, reconciles
+  with a Stop through `AgentControl.publishStop` without blocking the rest of
+  recovery. `ManageAgents.update`, `ChangeAgentRuntimeCredential` and
+  `AgentEnvironment.save` read `stoppedAt` on the Agent they already fetched and
+  skip the stop → persist → start dance for a stopped Agent, returning the
+  existing `"deferred"` outcome; creating an Agent still starts it.
+  `features/agents/agent-control.tsx` chooses Start or Stop by
+  `agentDisplay(display).isOnline`; Start submits immediately, Stop opens a
+  confirm dialog. `agentDisplay()`'s `stopped` option only adds an
+  un-internationalized `statusDetail` caption (the existing Activity "Stopped —
+  …" sentence) when the display itself is already offline; it never changes
+  `isOnline` or the short badge label.
 - `server/agents/agent-session.server.ts` owns Session snapshot acceptance and
   launch-scoped identity updates. It shares the current control authorization
   guard, but never advances control operations. Unified RPC callbacks route Session

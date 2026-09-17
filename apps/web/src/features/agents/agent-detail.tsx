@@ -93,10 +93,12 @@ export function AgentDetail({
   }>;
   initialEditOpen?: boolean;
 }) {
-  const view = agentDisplay(display);
+  const view = agentDisplay(display, { stopped: detail.stopped });
   const online = view.isOnline;
   const statusLabel = view.label;
   const latestError = latestActivityError(activity);
+  const listedComputer = availableComputers.find((computer) => computer.id === detail.computerId);
+  const assignedComputerLabel = detail.computer?.label || listedComputer?.displayName || "";
   return (
     <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary px-4 pt-5 md:px-8 md:pt-8">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 pb-6">
@@ -124,6 +126,12 @@ export function AgentDetail({
                 {m.agent_profile_created()}{" "}
                 <RelativeTime value={detail.createdAt} timeZone={timeZone} />
               </span>
+              {view.statusDetail && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{view.statusDetail}</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -166,19 +174,34 @@ export function AgentDetail({
           </div>
         )}
         {tab === "profile" ? (
-          <Profile
-            detail={detail}
-            onSaveRuntimeCredential={onSaveRuntimeCredential}
-            onDeleteRuntimeCredential={onDeleteRuntimeCredential}
-            onUpdate={onUpdate}
-            onUpdateRole={onUpdateRole}
-            onLoadRuntimeOptions={onLoadRuntimeOptions}
-            onLoadSkills={onLoadSkills}
-            onExecuteControl={onExecuteControl}
-            environment={environment}
-            availableComputers={availableComputers}
-            initialEditOpen={initialEditOpen}
-          />
+          <div className="divide-y divide-secondary">
+            <Profile
+              detail={detail}
+              onSaveRuntimeCredential={onSaveRuntimeCredential}
+              onDeleteRuntimeCredential={onDeleteRuntimeCredential}
+              onUpdate={onUpdate}
+              onUpdateRole={onUpdateRole}
+              onLoadRuntimeOptions={onLoadRuntimeOptions}
+              onLoadSkills={onLoadSkills}
+              environment={environment}
+              availableComputers={availableComputers}
+              initialEditOpen={initialEditOpen}
+            />
+            {/* Rendered outside the memoized Profile (kept referentially stable per the route's
+             * own comment) so a live status heartbeat (isOnline) does not force it to re-render. */}
+            {onExecuteControl && (
+              <AgentControl
+                key={`control:${detail.id}`}
+                agentId={detail.id}
+                agentName={detail.displayName}
+                canFullReset={detail.canFullResetAgent}
+                onExecute={onExecuteControl}
+                isOnline={online}
+                computerOnline={listedComputer?.online}
+                computerLabel={assignedComputerLabel || undefined}
+              />
+            )}
+          </div>
         ) : tab === "activity" ? (
           <AgentActivityTimeline activity={activity} timeZone={timeZone} />
         ) : (
@@ -202,7 +225,6 @@ const Profile = memo(function Profile({
   onUpdateRole,
   onLoadRuntimeOptions,
   onLoadSkills,
-  onExecuteControl,
   environment,
   availableComputers,
   initialEditOpen,
@@ -215,7 +237,6 @@ const Profile = memo(function Profile({
   onUpdateRole?: (input: { agentId: string; role: "admin" | "member" }) => Promise<void>;
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
-  onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
   environment?: AgentEnvironmentEditorProps;
   availableComputers: ReadonlyArray<{
     id: string;
@@ -520,16 +541,6 @@ const Profile = memo(function Profile({
           onLoad={onLoadSkills}
         />
       )}
-      {onExecuteControl && (
-        <AgentControl
-          key={`control:${detail.id}`}
-          agentId={detail.id}
-          agentName={detail.displayName}
-          canFullReset={detail.canFullResetAgent}
-          onExecute={onExecuteControl}
-        />
-      )}
-
       <ModalOverlay
         isOpen={runtimeDialogOpen}
         onOpenChange={(open: boolean) => {

@@ -62,15 +62,19 @@ export class AgentEnvironment {
         throw new Error("Agent is not authorized");
       const envVars = validateAgentEnvironment(input);
       const config = await this.#ownedConfig(principal, agentId);
-      await this.runtimeControl.stop(agentStopIntent(agent), principal.userId);
       const { environment: _environment, ...withoutEnvironment } = config;
+      const nextConfig = Object.keys(envVars).length
+        ? { ...withoutEnvironment, environment: await this.#encrypt(agentId, envVars) }
+        : withoutEnvironment;
+      // ADR 0038: a stopped Agent has nothing running under the old environment; persist without
+      // the stop -> ... -> start dance.
+      if (agent.stoppedAt) {
+        await this.repository.updateRuntimeConfig(agentId, nextConfig);
+        return { restart: "deferred" };
+      }
+      await this.runtimeControl.stop(agentStopIntent(agent), principal.userId);
       try {
-        await this.repository.updateRuntimeConfig(
-          agentId,
-          Object.keys(envVars).length
-            ? { ...withoutEnvironment, environment: await this.#encrypt(agentId, envVars) }
-            : withoutEnvironment,
-        );
+        await this.repository.updateRuntimeConfig(agentId, nextConfig);
       } catch {
         try {
           await this.runtimeControl.start(agentStartIntent(agent), principal.userId);

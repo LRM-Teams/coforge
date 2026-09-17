@@ -6,7 +6,12 @@ import type { AgentRecord } from "../src/server/db/repositories/agent.repositori
 
 const principal = { workspaceId: "workspace-1", userId: "user-1" };
 
-function fixture(options?: { stopFails?: boolean; mutationFails?: boolean; startFails?: boolean }) {
+function fixture(options?: {
+  stopFails?: boolean;
+  mutationFails?: boolean;
+  startFails?: boolean;
+  stopped?: boolean;
+}) {
   const events: string[] = [];
   const starts: unknown[] = [];
   const agent: AgentRecord = {
@@ -17,6 +22,7 @@ function fixture(options?: { stopFails?: boolean; mutationFails?: boolean; start
     name: "builder",
     displayName: "Builder",
     createdAt: new Date("2026-09-05T00:00:00Z"),
+    ...(options?.stopped ? { stoppedAt: new Date("2026-09-17T00:00:00Z") } : {}),
     runtimeConfig: {
       runtime: RUNTIME_PROVIDER.COFORGE,
       provider: { kind: "coforge", providerId: "anthropic" },
@@ -174,6 +180,18 @@ describe("ChangeAgentRuntimeCredential", () => {
       provider: RUNTIME_PROVIDER.COFORGE,
       providerConfig: { kind: "coforge", providerId: "anthropic" },
       model: "claude-sonnet-4-20250514",
+    });
+  });
+
+  test("a stopped Agent saves the credential without the stop -> ... -> start dance (ADR 0038)", async () => {
+    const { credentialChange, events } = fixture({ stopped: true });
+
+    const result = await credentialChange.save(principal, "agent-1", "sk-secret-value-1234");
+
+    expect(events).toEqual(["save"]);
+    expect(result).toEqual({
+      result: { providerId: "anthropic", hint: "••••1234" },
+      restart: "deferred",
     });
   });
 

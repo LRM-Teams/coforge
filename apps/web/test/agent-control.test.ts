@@ -1080,6 +1080,7 @@ test("a signal-driven wakeup trusts the ACK path and never republishes the comma
 function executeAuthorizationFixture(options: {
   ownerId: string;
   role: WorkspaceMemberRole | undefined;
+  stoppedAt?: Date;
 }) {
   let agent: AgentControlAgent = {
     id: "a",
@@ -1094,14 +1095,19 @@ function executeAuthorizationFixture(options: {
       reasoning: "",
     },
     state: null,
+    ...(options.stoppedAt ? { stoppedAt: options.stoppedAt } : {}),
   };
   const sent: Uint8Array[] = [];
   const store: AgentControlStore = {
     memberRole: async () => options.role,
     get: async () => structuredClone(agent),
-    replace: async (before, state) => {
+    replace: async (before, state, replaceOptions) => {
       if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
-      agent = { ...agent, state: structuredClone(state) };
+      agent = {
+        ...agent,
+        state: structuredClone(state),
+        ...(replaceOptions?.stoppedAt !== undefined ? { stoppedAt: replaceOptions.stoppedAt } : {}),
+      };
       return true;
     },
   };
@@ -1115,7 +1121,7 @@ function executeAuthorizationFixture(options: {
     { run: async (_id, work) => work() },
     { timeoutMs: 0, fallbackMs: 0 },
   );
-  return { control, sent };
+  return { control, sent, current: () => agent };
 }
 
 test("a Workspace member who does not own the Agent can Restart and Reset session", async () => {
@@ -1838,5 +1844,287 @@ test("publishStop drives an abandoned starting Agent through stop then a fresh s
     phase: "completed",
     action: "start",
     requestId: "start-1",
+  });
+});
+
+// --- Start and Stop as user operations with a persisted stopped state (ADR 0038) --------------
+
+test("a Workspace member who does not own the Agent can Start and Stop it", async () => {
+  const stop = executeAuthorizationFixture({ ownerId: "owner-user", role: "member" });
+  await expect(
+    stop.control.execute({
+      userId: "member-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "stop-req",
+      action: "stop",
+    }),
+  ).resolves.toMatchObject({ phase: "pending" });
+  expect(stop.current().stoppedAt).toBeInstanceOf(Date);
+
+  const start = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: "member",
+    stoppedAt: new Date("2026-09-17T00:00:00Z"),
+  });
+  await expect(
+    start.control.execute({
+      userId: "member-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "start-req",
+      action: "start",
+    }),
+  ).resolves.toMatchObject({ phase: "pending" });
+  expect(start.current().stoppedAt).toBeNull();
+});
+
+test("a user with no current Workspace membership is rejected for Start and Stop", async () => {
+  const { control } = executeAuthorizationFixture({ ownerId: "owner-user", role: undefined });
+  await expect(
+    control.execute({
+      userId: "outsider",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "stop-req",
+      action: "stop",
+    }),
+  ).rejects.toThrow("Agent is not authorized or assigned");
+  await expect(
+    control.execute({
+      userId: "outsider",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "start-req",
+      action: "start",
+    }),
+  ).rejects.toThrow("Agent is not authorized or assigned");
+});
+
+test("stop persists stoppedAt before the chain runs, even when the Daemon never answers", async () => {
+  const { control, sent, current } = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: "member",
+  });
+  const result = await control.execute({
+    userId: "member-user",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "stop-req",
+    action: "stop",
+  });
+  // timeoutMs: 0 means the Daemon never gets a chance to answer within this call.
+  expect(result.phase).toBe("pending");
+  expect(sent).toHaveLength(1);
+  expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "stop-req" });
+  expect(current().stoppedAt).toBeInstanceOf(Date);
+});
+
+test.each(["start", "restart", "reset-session"] as const)(
+  "%s clears a previously persisted stoppedAt",
+  async (action) => {
+    const { control, current } = executeAuthorizationFixture({
+      ownerId: "owner-user",
+      role: "member",
+      stoppedAt: new Date("2026-09-17T00:00:00Z"),
+    });
+    expect(current().stoppedAt).toBeInstanceOf(Date);
+    await control.execute({
+      userId: "member-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: `${action}-req`,
+      action,
+    });
+    expect(current().stoppedAt).toBeNull();
+  },
+);
+
+test("full-reset clears a previously persisted stoppedAt (owner/admin only)", async () => {
+  const { control, current } = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: "admin",
+    stoppedAt: new Date("2026-09-17T00:00:00Z"),
+  });
+  await control.execute({
+    userId: "admin-user",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "full-reset-req",
+    action: "full-reset",
+    confirmed: true,
+  });
+  expect(current().stoppedAt).toBeNull();
+});
+
+test("a user-initiated Start carries the same recovery context a Daemon-ready recovery Start does", async () => {
+  let agent: AgentControlAgent = {
+    id: "a",
+    ownerId: "owner-user",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: {
+      runtime: "pi",
+      provider: { kind: "default" },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    },
+    state: null,
+    stoppedAt: new Date("2026-09-17T00:00:00Z"),
+  };
+  const store: AgentControlStore = {
+    memberRole: async () => "member",
+    get: async () => structuredClone(agent),
+    replace: async (before, state, options) => {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = {
+        ...agent,
+        state: structuredClone(state),
+        ...(options?.stoppedAt !== undefined ? { stoppedAt: options.stoppedAt } : {}),
+      };
+      return true;
+    },
+  };
+  const sent: Uint8Array[] = [];
+  const readRequests: string[] = [];
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void sent.push(bytes) },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+    undefined,
+    undefined,
+    {
+      readAgentRecoveryContext: async (_workspaceId, agentId) => {
+        readRequests.push(agentId);
+        return {
+          resumeMessages: [
+            {
+              messageId: "message-1",
+              deliveryId: "delivery-1",
+              conversationId: "conversation-1",
+              sequence: 3,
+              target: "@alice",
+              latestSender: "@alice",
+              body: "arrived while stopped",
+            },
+          ],
+          unreadSummary: { "@alice": 2 },
+        };
+      },
+    },
+  );
+  await control.execute({
+    userId: "member-user",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "start-req",
+    action: "start",
+  });
+  expect(readRequests).toEqual(["a"]);
+  expect(decodeAgentStartIntent(sent[0]!)).toMatchObject({
+    requestId: "start-req",
+    resumeMessages: [
+      {
+        messageId: "message-1",
+        deliveryId: "delivery-1",
+        conversationId: "conversation-1",
+        sequence: 3,
+        target: "@alice",
+        latestSender: "@alice",
+        body: "arrived while stopped",
+      },
+    ],
+    unreadSummary: { "@alice": 2 },
+  });
+});
+
+test("an abandoned pending operation is superseded by a user-initiated Stop (ADR 0035)", async () => {
+  const { store, current } = abandonStore({
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: abandonRuntimeConfig,
+    state: {
+      version: 1,
+      protocolMajor: 1,
+      requestId: "stuck",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      epoch: 4,
+      action: "restart",
+      phase: "starting",
+      configRevision: agentControlRevision(abandonRuntimeConfig),
+      controlSequence: 0,
+      sessionSequence: 0,
+      // No updatedAtMs: abandoned regardless of `abandonAfterMs`.
+    },
+  });
+  const sent: Uint8Array[] = [];
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void sent.push(bytes) },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+  );
+  const result = await control.execute({
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "stop-req",
+    action: "stop",
+  });
+  expect(result.phase).toBe("pending");
+  expect(current().state).toMatchObject({ epoch: 5, action: "stop", phase: "stopping" });
+  expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "stop-req", controlEpoch: 5 });
+});
+
+test("an abandoned pending operation is superseded by a user-initiated Start (ADR 0035)", async () => {
+  const { store, current } = abandonStore({
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: abandonRuntimeConfig,
+    state: {
+      version: 1,
+      protocolMajor: 1,
+      requestId: "stuck-stop",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      epoch: 4,
+      action: "stop",
+      phase: "stopping",
+      configRevision: agentControlRevision(abandonRuntimeConfig),
+      controlSequence: 0,
+      sessionSequence: 0,
+      // No updatedAtMs: abandoned regardless of `abandonAfterMs`.
+    },
+  });
+  const sent: Uint8Array[] = [];
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void sent.push(bytes) },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+  );
+  const result = await control.execute({
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "start-req",
+    action: "start",
+  });
+  expect(result.phase).toBe("pending");
+  expect(current().state).toMatchObject({ epoch: 5, action: "start", phase: "starting" });
+  expect(decodeAgentStartIntent(sent[0]!)).toMatchObject({
+    requestId: "start-req",
+    controlEpoch: 5,
   });
 });

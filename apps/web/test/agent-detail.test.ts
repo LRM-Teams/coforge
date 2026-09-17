@@ -87,6 +87,25 @@ test("formats only the cloud display decision even when its raw detail kind conf
   });
 });
 
+test("a stopped Agent (ADR 0038) keeps its real display kind and label, adding only a status caption", () => {
+  const offline = display({ activityKind: "offline", detailKind: "model_response_started" });
+  expect(agentDisplay(offline, { stopped: true })).toMatchObject({
+    kind: "offline",
+    label: "Offline",
+    isOnline: false,
+    statusDetail: "Stopped — won't receive messages until restarted",
+  });
+  // Not stopped: no caption at all.
+  expect(agentDisplay(offline, { stopped: false }).statusDetail).toBeUndefined();
+  expect(agentDisplay(offline).statusDetail).toBeUndefined();
+  // Stopped but the display is not (yet) offline: the real kind and label are not overridden.
+  const working = display({ activityKind: "working", detailKind: "model_request_started" });
+  const view = agentDisplay(working, { stopped: true });
+  expect(view.kind).toBe("working");
+  expect(view.isOnline).toBe(true);
+  expect(view.statusDetail).toBeUndefined();
+});
+
 test("status presentation uses backend detail instead of hardcoding the received message", () => {
   const observation = {
     activityKind: "working" as const,
@@ -318,6 +337,31 @@ describe("Agent detail", () => {
       expiresAt: null,
       ordering: null,
     });
+  });
+
+  test("exposes stopped from stoppedAt (ADR 0038)", async () => {
+    const baseAgent = {
+      id: "agent-1",
+      workspaceId: "workspace-1",
+      name: "builder",
+      displayName: "Builder",
+      role: "member",
+      createdAt: new Date("2026-08-29T00:00:00Z"),
+      computerId: "computer-1",
+      owner: { id: "owner-1", username: "alice" },
+      runtimeConfig: {},
+    };
+    const stoppedQuery = new AgentDetailQuery({
+      findAuthorized: async () => ({ ...baseAgent, stoppedAt: new Date("2026-09-17T00:00:00Z") }),
+      listActivity: async () => [],
+    });
+    expect((await stoppedQuery.get("workspace-1", "agent-1", "viewer-1"))?.stopped).toBe(true);
+
+    const runningQuery = new AgentDetailQuery({
+      findAuthorized: async () => ({ ...baseAgent, stoppedAt: null }),
+      listActivity: async () => [],
+    });
+    expect((await runningQuery.get("workspace-1", "agent-1", "viewer-1"))?.stopped).toBe(false);
   });
 
   test("returns the complete profile and newest-first Activity to a Workspace member", async () => {

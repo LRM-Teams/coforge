@@ -678,7 +678,9 @@ Daemon 进程的本地主机环境，不承诺获得当前 Agent 的自定义 `e
 identity 并声明替代旧 ID，不能以相同 ID 冒充 resume。切换 runtime/provider 新建会话，
 保留 Agent workspace。
 
-用户已确认三个独立的前端操作；Reset 与 Start 是一个按钮触发的组合操作，不要求用户再点 Start：
+用户已确认三个独立的、以 Stop → Start 组合 chain 表达的前端操作；Reset 与 Start 是一个按钮
+触发的组合操作，不要求用户再点 Start。ADR 0038 追加的 Start、Stop 是另外两个独立操作，各自
+只运行 chain 中的一步（见下方 ADR 0038 段落），不在这张表内：
 
 | 操作          | 停止完成后的动作                                                        | Agent workspace                                                     |
 | ------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------- |
@@ -730,6 +732,22 @@ reset-session、full-reset 都可以立即发起，不要求先完成特定动�
 工作流引擎、任务队列或自动补偿。原子命令的拆分参考
 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
 中独立的 `agent:stop`、`agent:reset-workspace`、`agent:start` dispatch，不据此推断私有前端实现。
+
+ADR 0038（2026-09-17）新增 Start 与 Stop 为独立的用户操作：`agents` 表新增可空
+`stoppedAt` 列，表示"用户已停止该 Agent"这一持久意图，独立于 `controlState`（仍只是
+当前控制请求与 fencing）。`AgentControl.execute()` 的 stop 先落盘 `stoppedAt = now`
+再运行 stop chain，即使 Computer 离线或 Daemon 从未应答，该意图仍然持久；
+start/restart/reset-session/full-reset 先清空 `stoppedAt` 再运行各自 chain。Ready
+recovery（`WorkspaceAgentRecovery.recoverWorkspace`）跳过 `stoppedAt` 已置位的
+Agent，不再对其重新 Start；若 Daemon 仍报告该 Agent 运行中（Stop 请求下达时 Computer
+离线，或结果丢失），通过 `AgentControl.publishStop` 补发一次 Stop 完成对齐，不阻塞
+其余 Agent 的恢复。配置、凭据与环境变量修改（`ManageAgents.update`、
+`ChangeAgentRuntimeCredential`、`AgentEnvironment.save`）在 Agent 已停止时直接落盘，
+不再执行 Stop → 持久化 → Start 序列，因为没有正在运行的进程需要保护；创建 Agent
+仍照常启动。前端按 `agentDisplay(display).isOnline` 在 Restart 按钮旁选择显示
+Start 或 Stop；Stop 需要确认弹窗，Start 无需确认；两者仍要求 `controlAgentRuntime`
+（任意当前 Workspace 成员）。详见
+[ADR 0038](adr/0038-agent-start-and-stop-persisted-state.md)。
 
 上述完整控制契约已获用户批准并接入 owner Profile。`AgentSession` 是 native identity
 与 state 的唯一持久化所有者，并以 Agent/Workspace/Computer/provider 为 assignment scope；

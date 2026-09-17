@@ -119,6 +119,20 @@ export class WorkspaceAgentRecovery {
           const agent = await this.agents.getById(listedAgent.id);
           if (!agent || agent.workspaceId !== workspaceId || agent.computerId !== computerId)
             return;
+          if (agent.stoppedAt) {
+            // ADR 0038: a user stopped this Agent; nothing here may start or wake it. If the
+            // Daemon still reports it running (Stop requested while offline, or its result was
+            // lost), reconcile with a Stop through AgentControl, without blocking the rest of
+            // recovery on its result.
+            if (runningAgents.has(agent.id) && this.control)
+              void this.control
+                .publishStop(
+                  { agentId: agent.id, workspaceId, requestId: crypto.randomUUID() },
+                  agent.ownerId,
+                )
+                .catch(() => {});
+            return;
+          }
           if (runningAgents.has(agent.id)) {
             const deliveries = await this.conversations.readPendingAgentDeliveries(
               workspaceId,

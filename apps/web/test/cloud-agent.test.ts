@@ -10,6 +10,11 @@ import {
   PublishAgentRuntimeControl,
   WorkspaceAgentRecovery,
 } from "../src/server/agents/agent-runtime-control.server";
+import {
+  AgentControl,
+  type AgentControlAgent,
+  type AgentControlStore,
+} from "../src/server/agents/agent-control.server";
 
 describe("PublishAgentRuntimeControl", () => {
   test("ready recovery publishes stored runtime config for every Workspace Agent", async () => {
@@ -216,6 +221,171 @@ describe("PublishAgentRuntimeControl", () => {
     expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({
       model: "fresh-model",
     });
+  });
+
+  // --- ADR 0038: stopped Agents are excluded from ready recovery -------------------------------
+
+  test("recoverWorkspace skips a stopped Agent the Daemon also reports not running", async () => {
+    const payloads: Uint8Array[] = [];
+    const recoveryReads: string[] = [];
+    const pendingReads: string[] = [];
+    const agents = [
+      {
+        id: "agent-stopped",
+        workspaceId: "workspace-1",
+        ownerId: "user-1",
+        computerId: "computer-1",
+        name: "stopped",
+        displayName: "Stopped",
+        createdAt: new Date(),
+        stoppedAt: new Date("2026-09-17T00:00:00Z"),
+        runtimeConfig: {
+          runtime: RUNTIME_PROVIDER.PI,
+          provider: { kind: "default" as const },
+          model: "",
+          modelProvider: "",
+          reasoning: "",
+        },
+      },
+    ];
+    const recovery = new WorkspaceAgentRecovery(
+      {
+        getById: async (id) => agents.find((agent) => agent.id === id),
+        listOwnedInWorkspace: async () => [],
+        listInWorkspace: async () => [],
+        create: async () => {
+          throw new Error("not used");
+        },
+        update: async () => {
+          throw new Error("not used");
+        },
+        listForComputer: async () => agents.map((agent) => structuredClone(agent)),
+      },
+      {
+        readAgentRecoveryContext: async (_workspaceId, agentId) => {
+          recoveryReads.push(agentId);
+          return { resumeMessages: [], unreadSummary: {} };
+        },
+        readPendingAgentDeliveries: async (_workspaceId, agentId) => {
+          pendingReads.push(agentId);
+          return [];
+        },
+      },
+      { publish: async (_channel, payload) => void payloads.push(payload) },
+      { run: async (_agentId, callback) => callback() },
+    );
+
+    await recovery.recoverWorkspace("workspace-1", "computer-1", []);
+
+    expect(payloads).toHaveLength(0);
+    expect(recoveryReads).toEqual([]);
+    expect(pendingReads).toEqual([]);
+  });
+
+  test("recoverWorkspace reconciles a stopped Agent the Daemon reports running with a Stop, without blocking on its result", async () => {
+    const agents = [
+      {
+        id: "agent-stopped-running",
+        workspaceId: "workspace-1",
+        ownerId: "owner-1",
+        computerId: "computer-1",
+        name: "stopped",
+        displayName: "Stopped",
+        createdAt: new Date(),
+        stoppedAt: new Date("2026-09-17T00:00:00Z"),
+        runtimeConfig: {
+          runtime: RUNTIME_PROVIDER.PI,
+          provider: { kind: "default" as const },
+          model: "",
+          modelProvider: "",
+          reasoning: "",
+        },
+      },
+    ];
+    let controlAgent: AgentControlAgent = {
+      id: "agent-stopped-running",
+      ownerId: "owner-1",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      runtimeConfig: {
+        runtime: "pi",
+        provider: { kind: "default" },
+        model: "",
+        modelProvider: "",
+        reasoning: "",
+      },
+      state: null,
+    };
+    const store: AgentControlStore = {
+      memberRole: async () => "owner",
+      get: async () => structuredClone(controlAgent),
+      replace: async (before, state) => {
+        if (JSON.stringify(before.state) !== JSON.stringify(controlAgent.state)) return false;
+        controlAgent = { ...controlAgent, state };
+        return true;
+      },
+    };
+    let releasePublish = () => {};
+    const publishGate = new Promise<void>((resolve) => {
+      releasePublish = resolve;
+    });
+    let notifyPublished = () => {};
+    const publishedSignal = new Promise<void>((resolve) => {
+      notifyPublished = resolve;
+    });
+    const published: Uint8Array[] = [];
+    const control = new AgentControl(
+      store,
+      {
+        publish: async (_channel, bytes) => {
+          published.push(bytes);
+          notifyPublished();
+          // Never resolves during this test: proves recoverWorkspace does not await it.
+          await publishGate;
+        },
+      },
+      { run: async (_id, work) => work() },
+      { timeoutMs: 0, fallbackMs: 0 },
+    );
+    const recovery = new WorkspaceAgentRecovery(
+      {
+        getById: async (id) => agents.find((agent) => agent.id === id),
+        listOwnedInWorkspace: async () => [],
+        listInWorkspace: async () => [],
+        create: async () => {
+          throw new Error("not used");
+        },
+        update: async () => {
+          throw new Error("not used");
+        },
+        listForComputer: async () => agents.map((agent) => structuredClone(agent)),
+      },
+      {
+        readAgentRecoveryContext: async () => ({ resumeMessages: [], unreadSummary: {} }),
+        readPendingAgentDeliveries: async () => [],
+      },
+      {
+        publish: async () => {
+          throw new Error("must reconcile through AgentControl.publishStop, not this api");
+        },
+      },
+      { run: async (_agentId, callback) => callback() },
+      undefined,
+      control,
+    );
+
+    // Proves the reconcile Stop does not block recovery: `publish` above never resolves
+    // (`publishGate` is only released below), yet `recoverWorkspace` still completes.
+    await recovery.recoverWorkspace("workspace-1", "computer-1", ["agent-stopped-running"]);
+    await publishedSignal;
+
+    expect(published).toHaveLength(1);
+    expect(decodeAgentStopIntent(published[0]!)).toMatchObject({
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      agentId: "agent-stopped-running",
+    });
+    releasePublish();
   });
 
   test("publishes an Agent start when optional model and reasoning are empty", async () => {

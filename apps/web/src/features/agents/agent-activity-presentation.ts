@@ -7,6 +7,9 @@ export type ActivityObservation = Pick<
   "activityKind" | "detailKind" | "detail" | "level" | "entries"
 >;
 type Tone = "working" | "thinking" | "idle" | "offline" | "error" | "output" | "unknown";
+/** Activity labels are not internationalized (AGENTS.md); reused verbatim for the persisted
+ * "user stopped this Agent" (ADR 0038) status text, not just the offline-history activity row. */
+export const STOPPED_STATUS_DETAIL = "Stopped — won't receive messages until restarted";
 export type ActivityRow = {
   label: string;
   detail: string;
@@ -182,7 +185,7 @@ export function presentActivity(observation: ActivityObservation): ActivityRow[]
         : tone === "idle"
           ? "Online"
           : tone === "offline"
-            ? "Stopped — won't receive messages until restarted"
+            ? STOPPED_STATUS_DETAIL
             : tone === "error"
               ? detail
                 ? `Error: ${detail}`
@@ -219,8 +222,17 @@ export function activityToneClass(tone: Tone) {
   }
 }
 
-/** Format a cloud decision. No clocks, process facts or history reduction here. */
-export function agentDisplay(display?: AgentDisplaySnapshot) {
+/**
+ * Format a cloud decision. No clocks, process facts or history reduction here.
+ *
+ * `stopped` (ADR 0038, a user-persisted intent, not a display fact) never changes `isOnline` or
+ * `label` — the Start/Stop button choice and the short status word stay exactly what the Daemon
+ * reports. It only adds `statusDetail`, an un-internationalized caption (AGENTS.md) reusing the
+ * existing Activity "Stopped — …" sentence, shown only when the display itself is already
+ * offline: a stopped Agent whose Daemon has not yet caught up is still described by its real
+ * display kind, not overridden into looking offline early.
+ */
+export function agentDisplay(display?: AgentDisplaySnapshot, options?: { stopped?: boolean }) {
   if (!display)
     return {
       kind: "unknown" as const,
@@ -228,6 +240,8 @@ export function agentDisplay(display?: AgentDisplaySnapshot) {
       isOnline: undefined,
       tone: "unknown" as const,
       pulse: false,
+      // Never present; only shapes the inferred type to match the other branch's optional field.
+      ...((false as boolean) ? { statusDetail: "" } : {}),
     };
   const kind = display.activityKind;
   const row = presentActivity({ ...display, level: kind === "error" ? "error" : "info" }).at(-1);
@@ -247,5 +261,8 @@ export function agentDisplay(display?: AgentDisplaySnapshot) {
     isOnline: kind !== "offline",
     tone: kind === "online" ? ("idle" as const) : kind,
     pulse: kind === "working" || kind === "thinking",
+    ...(options?.stopped === true && kind === "offline"
+      ? { statusDetail: STOPPED_STATUS_DETAIL }
+      : {}),
   };
 }

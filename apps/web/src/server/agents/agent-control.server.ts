@@ -19,6 +19,18 @@ import {
   type WorkspaceMemberRole,
 } from "../workspaces/member-role.server";
 
+/** Only the recovery fields a Start intent may carry; a full `AgentStartIntent` (e.g.
+ * `recover()`'s) structurally satisfies this too. */
+type AgentRecoveryFields = Pick<
+  AgentStartIntent,
+  "wakeMessage" | "resumeMessages" | "unreadSummary"
+>;
+/** Reads the surfaced-while-stopped recovery context for a user-initiated Start (ADR 0038); the
+ * same shape `WorkspaceAgentRecovery.recoverWorkspace` reads for Daemon-ready recovery. */
+export type AgentControlRecoveryReader = {
+  readAgentRecoveryContext(workspaceId: string, agentId: string): Promise<AgentRecoveryFields>;
+};
+
 /** Application button intent; never sent as a daemon command. */
 export type AgentControlAction = "start" | "stop" | "restart" | "reset-session" | "full-reset";
 type AgentControlStep = "stop" | "reset-workspace" | "clear-session" | "start";
@@ -38,11 +50,11 @@ const commands = {
   },
   start: { pending: "starting", result: "started", completed: "completed" },
 } as const;
-/** Raft capability required for each user-initiated execute() action. */
-const EXECUTE_CAPABILITY: Record<
-  "restart" | "reset-session" | "full-reset",
-  AgentControlCapability
-> = {
+/** Raft capability required for each user-initiated execute() action. Start and Stop need only
+ * `controlAgentRuntime` (ADR 0038), the same as Restart and Reset session. */
+const EXECUTE_CAPABILITY: Record<AgentControlAction, AgentControlCapability> = {
+  start: "controlAgentRuntime",
+  stop: "controlAgentRuntime",
   restart: "controlAgentRuntime",
   "reset-session": "controlAgentRuntime",
   "full-reset": "resetAgentWorkspace",
@@ -85,15 +97,20 @@ export type AgentControlAgent = {
   state: AgentControlState | null;
   currentSessionId?: string | null;
   identity?: SessionIdentity;
+  /** Set when a user stopped this Agent (ADR 0038); read model only, not part of the CAS fence. */
+  stoppedAt?: Date | null;
 };
 /** get/replace both require current owner membership and Workspace–Computer assignment. */
 export interface AgentControlStore {
   get(agentId: string): Promise<AgentControlAgent | undefined>;
-  /** Clear Session, when requested, commits in the same transaction as the next phase. */
+  /** Clear Session, when requested, commits in the same transaction as the next phase. Setting
+   * `stoppedAt` (ADR 0038) writes the Agent's persisted stop/start intent in that same
+   * transaction; `undefined` leaves it unchanged. This flag is last-writer-wins, not part of the
+   * optimistic-concurrency fence `replace` already applies to `controlState`. */
   replace(
     before: AgentControlAgent,
     state: AgentControlState,
-    options?: { clearSession: boolean },
+    options?: { clearSession?: boolean; stoppedAt?: Date | null },
   ): Promise<boolean>;
   /** The ACTOR's current Workspace role; undefined when the actor is not a member. Used only by
    * execute()'s capability check, never by the Agent-record authorization above. */
@@ -194,6 +211,9 @@ export class AgentControl {
     } = { timeoutMs: 7_000 },
     private readonly sessions?: AgentSessions,
     private readonly signal: AgentControlSignal = new LocalAgentControlSignal(),
+    /** Only consulted for a user-initiated `execute({action:"start"})`; Restart/Reset/Full reset
+     * and the internal `recover`/`publishStart` paths are unchanged (ADR 0038). */
+    private readonly conversations?: AgentControlRecoveryReader,
   ) {}
 
   private clock(): number {
@@ -235,7 +255,7 @@ export class AgentControl {
     const state = await this.begin(agent, "start", intent.requestId);
     await this.publishCurrent(agent.id, state.requestId, intent);
   }
-  private async advance(agentId: string, requestId: string, recovery?: AgentStartIntent) {
+  private async advance(agentId: string, requestId: string, recovery?: AgentRecoveryFields) {
     const agent = await this.store.get(agentId);
     const state = agent?.state;
     if (!agent || !state || state.requestId !== requestId || !current(agent, state)) return;
@@ -273,11 +293,20 @@ export class AgentControl {
     workspaceId: string;
     agentId: string;
     requestId: string;
-    action: "restart" | "reset-session" | "full-reset";
+    action: AgentControlAction;
     confirmed?: boolean;
   }): Promise<AgentControlView> {
     if (input.action === "full-reset" && input.confirmed !== true)
       throw new Error("Full reset confirmation is required");
+    // ADR 0038: `stop` persists the user's stop intent before the chain runs at all, so it
+    // survives even if the Computer never answers; every other action clears it first. Messages
+    // that arrived while stopped are surfaced only for the explicit "start" action, the same
+    // recovery context a Daemon-ready recovery start carries.
+    const stoppedAt = input.action === "stop" ? new Date(this.clock()) : null;
+    const recovery =
+      input.action === "start" && this.conversations
+        ? await this.conversations.readAgentRecoveryContext(input.workspaceId, input.agentId)
+        : undefined;
     await this.runtimeLock.run(input.agentId, async () => {
       const agent = await this.authorizedForExecute(
         input.userId,
@@ -285,9 +314,9 @@ export class AgentControl {
         input.agentId,
         input.action,
       );
-      await this.begin(agent, input.action, input.requestId);
+      await this.begin(agent, input.action, input.requestId, 1, stoppedAt);
     });
-    return this.drive(input.agentId, input.requestId);
+    return this.drive(input.agentId, input.requestId, recovery);
   }
   private async authorized(userId: string, workspaceId: string, agentId: string) {
     const agent = await this.store.get(agentId);
@@ -304,7 +333,7 @@ export class AgentControl {
     userId: string,
     workspaceId: string,
     agentId: string,
-    action: "restart" | "reset-session" | "full-reset",
+    action: AgentControlAction,
   ) {
     const agent = await this.store.get(agentId);
     if (!agent || agent.workspaceId !== workspaceId)
@@ -319,6 +348,9 @@ export class AgentControl {
     action: AgentControlAction,
     requestId: string,
     attempt = 1,
+    /** ADR 0038: `undefined` leaves the Agent's persisted stopped state unchanged (every caller
+     * except `execute()` — `recover`, and `begin`'s own CAS retries, must never touch it). */
+    stoppedAt?: Date | null,
   ): Promise<AgentControlState> {
     const old = agent.state;
     if (old?.requestId === requestId) {
@@ -369,7 +401,8 @@ export class AgentControl {
       updatedAtMs: this.clock(),
       ...(identity ? { identity } : {}),
     };
-    if (await this.store.replace(agent, state)) return state;
+    if (await this.store.replace(agent, state, stoppedAt !== undefined ? { stoppedAt } : undefined))
+      return state;
 
     // Session reports do not take the runtime lock. Reauthorize and rebuild from
     // their fresh identity, but never absorb a configuration or operation change.
@@ -388,7 +421,7 @@ export class AgentControl {
       throw new Error("Agent configuration or control operation changed");
     if (attempt === 3)
       throw new Error("Agent control could not begin after 3 compare-and-swap attempts");
-    return this.begin(refreshed, action, requestId, attempt + 1);
+    return this.begin(refreshed, action, requestId, attempt + 1, stoppedAt);
   }
 
   /** Caller already holds the existing Agent runtime lock (create/update/recovery). */
@@ -419,7 +452,7 @@ export class AgentControl {
     if (result.phase !== "completed") throw new Error("Agent stop has not completed");
   }
 
-  private async publishCurrent(agentId: string, requestId: string, recovery?: AgentStartIntent) {
+  private async publishCurrent(agentId: string, requestId: string, recovery?: AgentRecoveryFields) {
     const agent = await this.store.get(agentId);
     const state = agent?.state;
     if (!agent || !state || state.requestId !== requestId || !current(agent, state))
@@ -467,7 +500,14 @@ export class AgentControl {
       );
     }
   }
-  private async drive(agentId: string, requestId: string): Promise<AgentControlView> {
+  private async drive(
+    agentId: string,
+    requestId: string,
+    /** Only ever set by `execute()`'s `"start"` action; threaded into the single `publishCurrent`
+     * call this method itself makes (ADR 0038). Chain transitions still go through `advance()`,
+     * unchanged, exactly as an owner-initiated Restart/Reset/Full reset already did. */
+    recovery?: AgentRecoveryFields,
+  ): Promise<AgentControlView> {
     const deadline = Date.now() + this.timing.timeoutMs;
     let publishedPhase = "";
     // A signal means the ACK handler already advanced and published the next command.
@@ -489,7 +529,7 @@ export class AgentControl {
       if (publishedPhase !== state.phase) {
         // Publish failure is ambiguous: keep the durable pending state and retry the SAME request.
         try {
-          await this.publishCurrent(agentId, requestId);
+          await this.publishCurrent(agentId, requestId, recovery);
         } catch {
           return view(state);
         }
