@@ -6,12 +6,23 @@ a token, an SSH key, or a deploy key, and never run `gh auth login`.
 
 ## Check what is bound
 
+When someone says "this project" in a channel, first check that channel's own binding:
+
+```
+coforge channel info <target>
+```
+
+Its `Project:` line, when present, names the Project this channel belongs to and, when bound,
+its `github=<owner>/<repo>`. Only when the channel has no `Project:` line — or you need the full
+list — fall back to:
+
 ```
 coforge workspace info --projects
 ```
 
-Each Project line prints `github=<owner>/<repo>` when a GitHub repository is bound. If the
-Project has no `github=` field, it is not bound to a repository.
+Each Project line there prints `github=<owner>/<repo>` when a GitHub repository is bound. If the
+Project has no `github=` field, it is not bound to a repository. If the channel had no Project and
+the Workspace has more than one, ask which Project is meant rather than guessing.
 
 ## Clone the repository
 

@@ -32,6 +32,15 @@ export type ChannelInfoLike = {
   channelRole?: string;
   channelAdminBasis?: ChannelAdminBasis;
   channelCapabilities: Record<ChannelCapability, boolean>;
+  /** Present only when this channel is a Project discussion group; same fields `workspace info
+   * --projects` renders, so an Agent can match this channel's Project to that list. */
+  project?: {
+    id: string;
+    name: string;
+    slug: string;
+    githubFullName?: string;
+    githubHtmlUrl?: string;
+  };
 };
 
 export type ChannelRosterAgentLike = {
@@ -115,6 +124,14 @@ export function formatChannelInfo(response: { channel: ChannelInfoLike }): strin
     `Muted: ${yesNo(channel.muted)}`,
     `Archived: ${yesNo(channel.archived)}`,
     `Description: ${channel.description || "(none)"}`,
+  );
+  // Same rendering as `workspace info --projects`'s project line, so an Agent can match this
+  // channel's Project up against that list. Absent for a channel with no bound Project.
+  if (channel.project)
+    lines.push(
+      `Project: ${channel.project.name} (${channel.project.slug})${channel.project.githubFullName ? ` github=${channel.project.githubFullName}` : ""}`,
+    );
+  lines.push(
     // Always plural, like Raft's formatChannelInfo — never singularized for a count of 1.
     `Members: ${total} (${channel.memberCounts.agents} agents, ${channel.memberCounts.humans} humans)`,
     "",

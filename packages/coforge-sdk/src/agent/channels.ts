@@ -33,6 +33,17 @@ export type AgentChannelInfo = {
   channelAdminBasis?: AgentChannelAdminBasis;
   /** Every capability name; only the ones this Agent may currently invoke are `true`. */
   channelCapabilities: AgentChannelCapabilities;
+  /** Present only when this channel is a Project discussion group (ADR 0026) for a Project the
+   * Agent's own Workspace owns. Field names and source match `workspace info --projects`
+   * (`WorkspaceInfoProject`), so an Agent can match the two surfaces up. Absent on an older
+   * server that predates this field. */
+  project?: {
+    id: string;
+    name: string;
+    slug: string;
+    githubFullName?: string;
+    githubHtmlUrl?: string;
+  };
 };
 
 /** Response for `channel info` (GET /api/agent/v1/channels/:channel) and `channel update`

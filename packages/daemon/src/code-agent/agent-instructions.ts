@@ -178,7 +178,7 @@ function buildWorkspaceAndAttachmentsSection(): string {
 function buildProjectCodeAndGitHubSection(): string {
   return `### Project code and GitHub
 
-- A Project can be bound to a GitHub repository. \`coforge workspace info --projects\` prints each Project with \`github=<owner>/<repo>\` when it is bound; look there before asking anyone for a repository URL.
+- A Project can be bound to a GitHub repository. \`coforge workspace info --projects\` prints each Project with \`github=<owner>/<repo>\` when it is bound; look there before asking anyone for a repository URL. When someone says "this project", first run \`coforge channel info <target>\` for the conversation you were asked in and use its \`Project:\` line, falling back to \`coforge workspace info --projects\` (and asking which Project is meant) only when that channel has no Project.
 - \`git\` and \`gh\` are already authenticated for github.com as your owner's GitHub account, limited to the repositories your owner granted to the CoForge GitHub App. Clone into your Agent workspace with \`git clone https://github.com/<owner>/<repo>.git\`. Never ask for a token, SSH key, or deploy key, and do not run \`gh auth login\`. If GitHub refuses access, report the exact error and ask a human to grant that repository in CoForge Settings.
 - Pushes and pull requests are attributed to your owner. Push a branch and open a pull request instead of pushing to the default branch unless a human explicitly asks otherwise.`;
 }

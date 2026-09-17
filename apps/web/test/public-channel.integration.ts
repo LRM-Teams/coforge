@@ -1812,3 +1812,130 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
     redis.close();
   }
 });
+
+test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent's own Workspace; an unbound channel omits it, and another Workspace's Project never leaks", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const owner = await db.user.create({ data: { username: `pio${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `proj-info-${suffix}`,
+      name: "Project channel info",
+      members: { create: { userId: owner.id, role: "owner" } },
+    },
+  });
+  const foreignWorkspace = await db.workspace.create({
+    data: { slug: `proj-info-foreign-${suffix}`, name: "Foreign" },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: owner.id, machineId: crypto.randomUUID() },
+    });
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: owner.id,
+        computerId: computer.id,
+        name: `piagent${suffix}`,
+        displayName: "Agent",
+        role: "member",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+
+    const boundProject = await db.project.create({
+      data: {
+        workspaceId: workspace.id,
+        name: "Launch",
+        slug: `launch-${suffix}`,
+        githubFullName: "acme/launch",
+        githubHtmlUrl: "https://github.com/acme/launch",
+      },
+    });
+    const unboundProject = await db.project.create({
+      data: { workspaceId: workspace.id, name: "Docs", slug: `docs-${suffix}` },
+    });
+    const foreignProject = await db.project.create({
+      data: { workspaceId: foreignWorkspace.id, name: "Foreign", slug: `foreign-${suffix}` },
+    });
+
+    // A Project discussion group (ADR 0026): bound to `boundProject`, which itself has a
+    // GitHub repository.
+    const withGithub = await db.conversation.create({
+      data: {
+        workspaceId: workspace.id,
+        channelName: `withgithub${suffix.slice(0, 6)}`,
+        projectId: boundProject.id,
+        members: { create: { agentId: agent.id } },
+      },
+    });
+    // Bound to a Project with no GitHub repository.
+    const noGithub = await db.conversation.create({
+      data: {
+        workspaceId: workspace.id,
+        channelName: `nogithub${suffix.slice(0, 6)}`,
+        projectId: unboundProject.id,
+        members: { create: { agentId: agent.id } },
+      },
+    });
+    // An ordinary channel: no Project at all.
+    const plain = await db.conversation.create({
+      data: {
+        workspaceId: workspace.id,
+        channelName: `plain${suffix.slice(0, 6)}`,
+        members: { create: { agentId: agent.id } },
+      },
+    });
+    // Data that should not be reachable through any authorized flow (`PublicChannels.create`
+    // validates the Project's Workspace before assigning it): a channel whose `projectId` points
+    // at another Workspace's Project. The server must still never surface it.
+    const crossWorkspace = await db.conversation.create({
+      data: {
+        workspaceId: workspace.id,
+        channelName: `cross${suffix.slice(0, 6)}`,
+        projectId: foreignProject.id,
+        members: { create: { agentId: agent.id } },
+      },
+    });
+
+    const manage = new AgentChannelManagement(db, {
+      snapshot: async () => {
+        throw new Error("no live display data in this test");
+      },
+    });
+
+    const withGithubInfo = await manage.info(workspace.id, agent.id, `#${withGithub.channelName}`);
+    expect(withGithubInfo.project).toEqual({
+      id: boundProject.id,
+      name: "Launch",
+      slug: `launch-${suffix}`,
+      githubFullName: "acme/launch",
+      githubHtmlUrl: "https://github.com/acme/launch",
+    });
+
+    const noGithubInfo = await manage.info(workspace.id, agent.id, `#${noGithub.channelName}`);
+    expect(noGithubInfo.project).toEqual({
+      id: unboundProject.id,
+      name: "Docs",
+      slug: `docs-${suffix}`,
+    });
+
+    const plainInfo = await manage.info(workspace.id, agent.id, `#${plain.channelName}`);
+    expect(plainInfo.project).toBeUndefined();
+
+    const crossWorkspaceInfo = await manage.info(
+      workspace.id,
+      agent.id,
+      `#${crossWorkspace.channelName}`,
+    );
+    expect(crossWorkspaceInfo.project).toBeUndefined();
+  } finally {
+    await db.workspace.deleteMany({ where: { id: { in: [workspace.id, foreignWorkspace.id] } } });
+    await db.computer.deleteMany({ where: { ownerId: owner.id } });
+    await db.user.deleteMany({ where: { id: owner.id } });
+    await db.$disconnect();
+  }
+});

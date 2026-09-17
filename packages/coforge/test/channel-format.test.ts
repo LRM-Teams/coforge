@@ -53,6 +53,79 @@ test("formatChannelInfo renders the full info block, including an empty descript
   );
 });
 
+test("formatChannelInfo prints a Project line, with github=, between Description and Members when the channel is bound", () => {
+  const text = formatChannelInfo({
+    channel: {
+      id: "id",
+      name: "#launch-eng",
+      description: "Launch engineering",
+      archived: false,
+      joined: true,
+      muted: false,
+      memberCounts: { agents: 1, humans: 2 },
+      channelCapabilities: NO_CAPABILITIES,
+      project: {
+        id: "project-1",
+        name: "Launch",
+        slug: "launch",
+        githubFullName: "acme/launch",
+        githubHtmlUrl: "https://github.com/acme/launch",
+      },
+    },
+  });
+  expect(text).toBe(
+    [
+      "## Channel",
+      "",
+      "Channel: #launch-eng",
+      "ID: id",
+      "Visibility: public",
+      "Joined: yes",
+      "Muted: no",
+      "Archived: no",
+      "Description: Launch engineering",
+      "Project: Launch (launch) github=acme/launch",
+      "Members: 3 (1 agents, 2 humans)",
+      "",
+      'More: coforge channel members "#launch-eng"',
+    ].join("\n"),
+  );
+});
+
+test("formatChannelInfo prints a Project line with no github= when the Project has no bound repository", () => {
+  const text = formatChannelInfo({
+    channel: {
+      id: "id",
+      name: "#docs",
+      description: "",
+      archived: false,
+      joined: true,
+      muted: false,
+      memberCounts: { agents: 0, humans: 1 },
+      channelCapabilities: NO_CAPABILITIES,
+      project: { id: "project-2", name: "Docs", slug: "docs" },
+    },
+  });
+  expect(text).toContain("Project: Docs (docs)");
+  expect(text).not.toContain("github=");
+});
+
+test("formatChannelInfo omits the Project line entirely for a channel with no bound Project", () => {
+  const text = formatChannelInfo({
+    channel: {
+      id: "id",
+      name: "#general",
+      description: "",
+      archived: false,
+      joined: true,
+      muted: false,
+      memberCounts: { agents: 0, humans: 1 },
+      channelCapabilities: NO_CAPABILITIES,
+    },
+  });
+  expect(text).not.toContain("Project:");
+});
+
 test("formatChannelInfo prints a real description and always uses plural member nouns, like Raft, even for a count of one", () => {
   const text = formatChannelInfo({
     channel: {
