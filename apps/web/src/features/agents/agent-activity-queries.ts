@@ -7,6 +7,7 @@ import {
   agentActivityChannel,
   decodeActivityObservation,
   mergeAgentActivity,
+  POPOVER_EXCLUDED_DETAIL_KINDS,
   RECENT_ACTIVITY_LIMIT,
   type ActivityEntry,
 } from "./agent-activity";
@@ -22,9 +23,16 @@ export const agentActivityKeys = {
 export type RecentActivityByAgent = Record<string, ActivityEntry[]>;
 
 // Shared by the queryFn's per-agent merge and the publication patch, so both
-// sides of the cache apply the same merge and the same cap.
+// sides of the cache apply the same merge and the same cap. Also keeps this
+// short "recent activity" cache free of the ordinary status rows the Agent
+// detail feed now shows (tool_end/thinking_end/compaction_finished; ADR
+// 0021, amended) — filtered here, upstream of the cap, so a run of those
+// doesn't crowd out the popover's genuinely noteworthy events.
 const mergeRecent = (current: ActivityEntry[] | undefined, incoming: ActivityEntry[]) =>
-  mergeAgentActivity(current ?? [], incoming).slice(0, RECENT_ACTIVITY_LIMIT);
+  mergeAgentActivity(
+    current ?? [],
+    incoming.filter((entry) => !POPOVER_EXCLUDED_DETAIL_KINDS.has(entry.detailKind)),
+  ).slice(0, RECENT_ACTIVITY_LIMIT);
 
 // Realtime keeps these entries current, so they never go stale by age. Query's
 // focus manager refetches when the tab becomes visible again (`visibilitychange`)
@@ -60,7 +68,7 @@ export const workspaceActivityQuery = (workspaceId: string | undefined) =>
       : skipToken,
   });
 
-/** The Agent detail Activity tab's feed (up to 100 rows, newest first). */
+/** The Agent detail Activity tab's feed (up to 500 rows, newest first). */
 export const agentActivityFeedQuery = (agentId: string) =>
   queryOptions({
     queryKey: agentActivityKeys.agent(agentId),

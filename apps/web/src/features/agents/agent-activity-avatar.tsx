@@ -3,17 +3,20 @@ import { Heading } from "react-aria-components";
 import { Avatar, type AvatarProps } from "@/components/base/avatar/avatar";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { HoverPopover } from "@/components/ui/hover-popover";
+import { ClockTime } from "@/components/ui/relative-time";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
-import { resolveTimeZone } from "@/lib/dates";
 import { m } from "@/paraglide/messages";
-import { getLocale } from "@/paraglide/runtime";
 import {
   activityToneClass,
   agentDisplay,
   presentActivityRows,
 } from "./agent-activity-presentation";
-import { RECENT_ACTIVITY_LIMIT, type ActivityEntry } from "./agent-activity";
+import {
+  POPOVER_EXCLUDED_DETAIL_KINDS,
+  RECENT_ACTIVITY_LIMIT,
+  type ActivityEntry,
+} from "./agent-activity";
 
 export type AvatarSize = NonNullable<AvatarProps["size"]>;
 
@@ -80,15 +83,14 @@ export function AgentActivityAvatar({
   // Same cap point as before (top N of the row list); merging first means the cap
   // now lands on whole statements instead of possibly splitting one mid-fragment.
   // `activity` itself may already be windowed upstream (RECENT_ACTIVITY_LIMIT or the
-  // 100-row history cap) — a statement cut at that boundary just shows what loaded.
-  const recent = presentActivityRows(activity).slice(0, RECENT_ACTIVITY_LIMIT);
-  const time = new Intl.DateTimeFormat(getLocale(), {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-    timeZone: resolveTimeZone(timeZone, Intl.DateTimeFormat().resolvedOptions().timeZone),
-  });
+  // 500-row history cap) — a statement cut at that boundary just shows what loaded.
+  // Filtered here too (defense in depth alongside agent-activity-queries.ts's mergeRecent):
+  // this component is also fed the Agent detail page's full, unfiltered feed directly, which
+  // now legitimately contains tool_end/thinking_end/compaction_finished status rows (ADR 0021,
+  // amended) that don't belong in this short "recent activity" popover.
+  const recent = presentActivityRows(
+    activity.filter((entry) => !POPOVER_EXCLUDED_DETAIL_KINDS.has(entry.detailKind)),
+  ).slice(0, RECENT_ACTIVITY_LIMIT);
 
   return (
     <HoverPopover
@@ -147,15 +149,12 @@ export function AgentActivityAvatar({
             {recent.map((entry) => {
               return (
                 <li key={entry.key} className="flex items-start gap-3 text-xs">
-                  <time
-                    dateTime={new Date(entry.observedAtMs).toISOString()}
-                    aria-label={new Date(entry.observedAtMs).toLocaleString(getLocale(), {
-                      timeZone: time.resolvedOptions().timeZone,
-                    })}
-                    className="shrink-0 text-tertiary tabular-nums"
-                  >
-                    {time.format(new Date(entry.observedAtMs))}
-                  </time>
+                  <ClockTime
+                    value={new Date(entry.observedAtMs)}
+                    timeZone={timeZone}
+                    plain
+                    className="shrink-0 font-mono text-tertiary tabular-nums"
+                  />
                   <span
                     aria-hidden="true"
                     className={cn(

@@ -455,9 +455,37 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   provider's text (and thinking) in bursts, so one spoken statement can arrive as
   several Activity frames; `presentActivityRows` merges consecutive text (or
   thinking) fragments of the same launch and subagent into a single row, so the
-  UI renders one paragraph rather than one row per burst. `agent-activity-timeline.tsx`
-  owns row rendering and on-demand expansion. Current state and expiry decisions
-  belong to the cloud reducer, not these presentation functions.
+  UI renders one paragraph rather than one row per burst. Current state and expiry
+  decisions belong to the cloud reducer, not these presentation functions.
+  The Activity log is a complete chronological work log (ADR 0021, amended):
+  every Activity frame that is not a busy heartbeat and not a liveness-probe
+  reply is persisted and shown live, including `tool_end`, `thinking_end` and
+  `compaction_finished` — entry-less frames rendered as one status row (primary
+  label from the ordinary activity-kind classification, muted secondary text
+  naming what finished: "Tool finished", "Thinking finished", "Compaction
+  finished") — the daemon's own `detail` wins when present, falling back to that
+  wording only when `detail` is empty (older daemons, rows stored before the
+  daemon sent text); the server never blanks `detail` before persisting.
+  `runtime_progress` is the one exception left: a content-free liveness filler,
+  never persisted, never shown. All four stay out of the avatar's short
+  recent-activity popover (`POPOVER_EXCLUDED_DETAIL_KINDS`, `agent-activity.ts`)
+  so that view stays limited to noteworthy events; the Agent detail Activity
+  tab and profile panel's Activity tab show the full log. A run-start marker —
+  `thinking_started`/`model_response_started` reported with no `entries` and
+  empty `detail`, sent only to flip the display status the instant a run
+  begins — is filtered the same way (`isRunStartMarker`, `agent-activity.ts`);
+  the same detail kinds reported again with real `entries` are the ordinary
+  Thinking/Output rows and are unaffected.
+  `agent-activity-timeline.tsx` owns row rendering, on-demand expansion, the
+  clock column and date separators: rows read oldest at top, newest at bottom,
+  a fixed left column shows an absolute `HH:MM:SS` (`ClockTime`,
+  `components/ui/relative-time.tsx`) with the full date-time in a tooltip and
+  `<time dateTime>`, and the list scrolls to the newest row on arrival or
+  growth. Tool rows are single-line (label plus an inline muted mono summary);
+  Output/Thinking rows clamp to 2 lines past 200 characters with the existing
+  expand control. The client keeps up to 500 frames per Agent
+  (`mergeAgentActivity`), matching the server's `AgentActivityRepository.list`
+  and `.listForMember` history caps.
 - `agent-environment-editor.tsx` edits only user-declared Agent environment overrides.
   `server/agents/agent-environment.server.ts` owns their authorized persistence and
   restart application. Local inherited environment is never collected or uploaded.
@@ -592,9 +620,9 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
 - Render `agent:activity` fields `detail`, `detailKind`, `entries`, `observedAtMs`,
   and the CoForge `level` extension in an Agent-owned timeline under
   `src/features/agents/`.
-- Activity content and labels are **not internationalized**. Use Raft-style
-  English activity labels consistently in the timeline, avatar hover and chat
-  header. Display backend detail and use Raft-style tool-row formatting; working and
+- Activity content and labels are **not internationalized**. Use plain English
+  activity labels consistently in the timeline, avatar hover and chat
+  header. Display backend detail and use the existing tool-row formatting; working and
   thinking use the yellow work treatment. Preserve provider text, thinking, errors and warnings in their original
   language and wording, subject to required secret redaction. Do not add Activity
   label translation keys. Navigation, tabs and general UI remain localized.

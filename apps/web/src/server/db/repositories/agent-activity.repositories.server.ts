@@ -36,9 +36,19 @@ function activityKind(activity: { detailKind: string; level: string }) {
 }
 
 export class AgentActivityRepository {
+  // Mirrors the client-side cap in mergeAgentActivity (apps/web/src/features/agents/agent-activity.ts).
+  static readonly HISTORY_LIMIT = 500;
+
   constructor(private readonly db: PrismaClient) {}
 
   async listForMember(workspaceId: string, userId: string) {
+    // Excluded from the popover's top-5 selection only (ADR 0021, amended): tool_end,
+    // thinking_end and compaction_finished are ordinary, persisted status rows in the Agent
+    // detail Activity feed (AgentActivityRepository.list), but they occur once per tool call
+    // or thinking phase and would crowd out genuinely noteworthy events in this short list.
+    const excludedTool = AGENT_ACTIVITY_DETAIL_KIND.TOOL_END;
+    const excludedThinking = AGENT_ACTIVITY_DETAIL_KIND.THINKING_END;
+    const excludedCompaction = AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED;
     const rows = await this.db.$queryRaw<CompactActivityRow[]>`
       WITH authorized_agents AS (
         SELECT agent."id"
@@ -63,6 +73,7 @@ export class AgentActivityRepository {
         FROM "agent_activities" AS activity
         INNER JOIN authorized_agents AS agent ON agent."id" = activity."agentId"
         WHERE activity."workspaceId" = ${workspaceId}::uuid
+          AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction})
       ),
       sequence_ranked AS (
         SELECT
@@ -83,6 +94,7 @@ export class AgentActivityRepository {
         FROM "agent_activities" AS activity
         INNER JOIN authorized_agents AS agent ON agent."id" = activity."agentId"
         WHERE activity."workspaceId" = ${workspaceId}::uuid
+          AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction})
       ),
       compact AS (
         SELECT sequence_ranked.*, ranked.slot
@@ -173,7 +185,7 @@ export class AgentActivityRepository {
     const rows = await this.db.agentActivity.findMany({
       where: { workspaceId, agentId },
       orderBy: [{ occurredAt: "desc" }, { clientSeq: "desc" }, { createdAt: "desc" }],
-      take: 100,
+      take: AgentActivityRepository.HISTORY_LIMIT,
     });
     return rows.map(
       ({

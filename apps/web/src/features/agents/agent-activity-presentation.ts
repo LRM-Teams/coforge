@@ -23,6 +23,25 @@ export type ActivityRow = {
   subagent?: { parentToolUseId: string };
 };
 
+/**
+ * ADR 0021 (amended): tool_end, thinking_end and compaction_finished are entry-less status
+ * frames that are now persisted and shown live like any other Activity. Their primary label
+ * still comes from the ordinary activity-kind classification above (`activityKindForObservation`
+ * on the server puts all three under "working", so the primary label reads "Working" the same as
+ * any other busy frame). Current daemons send their own secondary text in `detail` ("Tool
+ * finished", "Thinking finished"); this map is only the fallback wording for an empty `detail`
+ * (older daemons, and rows stored before the daemon started sending text) — see the `detail ||
+ * STATUS_SECONDARY_LABEL[kind]` use below. `runtime_progress` has no entry here — it stays a
+ * content-free liveness filler, never persisted or shown in the timeline (see
+ * POPOVER_EXCLUDED_DETAIL_KINDS in agent-activity.ts), so falling through to its empty raw
+ * `detail` below (no secondary text at all) is correct for it too.
+ */
+const STATUS_SECONDARY_LABEL: Readonly<Record<string, string>> = {
+  [AGENT_ACTIVITY_DETAIL_KIND.TOOL_END]: "Tool finished",
+  [AGENT_ACTIVITY_DETAIL_KIND.THINKING_END]: "Thinking finished",
+  [AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED]: "Compaction finished",
+};
+
 const toolLabels: Readonly<Record<string, string>> = {
   bash: "Running command",
   read_file: "Reading file",
@@ -206,11 +225,18 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
                 ? `Error: ${detail}`
                 : "Error"
               : detail || label;
+  // Completion rows prefer the daemon's own detail ("Tool finished") and fall back to
+  // STATUS_SECONDARY_LABEL for frames reported or stored with an empty one.
+  const statusSecondary =
+    kind in STATUS_SECONDARY_LABEL ? detail || STATUS_SECONDARY_LABEL[kind] : undefined;
+  const secondary =
+    statusSecondary ?? (starting || (tone === "offline" && detail === "Stopped") ? "" : detail);
   return [
     {
       row: {
         label,
-        detail: starting || (tone === "offline" && detail === "Stopped") ? "" : detail,
+        // A detail that only repeats the label ("Idle", "Compacting context") adds nothing.
+        detail: secondary.toLowerCase() === label.toLowerCase() ? "" : secondary,
         recentLabel,
         currentLabel: tone === "working" || tone === "thinking" ? recentLabel : null,
         tone,

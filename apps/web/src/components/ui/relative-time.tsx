@@ -1,8 +1,21 @@
 import { useEffect, useState } from "react";
 
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { formatDateForDisplay, formatRelativeTime } from "@/lib/dates";
+import { formatClockTime, formatDateForDisplay, formatRelativeTime } from "@/lib/dates";
 import { getLocale } from "@/paraglide/runtime";
+
+/** The server and client cannot agree on `now`, locale or time zone before mount, so both
+ * `RelativeTime` and `ClockTime` render their live value only after mount; the markup they emit
+ * before that carries just the ISO instant via `dateTime`, which hydrates without a mismatch. */
+function useClientNow() {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
+}
 
 export function RelativeTime({
   value,
@@ -28,17 +41,7 @@ export function RelativeTime({
    */
   plain?: boolean;
 }) {
-  // `now`, the locale and the browser time zone all differ between the server
-  // and the client, so anything derived from them is rendered only after mount;
-  // the server markup carries the ISO instant, which hydrates without a mismatch.
-  const [now, setNow] = useState<Date | null>(null);
-
-  useEffect(() => {
-    setNow(new Date());
-    const timer = window.setInterval(() => setNow(new Date()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
+  const now = useClientNow();
   const instant = new Date(value);
   const locale = getLocale();
   // Before mount the server and client cannot agree on locale or time zone, so
@@ -54,6 +57,51 @@ export function RelativeTime({
     >
       {relative}
       {showExact && <span className="ml-1.5">· {exactTime}</span>}
+    </time>
+  );
+
+  if (plain) return timeElement;
+
+  return (
+    <Tooltip title={exactTime}>
+      <TooltipTrigger className={className} aria-label={exactTime}>
+        {timeElement}
+      </TooltipTrigger>
+    </Tooltip>
+  );
+}
+
+/**
+ * A fixed `HH:MM:SS` (24h) wall-clock time, for contexts that need an absolute timestamp
+ * instead of `RelativeTime`'s "6h ago" text — the Activity timeline's clock column. Shares
+ * `RelativeTime`'s hydration-safe mount gate and exact-timestamp Tooltip wiring.
+ */
+export function ClockTime({
+  value,
+  timeZone,
+  className,
+  plain = false,
+}: {
+  value: Date | string;
+  timeZone?: string | null;
+  className?: string;
+  /** See `RelativeTime`'s `plain`: skip the interactive Tooltip wrapper when already nested
+   * inside another interactive element, and expose the exact time via `aria-label` only. */
+  plain?: boolean;
+}) {
+  const now = useClientNow();
+  const instant = new Date(value);
+  const locale = getLocale();
+  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale) : "";
+  const clock = now ? formatClockTime(instant, timeZone, locale) : "";
+  const timeElement = (
+    <time
+      dateTime={instant.toISOString()}
+      suppressHydrationWarning
+      aria-label={plain ? exactTime : undefined}
+      className={plain ? className : undefined}
+    >
+      {clock}
     </time>
   );
 
