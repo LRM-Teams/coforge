@@ -387,9 +387,10 @@ test("commit channel:create executes PublicChannels.create + addMembers and mark
   const ctx = await setup();
   try {
     const name = `commit-create-${ctx.suffix}`;
+    const description = "Engineering discussion";
     const prepared = await ctx.actionCards.prepare(ctx.principal, {
       target: `#${ctx.hub.channelName}`,
-      action: { type: "channel:create", name, initialHumans: [ctx.bob.username] },
+      action: { type: "channel:create", name, description, initialHumans: [ctx.bob.username] },
     });
 
     const result = await ctx.actionCards.commitChannelCreate(
@@ -402,6 +403,10 @@ test("commit channel:create executes PublicChannels.create + addMembers and mark
       include: { members: true },
     });
     expect(created.channelName).toBe(name);
+    // ADR 0031: the Agent-proposed description rides along from the card's own resolved payload
+    // and is now persisted on the created Conversation (ADR 0024 added the column; ADR 0027's
+    // "known gap" is closed).
+    expect(created.description).toBe(description);
     expect(created.members.some((member) => member.userId === ctx.bob.id)).toBe(true);
 
     const card = await ctx.db.actionCard.findUniqueOrThrow({
