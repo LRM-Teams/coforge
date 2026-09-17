@@ -57,6 +57,7 @@ import {
   type ReminderSync,
   type TaskCommand,
   type TaskResult,
+  type ChannelCommand,
   type WeeklyReportCommand,
   type WeeklyReportResponse,
   WEEKLY_REPORT_PROTOCOL_MAJOR,
@@ -2060,6 +2061,28 @@ export class DaemonRuntime {
       {
         ...command,
         protocolMajor: TASK_PROTOCOL_MAJOR,
+        workspaceId: this.#connection.workspaceId,
+        agentId,
+      },
+      agentApiKey,
+    );
+  }
+
+  /** Dispatches a channel lifecycle/roster command to the cloud route `agentChannel` maps it
+   * to, returning the JSON response body unchanged. */
+  async agentChannel(
+    context: string,
+    command: ChannelCommand,
+    agentApiKey?: string,
+  ): Promise<Record<string, unknown>> {
+    this.#assertRunning();
+    const agentId = this.#agentIdForContext(context);
+    if (!this.#transport.agentChannel) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.agentChannel(
+      {
+        ...command,
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         workspaceId: this.#connection.workspaceId,
         agentId,
       },

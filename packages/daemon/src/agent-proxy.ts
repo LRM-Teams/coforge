@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
 import {
   encodeLocalReminderRequest,
+  isChannelOperation,
   isValidReactionEmoji,
   validateTaskRequest,
   validateWeeklyReportRequest,
   WEEKLY_REPORT_PROTOCOL_MAJOR,
+  type ChannelCommand,
   type LocalAgentMessageRequest,
   type LocalInboxRequest,
   type LocalReminderRequest,
@@ -42,6 +44,10 @@ function routeFamilyFor(pathname: string, payload: Record<string, unknown> | und
   if (pathname === LOCAL_PROXY_ROUTES.tasks.path) return "agent-api/task";
   if (pathname === LOCAL_PROXY_ROUTES.weeklyReports.path) return "agent-api/weekly-report";
   if (pathname === LOCAL_PROXY_ROUTES.inbox.path) return "agent-api/inbox";
+  if (pathname === LOCAL_PROXY_ROUTES.channels.path) {
+    const operation = payload?.operation;
+    return `agent-api/channel-${typeof operation === "string" ? operation : "unknown"}`;
+  }
   if (pathname === LOCAL_PROXY_ROUTES.messages.path) {
     const operation = payload?.operation;
     return `agent-api/${typeof operation === "string" ? operation : "message"}`;
@@ -85,6 +91,7 @@ export function startAgentProxy(input: {
       agentApiKey: string,
     ): Promise<unknown>;
     agentTask?(context: string, request: TaskCommand, agentApiKey: string): Promise<unknown>;
+    agentChannel?(context: string, request: ChannelCommand, agentApiKey: string): Promise<unknown>;
     workspaceInfo?(
       context: string,
       request: WorkspaceInfoRequest,
@@ -133,6 +140,8 @@ export function startAgentProxy(input: {
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.reminders.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.tasks.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.tasks.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.channels.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.channels.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.weeklyReports.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.weeklyReports.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.githubCredentials.method ||
@@ -226,6 +235,42 @@ export function startAgentProxy(input: {
             agentId: binding.agentId,
           });
           const result = await input.runtime.agentTask(
+            binding.context,
+            command,
+            binding.agentApiKey,
+          );
+          return Response.json(result);
+        }
+        if (requestUrl.pathname === LOCAL_PROXY_ROUTES.channels.path) {
+          if (!input.runtime.agentChannel) return new Response("not found", { status: 404 });
+          if (
+            typeof payload.requestId !== "string" ||
+            payload.requestId.length === 0 ||
+            !isChannelOperation(payload.operation) ||
+            (payload.target !== undefined && typeof payload.target !== "string") ||
+            (payload.name !== undefined && typeof payload.name !== "string") ||
+            (payload.description !== undefined && typeof payload.description !== "string") ||
+            (payload.user !== undefined && typeof payload.user !== "string") ||
+            (payload.agent !== undefined && typeof payload.agent !== "string") ||
+            (payload.operation !== "create" && typeof payload.target !== "string") ||
+            (payload.operation === "create" && typeof payload.name !== "string") ||
+            (payload.operation === "update" &&
+              payload.name === undefined &&
+              payload.description === undefined) ||
+            (["add-member", "remove-member"].includes(payload.operation) &&
+              (payload.user === undefined) === (payload.agent === undefined))
+          )
+            return new Response("bad request", { status: 400 });
+          const command: ChannelCommand = {
+            requestId: payload.requestId,
+            operation: payload.operation,
+            target: payload.target,
+            name: payload.name,
+            description: payload.description,
+            user: payload.user,
+            agent: payload.agent,
+          };
+          const result = await input.runtime.agentChannel(
             binding.context,
             command,
             binding.agentApiKey,
