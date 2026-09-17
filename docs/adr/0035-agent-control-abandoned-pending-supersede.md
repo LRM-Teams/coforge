@@ -1,7 +1,18 @@
 # ADR 0035: An abandoned Agent control operation can be superseded server-side
 
-Status: accepted
+Status: superseded by [ADR 0039](0039-agent-control-latest-command-wins.md) (2026-09-17)
 Date: 2026-09-17
+
+> **Amendment (2026-09-17):** [ADR 0039](0039-agent-control-latest-command-wins.md) removed the
+> abandonment mechanism this record introduces in full — `updatedAtMs`, `abandonAfterMs`, and the
+> "pending vs. abandoned" distinction in `begin()`/`publishStart()` no longer exist. Latest command
+> always wins, matching Raft Computer 1.0.32's own "no operation-in-progress record at all"
+> behaviour exactly, rather than approximating it with an age threshold. Decision B of this record
+> — logging a rejected control result (`agent_control:result_rejected`) and a rejected Session
+> snapshot (`agent_session:snapshot_rejected`) — is untouched and still in effect; only Decision A
+> (the abandonment/supersede mechanism itself) is superseded. See ADR 0039 for the current rule,
+> its Raft basis, and why an age threshold is no longer needed once every pending operation (not
+> only a stuck one) yields to the next command.
 
 ## Context
 

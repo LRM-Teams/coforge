@@ -3,7 +3,17 @@
 Status: accepted
 Date: 2026-09-17 (amended 2026-09-17: dropped the `warningCode` wire field after product review;
 also removes ADR 0035's full-reset-only abandoned-operation exception — see "Relationship to ADR
-0035")
+0035"; amended again 2026-09-17 by [ADR 0039](0039-agent-control-latest-command-wins.md) — see the
+note below)
+
+> **Amendment (2026-09-17, ADR 0039):** Decision E and "Relationship to ADR 0035" below describe
+> an *abandoned* pending Full Reset yielding to any competing action. ADR 0039 removed the
+> abandonment concept itself (`updatedAtMs`/`abandonAfterMs`): every pending Full Reset — not only
+> one nobody is driving any more — now yields to any competing action, at every chain phase,
+> unconditionally. The conclusion these sections reach (no full-reset-only exception; the Daemon's
+> own `previous_control_not_completed`/`confirmed_stop_required` checks are the real protection)
+> still holds and is restated in ADR 0039 itself; only the trigger ("abandoned" vs. "any pending
+> operation") changed.
 
 ## Context
 
