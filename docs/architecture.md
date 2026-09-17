@@ -930,7 +930,7 @@ Web 仍校验原有作用域及 start/daemon/launch fence，并要求被替代 I
 重复报告同一新 ID 幂等，旧 ID 的晚到报告不可改回引用。ACK 后发布普通 Activity 提示新会话已启动、
 旧上下文未恢复；提示仍是 best-effort，不把它变成可靠业务消息。
 
-2026-09-17（ADR 0034）在上述隐式 `replaced_session_id` 上报之外，加入显式
+2026-09-17（ADR 0037）在上述隐式 `replaced_session_id` 上报之外，加入显式
 `agent:session:invalidate` RPC（`AgentSessionInvalidate`，`workspace.proto`）：Daemon 在得知
 存量 native session 不可用（`missing`）或被 provider 拒绝重放（`provider_replay_rejected`）后、
 发起冷启动重试之前（kiro/pi 的 `AgentSessionRecoveryError` 路径），或在得知 Claude/Codex

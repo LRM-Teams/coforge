@@ -136,7 +136,8 @@ export function presentActivity(observation: ActivityObservation): ActivityRow[]
             recentLabel: entry.text || (thinking ? "Thinking" : "Output"),
             currentLabel: thinking
               ? "Thinking…"
-              : kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING
+              : kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING ||
+                  kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_UNAVAILABLE
                 ? detail || "Working…"
                 : "Working…",
             tone: thinking ? "thinking" : "output",

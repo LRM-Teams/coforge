@@ -1,4 +1,4 @@
-# ADR 0034: An explicit `agent:session:invalidate` RPC replaces implicit-only session-loss reporting
+# ADR 0037: An explicit `agent:session:invalidate` RPC replaces implicit-only session-loss reporting
 
 Status: accepted
 Date: 2026-09-17

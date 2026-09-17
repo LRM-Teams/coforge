@@ -182,6 +182,7 @@ test("session invalidate clears a matching Session association and marks the sta
   const receiver = new AgentSessionReceiver(
     {
       get: async (id) => (id === stored.id ? structuredClone(stored) : undefined),
+      memberRole: async () => "owner",
       replace: async (_before, next, options) => {
         calls.push({ clearSession: options?.clearSession });
         stored = { ...stored, state: next, identity: next.identity };
@@ -205,6 +206,7 @@ test("session invalidate ignores a non-matching session id, launch id, or scope 
   const receiver = new AgentSessionReceiver(
     {
       get: async (id) => (id === agent.id ? structuredClone(agent) : undefined),
+      memberRole: async () => "owner",
       replace: async () => {
         calls++;
         return true;
@@ -235,6 +237,7 @@ test("session invalidate rejects a stale daemon instance", async () => {
   const receiver = new AgentSessionReceiver(
     {
       get: async (id) => (id === agent.id ? structuredClone(agent) : undefined),
+      memberRole: async () => "owner",
       replace: async () => {
         calls++;
         return true;
@@ -265,6 +268,7 @@ test("session invalidate for an old launch can never clear a newer Session", asy
   const receiver = new AgentSessionReceiver(
     {
       get: async () => structuredClone(newer),
+      memberRole: async () => "owner",
       replace: async () => {
         calls++;
         return true;

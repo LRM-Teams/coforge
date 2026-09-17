@@ -41,6 +41,8 @@ const workingKinds = new Set([
   "freshness_hold",
   "runtime_progress",
   "runtime_reconnecting",
+  // A stored native session was unusable and the daemon is cold-starting a new one (ADR 0037).
+  "runtime_unavailable",
   "starting",
   "checking_messages",
   "compacting_context",
