@@ -692,11 +692,11 @@ Skills、其他 Agent 目录、云端 Message 或位于原生 HOME 的 Claude/Co
 停止失败禁止删除或启动（`confirmed_stop_required`；刻意保留于 Raft 之外的检查，避免在
 存活进程下删除 workspace——失败的 Stop 本身可在 PR #317 之后直接重试，不损失可用性）。
 删除失败不再禁止启动：liveness over durable receipts（ADR 0036），清理失败是非致命的——
-Daemon 以 error 级别记录失败原因，仍在本地清除旧 Session 绑定，并把结果报告为携带
-`warningCode`（`workspace_clear_incomplete`）的 `workspace-reset`，链条照常推进到 Start；
-前端据此在结果已展示的面板内联提示，不使用 toast，也不展示原始 code。清空逐条删除时，
+Daemon 以 error 级别记录失败原因（沿用 Raft 1.0.32 的行为：Raft 只记录日志，线路上没有
+对应字段，用户也不会被告知），仍在本地清除旧 Session 绑定，并把结果报告为普通的
+`workspace-reset`（不携带任何额外字段），链条照常推进到 Start。清空逐条删除时，
 某个条目不可删除不会中止其余条目的删除，只收集首个错误，在结束后 throw 交由控制层
-转换为该 warning。Start 失败明确报告失败，不伪装操作成功。
+记录并继续。Start 失败明确报告失败，不伪装操作成功。
 Full Reset 已删除的用户文件不可因随后 Start 失败而自动还原。重新启动可重新生成必要的
 运行目录；“清空”不是要求运行中的 Agent workspace 永久为空。
 
@@ -706,11 +706,17 @@ Clear Session → Start、Stop → Reset Workspace → Clear Session → Start�
 回执推进；同一 Agent 的整个组合共享 request/epoch，通过条件写入拒绝其他操作插入。
 非终止阶段若已放弃——缺少 `updatedAtMs`（历史行）或早于 `abandonAfterMs`（默认 60 秒，
 远超 `drive` 的 7 秒等待）——视为无人驱动，允许新操作以 epoch+1 顶替，日志记录
-`agent_control:pending_superseded`；顶替遵循与终止态相同的身份保留规则，且失败 Full
-Reset 的例外规则同样适用于已放弃的 Full Reset：仅显式确认的新 Full Reset 可以顶替，
-其余操作仍然拒绝。Ready recovery 对已放弃的挂起操作只重发原 request，不顶替也不刷新
-`updatedAtMs`——顶替只留给 owner 发起的 execute/publishStart/publishStop，避免每次
-重连铸造新 epoch（[ADR 0035](adr/0035-agent-control-abandoned-pending-supersede.md)）。
+`agent_control:pending_superseded`；顶替遵循与终止态相同的身份保留规则。已放弃的 Full
+Reset（无论卡在 stopping、clearing 还是 starting 阶段）与其他任何已放弃操作一样，可被
+下一次 start、stop、restart、reset-session 或 full-reset 顶替，不再要求必须是显式确认的
+新 Full Reset（ADR 0035 原有的例外已被 ADR 0036 移除：Raft 完全不保留操作状态，这条例外
+本来就没有对应的 Raft 行为要保留；Daemon 自身已有的防护——`start()` 在记录仍处于
+clearing 时拒绝启动、`resetWorkspace()` 的 `confirmed_stop_required`——已经保证工作区
+不会在存活进程下被删除或误启动，例外规则并未额外保护什么）。Ready recovery 对已放弃的
+挂起操作只重发原 request，不顶替也不刷新 `updatedAtMs`——顶替只留给 owner 发起的
+execute/publishStart/publishStop，避免每次重连铸造新 epoch
+（[ADR 0035](adr/0035-agent-control-abandoned-pending-supersede.md)、
+[ADR 0036](adr/0036-full-reset-never-latches.md)）。
 控制结果与 Session snapshot 被拒绝时记录 warning（`agent_control:result_rejected`、
 `agent_session:snapshot_rejected`），reason 取自固定错误消息白名单，未知错误只记录
 错误类型，不记录原始消息或负载；写入端仍保持原有的 403 线路行为不变。
@@ -730,8 +736,7 @@ reset-session、full-reset 都可以立即发起，不要求先完成特定动�
 `Agent.currentSessionId` 指向当前会话。`Agent.runtimeSession` JSONB 只保存上游 launch fence：
 provider、Computer、start request、Daemon instance、launch ID 与 session mode；读取时从
 `AgentSession` hydrate native identity/state。`Agent.controlState` JSONB 只保存当前
-epoch/action/phase/sequence 控制进度和可选的非致命 `warningCode`（旧行缺省该字段仍可解析），
-不复制 native Session ID，也不是通用任务表。新 launch
+epoch/action/phase/sequence 控制进度，不复制 native Session ID，也不是通用任务表。新 launch
 报告不同 identity 时新建 Session 行，保留旧行；同一 launch 不允许偷偷换 identity。
 Session 不是 Profile 列表或 transcript 展示功能。
 
@@ -770,11 +775,11 @@ stopped 并以 error 级别记录修复事件（修复即上一次写入方留�
 启动后才发生的 provider replay 错误尚不自动 fresh fallback。
 
 ADR 0036（2026-09-17）之后，`resetWorkspace` 的清理失败不再把记录写成终态 `failed`：
-Daemon 以 error 级别记录失败原因，仍照常清除本地 Session 绑定，并把记录和回执都写成
-`workspace-reset`，附带 `warningCode`，让 Start 照常发生。旧 Daemon 遗留在磁盘上、
-action 为 `reset-workspace` 且 phase 为 `failed` 的记录不再无条件地拒绝后续任何 epoch
-的 Start；只保留通用规则——同一 epoch 的终态记录才拒绝重复请求，跨 epoch 的新 Start
-照常发起，不再有 reset-workspace 专属的跨 epoch 锁定。
+Daemon 以 error 级别记录失败原因（沿用 Raft 1.0.32 的行为，线路上不新增任何字段），
+仍照常清除本地 Session 绑定，并把记录和回执都写成普通的 `workspace-reset`，让 Start
+照常发生。旧 Daemon 遗留在磁盘上、action 为 `reset-workspace` 且 phase 为 `failed` 的
+记录不再无条件地拒绝后续任何 epoch 的 Start；只保留通用规则——同一 epoch 的终态记录才
+拒绝重复请求，跨 epoch 的新 Start 照常发起，不再有 reset-workspace 专属的跨 epoch 锁定。
 
 部署需要兼容 Web receiver 和加法数据库迁移，再配套升级 Daemon；旧 Daemon 没有完整
 控制能力时不能以 publish 成功冒充完成。未实现协议能力协商，混合版本部署应关闭操作
