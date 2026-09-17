@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 
 import {
   RECORDS_SIDEBAR_PREVIEW_LIMIT,
+  latestMemberWeekLanding,
   latestWeeklyHighlight,
+  latestWeeklyLanding,
   sidebarPreview,
 } from "../src/features/records/records-sidebar";
 
@@ -17,6 +19,33 @@ test("latestWeeklyHighlight picks the newest ISO week", () => {
 
 test("latestWeeklyHighlight is undefined when the catalog has no highlights", () => {
   expect(latestWeeklyHighlight([])).toBeUndefined();
+});
+
+test("latestMemberWeekLanding prefers highlight id on the newest week", () => {
+  expect(
+    latestMemberWeekLanding([
+      { year: 2026, week: 35, highlightId: "hl-35" },
+      { year: 2026, week: 36, highlightId: "hl-36" },
+    ]),
+  ).toEqual({ kind: "highlight", id: "hl-36" });
+});
+
+test("latestMemberWeekLanding falls back to the week empty route when highlight is missing", () => {
+  expect(
+    latestMemberWeekLanding([
+      { year: 2026, week: 38, highlightId: null },
+      { year: 2026, week: 37, highlightId: "hl-37" },
+    ]),
+  ).toEqual({ kind: "week", year: 2026, week: 38 });
+});
+
+test("latestWeeklyLanding falls back to catalog highlights when member weeks are empty", () => {
+  expect(
+    latestWeeklyLanding({
+      memberWeeks: [],
+      highlights: [{ id: "hl-36", year: 2026, week: 36 }],
+    }),
+  ).toEqual({ kind: "highlight", id: "hl-36" });
 });
 
 test("sidebarPreview hides rows past the design preview limit", () => {

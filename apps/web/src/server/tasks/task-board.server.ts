@@ -292,6 +292,8 @@ export class TaskBoard {
       return this.unclaim(scope.conversationId, member.id, command);
     if (command.operation === "assign")
       return this.assign(scope.conversationId, scope.workspaceId, member, command);
+    if (command.operation === "unassign")
+      return this.unassign(scope.conversationId, scope.workspaceId, member, command);
     if (command.operation === "amend") return this.amend(scope.conversationId, member, command);
     if (command.operation === "history") return this.history(scope.conversationId, command);
     if (command.operation === "delete")
@@ -310,6 +312,7 @@ export class TaskBoard {
       "unclaim",
       "update",
       "assign",
+      "unassign",
       "amend",
       "history",
       "delete",
@@ -345,9 +348,12 @@ export class TaskBoard {
       command.operation !== "update" &&
       command.operation !== "unclaim" &&
       command.operation !== "assign" &&
+      command.operation !== "unassign" &&
       command.operation !== "amend" &&
       command.expectedRevision !== undefined
     )
+      throw new AppError("INVALID_INPUT");
+    if (command.operation === "unassign" && command.assignee !== undefined)
       throw new AppError("INVALID_INPUT");
     if (
       command.operation !== "update" &&
@@ -382,7 +388,7 @@ export class TaskBoard {
         throw new AppError("INVALID_INPUT");
     }
     if (
-      ["unclaim", "update", "assign", "amend", "history", "delete", "receipt"].includes(
+      ["unclaim", "update", "assign", "unassign", "amend", "history", "delete", "receipt"].includes(
         command.operation,
       ) &&
       !command.number
@@ -1208,6 +1214,49 @@ export class TaskBoard {
         },
       }),
     };
+  }
+
+  /**
+   * Clear a Task's owner, leaving it open for anyone to claim. A no-op on an already
+   * unowned Task returns it unchanged; otherwise this is `assign` with no assignee,
+   * minus the assignment receipt, since there is no one to notify.
+   */
+  private async unassign(
+    conversationId: string,
+    workspaceId: string,
+    member: Member,
+    command: TaskCommand,
+  ): Promise<TaskResult> {
+    const result = await this.db.$transaction(async (tx) => {
+      await lockConversation(tx, conversationId);
+      const current = await tx.task.findUnique({
+        where: { conversationId_number: { conversationId, number: command.number! } },
+        select: { messageId: true, revision: true, ownerMemberId: true },
+      });
+      if (!current) throw new AppError("NOT_FOUND");
+      if (!current.ownerMemberId) {
+        const task = await tx.task.findUniqueOrThrow({
+          where: { messageId: current.messageId },
+          select: taskSelection,
+        });
+        return { task, changed: false };
+      }
+      if (current.ownerMemberId !== member.id) await this.requireManager(tx, workspaceId, member);
+      if (command.expectedRevision !== undefined && current.revision !== command.expectedRevision)
+        throw new AppError("CONFLICT");
+      const task = await this.commitTaskChange(
+        tx,
+        {
+          messageId: current.messageId,
+          revision: current.revision,
+          ownerMemberId: current.ownerMemberId,
+        },
+        { ownerMemberId: null, claimedAt: null },
+      );
+      return { task, changed: true };
+    });
+    if (result.changed) await this.signalTaskChange(result.task);
+    return { tasks: [view(result.task)] };
   }
 
   private async amend(
