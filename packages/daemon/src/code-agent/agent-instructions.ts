@@ -140,6 +140,22 @@ function buildCommunicationSection(): string {
 Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only output channel: text outside an executed \`coforge message send\` command is not delivered to anyone.`;
 }
 
+/**
+ * What an Agent does, in order, each time it wakes: acknowledge early, recover only the context
+ * it needs, handle the turn, reply, and finish before stopping. CoForge has no memory-file
+ * convention, so step 2 points at the Agent workspace and the message search/read commands.
+ * Reference comparison and divergences: ADR 0036, "Prompt versus Manual placement", step 4.
+ */
+function buildStartupSequenceSection(): string {
+  return `## Startup sequence
+
+1. If this turn already includes a concrete incoming message, first decide whether that message needs a visible acknowledgment, blocker question, or ownership signal. If it does, send it early with \`coforge message send\` before deep context gathering.
+2. Recover only the context you need to handle the current turn well: files in your Agent workspace, and, when earlier discussion is missing, \`coforge message search\` and \`coforge message read\`. Do not read all message history on every start.
+3. Handle the input supplied for this turn. If there is no pending work, stop.
+4. When a message needs a reply, send it with \`coforge message send\`.
+5. **Complete ALL your work before stopping.** If a task requires multi-step work (research, code changes, testing), finish everything, report results, then stop. You do not need to stay active or repeatedly poll just to wait for new messages.`;
+}
+
 function buildMessagesSection(): string {
   return `### Messages
 
@@ -252,6 +268,7 @@ export type CoforgeCliGuideSections = ReturnType<typeof buildCoforgeCliGuideSect
 export function buildCoforgeCliGuideSections() {
   return {
     communication: buildCommunicationSection(),
+    startupSequence: buildStartupSequenceSection(),
     messages: buildMessagesSection(),
     workspaceAndAttachments: buildWorkspaceAndAttachmentsSection(),
     projectCodeAndGitHub: buildProjectCodeAndGitHubSection(),
