@@ -251,7 +251,10 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   additional browser WebSocket connections. `browser-realtime.tsx` exposes
   `useRealtimeSubscription` for that one connection and owns its client type;
   a channel with a narrower server-issued grant supplies its own subscription
-  token to the hook.
+  token to the hook. Subscription hooks must run below `BrowserRealtimeProvider`;
+  `useBrowserRealtime` throws when no provider is above, so a hook called in the
+  component that renders the provider fails at first render instead of silently
+  never subscribing.
 
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
   providers, styles, `HeadContent`, and `Scripts`.
@@ -398,8 +401,11 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
 - `agent-environment-editor.tsx` edits only user-declared Agent environment overrides.
   `server/agents/agent-environment.server.ts` owns their authorized persistence and
   restart application. Local inherited environment is never collected or uploaded.
-- `workspace-activity-realtime.ts` owns one messages-page Workspace Activity
-  subscription and compact initial/reconnect history; avatars never open connections.
+- `workspace-agents-realtime.tsx` owns `WorkspaceAgentsProvider` — the app shell's
+  one Agent status subscription and one Activity subscription — plus the read
+  hooks (`useLiveAgents`, `useLiveAgent`, `useAgentRecentActivity`,
+  `useAgentActivityFeed`); avatars and pages never open connections or subscribe
+  themselves; the conversations feature does not own Agent state.
 - Workspace-scoped Code Agent installation inventory belongs to
   `server/db/repositories/computer-runtime.repositories.server.ts`. Runtime visibility and
   model catalogs are keyed and queried by the trusted `(workspaceId, computerId)` connection;
@@ -454,10 +460,13 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   with no prior value is unknown, not offline.
 - `src/features/agents/agent-activity.ts` owns the Activity channel, publication
   decoding/scope checks, timeline merging and unresolved-error selection.
-  `workspace-activity-realtime.ts` hydrates history and consumes the existing binary Activity
-  channel through the shared `features/realtime/` connection. History and live entries
-  deduplicate by launch ID/client sequence. Reconnect reloads best-effort history; timeline
-  history never independently changes the unified display snapshot.
+  `agent-activity-queries.ts` keeps Activity in the TanStack Query cache — a per-Agent
+  recent list (RECENT_ACTIVITY_LIMIT) for the popover and an up-to-100-row feed for the
+  Agent detail tab seeded by the route loader; publications patch both with `setQueryData`;
+  every (re)subscribe invalidates them, and they refetch when the tab becomes visible
+  again or the network returns. History and live entries deduplicate by launch ID/client
+  sequence. Reconnect reloads best-effort history; timeline history never independently
+  changes the unified display snapshot.
 
 - Keep Daemon process and Activity facts separate. `agent:status` contains only
   `active` or `inactive`, and Activity retains raw detail/entries. The browser displays only
