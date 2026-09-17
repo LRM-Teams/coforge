@@ -277,6 +277,7 @@ export function ActionCard({ card }: { card: ActionCardView }) {
       {dialogOpen && view.kind === "channel:add_member" && (
         <ChannelMembersDialog
           channelId={view.channel.id}
+          channelName={view.channel.displayName}
           open
           onOpenChange={setDialogOpen}
           preselected={{
