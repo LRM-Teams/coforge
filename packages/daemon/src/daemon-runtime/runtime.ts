@@ -1308,18 +1308,14 @@ export class DaemonRuntime {
 
   async #requestLaunchConfig(
     agentId: string,
-    requestId: string,
-    launch: ActivityLaunch,
-    control: LaunchRequest["control"],
+    managedScope: { controlEpoch?: number; requestId: string; launchId: string } | undefined,
   ) {
     const { workspaceId } = this.#connection;
     if (this.#transport.requestAgentLaunchConfig)
       return this.#transport.requestAgentLaunchConfig({
         agentId,
         workspaceId,
-        ...(control
-          ? { controlEpoch: control.controlEpoch, requestId, launchId: launch.launchId }
-          : {}),
+        ...(managedScope ? managedScope : {}),
       });
     if (this.#transport.requestAgentApiKey)
       return { agentApiKey: await this.#transport.requestAgentApiKey({ agentId, workspaceId }) };
@@ -1332,6 +1328,12 @@ export class DaemonRuntime {
     request: LaunchRequest,
   ): Promise<AgentRuntime> {
     const { control } = request;
+    // ADR 0042: a daemon-initiated launch (no `control` — a wake, never a server Start) reuses
+    // the last server-supplied launch identity remembered alongside this Agent's restart config,
+    // instead of minting a fresh one. An Agent with no remembered identity (never brought under
+    // AgentControl, or already forgotten by an explicit Stop) keeps minting, unchanged.
+    const serverLaunch = control ? undefined : this.#agentProcessManager.serverLaunch(agentId);
+    const reused = serverLaunch !== undefined;
     const previous = this.#sessionReferences.get(agentId);
     const continuing =
       previous?.provider === config.provider &&
@@ -1345,13 +1347,38 @@ export class DaemonRuntime {
       launchId: request.previousLaunchId ?? (continuing ? previous.launchId : undefined),
       controlEpoch: request.control?.controlEpoch,
     };
-    const previousLaunchId = reference.launchId;
+    // A hand-over is meaningless when the reused launch's identity did not change; omit it so
+    // the server never sees a spurious previousLaunchId equal to the report's own launchId.
+    const previousLaunchId =
+      reference.launchId !== (control?.launchId ?? serverLaunch?.launchId)
+        ? reference.launchId
+        : undefined;
     this.#sessionReferences.set(agentId, reference);
     const launch: ActivityLaunch = {
-      launchId: control?.launchId ?? crypto.randomUUID(),
-      clientSeq: 0,
+      launchId: control?.launchId ?? serverLaunch?.launchId ?? crypto.randomUUID(),
+      clientSeq: reused ? this.#agentProcessManager.lastClientSeq(agentId) : 0,
       stopping: false,
     };
+    // A managed launch's own scope; a reused wake resends the same scope it was remembered
+    // under (ADR 0042) so `authorizeLaunch` can accept it; an unmanaged/legacy launch sends none.
+    const managedScope = control
+      ? { controlEpoch: control.controlEpoch, requestId, launchId: launch.launchId }
+      : serverLaunch
+        ? {
+            controlEpoch: serverLaunch.controlEpoch,
+            requestId: serverLaunch.requestId,
+            launchId: serverLaunch.launchId,
+          }
+        : undefined;
+    if (!control)
+      logger.info("Agent self-initiated launch resolved its launch identity", {
+        event: "agent_control:wake_launch",
+        agent_id: agentId,
+        launch_id: launch.launchId,
+        request_id: managedScope?.requestId,
+        epoch: managedScope?.controlEpoch,
+        outcome: reused ? "reused" : "minted",
+      });
     this.#currentActivityLaunches.set(agentId, launch);
     this.#clearActivityHeartbeat(agentId);
     // AgentControl's fresh retry after a kiro/pi AgentSessionRecoveryError: the invalidate was
@@ -1377,7 +1404,7 @@ export class DaemonRuntime {
     let agentApiKey: string | undefined;
     let stage: "credential" | "runtime" = "credential";
     try {
-      const launchConfig = await this.#requestLaunchConfig(agentId, requestId, launch, control);
+      const launchConfig = await this.#requestLaunchConfig(agentId, managedScope);
       agentApiKey = launchConfig.agentApiKey;
       this.#pendingAgentApiKeyRevokes.set(agentApiKey, agentId);
       this.#assertRunning();
@@ -1505,7 +1532,10 @@ export class DaemonRuntime {
         });
         unsubscribe();
         if (launch.stopping) return;
-        if (control)
+        // ADR 0042: a reused launch is tracked by AgentControl exactly like a managed one is —
+        // its exit must flip the on-disk record back to "stopped" (via `wake()`'s mirror image,
+        // `stopped()`) so a later wake or server Start sees a truthful record.
+        if (control || reused)
           void runtime.session
             .readSessionIdentity?.()
             .then((identity) => this.#agentControl.stopped(agentId, launch.launchId, identity))
@@ -1515,6 +1545,23 @@ export class DaemonRuntime {
         if (this.#currentActivityLaunches.get(agentId) === launch)
           this.#currentActivityLaunches.delete(agentId);
       });
+      // ADR 0042: `AgentProcessManager.start()` just replaced this Agent's whole restart config
+      // entry, which would otherwise erase any previously remembered server launch identity —
+      // re-apply it (managed: the scope this launch was authorized under; reused: the same
+      // identity, unchanged) so a later wake or rebind can still find it. A reused launch also
+      // tells `AgentControl` the process is running again under that identity.
+      if (managedScope) {
+        if (control)
+          this.#agentProcessManager.rememberServerLaunch(agentId, {
+            requestId: managedScope.requestId,
+            controlEpoch: managedScope.controlEpoch ?? 0,
+            launchId: managedScope.launchId,
+          });
+        else if (serverLaunch) {
+          this.#agentProcessManager.rememberServerLaunch(agentId, serverLaunch);
+          void this.#agentControl.wake(agentId, launch.launchId).catch(() => {});
+        }
+      }
       this.#sendAgentStatus(agentId, "active");
       this.#emitAgentActivity(agentId, launch, {
         ...this.#activity(
@@ -1589,6 +1636,15 @@ export class DaemonRuntime {
       // clientSeq already sent under the previous launchId.
       activityLaunch.clientSeq = 0;
     }
+    // ADR 0042: rebind moves this Agent to a genuinely new server launch identity — remember it
+    // (a later wake must reuse THIS one, not the one being replaced) and reset the survived
+    // clientSeq counter in lockstep with `activityLaunch.clientSeq` above.
+    this.#agentProcessManager.rememberServerLaunch(agentId, {
+      requestId: intent.requestId,
+      controlEpoch: intent.controlEpoch ?? 0,
+      launchId,
+    });
+    this.#agentProcessManager.recordClientSeq(agentId, 0);
     if (reference) {
       reference.requestId = intent.requestId;
       reference.controlEpoch = intent.controlEpoch;
@@ -2072,6 +2128,9 @@ export class DaemonRuntime {
       clientSeq: ++launch.clientSeq,
       observedAtMs: Date.now(),
     });
+    // ADR 0042: survives a later exit so a wake reusing this launchId can continue the counter
+    // instead of colliding with the server's (agentId, launchId, clientSeq) idempotency key.
+    this.#agentProcessManager.recordClientSeq(agentId, launch.clientSeq);
     if (TERMINAL_ACTIVITY_DETAIL_KINDS.has(activity.detailKind)) {
       this.#clearActivityHeartbeat(agentId);
     } else if (BUSY_ACTIVITY_DETAIL_KINDS.has(activity.detailKind)) {
