@@ -18,6 +18,7 @@ import {
 } from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 import { discoverKiroCatalog } from "./kiro/catalog";
+import { KIRO_MIN_CLI_VERSION } from "./kiro/connection";
 import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";
@@ -50,7 +51,7 @@ const bunProbe: ExternalCodeAgentProbe = {
     } finally {
       await child.dispose().catch(() => undefined);
     }
-    return readVersionWithBun(executable);
+    return readVersionWithBun([executable]);
   },
   resolve: async (provider, name, searchPath) =>
     provider === RUNTIME_PROVIDER.CLAUDE_CODE
@@ -65,6 +66,45 @@ const externalCodeAgents = [
   { provider: RUNTIME_PROVIDER.CLAUDE_CODE, executable: "claude" },
   { provider: RUNTIME_PROVIDER.KIRO, executable: "kiro-cli" },
 ] as const;
+
+/**
+ * A confidently-parsed dotted numeric version below `minimum` is rejected; a version that cannot
+ * be parsed this way (missing, non-numeric segments) is never gated and reports as today.
+ */
+function isVersionBelow(version: string, minimum: string): boolean {
+  const parse = (value: string) =>
+    value.split(".").map((part) => (/^\d+$/.test(part) ? Number(part) : Number.NaN));
+  const actual = parse(version);
+  const min = parse(minimum);
+  if (actual.some(Number.isNaN) || min.some(Number.isNaN)) return false;
+  for (let index = 0; index < Math.max(actual.length, min.length); index++) {
+    const a = actual[index] ?? 0;
+    const m = min[index] ?? 0;
+    if (a !== m) return a < m;
+  }
+  return false;
+}
+
+/** Kiro's ACP launch (`KIRO_ACP_ARGS`) requires the ADR 0010 baseline; an older CLI must never be
+ * reported as an available runtime, cached or freshly probed. */
+function isKiroVersionUnsupported(provider: RuntimeMetadata["provider"], version: string): boolean {
+  return provider === RUNTIME_PROVIDER.KIRO && isVersionBelow(version, KIRO_MIN_CLI_VERSION);
+}
+
+function logKiroVersionUnsupported(
+  provider: RuntimeMetadata["provider"],
+  name: string,
+  version: string,
+): void {
+  logger.warning("Code Agent runtime version is below the supported minimum", {
+    event: "code_agent_runtime:version_unsupported",
+    provider,
+    executable_name: name,
+    version,
+    minimum_version: KIRO_MIN_CLI_VERSION,
+    outcome: "unavailable",
+  });
+}
 
 /** The three probe strategies external providers use to turn a resolved executable into a version. */
 async function probeRuntimeVersion(
@@ -95,9 +135,12 @@ async function probeRuntimeVersion(
     return undefined;
   }
   const version = lastWord(output);
-  return version
-    ? { provider, version, displayName: externalRuntimeDisplayName(provider) }
-    : undefined;
+  if (!version) return undefined;
+  if (isKiroVersionUnsupported(provider, version)) {
+    logKiroVersionUnsupported(provider, name, version);
+    return undefined;
+  }
+  return { provider, version, displayName: externalRuntimeDisplayName(provider) };
 }
 
 export async function discoverExternalCodeAgents(
@@ -128,6 +171,13 @@ export async function discoverExternalCodeAgents(
       const cacheKey = cache ? await fileStatCacheKey([executable]) : undefined;
       const cached = cacheKey ? cache?.[provider] : undefined;
       if (cacheKey && cached?.key === cacheKey && cached.runtime) {
+        // A cache entry written by an older daemon build must be re-validated against the
+        // current minimum before it is trusted; the executable itself has not changed, so a
+        // too-old cached version would only reproduce the same gate on a live re-probe.
+        if (isKiroVersionUnsupported(cached.runtime.provider, cached.runtime.version)) {
+          logKiroVersionUnsupported(cached.runtime.provider, name, cached.runtime.version);
+          continue;
+        }
         runtimes.push(cached.runtime);
         logger.info("Code Agent runtime probe served from cache", {
           event: "code_agent_runtime:cache_hit",
@@ -651,14 +701,39 @@ function lastWord(output: string): string | undefined {
   return output.trim().split(/\s+/).pop() || undefined;
 }
 
-async function readVersionWithBun(executable: string): Promise<string | undefined> {
-  const process = Bun.spawn({ cmd: [executable, "--version"], stdout: "pipe", stderr: "ignore" });
+/** Spawns `[...command, "--version"]` (the same base command a driver would otherwise launch the
+ * runtime with) and reads back its reported version, bounded by the shared probe timeout. */
+async function readVersionWithBun(command: readonly string[]): Promise<string | undefined> {
+  const process = Bun.spawn({ cmd: [...command, "--version"], stdout: "pipe", stderr: "ignore" });
   try {
     const { output, exitCode } = await versionProbeOutput(process);
     return exitCode === 0 ? lastWord(output) : undefined;
   } finally {
     process.kill();
   }
+}
+
+/**
+ * Re-checks a Kiro Agent launch's resolved base command against the ADR 0010 minimum
+ * immediately before spawn. Runtime discovery already gates the Daemon's reported inventory, but
+ * an existing Agent predates that gate, or the on-disk CLI can change between discovery and this
+ * launch, so the launch path re-validates independently. A probe that fails outright (spawn
+ * error, timeout) or returns an unparseable version is never gating; only a confidently-parsed
+ * lower version blocks the launch.
+ */
+export async function assertKiroVersionSupported(command: readonly string[]): Promise<void> {
+  let version: string | undefined;
+  try {
+    version = await readVersionWithBun(command);
+  } catch {
+    return;
+  }
+  if (!version || !isVersionBelow(version, KIRO_MIN_CLI_VERSION)) return;
+  logKiroVersionUnsupported(RUNTIME_PROVIDER.KIRO, "kiro-cli", version);
+  throw new Error(
+    `Kiro CLI ${version} is unsupported; requires Kiro CLI >= ${KIRO_MIN_CLI_VERSION}. ` +
+      "Upgrade kiro-cli before starting this runtime.",
+  );
 }
 
 function externalRuntimeDisplayName(provider: RuntimeMetadata["provider"]): string {

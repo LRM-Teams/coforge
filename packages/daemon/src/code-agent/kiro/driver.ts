@@ -20,7 +20,7 @@ import { toolActivity } from "../tool-activity";
 import { bounded, KIRO_ACP_ARGS, KiroConnection, record } from "./connection";
 import { readKiroUsage } from "./usage";
 import { discoverKiroCatalog } from "./catalog";
-import { discoverExternalCodeAgents } from "../runtime-inventory";
+import { assertKiroVersionSupported, discoverExternalCodeAgents } from "../runtime-inventory";
 import type { ProviderDiscoveryOptions } from "../contract";
 
 export class KiroProvider implements CodeAgentProvider {
@@ -55,6 +55,9 @@ export class KiroProvider implements CodeAgentProvider {
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
     if (options.sessionId !== undefined && !options.sessionId.trim())
       throw new Error("Invalid Kiro session ID");
+    // Runtime discovery already gates the Daemon's reported inventory; this re-check covers an
+    // existing Agent whose CLI has since fallen below the baseline (or predates the gate).
+    await assertKiroVersionSupported(this.options.command ?? ["kiro-cli"]);
     const environment = agentEnvironment(options.environment, Bun.env, undefined, {
       envVars: options.runtime?.envVars,
     });

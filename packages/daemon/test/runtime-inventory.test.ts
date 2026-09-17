@@ -85,7 +85,7 @@ describe("external Code Agent inventory", () => {
           executable.endsWith("codex")
             ? "codex-cli 0.151.0"
             : executable.endsWith("kiro-cli")
-              ? "kiro-cli 1.24.0"
+              ? "kiro-cli 2.21.2"
               : "2.1.0",
         ]).stream(),
         exited: Promise.resolve(0),
@@ -100,7 +100,7 @@ describe("external Code Agent inventory", () => {
     ).resolves.toEqual([
       { provider: "codex", version: "0.151.0", displayName: "Codex" },
       { provider: "claude-code", version: "2.1.0", displayName: "Claude Code" },
-      { provider: "kiro", version: "1.24.0", displayName: "Kiro" },
+      { provider: "kiro", version: "2.21.2", displayName: "Kiro" },
     ]);
     expect(searchedPaths.every((path) => path.includes("/Users/frank/.local/bin"))).toBe(true);
   });
@@ -186,7 +186,7 @@ describe("external Code Agent inventory", () => {
       probeFor({
         codex: { path: "/bin/codex", version: "codex-cli 0.151.0\n" },
         claude: { path: "/bin/claude", version: "2.1.0\n" },
-        "kiro-cli": { path: "/bin/kiro-cli", version: "kiro-cli 1.24.0\n" },
+        "kiro-cli": { path: "/bin/kiro-cli", version: "kiro-cli 2.21.2\n" },
         pi: { path: "/bin/pi", version: "0.9.1\n" },
       }),
     );
@@ -194,7 +194,7 @@ describe("external Code Agent inventory", () => {
     expect(runtimes).toEqual([
       { provider: "codex", version: "0.151.0", displayName: "Codex" },
       { provider: "claude-code", version: "2.1.0", displayName: "Claude Code" },
-      { provider: "kiro", version: "1.24.0", displayName: "Kiro" },
+      { provider: "kiro", version: "2.21.2", displayName: "Kiro" },
     ]);
   });
 
@@ -223,7 +223,7 @@ describe("external Code Agent inventory", () => {
   test("preserves an installed Kiro runtime when its catalog is unavailable", async () => {
     const inventory = await discoverCodeAgentInventory({
       probe: probeFor({
-        "kiro-cli": { path: "/bin/kiro-cli", version: "kiro-cli 1.24.0\n" },
+        "kiro-cli": { path: "/bin/kiro-cli", version: "kiro-cli 2.21.2\n" },
       }),
       commands: { kiro: [process.execPath, "-e", "process.exit(1)"] },
       environment: { HOME: "/fixture/home", PATH: "" },
@@ -231,7 +231,7 @@ describe("external Code Agent inventory", () => {
 
     expect(inventory.runtimes).toContainEqual({
       provider: "kiro",
-      version: "1.24.0",
+      version: "2.21.2",
       displayName: "Kiro",
     });
     expect(inventory.catalogs.some((catalog) => catalog.provider === "kiro")).toBe(false);

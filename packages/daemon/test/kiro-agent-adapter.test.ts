@@ -63,6 +63,46 @@ test.each(["--missing-config", "--invalid-model", "--closed-config"])(
   },
 );
 
+test("Kiro launch is rejected before any workspace side effect when the resolved CLI is below the ADR 0010 baseline", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-version-gate-reject-"));
+  try {
+    await expect(
+      new KiroProvider({
+        command: [...command, "--version-output=kiro-cli 2.16.0"],
+      }).createAgentSession({
+        agentWorkspaceDirectory: cwd,
+        instructions: "Keep the asymmetric marker 719 in the system prompt.",
+        runtime: { provider: "kiro", model: "auto", reasoning: "" },
+      }),
+    ).rejects.toThrow(
+      "Kiro CLI 2.16.0 is unsupported; requires Kiro CLI >= 2.21.2. Upgrade kiro-cli before starting this runtime.",
+    );
+    // The gate rejects before mkdir, so the workspace's agent profile directory never exists.
+    await expect(readdir(join(cwd, ".kiro/agents"))).rejects.toThrow();
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test.each(["kiro-cli 2.21.2", "unexpected-output-with-no-dotted-version"])(
+  "Kiro launch proceeds when the resolved CLI meets the baseline or cannot be confidently parsed (%s)",
+  async (versionOutput) => {
+    const cwd = await mkdtemp(join(tempRoot, "kiro-version-gate-proceed-"));
+    try {
+      const session = await new KiroProvider({
+        command: [...command, `--version-output=${versionOutput}`],
+      }).createAgentSession({
+        agentWorkspaceDirectory: cwd,
+        instructions: "Keep the asymmetric marker 719 in the system prompt.",
+        runtime: { provider: "kiro", model: "auto", reasoning: "" },
+      });
+      await session.dispose();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  },
+);
+
 test("Kiro verifies the selected native session before loading and reapplies model/effort", async () => {
   const cwd = await mkdtemp(join(tempRoot, "kiro-resume-"));
   const reports: string[] = [];
