@@ -111,6 +111,16 @@ describe("local file storage", () => {
     expect(await Bun.file(join(root, "workspaces/w/attachments/a")).exists()).toBe(false);
     await storage.remove(key);
   });
+
+  test("reports an object's size on head, and has no presignPut (direct upload disabled)", async () => {
+    const storage: FileStorage = new LocalFileStorage(root);
+    const key = "workspaces/w/attachments/head/original";
+    expect(await storage.head(key)).toBeNull();
+    await storage.put(key, new Blob(["hello there"]), "text/plain");
+    expect(await storage.head(key)).toEqual({ sizeBytes: 11, contentType: null });
+    expect(storage.presignPut).toBeUndefined();
+    await storage.remove(key);
+  });
 });
 
 describe("oss file storage", () => {
@@ -145,6 +155,16 @@ describe("oss file storage", () => {
           case "DELETE":
             objects.delete(key);
             return new Response(null, { status: 204 });
+          case "HEAD":
+            return existing
+              ? new Response(null, {
+                  headers: {
+                    "content-type": existing.contentType,
+                    "content-length": String(existing.bytes.length),
+                    etag: '"1"',
+                  },
+                })
+              : ossError(404, "NoSuchKey");
           default:
             return ossError(405, "MethodNotAllowed");
         }
@@ -192,6 +212,37 @@ describe("oss file storage", () => {
     expect(await storage.open(key)).toBeNull();
   });
 
+  test("head reports size and content type, or null when missing", async () => {
+    const key = "workspaces/w/attachments/head/original";
+    expect(await storage.head(key)).toBeNull();
+    await storage.put(key, new Blob(["hello there"]), "text/plain");
+    expect(await storage.head(key)).toEqual({ sizeBytes: 11, contentType: "text/plain" });
+  });
+
+  test("presigns a V4 PUT with the no-overwrite header, and OSS conflicts (409) on a repeat PUT", async () => {
+    if (!storage.presignPut) throw new Error("expected presignPut to be implemented");
+    const key = "workspaces/w/attachments/presign/original";
+    const { url, headers } = await storage.presignPut(key, {
+      contentType: "text/plain",
+      expiresInSeconds: 60,
+    });
+    expect(headers).toEqual({ "Content-Type": "text/plain", "x-oss-forbid-overwrite": "true" });
+    expect(url).toContain("x-oss-signature-version=OSS4-HMAC-SHA256");
+    const put = await fetch(url, { method: "PUT", headers, body: "hello" });
+    expect(put.status).toBe(200);
+    expect(objects.get(key)?.contentType).toBe("text/plain");
+    // A second PUT to the very same object is OSS's own no-overwrite conflict: 409
+    // FileAlreadyExists, not Raft 1.0.32's `If-None-Match: *` 412 — OSS has no such precondition
+    // header, so `x-oss-forbid-overwrite` is what the presigned URL actually signs and OSS's own
+    // conflict status is what the upload-session `complete`/CLI retry logic checks for.
+    const conflict = await fetch(url, {
+      method: "PUT",
+      headers,
+      body: "again",
+    });
+    expect(conflict.status).toBe(409);
+  });
+
   function ossError(status: number, code: string) {
     return new Response(
       `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>${code}</Message><RequestId>r</RequestId></Error>`,
@@ -214,6 +265,10 @@ describe("attachment and avatar services on the storage port", () => {
     }
     async remove(key: string) {
       this.objects.delete(key);
+    }
+    async head(key: string) {
+      const text = this.objects.get(key);
+      return text === undefined ? null : { sizeBytes: text.length, contentType: null };
     }
   }
 

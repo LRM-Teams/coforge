@@ -24,6 +24,7 @@ import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { attachmentView } from "../attachments/attachment-view.server";
+import type { ActionCardView } from "./action-cards.server";
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
@@ -77,7 +78,10 @@ type ChannelMessageRow = {
   reactions: MessageReactionRow[];
 };
 
-/** The browser-facing shape of one channel message, shared by page and update reads. */
+/** The browser-facing shape of one channel message, shared by page and update reads. The optional
+ * `actionCard` field is attached by the caller (see `channels.functions.ts`,
+ * `ActionCards.viewsFor`) in one batched lookup per page; this function never queries
+ * `ActionCard` rows itself, to keep Prisma access for action cards in one place. */
 function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
   return {
     id: message.id,
@@ -103,6 +107,7 @@ function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
     createdAt: message.createdAt,
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
+    actionCard: undefined as ActionCardView | undefined,
   };
 }
 

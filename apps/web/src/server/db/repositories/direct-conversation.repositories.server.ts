@@ -11,6 +11,7 @@ import {
 } from "../../conversations/message-reactions.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "../../attachments/attachment-view.server";
+import type { ActionCardView } from "../../conversations/action-cards.server";
 
 export type AgentMentionBinding = { type: "user" | "agent"; id: string; name: string };
 
@@ -127,11 +128,17 @@ const TASK_METADATA_SELECT = {
   },
 } satisfies NonNullable<Prisma.MessageInclude["task"]>;
 
+/** Just the state an Agent needs to know whether a card it prepared has been acted on. */
+const ACTION_CARD_STATE_SELECT = {
+  select: { state: true },
+} satisfies NonNullable<Prisma.MessageInclude["actionCard"]>;
+
 /** Message projection sent to an Agent. */
 const AGENT_MESSAGE_INCLUDE = {
   sender: MESSAGE_SENDER_SELECT,
   attachments: { orderBy: { position: "asc" } },
   task: TASK_METADATA_SELECT,
+  actionCard: ACTION_CARD_STATE_SELECT,
 } satisfies Prisma.MessageInclude;
 
 type DirectConversationMessageRow = Prisma.MessageGetPayload<{
@@ -172,6 +179,7 @@ function toAgentMessage(
     sender: Parameters<typeof agentSenderHandle>[0];
     task: Parameters<typeof messageTask>[0];
     attachments: AttachmentMetadata[];
+    actionCard?: { state: string } | null;
   },
   target: string,
 ) {
@@ -180,7 +188,9 @@ function toAgentMessage(
     id: row.id,
     sequence: row.sequence,
     sender: agentSenderHandle(row.sender),
-    body: row.body,
+    // An Agent reads message text, not the browser card UI; append the card's current state so it
+    // never claims a resource exists before a human has actually committed the card (ADR 0027).
+    body: row.actionCard ? `${row.body} [action card: ${row.actionCard.state}]` : row.body,
     createdAt: row.createdAt,
     target,
     attachments: row.attachments,
@@ -214,6 +224,9 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
     createdAt: message.createdAt,
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
+    // Attached by the caller (`conversations.functions.ts`, `ActionCards.viewsFor`) in one
+    // batched lookup per page; this function never queries `ActionCard` rows itself.
+    actionCard: undefined as ActionCardView | undefined,
   };
 }
 

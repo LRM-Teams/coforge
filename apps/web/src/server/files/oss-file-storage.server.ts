@@ -85,6 +85,48 @@ export class OssFileStorage implements FileStorage {
   async remove(objectKey: string) {
     await this.client.delete(objectKey);
   }
+
+  async head(objectKey: string) {
+    let result: Awaited<ReturnType<OSS["head"]>>;
+    try {
+      result = await this.client.head(objectKey);
+    } catch (error) {
+      if (isMissingObject(error)) return null;
+      throw error;
+    }
+    const headers = result.res.headers as Record<string, string | undefined>;
+    const length = Number(headers["content-length"]);
+    return {
+      sizeBytes: Number.isFinite(length) ? length : 0,
+      contentType: headers["content-type"] ?? null,
+    };
+  }
+
+  /**
+   * V4-signs a PUT for `objectKey` that has not been written yet, guarded by
+   * `x-oss-forbid-overwrite`: OSS's own no-overwrite mechanism (there is no OSS equivalent of
+   * S3's `If-None-Match: *`). The caller must send back exactly the `Content-Type` and
+   * `x-oss-forbid-overwrite` headers this returns. Neither needs to be listed in
+   * `signatureUrlV4`'s `additionalHeaders` parameter: `ali-oss`'s V4 signer
+   * (`lib/common/signUtils.js#getCanonicalRequest`) always folds `content-type` and every
+   * `x-oss-*` header already present in `headers` into the canonical request, and
+   * `fixAdditionalHeaders` explicitly strips those same headers back out of whatever
+   * `additionalHeaders` list is passed — so passing one here would be a no-op at best. A
+   * conflict on OSS answers `409 FileAlreadyExists` (confirmed against this file's own fake-OSS
+   * test fixture), not the `412` Raft 1.0.32's own `If-None-Match` contract expects; the caller
+   * of `presignPut` (the upload session route, and the CLI's PUT-outcome check) is where this
+   * repo's "already uploaded" check lives, and it checks for 409.
+   */
+  async presignPut(objectKey: string, input: { contentType: string; expiresInSeconds: number }) {
+    const headers = { "Content-Type": input.contentType, "x-oss-forbid-overwrite": "true" };
+    const url = await this.client.signatureUrlV4(
+      "PUT",
+      input.expiresInSeconds,
+      { headers },
+      objectKey,
+    );
+    return { url, headers };
+  }
 }
 
 function isMissingObject(error: unknown): boolean {

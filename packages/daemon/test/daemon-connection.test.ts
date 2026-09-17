@@ -1891,6 +1891,81 @@ test("forwards a multipart attachment upload with its original content-type and 
   ]);
 });
 
+test("forwards each direct-upload session route to its cloud JSON route with Agent auth headers", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{
+    url: string;
+    method: string | undefined;
+    contentType: string | null;
+    authorization: string | null;
+    agentApiKey: string | null;
+    body: string;
+  }> = [];
+  globalThis.fetch = Object.assign(
+    async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const headers = new Headers(init?.headers);
+      requests.push({
+        url: String(input),
+        method: init?.method,
+        contentType: headers.get("content-type"),
+        authorization: headers.get("authorization"),
+        agentApiKey: headers.get("x-coforge-agent-api-key"),
+        body: typeof init?.body === "string" ? init.body : "",
+      });
+      return Response.json({ uploadId: "upload-1" });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  try {
+    const transport = new DaemonConnection("wss://cloud.example", () => fakeClient().client);
+    await transport.start("daemon-token", {
+      ...config,
+      serverHttpUrl: "https://server.example/api/internal/centrifugo",
+    });
+    const apiKey = `sk_agent_${"a".repeat(43)}`;
+    await transport.agentAttachmentUploadSessionCreate({ target: "#general" }, apiKey);
+    await transport.agentAttachmentUploadSessionComplete("upload-1", apiKey);
+    await transport.agentAttachmentUploadSessionCancel("upload-1", apiKey);
+    await transport.agentAttachmentUploadSessionGet("upload-1", apiKey);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const authHeaders = {
+    authorization: "Bearer daemon-token",
+    agentApiKey: `Bearer sk_agent_${"a".repeat(43)}`,
+  };
+  expect(requests).toEqual([
+    {
+      url: "https://server.example/api/agent/v1/attachment-upload-sessions",
+      method: "POST",
+      contentType: "application/json",
+      body: JSON.stringify({ target: "#general" }),
+      ...authHeaders,
+    },
+    {
+      url: "https://server.example/api/agent/v1/attachment-upload-sessions/upload-1/complete",
+      method: "POST",
+      contentType: null,
+      body: "",
+      ...authHeaders,
+    },
+    {
+      url: "https://server.example/api/agent/v1/attachment-upload-sessions/upload-1",
+      method: "DELETE",
+      contentType: null,
+      body: "",
+      ...authHeaders,
+    },
+    {
+      url: "https://server.example/api/agent/v1/attachment-upload-sessions/upload-1",
+      method: undefined,
+      contentType: null,
+      body: "",
+      ...authHeaders,
+    },
+  ]);
+});
+
 test("requests and revokes Agent API keys through the server API route", async () => {
   const fake = fakeClient();
   const originalFetch = globalThis.fetch;

@@ -12,6 +12,7 @@ import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/applica
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import { ActionCard, type ActionCardView } from "./action-card";
 
 export type MessageView = {
   id: string;
@@ -34,6 +35,10 @@ export type MessageView = {
     previewUrl?: string;
   }[];
   reactions?: { emoji: string; count: number; reactors: string[] }[];
+  /** Present when this message is the summary posted for an Agent-prepared action card
+   * (ADR 0027). Replaces the plain-text draft hint line with the interactive card; the
+   * underlying `body` stays available to assistive technology. */
+  actionCard?: ActionCardView;
 };
 
 const GROUPING_WINDOW_MS = 5 * 60 * 1000;
@@ -333,14 +338,22 @@ export function MessageRow({
               </time>
             </p>
           )}
-          <div
-            className={cn(
-              "min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]",
-              grouped && threadEntry && "pr-8",
-            )}
-          >
-            {message.body}
-          </div>
+          {message.actionCard ? (
+            <>
+              {/* The raw summary (and draft hint) stay accessible; the card renders them. */}
+              <span className="sr-only">{message.body}</span>
+              <ActionCard card={message.actionCard} />
+            </>
+          ) : (
+            <div
+              className={cn(
+                "min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]",
+                grouped && threadEntry && "pr-8",
+              )}
+            >
+              {message.body}
+            </div>
+          )}
           {message.attachments.map((attachment) => (
             <AttachmentCard key={attachment.id} attachment={attachment} />
           ))}

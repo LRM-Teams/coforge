@@ -116,6 +116,17 @@ a fixed `Attachment is unavailable.` message on a 404 rather than relaying
 upstream detail. An Agent may download its own upload before sending it,
 but not another Agent's not-yet-sent upload.
 
+**Direct (presigned) upload (ADR 0028).** `attachment upload`'s command line and success output
+above never change; above a server-advertised size threshold (and only when the active storage
+backend supports it — Alibaba Cloud OSS does, local dev storage does not), the CLI instead PUTs
+the file straight to storage using a short-lived presigned URL, mirroring Raft 1.0.32's own direct
+upload: create an upload session, PUT the bytes (one retry on a network error or `408`/`429`/`5xx`
+response), then complete the session (retried up to 3× on `UPLOAD_OBJECT_NOT_FOUND` or
+`UPLOAD_VERIFICATION_IN_PROGRESS`). One deviation from Raft: this repo's storage has no
+`If-None-Match` precondition, so "the object already exists" is Alibaba Cloud OSS's own
+`x-oss-forbid-overwrite` conflict status, `409`, not Raft's `412`. Below the threshold, or when
+direct upload is unavailable, the existing multipart path above runs unchanged.
+
 `coforge weekly-report context|list|read` is the weekly-report assistant's
 authorized on-demand read surface. It reuses the Credential Proxy and Agent
 HTTPS API. Context is a compact page manifest, list is cursor-bounded, and
@@ -170,8 +181,21 @@ is reported with the server's error text. On success the CLI prints:
 Action card posted to <target> as message <uuid> (short <first 8>). The human can click the action verb to commit.
 ```
 
-This PR only posts and persists the card as an ordinary Agent message; the
-card UI and the human's commit action are a follow-up (see ADR 0027).
+Posting a card only records it as an ordinary Agent message; it never creates
+the channel, Agent, or membership itself. A human commits the card from the
+CoForge Web UI, not from any CLI command: they click the card's action
+button, review a form prefilled (and editable) from the card's values, and
+submit it under their own identity. To check whether that happened, read the
+card message again — its body carries a suffix the Agent-facing message read
+appends, `[action card: pending]`, `[action card: executed]`, or
+`[action card: cancelled]`:
+
+```
+coforge message read --target "#design" --around <message-id>
+```
+
+Only `executed` means the resource now exists. See ADR 0027's "Commit and
+cancel" section for the full commit/cancel model.
 
 ## Output
 

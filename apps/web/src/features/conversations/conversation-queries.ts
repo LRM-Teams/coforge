@@ -15,8 +15,15 @@ import {
   loadDirectConversationUpdates,
 } from "./conversations.functions";
 import { loadPublicChannel, loadPublicChannelUpdates } from "./channels.functions";
+import { loadActionCardStates } from "./action-cards.functions";
+import type { ActionCardView } from "./action-card";
 
-type PageMessage = { id: string; sequence: number; threadRootId?: string };
+type PageMessage = {
+  id: string;
+  sequence: number;
+  threadRootId?: string;
+  actionCard?: ActionCardView;
+};
 type ConversationPage<M extends PageMessage> = {
   conversationId: string;
   hasOlder: boolean;
@@ -134,8 +141,31 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
     // A new conversation starts a new reconciler; later pages of the same one keep it.
     [conversationId],
   );
+  /** Refreshes just the pending action cards currently shown (ADR 0027 "Commit and cancel"),
+   * without re-fetching the whole page; reads the live message list at call time via the closure
+   * captured into `reconcileRef` by `useConversationRealtime`. */
+  const refreshActionCards = async () => {
+    const pendingIds = conversation.messages
+      .filter((message) => message.actionCard?.state === "pending")
+      .map((message) => message.id);
+    if (!pendingIds.length) return;
+    const states = await loadActionCardStates({ data: { messageIds: pendingIds } });
+    setPages((pages) => ({
+      ...pages,
+      pages: pages.pages.map((page) => ({
+        ...page,
+        messages: page.messages.map((message) =>
+          states[message.id] ? { ...message, actionCard: states[message.id] } : message,
+        ),
+      })),
+    }));
+  };
   useConversationRealtime(conversationId, async () => {
-    await Promise.all([reconciliation.reconcile(), onRealtimeRef.current?.()]);
+    await Promise.all([
+      reconciliation.reconcile(),
+      onRealtimeRef.current?.(),
+      refreshActionCards(),
+    ]);
     setReminderRefreshKey((value) => value + 1);
   });
 

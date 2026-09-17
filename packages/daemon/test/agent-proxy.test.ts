@@ -585,6 +585,124 @@ test("proxy rejects an attachment upload without a trustworthy content-length", 
   expect(calls).toBe(0);
 });
 
+test("proxy forwards the direct-upload session create route as plain JSON", async () => {
+  const calls: Array<{ context: string; body: unknown; apiKey: string }> = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      agentAttachmentUploadSessionCreate: async (context, body, apiKey) => {
+        calls.push({ context, body, apiKey });
+        return Response.json(
+          { uploadId: "upload-1", attachmentId: "attachment-1", state: "pending" },
+          { status: 201 },
+        );
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.local.attachmentUploadSessions.create.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        target: "#general",
+        fileName: "note.txt",
+        contentType: "text/plain",
+        sizeBytes: 4,
+        clientRequestId: crypto.randomUUID(),
+      }),
+    },
+  );
+  expect(response.status).toBe(201);
+  expect(await response.json()).toEqual({
+    uploadId: "upload-1",
+    attachmentId: "attachment-1",
+    state: "pending",
+  });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.apiKey).toMatch(/^sk_agent_/);
+  expect((calls[0]?.body as { target?: string })?.target).toBe("#general");
+});
+
+test("proxy forwards the direct-upload session complete, cancel and get routes", async () => {
+  const calls: string[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      agentAttachmentUploadSessionComplete: async (_context, uploadId) => {
+        calls.push(`complete:${uploadId}`);
+        return Response.json({ uploadId, state: "completed" });
+      },
+      agentAttachmentUploadSessionCancel: async (_context, uploadId) => {
+        calls.push(`cancel:${uploadId}`);
+        return Response.json({ uploadId, state: "canceled" });
+      },
+      agentAttachmentUploadSessionGet: async (_context, uploadId) => {
+        calls.push(`get:${uploadId}`);
+        return Response.json({ uploadId, state: "pending" });
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+  const sessionUrl = (suffix: string) =>
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      `${agentApiRoutes.local.attachmentUploadSessions.get.path("upload-1")}${suffix}`,
+    );
+
+  const completed = await fetch(sessionUrl("/complete"), {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(completed.status).toBe(200);
+  expect(await completed.json()).toEqual({ uploadId: "upload-1", state: "completed" });
+
+  const fetched = await fetch(sessionUrl(""), { headers: { authorization: `Bearer ${token}` } });
+  expect(fetched.status).toBe(200);
+  expect(await fetched.json()).toEqual({ uploadId: "upload-1", state: "pending" });
+
+  const canceled = await fetch(sessionUrl(""), {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(canceled.status).toBe(200);
+  expect(await canceled.json()).toEqual({ uploadId: "upload-1", state: "canceled" });
+
+  expect(calls).toEqual(["complete:upload-1", "get:upload-1", "cancel:upload-1"]);
+});
+
+test("proxy answers 404 for the session routes when the runtime does not implement them", async () => {
+  const proxy = startAgentProxy({ runtime: { agentMessage: async () => ({}) } });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+  const createResponse = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.local.attachmentUploadSessions.create.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+  expect(createResponse.status).toBe(404);
+  const getResponse = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.local.attachmentUploadSessions.get.path("upload-1"),
+    ),
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  expect(getResponse.status).toBe(404);
+});
+
 test("proxy forwards resolve and react without accepting caller identity", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const proxy = startAgentProxy({

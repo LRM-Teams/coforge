@@ -3,6 +3,7 @@ import { AppError } from "../../lib/app-error";
 import { attachmentView } from "../attachments/attachment-view.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions.server";
+import type { ActionCardView } from "./action-cards.server";
 
 const browserMessageFields = {
   id: true,
@@ -64,6 +65,9 @@ function mapBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
     createdAt: message.createdAt,
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
+    // Attached by the caller (`conversations.functions.ts`, `ActionCards.viewsFor`) in one
+    // batched lookup per page; this function never queries `ActionCard` rows itself.
+    actionCard: undefined as ActionCardView | undefined,
   };
 }
 

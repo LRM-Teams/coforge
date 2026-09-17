@@ -352,9 +352,14 @@ export function connectLocal(
   /**
    * `null` means "no capability endpoint" (a 404, matching Raft 1.0.32's `attachmentUploadCommand`:
    * `capabilityResponse.status === 404` falls back rather than failing) — the caller skips its
-   * client-side size check and lets the server enforce its own limit on the real upload.
+   * client-side size check and disables direct upload, letting the server enforce its own limit
+   * on the real upload.
    */
-  async function callAttachmentCapabilities(): Promise<{ maxBytes: number } | null> {
+  async function callAttachmentCapabilities(): Promise<{
+    maxBytes: number;
+    directUploadEnabled: boolean;
+    directUploadThresholdBytes: number;
+  } | null> {
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
@@ -387,10 +392,40 @@ export function connectLocal(
         message: `attachment capabilities request failed (${response.status})`,
         retryable: false,
       });
-    return (await response.json()) as { maxBytes: number };
+    return (await response.json()) as {
+      maxBytes: number;
+      directUploadEnabled: boolean;
+      directUploadThresholdBytes: number;
+    };
   }
 
-  async function callAttachmentUpload(input: { path: string; target: string; mimeType?: string }) {
+  type AttachmentUploadResult = {
+    id: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  };
+
+  /** Reads a non-ok local-proxy JSON error body, tolerating a legacy bare-text body. */
+  async function readAttachmentErrorBody(
+    response: Response,
+  ): Promise<{ message: string; code?: string; retryable?: boolean }> {
+    const text = await response.text().catch(() => "");
+    try {
+      const parsed = JSON.parse(text) as { error?: string; code?: string; retryable?: boolean };
+      if (parsed && typeof parsed.error === "string")
+        return { message: parsed.error, code: parsed.code, retryable: parsed.retryable };
+    } catch {
+      // Not JSON: keep the raw text (e.g. a legacy bare-text proxy error).
+    }
+    return { message: text };
+  }
+
+  async function callAttachmentUpload(input: {
+    path: string;
+    target: string;
+    mimeType?: string;
+  }): Promise<AttachmentUploadResult> {
     if (!context) throw new Error("coforge agent context is not configured");
     if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw new Error("coforge agent context is invalid");
@@ -405,49 +440,240 @@ export function connectLocal(
         retryable: false,
       });
     const fileName = input.path.split("/").pop() || "attachment";
-    const form = new FormData();
-    form.set("file", new Blob([await file.arrayBuffer()], { type: input.mimeType }), fileName);
-    form.set("target", input.target);
-    if (input.mimeType) form.set("mimeType", input.mimeType);
-    const endpoint = new URL(proxyUrl);
-    endpoint.pathname = agentApiRoutes.local.attachments.upload.path;
+    const contentType = input.mimeType || "application/octet-stream";
+    if (capabilities?.directUploadEnabled && sizeBytes >= capabilities.directUploadThresholdBytes) {
+      return callAttachmentDirectUpload({
+        path: input.path,
+        target: input.target,
+        fileName,
+        contentType,
+        sizeBytes,
+      });
+    }
+    return callAttachmentMultipartUpload({
+      path: input.path,
+      target: input.target,
+      fileName,
+      file,
+    });
+
+    async function callAttachmentMultipartUpload(multipart: {
+      path: string;
+      target: string;
+      fileName: string;
+      file: ReturnType<typeof Bun.file>;
+    }): Promise<AttachmentUploadResult> {
+      const form = new FormData();
+      form.set(
+        "file",
+        new Blob([await multipart.file.arrayBuffer()], { type: input.mimeType }),
+        multipart.fileName,
+      );
+      form.set("target", multipart.target);
+      if (input.mimeType) form.set("mimeType", input.mimeType);
+      const endpoint = new URL(proxyUrl!);
+      endpoint.pathname = agentApiRoutes.local.attachments.upload.path;
+      endpoint.search = "";
+      let response: Response;
+      try {
+        response = await fetch(endpoint, {
+          method: agentApiRoutes.local.attachments.upload.method,
+          headers: { authorization: `Bearer ${context}` },
+          body: form,
+          signal: AbortSignal.timeout(60_000),
+        });
+      } catch {
+        throw new CliError({
+          code: "UPLOAD_FAILED",
+          message: "attachment upload request failed (network or timeout)",
+          retryable: false,
+        });
+      }
+      if (!response.ok) {
+        const { message } = await readAttachmentErrorBody(response);
+        throw new CliError({
+          code: response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED",
+          message: message || `HTTP ${response.status}`,
+          retryable: false,
+        });
+      }
+      return (await response.json()) as AttachmentUploadResult;
+    }
+  }
+
+  /**
+   * Direct (presigned) upload, run exactly as Raft 1.0.32's `attachmentUploadCommand`: create a
+   * session, PUT the bytes straight to storage (one retry on network error / 408 / 429 / 5xx),
+   * then complete with up to 3 retries on `UPLOAD_OBJECT_NOT_FOUND` /
+   * `UPLOAD_VERIFICATION_IN_PROGRESS`. One deviation from Raft: this repo's storage (Alibaba
+   * Cloud OSS) has no `If-None-Match` precondition, so "the object already exists" is OSS's own
+   * `x-oss-forbid-overwrite` conflict status, `409`, not Raft's `412` (see
+   * `oss-file-storage.server.ts`'s `presignPut` doc comment).
+   */
+  async function callAttachmentDirectUpload(input: {
+    path: string;
+    target: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  }): Promise<AttachmentUploadResult> {
+    const endpoint = new URL(proxyUrl!);
+    endpoint.pathname = agentApiRoutes.local.attachmentUploadSessions.create.path;
     endpoint.search = "";
     let response: Response;
     try {
       response = await fetch(endpoint, {
-        method: agentApiRoutes.local.attachments.upload.method,
-        headers: { authorization: `Bearer ${context}` },
-        body: form,
-        signal: AbortSignal.timeout(60_000),
+        method: agentApiRoutes.local.attachmentUploadSessions.create.method,
+        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          target: input.target,
+          fileName: input.fileName,
+          contentType: input.contentType,
+          sizeBytes: input.sizeBytes,
+          clientRequestId: crypto.randomUUID(),
+        }),
+        signal: AbortSignal.timeout(30_000),
       });
     } catch {
       throw new CliError({
         code: "UPLOAD_FAILED",
-        message: "attachment upload request failed (network or timeout)",
+        message: "attachment upload session request failed (network or timeout)",
         retryable: false,
       });
     }
     if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      let message = text;
-      try {
-        const parsed = JSON.parse(text) as { error?: string };
-        if (parsed && typeof parsed.error === "string") message = parsed.error;
-      } catch {
-        // Not JSON: keep the raw text (e.g. a legacy bare-text proxy error).
-      }
+      const { message, code } = await readAttachmentErrorBody(response);
       throw new CliError({
-        code: response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED",
+        code: code ?? (response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED"),
         message: message || `HTTP ${response.status}`,
         retryable: false,
       });
     }
-    return (await response.json()) as {
-      id: string;
-      fileName: string;
-      contentType: string;
-      sizeBytes: number;
+    const created = (await response.json()) as {
+      uploadId: string;
+      upload: { url: string; headers: Record<string, string> };
     };
+
+    const put = await putFileToPresignedUrl(input.path, created.upload.url, created.upload.headers);
+    if (put.outcome === "failed" && put.definite) {
+      await callAttachmentUploadSessionCancel(created.uploadId).catch(() => undefined);
+      throw new CliError({
+        code: "UPLOAD_OBJECT_PUT_FAILED",
+        message: `direct object upload failed with HTTP ${put.status}`,
+        retryable: false,
+      });
+    }
+    // Every other outcome — uploaded, already-exists (a repeat of an idempotent create), or an
+    // ambiguous network failure the server may still have received — falls through to the
+    // server's own HEAD-based verification, exactly as Raft 1.0.32 does.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const completed = await callAttachmentUploadSessionComplete(created.uploadId);
+      if (completed.ok) return completed.attachment;
+      if (!completed.retryable || attempt === 2) throw completed.error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+    throw new CliError({
+      code: "UPLOAD_FAILED",
+      message: "direct upload completion ended without a terminal response",
+      retryable: false,
+    });
+  }
+
+  async function callAttachmentUploadSessionComplete(
+    uploadId: string,
+  ): Promise<
+    | { ok: true; attachment: AttachmentUploadResult }
+    | { ok: false; retryable: boolean; error: CliError }
+  > {
+    const endpoint = new URL(proxyUrl!);
+    endpoint.pathname = agentApiRoutes.local.attachmentUploadSessions.complete.path(uploadId);
+    endpoint.search = "";
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: agentApiRoutes.local.attachmentUploadSessions.complete.method,
+        headers: { authorization: `Bearer ${context}` },
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      return {
+        ok: false,
+        retryable: false,
+        error: new CliError({
+          code: "UPLOAD_FAILED",
+          message: "attachment upload completion request failed (network or timeout)",
+          retryable: false,
+        }),
+      };
+    }
+    if (response.ok) {
+      const body = (await response.json()) as { attachment: AttachmentUploadResult };
+      return { ok: true, attachment: body.attachment };
+    }
+    const { message, code, retryable } = await readAttachmentErrorBody(response);
+    return {
+      ok: false,
+      retryable: retryable === true,
+      error: new CliError({
+        code: code ?? (response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED"),
+        message: message || `HTTP ${response.status}`,
+        retryable: retryable === true,
+      }),
+    };
+  }
+
+  async function callAttachmentUploadSessionCancel(uploadId: string): Promise<void> {
+    const endpoint = new URL(proxyUrl!);
+    endpoint.pathname = agentApiRoutes.local.attachmentUploadSessions.cancel.path(uploadId);
+    endpoint.search = "";
+    await fetch(endpoint, {
+      method: agentApiRoutes.local.attachmentUploadSessions.cancel.method,
+      headers: { authorization: `Bearer ${context}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  }
+
+  /**
+   * PUTs the file straight to storage. Mirrors Raft 1.0.32's `putFileToPresignedUrl`: one retry
+   * on a thrown network error or a `408`/`429`/`5xx` response; any other non-2xx is a definite
+   * failure. `already_exists` is this repo's OSS `409` (see this function's caller's own doc
+   * comment), not Raft's `412`.
+   */
+  async function putFileToPresignedUrl(
+    path: string,
+    url: string,
+    headers: Record<string, string>,
+  ): Promise<
+    | { outcome: "uploaded" | "already_exists"; definite: true }
+    | { outcome: "failed"; definite: boolean; status?: number }
+  > {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let response: Response;
+      try {
+        // `Bun.file(path)` is a `Blob`; Bun knows its size up front, so `fetch` sets a real
+        // `Content-Length` from it and streams the bytes from disk itself, with no
+        // `Transfer-Encoding: chunked`. A `ReadableStream` body (`Bun.file(path).stream()`) has
+        // no known length, so `fetch` sends it chunked instead — OSS's PutObject needs a real
+        // `Content-Length`, and a manually-set one on a streamed body can be dropped or conflict
+        // with the chunked encoding `fetch` chooses on its own (verified with a `Bun.serve`
+        // fake in `local-client.test.ts`).
+        response = await fetch(url, {
+          method: "PUT",
+          headers,
+          body: Bun.file(path),
+          redirect: "error",
+        });
+      } catch {
+        if (attempt === 0) continue;
+        return { outcome: "failed", definite: false };
+      }
+      if (response.ok) return { outcome: "uploaded", definite: true };
+      if (response.status === 409) return { outcome: "already_exists", definite: true };
+      const mayExist = response.status === 408 || response.status === 429 || response.status >= 500;
+      if (mayExist && attempt === 0) continue;
+      return { outcome: "failed", definite: !mayExist, status: response.status };
+    }
+    return { outcome: "failed", definite: false };
   }
 
   async function callInbox() {
