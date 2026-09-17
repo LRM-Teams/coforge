@@ -458,6 +458,25 @@ test("repository overview verifies the selected installation and maps GitHub rep
                           avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
                           user: { login: "linked-login" },
                         },
+                        authors: {
+                          nodes: [
+                            {
+                              name: "Author Name",
+                              avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
+                              user: { login: "linked-login" },
+                            },
+                            {
+                              name: "Claude",
+                              avatarUrl: "https://avatars.githubusercontent.com/u/99?v=4",
+                              user: null,
+                            },
+                            {
+                              name: "Co Dev",
+                              avatarUrl: null,
+                              user: { login: "co-dev-login" },
+                            },
+                          ],
+                        },
                         committer: { name: "Committer Name", user: { login: "committer-login" } },
                         signature: { isValid: true },
                         statusCheckRollup: { state: "SUCCESS" },
@@ -471,6 +490,15 @@ test("repository overview verifies the selected installation and maps GitHub rep
                           // A non-CDN host must never be trusted as an avatar URL.
                           avatarUrl: "https://evil.example.com/avatar.png",
                           user: null,
+                        },
+                        authors: {
+                          nodes: [
+                            {
+                              name: "Offline Author",
+                              avatarUrl: "https://evil.example.com/avatar.png",
+                              user: null,
+                            },
+                          ],
                         },
                         committer: null,
                         signature: null,
@@ -559,6 +587,13 @@ test("repository overview verifies the selected installation and maps GitHub rep
           message: "Ship asymmetric fixture",
           author: "linked-login",
           authorAvatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
+          coAuthors: [
+            {
+              name: "Claude",
+              avatarUrl: "https://avatars.githubusercontent.com/u/99?v=4",
+            },
+            { name: "co-dev-login", avatarUrl: null },
+          ],
           committer: "committer-login",
           date: "2026-09-15T08:30:00Z",
           verified: true,
@@ -569,6 +604,7 @@ test("repository overview verifies the selected installation and maps GitHub rep
           message: "Unlinked author",
           author: "Offline Author",
           authorAvatarUrl: null,
+          coAuthors: [],
           committer: null,
           date: null,
           verified: false,
@@ -832,6 +868,9 @@ test("repository overview denies a forbidden top-level GraphQL error but tolerat
                       messageHeadline: "Tolerate field error",
                       committedDate: "2026-02-01T00:00:00Z",
                       author: { name: "Someone", avatarUrl: null, user: { login: "someone" } },
+                      authors: {
+                        nodes: [{ name: "Someone", avatarUrl: null, user: { login: "someone" } }],
+                      },
                       committer: null,
                       signature: null,
                       statusCheckRollup: null,
@@ -865,6 +904,7 @@ test("repository overview denies a forbidden top-level GraphQL error but tolerat
           message: "Tolerate field error",
           author: "someone",
           authorAvatarUrl: null,
+          coAuthors: [],
           committer: null,
           date: "2026-02-01T00:00:00Z",
           verified: false,
