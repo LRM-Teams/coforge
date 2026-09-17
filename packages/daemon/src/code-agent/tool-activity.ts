@@ -302,6 +302,13 @@ function allowlistedString(value: unknown, max: number): string | undefined {
   return chars.length > max ? chars.slice(0, max).join("") : value;
 }
 
+/** A provider may put control characters in a tool name, and the timeline must not render them.
+ * Filtered by code point instead of with a control-character regex, which `no-control-regex`
+ * flags even when matching control characters is deliberate. */
 function sanitizeToolName(name: string): string {
-  return [...name.replace(/[\x00-\x1f\x7f]/g, "")].slice(0, 128).join("") || "unknown";
+  const printable = [...name].filter((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint > 0x1f && codePoint !== 0x7f;
+  });
+  return printable.slice(0, 128).join("") || "unknown";
 }

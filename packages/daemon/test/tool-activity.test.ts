@@ -68,6 +68,19 @@ test("unrecognized tools never infer file edits from arguments or emit prompts a
   });
 });
 
+test("a provider tool name never carries control characters into the activity entry", () => {
+  expect(toolActivity("read\u0000_file\u001b[31m", {}).entries).toEqual([
+    { kind: "tool_start", toolName: "read_file[31m" },
+  ]);
+  // Stripping everything leaves no tool identity at all, so the entry stays honest.
+  expect(toolActivity("\u0000\u001b\u007f", {}).entries).toEqual([
+    { kind: "tool_start", toolName: "unknown" },
+  ]);
+  expect(toolActivity(`${"t".repeat(200)}\u0007`, {}).entries).toEqual([
+    { kind: "tool_start", toolName: "t".repeat(128) },
+  ]);
+});
+
 test("new Raft-verified aliases resolve to their canonical tool and allowlisted summary", () => {
   for (const name of ["Glob", "glob", "search_files"])
     expect(toolActivity(name, { pattern: "**/*.ts", secret: "no" })).toMatchObject({
