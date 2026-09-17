@@ -17,7 +17,6 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "../src/lib/app-error";
 import type { WorkspaceMemberRole } from "../src/server/workspaces/member-role.server";
-import { stateSchema } from "../src/server/db/repositories/agent-control.repositories.server";
 
 function observationRace() {
   const runtimeConfig = {
@@ -146,27 +145,6 @@ function observationRace() {
       control.publishStop({ agentId: "a", workspaceId: "w", requestId: "config-stop" }, "owner"),
   };
 }
-
-test("a legacy controlState row with no warningCode key still parses, and a row with a warning parses too", () => {
-  const legacy = {
-    version: 1,
-    protocolMajor: 1,
-    requestId: "r",
-    workspaceId: "w",
-    computerId: "c",
-    agentId: "a",
-    provider: "pi",
-    epoch: 1,
-    action: "full-reset",
-    phase: "completed",
-    configRevision: "revision",
-    controlSequence: 1,
-    sessionSequence: 0,
-  } as const;
-  expect(stateSchema.parse(legacy)).toEqual(legacy);
-  const withWarning = { ...legacy, warningCode: "workspace_clear_incomplete" };
-  expect(stateSchema.parse(withWarning)).toEqual(withWarning);
-});
 
 test("configuration stop retries a Session observation race before allowing the config write", async () => {
   const { fixture, observe, stop } = observationRace();
@@ -835,9 +813,37 @@ test("a failed operation never latches: start, stop, restart, reset-session, and
     ).toBe("pending");
     expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "retry", controlEpoch: 2 });
   }
+  {
+    // recover() is the ready-recovery auto-start path; it used to reject outright after a
+    // terminal failed full-reset. It now proceeds exactly like every other entry point above.
+    const { store, sent } = failedFullResetAgent();
+    const control = new AgentControl(
+      store,
+      { publish: async (_channel, bytes) => void sent.push(bytes) },
+      { run: async (_id, work) => work() },
+    );
+    await control.recover(
+      {
+        protocolMajor: 1,
+        requestId: "ready-recovery",
+        workspaceId: "w",
+        computerId: "c",
+        agentId: "a",
+        provider: "pi",
+        model: "",
+        reasoning: "",
+      },
+      "owner",
+    );
+    expect(sent).toHaveLength(1);
+    expect(decodeAgentStartIntent(sent[0]!)).toMatchObject({
+      requestId: "ready-recovery",
+      controlEpoch: 2,
+    });
+  }
 });
 
-test("Full Reset completes with a warning when the workspace clear could not finish, and the Agent starts with a fresh session", async () => {
+test("Full Reset completes when the workspace clear could not finish, and the Agent starts with a fresh session", async () => {
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
@@ -885,13 +891,12 @@ test("Full Reset completes with a warning when the workspace clear could not fin
   const stop = decodeAgentStopIntent(sent[0]!);
   const scope = { ...stop, provider: stop.provider!, epoch: stop.controlEpoch! };
   await control.result(scope, { ...scope, phase: "stopped", sequence: 1 });
-  // The daemon's clear failed, but it is non-fatal: the result still carries "workspace-reset"
-  // (not "failed"), with a warning code instead of an error code, and the chain still proceeds.
+  // The daemon's clear failed, but it is non-fatal (Raft only logs it): the result still
+  // carries "workspace-reset", never "failed", and the chain still proceeds.
   await control.result(scope, {
     ...scope,
     phase: "workspace-reset",
     sequence: 2,
-    warningCode: "workspace_clear_incomplete",
   });
   expect(decodeAgentStartIntent(sent[2]!)).toMatchObject({ requestId: "reset", controlEpoch: 1 });
   expect(decodeAgentStartIntent(sent[2]!).sessionId).toBeUndefined();
@@ -910,7 +915,8 @@ test("Full Reset completes with a warning when the workspace clear could not fin
     identity: { sessionId: "new-native-id", state: "empty" },
   });
   const view = await control.execute(input);
-  expect(view).toMatchObject({ phase: "completed", warning: "workspace_clear_incomplete" });
+  expect(view).toMatchObject({ phase: "completed" });
+  expect(view).not.toHaveProperty("warning");
   expect((await store.get("a"))?.state?.identity).toMatchObject({ sessionId: "new-native-id" });
 });
 
@@ -1425,8 +1431,12 @@ test("a pending operation older than abandonAfterMs is superseded", async () => 
   ]);
 });
 
-test("an abandoned pending Full Reset still refuses anything but a new Full Reset", async () => {
-  const { store, current } = abandonStore({
+/** Builds a hand-built abandoned (no `updatedAtMs`) pending Full Reset state at a given phase,
+ * for the tests below: ADR 0036 removed the earlier full-reset-only "yields only to a new
+ * full-reset" exception (ADR 0035), so an abandoned Full Reset is now superseded exactly like
+ * any other abandoned operation, at every phase its chain can be caught in. */
+function abandonedFullResetFixture(phase: "stopping" | "clearing" | "starting") {
+  return abandonStore({
     id: "a",
     ownerId: "owner",
     workspaceId: "w",
@@ -1442,59 +1452,196 @@ test("an abandoned pending Full Reset still refuses anything but a new Full Rese
       provider: "pi",
       epoch: 2,
       action: "full-reset",
-      phase: "clearing",
+      phase,
       configRevision: agentControlRevision(abandonRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
       // No updatedAtMs: abandoned regardless of `abandonAfterMs`.
     },
   });
-  const control = new AgentControl(
-    store,
-    { publish: async () => {} },
-    { run: async (_id, work) => work() },
-    { timeoutMs: 0, fallbackMs: 0 },
-  );
-  await expect(
-    control.execute({
-      userId: "owner",
-      workspaceId: "w",
-      agentId: "a",
-      requestId: "restart-attempt",
-      action: "restart",
-    }),
-  ).rejects.toThrow("Explicit Agent reset retry is required");
-  await expect(
-    control.publishStop({ agentId: "a", workspaceId: "w", requestId: "stop-attempt" }, "owner"),
-  ).rejects.toThrow("Explicit Agent reset retry is required");
-  await expect(
-    control.publishStart(
-      {
-        protocolMajor: 1,
-        requestId: "start-attempt",
-        workspaceId: "w",
-        computerId: "c",
-        agentId: "a",
-        provider: "pi",
-        model: "",
-        reasoning: "",
-      },
-      "owner",
-    ),
-  ).rejects.toThrow("Explicit Agent reset retry is required");
-  expect(current().state).toMatchObject({ requestId: "stuck-reset", epoch: 2 });
+}
 
-  const result = await control.execute({
-    userId: "owner",
-    workspaceId: "w",
-    agentId: "a",
-    requestId: "new-reset",
-    action: "full-reset",
-    confirmed: true,
-  });
-  expect(result.phase).toBe("pending");
-  expect(current().state).toMatchObject({ requestId: "new-reset", epoch: 3, action: "full-reset" });
-});
+test.each(["stopping", "clearing", "starting"] as const)(
+  "an abandoned pending Full Reset in %s yields to any competing action, exactly like every other abandoned operation",
+  async (phase) => {
+    const supersedeLog = (newAction: string) =>
+      expect.objectContaining({
+        event: "agent_control:pending_superseded",
+        agent_id: "a",
+        previous_action: "full-reset",
+        previous_phase: phase,
+        previous_epoch: 2,
+        new_action: newAction,
+      });
+
+    // restart (execute())
+    {
+      const { store, current } = abandonedFullResetFixture(phase);
+      const capture = captureWarnings();
+      const control = new AgentControl(
+        store,
+        { publish: async () => {} },
+        { run: async (_id, work) => work() },
+        { timeoutMs: 0, fallbackMs: 0 },
+      );
+      try {
+        const result = await control.execute({
+          userId: "owner",
+          workspaceId: "w",
+          agentId: "a",
+          requestId: "restart-attempt",
+          action: "restart",
+        });
+        expect(result.phase).toBe("pending");
+      } finally {
+        capture.restore();
+      }
+      expect(current().state).toMatchObject({
+        requestId: "restart-attempt",
+        epoch: 3,
+        action: "restart",
+      });
+      expect(capture.warnings).toEqual([supersedeLog("restart")]);
+    }
+
+    // reset-session (execute())
+    {
+      const { store, current } = abandonedFullResetFixture(phase);
+      const capture = captureWarnings();
+      const control = new AgentControl(
+        store,
+        { publish: async () => {} },
+        { run: async (_id, work) => work() },
+        { timeoutMs: 0, fallbackMs: 0 },
+      );
+      try {
+        const result = await control.execute({
+          userId: "owner",
+          workspaceId: "w",
+          agentId: "a",
+          requestId: "reset-session-attempt",
+          action: "reset-session",
+        });
+        expect(result.phase).toBe("pending");
+      } finally {
+        capture.restore();
+      }
+      expect(current().state).toMatchObject({
+        requestId: "reset-session-attempt",
+        epoch: 3,
+        action: "reset-session",
+      });
+      expect(capture.warnings).toEqual([supersedeLog("reset-session")]);
+    }
+
+    // full-reset (execute()) — a fresh, explicitly confirmed Full Reset still supersedes too.
+    {
+      const { store, current } = abandonedFullResetFixture(phase);
+      const capture = captureWarnings();
+      const control = new AgentControl(
+        store,
+        { publish: async () => {} },
+        { run: async (_id, work) => work() },
+        { timeoutMs: 0, fallbackMs: 0 },
+      );
+      try {
+        const result = await control.execute({
+          userId: "owner",
+          workspaceId: "w",
+          agentId: "a",
+          requestId: "full-reset-attempt",
+          action: "full-reset",
+          confirmed: true,
+        });
+        expect(result.phase).toBe("pending");
+      } finally {
+        capture.restore();
+      }
+      expect(current().state).toMatchObject({
+        requestId: "full-reset-attempt",
+        epoch: 3,
+        action: "full-reset",
+      });
+      expect(capture.warnings).toEqual([supersedeLog("full-reset")]);
+    }
+
+    // stop (publishStop())
+    {
+      const { store, current } = abandonedFullResetFixture(phase);
+      const sent: Uint8Array[] = [];
+      const capture = captureWarnings();
+      const control = new AgentControl(
+        store,
+        { publish: async (_channel, bytes) => void sent.push(bytes) },
+        { run: async (_id, work) => work() },
+        { timeoutMs: 0, fallbackMs: 0 },
+      );
+      try {
+        // No daemon ACK arrives within the 0ms drive window, so publishStop still reports the
+        // stop as unconfirmed — but the pending operation was already superseded underneath it.
+        await expect(
+          control.publishStop(
+            { agentId: "a", workspaceId: "w", requestId: "stop-attempt" },
+            "owner",
+          ),
+        ).rejects.toThrow("Agent stop has not completed");
+      } finally {
+        capture.restore();
+      }
+      expect(sent).toHaveLength(1);
+      expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({
+        requestId: "stop-attempt",
+        controlEpoch: 3,
+      });
+      expect(current().state).toMatchObject({
+        requestId: "stop-attempt",
+        epoch: 3,
+        action: "stop",
+      });
+      expect(capture.warnings).toEqual([supersedeLog("stop")]);
+    }
+
+    // start (publishStart())
+    {
+      const { store, current } = abandonedFullResetFixture(phase);
+      const sent: Uint8Array[] = [];
+      const capture = captureWarnings();
+      const control = new AgentControl(
+        store,
+        { publish: async (_channel, bytes) => void sent.push(bytes) },
+        { run: async (_id, work) => work() },
+      );
+      try {
+        await control.publishStart(
+          {
+            protocolMajor: 1,
+            requestId: "start-attempt",
+            workspaceId: "w",
+            computerId: "c",
+            agentId: "a",
+            provider: "pi",
+            model: "",
+            reasoning: "",
+          },
+          "owner",
+        );
+      } finally {
+        capture.restore();
+      }
+      expect(sent).toHaveLength(1);
+      expect(decodeAgentStartIntent(sent[0]!)).toMatchObject({
+        requestId: "start-attempt",
+        controlEpoch: 3,
+      });
+      expect(current().state).toMatchObject({
+        requestId: "start-attempt",
+        epoch: 3,
+        action: "start",
+      });
+      expect(capture.warnings).toEqual([supersedeLog("start")]);
+    }
+  },
+);
 
 test("a stale-epoch result after a supersede is rejected and leaves the new epoch unchanged", async () => {
   const { store, current } = abandonStore({

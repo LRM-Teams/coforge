@@ -230,10 +230,10 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
   }
 });
 
-test("Full Reset completes with a warning, not a failure, when the workspace clear cannot finish", async () => {
+test("Full Reset completes, not fails, when the workspace clear cannot finish", async () => {
   // macOS resolves os.tmpdir() through the /var -> /private/var symlink, which the
   // store's symlinked-ancestor guard rightly rejects; anchor the fixture on the real path.
-  const root = await mkdtemp(join(await realpath(tmpdir()), "control-roundtrip-warning-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "control-roundtrip-clear-failure-"));
   const connection = { workspaceId: "w", computerId: "c", workspaceRoot: join(root, "workspaces") };
   let agent: AgentControlAgent = {
     id: "a",
@@ -363,7 +363,8 @@ test("Full Reset completes with a warning, not a failure, when the workspace cle
     // No write permission on `blocked`: the daemon's clear cannot remove its contents.
     await chmod(blocked, 0o500);
     const result = await execute("full-reset");
-    expect(result).toMatchObject({ phase: "completed", warning: "workspace_clear_incomplete" });
+    expect(result).toMatchObject({ phase: "completed" });
+    expect(result).not.toHaveProperty("warning");
     expect(await Bun.file(join(workspace, "keep.txt")).exists()).toBe(false);
     expect(await Bun.file(join(blocked, "stuck")).exists()).toBe(true);
     // The chain still reached Start: a fresh session launched despite the clear failure.

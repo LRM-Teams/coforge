@@ -72,10 +72,6 @@ export type AgentControlState = AgentControlScope & {
    * compared for CAS equality (see `operationFence`) and never a liveness signal for anything
    * else. */
   updatedAtMs?: number;
-  /** Non-fatal: the operation still completed (e.g. a workspace clear that could not remove
-   * every file); the chain still proceeds. Carried through `advance()` to completion so the
-   * owner can be told, never treated as a reason to stop or latch. */
-  warningCode?: string;
 };
 export type AgentControlAgent = {
   id: string;
@@ -108,9 +104,6 @@ export type AgentControlView = {
   action: AgentControlAction;
   phase: "pending" | "completed" | "failed";
   error?: string;
-  /** Non-fatal outcome to surface inline once the view is terminal, e.g.
-   * `workspace_clear_incomplete`. */
-  warning?: string;
   recovered?: boolean;
 };
 export function agentControlRevision(config: unknown) {
@@ -125,7 +118,6 @@ function view(state: AgentControlState): AgentControlView {
     action: state.action,
     phase: state.phase === "completed" || state.phase === "failed" ? state.phase : "pending",
     ...(state.errorCode ? { error: state.errorCode } : {}),
-    ...(state.warningCode ? { warning: state.warningCode } : {}),
     ...(state.recovered ? { recovered: true } : {}),
   };
 }
@@ -336,14 +328,15 @@ export class AgentControl {
     // A pending operation nobody is driving (waiter timed out, process restarted, Daemon never
     // answered) must not wedge every future operation forever; only a genuinely fresh pending
     // operation still blocks here. `abandoned` below is superseded exactly like a terminal
-    // `old`, epoch+1 and all, except the destructive full-reset chain right below it.
+    // `old`, epoch+1 and all — including an abandoned Full Reset (ADR 0036 removed ADR 0035's
+    // earlier full-reset-only exception: Raft keeps no operation state at all, the exception
+    // protected nothing the Daemon does not already protect on its own — it still refuses Start
+    // while its own record is "clearing", and `confirmed_stop_required` still guards the clear —
+    // and a member without `resetAgentWorkspace` could not even have left this state). A FAILED
+    // operation never latches either (also ADR 0036): any next action may begin once the current
+    // operation is terminal.
     const abandoned = !!old && !terminal(old) && this.isAbandoned(old);
     if (old && !terminal(old) && !abandoned) throw new Error("Agent control operation is pending");
-    // A FAILED operation never latches (ADR 0036): any next action may begin once the current
-    // operation is terminal. Only an ABANDONED, still non-terminal full-reset keeps yielding
-    // solely to a new full-reset (ADR 0035): its workspace deletion may be half done.
-    if (old?.action === "full-reset" && abandoned && action !== "full-reset")
-      throw new Error("Explicit Agent reset retry is required");
     if (old && abandoned)
       console.warn(
         JSON.stringify({
@@ -404,8 +397,8 @@ export class AgentControl {
     let state = agent.state;
     if (state && !terminal(state)) {
       // Recovery must never bypass a reset. Owner retry continues the same operation, unless
-      // nobody is driving it any more (see `begin`'s abandonment supersede — still refuses to
-      // bypass a stuck full-reset without an explicit new confirmation).
+      // nobody is driving it any more (see `begin`'s abandonment supersede, which now applies
+      // uniformly, including to an abandoned Full Reset).
       if (state.action !== "start") {
         if (!this.isAbandoned(state)) throw new Error("Agent control operation is pending");
         state = await this.begin(agent, "start", intent.requestId);
@@ -583,9 +576,6 @@ export class AgentControl {
         : {}),
       ...(identity ? { identity } : {}),
       ...(result.errorCode ? { errorCode: result.errorCode } : {}),
-      // Sticky once set: a workspace-reset result's warning must still be visible once the
-      // chain reaches its next (start) result, which carries no warningCode of its own.
-      ...(result.warningCode ? { warningCode: result.warningCode } : {}),
     };
     if (!(await this.store.replace(agent, next))) throw new Error("Control result lost its fence");
     if (next.phase === "stopped" || next.phase === "workspace-reset") {
