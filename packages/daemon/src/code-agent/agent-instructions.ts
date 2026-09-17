@@ -30,6 +30,7 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 - Use \`coforge workspace info\` to inspect the current Workspace, its humans, Agents, and Projects. It does not currently list channel membership or channel descriptions.
 - When a message contains an attachment, use \`coforge attachment view --id <attachment-id> --output <path>\` to download it into the Agent workspace before trying to inspect the file. Do not guess an attachment URL or use the cloud storage credentials directly.
+- To send a file, first run \`coforge attachment upload --path <file> --target <target>\` to get an attachment id, then pass it to \`coforge message send --target <target> --attachment-id <id>\`.
 
 ### Public channels
 

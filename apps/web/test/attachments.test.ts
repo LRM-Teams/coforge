@@ -2,11 +2,27 @@ import { expect, test } from "bun:test";
 import {
   attachmentCapabilities,
   ATTACHMENT_MAX_BYTES,
+  readAuthorizedAttachment,
+  storeAgentAttachment,
   storeAttachment,
 } from "../src/server/attachments/attachment.server";
 import { AppError } from "../src/lib/app-error";
 import { handleAttachmentUpload } from "../src/routes/api/attachments";
 import { handleAttachmentDownload } from "../src/routes/api/attachments.$attachmentId";
+
+function fakeStorage(
+  open?: () => Promise<{ body: Blob; contentType: string | null; sizeBytes: number }>,
+) {
+  return async () => ({
+    put: async () => {},
+    remove: async () => {},
+    open:
+      open ??
+      (async () => {
+        throw new Error("must not open bytes in this test");
+      }),
+  });
+}
 
 test("attachment upload capabilities are server authoritative", () => {
   expect(attachmentCapabilities()).toEqual({
@@ -47,6 +63,167 @@ test("attachment upload rejects an unauthorized conversation with a stable publi
       file: new File(["safe"], "safe.txt"),
     }),
   ).rejects.toEqual(new AppError("ACCESS_DENIED"));
+});
+
+test("storeAgentAttachment writes uploaderAgentId, never uploaderId, and skips conversation lookup", async () => {
+  const created: Record<string, unknown>[] = [];
+  const fakeDb = {
+    attachment: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        created.push(data);
+        return {
+          id: data.id,
+          fileName: data.fileName,
+          contentType: data.contentType,
+          sizeBytes: data.sizeBytes,
+        };
+      },
+    },
+  };
+  const result = await storeAgentAttachment(
+    fakeDb as never,
+    {
+      agentId: "agent-1",
+      conversationId: "conversation-1",
+      workspaceId: "workspace-1",
+      file: new File(["hello"], "note.txt"),
+      contentType: "text/plain",
+    },
+    fakeStorage(),
+  );
+  expect(result).toEqual({
+    id: expect.any(String),
+    fileName: "note.txt",
+    contentType: "text/plain",
+    sizeBytes: 5,
+  });
+  expect(created).toHaveLength(1);
+  expect(created[0]).toMatchObject({
+    workspaceId: "workspace-1",
+    conversationId: "conversation-1",
+    uploaderId: null,
+    uploaderAgentId: "agent-1",
+    fileName: "note.txt",
+    contentType: "text/plain",
+    sizeBytes: 5,
+  });
+});
+
+test("storeAgentAttachment rejects an empty file and an oversized file, without touching persistence", async () => {
+  let touched = false;
+  const fakeDb = {
+    get attachment() {
+      touched = true;
+      throw new Error("must not be touched");
+    },
+  };
+  await expect(
+    storeAgentAttachment(
+      fakeDb as never,
+      {
+        agentId: "agent-1",
+        conversationId: "conversation-1",
+        workspaceId: "workspace-1",
+        file: new File([], "empty.txt"),
+        contentType: "text/plain",
+      },
+      fakeStorage(),
+    ),
+  ).rejects.toEqual(new AppError("INVALID_INPUT"));
+  await expect(
+    storeAgentAttachment(
+      fakeDb as never,
+      {
+        agentId: "agent-1",
+        conversationId: "conversation-1",
+        workspaceId: "workspace-1",
+        file: new File([new Uint8Array(ATTACHMENT_MAX_BYTES + 1)], "large.bin"),
+        contentType: "application/octet-stream",
+      },
+      fakeStorage(),
+    ),
+  ).rejects.toEqual(new AppError("INVALID_INPUT"));
+  expect(touched).toBe(false);
+});
+
+test("an Agent may download its own not-yet-linked upload", async () => {
+  const fakeDb = {
+    attachment: {
+      findUnique: async () => ({
+        id: "attachment-1",
+        conversationId: "conversation-1",
+        messageId: null,
+        uploaderId: null,
+        uploaderAgentId: "agent-1",
+        objectKey: "workspaces/w/attachments/attachment-1/original",
+        fileName: "note.txt",
+        contentType: "text/plain",
+        sizeBytes: 5,
+      }),
+    },
+    conversationMember: {
+      findFirst: async () => ({ id: "member-1" }),
+    },
+  };
+  const result = await readAuthorizedAttachment(
+    fakeDb as never,
+    { attachmentId: "attachment-1", agentId: "agent-1" },
+    fakeStorage(),
+  );
+  expect(result.attachment.id).toBe("attachment-1");
+});
+
+test("a different Agent cannot download another Agent's not-yet-linked upload", async () => {
+  const fakeDb = {
+    attachment: {
+      findUnique: async () => ({
+        id: "attachment-1",
+        conversationId: "conversation-1",
+        messageId: null,
+        uploaderId: null,
+        uploaderAgentId: "agent-1",
+        objectKey: "workspaces/w/attachments/attachment-1/original",
+        fileName: "note.txt",
+        contentType: "text/plain",
+        sizeBytes: 5,
+      }),
+    },
+    conversationMember: {
+      findFirst: async () => ({ id: "member-2" }),
+    },
+  };
+  await expect(
+    readAuthorizedAttachment(
+      fakeDb as never,
+      { attachmentId: "attachment-1", agentId: "agent-2" },
+      fakeStorage(),
+    ),
+  ).rejects.toEqual(new AppError("NOT_FOUND"));
+});
+
+test("readAuthorizedAttachment still 404s an unlinked attachment for a human requester", async () => {
+  const fakeDb = {
+    attachment: {
+      findUnique: async () => ({
+        id: "attachment-1",
+        conversationId: "conversation-1",
+        messageId: null,
+        uploaderId: "user-1",
+        uploaderAgentId: null,
+        objectKey: "workspaces/w/attachments/attachment-1/original",
+        fileName: "note.txt",
+        contentType: "text/plain",
+        sizeBytes: 5,
+      }),
+    },
+  };
+  await expect(
+    readAuthorizedAttachment(
+      fakeDb as never,
+      { attachmentId: "attachment-1", userId: "user-1" },
+      fakeStorage(),
+    ),
+  ).rejects.toEqual(new AppError("NOT_FOUND"));
 });
 
 test("attachment HTTP boundary maps expected and unexpected failures without diagnostics", async () => {

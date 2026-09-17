@@ -1,4 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { connectLocal } from "../src/local-client";
 import { CliError } from "../src/cli-error";
@@ -163,6 +166,267 @@ test("downloads attachments through the daemon-local proxy", async () => {
     new URL(proxyUrl(agentApiRoutes.local.attachments.path("attachment-1"))),
     expect.any(Object),
   );
+});
+
+test("a 404 attachment download fails as VIEW_FAILED with a fixed unavailable message", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("not found", { status: 404 }));
+  const attempt = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).view("attachment-1");
+  await expect(attempt).rejects.toBeInstanceOf(CliError);
+  await expect(attempt).rejects.toMatchObject({
+    code: "VIEW_FAILED",
+    message: "Attachment is unavailable.",
+  });
+});
+
+test("a non-404 attachment download failure maps to VIEW_FAILED (or SERVER_5XX for >= 500)", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("access denied", { status: 403 }));
+  const denied = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).view("attachment-1");
+  await expect(denied).rejects.toMatchObject({ code: "VIEW_FAILED", message: "access denied" });
+
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("internal error", { status: 500 }));
+  const failed = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).view("attachment-1");
+  await expect(failed).rejects.toMatchObject({ code: "SERVER_5XX" });
+});
+
+test("uploads an attachment after checking capabilities through the same GET forwarding as view", async () => {
+  const calls: Array<{ url: string; method?: string; authorization: string | null }> = [];
+  spyOn(globalThis, "fetch").mockImplementation((async (input, init) => {
+    const url = String(input);
+    calls.push({
+      url,
+      method: init?.method,
+      authorization: new Headers(init?.headers).get("authorization"),
+    });
+    if (url.endsWith("/capabilities"))
+      return Response.json({
+        maxBytes: 1024,
+        directUploadEnabled: false,
+        directUploadThresholdBytes: 0,
+        sessionExpiresInSeconds: 900,
+      });
+    return Response.json({
+      id: "attachment-1",
+      fileName: "note.txt",
+      contentType: "text/plain",
+      sizeBytes: 5,
+    });
+  }) as typeof fetch);
+  const dir = await mkdtemp(join(tmpdir(), "coforge-local-client-"));
+  const path = join(dir, "note.txt");
+  await writeFile(path, "hello");
+  try {
+    const result = await connectLocal(
+      "",
+      `sfp_${"a".repeat(43)}`,
+      proxyUrl(agentApiRoutes.local.messages),
+    ).upload!({ path, target: "@ada", mimeType: "text/plain" });
+    expect(result).toEqual({
+      id: "attachment-1",
+      fileName: "note.txt",
+      contentType: "text/plain",
+      sizeBytes: 5,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  expect(calls[0]?.url).toBe(proxyUrl(agentApiRoutes.local.attachments.path("capabilities")));
+  expect(calls[0]?.authorization).toBe(`Bearer sfp_${"a".repeat(43)}`);
+  expect(calls[1]?.url).toBe(proxyUrl(agentApiRoutes.local.attachments.upload.path));
+  expect(calls[1]?.method).toBe("POST");
+});
+
+test("rejects an oversized upload locally after reading capabilities, without POSTing the file", async () => {
+  const calls: string[] = [];
+  spyOn(globalThis, "fetch").mockImplementation((async (input) => {
+    calls.push(String(input));
+    return Response.json({
+      maxBytes: 2,
+      directUploadEnabled: false,
+      directUploadThresholdBytes: 0,
+      sessionExpiresInSeconds: 900,
+    });
+  }) as typeof fetch);
+  const dir = await mkdtemp(join(tmpdir(), "coforge-local-client-"));
+  const path = join(dir, "note.txt");
+  await writeFile(path, "hello");
+  try {
+    const attempt = connectLocal(
+      "",
+      `sfp_${"a".repeat(43)}`,
+      proxyUrl(agentApiRoutes.local.messages),
+    ).upload!({ path, target: "@ada" });
+    await expect(attempt).rejects.toBeInstanceOf(CliError);
+    await expect(attempt).rejects.toMatchObject({
+      code: "ATTACHMENT_TOO_LARGE",
+      message: "File is 5 bytes; the server allows at most 2 bytes.",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  expect(calls).toHaveLength(1);
+});
+
+test("maps a non-2xx upload response to a CliError carrying the upstream error text", async () => {
+  spyOn(globalThis, "fetch").mockImplementation((async (input) => {
+    if (String(input).endsWith("/capabilities"))
+      return Response.json({
+        maxBytes: 1024,
+        directUploadEnabled: false,
+        directUploadThresholdBytes: 0,
+        sessionExpiresInSeconds: 900,
+      });
+    return Response.json({ error: "Agent is not a member of #general" }, { status: 403 });
+  }) as typeof fetch);
+  const dir = await mkdtemp(join(tmpdir(), "coforge-local-client-"));
+  const path = join(dir, "note.txt");
+  await writeFile(path, "hello");
+  try {
+    const attempt = connectLocal(
+      "",
+      `sfp_${"a".repeat(43)}`,
+      proxyUrl(agentApiRoutes.local.messages),
+    ).upload!({ path, target: "#general" });
+    await expect(attempt).rejects.toMatchObject({
+      code: "UPLOAD_FAILED",
+      message: "Agent is not a member of #general",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("maps a >=500 upload response to SERVER_5XX", async () => {
+  spyOn(globalThis, "fetch").mockImplementation((async (input) => {
+    if (String(input).endsWith("/capabilities"))
+      return Response.json({
+        maxBytes: 1024,
+        directUploadEnabled: false,
+        directUploadThresholdBytes: 0,
+        sessionExpiresInSeconds: 900,
+      });
+    return new Response("internal error", { status: 500 });
+  }) as typeof fetch);
+  const dir = await mkdtemp(join(tmpdir(), "coforge-local-client-"));
+  const path = join(dir, "note.txt");
+  await writeFile(path, "hello");
+  try {
+    const attempt = connectLocal(
+      "",
+      `sfp_${"a".repeat(43)}`,
+      proxyUrl(agentApiRoutes.local.messages),
+    ).upload!({ path, target: "@ada" });
+    await expect(attempt).rejects.toMatchObject({ code: "SERVER_5XX" });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a 404 from the capabilities route skips the client-side size check, matching Raft 1.0.32", async () => {
+  const calls: string[] = [];
+  spyOn(globalThis, "fetch").mockImplementation((async (input) => {
+    calls.push(String(input));
+    if (String(input).endsWith("/capabilities")) return new Response("not found", { status: 404 });
+    return Response.json({
+      id: "attachment-1",
+      fileName: "huge.bin",
+      contentType: "application/octet-stream",
+      sizeBytes: 5,
+    });
+  }) as typeof fetch);
+  const dir = await mkdtemp(join(tmpdir(), "coforge-local-client-"));
+  const path = join(dir, "huge.bin");
+  await writeFile(path, "hello");
+  try {
+    const result = await connectLocal(
+      "",
+      `sfp_${"a".repeat(43)}`,
+      proxyUrl(agentApiRoutes.local.messages),
+    ).upload!({ path, target: "@ada" });
+    expect(result.id).toBe("attachment-1");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  expect(calls).toHaveLength(2);
+});
+
+test("a non-2xx, non-404 capabilities response fails as UPLOAD_CAPABILITY_FAILED before any upload POST", async () => {
+  let uploadPosted = false;
+  spyOn(globalThis, "fetch").mockImplementation((async (input) => {
+    if (String(input).endsWith("/capabilities"))
+      return new Response("internal error", { status: 500 });
+    uploadPosted = true;
+    return Response.json({});
+  }) as typeof fetch);
+  const dir = await mkdtemp(join(tmpdir(), "coforge-local-client-"));
+  const path = join(dir, "note.txt");
+  await writeFile(path, "hello");
+  try {
+    const attempt = connectLocal(
+      "",
+      `sfp_${"a".repeat(43)}`,
+      proxyUrl(agentApiRoutes.local.messages),
+    ).upload!({ path, target: "@ada" });
+    await expect(attempt).rejects.toMatchObject({ code: "UPLOAD_CAPABILITY_FAILED" });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  expect(uploadPosted).toBe(false);
+});
+
+test("the CLI's multipart upload request carries a trustworthy content-length header (real HTTP round trip)", async () => {
+  let observedContentLength: string | null = null;
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const url = new URL(request.url);
+      if (url.pathname.endsWith("/capabilities")) {
+        return Response.json({
+          maxBytes: 1024,
+          directUploadEnabled: false,
+          directUploadThresholdBytes: 0,
+          sessionExpiresInSeconds: 900,
+        });
+      }
+      observedContentLength = request.headers.get("content-length");
+      return Response.json({
+        id: "attachment-1",
+        fileName: "note.txt",
+        contentType: "text/plain",
+        sizeBytes: 5,
+      });
+    },
+  });
+  const dir = await mkdtemp(join(tmpdir(), "coforge-local-client-"));
+  const path = join(dir, "note.txt");
+  await writeFile(path, "hello");
+  try {
+    await connectLocal(
+      "",
+      `sfp_${"a".repeat(43)}`,
+      `http://127.0.0.1:${server.port}/api/agent/v1/messages`,
+    ).upload!({ path, target: "@ada", mimeType: "text/plain" });
+  } finally {
+    server.stop(true);
+    await rm(dir, { recursive: true, force: true });
+  }
+  // Bun's fetch computes Content-Length for a FormData body (it knows every part's size up
+  // front), the same way it does for a Blob or string body. The daemon-local proxy
+  // (agent-proxy.ts) rejects an upload with 413 when this header is missing or untrustworthy;
+  // this confirms the CLI's real request never hits that path.
+  expect(observedContentLength).not.toBeNull();
+  expect(Number(observedContentLength)).toBeGreaterThan(0);
 });
 
 test("rejects legacy cf_proxy_ tokens without contacting the proxy", async () => {

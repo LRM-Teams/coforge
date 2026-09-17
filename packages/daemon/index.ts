@@ -162,6 +162,8 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
         runtime: {
           agentMessage: async (...input) => requireRuntime().agentMessage(...input),
           agentAttachment: async (...input) => requireRuntime().agentAttachment(...input),
+          agentAttachmentUpload: async (...input) =>
+            requireRuntime().agentAttachmentUpload(...input),
           inbox: async (...input) => requireRuntime().inbox(...input),
           agentTask: async (...input) => requireRuntime().agentTask(...input),
           agentWeeklyReport: async (...input) => requireRuntime().agentWeeklyReport(...input),

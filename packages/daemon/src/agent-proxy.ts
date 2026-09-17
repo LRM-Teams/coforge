@@ -35,6 +35,10 @@ const MESSAGE_ID_ANCHOR =
   /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOCAL_ATTACHMENT_ROUTE_PREFIX = agentApiRoutes.local.attachments.path("");
+const LOCAL_ATTACHMENT_UPLOAD_PATH = agentApiRoutes.local.attachments.upload.path;
+// Mirrors `apps/web`'s `ATTACHMENT_MAX_BYTES` (10 MiB) plus slack for multipart framing
+// overhead (boundary markers, field headers); the daemon package cannot import from `apps/web`.
+const ATTACHMENT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024 + 64 * 1024;
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
 
@@ -80,6 +84,11 @@ export function startAgentProxy(input: {
       agentApiKey: string,
     ): Promise<unknown>;
     agentAttachment?(context: string, attachmentId: string, agentApiKey: string): Promise<Response>;
+    agentAttachmentUpload?(
+      context: string,
+      request: Request,
+      agentApiKey: string,
+    ): Promise<Response>;
     inbox?(context: string, request: LocalInboxRequest): Promise<unknown>;
     reminder?(
       context: string,
@@ -139,7 +148,9 @@ export function startAgentProxy(input: {
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.weeklyReports.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.githubCredentials.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.githubCredentials.path) &&
-        (request.method !== "GET" || !requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX))
+        (request.method !== "GET" ||
+          !requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX)) &&
+        (request.method !== "POST" || requestUrl.pathname !== LOCAL_ATTACHMENT_UPLOAD_PATH)
       )
         return new Response("not found", { status: 404 });
       const authorization = request.headers.get("authorization");
@@ -191,6 +202,34 @@ export function startAgentProxy(input: {
             method: request.method,
             path: requestUrl.pathname,
             routeFamily: "agent-api/attachment",
+            agentId: binding.agentId,
+          });
+        }
+      }
+      if (request.method === "POST" && requestUrl.pathname === LOCAL_ATTACHMENT_UPLOAD_PATH) {
+        if (!input.runtime.agentAttachmentUpload) return new Response("not found", { status: 404 });
+        const contentLength = request.headers.get("content-length");
+        if (
+          !contentLength ||
+          !/^\d+$/.test(contentLength) ||
+          Number(contentLength) > ATTACHMENT_UPLOAD_MAX_BYTES
+        )
+          return new Response("payload too large", { status: 413 });
+        try {
+          const response = await input.runtime.agentAttachmentUpload(
+            binding.context,
+            request,
+            binding.agentApiKey,
+          );
+          return new Response(response.body, {
+            status: response.status,
+            headers: response.headers,
+          });
+        } catch (error) {
+          return proxyFailureResponse(error, {
+            method: request.method,
+            path: requestUrl.pathname,
+            routeFamily: "agent-api/attachment-upload",
             agentId: binding.agentId,
           });
         }

@@ -39,6 +39,15 @@ test("builds encoded resource paths from the shared contract", () => {
   expect(agentApiRoutes.local.attachments.path("attachment id")).toBe(
     "/api/agent/v1/attachments/attachment%20id",
   );
+  expect(agentApiRoutes.cloud.attachments.collectionPath).toBe("/api/agent/v1/attachments");
+  expect(agentApiRoutes.cloud.attachments.upload).toEqual({
+    method: "POST",
+    path: "/api/agent/v1/attachments",
+  });
+  expect(agentApiRoutes.local.attachments.upload).toEqual({
+    method: "POST",
+    path: "/api/agent/v1/attachments",
+  });
   expect(agentApiRoutes.cloud.channels.mute.path("channel 1")).toBe(
     "/api/agent/v1/channels/channel%201/mute",
   );

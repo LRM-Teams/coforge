@@ -238,6 +238,28 @@ export function formatSendSuccess(
   ].join("\n");
 }
 
+type AttachmentUploadResponse = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+};
+
+/** Matches Raft 1.0.32's `formatAttachmentUploaded` shape exactly, `raft` swapped for `coforge`. */
+export function formatAttachmentUploadSuccess(response: AttachmentUploadResponse): string {
+  const sizeKB = (response.sizeBytes / 1024).toFixed(1);
+  return (
+    `File uploaded: ${response.fileName} (${sizeKB}KB)\n` +
+    `Attachment ID: ${response.id}\n\n` +
+    `Use this ID with coforge message send --attachment-id ${response.id} to include it in a message.`
+  );
+}
+
+/** Matches Raft 1.0.32's `formatAttachmentDownloaded` shape exactly. */
+export function formatAttachmentDownloadSuccess(output: string): string {
+  return `Downloaded to: ${output}`;
+}
+
 type HeldSendResponse = {
   attentionCount?: number;
   anywayAllowed?: boolean;
