@@ -155,13 +155,14 @@ decision B's repair condition safe, not just convenient.
 
 ## Consequences
 
-- **A revoke can lag.** The accepted trade-off of decision A: an Agent API key can remain valid
-  for longer than the Stop that was supposed to invalidate it, bounded only by how long the
-  retry pass keeps failing (every ready/reconnect, plus shutdown). The key is never silently
-  lost — `#pendingAgentApiKeyRevokes` is the durable-enough-for-one-process-lifetime record of
-  it — but there is no cross-restart persistence and no hard upper bound today. **Follow-up
-  recommended**: a server-side Agent API key TTL, so a lagging revoke has a worst-case expiry
-  independent of whether the daemon ever gets back online to retry it.
+- **A revoke can lag, bounded by the next launch.** An Agent API key can stay valid after the
+  Stop that was meant to invalidate it, until a retry succeeds (every ready and reconnect, plus
+  shutdown; the pending set is in-memory, so a daemon restart drops it). The server bounds this
+  independently: `PrismaAgentApiKeyRepository.replaceActive` revokes every earlier active key
+  of the Agent in the same transaction that mints a key for a new launch, so a key whose revoke
+  never arrived dies at the Agent's next launch. A key TTL was considered and not adopted: it
+  adds nothing to that bound for an Agent that is relaunched and would break long-running
+  Agents.
 - **A repair is only as trustworthy as `Runtime.running()`.** If a future platform's process
   ownership model does not give the same guarantee the macOS/Linux note above relies on (an
   orphan cannot outlive its daemon instance), decision B's cross-instance repair branch would
