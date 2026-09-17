@@ -706,19 +706,26 @@ Full Reset 已删除的用户文件不可因随后 Start 失败而自动还原�
 Clear Session → Start、Stop → Reset Workspace → Clear Session → Start。前端不编排
 步骤，Daemon 不接收单独的 `full-reset` 命令。Chain 表达顺序，持久化状态机以成功
 回执推进；同一 Agent 的整个组合共享 request/epoch，通过条件写入拒绝其他操作插入。
-非终止阶段若已放弃——缺少 `updatedAtMs`（历史行）或早于 `abandonAfterMs`（默认 60 秒，
-远超 `drive` 的 7 秒等待）——视为无人驱动，允许新操作以 epoch+1 顶替，日志记录
-`agent_control:pending_superseded`；顶替遵循与终止态相同的身份保留规则。已放弃的 Full
-Reset（无论卡在 stopping、clearing 还是 starting 阶段）与其他任何已放弃操作一样，可被
-下一次 start、stop、restart、reset-session 或 full-reset 顶替，不再要求必须是显式确认的
-新 Full Reset（ADR 0035 原有的例外已被 ADR 0036 移除：Raft 完全不保留操作状态，这条例外
-本来就没有对应的 Raft 行为要保留；Daemon 自身已有的防护——`start()` 在记录仍处于
-clearing 时拒绝启动、`resetWorkspace()` 的 `confirmed_stop_required`——已经保证工作区
-不会在存活进程下被删除或误启动，例外规则并未额外保护什么）。Ready recovery 对已放弃的
-挂起操作只重发原 request，不顶替也不刷新 `updatedAtMs`——顶替只留给 owner 发起的
-execute/publishStart/publishStop，避免每次重连铸造新 epoch
-（[ADR 0035](adr/0035-agent-control-abandoned-pending-supersede.md)、
-[ADR 0036](adr/0036-full-reset-never-latches.md)）。
+最新命令总是获胜（[ADR 0039](adr/0039-agent-control-latest-command-wins.md)）：只要新
+request 与当前存储的 request 不同，`begin()` 立即顶替当前状态——不论旧状态是否已到终态、
+任何 action、任何 phase（包括仍卡在 clearing 的 Full Reset）——epoch+1，身份保留规则与
+终止态顶替完全一致；同一 request 重放仍是幂等操作，返回既有 state，不铸造新 epoch，不
+重复顶替。CoForge 不再保留"pending 阻塞其他操作"或"放弃超时"的概念：Raft Computer
+1.0.32 完全不保留进行中的操作记录，新的 start/stop/reset 立即生效，旧工作只被 epoch
+取消或忽略，没有"稍后重试"的拒绝，也没有"已放弃"这个状态。顶替是正常行为，以 info 级别
+记录 `agent_control:operation_superseded`（`agent_id`、`workspace_id`、`computer_id`、
+`previous_action`、`previous_phase`、`previous_epoch`、`previous_request_id`、
+`new_action`、`request_id`、`outcome: "superseded"`）。被顶替请求的调用方不会看到错误：
+`drive()` 发现同一 Agent 上出现更高 epoch 的不同 request 时，返回仅存在于 view 层的
+`phase: "superseded"`（从不写入持久化的 `controlState`），双击或多人同时点击时先到的
+请求安静地让位；执行入口只在 `phase: "failed"` 时抛错，浏览器不显示错误或 toast。
+`publishStop()`（内部路径，调用方需要一次已确认的停止）在自己的停止被顶替时仍然抛错，
+并在错误信息中说明是被顶替、而不是笼统的"未完成"。Ready recovery 对当前挂起操作只重发
+原 request，从不顶替——顶替只留给 owner 发起的 execute/publishStart/publishStop，避免
+每次重连铸造新 epoch。旧 epoch 迟到的控制结果、launch 授权和 Session snapshot 仍按既有
+scope/epoch 校验拒绝为过期，不能推动新操作的状态（ADR 0039 未放松这些检查）。
+（[ADR 0035](adr/0035-agent-control-abandoned-pending-supersede.md) 已被 ADR 0039 取代，
+[ADR 0036](adr/0036-full-reset-never-latches.md) 的 Full Reset 不锁死结论保持不变）。
 控制结果与 Session snapshot 被拒绝时记录 warning（`agent_control:result_rejected`、
 `agent_session:snapshot_rejected`），reason 取自固定错误消息白名单，未知错误只记录
 错误类型，不记录原始消息或负载；写入端仍保持原有的 403 线路行为不变。
@@ -727,7 +734,8 @@ Clear Session 是云端本地步骤，与下一步骤状态在同一 PostgreSQL 
 执行结果未知时保留当前步骤，重发沿用原标识。任一步骤的失败结果都不再锁死后续操作
 （ADR 0036）：一旦当前操作到达终态（`completed`/`failed`），下一次 start、stop、restart、
 reset-session、full-reset 都可以立即发起，不要求先完成特定动作的显式重试；仍在进行中的
-操作（非终态）依旧拒绝新的竞争请求，这条规则未变。
+操作（非终态）同样不再阻挡新的竞争请求——它会被立即顶替（ADR 0039），不再有"操作正在
+进行，请稍后重试"这一拒绝路径。
 这保证顺序、互斥和防重复，不是跨进程、文件系统和数据库的全有或全无事务；无通用
 工作流引擎、任务队列或自动补偿。原子命令的拆分参考
 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
