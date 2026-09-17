@@ -21,6 +21,15 @@ import type {
   AgentChannelAttentionResponse,
   AgentThreadAttentionResponse,
 } from "./messages";
+import type {
+  AgentChannelInfoResponse,
+  AgentChannelMembersResponse,
+  AgentChannelJoinResponse,
+  AgentChannelCreateResponse,
+  AgentChannelArchiveResponse,
+  AgentChannelAddMemberResponse,
+  AgentChannelRemoveMemberResponse,
+} from "./channels";
 
 export type AgentAttachmentDownload = {
   bytes: Uint8Array;
@@ -125,6 +134,25 @@ export type AgentApiClient = {
   channels: {
     mute(channelId: string): Promise<AgentChannelAttentionResponse>;
     unmute(channelId: string): Promise<AgentChannelAttentionResponse>;
+    info(channelId: string): Promise<AgentChannelInfoResponse>;
+    members(channelId: string): Promise<AgentChannelMembersResponse>;
+    join(channelId: string): Promise<AgentChannelJoinResponse>;
+    leave(channelId: string): Promise<AgentChannelJoinResponse>;
+    create(request: { name: string; description?: string }): Promise<AgentChannelCreateResponse>;
+    update(
+      channelId: string,
+      request: { name?: string; description?: string },
+    ): Promise<AgentChannelInfoResponse>;
+    archive(channelId: string): Promise<AgentChannelArchiveResponse>;
+    unarchive(channelId: string): Promise<AgentChannelArchiveResponse>;
+    addMember(
+      channelId: string,
+      request: { user?: string; agent?: string },
+    ): Promise<AgentChannelAddMemberResponse>;
+    removeMember(
+      channelId: string,
+      request: { user?: string; agent?: string },
+    ): Promise<AgentChannelRemoveMemberResponse>;
   };
   threads: { unfollow(threadId: string): Promise<AgentThreadAttentionResponse> };
   attachments: { download(attachmentId: string): Promise<AgentAttachmentDownload> };
@@ -170,6 +198,28 @@ export type RawAgentApiClient = {
   channels: {
     mute(channelId: string): Promise<AgentApiResult<AgentChannelAttentionResponse>>;
     unmute(channelId: string): Promise<AgentApiResult<AgentChannelAttentionResponse>>;
+    info(channelId: string): Promise<AgentApiResult<AgentChannelInfoResponse>>;
+    members(channelId: string): Promise<AgentApiResult<AgentChannelMembersResponse>>;
+    join(channelId: string): Promise<AgentApiResult<AgentChannelJoinResponse>>;
+    leave(channelId: string): Promise<AgentApiResult<AgentChannelJoinResponse>>;
+    create(request: {
+      name: string;
+      description?: string;
+    }): Promise<AgentApiResult<AgentChannelCreateResponse>>;
+    update(
+      channelId: string,
+      request: { name?: string; description?: string },
+    ): Promise<AgentApiResult<AgentChannelInfoResponse>>;
+    archive(channelId: string): Promise<AgentApiResult<AgentChannelArchiveResponse>>;
+    unarchive(channelId: string): Promise<AgentApiResult<AgentChannelArchiveResponse>>;
+    addMember(
+      channelId: string,
+      request: { user?: string; agent?: string },
+    ): Promise<AgentApiResult<AgentChannelAddMemberResponse>>;
+    removeMember(
+      channelId: string,
+      request: { user?: string; agent?: string },
+    ): Promise<AgentApiResult<AgentChannelRemoveMemberResponse>>;
   };
   threads: { unfollow(threadId: string): Promise<AgentApiResult<AgentThreadAttentionResponse>> };
   attachments: { download(attachmentId: string): Promise<AgentApiResult<AgentAttachmentDownload>> };
@@ -194,6 +244,48 @@ export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentA
         transport.request(agentApiRoutes.cloud.channels.unmute.path(channelId)) as Promise<
           AgentApiResult<AgentChannelAttentionResponse>
         >,
+      info: (channelId) =>
+        transport.request(agentApiRoutes.cloud.channels.info.path(channelId)) as Promise<
+          AgentApiResult<AgentChannelInfoResponse>
+        >,
+      members: (channelId) =>
+        transport.request(agentApiRoutes.cloud.channels.members.path(channelId)) as Promise<
+          AgentApiResult<AgentChannelMembersResponse>
+        >,
+      join: (channelId) =>
+        transport.request(agentApiRoutes.cloud.channels.join.path(channelId)) as Promise<
+          AgentApiResult<AgentChannelJoinResponse>
+        >,
+      leave: (channelId) =>
+        transport.request(agentApiRoutes.cloud.channels.leave.path(channelId)) as Promise<
+          AgentApiResult<AgentChannelJoinResponse>
+        >,
+      create: (request) =>
+        transport.request(agentApiRoutes.cloud.channels.create, request) as Promise<
+          AgentApiResult<AgentChannelCreateResponse>
+        >,
+      update: (channelId, request) =>
+        transport.request(agentApiRoutes.cloud.channels.update.path(channelId), request) as Promise<
+          AgentApiResult<AgentChannelInfoResponse>
+        >,
+      archive: (channelId) =>
+        transport.request(agentApiRoutes.cloud.channels.archive.path(channelId)) as Promise<
+          AgentApiResult<AgentChannelArchiveResponse>
+        >,
+      unarchive: (channelId) =>
+        transport.request(agentApiRoutes.cloud.channels.unarchive.path(channelId)) as Promise<
+          AgentApiResult<AgentChannelArchiveResponse>
+        >,
+      addMember: (channelId, request) =>
+        transport.request(
+          agentApiRoutes.cloud.channels.addMember.path(channelId),
+          request,
+        ) as Promise<AgentApiResult<AgentChannelAddMemberResponse>>,
+      removeMember: (channelId, request) =>
+        transport.request(
+          agentApiRoutes.cloud.channels.removeMember.path(channelId),
+          request,
+        ) as Promise<AgentApiResult<AgentChannelRemoveMemberResponse>>,
     },
     threads: {
       unfollow: (threadId) =>
@@ -250,6 +342,19 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
     channels: {
       mute: async (channelId) => unwrap(await rawClient.channels.mute(channelId)),
       unmute: async (channelId) => unwrap(await rawClient.channels.unmute(channelId)),
+      info: async (channelId) => unwrap(await rawClient.channels.info(channelId)),
+      members: async (channelId) => unwrap(await rawClient.channels.members(channelId)),
+      join: async (channelId) => unwrap(await rawClient.channels.join(channelId)),
+      leave: async (channelId) => unwrap(await rawClient.channels.leave(channelId)),
+      create: async (request) => unwrap(await rawClient.channels.create(request)),
+      update: async (channelId, request) =>
+        unwrap(await rawClient.channels.update(channelId, request)),
+      archive: async (channelId) => unwrap(await rawClient.channels.archive(channelId)),
+      unarchive: async (channelId) => unwrap(await rawClient.channels.unarchive(channelId)),
+      addMember: async (channelId, request) =>
+        unwrap(await rawClient.channels.addMember(channelId, request)),
+      removeMember: async (channelId, request) =>
+        unwrap(await rawClient.channels.removeMember(channelId, request)),
     },
     threads: {
       unfollow: async (threadId) => unwrap(await rawClient.threads.unfollow(threadId)),

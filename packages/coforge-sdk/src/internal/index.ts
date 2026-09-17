@@ -540,6 +540,7 @@ export * from "./agent-control";
 export * from "./reminder";
 export * from "./tasks";
 export * from "./task-codec";
+export * from "./channel-command";
 export * from "./agent-display";
 export * from "./codec";
 export * from "./validation";
