@@ -20,7 +20,8 @@ import { toolActivity } from "../tool-activity";
 import { bounded, KIRO_ACP_ARGS, KiroConnection, record } from "./connection";
 import { readKiroUsage } from "./usage";
 import { discoverKiroCatalog } from "./catalog";
-import { assertKiroVersionSupported, discoverExternalCodeAgents } from "../runtime-inventory";
+import { discoverExternalCodeAgents } from "../runtime-inventory";
+import { assertKiroVersionSupported } from "./version";
 import type { ProviderDiscoveryOptions } from "../contract";
 
 export class KiroProvider implements CodeAgentProvider {
