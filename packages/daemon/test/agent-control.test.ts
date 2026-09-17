@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { configure, reset, type LogRecord } from "@logtape/logtape";
 import { AgentControl } from "../src/agent-runtime/agent-control";
 import { AgentSessions } from "../src/agent-runtime/agent-session";
 import {
@@ -9,9 +10,69 @@ import {
 import type {
   AgentWorkspaceResetRequest,
   AgentControlResult,
+  AgentControlScope,
   AgentStartIntent,
 } from "@lrm/coforge-sdk/internal";
 import { AgentSessionRecoveryError, AgentProcessCleanupError } from "../src/code-agent/contract";
+
+/** Matches the production wiring (`DaemonRuntime#cleanupUnconfirmed`): only a genuine
+ * "process did not exit" cleanup failure counts as unconfirmed. */
+const cleanupUnconfirmed = (_agentId: string, error: unknown) =>
+  error instanceof AgentProcessCleanupError;
+
+/** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
+ * previous (unconfigured) logging state. Mirrors the pattern in runtime-inventory-diagnostics.test.ts. */
+async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; records: LogRecord[] }> {
+  const records: LogRecord[] = [];
+  await configure({
+    reset: true,
+    sinks: { capture: (record) => records.push(record) },
+    loggers: [
+      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
+      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
+    ],
+  });
+  try {
+    const result = await run();
+    return { result, records };
+  } finally {
+    await reset();
+  }
+}
+
+/**
+ * The exact legacy record shape from the s144 incident (2026-09-17): a fenced Stop at epoch 8
+ * whose remote revoke failed mid-deploy, persisted as `phase: "stopping"` with a failed
+ * `stopResult`, from a daemon instance that no longer exists.
+ */
+function legacyStopFailedRecord(): AgentRuntimeRecord {
+  const scope: AgentControlScope = {
+    protocolMajor: 1,
+    requestId: "stop-8",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "codex",
+    epoch: 8,
+  };
+  const stopResult: AgentControlResult = {
+    ...scope,
+    phase: "failed",
+    sequence: 1,
+    errorCode: "stop_failed",
+  };
+  return {
+    version: 1,
+    scope,
+    action: "stop",
+    phase: "stopping",
+    daemonInstanceId: "s144-old-daemon",
+    sequence: 1,
+    identity: { sessionId: "native-session", state: "resumable" },
+    stopResult,
+    lastResult: stopResult,
+  };
+}
 
 test.each([true, false])(
   "only classified resume errors allow one fresh launch (%s)",
@@ -34,6 +95,7 @@ test.each([true, false])(
     });
     const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
       running: () => false,
+      cleanupUnconfirmed,
       stop: async () => undefined,
       async launch(intent) {
         attempts.push(intent);
@@ -79,6 +141,7 @@ test("classified recovery retries once without restoring resume mode and reports
   });
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => false,
+    cleanupUnconfirmed,
     stop: async () => undefined,
     async launch(intent, _launchId, replacedSessionId) {
       attempts.push({ intent, replacedSessionId });
@@ -123,6 +186,7 @@ test("duplicate fenced start wakes an existing runtime without replacing it", as
   });
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => running,
+    cleanupUnconfirmed,
     stop: async () => undefined,
     launch: async () => {
       running = true;
@@ -201,6 +265,7 @@ test("stop then workspace reset then start persists primitive receipts", async (
     running() {
       return active;
     },
+    cleanupUnconfirmed,
     async result(result) {
       results.push(result);
     },
@@ -256,6 +321,7 @@ test("workspace reset requires a successful stop and a failed stop blocks reset 
   });
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => true,
+    cleanupUnconfirmed,
     stop: async () => {
       throw new AgentProcessCleanupError();
     },
@@ -293,6 +359,7 @@ test("workspace reset requires a successful stop and a failed stop blocks reset 
     new AgentSessions(state, async () => {}),
     {
       running: () => false,
+      cleanupUnconfirmed,
       stop: async () => undefined,
       launch: async () => {
         launches++;
@@ -322,6 +389,7 @@ test("unconfirmed launch cleanup remains fenced across daemon restart", async ()
   };
   const runtime = {
     running: () => false,
+    cleanupUnconfirmed,
     stop: async () => {
       throw new AgentProcessCleanupError();
     },
@@ -399,6 +467,7 @@ test.each(["clearing", "failed"] as const)(
     });
     const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
       running: () => false,
+      cleanupUnconfirmed,
       stop: async () => undefined,
       launch: async () => {
         launches++;
@@ -457,6 +526,7 @@ test("a delayed old exit cannot stop a replacement launch while waiting for the 
   });
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => true,
+    cleanupUnconfirmed,
     stop: async () => undefined,
     launch: async () => undefined,
     result: async () => {},
@@ -487,4 +557,243 @@ test("a delayed old exit cannot stop a replacement launch while waiting for the 
     release.resolve();
     await Promise.allSettled([replacing, exiting]);
   }
+});
+
+test("a stale stop-failed record from a gone daemon instance is repaired so a new Start launches", async () => {
+  let record: AgentRuntimeRecord | undefined = legacyStopFailedRecord();
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => (record ? [record.scope.agentId] : []),
+    workspaceExists: async () => true,
+    read: async () => record && structuredClone(record),
+    write: async (_id, next) => {
+      record = structuredClone(next);
+    },
+    clearWorkspace: async () => {
+      throw new Error("must not clear");
+    },
+  };
+  const state = new AgentRuntimeState(store);
+  let launches = 0;
+  const results: AgentControlResult[] = [];
+  const control = new AgentControl(
+    "s144-new-daemon",
+    state,
+    new AgentSessions(state, async () => {}),
+    {
+      running: () => false,
+      cleanupUnconfirmed,
+      stop: async () => undefined,
+      async launch() {
+        launches++;
+        return { sessionId: "new-session", state: "resumable" };
+      },
+      async result(result) {
+        results.push(result);
+      },
+    },
+  );
+  await control.initialize();
+
+  const { records: logs } = await captureLogs(() =>
+    control.start({
+      protocolMajor: 1,
+      requestId: "start-9",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "codex",
+      model: "",
+      reasoning: "",
+      controlEpoch: 9,
+    }),
+  );
+
+  expect(launches).toBe(1);
+  expect(results.at(-1)).toMatchObject({ phase: "started", requestId: "start-9" });
+  expect(record).toMatchObject({ phase: "running" });
+
+  const repair = logs.find(
+    (entry) => entry.properties.event === "agent_control:stale_record_repaired",
+  );
+  expect(repair?.level).toBe("error");
+  expect(repair?.properties).toMatchObject({
+    agent_id: "a",
+    previous_phase: "stopping",
+    previous_daemon_instance_id: "s144-old-daemon",
+    daemon_instance_id: "s144-new-daemon",
+    epoch: 8,
+  });
+});
+
+test("a stale stop-failed record from a gone daemon instance is repaired so a new Stop returns a stopped receipt", async () => {
+  let record: AgentRuntimeRecord | undefined = legacyStopFailedRecord();
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => (record ? [record.scope.agentId] : []),
+    workspaceExists: async () => true,
+    read: async () => record && structuredClone(record),
+    write: async (_id, next) => {
+      record = structuredClone(next);
+    },
+    clearWorkspace: async () => {
+      throw new Error("must not clear");
+    },
+  };
+  const state = new AgentRuntimeState(store);
+  const results: AgentControlResult[] = [];
+  const control = new AgentControl(
+    "s144-new-daemon",
+    state,
+    new AgentSessions(state, async () => {}),
+    {
+      running: () => false,
+      cleanupUnconfirmed,
+      stop: async () => undefined,
+      launch: async () => undefined,
+      async result(result) {
+        results.push(result);
+      },
+    },
+  );
+  await control.initialize();
+
+  await control.stop({
+    protocolMajor: 1,
+    requestId: "stop-9",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "codex",
+    epoch: 9,
+  });
+
+  expect(results.at(-1)).toMatchObject({ phase: "stopped", requestId: "stop-9" });
+  expect(record).toMatchObject({ phase: "stopped" });
+});
+
+test("a running record left by a crashed daemon instance is repaired so a newer Start launches", async () => {
+  const scope: AgentControlScope = {
+    protocolMajor: 1,
+    requestId: "start-old",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi",
+    epoch: 3,
+  };
+  const startResult: AgentControlResult = {
+    ...scope,
+    phase: "started",
+    launchId: "old-launch",
+    sequence: 1,
+  };
+  let record: AgentRuntimeRecord | undefined = {
+    version: 1,
+    scope,
+    action: "start",
+    phase: "running",
+    launchId: "old-launch",
+    daemonInstanceId: "crashed-daemon",
+    sequence: 1,
+    identity: { sessionId: "native-session", state: "resumable" },
+    startResult,
+    lastResult: startResult,
+  };
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => (record ? [record.scope.agentId] : []),
+    workspaceExists: async () => true,
+    read: async () => record && structuredClone(record),
+    write: async (_id, next) => {
+      record = structuredClone(next);
+    },
+    clearWorkspace: async () => {
+      throw new Error("must not clear");
+    },
+  };
+  const state = new AgentRuntimeState(store);
+  let launches = 0;
+  const control = new AgentControl(
+    "recovered-daemon",
+    state,
+    new AgentSessions(state, async () => {}),
+    {
+      running: () => false,
+      cleanupUnconfirmed,
+      stop: async () => undefined,
+      async launch() {
+        launches++;
+        return { sessionId: "new-session", state: "resumable" };
+      },
+      result: async () => {},
+    },
+  );
+  await control.initialize();
+
+  await control.start({
+    ...scope,
+    requestId: "start-new",
+    controlEpoch: 4,
+    model: "",
+    reasoning: "",
+  });
+
+  expect(launches).toBe(1);
+  expect(record).toMatchObject({ phase: "running" });
+});
+
+test("a reset-workspace in progress is not repaired away by a concurrent daemon instance change", async () => {
+  const scope: AgentControlScope = {
+    protocolMajor: 1,
+    requestId: "reset-in-progress",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi",
+    epoch: 1,
+  };
+  let record: AgentRuntimeRecord | undefined = {
+    version: 1,
+    scope,
+    action: "reset-workspace",
+    phase: "clearing",
+    daemonInstanceId: "gone-daemon",
+    sequence: 2,
+    stopResult: { ...scope, phase: "stopped", sequence: 1 },
+  };
+  let clears = 0;
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => (record ? [record.scope.agentId] : []),
+    workspaceExists: async () => true,
+    read: async () => record && structuredClone(record),
+    write: async (_id, next) => {
+      record = structuredClone(next);
+    },
+    clearWorkspace: async () => {
+      clears++;
+    },
+  };
+  const state = new AgentRuntimeState(store);
+  const results: AgentControlResult[] = [];
+  const control = new AgentControl(
+    "recovered-daemon",
+    state,
+    new AgentSessions(state, async () => {}),
+    {
+      running: () => false,
+      cleanupUnconfirmed,
+      stop: async () => undefined,
+      launch: async () => undefined,
+      async result(result) {
+        results.push(result);
+      },
+    },
+  );
+  await control.initialize();
+
+  // A repair must never fire for "clearing": that would silently paper over an in-progress
+  // workspace deletion instead of letting it resume to completion.
+  await control.resetWorkspace({ ...scope, requestId: "reset-resume" });
+
+  expect(clears).toBe(1);
+  expect(record).toMatchObject({ phase: "workspace-reset" });
+  expect(results.at(-1)).toMatchObject({ phase: "workspace-reset" });
 });
