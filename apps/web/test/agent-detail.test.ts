@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import { AgentDetailQuery } from "../src/server/agents/agent-detail.server";
-import { presentActivity, agentDisplay } from "../src/features/agents/agent-activity-presentation";
+import {
+  presentActivity,
+  presentActivityRows,
+  agentDisplay,
+} from "../src/features/agents/agent-activity-presentation";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import type { ActivityEntry } from "../src/features/agents/agent-activity";
 
 function display(overrides: Partial<AgentDisplaySnapshot> = {}): AgentDisplaySnapshot {
   return {
@@ -289,6 +294,142 @@ test("reconnecting uses backend detail for current status while retaining raw ti
       currentLabel: "Codex reconnecting to provider…",
     },
   ]);
+});
+
+// presentActivityRows merges buffered fragments of one statement into a single row
+// (Kiro delivers ~500ms bursts; the daemon flushes each burst as its own frame).
+function frame(overrides: Partial<ActivityEntry> & { clientSeq: number }): ActivityEntry {
+  return {
+    launchId: "launch-1",
+    detailKind: "model_response_started",
+    level: "info",
+    detail: "",
+    observedAtMs: overrides.clientSeq * 1000,
+    entries: [],
+    ...overrides,
+  };
+}
+function textFrame(
+  clientSeq: number,
+  text: string,
+  overrides: Partial<ActivityEntry> = {},
+): ActivityEntry {
+  return frame({ clientSeq, entries: [{ kind: "text", text }], ...overrides });
+}
+
+test("presentActivityRows merges 14 buffered text fragments of one statement into one Output row", () => {
+  const fragments = Array.from({ length: 14 }, (_, index) => index + 1)
+    .map((clientSeq) => textFrame(clientSeq, `frag${clientSeq}-`))
+    .reverse(); // orderActivity contract: newest-first
+  const rows = presentActivityRows(fragments);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].label).toBe("Output");
+  expect(rows[0].detail).toBe(
+    Array.from({ length: 14 }, (_, index) => `frag${index + 1}-`).join(""),
+  );
+  expect(rows[0].observedAtMs).toBe(1000); // the oldest fragment's timestamp
+});
+
+test("newest-first input order still concatenates fragments oldest-to-newest", () => {
+  const rows = presentActivityRows([textFrame(2, "-world"), textFrame(1, "hello")]);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].detail).toBe("hello-world");
+});
+
+test("text, text, tool, text keeps two Output rows around the visible tool row", () => {
+  const activity = [
+    textFrame(4, "after"),
+    frame({
+      clientSeq: 3,
+      detailKind: "tool_started",
+      detail: "bun test",
+      entries: [{ kind: "tool_start", toolName: "bash" }],
+    }),
+    textFrame(2, "-second"),
+    textFrame(1, "first"),
+  ];
+  const rows = presentActivityRows(activity);
+  expect(rows.map((row) => row.label)).toEqual(["Output", "Running command", "Output"]);
+  expect(rows[0].detail).toBe("after");
+  expect(rows[2].detail).toBe("first-second");
+});
+
+test("a hidden send_message tool call between fragments still separates them", () => {
+  const activity = [
+    textFrame(4, "final part"),
+    frame({
+      clientSeq: 3,
+      detailKind: "tool_started",
+      entries: [{ kind: "tool_start", toolName: "send_message" }],
+    }),
+    textFrame(2, "second"),
+    textFrame(1, "first"),
+  ];
+  // The tool_start entry produces no visible row (send_message is hidden), but it is
+  // still a real tool call between two statements: it must not merge across it.
+  expect(presentActivity(activity[1])).toEqual([]);
+  const rows = presentActivityRows(activity);
+  expect(rows.map((row) => row.label)).toEqual(["Output", "Output"]);
+  expect(rows[0].detail).toBe("final part");
+  expect(rows[1].detail).toBe("firstsecond");
+});
+
+test("text followed by thinking does not merge", () => {
+  const activity = [
+    frame({ clientSeq: 2, entries: [{ kind: "thinking", text: "thought" }] }),
+    textFrame(1, "said"),
+  ];
+  const rows = presentActivityRows(activity);
+  expect(rows.map((row) => row.label)).toEqual(["Thinking", "Output"]);
+});
+
+test("fragments from different launches do not merge", () => {
+  const rows = presentActivityRows([
+    textFrame(1, "b", { launchId: "launch-2" }),
+    textFrame(1, "a"),
+  ]);
+  expect(rows).toHaveLength(2);
+  expect(rows.map((row) => row.detail)).toEqual(["b", "a"]);
+});
+
+test("fragments from different subagent lineage do not merge", () => {
+  const activity = [
+    frame({
+      clientSeq: 2,
+      entries: [{ kind: "text", text: "b", subagent: { parentToolUseId: "t2" } }],
+    }),
+    frame({
+      clientSeq: 1,
+      entries: [{ kind: "text", text: "a", subagent: { parentToolUseId: "t1" } }],
+    }),
+  ];
+  const rows = presentActivityRows(activity);
+  expect(rows).toHaveLength(2);
+  expect(rows.map((row) => row.detail)).toEqual(["b", "a"]);
+});
+
+test("an error-level row never merges with surrounding text fragments", () => {
+  const activity = [
+    textFrame(3, "after"),
+    frame({
+      clientSeq: 2,
+      detailKind: "runtime_error",
+      level: "error",
+      detail: "boom",
+      entries: [{ kind: "text", text: "ignored" }],
+    }),
+    textFrame(1, "before"),
+  ];
+  const rows = presentActivityRows(activity);
+  expect(rows.map((row) => row.tone)).toEqual(["output", "error", "output"]);
+  expect(rows.map((row) => row.detail)).toEqual(["after", "boom", "before"]);
+});
+
+test("a newly appended fragment keeps the same row key as the statement grows", () => {
+  const before = presentActivityRows([textFrame(1, "hello")]);
+  const after = presentActivityRows([textFrame(2, "-world"), textFrame(1, "hello")]);
+  expect(after[0].key).toBe(before[0].key);
+  expect(after[0].detail).toBe("hello-world");
 });
 
 describe("Agent detail", () => {

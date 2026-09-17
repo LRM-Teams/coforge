@@ -451,7 +451,11 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
 - `agent-activity-presentation.ts` projects existing Activity fields into status,
   tool, thinking and output rows for the timeline, recent-activity popover and
   current label. Status detail comes from the backend; tool labels come from
-  structured tool names, never commands or paths. `agent-activity-timeline.tsx`
+  structured tool names, never commands or paths. The daemon buffers and flushes a
+  provider's text (and thinking) in bursts, so one spoken statement can arrive as
+  several Activity frames; `presentActivityRows` merges consecutive text (or
+  thinking) fragments of the same launch and subagent into a single row, so the
+  UI renders one paragraph rather than one row per burst. `agent-activity-timeline.tsx`
   owns row rendering and on-demand expansion. Current state and expiry decisions
   belong to the cloud reducer, not these presentation functions.
 - `agent-environment-editor.tsx` edits only user-declared Agent environment overrides.

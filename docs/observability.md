@@ -248,6 +248,13 @@ Web 在 `src/features/agents/` 内实现 activity timeline，按 `activity` 选�
 文案，不能丢弃整条记录；前端显示 Daemon 已截断的命令，并完整显示文件操作和工具
 Activity 的 `message`，但不得自行补充 provider 未上报的内容。
 
+Daemon 按约 350ms 的静默间隔分批发送 provider 的文本/thinking 增量（每帧各自成为一条
+Activity），因此同一句发言可能拆成多条 Activity 帧；Web 在展示层把同一 launch、同一
+subagent 归属、彼此相邻且中间没有其他条目（包括被隐藏渲染的工具调用，例如
+`send_message`）的连续文本（或 thinking）帧合并为一行，按时间先后拼接原文，显示为一个
+段落而不是逐帧的碎片行；已持久化的历史同样在读取时按这条规则合并，不需要改动
+Daemon 或存储。
+
 ## 健康与就绪探针
 
 每个长期运行进程至少提供进程级 liveness 和接流量 readiness；探针响应不包含 secret 或业务数据。`liveness` 只表示进程事件循环仍工作，`readiness` 表示实例已完成配置加载、必要依赖可用且没有进入 drain。依赖不可用时返回 `503` 和稳定错误类别，不能伪装为健康。
