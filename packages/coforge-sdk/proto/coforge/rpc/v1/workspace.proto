@@ -78,7 +78,7 @@ message AgentSessionReport {
 // delivered as Activity. `reason` is "missing" or "provider_replay_rejected".
 // No control-fence fields (no start_request_id/control_epoch, unlike
 // AgentSessionReport): the server's exact match is on launch_id + session_id
-// alone (docs/adr/0037-agent-session-invalidate.md, "Why no control fence
+// alone (docs/adr/0040-agent-session-invalidate.md, "Why no control fence
 // fields"). This message never shipped, so its fields are numbered
 // contiguously rather than reserving the two removed tags.
 message AgentSessionInvalidate {

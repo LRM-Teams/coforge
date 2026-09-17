@@ -41,7 +41,7 @@ nothing will ever emit.
 | `runtime_crashed` | Claude and Codex: the process exits unexpectedly (the shared `JsonlProcess` wrapper's `"code agent process exited unexpectedly"` failure, observed outside the session's own `dispose()`) — same `errorClass`/`errorReason`/`fingerprint` fields as before, only the kind changes. Kiro and Pi have no provider-level crash signal distinct from an ordinary process exit and keep reporting `stopped`; they are skipped | error | visible, stored |
 | `runtime_interrupted` | A requested stop/restart (`stopAgent`/`#abandonLaunch`) cuts a turn that was busy (working/thinking) at the moment the stop was requested. Also mapped from a `completed` event's `interrupted` status for forward compatibility, though that path is unreachable today per the Context section | online | visible, stored |
 
-Added later, following this same discipline (ADR 0037, "An explicit `agent:session:invalidate` RPC replaces implicit-only session-loss reporting"):
+Added later, following this same discipline (ADR 0040, "An explicit `agent:session:invalidate` RPC replaces implicit-only session-loss reporting"):
 
 | kind | daemon emits when | display kind | popover / history |
 | --- | --- | --- | --- |

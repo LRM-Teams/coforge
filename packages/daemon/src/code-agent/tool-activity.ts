@@ -205,6 +205,11 @@ function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation 
     return { tool: REMINDER_TOOLS[sub]!, summary: id ? [...id].slice(0, 8).join("") : undefined };
   } else if (category === "weekly-report") {
     return { tool: "weekly_report" };
+  } else if (category === "manual" && (sub === "get" || sub === "search")) {
+    return {
+      tool: sub === "get" ? "get_manual" : "search_manual",
+      summary: allowlistedString(tokens[3], 120),
+    };
   }
   return { tool: "coforge_cli" };
 }

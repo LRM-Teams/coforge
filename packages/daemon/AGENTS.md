@@ -127,7 +127,7 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   replay, reconnect, and protocol transport mechanics. Every initial ready,
   reconnect ready, and ready retry obtains a fresh request and current running
   Agent ID snapshot from the runtime. Domain decisions remain above it.
-  `sendSessionInvalidate` (ADR 0037) is fire-and-forget over `client.rpc(...)`, never awaited
+  `sendSessionInvalidate` (ADR 0040) is fire-and-forget over `client.rpc(...)`, never awaited
   by its caller: sent immediately when connected, buffered latest-per-agent while disconnected,
   and flushed on reconnect _before_ pending Activity. A pending or new invalidate is dropped
   only when its `launchId` differs from the latest launch `#observeLaunchIdentity` has seen —
@@ -152,7 +152,7 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   boundary flushing, bounded retention and assembled-text redaction; adapters
   supply only official display events and explicit lineage, never raw reasoning.
 - `agent-runtime/agent-control.ts` owns request/epoch-fenced stop/reset-workspace/start
-  and control completion, not Session delivery. Its `start()` catch branch (ADR 0037) reports
+  and control completion, not Session delivery. Its `start()` catch branch (ADR 0040) reports
   a stored native Session it could not resume — `AgentSessionRecoveryError`'s `session_missing`/
   `provider_replay_rejected` codes only, never `session_in_use` (a retry signal, not evidence
   the session is gone) — via the injected `Runtime.invalidateSession` before the fresh retry

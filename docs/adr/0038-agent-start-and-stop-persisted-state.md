@@ -3,6 +3,15 @@
 Status: accepted
 Date: 2026-09-17
 
+> **Amendment (2026-09-17, ADR 0039):** every reference below to ADR 0035's "abandoned-operation-
+> supersede rules" now means [ADR 0039](0039-agent-control-latest-command-wins.md)'s plain
+> "a different requestId always supersedes" rule — ADR 0035's `updatedAtMs`/`abandonAfterMs`
+> mechanism this record's constraints and test list describe no longer exists. Nothing in this
+> record's own decision (the persisted `stoppedAt` column, `operationFence`'s exclusion list, or
+> the `AgentControl.execute()` Start/Stop surface) changes; only the *reason a competing operation
+> yields* changed underneath it. `stoppedAt` remains outside `operationFence`/the CAS fence for the
+> same reason stated here — it still needs no conflict detection stronger than last-writer-wins.
+
 ## Context
 
 Today's Agent detail page (`features/agents/agent-control.tsx`) offers only Restart, Reset

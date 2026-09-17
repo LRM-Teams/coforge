@@ -43,10 +43,18 @@ const stateSchema = z
     controlSequence: z.number().int().nonnegative(),
     sessionSequence: z.number().int().nonnegative(),
     errorCode: z.string().optional(),
+    /** Legacy field from ADR 0035, removed by ADR 0039 (latest command wins, no abandonment).
+     * Accepted here only so a row persisted before this change still parses; ignored by every
+     * reader and never written by `controlState()` below, since `AgentControlState` no longer
+     * has this field at the TypeScript level. */
     updatedAtMs: z.number().nonnegative().optional(),
   })
   .strict();
 
+/** The clean shape written to `controlState` and handed to the rest of the application —
+ * `identity` lives in the Session table, and any legacy `updatedAtMs` a parsed row carried is
+ * dropped by construction (`stateSchema.parse` output is spread into `AgentControlState`, which
+ * has no such field, so pulling only the named keys below can never reintroduce it). */
 function controlState(state: AgentControlState) {
   const { identity: _identity, ...control } = stateSchema.parse(state);
   return control;
@@ -79,7 +87,15 @@ export class PrismaAgentControlStore implements AgentControlStore {
       !agent.computer?.workspaces.some((w) => w.workspaceId === agent.workspaceId)
     )
       return undefined;
-    const state = agent.controlState === null ? null : stateSchema.parse(agent.controlState);
+    // `updatedAtMs` (legacy, ignored, never written — see `stateSchema`) is dropped here so it
+    // never reaches `AgentControlState`/the rest of the application, even for a row persisted
+    // before ADR 0039 removed the field. `storedControlState` below keeps the raw, unstripped
+    // JSON for `replace()`'s compare-and-swap predicate, so a legacy row's extra key does not
+    // make that predicate lose against the real stored value.
+    const state =
+      agent.controlState === null
+        ? null
+        : (({ updatedAtMs: _updatedAtMs, ...rest }) => rest)(stateSchema.parse(agent.controlState));
     const session = agent.currentSession;
     if (session && (session.agentId !== agent.id || session.workspaceId !== agent.workspaceId))
       throw new Error("Agent Session association is invalid");
@@ -103,6 +119,7 @@ export class PrismaAgentControlStore implements AgentControlStore {
       runtimeConfig: parseAgentRuntimeConfig(agent.runtimeConfig),
       storedRuntimeConfig: agent.runtimeConfig,
       storedRuntimeSession: agent.runtimeSession,
+      storedControlState: agent.controlState,
       currentSessionId: agent.currentSessionId,
       stoppedAt: agent.stoppedAt,
       state,
@@ -169,7 +186,17 @@ export class PrismaAgentControlStore implements AgentControlStore {
                 ? Prisma.DbNull
                 : (before.storedRuntimeSession as Prisma.InputJsonValue),
           },
-          controlState: { equals: before.state ? controlState(before.state) : Prisma.DbNull },
+          // Compare against the raw stored JSON (`storedControlState`), not a value reconstructed
+          // from `before.state` (`controlState(before.state)`): a legacy row can still carry an
+          // `updatedAtMs` key `before.state` never reflects, and Postgres JSONB `=` is structural
+          // — an extra key would make a reconstructed predicate lose the CAS against every
+          // legacy row (ADR 0039).
+          controlState: {
+            equals:
+              before.storedControlState == null
+                ? Prisma.DbNull
+                : (before.storedControlState as Prisma.InputJsonValue),
+          },
         },
         data: {
           controlState: controlState(checked),

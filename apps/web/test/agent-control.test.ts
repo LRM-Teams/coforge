@@ -587,7 +587,7 @@ test("start wakes retain the completed launch fence while ready recovery creates
   expect(agent.state?.phase).toBe("starting");
 });
 
-test("Full Reset halts on a terminal failure and a competing action while pending is still rejected", async () => {
+test("Full Reset halts on a terminal failure and a legacy failed reset-workspace result is still accepted as terminal", async () => {
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
@@ -633,11 +633,6 @@ test("Full Reset halts on a terminal failure and a competing action while pendin
   expect((await control.execute(input)).phase).toBe("pending");
   const stop = decodeAgentStopIntent(sent[0]!);
   const scope = { ...stop, provider: stop.provider!, epoch: stop.controlEpoch! };
-  // The pending-operation rule is unchanged: a competing action while an operation is still
-  // in flight is rejected.
-  await expect(
-    control.execute({ ...input, requestId: "competing", action: "restart" }),
-  ).rejects.toThrow("pending");
   await control.result(scope, { ...scope, phase: "stopped", sequence: 1 });
   expect(decodeAgentWorkspaceResetRequest(sent[1]!)).toMatchObject({
     requestId: "reset",
@@ -1244,9 +1239,9 @@ test("recover/publishStart/publishStop stay owner-authorized and ignore Workspac
   ).rejects.toThrow("Agent is not authorized or assigned");
 });
 
-// --- Abandoned pending operation supersede (ADR 0035) -----------------------------------------
+// --- Latest command wins: supersede (ADR 0039) --------------------------------------------------
 
-const abandonRuntimeConfig = {
+const pendingRuntimeConfig = {
   runtime: "pi" as const,
   provider: { kind: "default" as const },
   model: "",
@@ -1255,8 +1250,8 @@ const abandonRuntimeConfig = {
 };
 
 /** A CAS-fenced store identical in spirit to the other hand-rolled stores in this file, factored
- * out because every abandonment test below starts from a hand-built `AgentControlState`. */
-function abandonStore(initial: AgentControlAgent) {
+ * out because every supersede test below starts from a hand-built `AgentControlState`. */
+function pendingOpStore(initial: AgentControlAgent) {
   let agent = initial;
   const store: AgentControlStore = {
     memberRole: async () => "owner",
@@ -1270,29 +1265,30 @@ function abandonStore(initial: AgentControlAgent) {
   return { store, current: () => agent };
 }
 
-function captureWarnings() {
-  const warnings: unknown[] = [];
-  const original = console.warn;
-  console.warn = (...args: unknown[]) => warnings.push(JSON.parse(args[0] as string));
+/** `agent_control:operation_superseded` (ADR 0039) is normal behaviour, logged at info. */
+function captureInfo() {
+  const events: unknown[] = [];
+  const original = console.info;
+  console.info = (...args: unknown[]) => events.push(JSON.parse(args[0] as string));
   return {
-    warnings,
+    events,
     restore: () => {
-      console.warn = original;
+      console.info = original;
     },
   };
 }
 
-test("a legacy pending state with no updatedAtMs is treated as abandoned and superseded", async () => {
-  const { store, current } = abandonStore({
+test("a fresh pending operation is superseded immediately by a different requestId, regardless of age (ADR 0039)", async () => {
+  const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
     workspaceId: "w",
     computerId: "c",
-    runtimeConfig: abandonRuntimeConfig,
+    runtimeConfig: pendingRuntimeConfig,
     state: {
       version: 1,
       protocolMajor: 1,
-      requestId: "stuck",
+      requestId: "in-flight",
       workspaceId: "w",
       computerId: "c",
       agentId: "a",
@@ -1300,14 +1296,13 @@ test("a legacy pending state with no updatedAtMs is treated as abandoned and sup
       epoch: 9,
       action: "start",
       phase: "starting",
-      configRevision: agentControlRevision(abandonRuntimeConfig),
+      configRevision: agentControlRevision(pendingRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
-      // No updatedAtMs: a row persisted before this field existed.
     },
   });
   const sent: Uint8Array[] = [];
-  const capture = captureWarnings();
+  const capture = captureInfo();
   try {
     const control = new AgentControl(
       store,
@@ -1332,126 +1327,38 @@ test("a legacy pending state with no updatedAtMs is treated as abandoned and sup
     requestId: "restart-1",
     controlEpoch: 10,
   });
-  expect(capture.warnings).toEqual([
+  expect(capture.events).toEqual([
     {
-      event: "agent_control:pending_superseded",
+      event: "agent_control:operation_superseded",
       agent_id: "a",
+      workspace_id: "w",
+      computer_id: "c",
       previous_action: "start",
       previous_phase: "starting",
       previous_epoch: 9,
-      age_ms: "unknown",
+      previous_request_id: "in-flight",
       new_action: "restart",
+      request_id: "restart-1",
+      outcome: "superseded",
     },
   ]);
 });
 
-test("a fresh pending operation still blocks a new one even past a short abandon window", async () => {
-  let now = 1_000_000;
-  const { store } = abandonStore({
+/** Builds a hand-built pending Full Reset state at a given chain phase, for the tests below: a
+ * pending Full Reset is superseded exactly like every other pending operation, at every phase
+ * its chain can be caught in (ADR 0039 removed both the abandonment concept ADR 0035 introduced
+ * and the full-reset-only exception ADR 0036 had already dropped from it). */
+function pendingFullResetFixture(phase: "stopping" | "clearing" | "starting") {
+  return pendingOpStore({
     id: "a",
     ownerId: "owner",
     workspaceId: "w",
     computerId: "c",
-    runtimeConfig: abandonRuntimeConfig,
+    runtimeConfig: pendingRuntimeConfig,
     state: {
       version: 1,
       protocolMajor: 1,
-      requestId: "current",
-      workspaceId: "w",
-      computerId: "c",
-      agentId: "a",
-      provider: "pi",
-      epoch: 3,
-      action: "start",
-      phase: "starting",
-      configRevision: agentControlRevision(abandonRuntimeConfig),
-      controlSequence: 0,
-      sessionSequence: 0,
-      updatedAtMs: now - 1_000,
-    },
-  });
-  const control = new AgentControl(
-    store,
-    { publish: async () => {} },
-    { run: async (_id, work) => work() },
-    { timeoutMs: 0, fallbackMs: 0, abandonAfterMs: 60_000, now: () => now },
-  );
-  await expect(
-    control.execute({
-      userId: "owner",
-      workspaceId: "w",
-      agentId: "a",
-      requestId: "new",
-      action: "restart",
-    }),
-  ).rejects.toThrow("Agent control operation is pending");
-});
-
-test("a pending operation older than abandonAfterMs is superseded", async () => {
-  let now = 1_000_000;
-  const { store, current } = abandonStore({
-    id: "a",
-    ownerId: "owner",
-    workspaceId: "w",
-    computerId: "c",
-    runtimeConfig: abandonRuntimeConfig,
-    state: {
-      version: 1,
-      protocolMajor: 1,
-      requestId: "current",
-      workspaceId: "w",
-      computerId: "c",
-      agentId: "a",
-      provider: "pi",
-      epoch: 3,
-      action: "start",
-      phase: "starting",
-      configRevision: agentControlRevision(abandonRuntimeConfig),
-      controlSequence: 0,
-      sessionSequence: 0,
-      updatedAtMs: now - 61_000,
-    },
-  });
-  const capture = captureWarnings();
-  try {
-    const control = new AgentControl(
-      store,
-      { publish: async () => {} },
-      { run: async (_id, work) => work() },
-      { timeoutMs: 0, fallbackMs: 0, abandonAfterMs: 60_000, now: () => now },
-    );
-    const result = await control.execute({
-      userId: "owner",
-      workspaceId: "w",
-      agentId: "a",
-      requestId: "new",
-      action: "restart",
-    });
-    expect(result.phase).toBe("pending");
-  } finally {
-    capture.restore();
-  }
-  expect(current().state).toMatchObject({ epoch: 4, action: "restart" });
-  expect(capture.warnings).toEqual([
-    expect.objectContaining({ event: "agent_control:pending_superseded", age_ms: 61_000 }),
-  ]);
-});
-
-/** Builds a hand-built abandoned (no `updatedAtMs`) pending Full Reset state at a given phase,
- * for the tests below: ADR 0036 removed the earlier full-reset-only "yields only to a new
- * full-reset" exception (ADR 0035), so an abandoned Full Reset is now superseded exactly like
- * any other abandoned operation, at every phase its chain can be caught in. */
-function abandonedFullResetFixture(phase: "stopping" | "clearing" | "starting") {
-  return abandonStore({
-    id: "a",
-    ownerId: "owner",
-    workspaceId: "w",
-    computerId: "c",
-    runtimeConfig: abandonRuntimeConfig,
-    state: {
-      version: 1,
-      protocolMajor: 1,
-      requestId: "stuck-reset",
+      requestId: "in-flight-reset",
       workspaceId: "w",
       computerId: "c",
       agentId: "a",
@@ -1459,31 +1366,36 @@ function abandonedFullResetFixture(phase: "stopping" | "clearing" | "starting") 
       epoch: 2,
       action: "full-reset",
       phase,
-      configRevision: agentControlRevision(abandonRuntimeConfig),
+      configRevision: agentControlRevision(pendingRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
-      // No updatedAtMs: abandoned regardless of `abandonAfterMs`.
     },
   });
 }
 
 test.each(["stopping", "clearing", "starting"] as const)(
-  "an abandoned pending Full Reset in %s yields to any competing action, exactly like every other abandoned operation",
+  "a pending Full Reset in %s is superseded by any competing action, exactly like every other pending operation",
   async (phase) => {
-    const supersedeLog = (newAction: string) =>
+    const supersedeLog = (newAction: string, requestId: string) =>
       expect.objectContaining({
-        event: "agent_control:pending_superseded",
+        event: "agent_control:operation_superseded",
         agent_id: "a",
+        workspace_id: "w",
+        computer_id: "c",
         previous_action: "full-reset",
         previous_phase: phase,
         previous_epoch: 2,
+        previous_request_id: "in-flight-reset",
         new_action: newAction,
+        request_id: requestId,
+        outcome: "superseded",
       });
 
-    // restart (execute())
+    // restart (execute()) — a Full Reset caught mid `clearing` starts a fresh chain at
+    // `stopping`, epoch+1, exactly like every other phase.
     {
-      const { store, current } = abandonedFullResetFixture(phase);
-      const capture = captureWarnings();
+      const { store, current } = pendingFullResetFixture(phase);
+      const capture = captureInfo();
       const control = new AgentControl(
         store,
         { publish: async () => {} },
@@ -1506,14 +1418,15 @@ test.each(["stopping", "clearing", "starting"] as const)(
         requestId: "restart-attempt",
         epoch: 3,
         action: "restart",
+        phase: "stopping",
       });
-      expect(capture.warnings).toEqual([supersedeLog("restart")]);
+      expect(capture.events).toEqual([supersedeLog("restart", "restart-attempt")]);
     }
 
     // reset-session (execute())
     {
-      const { store, current } = abandonedFullResetFixture(phase);
-      const capture = captureWarnings();
+      const { store, current } = pendingFullResetFixture(phase);
+      const capture = captureInfo();
       const control = new AgentControl(
         store,
         { publish: async () => {} },
@@ -1537,13 +1450,13 @@ test.each(["stopping", "clearing", "starting"] as const)(
         epoch: 3,
         action: "reset-session",
       });
-      expect(capture.warnings).toEqual([supersedeLog("reset-session")]);
+      expect(capture.events).toEqual([supersedeLog("reset-session", "reset-session-attempt")]);
     }
 
     // full-reset (execute()) — a fresh, explicitly confirmed Full Reset still supersedes too.
     {
-      const { store, current } = abandonedFullResetFixture(phase);
-      const capture = captureWarnings();
+      const { store, current } = pendingFullResetFixture(phase);
+      const capture = captureInfo();
       const control = new AgentControl(
         store,
         { publish: async () => {} },
@@ -1568,14 +1481,14 @@ test.each(["stopping", "clearing", "starting"] as const)(
         epoch: 3,
         action: "full-reset",
       });
-      expect(capture.warnings).toEqual([supersedeLog("full-reset")]);
+      expect(capture.events).toEqual([supersedeLog("full-reset", "full-reset-attempt")]);
     }
 
     // stop (publishStop())
     {
-      const { store, current } = abandonedFullResetFixture(phase);
+      const { store, current } = pendingFullResetFixture(phase);
       const sent: Uint8Array[] = [];
-      const capture = captureWarnings();
+      const capture = captureInfo();
       const control = new AgentControl(
         store,
         { publish: async (_channel, bytes) => void sent.push(bytes) },
@@ -1604,14 +1517,14 @@ test.each(["stopping", "clearing", "starting"] as const)(
         epoch: 3,
         action: "stop",
       });
-      expect(capture.warnings).toEqual([supersedeLog("stop")]);
+      expect(capture.events).toEqual([supersedeLog("stop", "stop-attempt")]);
     }
 
     // start (publishStart())
     {
-      const { store, current } = abandonedFullResetFixture(phase);
+      const { store, current } = pendingFullResetFixture(phase);
       const sent: Uint8Array[] = [];
-      const capture = captureWarnings();
+      const capture = captureInfo();
       const control = new AgentControl(
         store,
         { publish: async (_channel, bytes) => void sent.push(bytes) },
@@ -1644,22 +1557,143 @@ test.each(["stopping", "clearing", "starting"] as const)(
         epoch: 3,
         action: "start",
       });
-      expect(capture.warnings).toEqual([supersedeLog("start")]);
+      expect(capture.events).toEqual([supersedeLog("start", "start-attempt")]);
     }
   },
 );
 
-test("a stale-epoch result after a supersede is rejected and leaves the new epoch unchanged", async () => {
-  const { store, current } = abandonStore({
+test("same requestId stays idempotent while pending and after completion (no new epoch, no throw)", async () => {
+  const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
     workspaceId: "w",
     computerId: "c",
-    runtimeConfig: abandonRuntimeConfig,
+    runtimeConfig: pendingRuntimeConfig,
+    state: null,
+  });
+  const sent: Uint8Array[] = [];
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void sent.push(bytes) },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+  );
+  const input = {
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "same-request",
+    action: "restart" as const,
+  };
+  const first = await control.execute(input);
+  expect(first.phase).toBe("pending");
+  expect(current().state).toMatchObject({ requestId: "same-request", epoch: 1 });
+  // A retry with the identical requestId while still pending must not mint a new epoch — it may
+  // republish the same command (a harmless duplicate), but never supersede itself.
+  const retry = await control.execute(input);
+  expect(retry.phase).toBe("pending");
+  expect(current().state).toMatchObject({ requestId: "same-request", epoch: 1 });
+  expect(sent.length).toBeGreaterThanOrEqual(1);
+  for (const bytes of sent)
+    expect(decodeAgentStopIntent(bytes)).toMatchObject({
+      requestId: "same-request",
+      controlEpoch: 1,
+    });
+  // Complete the chain, then retry with the same requestId once more: still idempotent.
+  const stop = decodeAgentStopIntent(sent[0]!);
+  const stopScope = { ...stop, provider: stop.provider!, epoch: stop.controlEpoch! };
+  await control.result(stopScope, { ...stopScope, phase: "stopped", sequence: 1 });
+  const startBytes = sent.find((bytes) => {
+    try {
+      decodeAgentStartIntent(bytes);
+      return true;
+    } catch {
+      return false;
+    }
+  })!;
+  const start = decodeAgentStartIntent(startBytes);
+  await control.authorizeLaunch({
+    ...start,
+    launchId: "launch-a",
+    controlEpoch: start.controlEpoch!,
+  });
+  await control.result(start, {
+    ...start,
+    epoch: start.controlEpoch!,
+    launchId: "launch-a",
+    phase: "started",
+    sequence: 2,
+    identity: { sessionId: "native", state: "empty" },
+  });
+  expect(current().state?.phase).toBe("completed");
+  const afterCompletion = await control.execute(input);
+  expect(afterCompletion.phase).toBe("completed");
+  expect(current().state).toMatchObject({ requestId: "same-request", epoch: 1 });
+});
+
+test("the superseded waiter resolves phase: 'superseded' instead of throwing (ADR 0039)", async () => {
+  let agent: AgentControlAgent = {
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: pendingRuntimeConfig,
+    state: null,
+  };
+  const store: AgentControlStore = {
+    memberRole: async () => "owner",
+    get: async () => structuredClone(agent),
+    replace: async (before, state) => {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state };
+      return true;
+    },
+  };
+  let supersedeOnce = true;
+  const control = new AgentControl(
+    store,
+    {
+      publish: async () => {
+        if (!supersedeOnce) return;
+        supersedeOnce = false;
+        // A second, independent command for the same Agent arrives and supersedes the first
+        // while the first request's drive() is still waiting on this very publish to settle —
+        // the same race a double click, or two members clicking, produces in production.
+        await control.execute({
+          userId: "owner",
+          workspaceId: "w",
+          agentId: "a",
+          requestId: "supersede",
+          action: "stop",
+        });
+      },
+    },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 30, fallbackMs: 5 },
+  );
+  const outcome = await control.execute({
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "outer",
+    action: "restart",
+  });
+  expect(outcome).toEqual({ requestId: "supersede", action: "stop", phase: "superseded" });
+});
+
+// --- Late results from a superseded operation stay harmless (ADR 0039 rule 6) -------------------
+
+test("an old stop result after a supersede is rejected as stale and leaves the new epoch unchanged", async () => {
+  const { store, current } = pendingOpStore({
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: pendingRuntimeConfig,
     state: {
       version: 1,
       protocolMajor: 1,
-      requestId: "stuck",
+      requestId: "old",
       workspaceId: "w",
       computerId: "c",
       agentId: "a",
@@ -1667,12 +1701,11 @@ test("a stale-epoch result after a supersede is rejected and leaves the new epoc
       epoch: 5,
       action: "start",
       phase: "starting",
-      configRevision: agentControlRevision(abandonRuntimeConfig),
+      configRevision: agentControlRevision(pendingRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
     },
   });
-  const capture = captureWarnings();
   const control = new AgentControl(
     store,
     { publish: async () => {} },
@@ -1686,7 +1719,6 @@ test("a stale-epoch result after a supersede is rejected and leaves the new epoc
     requestId: "retry-1",
     action: "restart",
   });
-  capture.restore();
   const beforeResult = current().state;
   expect(beforeResult).toMatchObject({ epoch: 6, requestId: "retry-1" });
   await expect(
@@ -1694,7 +1726,7 @@ test("a stale-epoch result after a supersede is rejected and leaves the new epoc
       { workspaceId: "w", computerId: "c" },
       {
         protocolMajor: 1,
-        requestId: "stuck",
+        requestId: "old",
         workspaceId: "w",
         computerId: "c",
         agentId: "a",
@@ -1708,13 +1740,125 @@ test("a stale-epoch result after a supersede is rejected and leaves the new epoc
   expect(current().state).toEqual(beforeResult);
 });
 
-test("recover republishes an abandoned pending start unchanged, without refreshing updatedAtMs", async () => {
-  const { store, current } = abandonStore({
+test("an old authorizeLaunch after a supersede is rejected as stale and leaves the new epoch unchanged", async () => {
+  const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
     workspaceId: "w",
     computerId: "c",
-    runtimeConfig: abandonRuntimeConfig,
+    runtimeConfig: pendingRuntimeConfig,
+    state: {
+      version: 1,
+      protocolMajor: 1,
+      requestId: "old-start",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      epoch: 3,
+      action: "start",
+      phase: "starting",
+      configRevision: agentControlRevision(pendingRuntimeConfig),
+      controlSequence: 0,
+      sessionSequence: 0,
+    },
+  });
+  const control = new AgentControl(
+    store,
+    { publish: async () => {} },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+  );
+  // A user issues a Stop before the Daemon answers the earlier Start's launch.
+  await control.execute({
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "new-stop",
+    action: "stop",
+  });
+  const beforeLaunch = current().state;
+  expect(beforeLaunch).toMatchObject({ epoch: 4, requestId: "new-stop", action: "stop" });
+  await expect(
+    control.authorizeLaunch({
+      agentId: "a",
+      workspaceId: "w",
+      computerId: "c",
+      controlEpoch: 3,
+      requestId: "old-start",
+      launchId: "late-launch",
+    }),
+  ).rejects.toThrow("Stale Agent launch");
+  expect(current().state).toEqual(beforeLaunch);
+});
+
+test("an old started result after a supersede is rejected and leaves the new epoch unchanged", async () => {
+  const { store, current } = pendingOpStore({
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: pendingRuntimeConfig,
+    state: {
+      version: 1,
+      protocolMajor: 1,
+      requestId: "old-start",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      epoch: 3,
+      action: "start",
+      phase: "starting",
+      launchId: "old-launch",
+      configRevision: agentControlRevision(pendingRuntimeConfig),
+      controlSequence: 0,
+      sessionSequence: 0,
+    },
+  });
+  const control = new AgentControl(
+    store,
+    { publish: async () => {} },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+  );
+  await control.execute({
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "new-stop",
+    action: "stop",
+  });
+  const beforeResult = current().state;
+  expect(beforeResult).toMatchObject({ epoch: 4, requestId: "new-stop", action: "stop" });
+  await expect(
+    control.result(
+      { workspaceId: "w", computerId: "c" },
+      {
+        protocolMajor: 1,
+        requestId: "old-start",
+        workspaceId: "w",
+        computerId: "c",
+        agentId: "a",
+        provider: "pi",
+        epoch: 3,
+        phase: "started",
+        launchId: "old-launch",
+        sequence: 1,
+        identity: { sessionId: "late-native", state: "empty" },
+      },
+    ),
+  ).rejects.toThrow("Stale Agent scope");
+  expect(current().state).toEqual(beforeResult);
+});
+
+test("recover republishes a pending start unchanged, without superseding it", async () => {
+  const { store, current } = pendingOpStore({
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: pendingRuntimeConfig,
     state: {
       version: 1,
       protocolMajor: 1,
@@ -1726,10 +1870,9 @@ test("recover republishes an abandoned pending start unchanged, without refreshi
       epoch: 9,
       action: "start",
       phase: "starting",
-      configRevision: agentControlRevision(abandonRuntimeConfig),
+      configRevision: agentControlRevision(pendingRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
-      // No updatedAtMs: abandoned from the moment this test starts.
     },
   });
   const sent: Uint8Array[] = [];
@@ -1757,21 +1900,21 @@ test("recover republishes an abandoned pending start unchanged, without refreshi
     requestId: "stuck-start",
     controlEpoch: 9,
   });
+  // recover() never supersedes: same requestId, same epoch, same phase — only republished.
   expect(current().state).toMatchObject({ requestId: "stuck-start", epoch: 9, phase: "starting" });
-  expect(current().state?.updatedAtMs).toBeUndefined();
 });
 
-test("publishStop drives an abandoned starting Agent through stop then a fresh start (ManageAgents.update sequence)", async () => {
+test("publishStop drives a pending starting Agent through stop then a fresh start (ManageAgents.update sequence)", async () => {
   // ManageAgents.update fakes `runtimeControl` entirely and never constructs a real
-  // AgentControl, so it cannot observe abandonment; this exercises the same stop -> persist ->
-  // start sequence at the AgentControl level that production wiring (agent-runtime-control.
-  // server.ts's PublishAgentRuntimeControl) uses underneath it.
-  const { store, current } = abandonStore({
+  // AgentControl; this exercises the same stop -> persist -> start sequence at the AgentControl
+  // level that production wiring (agent-runtime-control.server.ts's PublishAgentRuntimeControl)
+  // uses underneath it, against an Agent that already has a pending Start operation.
+  const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
     workspaceId: "w",
     computerId: "c",
-    runtimeConfig: abandonRuntimeConfig,
+    runtimeConfig: pendingRuntimeConfig,
     state: {
       version: 1,
       protocolMajor: 1,
@@ -1783,7 +1926,7 @@ test("publishStop drives an abandoned starting Agent through stop then a fresh s
       epoch: 4,
       action: "start",
       phase: "starting",
-      configRevision: agentControlRevision(abandonRuntimeConfig),
+      configRevision: agentControlRevision(pendingRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
     },
@@ -2040,17 +2183,17 @@ test("a user-initiated Start carries the same recovery context a Daemon-ready re
   });
 });
 
-test("an abandoned pending operation is superseded by a user-initiated Stop (ADR 0035)", async () => {
-  const { store, current } = abandonStore({
+test("a pending operation is superseded by a user-initiated Stop (ADR 0039)", async () => {
+  const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
     workspaceId: "w",
     computerId: "c",
-    runtimeConfig: abandonRuntimeConfig,
+    runtimeConfig: pendingRuntimeConfig,
     state: {
       version: 1,
       protocolMajor: 1,
-      requestId: "stuck",
+      requestId: "in-flight",
       workspaceId: "w",
       computerId: "c",
       agentId: "a",
@@ -2058,10 +2201,9 @@ test("an abandoned pending operation is superseded by a user-initiated Stop (ADR
       epoch: 4,
       action: "restart",
       phase: "starting",
-      configRevision: agentControlRevision(abandonRuntimeConfig),
+      configRevision: agentControlRevision(pendingRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
-      // No updatedAtMs: abandoned regardless of `abandonAfterMs`.
     },
   });
   const sent: Uint8Array[] = [];
@@ -2083,17 +2225,17 @@ test("an abandoned pending operation is superseded by a user-initiated Stop (ADR
   expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "stop-req", controlEpoch: 5 });
 });
 
-test("an abandoned pending operation is superseded by a user-initiated Start (ADR 0035)", async () => {
-  const { store, current } = abandonStore({
+test("a pending operation is superseded by a user-initiated Start (ADR 0039)", async () => {
+  const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
     workspaceId: "w",
     computerId: "c",
-    runtimeConfig: abandonRuntimeConfig,
+    runtimeConfig: pendingRuntimeConfig,
     state: {
       version: 1,
       protocolMajor: 1,
-      requestId: "stuck-stop",
+      requestId: "in-flight-stop",
       workspaceId: "w",
       computerId: "c",
       agentId: "a",
@@ -2101,10 +2243,9 @@ test("an abandoned pending operation is superseded by a user-initiated Start (AD
       epoch: 4,
       action: "stop",
       phase: "stopping",
-      configRevision: agentControlRevision(abandonRuntimeConfig),
+      configRevision: agentControlRevision(pendingRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
-      // No updatedAtMs: abandoned regardless of `abandonAfterMs`.
     },
   });
   const sent: Uint8Array[] = [];
@@ -2127,6 +2268,80 @@ test("an abandoned pending operation is superseded by a user-initiated Start (AD
     requestId: "start-req",
     controlEpoch: 5,
   });
+});
+
+test("a user Start that meets an Agent already starting joins that launch instead of superseding it (ADR 0039)", async () => {
+  const starting = (action: "start" | "restart") =>
+    pendingOpStore({
+      id: "a",
+      ownerId: "owner",
+      workspaceId: "w",
+      computerId: "c",
+      runtimeConfig: pendingRuntimeConfig,
+      state: {
+        version: 1,
+        protocolMajor: 1,
+        requestId: "first",
+        workspaceId: "w",
+        computerId: "c",
+        agentId: "a",
+        provider: "pi",
+        epoch: 4,
+        action,
+        phase: "starting",
+        configRevision: agentControlRevision(pendingRuntimeConfig),
+        controlSequence: 0,
+        sessionSequence: 0,
+      },
+    });
+  for (const action of ["start", "restart"] as const) {
+    const { store, current } = starting(action);
+    const published: number[] = [];
+    const info = captureInfo();
+    try {
+      const control = new AgentControl(
+        store,
+        {
+          publish: async (_channel, bytes) => {
+            published.push(decodeAgentStartIntent(bytes).controlEpoch!);
+          },
+        },
+        { run: async (_id, work) => work() },
+        { timeoutMs: 0 },
+      );
+      const view = await control.execute({
+        userId: "owner",
+        workspaceId: "w",
+        agentId: "a",
+        requestId: "second",
+        action: "start",
+      });
+      // The caller is told about the launch that is actually running, under its own request.
+      expect(view).toMatchObject({ requestId: "first", action, phase: "pending" });
+    } finally {
+      info.restore();
+    }
+    expect(current().state).toMatchObject({ requestId: "first", epoch: 4, phase: "starting" });
+    expect(published.every((epoch) => epoch === 4)).toBe(true);
+    expect(info.events).toEqual([]);
+  }
+
+  // Anything other than Start still supersedes a starting operation.
+  const { store, current } = starting("start");
+  const control = new AgentControl(
+    store,
+    { publish: async () => {} },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0 },
+  );
+  await control.execute({
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "third",
+    action: "stop",
+  });
+  expect(current().state).toMatchObject({ requestId: "third", epoch: 5, phase: "stopping" });
 });
 
 test("authorizeLaunch re-reads and retries when a concurrent Session write wins the conditional write", async () => {

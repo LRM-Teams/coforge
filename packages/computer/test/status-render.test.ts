@@ -32,6 +32,9 @@ const REPORT: ComputerStatusReport = {
         pid: 111,
         pidSource: "daemon-snapshot",
         pending: [{ kind: "upgrade", requestId: "req-1", expectedVersion: "1.5.0" }],
+        unsettledUpgrades: [
+          { requestId: "req-2", expectedVersion: "1.6.0", state: "failed", ageMs: 65_000 },
+        ],
       },
     ],
   },
@@ -76,6 +79,7 @@ test("renderStatusHuman prints short aligned sections, one fact per line", () =>
   expect(text).toContain("ws-1");
   expect(text).toContain("pid=111 (daemon-snapshot)");
   expect(text).toContain("pending: upgrade req-1 -> 1.5.0");
+  expect(text).toContain("unsettled upgrade: req-2 -> 1.6.0  state=failed  age=65s");
   expect(text).toContain("Agents");
   expect(text).toContain("1 job(s)  (workspace job pid=333)");
   expect(text).toContain("cn.coforge.agent.abc.1  pid=222");
@@ -120,6 +124,7 @@ test("renderStatusHuman shows which source a Workspace's pid came from", () => {
           pid: 9001,
           pidSource: "os-job",
           pending: [],
+          unsettledUpgrades: [],
         },
       ],
     },
@@ -142,6 +147,7 @@ test("renderStatusHuman never crashes on control characters embedded in untruste
           pid: null,
           pidSource: null,
           pending: [],
+          unsettledUpgrades: [],
         },
       ],
     },

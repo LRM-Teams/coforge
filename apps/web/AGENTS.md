@@ -506,6 +506,16 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   Agent status or a generic durable command mailbox. Profile buttons submit
   without waiting UI or control-state queries; runtime observations stay in
   Activity. Full Reset still requires destructive confirmation.
+  The latest command always wins (ADR 0039): `begin()` supersedes any non-terminal
+  operation with a different `requestId` unconditionally — no "pending" rejection,
+  no abandonment/age concept, matching Raft Computer 1.0.32's own lack of an
+  operation-in-progress record. The superseded caller's `drive()` resolves a
+  view-only `phase: "superseded"` instead of throwing (`executeAgentControl`
+  only throws on `failed`); `publishStop()` still throws, naming the supersede,
+  since its callers need a confirmed stop. `recover()` (Daemon `ready`
+  reconciliation) is the one path that still never supersedes — it only
+  republishes the current operation, so a Daemon that lost a command can still
+  answer the one it already has.
 - ADR 0038: `Agent.stoppedAt` (nullable) is the persisted "a user stopped this
   Agent" intent, independent of `controlState` (current control request and
   fencing only). `execute()`'s `stop` persists `stoppedAt` before running the
@@ -530,7 +540,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   guard, but never advances control operations. Unified RPC callbacks route Session
   reports to this acceptance seam; sequenced snapshots validate the upstream launch
   fence before the independent snapshot receiver. Control-result dispatch remains separate.
-  `AgentSessionReceiver.invalidate` (ADR 0037) is the daemon-initiated counterpart: on an
+  `AgentSessionReceiver.invalidate` (ADR 0040) is the daemon-initiated counterpart: on an
   exact match (`launchId` + native `sessionId`) it clears the Session association with the
   same `clearSession` primitive Reset Session uses and leaves every other control-state field
   untouched — it never marks the state `recovered`; the user learns of the cold start only

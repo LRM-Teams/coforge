@@ -1,5 +1,5 @@
 import { terminalText } from "../terminal-output";
-import type { ComputerStatusReport, PendingRequest } from "./types";
+import type { ComputerStatusReport, PendingRequest, UnsettledUpgradeOperation } from "./types";
 
 /** One stable JSON object with the full report, matching `--json` conventions used by
  * `setup`/`login`: a single line on stdout, nothing else. */
@@ -77,6 +77,8 @@ function renderWorkspaces(report: ComputerStatusReport): string[] {
       `  ${terminalText(workspace.workspaceId)}  server=${workspace.serverHttpUrl ? terminalText(workspace.serverHttpUrl) : "-"}  enabled=${workspace.enabled ? "yes" : "no"}  running=${workspace.running ? "yes" : "no"}  pid=${pid}`,
     );
     for (const pending of workspace.pending) lines.push(`    pending: ${renderPending(pending)}`);
+    for (const unsettled of workspace.unsettledUpgrades)
+      lines.push(`    unsettled upgrade: ${renderUnsettledUpgrade(unsettled)}`);
   }
   return lines;
 }
@@ -85,6 +87,10 @@ function renderPending(pending: PendingRequest): string {
   return pending.kind === "restart"
     ? `restart ${terminalText(pending.requestId)} (${terminalText(pending.phase)})`
     : `upgrade ${terminalText(pending.requestId)} -> ${terminalText(pending.expectedVersion)}`;
+}
+
+function renderUnsettledUpgrade(operation: UnsettledUpgradeOperation): string {
+  return `${terminalText(operation.requestId)} -> ${terminalText(operation.expectedVersion)}  state=${operation.state}  age=${Math.round(operation.ageMs / 1000)}s`;
 }
 
 function renderAgents(report: ComputerStatusReport): string[] {

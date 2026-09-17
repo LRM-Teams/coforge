@@ -178,6 +178,8 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           agentWeeklyReport: async (...input) => requireRuntime().agentWeeklyReport(...input),
           workspaceInfo: async (...input) => requireRuntime().workspaceInfo(...input),
           githubCredential: async (...input) => requireRuntime().githubCredential(...input),
+          manualGet: async (...input) => requireRuntime().manualGet(...input),
+          manualSearch: async (...input) => requireRuntime().manualSearch(...input),
           issueAgentContext: (agentId) => requireRuntime().issueAgentContext(agentId),
         },
       });
@@ -211,6 +213,11 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
             recoveredUpgradeRequestIds:
               (config as { upgradeRequestIds?: string[] } | null)?.upgradeRequestIds ?? [],
             recoveredUpgradeResults: terminalUpgradeResults(config),
+            // Re-reads the same per-Workspace config file the Coordinator wrote before starting
+            // this process - and may rewrite again while this process keeps running, once its
+            // continuous upgrade-receipt watch settles an operation (ADR 0037) - so a result
+            // settled after this process started is still reported on the next reconnect.
+            refreshUpgradeResults: async () => terminalUpgradeResults(await configStore.load()),
             acknowledgeUpgradeResult: supervisorSocket
               ? async (requestId: string) => {
                   if (!config) throw new Error("Workspace is not configured");

@@ -95,6 +95,10 @@ import type {
   AgentActionPrepareResponse,
   GitHubCredentialRequest,
   GitHubCredentialResponse,
+  AgentManualGetRequest,
+  AgentManualGetResponse,
+  AgentManualSearchRequest,
+  AgentManualSearchResponse,
 } from "@lrm/coforge-sdk/agent";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
@@ -399,8 +403,18 @@ export class DaemonRuntime {
       requestUpgrade?(requestId: string, expectedVersion?: string): Promise<void>;
       recoveredRestartRequestIds?: string[];
       recoveredUpgradeRequestIds?: string[];
-      /** Terminal upgrade operations this machine still owes the server a report for. */
+      /** Terminal upgrade operations this machine still owes the server a report for, as known
+       * at construction time. */
       recoveredUpgradeResults?: RecoveredUpgradeResult[];
+      /**
+       * Re-reads the same terminal operations from their durable local source (the Coordinator's
+       * per-Workspace config file, which it may rewrite while this process keeps running - see
+       * ADR 0037). `#reportUpgradeResults` prefers this over the static
+       * `recoveredUpgradeResults` snapshot whenever it is provided, so a result the Coordinator's
+       * continuous watch settles after this process started is still reported on the next
+       * reconnect rather than only at this process's own next start.
+       */
+      refreshUpgradeResults?(): Promise<RecoveredUpgradeResult[]>;
       /** Called once the server has accepted a reported result. */
       acknowledgeUpgradeResult?(requestId: string): Promise<void>;
     } = {},
@@ -660,6 +674,11 @@ export class DaemonRuntime {
           // Best-effort, non-blocking: retries any Agent API key whose remote revoke failed
           // earlier (docs/adr/0033). Never gates readiness or the control replay above.
           this.#retryPendingAgentApiKeyRevokes();
+          // A result the Coordinator's continuous watch settled after this process started its
+          // ready handshake (ADR 0037) is picked up here too, not only at the next process
+          // start: every reconnect re-reads the same durable local source `#reportUpgradeResults`
+          // read at startup.
+          void this.#reportUpgradeResults().catch(() => {});
         }),
       );
       const transport = this.#transport;
@@ -808,7 +827,11 @@ export class DaemonRuntime {
    * A refused or failed report is left alone so the next ready handshake retries it.
    */
   async #reportUpgradeResults(): Promise<void> {
-    const results = this.lifecycle.recoveredUpgradeResults ?? [];
+    const results = this.lifecycle.refreshUpgradeResults
+      ? await this.lifecycle
+          .refreshUpgradeResults()
+          .catch(() => this.lifecycle.recoveredUpgradeResults ?? [])
+      : (this.lifecycle.recoveredUpgradeResults ?? []);
     if (!results.length || !this.#transport.sendUpgradeResult) return;
     const connection = this.#connection;
     for (const result of results) {
@@ -1821,7 +1844,7 @@ export class DaemonRuntime {
   /**
    * Builds the one wire shape both `invalidateSession` emit sites send (previously constructed
    * twice, field by field). No control-fence fields (no `startRequestId`/`controlEpoch`, unlike
-   * `AgentSessionReport`) — see ADR 0037, "Why no control fence fields": `launchId` is always
+   * `AgentSessionReport`) — see ADR 0040, "Why no control fence fields": `launchId` is always
    * present at both call sites, so there is no separate gating condition here either.
    */
   #sessionInvalidateMessage(
@@ -2337,6 +2360,26 @@ export class DaemonRuntime {
     if (!this.#transport.githubCredential)
       throw new Error("GitHub credential endpoint is not configured");
     return this.#transport.githubCredential(request, agentApiKey);
+  }
+
+  async manualGet(
+    context: string,
+    request: AgentManualGetRequest,
+    agentApiKey?: string,
+  ): Promise<AgentManualGetResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.manualGet) throw new Error("Agent Manual endpoint is not configured");
+    return this.#transport.manualGet(request, agentApiKey);
+  }
+
+  async manualSearch(
+    context: string,
+    request: AgentManualSearchRequest,
+    agentApiKey?: string,
+  ): Promise<AgentManualSearchResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.manualSearch) throw new Error("Agent Manual endpoint is not configured");
+    return this.#transport.manualSearch(request, agentApiKey);
   }
 
   async agentTask(

@@ -7,6 +7,7 @@ import type {
   StatusBinding,
   StatusPorts,
   SupervisorStatus,
+  UnsettledUpgradeOperation,
   WorkspacesStatus,
 } from "./types";
 
@@ -21,7 +22,7 @@ export async function collectComputerStatus(ports: StatusPorts): Promise<Compute
   const supervisor = await collectSupervisor(ports, snapshot);
   const bindingsLoad = await ports.loadBindings();
   const agents = await collectAgents(ports, bindingsLoad);
-  const workspaces = collectWorkspaces(bindingsLoad, snapshot, agents);
+  const workspaces = collectWorkspaces(bindingsLoad, snapshot, agents, ports.now());
   const leftoverJobs = await collectLeftoverJobs(ports);
   const supervisorLockOwnerPid = await ports.readSupervisorLockOwner();
   return {
@@ -93,6 +94,7 @@ function collectWorkspaces(
   bindingsLoad: Awaited<ReturnType<StatusPorts["loadBindings"]>>,
   snapshot: DaemonSnapshotProbe,
   agents: AgentsStatus,
+  now: Date,
 ): WorkspacesStatus {
   if (!bindingsLoad.ok) return { readable: false, error: bindingsLoad.error };
   const runtimeByWorkspace = new Map(
@@ -123,6 +125,7 @@ function collectWorkspaces(
         pid,
         pidSource,
         pending: pendingRequestsFor(binding),
+        unsettledUpgrades: unsettledUpgradesFor(binding, now),
       };
     }),
   };
@@ -145,6 +148,20 @@ function pendingRequestsFor(binding: StatusBinding): PendingRequest[] {
     });
   }
   return pending;
+}
+
+/** Every Computer upgrade operation this binding still owes a settlement or a server report -
+ * i.e. everything except `acknowledged`, which is audit-only history. Read-only, matching
+ * `status`'s contract: this never settles, expires, or acknowledges anything itself. */
+function unsettledUpgradesFor(binding: StatusBinding, now: Date): UnsettledUpgradeOperation[] {
+  return (binding.upgradeOperations ?? [])
+    .filter((operation) => operation.state !== "acknowledged")
+    .map((operation) => ({
+      requestId: operation.requestId,
+      expectedVersion: operation.expectedVersion,
+      state: operation.state as "pending" | "succeeded" | "failed",
+      ageMs: Math.max(0, now.getTime() - operation.requestedAt),
+    }));
 }
 
 async function collectAgents(

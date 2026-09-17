@@ -80,7 +80,7 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   RUNTIME_RECONNECTING: "runtime_reconnecting",
   RUNTIME_ERROR: "runtime_error",
   // A stored native Session could not be resumed (missing, or rejected on replay); the
-  // daemon reported it invalidated and is cold-starting without it (ADR 0037). Working-level,
+  // daemon reported it invalidated and is cold-starting without it (ADR 0040). Working-level,
   // like `runtime_reconnecting` above: it narrates a fallback in progress, not a terminal state.
   RUNTIME_UNAVAILABLE: "runtime_unavailable",
   // Content-free provider stream/system event (no rendered text): keeps the
@@ -133,7 +133,7 @@ export type AgentSessionInvalidateReason =
  * Fire-and-forget daemon-to-cloud notice that a stored native Session is gone or was
  * rejected on replay; the daemon is cold-starting without it. Never delivered as Activity.
  * No control-fence fields (no `startRequestId`/`controlEpoch`, unlike `AgentSessionReport`):
- * the server's exact match is on `launchId` + `sessionId` alone — see ADR 0037, "Why no
+ * the server's exact match is on `launchId` + `sessionId` alone — see ADR 0040, "Why no
  * control fence fields".
  */
 export type AgentSessionInvalidate = {

@@ -48,6 +48,27 @@ export type ManagedBinding = DaemonConfig & {
   upgradeOperations?: UpgradeOperation[];
 };
 
+/**
+ * What a blocking pending operation resolves to when it turns out to already be settle-able
+ * (its job's receipt exists, or it has aged past the pending TTL). Structurally the same shape
+ * `completeUpgrade` accepts, so `recordUpgrade` can apply it the same way.
+ */
+export type PendingUpgradeSettlement = {
+  status: "succeeded" | "failed";
+} & UpgradeOperationTerminal;
+
+/**
+ * Given the pending operation blocking a new `recordUpgrade` call, reports its settlement if one
+ * is already available (a receipt, or the pending TTL has passed), or `undefined` if it is
+ * genuinely still in flight. Reads only - the caller applies the settlement, since this runs
+ * inside `recordUpgrade`'s own serialized mutation and must not re-enter it.
+ */
+export type PendingUpgradeSettler = (
+  workspaceId: string,
+  requestId: string,
+  requestedAt: number,
+) => Promise<PendingUpgradeSettlement | undefined>;
+
 /** A terminal operation the server has not accepted yet. */
 export function reportableUpgradeOperations(binding: ManagedBinding): UpgradeOperation[] {
   return (binding.upgradeOperations ?? []).filter(
@@ -96,6 +117,12 @@ export class MachineSupervisor {
     private readonly processes: WorkspaceProcesses,
     private readonly now: () => number = Date.now,
     private readonly restartHold: RestartHoldTuning = {},
+    /**
+     * Consulted only when a new upgrade request is blocked by a pending one, so `recordUpgrade`
+     * can settle a stale blocker instead of refusing outright (a genuinely in-flight operation is
+     * still refused). Omit it to keep the previous behaviour of always refusing.
+     */
+    private readonly settlePendingUpgrade?: PendingUpgradeSettler,
   ) {}
 
   recover() {
@@ -199,7 +226,7 @@ export class MachineSupervisor {
       const binding = this.#bindings.find((entry) => entry.workspaceId === workspaceId);
       if (!binding) throw new Error("Workspace is not registered locally");
       if (!expectedVersion) throw new Error("upgrade expected version is required");
-      const operations = binding.upgradeOperations ?? [];
+      let operations = binding.upgradeOperations ?? [];
       const existing = operations.find((entry) => entry.requestId === requestId);
       if (existing) {
         if (existing.expectedVersion !== expectedVersion)
@@ -207,10 +234,39 @@ export class MachineSupervisor {
         return false;
       }
       const pending = operations.find((entry) => entry.state === "pending");
-      if (pending)
-        throw new Error(
-          `Computer upgrade operation ${pending.requestId} is still pending; wait for it to finish before starting another`,
+      if (pending) {
+        // A pending slot that is already settle-able (its job left a receipt, or it aged past
+        // the TTL) must not refuse a new request forever: only a genuinely in-flight operation
+        // still blocks. `settlePendingUpgrade` only reads; this call applies its answer itself,
+        // inside the same mutation, rather than re-entering `completeUpgrade`.
+        const settlement = await this.settlePendingUpgrade?.(
+          workspaceId,
+          pending.requestId,
+          pending.requestedAt,
+        ).catch((error) => {
+          logger.warn("Settling a pending Computer upgrade operation failed; still refusing", {
+            event: "upgrade:pending_settle_check_failed",
+            request_id: pending.requestId,
+            workspace_id: workspaceId,
+            error_message: error instanceof Error ? error.message : String(error),
+          });
+          return undefined;
+        });
+        if (!settlement)
+          throw new Error(
+            `Computer upgrade operation ${pending.requestId} is still pending; wait for it to finish before starting another`,
+          );
+        const { status, ...terminal } = settlement;
+        operations = operations.map((entry) =>
+          entry.requestId === pending.requestId ? { ...entry, state: status, terminal } : entry,
         );
+        logger.info("Computer upgrade operation reached its terminal state", {
+          event: "upgrade:operation_settled",
+          request_id: pending.requestId,
+          workspace_id: workspaceId,
+          status,
+        });
+      }
       await this.#saveBinding({
         ...binding,
         upgradeOperations: [

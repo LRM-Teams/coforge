@@ -201,10 +201,8 @@ test("session invalidate clears a matching Session association and leaves every 
   expect(stored.state?.identity).toBeUndefined();
   // Raft reports this only through the daemon's own cold-start Activity; the invalidate never
   // marks the state `recovered` (that stays `AgentControl.result`'s and the snapshot path's own
-  // signal), and every other field is untouched — including `updatedAtMs`, deliberately absent
-  // from the fixture and still absent here.
+  // signal), and every other field is untouched.
   expect(stored.state?.recovered).toBeUndefined();
-  expect(stored.state?.updatedAtMs).toBeUndefined();
   expect(stored.state).toMatchObject({
     phase: agent.state!.phase,
     action: agent.state!.action,
