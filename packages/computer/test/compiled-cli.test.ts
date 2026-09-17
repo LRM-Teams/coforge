@@ -8,10 +8,32 @@ import { ComputerUpdater } from "../src/updater";
 let directory: string;
 let executable: string;
 
+/** The release target `install.sh` derives from `uname -s -m` on this host. The single-file
+ * installation test drives that script directly, so its feed has to carry the artifact for the
+ * host the test runs on - and the `executable` compiled in `beforeAll` is itself a host build,
+ * not a cross-compiled one. */
+function hostReleaseTarget(): string {
+  if (process.platform === "darwin") {
+    return process.arch === "arm64" ? "darwin-arm64" : "darwin-x64";
+  }
+  if (process.platform === "linux") {
+    return process.arch === "arm64" ? "linux-arm64" : "linux-x64";
+  }
+  throw new Error(`unsupported host for install.sh: ${process.platform}`);
+}
+
+/** macOS caps a Unix socket path at 104 bytes, and its `TMPDIR` (`/var/folders/<..>/T`) already
+ * spends 48 of them. A fixture below `tmpdir()` therefore cannot hold the
+ * `<home>/.coforge/daemon/daemon.sock` the compiled CLI connects to: the connect fails with
+ * EINVAL, which the launcher preflight does not treat as "no daemon running", so `login` reports
+ * AUTH_DAEMON_PREFLIGHT_FAILED before it reaches the OAuth flow under test. `/tmp` is short
+ * enough on every host `install.sh` supports. */
+const FIXTURE_ROOT = process.platform === "darwin" ? "/tmp" : tmpdir();
+
 test("single-file installation provides management and Agent CLI without a Daemon executable", async () => {
   const feed = join(directory, "feed");
   const version = "9.0.0-test";
-  const target = "linux-x64";
+  const target = hostReleaseTarget();
   await buildReleaseTree(
     {
       version,
@@ -223,7 +245,7 @@ test("detached upgrade shows one download and restores a healthy version after a
 }, 30_000);
 
 beforeAll(async () => {
-  directory = await mkdtemp(join(tmpdir(), "coforge-computer-cli-"));
+  directory = await mkdtemp(join(FIXTURE_ROOT, "coforge-computer-cli-"));
   executable = join(directory, "coforge-computer");
   const result = Bun.spawnSync([
     process.execPath,
