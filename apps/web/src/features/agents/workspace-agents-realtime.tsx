@@ -73,14 +73,16 @@ export function useLiveAgent(agentId: string): LiveAgent | undefined {
 export function useAgentRecentActivity(agentId: string) {
   const workspaceId = useContext(WorkspaceIdContext);
   const query = useQuery({
-    ...workspaceActivityQuery(workspaceId ?? "-"),
-    enabled: Boolean(workspaceId),
+    ...workspaceActivityQuery(workspaceId),
     select: (data) => data[agentId] ?? EMPTY_ACTIVITY,
   });
+  const activity = query.data ?? EMPTY_ACTIVITY;
   return {
-    activity: query.data ?? EMPTY_ACTIVITY,
+    activity,
+    // Without a workspaceId the query is disabled via skipToken, which also
+    // reads as isPending, so the caller needs the guard to tell them apart.
     loading: query.isPending && Boolean(workspaceId),
-    error: query.isError && !query.data,
+    error: query.isError && activity.length === 0,
   };
 }
 

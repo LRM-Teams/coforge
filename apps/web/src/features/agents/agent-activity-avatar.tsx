@@ -14,6 +14,7 @@ import {
   presentActivity,
   type ActivityObservation,
 } from "./agent-activity-presentation";
+import { RECENT_ACTIVITY_LIMIT } from "./agent-activity";
 
 export type AvatarSize = NonNullable<AvatarProps["size"]>;
 
@@ -83,7 +84,7 @@ export function AgentActivityAvatar({
     .flatMap((entry) =>
       presentActivity(entry).map((row) => ({ ...row, observedAtMs: entry.observedAtMs })),
     )
-    .slice(0, 5);
+    .slice(0, RECENT_ACTIVITY_LIMIT);
   const time = new Intl.DateTimeFormat(getLocale(), {
     hour: "2-digit",
     minute: "2-digit",
