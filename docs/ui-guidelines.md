@@ -41,20 +41,37 @@
 
 - 应用侧栏用官方 `SidebarNavigationSimple`（展开，280px）和 `SidebarNavigationSlim`（收缩，68px）。侧栏底色用 CoForge 的 `--color-sidebar`（亮 `#f8f7fe`，暗色为紫黑渐变），右侧一条 `border-secondary`。这是唯一有意偏离官方（官方侧栏是 `bg-primary`）的地方，目的是品牌辨识。
 - 内容区 `bg-primary`，贴边铺满。页面内的多个面板（列表 + 详情、对话 + thread）之间只用 1px `border-secondary` 分隔。
-- **不用**卡片岛屿：页面级面板没有 `rounded`、没有 `border` 包边、没有 gutter、没有阴影。卡片只用于内容里真正独立的对象（一个附件、一条运行时）。
+- **不用**卡片岛屿：页面级面板没有 `rounded`、没有 `border` 包边、没有 gutter、没有阴影。卡片只用于内容里真正独立的对象（一个附件、一条运行时），以及第 4 节的事实列表分组。
 - 侧栏可拖拽：默认 280，范围 240 到 360。手柄不可见，热区 6 到 8px 压在分隔线上，hover 或拖拽时显示 2px 品牌色线。
 - 页头高度 48px（`h-12`），标题 `text-lg font-semibold`，右侧放主操作。侧栏 logo 行同高，logo 和页面标题共一条基线。页头下方的二级操作区（筛选、tab、工具条）高 44px（`h-11`），里面的控件一律 36px（`size="sm"`），不另加上下内边距。
 
-## 4. 字段展示：label 在上，value 在下
+## 4. 字段展示：表单和长值用网格，短事实用列表
 
-全站只有这一种方向。表单也是（官方 Input 的 label 就在上方），读和写是同一套语法。
+两种写法，按内容选一种。同一个 section 里不混用。
+
+**字段网格：label 在上，value 在下。** 用于表单、可编辑字段、长值（路径、命令、URL）和字段很多的页面。表单也是这个方向（官方 Input 的 label 就在上方），读和写是同一套语法。
 
 - label：`text-sm text-tertiary`，常规字重。value：`text-sm font-medium text-primary`。两者间距 4px。
-- 多个字段排成网格：`md:grid-cols-2 xl:grid-cols-3`，`gap-x-8 gap-y-6`。长值（路径、命令、URL）独占一整行。
+- 多个字段排成网格：`md:grid-cols-2 xl:grid-cols-3`，`gap-x-8 gap-y-6`。长值独占一整行。
 - 字段之间不画线。只在 section 之间画一条 `border-secondary`，section 内边距 `py-6 px-8`。
-- 标识符类的值（主机名、版本号、ID、路径）用 `font-mono`。
 - 可编辑字段外观和只读字段一致。hover 出现浅底和铅笔，点击原地换成官方 Input 加 Save / Cancel，Escape 取消。不要常驻的编辑图标。
+
+**事实列表：label 在左，value 在右。** 用于详情页上只读的短事实：不超过 8 条，每个值一行放得下。参照 macOS 系统设置的「关于本机」。范例：Computer 详情页。
+
+- 一行一个事实。label：`text-sm font-medium text-primary`，不折行。value：`text-sm text-tertiary`，靠右，不在词中间折行。行高至少 44px，行间一条 `border-secondary`，最后一行后面不画。
+- 语义用 `<dl>`，每行一个 `<div>` 包一对 `<dt>` / `<dd>`。
+- 作用于某个事实的操作放在那一行的行尾：`size="sm"`、`color="secondary"` 的官方 Button，一行最多一个。进行中就是这个按钮的 loading 状态。
+- 针对那个事实的说明或错误放在那一行主行的下面，占满整行，不和值、按钮横排。错误按第 13 节：一句原因，下面一行灰色小字的参考编号。主行在任何状态下都保持单行、不变形。
+- 窄容器里行尾操作折到值的下面，label 顶对齐。
+- 作用于整个对象的操作（比如重启）不进列表，放页头右侧。
+- 一组事实可以包在 `rounded-xl bg-secondary` 的浅底分组里，没有 border、没有阴影；分组标题 `text-sm font-semibold`，放在分组外、和行内文字左对齐。这是内容里的一组事实，不是第 3 节禁止的页面级卡片岛屿。
+- 详情页顶部可以用居中的身份区（大号对象图标带状态点，下面是名称）。只用于「某一个对象」的详情页，列表页和表单页不用。名称可以改时，铅笔常驻挂在名称右侧、不挤偏名称：居中的标题没有可以 hover 出浅底的字段框，触屏上也没有 hover。
+
+两种写法共用：
+
+- 标识符类的值（主机名、版本号、ID、路径）用 `font-mono`。
 - 空值显示 `—`，不显示 "N/A"、"Unknown"、"暂无"。
+- label 要在上下文里不产生歧义：「System」下面的版本号写「CoForge version」，不写「Version」。
 
 ## 5. 信息层级：每个事实只出现一次
 
@@ -118,7 +135,7 @@
 
 1. 只用官方组件和 `components/ui` 清单里的原语
 2. 平铺发丝线，没有卡片岛屿
-3. 字段 label 在上，网格排布
+3. 字段按第 4 节选对写法：表单和长值用网格，短事实用列表；同一个 section 不混用
 4. 页头和正文没有重复的事实
 5. 没有提示句，值里没有 label 前缀
 6. 只用语义 token，品牌紫只在第 8 节列的位置
