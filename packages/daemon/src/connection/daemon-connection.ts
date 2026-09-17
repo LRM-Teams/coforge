@@ -2097,6 +2097,7 @@ function parseIdentityRuntimeContext(
     workspaceName: parseIdentityString(record.workspaceName, IDENTITY_OTHER_MAX_LENGTH),
     computerId: parseIdentityString(record.computerId, IDENTITY_OTHER_MAX_LENGTH),
     computerName: parseIdentityString(record.computerName, IDENTITY_OTHER_MAX_LENGTH),
+    computerHostname: parseIdentityString(record.computerHostname, IDENTITY_OTHER_MAX_LENGTH),
     computerOs: parseIdentityString(record.computerOs, IDENTITY_OTHER_MAX_LENGTH),
     computerVersion: parseIdentityString(record.computerVersion, IDENTITY_OTHER_MAX_LENGTH),
   };

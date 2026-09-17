@@ -84,6 +84,7 @@ test("Current Runtime Context renders each bullet only when its source value is 
       workspaceName: "Acme",
       computerId: "computer-1",
       computerName: "Builder Box",
+      computerHostname: "workstation-7.local",
       computerOs: "darwin 15.6",
       computerVersion: "0.1.0-dev.40",
     },
@@ -98,20 +99,31 @@ test("Current Runtime Context renders each bullet only when its source value is 
   expect(full).toContain("- Agent ID: agent-1");
   expect(full).toContain("- Workspace: Acme (acme)");
   expect(full).toContain("- Computer: Builder Box (computer-1)");
+  expect(full).toContain("- Hostname: workstation-7.local");
   expect(full).toContain("- OS: darwin 15.6");
   expect(full).toContain("- Computer version: v0.1.0-dev.40");
-  expect(full).not.toContain("- Hostname:");
   const order = [
     "- Role:",
     "- Username:",
     "- Agent ID:",
     "- Workspace:",
     "- Computer:",
+    "- Hostname:",
     "- OS:",
     "- Computer version:",
     "- Agent workspace:",
   ].map((marker) => full.indexOf(marker));
   for (let i = 1; i < order.length; i++) expect(order[i]!).toBeGreaterThan(order[i - 1]!);
+
+  const withoutHostname = buildCoforgeAgentInstructions({
+    agentWorkspaceDirectory: AGENT_WORKSPACES[0],
+    agentId: "agent-1",
+    identity: {
+      ...identity,
+      runtimeContext: { ...identity.runtimeContext, computerHostname: undefined },
+    },
+  });
+  expect(withoutHostname).not.toContain("- Hostname:");
 });
 
 test("Computer and Workspace bullets fall back to a single value when only one is present", () => {
