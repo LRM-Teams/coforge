@@ -3,7 +3,9 @@ status: accepted
 date: 2026-08-27
 ---
 
-# CoForge Agent SDK 与外部 Code Agent 子进程 Driver
+# CoForge Agent SDK 与外部 Code Agent 子进程 Provider
+
+_2026-09-17: terminology updated, Driver → provider; no decision changed._
 
 Frank 在 [Amp thread](https://ampcode.com/threads/T-01a040e2-d2ad-70ac-a080-fbabe1561e52) 中批准首批接入 Pi、Codex 与 Claude Code；CoForge Agent 使用随 Daemon 交付的 Pi SDK，用户安装的 Pi、Codex 与 Claude Code 复用用户已经安装、登录和配置的 CLI。这个决定替代“所有 code agent 都必须经 ACP”这一未实现假设；daemon runtime 对上仍只使用 provider-neutral code-agent interface，provider native protocol 不进入云端 wire、共享领域模型或其他 daemon 模块。
 
@@ -48,17 +50,17 @@ Pi、Codex 与 Claude Code 当前都没有统一的正式 ACP server。Pi 正式
 
 - `coforge` 是内置 provider：daemon 通过 `@coforge/agent` 的 SDK factory 直接创建 Pi session，不 spawn `coforge-agent`；Pi session 随 daemon runtime 生命周期运行。Codex 与 Claude Code 仍由 daemon 启动独立的用户安装 CLI 子进程。
 - Agent workspace 使用 `workspaces/<workspace_id>/agents/<agent_id>` 稳定相对路径，并跨 runtime 与 provider 变更保留。CoForge 分配的 Skills 在 process 启动前按 provider 的 project scope 写入该目录：Pi 使用 `.pi/skills`、Codex 使用 `.agents/skills`、Claude Code 使用 `.claude/skills`。HOME 下的 provider 全局 Skills 仍由用户和 provider CLI 管理，CoForge 不复制或改写。
-- Agent control protocol 只属于 Driver implementation，可以在不改变 `CodeAgentSession` interface 的前提下替换。
+- Agent control protocol 只属于 Provider implementation，可以在不改变 `CodeAgentSession` interface 的前提下替换。
 - CoForge Agent 实现属于可独立打包的 `@coforge/agent`，不是 daemon 源码中的 provider fork。该 package 固定 Pi SDK 版本，拥有 Pi-specific runner、extensions 和 skills；Daemon 在自身进程内直接调用 package 的 SDK factory 创建 session。
 - CoForge Agent 通过 Pi SDK 的 `createAgentSessionRuntime` / `createAgentSessionFromServices` 创建 session；完成以 SDK 的 `agent_settled` 为准，中断调用 SDK abort，销毁调用 SDK dispose。Pi `ResourceLoader` 在 session 创建前完成初始化；任何 skill diagnostic 都使启动失败。用户安装的 Pi 才通过 `pi --mode rpc --session-dir <agent_workspace>/.pi-sessions` 启动独立 child process。
-- Codex Driver 从传给 Agent runtime 的 `PATH` 启动用户安装的 `codex app-server`，复用该用户已有的登录和配置；完成 `initialize` / `initialized` 后创建持久 thread，或以原生 `thread/resume` 恢复指定 ID；显式使用 `danger-full-access` sandbox 与 `never` approval policy，完成以 `turn/completed` 为准。Daemon 不安装、固定或升级 Codex CLI。
-- Codex Driver 在创建 thread 前调用 stable `skills/list` 并设置 `forceReload: true`；对应 cwd 缺失或报告 skill loading error 时启动失败。
-- Claude Code Driver 从同一个受限环境的 `PATH` 启动用户安装的 `claude -p`，使用双向 `--input-format stream-json --output-format stream-json`、原生持久化与指定 ID 的 `--resume`，并启用 partial messages、`--dangerously-skip-permissions --permission-mode bypassPermissions`。它必须先完成官方 Agent SDK 同款 stream control `initialize` handshake，并确认响应包含已加载的 commands/skills 后才报告 ready；`result` 是 turn boundary，interrupt 使用该常驻 stream 的 control request。Daemon 不安装、固定或升级 Claude Code CLI。
-- 三侧 native envelope、request ID、thread/turn ID、tool item 和 provider error 都留在 Driver 内；调用方只认识 `CodeAgentSession` 与 provider-neutral event。
+- Codex Provider 从传给 Agent runtime 的 `PATH` 启动用户安装的 `codex app-server`，复用该用户已有的登录和配置；完成 `initialize` / `initialized` 后创建持久 thread，或以原生 `thread/resume` 恢复指定 ID；显式使用 `danger-full-access` sandbox 与 `never` approval policy，完成以 `turn/completed` 为准。Daemon 不安装、固定或升级 Codex CLI。
+- Codex Provider 在创建 thread 前调用 stable `skills/list` 并设置 `forceReload: true`；对应 cwd 缺失或报告 skill loading error 时启动失败。
+- Claude Code Provider 从同一个受限环境的 `PATH` 启动用户安装的 `claude -p`，使用双向 `--input-format stream-json --output-format stream-json`、原生持久化与指定 ID 的 `--resume`，并启用 partial messages、`--dangerously-skip-permissions --permission-mode bypassPermissions`。它必须先完成官方 Agent SDK 同款 stream control `initialize` handshake，并确认响应包含已加载的 commands/skills 后才报告 ready；`result` 是 turn boundary，interrupt 使用该常驻 stream 的 control request。Daemon 不安装、固定或升级 Claude Code CLI。
+- 三侧 native envelope、request ID、thread/turn ID、tool item 和 provider error 都留在 Provider 内；调用方只认识 `CodeAgentSession` 与 provider-neutral event。
 - 子进程只继承运行所需的基础路径、用户目录、临时目录和 locale 环境；额外变量必须由调用方显式声明。CoForge cloud credential 不得传入 Agent 子进程。
 - ACP 仍可用于未来正式支持 ACP 的 provider，但不是统一 seam 本身。
 
-当前 Driver 是 runtime integration seam，不代表 production sandbox 已完成。Pi 的工具和同一 OS user 下的 provider 进程仍需要后续受批准的 filesystem、credential 和 operation 隔离；这些门禁完成前不得把本 driver 宣称为可执行不受信任 Agent 的安全边界。
+当前 Provider 是 runtime integration seam，不代表 production sandbox 已完成。Pi 的工具和同一 OS user 下的 provider 进程仍需要后续受批准的 filesystem、credential 和 operation 隔离；这些门禁完成前不得把本 provider 宣称为可执行不受信任 Agent 的安全边界。
 
 ## 选型、成熟度与 license
 
@@ -71,13 +73,13 @@ Pi、Codex 与 Claude Code 当前都没有统一的正式 ACP server。Pi 正式
 | 自研 ACP bridge | 可保持表面单协议，但需要自行维护完整 capability、event、permission、cancel 与版本映射 | CoForge 自有维护面 | 拒绝；没有弥补 native protocol 的产品收益 |
 | 直接解析交互式 CLI output | 输出不是稳定 machine interface | provider dependent | 拒绝 |
 
-`@coforge/agent` 版本必须作为 Daemon 的精确依赖随 release set 固定并一起验证。Codex 与 Claude Code 则明确是用户管理的本机 prerequisite：CoForge 不复制其 binary、credential 或 updater，并从受限 Agent 环境的 `PATH` 解析 executable。Driver 开发与兼容测试跟随 provider 当前版本；Codex 只使用 stable app-server methods，不开启 experimental API。用户 CLI 缺失、过旧或 protocol 不兼容时必须明确失败，不能静默下载另一份或回退到交互式 output parsing。
+`@coforge/agent` 版本必须作为 Daemon 的精确依赖随 release set 固定并一起验证。Codex 与 Claude Code 则明确是用户管理的本机 prerequisite：CoForge 不复制其 binary、credential 或 updater，并从受限 Agent 环境的 `PATH` 解析 executable。Provider 开发与兼容测试跟随 provider 当前版本；Codex 只使用 stable app-server methods，不开启 experimental API。用户 CLI 缺失、过旧或 protocol 不兼容时必须明确失败，不能静默下载另一份或回退到交互式 output parsing。
 
 ## 运行、迁移与回滚
 
-初始仓库没有 production Agent Driver、session 数据或 wire consumer，因此不需要数据迁移。增加或删除一个 Driver 只改变 Daemon package 与 release payload，不改变云端 schema。
+初始仓库没有 production Agent Provider、session 数据或 wire consumer，因此不需要数据迁移。增加或删除一个 Provider 只改变 Daemon package 与 release payload，不改变云端 schema。
 
-启动 handshake 失败、stdout 出现无效 JSON、stdin 不可写或子进程提前退出时，Driver 显式失败，不能回退到交互式 CLI parsing。销毁先关闭 stdin 并等待正常退出，超时后发送 SIGTERM；provider stderr 只被 drain，不自动写入可能泄漏 credential 的产品日志。
+启动 handshake 失败、stdout 出现无效 JSON、stdin 不可写或子进程提前退出时，Provider 显式失败，不能回退到交互式 CLI parsing。销毁先关闭 stdin 并等待正常退出，超时后发送 SIGTERM；provider stderr 只被 drain，不自动写入可能泄漏 credential 的产品日志。
 
 回滚恢复前一组 Daemon 与 `@coforge/agent` artifact；Codex/Claude Code binary 仍由用户自己的安装渠道管理，不属于 CoForge release rollback。不得静默改用 daemon runtime 同进程 SDK、自研 ACP bridge、内置 provider binary 或 PATH 以外的替代安装。原生 Session 文件仍由各 provider 保留；回滚不迁移或删除这些文件，也不得把缺失引用解释为任意历史 Session。
 

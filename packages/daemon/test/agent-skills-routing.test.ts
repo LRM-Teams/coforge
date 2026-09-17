@@ -46,7 +46,7 @@ test("WSS Skills query scans a stopped Agent without launching or changing inven
   const runtime = new DaemonRuntime(
     { workspaceId: "workspace", computerId: "computer", workspaceRoot: root },
     () => {
-      throw new Error("Skills must not construct a driver");
+      throw new Error("Skills must not construct a provider");
     },
     credentials,
     { create: () => new DaemonConnection("wss://example.test", () => client) },

@@ -46,7 +46,7 @@ import {
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
 } from "../../../packages/daemon";
-import { PiJsonlFixtureDriver } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-driver";
+import { PiJsonlFixtureProvider } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-provider";
 
 const databaseUrl = requireEnvironment("DATABASE_URL");
 if (requireEnvironment("COFORGE_E2E_ALLOW_RESET") !== "1")
@@ -175,7 +175,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       serverHttpUrl: "http://127.0.0.1:8789",
     },
     () =>
-      new PiJsonlFixtureDriver([
+      new PiJsonlFixtureProvider([
         process.execPath,
         join(
           import.meta.dir,

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CoforgeProvider, PiProvider } from "../../packages/daemon/src/code-agent/pi/driver";
+import { CoforgeProvider, PiProvider } from "../../packages/daemon/src/code-agent/pi/provider";
 
 const names = [
   "HTTPS_PROXY",
@@ -62,12 +62,12 @@ try {
       Bun.env.HTTPS_PROXY = inherited.url;
       const workspace = join(root, `${provider}-${overridden ? "override" : "inherited"}`);
       await mkdir(workspace);
-      const driver = provider === "coforge" ? new CoforgeProvider() : new PiProvider();
-      let session: Awaited<ReturnType<typeof driver.createAgentSession>> | undefined;
+      const codeAgentProvider = provider === "coforge" ? new CoforgeProvider() : new PiProvider();
+      let session: Awaited<ReturnType<typeof codeAgentProvider.createAgentSession>> | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let sendError: unknown;
       try {
-        session = await driver.createAgentSession({
+        session = await codeAgentProvider.createAgentSession({
           agentWorkspaceDirectory: workspace,
           instructions: "This is a local proxy connectivity test. Do not use tools.",
           runtime: {
@@ -112,7 +112,7 @@ try {
         results.push({
           case: overridden ? "explicit override wins" : "local HTTPS_PROXY inherited",
           runtime: provider === "pi" ? "Pi SDK" : "CoForge Pi SDK",
-          productionSeam: `${driver.constructor.name}.createAgentSession → Pi SDK → model request`,
+          productionSeam: `${codeAgentProvider.constructor.name}.createAgentSession → Pi SDK → model request`,
           customEnvironmentProvided: overridden,
           observed: (overridden ? custom : inherited).requests[0],
           otherProxyRequests: 0,

@@ -46,12 +46,12 @@ export type {
   CodeAgentProviderFactory,
 } from "./src/code-agent/contract";
 export { createCodeAgentProvider } from "./src/code-agent/registry";
-export { ClaudeCodeProvider } from "./src/code-agent/claude-code/driver";
-export { CodexProvider } from "./src/code-agent/codex/driver";
+export { ClaudeCodeProvider } from "./src/code-agent/claude-code/provider";
+export { CodexProvider } from "./src/code-agent/codex/provider";
 export { readCodexUsage } from "./src/code-agent/codex/usage";
 export { readClaudeCodeUsage } from "./src/code-agent/claude-code/usage";
-export { CoforgeProvider, PiProvider } from "./src/code-agent/pi/driver";
-export { KiroProvider } from "./src/code-agent/kiro/driver";
+export { CoforgeProvider, PiProvider } from "./src/code-agent/pi/provider";
+export { KiroProvider } from "./src/code-agent/kiro/provider";
 export { createDaemonHost } from "./src/daemon-host";
 export { startDaemonLocalRpcServer } from "./src/local-rpc";
 export { startAgentProxy } from "./src/agent-proxy";

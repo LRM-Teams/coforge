@@ -2756,7 +2756,7 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("does not expose a usage driver exception in the scan response", async () => {
+  test("does not expose a usage provider exception in the scan response", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const runtime = new DaemonRuntime(
@@ -3265,7 +3265,7 @@ describe("DaemonRuntime", () => {
     ]);
   });
 
-  test("passes the runtime provider config to its driver without interpreting it", async () => {
+  test("passes the runtime provider config to its provider without interpreting it", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let startedCredential: unknown;

@@ -81,8 +81,8 @@ Raft 的 transcript 接口是另一项功能，不属于本次对齐目标。
 | 所有者/文件 | 当前事实 |
 | --- | --- |
 | `packages/daemon/src/agent-runtime/agent-workspace-path.ts` | 从不可变 Workspace/Agent ID 构造 `workspaces/<workspace_id>/agents/<agent_id>`；不能接受浏览器传 cwd。 |
-| `agent-runtime/agent-process-manager.ts`、`code-agent/contract.ts`、`packages/agent` | `AgentSessionOptions` / `AgentDriver.createAgentSession` 是现有 provider-neutral 启动 seam；standing instructions 通过 provider native injection，不靠写用户 AGENTS/CLAUDE 文件。 |
-| `code-agent/{claude-code,codex,pi}/driver.ts` | 各自拥有原生启动/discovery；Claude 此前只判断 init success，未校验 commands，本切片修复；Codex 已强制 reload；Pi 已发 `get_state/get_commands`。 |
+| `agent-runtime/agent-process-manager.ts`、`code-agent/contract.ts`、`packages/agent` | `AgentSessionOptions` / `AgentProvider.createAgentSession` 是现有 provider-neutral 启动 seam；standing instructions 通过 provider native injection，不靠写用户 AGENTS/CLAUDE 文件。 |
+| `code-agent/{claude-code,codex,pi}/provider.ts` | 各自拥有原生启动/discovery；Claude 此前只判断 init success，未校验 commands，本切片修复；Codex 已强制 reload；Pi 已发 `get_state/get_commands`。 |
 | Skills writer | ADR 已批准 CoForge 分配的 Skills 写入 Agent 的原生 project scope，但当前没有完整的分配来源、writer 或云端 assignment 协议。不能把架构意图说成已经实现。未产生 CoForge 分配项时，无需复制 Global Skills 来凑出 writer。 |
 | `code-agent/environment.ts` | 默认继承 HOME/PATH/XDG 等基础变量；`CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`PI_CODING_AGENT_DIR` 不是默认透传项，只有显式声明才传递。查询必须使用与该 Agent 启动相同的有效环境，不能盲扫 daemon 原始 env。 |
 | `code-agent/runtime-inventory.ts`、`daemon-runtime/runtime.ts` | 启动/重连扫描、上报 runtime 与 models。实际 `discoverCodeAgentInventory` 包含内置 CoForge metadata，也可发现外部 Pi；与文档部分“只报外部 Codex/Claude”的措辞存在偏差，本任务不顺带修改库存行为。 |
@@ -186,7 +186,7 @@ owning `AGENTS.md` 已记录模块职责，验收使用下列公开 seam：
   `get_state` 的 ID/文件匹配。最新切片已取消 Codex ephemeral 与 Claude no-session-persistence：
   Codex 选择 `thread/start` 或 `thread/resume`，拒绝恢复错误/返回 ID 不符；Claude 有 ID 时
   传 `--resume`，首条 stream input 也携带该 ID，无 ID 时不传 resume/continue/fork。
-  二者拒绝空 ID，不将它当 Reset。Driver 不建立 Session 所有权绑定，不应开放任意用户 ID。
+  二者拒绝空 ID，不将它当 Reset。Provider 不建立 Session 所有权绑定，不应开放任意用户 ID。
   不改变用户 HOME、全局认证或 Skills。当时的 Restart/Reset 调查见第 7 节，当前实现见第 10 节。
 - Claude Skills readiness：修复 `initialize` success 却无合法 commands 仍 ready 的问题；
   接受空和非空的有效列表。这只是原生适配器检查，不新增 provider-neutral 或云端字段。
@@ -201,7 +201,7 @@ global Skills 是独立剩余决定，不应借 Session 隔离或模仿 Raft 静
 
 - Claude regression：先运行新增的 missing/malformed commands 测试，得到
   `Expected promise that rejects / Received promise that resolved`；修复后通过。
-- Claude/Codex resume regression：先复现 supplied ID 被旧 driver 拒绝、fresh Codex 仍为
+- Claude/Codex resume regression：先复现 supplied ID 被旧 provider 拒绝、fresh Codex 仍为
   ephemeral、Claude 默认禁用 persistence，以及 Codex 接受错误的恢复 ID；分别修复并重跑。
 - `mise exec -- bun test packages/daemon/test/session-isolation.test.ts packages/daemon/test/claude-code-agent-adapter.test.ts packages/daemon/test/codex-agent-adapter.test.ts`：43 pass / 0 fail，80 assertions。
 - `mise run test`：808 pass / 0 fail（protocol 37、cli 24、agent 10、web 384、daemon 213、computer 140）。
@@ -209,7 +209,7 @@ global Skills 是独立剩余决定，不应借 Session 隔离或模仿 Raft 静
 - 本轮 check 首次发现 Codex fixture 的 optional params 类型未收窄；补必填检查后 targeted
   tests、check、build 通过，未关闭任何检查。
 - Orb 已安装 Codex 0.153.2 / Claude Code 2.1.260；在临时 HOME/config root 下通过两个真实
-  driver 的持久启动/初始化/dispose 探针，未发送 model turn、未使用用户 credentials。
+  provider 的持久启动/初始化/dispose 探针，未发送 model turn、未使用用户 credentials。
   正向 resume/multi-turn 主要由协议子进程 fixture 验证，不声称真实旧 transcript 的恢复已
   端到端验证；Pi exact-file resume 的 pinned CLI 测试仍通过。
 - 早期一次全量测试出现 channel 用例超时，随后全量和该用例 20 次重复通过；尚未定位其
@@ -221,7 +221,7 @@ global Skills 是独立剩余决定，不应借 Session 隔离或模仿 Raft 静
 改动文件：
 
 - `packages/agent/index.ts`、`src/paths.ts`、`src/runner.ts`、`test/session-isolation.test.ts`。
-- `packages/daemon/src/code-agent/{claude-code,codex,pi}/driver.ts`。
+- `packages/daemon/src/code-agent/{claude-code,codex,pi}/provider.ts`。
 - `packages/daemon/test/session-isolation.test.ts`、`claude-code-agent-adapter.test.ts`、
   `codex-agent-adapter.test.ts`、`fixtures/{pi-rpc,claude-stream-json,codex-app-server}.ts`。
 - `docs/architecture.md`（Session 作用域说明）、ADR 0002（原生存储决定补充）、本文（证据与未批准方案）。
@@ -247,7 +247,7 @@ global Skills 是独立剩余决定，不应借 Session 隔离或模仿 Raft 静
 
 - 约 11857 行 Claude `config.sessionId` 存在时添加 `--resume <id>`。
 - 约 13901 行 Codex 根据 `config.sessionId` 选择 `thread/resume(threadId)` 或 `thread/start`。
-- 约 30555 行处理 driver `session_init`，更新 Agent 当前 ID，然后上报
+- 约 30555 行处理 provider `session_init`，更新 Agent 当前 ID，然后上报
   `agent:session { agentId, sessionId, launchId }`；约 30746 行 turn-end 也可更新 ID。
 - 约 41397 行接收 `agent:start` 并传递 config；但没有公开 Web 源码证明按钮或数据库的
   exact restart/reset 实现，不能把 daemon 侧证据外推为已核实的完整云端流程。
@@ -262,7 +262,7 @@ Claude/Codex 的全局 ID resume。以下行号均针对第 1 节带校验和的
 
 | 位置 | 直接证据与边界 |
 | --- | --- |
-| `prepareCliTransport`，约 11060 行 | `spawnEnv` 按宿主 `process.env`、runtime 显式 `envVars`、driver `extraEnv` 合并；没有自动设置 per-Agent HOME/config root。Agent cwd 和 CLI wrapper 目录不等于 Session 存储隔离。 |
+| `prepareCliTransport`，约 11060 行 | `spawnEnv` 按宿主 `process.env`、runtime 显式 `envVars`、provider `extraEnv` 合并；没有自动设置 per-Agent HOME/config root。Agent cwd 和 CLI wrapper 目录不等于 Session 存储隔离。 |
 | `buildClaudeProviderIsolationEnv`，约 11536 行 | 名称中的 isolation 是清理未显式配置的认证/模型/provider 环境变量，普通配置返回空对象；不是隔离 Session 或重定向 `CLAUDE_CONFIG_DIR`。 |
 | Claude spawn，约 12340 行 | 传上述环境并设置 `cwd=workingDirectory`；明确警告旧 `.slock/claude-provider/home/.claude` 已不再使用，原文为 “custom-provider Claude now uses host Claude state plus explicit provider env.” 旧目录存在不代表当前仍使用。 |
 | `resolveCodexHomeRootFromConfig/Env`，约 12428–12455 行 | 优先显式 `CODEX_HOME`，否则宿主 `os.homedir()/.codex`；相对路径按 cwd 解析。没有根据 Agent ID 自动生成独立根。 |
@@ -311,10 +311,10 @@ Codex 的 exact-path resume 在当前 Rust schema 属 experimental；Claude tran
   但须设计受控的全局认证、配置、Skills 引用或独立登录；不能静默丢失用户原来的全局能力。
   不复制 global skills、不改写 HOME；选择性 symlink/配置引用是否允许、哪些可写目标可共享，
   是安全边界决定。当前不采用，不能声称已经验证所有原生配置可透明保留。
-- **保留原生全局存储（已选）**：driver 交给原生 API 恢复指定 ID；云端恢复链路必须只传
-  CoForge 为该 Agent 记录的绑定，driver 的 cwd 不是所有权检查。迁移较小且保留用户配置，
+- **保留原生全局存储（已选）**：provider 交给原生 API 恢复指定 ID；云端恢复链路必须只传
+  CoForge 为该 Agent 记录的绑定，provider 的 cwd 不是所有权检查。迁移较小且保留用户配置，
   文件不在 A，Claude 内部仍可能扫描全局；用户已明确放宽两者的物理存储/内部查找限制。
-- **外部 SessionStore/实验性路径**：Claude SDK SessionStore 需迁移当前 driver 并验证本地
+- **外部 SessionStore/实验性路径**：Claude SDK SessionStore 需迁移当前 provider 并验证本地
   mirror 行为；Codex experimental path 不能控制新 session 初次落盘。维护/兼容成本较高，
   不作为这次默认方案，不新增 dependency 或改变 license。
 
@@ -329,7 +329,7 @@ Session identity 的 WSS/数据库绑定已在第 10 节实现；Skills 查询�
   同名条目保留不同来源，**不替 provider 推断哪条实际生效**。全局目录由用户/provider
   管理，本查询没有 writer；受限符号链接与异常文件返回 partial，不上传正文或绝对 HOME。
 - `connection/daemon-connection.ts` 与 `daemon-runtime/runtime.ts` 处理二进制请求及结果，
-  从稳定 IDs 计算 A；仅扫描当前 Computer/Workspace，不创建 driver 或 Session、不 reload，
+  从稳定 IDs 计算 A；仅扫描当前 Computer/Workspace，不创建 provider 或 Session、不 reload，
   不更新 inventory。现有启动额外环境只有 COFORGE_* capabilities，因此默认 native roots
   与启动环境一致；future 自定义 runtime env 必须同时接入 query，不能只改启动端。
 - Web `server/agents/agent-skills.server.ts`、`server/centrifugo/agent-skills-cache.server.ts`
@@ -413,7 +413,7 @@ Session 表、当前控制 JSONB 与持久化重放防护，并修订恢复策�
 
 1. **Provider-neutral identity seam**：`AgentSession` 提供当前 identity 及变更通知，避免
    在 subscribe 前已经初始化而漏报；区分 unknown、尚未持久化、可恢复。Provider 解析
-   仍留在 driver，不上传 Session 正文或路径。Pi 空会话延迟落盘必须用原生探针验证；
+   仍留在 provider，不上传 Session 正文或路径。Pi 空会话延迟落盘必须用原生探针验证；
    缺文件/不明状态不能伪装恢复成功，也不能擅自降级新会话。
 2. **可靠 WSS report 与控制结果**：新增 Session identity report 和按请求关联的
    start/stop/reset 结果；关联 Workspace、Computer、Agent、provider、control epoch、
@@ -451,7 +451,7 @@ Session 表、当前控制 JSONB 与持久化重放防护，并修订恢复策�
 Web Agent lifecycle use case 与有条件的数据库绑定；协议 codecs/result receiver；Profile。
 逐片 red→green，不能只测按钮依次调用了两个函数：
 
-- 四种 driver 首次 identity、恢复同 ID、初始化期间漏报、错误 ID 与 Pi 空会话落盘；
+- 四种 provider 首次 identity、恢复同 ID、初始化期间漏报、错误 ID 与 Pi 空会话落盘；
 - Restart Stop 失败不 Start、非分类恢复错误不 fallback、Reset 保留所有 workspace 文件；
 - Full Reset 清掉隐藏文件但不删除 HOME/兄弟 Agent，根或祖先链接拒绝，内部外链不跟随；
 - 清空前/中/后以及 Start 后崩溃，重复请求绝不删除新文件；失败不创建第二个进程；
@@ -467,7 +467,7 @@ Web Agent lifecycle use case 与有条件的数据库绑定；协议 codecs/resu
 
 ## 10. 批准后的实现结果
 
-- Provider-neutral `readSessionIdentity()` 与 Session 事件接入四种 driver。Web 的
+- Provider-neutral `readSessionIdentity()` 与 Session 事件接入四种 provider。Web 的
   `AgentControl`、Daemon 的 `AgentControl` 和 `PrismaAgentControlStore` 分别拥有云端
   授权/条件状态、本地控制防护、Session 行与当前绑定；内置 runner 通过原生 `sessionId`
   getter 提供 identity。`AgentSession` 是 native ID/state 的唯一持久化所有者，
@@ -500,10 +500,10 @@ Web Agent lifecycle use case 与有条件的数据库绑定；协议 codecs/resu
   未跟踪 workspace 时拒绝继续；启动失败后必须确认 stop，不能把可能存活的进程写成
   安全终态。单元回归覆盖；不声称任意硬崩溃后的自动进程协调已实现。
 - 后续用户要求补功能联调，新增 `apps/web/test/agent-control.e2e.ts`：真实浏览器按钮、
-  Web、PostgreSQL、Redis、Centrifugo WSS、DaemonRuntime 和 PiDriver，只有原生 Pi
+  Web、PostgreSQL、Redis、Centrifugo WSS、DaemonRuntime 和 PiProvider，只有原生 Pi
   child 使用确定性协议 fixture（不调用付费模型）。临时独立 Computer/Agent/目录及
   fixture HOME，不 TRUNCATE、不 FLUSHDB、不写用户真实 Global Skills，结束后清理。
-  联调先暴露回合结束后 Session 状态未刷新的问题；补上 driver identity 读取和上报后，
+  联调先暴露回合结束后 Session 状态未刷新的问题；补上 provider identity 读取和上报后，
   联调覆盖空 Session 静默新建、非空精确恢复、旧 child 已退出、Reset 保留文件、
   Full Reset 删除范围和取消确认、Skills 只返回元数据、正常 Daemon 重启恢复。
   后续补实际浏览器 Activity 断言，修复测试代理未转发 `centrifuge-protobuf` 导致浏览器

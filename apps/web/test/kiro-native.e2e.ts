@@ -99,13 +99,13 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
     runtime = new DaemonRuntime(
       config,
       (provider) => {
-        const driver = createCodeAgentProvider(provider);
+        const codeAgentProvider = createCodeAgentProvider(provider);
         return {
           provider,
-          readUsage: driver.readUsage?.bind(driver),
+          readUsage: codeAgentProvider.readUsage?.bind(codeAgentProvider),
           createAgentSession: async (options) => {
             try {
-              return await driver.createAgentSession(options);
+              return await codeAgentProvider.createAgentSession(options);
             } catch (error) {
               console.error("Kiro E2E launch selection", {
                 model: options.runtime?.model,

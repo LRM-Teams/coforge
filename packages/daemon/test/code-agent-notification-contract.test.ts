@@ -3,22 +3,22 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
-import { CodexProvider } from "../src/code-agent/codex/driver";
-import { ClaudeCodeProvider } from "../src/code-agent/claude-code/driver";
+import { CodexProvider } from "../src/code-agent/codex/provider";
+import { ClaudeCodeProvider } from "../src/code-agent/claude-code/provider";
 
 const command = (fixture: string) => [
   process.execPath,
   new URL(`./fixtures/${fixture}`, import.meta.url).pathname,
 ];
-const drivers = [
+const providers = [
   new CodexProvider({ command: command("codex-app-server.ts") }),
   new ClaudeCodeProvider({ command: command("claude-stream-json.ts") }),
 ];
 
-for (const driver of drivers) {
-  test(`${driver.provider}: notification acceptance is independent of run completion`, async () => {
+for (const provider of providers) {
+  test(`${provider.provider}: notification acceptance is independent of run completion`, async () => {
     const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-notification-contract-"));
-    const session = await driver.createAgentSession({
+    const session = await provider.createAgentSession({
       agentWorkspaceDirectory,
       instructions: "Test Agent instructions.",
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },

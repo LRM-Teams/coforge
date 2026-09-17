@@ -65,7 +65,7 @@ describe("AgentProcessManager", () => {
       sessionId: undefined,
       runtime: config,
     });
-    if (!startedOptions) throw new Error("driver was not started");
+    if (!startedOptions) throw new Error("provider was not started");
     expect(startedOptions.instructions.match(/^## Current Runtime Context$/gm)).toHaveLength(1);
     expect(startedOptions.instructions.match(/^- Agent workspace: /gm)).toHaveLength(1);
     expect(startedOptions.instructions.split(workspace)).toHaveLength(2);
@@ -84,7 +84,7 @@ describe("AgentProcessManager", () => {
     expect(manager.runningAgentIds()).toEqual([]);
   });
 
-  test("retains provider configuration for the driver launch", async () => {
+  test("retains provider configuration for the provider launch", async () => {
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
       async createAgentSession() {
@@ -114,7 +114,7 @@ describe("AgentProcessManager", () => {
     await manager.stop("agent-credential");
   });
 
-  test("creates the Agent workspace before starting its driver", async () => {
+  test("creates the Agent workspace before starting its provider", async () => {
     const root = await mkdtemp(join(tmpdir(), "coforge-agent-runtime-"));
     const workspace = join(root, "workspace", "agents", "agent-1");
     let directoryExistsAtStart = false;
@@ -191,7 +191,7 @@ describe("AgentProcessManager", () => {
     expect(options?.sessionId).toBe("session-7");
   });
 
-  test("does not retain a runtime when driver startup fails", async () => {
+  test("does not retain a runtime when provider startup fails", async () => {
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
       async createAgentSession() {

@@ -3,10 +3,10 @@ import { realpathSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { KiroProvider } from "../src/code-agent/kiro/driver";
+import { KiroProvider } from "../src/code-agent/kiro/provider";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
-// macOS tmpdir lives under /var, a symlink; the Kiro driver rejects a linked
+// macOS tmpdir lives under /var, a symlink; the Kiro provider rejects a linked
 // agent profile directory (comparing realpath to the literal resolved path).
 const tempRoot = realpathSync(tmpdir());
 
