@@ -29,7 +29,8 @@ test.each(AGENT_WORKSPACES)(
     expect(rendered.split(agentWorkspace)).toHaveLength(2);
     expect(rendered.indexOf(agentWorkspace)).toBeLessThan(communicationSection);
     expect(rendered).not.toContain("Current working directory:");
-    expect(rendered).not.toContain("MEMORY.md");
+    expect(rendered).toContain("## Workspace & Memory");
+    expect(rendered).toContain("MEMORY.md");
   },
 );
 
@@ -57,12 +58,11 @@ test("the opening line quotes displayName over name, sanitising newlines and quo
   expect(nameOnly.startsWith('You are "scout", an AI agent in CoForge')).toBe(true);
 });
 
-test("Who you are has no MEMORY.md convention and points at the Agent workspace instead", () => {
+test("Who you are names both the Agent workspace and MEMORY.md as what persists across turns", () => {
   expect(instructions).toContain("## Who you are");
   expect(instructions).toContain(
-    "Your Agent workspace persists across turns, so you can recover context when resumed.",
+    "Your Agent workspace and MEMORY.md persist across turns, so you can recover context when resumed.",
   );
-  expect(instructions).not.toContain("MEMORY.md");
   const whoYouAreIndex = instructions.indexOf("## Who you are");
   const runtimeContextIndex = instructions.indexOf("## Current Runtime Context");
   expect(whoYouAreIndex).toBeGreaterThan(-1);
@@ -411,27 +411,37 @@ test("the prompt is its named sections, in order, each opening with its own head
     communicationStyle: "## Communication style",
     conversationEtiquette: "### Conversation etiquette",
     liveConstraints: "## Live constraints",
+    workspaceAndMemory: "## Workspace & Memory",
+    compactionSafety: "### Compaction safety (CRITICAL)",
     closing: "Complete the requested work",
   };
   expect(Object.keys(sections)).toEqual(Object.keys(headings));
   for (const [name, heading] of Object.entries(headings))
     expect(sections[name as keyof typeof sections].startsWith(heading)).toBe(true);
   expect(instructions.endsWith(Object.values(sections).join("\n\n"))).toBe(true);
-  // No section leaks a heading that belongs to another one.
-  for (const section of Object.values(sections))
+  // No section leaks a heading that belongs to another one. `workspaceAndMemory` is exempt: it
+  // legitimately carries several of its own sub-headings plus a fenced markdown MEMORY.md
+  // template whose `#`/`##` lines are literal example content, not prompt structure — checked
+  // separately below instead of weakening this assertion for every other section.
+  for (const [name, section] of Object.entries(sections)) {
+    if (name === "workspaceAndMemory") continue;
     expect(section.match(/^#{2,3} /gm)?.length ?? 0).toBeLessThanOrEqual(1);
+  }
+  expect(sections.workspaceAndMemory.match(/^## Workspace & Memory$/gm)).toHaveLength(1);
 });
 
-test("Startup sequence lists five ordered steps and recovers context without a memory file", () => {
+test("Startup sequence lists five ordered steps and reads MEMORY.md before other context", () => {
   const section = buildCoforgeCliGuideSections().startupSequence;
   expect(section.match(/^\d\. /gm)).toEqual(["1. ", "2. ", "3. ", "4. ", "5. "]);
   expect(section).toContain(
     "send it early with `coforge message send` before deep context gathering",
   );
+  expect(section).toContain(
+    "2. Read MEMORY.md (in your Agent workspace) and then only the additional memory/files you need to handle the current turn well.",
+  );
   expect(section).toContain("`coforge message search` and `coforge message read`");
   expect(section).toContain("If there is no pending work, stop.");
   expect(section).toContain("**Complete ALL your work before stopping.**");
-  expect(section).not.toContain("MEMORY.md");
   expect(section).not.toContain("Runtime Profile Control");
   // Sits between the communication intro and Messages.
   expect(instructions.indexOf("## CoForge communication")).toBeLessThan(
@@ -628,4 +638,37 @@ test("Formatting section describes real rendering: mention chips, plain-text cha
   expect(section).toContain("references are shown to humans as plain text");
   expect(section).toContain('always "task #N", not a bare "#N"');
   expect(section).toContain("never write it yourself");
+});
+
+test("Workspace & Memory names MEMORY.md as the index and describes the template/notes convention", () => {
+  const sections = buildCoforgeCliGuideSections();
+  const section = sections.workspaceAndMemory;
+  expect(section).toContain("## Workspace & Memory");
+  expect(section).toContain("Your Agent workspace is a **persistent, agent-owned working area**");
+  expect(section).toContain("### MEMORY.md — Your Memory Index (CRITICAL)");
+  expect(section).toContain("is the **entry point** to all your knowledge");
+  expect(section).toContain("### What to memorize");
+  expect(section).toContain("**User preferences**");
+  expect(section).toContain("### How to organize memory");
+  expect(section).toContain("Create a `notes/` directory for detailed knowledge files.");
+  expect(section).toContain("```markdown");
+  expect(section).toContain("# <Your Name>");
+  expect(section).toContain("## Active Context");
+
+  // Inserted at the end of buildCoforgeCliGuideSections()'s record, immediately before
+  // compactionSafety and closing.
+  const order = Object.keys(sections);
+  expect(order.indexOf("workspaceAndMemory")).toBe(order.indexOf("compactionSafety") - 1);
+  expect(order.indexOf("compactionSafety")).toBe(order.indexOf("closing") - 1);
+  expect(order.at(-1)).toBe("closing");
+});
+
+test("Compaction safety says MEMORY.md is the recovery point after context compression", () => {
+  const section = buildCoforgeCliGuideSections().compactionSafety;
+  expect(section.startsWith("### Compaction safety (CRITICAL)")).toBe(true);
+  expect(section).toContain("lose your in-context conversation history");
+  expect(section).toContain("MEMORY.md is your recovery point after compression");
+  expect(section).toContain("**MEMORY.md must be self-sufficient as a recovery point.**");
+  expect(section).toContain('write a brief "Active Context" note in MEMORY.md');
+  expect(instructions).toContain(section);
 });

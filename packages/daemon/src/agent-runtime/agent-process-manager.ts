@@ -7,6 +7,7 @@ import {
   type AgentLaunchIdentity,
 } from "../code-agent/agent-instructions";
 import { installAssignedSkills, type AssignedSkillPack } from "../code-agent/assigned-skills";
+import { seedAgentMemory } from "./agent-memory-seed";
 import { mkdir } from "node:fs/promises";
 
 export type { AgentStatus } from "./agent-state-machine";
@@ -82,6 +83,11 @@ export class AgentProcessManager {
       throw new Error(`Agent runtime is already active: ${agentId}`);
     }
     await mkdir(agentWorkspaceDirectory, { recursive: true, mode: 0o700 });
+    await seedAgentMemory(agentWorkspaceDirectory, {
+      name: identity?.name,
+      displayName: identity?.displayName,
+      description: identity?.description,
+    });
     if (assignedSkillPacks.length > 0) {
       await installAssignedSkills({
         provider: config.provider,
