@@ -691,7 +691,7 @@ identity 并声明替代旧 ID，不能以相同 ID 冒充 resume。切换 runti
 Skills、其他 Agent 目录、云端 Message 或位于原生 HOME 的 Claude/Codex Session 文件。
 停止失败禁止删除或启动（`confirmed_stop_required`；刻意保留于 Raft 之外的检查，避免在
 存活进程下删除 workspace——失败的 Stop 本身可在 PR #317 之后直接重试，不损失可用性）。
-删除失败不再禁止启动：liveness over durable receipts（ADR 0034），清理失败是非致命的——
+删除失败不再禁止启动：liveness over durable receipts（ADR 0035），清理失败是非致命的——
 Daemon 以 error 级别记录失败原因，仍在本地清除旧 Session 绑定，并把结果报告为携带
 `warningCode`（`workspace_clear_incomplete`）的 `workspace-reset`，链条照常推进到 Start；
 前端据此在结果已展示的面板内联提示，不使用 toast，也不展示原始 code。清空逐条删除时，
@@ -717,7 +717,7 @@ Reset 的例外规则同样适用于已放弃的 Full Reset：仅显式确认的
 Clear Session 是云端本地步骤，与下一步骤状态在同一 PostgreSQL 事务提交；Session 与
 控制写入先锁 Agent 行，再重新读取关联 Session，避免旧快照覆盖新的绑定或可恢复状态。
 执行结果未知时保留当前步骤，重发沿用原标识。任一步骤的失败结果都不再锁死后续操作
-（ADR 0034）：一旦当前操作到达终态（`completed`/`failed`），下一次 start、stop、restart、
+（ADR 0035）：一旦当前操作到达终态（`completed`/`failed`），下一次 start、stop、restart、
 reset-session、full-reset 都可以立即发起，不要求先完成特定动作的显式重试；仍在进行中的
 操作（非终态）依旧拒绝新的竞争请求，这条规则未变。
 这保证顺序、互斥和防重复，不是跨进程、文件系统和数据库的全有或全无事务；无通用
@@ -769,7 +769,7 @@ stopped 并以 error 级别记录修复事件（修复即上一次写入方留�
 `exitUnconfirmed` 的记录继续 fail closed，需要人工诊断，删除防护记录仍不能当作修复。
 启动后才发生的 provider replay 错误尚不自动 fresh fallback。
 
-ADR 0034（2026-09-17）之后，`resetWorkspace` 的清理失败不再把记录写成终态 `failed`：
+ADR 0035（2026-09-17）之后，`resetWorkspace` 的清理失败不再把记录写成终态 `failed`：
 Daemon 以 error 级别记录失败原因，仍照常清除本地 Session 绑定，并把记录和回执都写成
 `workspace-reset`，附带 `warningCode`，让 Start 照常发生。旧 Daemon 遗留在磁盘上、
 action 为 `reset-workspace` 且 phase 为 `failed` 的记录不再无条件地拒绝后续任何 epoch
