@@ -627,15 +627,26 @@ export class AgentControl {
         throw new Error("Unsolicited managed launch");
       return;
     }
-    if (
-      !current(agent, state) ||
-      state.phase !== "starting" ||
-      state.requestId !== input.requestId ||
-      state.epoch !== input.controlEpoch ||
-      !input.launchId ||
-      state.launchId !== input.launchId
-    )
+    if (!current(agent, state)) throw new Error("Stale Agent launch");
+    const sameScope =
+      state.requestId === input.requestId &&
+      state.epoch === input.controlEpoch &&
+      !!input.launchId &&
+      state.launchId === input.launchId;
+    if (state.phase === "starting") {
+      if (sameScope) return;
       throw new Error("Stale Agent launch");
+    }
+    // ADR 0042: a daemon-initiated wake resends the same requestId/controlEpoch/launchId this
+    // Agent's last managed operation completed under, instead of a fresh managed scope. Accepted
+    // only when that operation finished a start-ending chain (phase "completed" is reached only
+    // by the `start` command's `completed` value — restart/reset-session/full-reset all end their
+    // chain with a `start` step too, so this already implies the right chain shape without a
+    // separate `action` check) under the exact same scope, and the Agent is not user-stopped
+    // (ADR 0038) — never for a superseded, failed, or stopped operation, and never for an Agent a
+    // user explicitly stopped, even if its last completed operation looks otherwise current.
+    if (state.phase === "completed" && sameScope && !agent.stoppedAt) return;
+    throw new Error("Stale Agent launch");
   }
   /** RPC ACK follows conditional persistence; never acquires the control waiter's lock. */
   async result(claim: { workspaceId: string; computerId: string }, result: AgentControlResult) {
