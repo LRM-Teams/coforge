@@ -7,6 +7,7 @@ import { DaemonRuntime } from "../src/daemon-runtime/runtime";
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
+  AgentSessionRecoveryError,
   UsageUnavailableError,
   type AgentRuntimeConfig,
   type AgentRuntimeEvent,
@@ -4246,6 +4247,8 @@ describe("DaemonRuntime", () => {
     const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
     let fail = false;
     const reports: import("@lrm/coforge-sdk/internal").AgentSessionReport[] = [];
+    const invalidations: import("@lrm/coforge-sdk/internal").AgentSessionInvalidate[] = [];
+    const order: string[] = [];
     const runtime = new DaemonRuntime(
       connection,
       () => ({
@@ -4269,7 +4272,12 @@ describe("DaemonRuntime", () => {
             return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
           },
           async revokeAgentApiKey() {},
+          sendSessionInvalidate(message) {
+            order.push("invalidate");
+            invalidations.push(message);
+          },
           async reportAgentSession(report) {
+            order.push("report");
             reports.push(report);
           },
         }),
@@ -4278,6 +4286,17 @@ describe("DaemonRuntime", () => {
     try {
       await runtime.start(connection);
       await runtime.startAgent("agent-a", config, "old-session", "cloud-start");
+      // Driver-reported replacement (Claude Code/Codex's own in-driver session recreation, here
+      // simulated on "pi" for test simplicity): exactly one invalidate, sent BEFORE the report
+      // so the server's exact match against the still-stale session can succeed.
+      expect(order).toEqual(["invalidate", "report"]);
+      expect(invalidations).toHaveLength(1);
+      expect(invalidations[0]).toMatchObject({
+        sessionId: "old-session",
+        reason: "missing",
+      });
+      expect(invalidations[0]).not.toHaveProperty("startRequestId");
+      expect(invalidations[0]).not.toHaveProperty("controlEpoch");
       expect(reports[0]).toMatchObject({
         sessionId: "new-session",
         replacedSessionId: "old-session",
@@ -4286,8 +4305,14 @@ describe("DaemonRuntime", () => {
       expect(
         activities.some(
           (activity) =>
-            activity.detail ===
-            "Original session history was not found. A new session was started; previous context was not restored.",
+            activity.detailKind === "runtime_unavailable" &&
+            activity.detail === "Stored Pi session missing; cold-starting a new session…" &&
+            activity.entries?.some(
+              (entry) =>
+                entry.kind === "text" &&
+                entry.text ===
+                  "Stored Pi session old-session is unavailable locally. Falling back to a cold start; earlier runtime context may not be restored.",
+            ),
         ),
       ).toBe(true);
       fail = true;
@@ -4296,6 +4321,159 @@ describe("DaemonRuntime", () => {
       expect(JSON.stringify(activities)).not.toContain("private-provider-token");
     } finally {
       await runtime.stop();
+    }
+  });
+
+  test.each([
+    ["session_missing", "missing"],
+    ["provider_replay_rejected", "provider_replay_rejected"],
+  ] as const)(
+    "reports exactly one session invalidate with the correct reason for a kiro/pi retry (%s)",
+    async (code, reason) => {
+      // AgentControl's persisted control record is keyed by stateDirectory, not just agentId;
+      // a dedicated directory (cleaned up below) keeps this test isolated from every other test
+      // in this file and from any other run — the shared default is a real, reused directory.
+      const stateDirectory = join(tempRoot, `coforge-retry-invalidate-${crypto.randomUUID()}`);
+      const credentials = new InMemoryDaemonCredentialStore();
+      await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+      const invalidations: import("@lrm/coforge-sdk/internal").AgentSessionInvalidate[] = [];
+      const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+      let attempts = 0;
+      const runtime = new DaemonRuntime(
+        connection,
+        () => ({
+          provider: "kiro",
+          async createAgentSession(options) {
+            attempts++;
+            if (options.sessionId) throw new AgentSessionRecoveryError(code);
+            return sessionSpy();
+          },
+        }),
+        credentials,
+        {
+          create: () => ({
+            async start() {},
+            async ready() {},
+            async stop() {},
+            sendAgentActivity(activity) {
+              activities.push(activity);
+            },
+            async requestAgentLaunchConfig() {
+              return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+            },
+            async revokeAgentApiKey() {},
+            sendSessionInvalidate(message) {
+              invalidations.push(message);
+            },
+            async sendAgentControlResult() {},
+            async reportAgentSession() {},
+          }),
+        },
+        undefined,
+        emptyCodeAgentDiscovery,
+        stateDirectory,
+      );
+      const intent = {
+        protocolMajor: 1,
+        requestId: "retry-start",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: `retry-agent-${code}`,
+        provider: "kiro" as const,
+        model: "default",
+        modelProvider: "anthropic",
+        reasoning: "balanced",
+        controlEpoch: 1,
+        sessionId: "stale-session",
+        sessionMode: "resume" as const,
+      };
+      try {
+        await runtime.start(connection);
+        await runtime.handleAgentStart(intent);
+        // Exactly one launch attempt failed with the recovery error before the fresh retry.
+        expect(attempts).toBe(2);
+        expect(invalidations).toHaveLength(1);
+        expect(invalidations[0]).toMatchObject({ sessionId: "stale-session", reason });
+        expect(invalidations[0]).not.toHaveProperty("startRequestId");
+        expect(invalidations[0]).not.toHaveProperty("controlEpoch");
+        expect(
+          activities.filter((activity) => activity.detailKind === "runtime_unavailable"),
+        ).toHaveLength(1);
+      } finally {
+        await runtime.stop();
+        await rm(stateDirectory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("session_in_use retries without reporting any session invalidate or cold-start Activity", async () => {
+    const stateDirectory = join(tempRoot, `coforge-retry-invalidate-busy-${crypto.randomUUID()}`);
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const invalidations: import("@lrm/coforge-sdk/internal").AgentSessionInvalidate[] = [];
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+    let attempts = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "kiro",
+        async createAgentSession(options) {
+          attempts++;
+          if (options.sessionId) throw new AgentSessionRecoveryError("session_in_use");
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+          sendSessionInvalidate(message) {
+            invalidations.push(message);
+          },
+          async sendAgentControlResult() {},
+          async reportAgentSession() {},
+        }),
+      },
+      undefined,
+      emptyCodeAgentDiscovery,
+      stateDirectory,
+    );
+    const intent = {
+      protocolMajor: 1,
+      requestId: "retry-start-busy",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "retry-agent-busy",
+      provider: "kiro" as const,
+      model: "default",
+      modelProvider: "anthropic",
+      reasoning: "balanced",
+      controlEpoch: 1,
+      sessionId: "busy-session",
+      sessionMode: "resume" as const,
+    };
+    try {
+      await runtime.start(connection);
+      await runtime.handleAgentStart(intent);
+      // The retry still happens (fix 1 must make the carried-over `replaced` harmless, not
+      // block the retry) — only the reporting is suppressed.
+      expect(attempts).toBe(2);
+      expect(invalidations).toHaveLength(0);
+      expect(activities.some((activity) => activity.detailKind === "runtime_unavailable")).toBe(
+        false,
+      );
+    } finally {
+      await runtime.stop();
+      await rm(stateDirectory, { recursive: true, force: true });
     }
   });
 

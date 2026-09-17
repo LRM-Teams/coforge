@@ -2,6 +2,7 @@ import { getLogger } from "@logtape/logtape";
 import type {
   AgentControlResult,
   AgentControlScope,
+  AgentSessionInvalidateReason,
   AgentStartIntent,
   AgentWorkspaceResetRequest,
   SessionIdentity,
@@ -23,8 +24,20 @@ type Runtime = {
     intent: AgentStartIntent,
     launchId: string,
     replacedSessionId?: string,
+    /** Set only alongside `replacedSessionId`, for the same `invalidateSession` call that
+     * preceded this retry launch; narrates the fresh launch's cold-start Activity with the
+     * reason that was actually reported, without a daemon-side side-channel map (fix for the
+     * removed `#pendingSessionInvalidateReason`). */
+    invalidateReason?: AgentSessionInvalidateReason,
   ): Promise<SessionIdentity | undefined>;
   wake?(intent: AgentStartIntent): Promise<void>;
+  /** Fire-and-forget; never blocks or fails the launch it is reported alongside. */
+  invalidateSession?(
+    intent: AgentStartIntent,
+    launchId: string,
+    sessionId: string,
+    reason: AgentSessionInvalidateReason,
+  ): void;
   result(result: AgentControlResult): Promise<void>;
   /** True when `error` (from `stop`/`launch`'s cleanup) means the local process's exit could not
    * be confirmed — the one case a stale-looking record must keep fencing rather than repair. */
@@ -296,7 +309,19 @@ export class AgentControl {
         } catch (error) {
           if (!intent.sessionId || !(error instanceof AgentSessionRecoveryError)) throw error;
           const { sessionId: replaced, sessionMode: _, ...fresh } = intent;
-          identity = await this.runtime.launch(fresh, launchId, replaced);
+          // Fire-and-forget: tell the server the stale session is gone BEFORE the fresh
+          // launch attempt, so a later Restart never tries it again — even if this launch
+          // then fails. Only the two invalidation reasons are reported; "session_in_use"
+          // is a retry signal, not evidence the session itself is gone, so `reason` stays
+          // undefined and neither `invalidateSession` nor the retry's narration fires.
+          const reason: AgentSessionInvalidateReason | undefined =
+            error.code === "session_missing"
+              ? "missing"
+              : error.code === "provider_replay_rejected"
+                ? "provider_replay_rejected"
+                : undefined;
+          if (reason) this.runtime.invalidateSession?.(intent, launchId, replaced, reason);
+          identity = await this.runtime.launch(fresh, launchId, replaced, reason);
         }
         record.phase = "running";
         record.startResult = {

@@ -160,6 +160,15 @@ and other I/O failures do not become fresh sessions. Raft `controlAgentRuntime`
 capability: any current Workspace member (owner, admin, or member) may perform it,
 regardless of who owns the Agent (ADR 0034).
 
+**Session Invalidate**:
+The daemon-initiated notice behind a Restart Agent's "known missing or safely
+non-replayable session" clause: before (or, for an in-driver replacement, at the
+point of learning of) a cold-start retry, the daemon reports the stale native
+session id fire-and-forget so the cloud Session association is cleared once,
+instead of every later Restart trying the same dead id. It never discards the
+Agent workspace and never itself starts a new session; it only clears a stale
+association a subsequent Restart Agent then starts fresh from.
+
 **Reset Session**:
 Stop the Agent runtime, discard its current session association, and start a new
 Agent session in one user operation. Preserve the Agent workspace and old native

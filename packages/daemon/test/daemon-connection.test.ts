@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
+import { configure, reset, type LogRecord } from "@logtape/logtape";
 import {
   createAgentMessageHttpClient,
   defaultAgentChannelHttpClient,
@@ -10,7 +11,9 @@ import type { AgentSendResponse } from "@lrm/coforge-sdk/agent";
 import {
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_STATUS_METHOD,
+  AGENT_SESSION_INVALIDATE_METHOD,
   decodeAgentActivity,
+  decodeAgentSessionInvalidate,
   decodeAgentStatus,
   decodeAgentMessageDeliveryAck,
   decodeDaemonRuntimeReadyRequest,
@@ -27,6 +30,26 @@ import { DAEMON_RUNTIME_READY_METHOD } from "@lrm/coforge-sdk/internal";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
 import { AgentTransportError } from "../src/connection/agent-transport-error";
+
+/** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
+ * previous (unconfigured) logging state. Mirrors the pattern in daemon-runtime.test.ts. */
+async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; records: LogRecord[] }> {
+  const records: LogRecord[] = [];
+  await configure({
+    reset: true,
+    sinks: { capture: (record) => records.push(record) },
+    loggers: [
+      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
+      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
+    ],
+  });
+  try {
+    const result = await run();
+    return { result, records };
+  } finally {
+    await reset();
+  }
+}
 
 function fakeClient() {
   let connected = () => {};
@@ -300,6 +323,259 @@ test("retains only each Agent's newest activity while disconnected and flushes o
     { agentId: "agent-1", launchId: "new-launch", clientSeq: 2 },
     { agentId: "agent-2", launchId: "launch-2", clientSeq: 1 },
   ]);
+});
+
+function sessionInvalidate(
+  agentId: string,
+  launchId: string,
+): import("@lrm/coforge-sdk/internal").AgentSessionInvalidate {
+  return {
+    protocolMajor: 1,
+    requestId: `${agentId}-invalidate`,
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId,
+    provider: "codex",
+    sessionId: "stale-native-session",
+    daemonInstanceId: "daemon-1",
+    launchId,
+    reason: "missing",
+  };
+}
+
+/** Minimal `AgentSessionReport` the connection's `reportAgentSession` accepts, used only to
+ * drive `#observeLaunchIdentity`'s bookkeeping in these tests. */
+function sessionReport(
+  agentId: string,
+  launchId: string,
+): import("@lrm/coforge-sdk/internal").AgentSessionReport {
+  return {
+    protocolMajor: 1,
+    requestId: `${agentId}-report`,
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId,
+    provider: "codex",
+    sessionId: "current-native-session",
+    startRequestId: "start-1",
+    daemonInstanceId: "daemon-1",
+    launchId,
+  };
+}
+
+test("sends the session invalidate RPC (not a publication) when connected", async () => {
+  const fake = fakeClient();
+  const calls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    calls.push({ method, data });
+    return new Uint8Array();
+  };
+  let published = false;
+  fake.client.publish = async () => {
+    published = true;
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  const message = sessionInvalidate("agent-1", "launch-1");
+
+  expect(transport.sendSessionInvalidate(message)).toBeUndefined();
+  await Promise.resolve();
+
+  expect(published).toBe(false);
+  expect(calls.map(({ method }) => method)).toEqual([
+    "daemon:connection_status",
+    AGENT_SESSION_INVALIDATE_METHOD,
+  ]);
+  expect(decodeAgentSessionInvalidate(calls[1]!.data)).toEqual(message);
+});
+
+test("buffers the session invalidate while disconnected and flushes once on reconnect", async () => {
+  const fake = fakeClient();
+  const calls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    calls.push({ method, data });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  fake.disconnect();
+  const message = sessionInvalidate("agent-1", "launch-1");
+
+  expect(transport.sendSessionInvalidate(message)).toBeUndefined();
+  expect(calls.filter(({ method }) => method === AGENT_SESSION_INVALIDATE_METHOD)).toHaveLength(0);
+
+  fake.connect();
+  await Promise.resolve();
+
+  const flushed = calls.filter(({ method }) => method === AGENT_SESSION_INVALIDATE_METHOD);
+  expect(flushed).toHaveLength(1);
+  expect(decodeAgentSessionInvalidate(flushed[0]!.data)).toEqual(message);
+
+  // Flushing clears the buffer: reconnecting again sends nothing further for this agent.
+  fake.disconnect();
+  fake.connect();
+  await Promise.resolve();
+  expect(calls.filter(({ method }) => method === AGENT_SESSION_INVALIDATE_METHOD)).toHaveLength(1);
+});
+
+test("keeps a buffered session invalidate when only a newer launch's Activity is observed (Raft's rule, not Activity)", async () => {
+  const fake = fakeClient();
+  const rpcCalls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    rpcCalls.push({ method, data });
+    return new Uint8Array();
+  };
+  fake.client.publish = async () => {};
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  fake.disconnect();
+
+  transport.sendSessionInvalidate(sessionInvalidate("agent-1", "old-launch"));
+  // A late Activity for a DIFFERENT launch must never drop the pending invalidate: Raft learns
+  // "a newer launch was observed" only from status/session-report sends, never from Activity.
+  transport.sendAgentActivity({
+    protocolMajor: 1,
+    requestId: "agent-1-2",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    detailKind: "starting",
+    level: "info",
+    detail: "Starting",
+    observedAtMs: Date.parse("2026-08-29T00:00:00.000Z"),
+    launchId: "new-launch",
+    clientSeq: 1,
+  });
+
+  fake.connect();
+  await Promise.resolve();
+
+  const flushed = rpcCalls.filter(({ method }) => method === AGENT_SESSION_INVALIDATE_METHOD);
+  expect(flushed).toHaveLength(1);
+  expect(decodeAgentSessionInvalidate(flushed[0]!.data)).toEqual(
+    sessionInvalidate("agent-1", "old-launch"),
+  );
+});
+
+test("drops a pending session invalidate once a newer launch is observed via the session report", async () => {
+  const fake = fakeClient();
+  const rpcCalls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    rpcCalls.push({ method, data });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  fake.disconnect();
+
+  transport.sendSessionInvalidate(sessionInvalidate("agent-1", "old-launch"));
+  // The session report is observed even though it cannot reach a disconnected server: the
+  // observation is the daemon's own outbound intent, not proof of delivery.
+  await transport.reportAgentSession(sessionReport("agent-1", "new-launch")).catch(() => {});
+
+  fake.connect();
+  await Promise.resolve();
+
+  expect(rpcCalls.filter(({ method }) => method === AGENT_SESSION_INVALIDATE_METHOD)).toHaveLength(
+    0,
+  );
+});
+
+test("refuses to queue a new session invalidate for a launch older than the one last observed", async () => {
+  const fake = fakeClient();
+  const rpcCalls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    rpcCalls.push({ method, data });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  await transport.reportAgentSession(sessionReport("agent-1", "new-launch"));
+  fake.disconnect();
+
+  transport.sendSessionInvalidate(sessionInvalidate("agent-1", "old-launch"));
+
+  fake.connect();
+  await Promise.resolve();
+
+  expect(rpcCalls.filter(({ method }) => method === AGENT_SESSION_INVALIDATE_METHOD)).toHaveLength(
+    0,
+  );
+});
+
+test("still queues a session invalidate that matches the last observed launch", async () => {
+  const fake = fakeClient();
+  const rpcCalls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    rpcCalls.push({ method, data });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  await transport.reportAgentSession(sessionReport("agent-1", "current-launch"));
+  fake.disconnect();
+
+  transport.sendSessionInvalidate(sessionInvalidate("agent-1", "current-launch"));
+
+  fake.connect();
+  await Promise.resolve();
+
+  const flushed = rpcCalls.filter(({ method }) => method === AGENT_SESSION_INVALIDATE_METHOD);
+  expect(flushed).toHaveLength(1);
+  expect(decodeAgentSessionInvalidate(flushed[0]!.data)).toEqual(
+    sessionInvalidate("agent-1", "current-launch"),
+  );
+});
+
+test("logs a rejected session invalidate (e.g. an old server's unknown RPC) without throwing", async () => {
+  const fake = fakeClient();
+  fake.client.rpc = async () => {
+    throw Object.assign(new Error("unknown RPC method"), { code: 404 });
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+
+  const { records } = await captureLogs(async () => {
+    expect(
+      transport.sendSessionInvalidate(sessionInvalidate("agent-1", "launch-1")),
+    ).toBeUndefined();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const rejections = records.filter(
+    (record) => record.properties.event === "agent_session:invalidate_rejected",
+  );
+  expect(rejections).toHaveLength(1);
+  expect(rejections[0]!.properties).toMatchObject({
+    request_id: "agent-1-invalidate",
+    launch_id: "launch-1",
+    reason: "missing",
+    error_code: "404",
+    outcome: "failed",
+  });
+});
+
+test("logs an old server's unknown-method rejection at most once per connection lifetime", async () => {
+  const fake = fakeClient();
+  fake.client.rpc = async () => {
+    throw Object.assign(new Error("unknown RPC method"), { code: 404 });
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+
+  const { records } = await captureLogs(async () => {
+    transport.sendSessionInvalidate(sessionInvalidate("agent-1", "launch-1"));
+    await Promise.resolve();
+    await Promise.resolve();
+    transport.sendSessionInvalidate(sessionInvalidate("agent-1", "launch-2"));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(
+    records.filter((record) => record.properties.event === "agent_session:invalidate_rejected"),
+  ).toHaveLength(1);
 });
 
 const config = {

@@ -540,6 +540,19 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   guard, but never advances control operations. Unified RPC callbacks route Session
   reports to this acceptance seam; sequenced snapshots validate the upstream launch
   fence before the independent snapshot receiver. Control-result dispatch remains separate.
+  `AgentSessionReceiver.invalidate` (ADR 0040) is the daemon-initiated counterpart: on an
+  exact match (`launchId` + native `sessionId`) it clears the Session association with the
+  same `clearSession` primitive Reset Session uses and leaves every other control-state field
+  untouched — it never marks the state `recovered`; the user learns of the cold start only
+  through the daemon's own Activity (`runtime_unavailable`). Its required `currentDaemon`
+  constructor argument (the same daemon-freshness check `AgentSessions.verify` uses) can never
+  be omitted, so a freshness check can never be skipped by omission. A mismatch (unknown Agent,
+  foreign scope, stale daemon instance, non-matching launch/Session, or a lost `store.replace`
+  compare-and-swap) is its own idempotent no-op; a genuine failure (DB, schema parse) propagates
+  to `createAgentSessionInvalidateMethod` (`server/centrifugo/agent-session-receiver.server.ts`),
+  which logs it with the same allowlisted-reason convention #321 introduced for
+  `agent_control:result_rejected`/`agent_session:snapshot_rejected`, while the wire response
+  (always a 403 on any rejection, per the daemon's fire-and-forget contract) stays unchanged.
 - `features/agents/agent-skills.functions.ts` owns the authenticated Profile Skills
   query. `server/agents/agent-skills.server.ts` authorizes the Agent owner and
   correlates bounded requests; `server/centrifugo/agent-skills-cache.server.ts`

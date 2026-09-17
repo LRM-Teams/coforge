@@ -99,6 +99,7 @@ ADR 0021 在 `detailKind` 上新增了以下值，只在对应 provider 确有�
 | `message_received` | 消息投递/唤醒后既有的“Message received”上报，改用这个 kind 而不是通用的 `model_request_started` | 可见，写入历史 |
 | `runtime_crashed` | Claude、Codex 进程在非主动停止下意外退出（沿用既有的 `errorClass`/`errorReason`/`fingerprint`，只改 kind）；Kiro、Pi 目前没有等价的进程级信号，意外退出仍报 `stopped` | 可见，写入历史，视为错误 |
 | `runtime_interrupted` | 主动 stop/restart 打断了一个正在忙碌（working/thinking）的 turn | 可见，写入历史，视为在线 |
+| `runtime_unavailable` | ADR 0040：Daemon 检测到已存的 native Session 无法恢复——缺失（kiro/pi 的 `session_missing`，或 Claude/Codex 驱动内部静默替换）或被 provider 拒绝 replay（`provider_replay_rejected`）；上报一次 `agent:session:invalidate` 后，以同一 `launchId` 冷启动新 session | 可见，写入历史，视为 working |
 
 `starting`、`stopped`、`idle` 是 timeline 记录，不是新的 Agent 业务状态；当前状态仍只
 由 `agent:status` 的 `active` / `inactive` 表示。只有真正发生过程或观察结果时才记录

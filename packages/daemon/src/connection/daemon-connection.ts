@@ -27,11 +27,14 @@ import {
   decodeAgentWorkspaceResetRequest,
   encodeAgentControlResult,
   encodeAgentSessionReport,
+  encodeAgentSessionInvalidate,
   AGENT_CONTROL_RESULT_METHOD,
   AGENT_SESSION_METHOD,
+  AGENT_SESSION_INVALIDATE_METHOD,
   type AgentWorkspaceResetRequest,
   type AgentControlResult,
   type AgentSessionReport,
+  type AgentSessionInvalidate,
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentActivityProbe,
@@ -353,6 +356,9 @@ export interface DaemonConnectionClient {
   sendAgentActivity?(activity: AgentActivity): void;
   sendAgentStatus?(status: AgentStatus): void;
   reportAgentSession?(report: AgentSessionReport): Promise<void>;
+  /** Fire-and-forget: never blocks or fails a launch. Buffered latest-per-agent while
+   * disconnected and flushed on reconnect, like `sendAgentActivity`. */
+  sendSessionInvalidate?(message: AgentSessionInvalidate): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
   agentMessage?(
     request: AgentMessageRequest,
@@ -937,6 +943,18 @@ export class DaemonConnection implements DaemonConnectionClient {
   #readyRetryAttempts = 0;
   readonly #pendingActivity = new Map<string, AgentActivity>();
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
+  /** Latest-per-agent, like `#pendingActivity`. */
+  readonly #pendingSessionInvalidate = new Map<string, AgentSessionInvalidate>();
+  /** Raft's `observeLaunchIdentity`: the latest launch a *non*-Activity, non-invalidate
+   * outbound message has reported for an Agent (today, only `reportAgentSession` carries a
+   * `launchId`; `AgentStatus` does not). Drives `sendSessionInvalidate`'s drop/refuse-to-queue
+   * rule below — deliberately not Activity's own `#supersededActivityLaunches` bookkeeping,
+   * which stays exactly as it was for Activity replay. */
+  readonly #latestObservedLaunchByAgent = new Map<string, string>();
+  /** True once an old server's "unknown RPC method" rejection of `agent:session:invalidate` has
+   * been logged; suppresses repeats for the rest of this connection's lifetime (fix for a log
+   * line that used to repeat on every rejected attempt). */
+  #loggedUnknownSessionInvalidateMethod = false;
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
   readonly #upgradeRequestIds = new Set<string>();
@@ -996,6 +1014,8 @@ export class DaemonConnection implements DaemonConnectionClient {
           outcome: "ok",
         });
         this.#reportOnline(client, config);
+        // Invalidate before Activity on reconnect, as Raft does.
+        this.#flushPendingSessionInvalidate(client);
         this.#flushPendingActivity(client);
         for (const status of this.#latestStatuses.values()) this.#queueAgentStatus(client, status);
         this.#startStatusRefresh(config);
@@ -1076,9 +1096,38 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#publishActivity(this.#client, activity);
   }
 
+  /** Fire-and-forget; never awaited by a caller and never fails a launch. */
+  sendSessionInvalidate(message: AgentSessionInvalidate): void {
+    if (this.#supersededActivityLaunches.get(message.agentId)?.has(message.launchId)) return;
+    if (!this.#connected || !this.#client) {
+      // Raft's rule: refuse to queue a new invalidate whose launch is already known stale —
+      // never learned from Activity or from an invalidate itself, only from another outbound
+      // message that carries launch identity (`#observeLaunchIdentity`).
+      const observed = this.#latestObservedLaunchByAgent.get(message.agentId);
+      if (observed !== undefined && observed !== message.launchId) return;
+      this.#pendingSessionInvalidate.set(message.agentId, message);
+      return;
+    }
+    this.#publishSessionInvalidate(this.#client, message);
+  }
+
   sendAgentStatus(status: AgentStatus): void {
     this.#latestStatuses.set(status.agentId, status);
     if (this.#connected && this.#client) this.#queueAgentStatus(this.#client, status);
+  }
+
+  /**
+   * Raft's `observeLaunchIdentity`: only an outbound message that is neither Activity nor a
+   * session invalidate itself teaches this connection which launch is now current for an
+   * Agent. Drops a pending invalidate whose launch differs from the one just observed — the
+   * correctly-directional replacement for the old rule that dropped it on ANY differing-launch
+   * Activity, including a late Activity from an OLDER launch that would have wrongly dropped a
+   * NEWER pending invalidate.
+   */
+  #observeLaunchIdentity(agentId: string, launchId: string): void {
+    this.#latestObservedLaunchByAgent.set(agentId, launchId);
+    const pending = this.#pendingSessionInvalidate.get(agentId);
+    if (pending && pending.launchId !== launchId) this.#pendingSessionInvalidate.delete(agentId);
   }
 
   #publishActivity(client: CentrifugeWorkspaceClient, activity: AgentActivity): void {
@@ -1094,6 +1143,46 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#pendingActivity.clear();
     this.#supersededActivityLaunches.clear();
     for (const activity of pending) this.#publishActivity(client, activity);
+  }
+
+  #publishSessionInvalidate(
+    client: CentrifugeWorkspaceClient,
+    message: AgentSessionInvalidate,
+  ): void {
+    // An observation, not a command: a rejection (including an old server that does not
+    // recognize this RPC) is logged, never retried or surfaced to the caller.
+    void client
+      .rpc(AGENT_SESSION_INVALIDATE_METHOD, encodeAgentSessionInvalidate(message))
+      .catch((error) => {
+        const errorCode = diagnosticErrorCode(error);
+        // An old server that has never heard of this RPC rejects every attempt the same way for
+        // as long as this process talks to it; logging that fact once per connection lifetime is
+        // enough. Any other rejection (a genuine, potentially transient failure) still logs every
+        // time, like the sibling `agent_session:report_failed`.
+        const unknownMethod = errorCode === "404";
+        if (unknownMethod && this.#loggedUnknownSessionInvalidateMethod) return;
+        if (unknownMethod) this.#loggedUnknownSessionInvalidateMethod = true;
+        logger.warning("Agent session invalidate was not accepted", {
+          event: "agent_session:invalidate_rejected",
+          request_id: message.requestId,
+          workspace_id: message.workspaceId,
+          computer_id: message.computerId,
+          agent_id: message.agentId,
+          launch_id: message.launchId,
+          reason: message.reason,
+          error_code: errorCode,
+          outcome: "failed",
+        });
+      });
+  }
+
+  #flushPendingSessionInvalidate(client: CentrifugeWorkspaceClient): void {
+    const pending = [...this.#pendingSessionInvalidate.values()];
+    this.#pendingSessionInvalidate.clear();
+    for (const message of pending) {
+      if (this.#supersededActivityLaunches.get(message.agentId)?.has(message.launchId)) continue;
+      this.#publishSessionInvalidate(client, message);
+    }
   }
 
   #queueAgentStatus(client: CentrifugeWorkspaceClient, status: AgentStatus): void {
@@ -1805,6 +1894,10 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   async reportAgentSession(report: AgentSessionReport): Promise<void> {
+    // Observed regardless of what follows: this is the daemon's own outbound intent to report
+    // this launch, the signal `#observeLaunchIdentity` needs, independent of whether the RPC
+    // below reaches the server.
+    this.#observeLaunchIdentity(report.agentId, report.launchId);
     const client = this.#requireClient();
     try {
       await client.rpc(AGENT_SESSION_METHOD, encodeAgentSessionReport(report));
@@ -1927,8 +2020,10 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#restartRequestIds,
       this.#upgradeRequestIds,
       this.#reportedUpgradeRequestIds,
+      this.#latestObservedLaunchByAgent,
     ])
       collection.clear();
+    this.#loggedUnknownSessionInvalidateMethod = false;
     this.#statusRpcQueue = Promise.resolve();
     client?.disconnect();
   }

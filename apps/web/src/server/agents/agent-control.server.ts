@@ -581,6 +581,24 @@ export class AgentControl {
     requestId?: string;
     launchId?: string;
   }) {
+    // A Session write that does not belong to the control chain (a session snapshot, or the
+    // fire-and-forget `agent:session:invalidate` a cold-start retry sends just before it asks
+    // for this launch again) can land between the read and the conditional write. That is not a
+    // lost fence: re-read and re-validate, so a concurrent Session change never fails a launch.
+    for (let attempt = 1; ; attempt++) {
+      if (await this.tryAuthorizeLaunch(input)) return;
+      if (attempt === 3) throw new Error("Agent launch lost its fence");
+    }
+  }
+  /** One read-validate-write pass; false only when the conditional write lost its race. */
+  private async tryAuthorizeLaunch(input: {
+    agentId: string;
+    workspaceId: string;
+    computerId: string;
+    controlEpoch?: number;
+    requestId?: string;
+    launchId?: string;
+  }): Promise<boolean> {
     const agent = await this.store.get(input.agentId);
     if (!agent || agent.workspaceId !== input.workspaceId || agent.computerId !== input.computerId)
       throw new Error("Agent launch is not authorized");
@@ -588,7 +606,7 @@ export class AgentControl {
     if (!state) {
       if (input.controlEpoch || input.requestId || input.launchId)
         throw new Error("Unsolicited managed launch");
-      return;
+      return true;
     }
     if (
       !current(agent, state) ||
@@ -599,8 +617,7 @@ export class AgentControl {
       (state.launchId && state.launchId !== input.launchId)
     )
       throw new Error("Stale Agent launch");
-    if (!(await this.store.replace(agent, { ...state, launchId: input.launchId })))
-      throw new Error("Agent launch lost its fence");
+    return this.store.replace(agent, { ...state, launchId: input.launchId });
   }
   /** RPC ACK follows conditional persistence; never acquires the control waiter's lock. */
   async result(claim: { workspaceId: string; computerId: string }, result: AgentControlResult) {

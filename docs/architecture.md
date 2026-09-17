@@ -937,6 +937,23 @@ terminal recovery error 并清理进程树，不再上报矛盾身份、完成�
 Web 仍校验原有作用域及 start/daemon/launch fence，并要求被替代 ID 与当前选择一致，再做 JSON CAS；
 重复报告同一新 ID 幂等，旧 ID 的晚到报告不可改回引用。ACK 后发布普通 Activity 提示新会话已启动、
 旧上下文未恢复；提示仍是 best-effort，不把它变成可靠业务消息。
+
+2026-09-17（ADR 0040）在上述隐式 `replaced_session_id` 上报之外，加入显式
+`agent:session:invalidate` RPC（`AgentSessionInvalidate`，`workspace.proto`）：Daemon 在得知
+存量 native session 不可用（`missing`）或被 provider 拒绝重放（`provider_replay_rejected`）后、
+发起冷启动重试之前（kiro/pi 的 `AgentSessionRecoveryError` 路径），或在得知 Claude/Codex
+in-driver 自行替换的那一刻，上报该消息，携带 workspace/computer/agent/provider、失效的
+sessionId、launchId、daemonInstanceId、controlEpoch 与 reason。此消息 fire-and-forget，从不
+阻塞或使 launch 失败：连接层复用既有 Activity 回放机制——按 Agent 只保留最新一条待发消息，
+断线期间缓冲、重连后回放，一旦观察到该 Agent 更新 launch 的 Activity 即丢弃过期项，不另建一套
+机制。Web 端按与 `AgentSessionReport` 相同的 scope（当前 Daemon instance、workspace/computer
+claim、provider）校验后，仅当当前 Session 关联的 native ID 与失效 ID 完全一致、且仍属于同一
+launch 时，才在一次 compare-and-swap 中清除该关联——与"Reset Session"的 `clearSession` 相同：
+保留旧 `AgentSession` 行，只解除 `Agent.currentSessionId` 与 `runtimeSession` fence——并在存在
+进行中操作时把控制状态标记 `recovered`，供既有"recovered" UI 呈现复用；不匹配（已被替换、过期
+launch、陌生 Daemon instance）时幂等忽略，绝不清除更新 launch 的 Session。旧 Daemon 从不发送该
+消息，Web 继续依赖 `replaced_session_id` 隐式上报；新 Daemon 对不识别该 RPC 的旧服务端（未知
+方法 404）只记录一次 warning 日志，不重试、不影响 launch。
 CoForge/Pi 在 Agent 私有 session 目录直接读取 JSONL header 匹配 ID（支持重命名文件），
 不使用会吞掉 I/O 错误的 SDK list() 判定不存在。真实缺失才分配新 UUID；权限、损坏、歧义仍报错。
 Pi 用官方 `--session-id` 创建新 ID；Codex 仅在 `thread/resume` 返回官方
