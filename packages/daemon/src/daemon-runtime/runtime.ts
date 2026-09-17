@@ -3154,13 +3154,4 @@ function validUsageWindow(window: UsageSnapshot["primary"], now: number): UsageS
   return window && Date.parse(window.resetsAt) > now ? window : undefined;
 }
 
-export function createDaemonRuntime(input: {
-  createProvider: CodeAgentProviderFactory;
-  credentials: DaemonCredentialStore;
-  transportFactory: DaemonConnectionClientFactory;
-}): (connection: DaemonConfig) => DaemonRuntime {
-  return (connection) =>
-    new DaemonRuntime(connection, input.createProvider, input.credentials, input.transportFactory);
-}
-
 export type { CodeAgentProviderFactory, AgentRuntime, AgentRuntimeConfig, CodeAgentProvider };

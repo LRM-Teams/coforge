@@ -77,12 +77,6 @@ export type PendingUpgradeSettler = (
   requestedAt: number,
 ) => Promise<PendingUpgradeSettlement | undefined>;
 
-/** A terminal operation the server has not accepted yet. */
-export function reportableUpgradeOperations(binding: ManagedBinding): UpgradeOperation[] {
-  return (binding.upgradeOperations ?? []).filter(
-    (operation) => operation.state === "succeeded" || operation.state === "failed",
-  );
-}
 export class WorkspaceRecoveryError extends AggregateError {}
 export interface BindingStore {
   load(): Promise<ManagedBinding[]>;

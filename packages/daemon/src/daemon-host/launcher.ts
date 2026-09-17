@@ -1,4 +1,3 @@
-import { access } from "node:fs/promises";
 import { dirname, join, win32 } from "node:path";
 import {
   decodeDaemonHandshakeResponse,
@@ -353,10 +352,6 @@ export function resolveDaemonExecutablePath(input: {
   const name = input.platform === "win32" ? "coforge-computer.exe" : "coforge-computer";
   if (input.platform === "win32") return win32.join(input.installRoot, "active", name);
   return join(input.installRoot, "active", name);
-}
-
-export async function assertDaemonExecutable(path: string): Promise<void> {
-  await access(path);
 }
 
 function validHandshakeResponse(response: DaemonHandshakeResponse, requestId: string): boolean {
