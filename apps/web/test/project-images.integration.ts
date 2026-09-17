@@ -31,6 +31,10 @@ test("project images authorize members, validate uploads, replace bytes and clea
     remove: async (key) => {
       objects.delete(key);
     },
+    head: async (key) => {
+      const body = objects.get(key);
+      return body ? { sizeBytes: body.size, contentType: body.type || null } : null;
+    },
   };
   const images = new ProjectImages(db, async () => storage);
   const settings = new ProjectSettings(db, undefined, async () => storage);

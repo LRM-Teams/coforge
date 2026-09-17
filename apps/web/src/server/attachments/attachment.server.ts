@@ -4,21 +4,40 @@ import { getFileStorage, type FileStorage, type StoredFile } from "../files/file
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_SESSION_SECONDS = 900;
+/** `COFORGE_ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_BYTES` default (ADR 0027): 1 MiB. */
+export const ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_DEFAULT_BYTES = 1024 * 1024;
 
 export type AttachmentCapabilities = {
   maxBytes: number;
-  directUploadEnabled: false;
+  directUploadEnabled: boolean;
   directUploadThresholdBytes: number;
   sessionExpiresInSeconds: number;
 };
 
-export function attachmentCapabilities(): AttachmentCapabilities {
+/**
+ * Reports server-authoritative attachment upload limits (ADR 0027). `directUploadEnabled` is
+ * `true` only when the active storage backend implements `presignPut` (currently `OssFileStorage`
+ * only; `LocalFileStorage` has none, so local dev always reports direct upload disabled).
+ */
+export function attachmentCapabilities(
+  storage: Pick<FileStorage, "presignPut">,
+  env: NodeJS.ProcessEnv = process.env,
+): AttachmentCapabilities {
   return {
     maxBytes: ATTACHMENT_MAX_BYTES,
-    directUploadEnabled: false,
-    directUploadThresholdBytes: 0,
+    directUploadEnabled: typeof storage.presignPut === "function",
+    directUploadThresholdBytes: readDirectUploadThresholdBytes(env),
     sessionExpiresInSeconds: ATTACHMENT_SESSION_SECONDS,
   };
+}
+
+function readDirectUploadThresholdBytes(env: NodeJS.ProcessEnv): number {
+  const raw = env.COFORGE_ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_BYTES?.trim();
+  if (!raw) return ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_DEFAULT_BYTES;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.trunc(parsed)
+    : ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_DEFAULT_BYTES;
 }
 
 export async function storeAttachment(
