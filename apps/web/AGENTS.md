@@ -299,7 +299,12 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   authorType and comment `payload` are reserved for later AI side panels.
   The weekly-report assistant's on-demand reads reuse `RecordCatalog` through
   Agent HTTPS `POST /api/agent/v1/weekly-reports`, authorized as the assistant owner User.
-  Schema merge requires Frank approval (see ADR 0009).
+  Multi-Computer collect (ADR 0032) belongs to
+  `server/records/weekly-report-collector.server.ts` (per-Computer Collector
+  bindings) and `server/records/weekly-report-collect-run.server.ts` (narrow
+  Collect Run ledger). Pack submit and side-panel cards are follow-up seams;
+  do not add WSS collect-result RPCs. Schema merge requires Frank approval
+  (see ADR 0009 / ADR 0032).
 
 - Browser realtime connection ownership belongs to `features/realtime/`. The
   `_app` layout owns one Centrifuge connection for the selected Workspace;

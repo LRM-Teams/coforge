@@ -416,11 +416,12 @@ PostgreSQL 的首要领域对象是：
   已有同名 skill。页级助手请求复用现有 User–Agent DM（不新增浏览器 WebSocket）；请求正文
   携带 compact context envelope，不含完整报告正文。
   多机 OS 采集→按模板合成由 [ADR 0032](adr/0032-weekly-report-collectors-and-collect-run.md)
-  规定：每台用户自有 Computer 至多一个 WeeklyReportCollector；平台用窄域
-  `WeeklyReportCollectRun`（表名以 schema CR 为准）做并行采集 settle（每波 15 分钟上限、
-  每槽位至多一次自动重试、部分成功仍合成）；扫盘路径以 Computer 本地 collect-roots 为准；
-  合成仍由 WeeklyReportAssistant 经确认 suggestion 写入成员周报，助手不得自动发送。
-  Collect Run **不是** Workspace 通用 job/workflow，也不是 durable command mailbox。
+  规定：每台用户自有 Computer 至多一个 WeeklyReportCollector（`weekly_report_collector_bindings`）；
+  平台用窄域 `weekly_report_collect_runs` + `weekly_report_collect_slots` 做并行采集 settle（每波
+  15 分钟上限、每槽位至多一次自动重试、部分成功仍合成）；扫盘路径以 Computer 本地
+  collect-roots 为准，Run slot 只存当次路径快照；合成仍由 WeeklyReportAssistant 经确认
+  suggestion 写入成员周报，助手不得自动发送。Collect Run **不是** Workspace 通用
+  job/workflow，也不是 durable command mailbox。
 
 `run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 内容由 backend 设计评审确定，数据访问标准为 Prisma。
 

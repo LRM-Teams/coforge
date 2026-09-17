@@ -214,8 +214,15 @@ A User-owned Agent bound to exactly one Computer the User owns, dedicated to
 harvesting in-window work evidence on that machine into a Collect pack. One
 collector slot per owned Computer; never another member's machine. Not the
 WeeklyReportAssistant. Not independently managed from Members (same product
-pattern as WeeklyReportAssistant). See ADR 0032.
+pattern as WeeklyReportAssistant). Persisted via `WeeklyReportCollectorBinding`.
+See ADR 0032.
 _Avoid_: WeeklyReportAssistant, generic Agent, Task, Job
+
+**WeeklyReportCollectorBinding**:
+The durable `(workspace, user, computer) → collector Agent` relation for
+weekly-report collection. Does not store authoritative scan roots (those stay
+Computer-local).
+_Avoid_: defaultScanPaths-as-authority, Collect Run
 
 **WeeklyReportCollectRun**:
 The platform ledger for one weekly-report harvest cycle: plan confirmation,

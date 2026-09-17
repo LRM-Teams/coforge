@@ -191,8 +191,8 @@ _Avoid:_ 把 Collect Run 叫成 Task/Job/Workflow；把采集包叫成周报正�
 | # | 切片 | 完成定义 |
 | --- | --- | --- |
 | 0 | 本文 + ADR 0032 + 锁定 D1–D9 + architecture/CONTEXT | ✅ |
-| 1 | Collect Run schema CR（Frank 门禁）+ 领域测试缝 | 红绿：所有权、窗口、部分成功 |
-| 2 | 采集员槽位探测 + Ensure/创建 API | 缺槽可查询；创建复用 Agent 生命周期 |
+| 1 | Collect Run schema CR（Frank 门禁）+ 领域测试缝 | ✅ 干净重写：binding + run + slot；见 `weekly-report-collect-port.md`（不整包搬 WIP） |
+| 2 | 采集员槽位探测 + Ensure/创建 API | ✅ `listOwnedComputerSlots` / `ensureCollector`（Server Fn / UI 后置） |
 | 3 | collect-roots 本机文件 + 读写缝 | 空=启发式；非空替换 |
 | 4 | Daemon skill + submit-pack / failure HTTPS | 单机采集可测 |
 | 5 | UI：E1「需要」+ 配置卡 a | 手动验收侧聊 |

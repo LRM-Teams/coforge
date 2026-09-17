@@ -18,7 +18,9 @@ model Workspace {
   computerRuntimes       ComputerRuntime[]
   modelCatalogs          ComputerModelCatalog[]
   agents                 Agent[]
-  weeklyReportAssistants WeeklyReportAssistant[]
+  weeklyReportAssistants       WeeklyReportAssistant[]
+  weeklyReportCollectorBindings WeeklyReportCollectorBinding[]
+  weeklyReportCollectRuns      WeeklyReportCollectRun[]
   agentApiKeys           AgentApiKey[]
   daemonApiKeys          DaemonApiKey[]
   conversations          Conversation[]
@@ -86,7 +88,9 @@ model User {
   sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
   receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
   agents                      Agent[]
-  weeklyReportAssistants      WeeklyReportAssistant[]
+  weeklyReportAssistants        WeeklyReportAssistant[]
+  weeklyReportCollectorBindings WeeklyReportCollectorBinding[]
+  weeklyReportCollectRuns       WeeklyReportCollectRun[]
   agentApiKeys                AgentApiKey[]
   daemonApiKeys               DaemonApiKey[]
   computers                   Computer[]
@@ -218,7 +222,8 @@ model Agent {
   reminders                 Reminder[]
   reminderOperationReceipts ReminderOperationReceipt[]
   preparedActionCards       ActionCard[]
-  weeklyReportAssistant     WeeklyReportAssistant?
+  weeklyReportAssistant         WeeklyReportAssistant?
+  weeklyReportCollectorBinding  WeeklyReportCollectorBinding?
   attachments               Attachment[]
   attachmentUploadSessions  AttachmentUploadSession[]
 
@@ -228,6 +233,81 @@ model Agent {
   @@index([workspaceId, createdAt])
   @@index([computerId])
   @@map("agents")
+}
+
+/// One User's durable weekly-report Collector Agent on one owned Computer (ADR 0032).
+model WeeklyReportCollectorBinding {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspaceId      String    @db.Uuid
+  userId           String    @db.Uuid
+  computerId       String    @db.Uuid
+  collectorAgentId String    @unique @db.Uuid
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  computer         Computer  @relation(fields: [computerId], references: [id], onDelete: Cascade)
+  agent            Agent     @relation(fields: [collectorAgentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([workspaceId, userId, computerId])
+  @@unique([collectorAgentId, workspaceId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([computerId])
+  @@map("weekly_report_collector_bindings")
+}
+
+/// One Collect Run for a member weekly report (ADR 0032). Not a generic job.
+model WeeklyReportCollectRun {
+  id          String                  @id @default(uuid()) @db.Uuid
+  workspaceId String                  @db.Uuid
+  userId      String                  @db.Uuid
+  reportId    String                  @db.Uuid
+  /// collecting | synthesizing | awaiting_confirm | done | cancelled
+  status      String
+  /// week | month | quarter | year | custom
+  windowKind  String
+  windowStart DateTime
+  windowEnd   DateTime
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  workspace   Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  report      WeeklyReport            @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  slots       WeeklyReportCollectSlot[]
+
+  @@index([workspaceId, userId, reportId])
+  @@index([reportId, createdAt])
+  @@map("weekly_report_collect_runs")
+}
+
+/// Per-Computer slot inside a Collect Run.
+model WeeklyReportCollectSlot {
+  id               String                 @id @default(uuid()) @db.Uuid
+  runId            String                 @db.Uuid
+  computerId       String                 @db.Uuid
+  collectorAgentId String                 @db.Uuid
+  /// Path snapshot for this run only; Computer-local collect-roots remain authoritative.
+  scanPaths        Json
+  /// running | ready | failed | empty | stalled | cancelled
+  status           String
+  retryCount       Int                    @default(0)
+  failureReason    String?
+  /// Collect pack markdown when status=ready; null otherwise.
+  packMarkdown     String?
+  /// HTTPS submit-pack idempotency key when a pack or failure was accepted.
+  requestId        String?                @unique
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  run              WeeklyReportCollectRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  computer         Computer               @relation(fields: [computerId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, computerId])
+  @@index([runId])
+  @@index([computerId])
+  @@map("weekly_report_collect_slots")
 }
 
 /// One User's fixed Agent identity for weekly-report AI in one Workspace.
@@ -430,12 +510,14 @@ model Computer {
   workspaces        WorkspaceComputer[]
   runtimes          ComputerRuntime[]
   modelCatalogs     ComputerModelCatalog[]
-  agents            Agent[]
-  agentApiKeys      AgentApiKey[]
-  daemonApiKeys     DaemonApiKey[]
-  agentActivity     AgentActivity[]
-  reminders         Reminder[]
-  owner             User                   @relation(fields: [ownerId], references: [id])
+  agents                        Agent[]
+  agentApiKeys                  AgentApiKey[]
+  daemonApiKeys                 DaemonApiKey[]
+  agentActivity                 AgentActivity[]
+  reminders                     Reminder[]
+  weeklyReportCollectorBindings WeeklyReportCollectorBinding[]
+  weeklyReportCollectSlots      WeeklyReportCollectSlot[]
+  owner                         User                   @relation(fields: [ownerId], references: [id])
 
   @@unique([ownerId, machineId])
   @@map("computers")
@@ -937,6 +1019,7 @@ model WeeklyReport {
   settings         WeeklyReportTemplate?  @relation(fields: [settingsId], references: [id], onDelete: SetNull)
   favorites        WeeklyReportFavorite[]
   comments         RecordComment[]        @relation("ReportComments")
+  collectRuns      WeeklyReportCollectRun[]
 
   @@index([workspaceId, authorId])
   @@index([cycleId, kind])
