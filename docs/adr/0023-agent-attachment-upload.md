@@ -138,7 +138,9 @@ does not touch the send route, its policy, or `message send` argument parsing.
 7. **Direct/presigned upload stays deferred.** `attachmentCapabilities().directUploadEnabled`
    remains `false`; this change adds a proxied multipart upload only, matching what `message send
    --attachment-id` (the sibling branch) needs, and does not touch `attachment comments` or any
-   presigned-URL flow.
+   presigned-URL flow. Superseded by
+   [ADR 0027](0027-attachment-direct-upload.md), which adds the presigned direct-upload path this
+   point deferred.
 
 ## Rejected alternatives
 
