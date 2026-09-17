@@ -19,12 +19,18 @@ export type AgentMessagesSearchRequest = {
   limit?: number;
 };
 
+export type AgentMentionSelector = { type: "user" | "agent"; id: string; name: string };
+
 export type AgentMessagesSendRequest = {
   target: string;
   body: string;
   sendDraft?: boolean;
   continueAnyway?: boolean;
   freshnessContextMode?: "inline" | "withheld";
+  /** A single attachment already uploaded to this conversation, unlinked to any message. */
+  attachmentId?: string;
+  /** Structured @mention bindings; each bound handle must also appear as `@handle` in `body`. */
+  mentions?: AgentMentionSelector[];
 };
 
 export type AgentMessagesResolveRequest = {
@@ -88,6 +94,8 @@ export type AgentSendResponse = {
   context: AgentMessage[];
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
+  /** Only for `state: "sent"`: pending messages bypassed via `continueAnyway`; empty otherwise. */
+  recentUnread?: AgentMessage[];
 };
 
 /** Response for the resolve route (GET /api/agent/v1/messages/:id/resolve). */

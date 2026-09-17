@@ -39,6 +39,8 @@ export class AgentMessageAttentionIndex {
   readonly #attention = new Map<string, Map<string, MessageAttention>>();
   readonly #modelSeen = new Map<string, Map<string, number>>();
   readonly #pendingSequences = new Map<string, Map<string, Set<number>>>();
+  readonly #readContext = new Map<string, Map<string, number>>();
+  readonly #readContextCounters = new Map<string, number>();
   readonly #workspaceId: string;
   readonly #runtimes: Pick<AgentProcessManager, "session">;
 
@@ -356,11 +358,47 @@ Run \`coforge message check\` to read pending messages.]`;
     });
   }
 
+  /**
+   * Records that the Agent just consumed messages for `target` (a `read`, a `check`/events drain
+   * page, or the held-context read inside `send`), under a per-Agent monotonically increasing
+   * counter. Volatile, like `modelSeen`; used only by the `--target-confirmed` guard to compare how
+   * recently a thread was read against how recently its parent target was read.
+   */
+  recordReadContext(agentId: string, target: string): void {
+    const order = (this.#readContextCounters.get(agentId) ?? 0) + 1;
+    this.#readContextCounters.set(agentId, order);
+    const byTarget = this.#readContext.get(agentId) ?? new Map<string, number>();
+    byTarget.set(target, order);
+    this.#readContext.set(agentId, byTarget);
+  }
+
+  /** The most recently read context order for `target`, or `undefined` if never recorded. */
+  readOrder(agentId: string, target: string): number | undefined {
+    return this.#readContext.get(agentId)?.get(target);
+  }
+
+  /** The most recently read thread target rooted under `parentTarget`, or `undefined` if none. */
+  latestThreadReadUnderParent(
+    agentId: string,
+    parentTarget: string,
+  ): { target: string; order: number } | undefined {
+    const byTarget = this.#readContext.get(agentId);
+    if (!byTarget) return undefined;
+    const prefix = `${parentTarget}:`;
+    let latest: { target: string; order: number } | undefined;
+    for (const [target, order] of byTarget)
+      if (target.startsWith(prefix) && (!latest || order > latest.order))
+        latest = { target, order };
+    return latest;
+  }
+
   clearAgent(agentId: string): void {
     this.#generations.delete(agentId);
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
     this.#pendingSequences.delete(agentId);
+    this.#readContext.delete(agentId);
+    this.#readContextCounters.delete(agentId);
   }
 
   clear(agentId: string, target: string): void {

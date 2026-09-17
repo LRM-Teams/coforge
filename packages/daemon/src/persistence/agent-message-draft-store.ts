@@ -1,6 +1,7 @@
 import { chmod, lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
+import type { LocalMentionSelector } from "@lrm/coforge-sdk/internal";
 
 export const AGENT_MESSAGE_DRAFT_TTL_MS = 10 * 60 * 1_000;
 
@@ -9,6 +10,8 @@ export type AgentMessageDraft = Readonly<{
   body: string;
   holdToken?: string;
   savedAt: number;
+  attachmentId?: string;
+  mentions?: readonly LocalMentionSelector[];
 }>;
 
 /** Short-lived continuation state, isolated in one private file per Agent. */
@@ -41,12 +44,20 @@ export class AgentMessageDraftStore {
     });
   }
 
-  save(target: string, body: string, holdToken?: string): Promise<void> {
+  save(
+    target: string,
+    body: string,
+    holdToken?: string,
+    attachmentId?: string,
+    mentions?: readonly LocalMentionSelector[],
+  ): Promise<void> {
     return this.#serialized(async () => {
       const draft = {
         target,
         body,
         ...(holdToken ? { holdToken } : {}),
+        ...(attachmentId ? { attachmentId } : {}),
+        ...(mentions?.length ? { mentions } : {}),
         savedAt: this.now(),
       };
       const drafts = (await this.#read()).filter((current) => current.target !== target);
@@ -133,7 +144,21 @@ function isDraft(value: unknown): value is AgentMessageDraft {
     typeof draft.body === "string" &&
     (draft.holdToken === undefined || typeof draft.holdToken === "string") &&
     typeof draft.savedAt === "number" &&
-    Number.isFinite(draft.savedAt)
+    Number.isFinite(draft.savedAt) &&
+    // Older drafts predate these fields; their absence is a valid, backward-compatible draft.
+    (draft.attachmentId === undefined || typeof draft.attachmentId === "string") &&
+    (draft.mentions === undefined ||
+      (Array.isArray(draft.mentions) && draft.mentions.every(isMentionSelector)))
+  );
+}
+
+function isMentionSelector(value: unknown): value is LocalMentionSelector {
+  if (!value || typeof value !== "object") return false;
+  const mention = value as Record<string, unknown>;
+  return (
+    (mention.type === "user" || mention.type === "agent") &&
+    typeof mention.id === "string" &&
+    typeof mention.name === "string"
   );
 }
 

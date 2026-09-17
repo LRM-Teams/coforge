@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   encodeLocalReminderRequest,
+  isValidMentionSelectorArray,
   isValidReactionEmoji,
   validateTaskRequest,
   validateWeeklyReportRequest,
@@ -32,6 +33,7 @@ export type AgentProxy = {
 const LOCAL_PROXY_TOKEN = /^sfp_[A-Za-z0-9_-]{43}$/;
 const MESSAGE_ID_ANCHOR =
   /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOCAL_ATTACHMENT_ROUTE_PREFIX = agentApiRoutes.local.attachments.path("");
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
@@ -324,7 +326,11 @@ export function startAgentProxy(input: {
             (typeof payload.messageId !== "string" ||
               !MESSAGE_ID_ANCHOR.test(payload.messageId))) ||
           (["react", "unreact"].includes(payload.operation as string) &&
-            (typeof payload.emoji !== "string" || !isValidReactionEmoji(payload.emoji)))
+            (typeof payload.emoji !== "string" || !isValidReactionEmoji(payload.emoji))) ||
+          (payload.attachmentId !== undefined &&
+            (typeof payload.attachmentId !== "string" || !UUID.test(payload.attachmentId))) ||
+          (payload.targetConfirmed !== undefined && typeof payload.targetConfirmed !== "boolean") ||
+          (payload.mentions !== undefined && !isValidMentionSelectorArray(payload.mentions))
         )
           return new Response("bad request", { status: 400 });
         const result = await input.runtime.agentMessage(
@@ -352,6 +358,12 @@ export function startAgentProxy(input: {
                 : undefined,
             messageId: typeof payload.messageId === "string" ? payload.messageId : undefined,
             emoji: typeof payload.emoji === "string" ? payload.emoji : undefined,
+            attachmentId:
+              typeof payload.attachmentId === "string" ? payload.attachmentId : undefined,
+            mentions: Array.isArray(payload.mentions)
+              ? (payload.mentions as LocalAgentMessageRequest["mentions"])
+              : undefined,
+            targetConfirmed: payload.targetConfirmed === true || undefined,
             // Identity is exclusively the token binding. Never accept caller
             // supplied agentId/context fields as authorization input.
             context: binding.context,

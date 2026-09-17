@@ -7,6 +7,7 @@ import {
   encodeLocalReminderRequest,
   type AgentReminderOperationResponse,
   type LocalReminderRequest,
+  type MentionSelectorInput as MentionSelector,
   type TaskCommand,
   type TaskResult,
   type WorkspaceInfoResponse,
@@ -42,6 +43,7 @@ type AgentProxyErrorBody = {
     upstream_status?: number;
     response_started?: boolean;
     response_complete?: boolean;
+    draft_saved?: boolean;
   };
 };
 
@@ -90,6 +92,9 @@ function proxyHttpFailure(
   const isSend = operation === "send";
   const proxy = body.json?.proxy;
   const isLocalPrecondition = proxy?.failure_class === "local_precondition";
+  // A local precondition usually means nothing was saved, but a guard that saves a draft before
+  // refusing (e.g. --target-confirmed) says so explicitly via `draft_saved`; honour it when present.
+  const draftSaved = proxy?.draft_saved !== undefined ? proxy.draft_saved : !isLocalPrecondition;
   const legacyText = body.text && SAFE_LEGACY_PROXY_TEXT.has(body.text) ? body.text : undefined;
   const message = body.json?.error || legacyText || `HTTP ${status}`;
   const code = failureCode(operation, status, body.json);
@@ -97,7 +102,7 @@ function proxyHttpFailure(
     code,
     message,
     retryable: false,
-    ...(isSend ? { draftSaved: !isLocalPrecondition } : {}),
+    ...(isSend ? { draftSaved } : {}),
     correlationId: proxy?.correlation_id,
     proxy: proxy
       ? {
@@ -195,6 +200,9 @@ export function connectLocal(
       offset?: number;
       messageId?: string;
       emoji?: string;
+      attachmentId?: string;
+      mentions?: MentionSelector[];
+      targetConfirmed?: boolean;
     },
   ) => {
     if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
@@ -256,6 +264,9 @@ export function connectLocal(
         sendDraft?: boolean;
         continueAnyway?: boolean;
         freshnessContextMode?: "withheld";
+        attachmentId?: string;
+        mentions?: MentionSelector[];
+        targetConfirmed?: boolean;
       },
     ) => call("send", target, body, options),
     resolve: (messageId: string) => call("resolve", undefined, undefined, { messageId }),

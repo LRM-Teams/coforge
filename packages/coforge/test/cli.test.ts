@@ -1736,5 +1736,217 @@ test("message send --json reports a sent message as one JSON object", async () =
     state: "sent",
     target: "@ada",
     messageId: "message-1",
+    recentUnread: [],
   });
+});
+
+test("message send --json appends recentUnread from a bypass send", async () => {
+  const output = await run(["message", "send", "--target", "@ada", "--send-draft", "--json"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => ({
+      accepted: true,
+      messageId: "message-1",
+      recentUnread: [
+        {
+          id: "message-2",
+          sequence: 5,
+          sender: "@ada",
+          target: "@ada",
+          body: "missed while you were held",
+          createdAt: "2026-09-17T10:00:00Z",
+        },
+      ],
+    }),
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  const parsed = JSON.parse(output as string);
+  expect(parsed.recentUnread).toHaveLength(1);
+  expect(parsed.recentUnread[0].body).toBe("missed while you were held");
+});
+
+test("message send text mode appends a recentUnread section after the sent line", async () => {
+  const output = await run(["message", "send", "--target", "@ada", "--send-draft"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => ({
+      accepted: true,
+      messageId: "message-1",
+      recentUnread: [
+        {
+          id: "message-2",
+          sequence: 5,
+          sender: "@frank",
+          target: "@ada",
+          body: "missed while you were held",
+          createdAt: "2026-09-17T10:00:00Z",
+        },
+      ],
+    }),
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  expect(output).toContain("Message sent to @ada.");
+  expect(output).toContain("--- New messages you may have missed ---");
+  expect(output).toContain("missed while you were held");
+});
+
+test("message send parses --attachment-id, --mention, and --target-confirmed", () => {
+  const invocation = parseArgs([
+    "message",
+    "send",
+    "--target",
+    "@ada",
+    "--attachment-id",
+    "11111111-1111-4111-8111-111111111111",
+    "--mention",
+    "human:22222222-2222-4222-8222-222222222222:ada",
+    "--target-confirmed",
+  ]);
+  expect(invocation).toMatchObject({
+    command: "send",
+    target: "@ada",
+    attachmentId: "11111111-1111-4111-8111-111111111111",
+    mentions: [{ type: "user", id: "22222222-2222-4222-8222-222222222222", name: "ada" }],
+    targetConfirmed: true,
+  });
+});
+
+test("message send rejects a second --attachment-id occurrence", () => {
+  expect(() =>
+    parseArgs([
+      "message",
+      "send",
+      "--target",
+      "@ada",
+      "--send-draft",
+      "--attachment-id",
+      "11111111-1111-4111-8111-111111111111",
+      "--attachment-id",
+      "22222222-2222-4222-8222-222222222222",
+    ]),
+  ).toThrow("Usage:");
+});
+
+test("message send rejects a non-uuid --attachment-id with a typed usage error", () => {
+  const error = (() => {
+    try {
+      parseArgs(["message", "send", "--target", "@ada", "--attachment-id", "abc"]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("INVALID_ARG");
+  expect(cliError.message).toBe("--attachment-id must be a full attachment UUID.");
+  expect(cliError.draftSaved).toBe(false);
+});
+
+test("message send --json reports a non-uuid --attachment-id as structured JSON", () => {
+  const error = (() => {
+    try {
+      parseArgs(["message", "send", "--target", "@ada", "--attachment-id", "abc", "--json"]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  expect((error as CliError).outputMode).toBe("json");
+  const parsed = JSON.parse(renderCliErrorJson(error as CliError));
+  expect(parsed.error.code).toBe("INVALID_ARG");
+  expect(parsed.error.draft_saved).toBe(false);
+});
+
+test("--attachment-id combined with --send-draft is a typed usage error", () => {
+  const error = (() => {
+    try {
+      parseArgs([
+        "message",
+        "send",
+        "--target",
+        "@ada",
+        "--send-draft",
+        "--attachment-id",
+        "11111111-1111-4111-8111-111111111111",
+      ]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("INVALID_ARG");
+  expect(cliError.message).toBe(
+    "--attachment-id cannot be used with --send-draft. Use a normal send to replace the draft.",
+  );
+  expect(cliError.draftSaved).toBe(false);
+});
+
+test("an invalid --mention selector is a typed usage error", () => {
+  const error = (() => {
+    try {
+      parseArgs(["message", "send", "--target", "@ada", "--send-draft", "--mention", "not-valid"]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  expect((error as CliError).code).toBe("INVALID_MENTION_SELECTOR");
+  expect((error as CliError).draftSaved).toBe(false);
+});
+
+test("two --mention flags binding the same handle to different actors conflict", () => {
+  const error = (() => {
+    try {
+      parseArgs([
+        "message",
+        "send",
+        "--target",
+        "@ada",
+        "--send-draft",
+        "--mention",
+        "human:11111111-1111-4111-8111-111111111111:ada",
+        "--mention",
+        "agent:22222222-2222-4222-8222-222222222222:ada",
+      ]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("MENTION_BINDING_CONFLICT");
+  expect(cliError.message).toBe("@ada cannot be bound to more than one actor in the same message.");
+});
+
+test("message send forwards mentions and targetConfirmed to the transport on --send-draft", async () => {
+  const calls: unknown[] = [];
+  await run(["message", "send", "--target", "@ada", "--send-draft", "--target-confirmed"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async (target, body, options) => {
+      calls.push({ target, body, options });
+      return { accepted: true, messageId: "message-1" };
+    },
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  expect(calls).toEqual([
+    {
+      target: "@ada",
+      body: undefined,
+      options: {
+        sendDraft: true,
+        continueAnyway: undefined,
+        freshnessContextMode: undefined,
+        attachmentId: undefined,
+        mentions: undefined,
+        targetConfirmed: true,
+      },
+    },
+  ]);
 });

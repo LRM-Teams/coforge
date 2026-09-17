@@ -196,6 +196,28 @@ test("formatSendSuccess omits the id and reply hint when messageId is missing or
   expect(formatSendSuccess("#general:11111111", {})).toBe("Message sent to #general:11111111.");
 });
 
+test("formatSendSuccess appends a recentUnread section only when non-empty", () => {
+  expect(formatSendSuccess("@user:11111111", { messageId: "message-1" }, [])).toBe(
+    "Message sent to @user:11111111. Message ID: message-1",
+  );
+  expect(formatSendSuccess("@user:11111111", { messageId: "message-1" }, undefined)).toBe(
+    "Message sent to @user:11111111. Message ID: message-1",
+  );
+  const rendered = formatSendSuccess("@user:11111111", { messageId: "message-1" }, [
+    {
+      id: "message-2",
+      sequence: 5,
+      sender: "@frank",
+      target: "@user:11111111",
+      body: "missed while held",
+      createdAt: "2026-09-17T10:00:00Z",
+    },
+  ]);
+  expect(rendered).toContain("Message sent to @user:11111111. Message ID: message-1");
+  expect(rendered).toContain("--- New messages you may have missed ---");
+  expect(rendered).toContain("@frank: missed while held");
+});
+
 test("formatHeldSend lists held messages oldest first and offers the anyway escape hatch only when allowed", () => {
   const held = [
     message({ sender: "@ada", body: "first note", createdAt: "2026-09-07T10:01:00Z" }),

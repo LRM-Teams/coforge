@@ -192,6 +192,8 @@ export type AgentMessageTransportResponse = {
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
   hasMore?: boolean;
+  /** `send` only: pending messages bypassed via `continueAnyway`; empty otherwise. */
+  recentUnread?: AgentMessage[];
 };
 
 /** Adapts the read route's response into the shape `DaemonRuntime` consumes. */
@@ -246,6 +248,7 @@ function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransp
     anywayAllowed: response.anywayAllowed,
     freshnessContextMode: response.freshnessContextMode,
     withheldMessageCount: response.withheldMessageCount,
+    recentUnread: response.recentUnread,
   };
 }
 
@@ -534,6 +537,8 @@ export const createAgentMessageHttpClient = (
           continueAnyway: request.continueAnyway,
           seenUpToSequence: request.seenUpToSequence,
           freshnessContextMode: request.freshnessContextMode,
+          attachmentId: request.attachmentId,
+          mentions: request.mentions,
         }),
       },
       "agent send",

@@ -4,12 +4,15 @@ import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
 import { mentionedNames } from "../../conversations/mentions";
+import { AgentSendRejectedError } from "../../conversations/agent-send-rejected-error.server";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
 } from "../../conversations/message-reactions.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "../../attachments/attachment-view.server";
+
+export type AgentMentionBinding = { type: "user" | "agent"; id: string; name: string };
 
 export type AttachmentMetadata = {
   id: string;
@@ -448,6 +451,7 @@ export type DirectConversationRepository = {
     body: string,
     attachmentId?: string,
     threadRootId?: string,
+    mentions?: readonly AgentMentionBinding[],
   ): Promise<{
     id: string;
     body: string;
@@ -1502,6 +1506,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     body: string,
     attachmentId?: string,
     threadRootId?: string,
+    mentions?: readonly AgentMentionBinding[],
   ) {
     const conversation = await this.db.conversation.findUnique({
       where: { id: conversationId },
@@ -1517,6 +1522,48 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       : undefined;
     const result = await this.db.$transaction(async (tx) => {
       const sequence = await allocateSequence(tx, conversationId);
+      if (attachmentId) {
+        // Agents have no upload route today (`Attachment.uploaderId` is a `User`), so this
+        // deliberately never checks `uploaderId`: the only ids that pass are unlinked attachments
+        // already sitting in this conversation (see ADR 0022, "Known limitation").
+        const attachment = await tx.attachment.findFirst({
+          where: {
+            id: attachmentId,
+            conversationId,
+            workspaceId: conversation.workspaceId,
+            messageId: null,
+          },
+          select: { id: true },
+        });
+        if (!attachment)
+          throw new AgentSendRejectedError(403, "attachment is not available for this message");
+      }
+      const mentionedMemberIds: string[] = [];
+      if (mentions?.length) {
+        const members = await tx.conversationMember.findMany({
+          where: { conversationId },
+          select: {
+            id: true,
+            userId: true,
+            agentId: true,
+            user: { select: { username: true } },
+            agent: { select: { name: true } },
+          },
+        });
+        for (const mention of mentions) {
+          const match = members.find((member) =>
+            mention.type === "user"
+              ? member.userId === mention.id && member.user?.username === mention.name
+              : member.agentId === mention.id && member.agent?.name === mention.name,
+          );
+          if (!match)
+            throw new AgentSendRejectedError(
+              400,
+              `mention binding does not match a conversation member: @${mention.name}`,
+            );
+          mentionedMemberIds.push(match.id);
+        }
+      }
       if (conversation.channelName && root) {
         const names = mentionedNames(body);
         const mentioned = await tx.conversationMember.findMany({
@@ -1526,8 +1573,13 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           },
           select: { id: true },
         });
+        const followerIds = new Set([
+          sender.id,
+          ...mentioned.map(({ id }) => id),
+          ...mentionedMemberIds,
+        ]);
         await tx.threadFollow.createMany({
-          data: [sender.id, ...mentioned.map(({ id }) => id)].map((memberId) => ({
+          data: [...followerIds].map((memberId) => ({
             memberId,
             rootMessageId: root.id,
             conversationId,

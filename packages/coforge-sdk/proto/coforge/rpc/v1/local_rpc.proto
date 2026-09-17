@@ -31,6 +31,22 @@ message LocalAgentMessageRequest {
   string freshness_context_mode = 16;
   string message_id = 17;
   string emoji = 18;
+  // `message send` only: a single attachment already uploaded to this conversation.
+  string attachment_id = 19;
+  // `message send` only: structured @mention bindings; replaces the draft's saved
+  // mentions on `--send-draft` when non-empty.
+  repeated MentionSelector mentions = 20;
+  // `message send` only: confirms a top-level send despite newer thread read context
+  // under the same parent. Never leaves the daemon.
+  bool target_confirmed = 21;
+}
+
+// One structured @mention binding: a handle claimed to name a specific actor.
+message MentionSelector {
+  // "user" or "agent".
+  string type = 1;
+  string id = 2;
+  string name = 3;
 }
 
 message AgentMessageRecord {
@@ -89,6 +105,8 @@ message AgentMessageResponse {
   string freshness_context_mode = 14;
   optional uint32 withheld_message_count = 15;
   bool has_more = 16;
+  // `message send` only: up to three pending messages bypassed via `--anyway`; empty otherwise.
+  repeated AgentMessageRecord recent_unread = 17;
 }
 
 message LocalInboxRequest {
