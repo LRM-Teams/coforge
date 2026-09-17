@@ -306,7 +306,91 @@ export function connectLocal(
         fileName: response.headers.get("content-disposition") ?? undefined,
       };
     },
+    upload: (input: { path: string; target: string; mimeType?: string }) =>
+      callAttachmentUpload(input),
   };
+
+  async function callAttachmentCapabilities(): Promise<{ maxBytes: number }> {
+    if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    const endpoint = new URL(proxyUrl);
+    // The GET attachment-download forwarding (`agent-proxy.ts`) treats any segment after the
+    // attachment route prefix as an opaque attachment id and reaches the identical cloud URL
+    // unchanged. "capabilities" is itself a literal cloud sub-route registered ahead of
+    // `$attachmentId`, so this coincidentally-shaped request reaches it without any daemon
+    // change. Covered by a `local-client.test.ts` case; if a future daemon route ordering
+    // change breaks this, add explicit forwarding in `agent-proxy.ts` instead of relying on it.
+    endpoint.pathname = agentApiRoutes.local.attachments.path("capabilities");
+    endpoint.search = "";
+    const response = await fetch(endpoint, {
+      headers: { authorization: `Bearer ${context}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok)
+      throw new Error(`attachment capabilities request failed (${response.status})`);
+    return (await response.json()) as { maxBytes: number };
+  }
+
+  async function callAttachmentUpload(input: { path: string; target: string; mimeType?: string }) {
+    if (!context) throw new Error("coforge agent context is not configured");
+    if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    const file = Bun.file(input.path);
+    const sizeBytes = file.size;
+    const capabilities = await callAttachmentCapabilities();
+    if (sizeBytes > capabilities.maxBytes)
+      throw new CliError({
+        code: "ATTACHMENT_TOO_LARGE",
+        message: `File is ${sizeBytes} bytes; the server allows at most ${capabilities.maxBytes} bytes.`,
+        retryable: false,
+      });
+    const fileName = input.path.split("/").pop() || "attachment";
+    const form = new FormData();
+    form.set("file", new Blob([await file.arrayBuffer()], { type: input.mimeType }), fileName);
+    form.set("target", input.target);
+    if (input.mimeType) form.set("mimeType", input.mimeType);
+    const endpoint = new URL(proxyUrl);
+    endpoint.pathname = agentApiRoutes.local.attachments.upload.path;
+    endpoint.search = "";
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: agentApiRoutes.local.attachments.upload.method,
+        headers: { authorization: `Bearer ${context}` },
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch {
+      throw new CliError({
+        code: "UPLOAD_FAILED",
+        message: "attachment upload request failed (network or timeout)",
+        retryable: false,
+      });
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let message = text;
+      try {
+        const parsed = JSON.parse(text) as { error?: string };
+        if (parsed && typeof parsed.error === "string") message = parsed.error;
+      } catch {
+        // Not JSON: keep the raw text (e.g. a legacy bare-text proxy error).
+      }
+      throw new CliError({
+        code: response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED",
+        message: message || `HTTP ${response.status}`,
+        retryable: false,
+      });
+    }
+    return (await response.json()) as {
+      id: string;
+      fileName: string;
+      contentType: string;
+      sizeBytes: number;
+    };
+  }
 
   async function callInbox() {
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))

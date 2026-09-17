@@ -220,6 +220,24 @@ export function formatSendSuccess(target: string, response: SendResponse): strin
   return `Message sent to ${target}. Message ID: ${response.messageId}${hint}`;
 }
 
+type AttachmentUploadResponse = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+};
+
+export function formatAttachmentUploadSuccess(
+  target: string,
+  response: AttachmentUploadResponse,
+): string {
+  return (
+    `Attachment uploaded. Attachment ID: ${response.id} ` +
+    `(${response.fileName}, ${response.contentType}, ${response.sizeBytes} bytes)\n` +
+    `Use it with: coforge message send --target "${target}" --attachment-id ${response.id}`
+  );
+}
+
 type HeldSendResponse = {
   attentionCount?: number;
   anywayAllowed?: boolean;

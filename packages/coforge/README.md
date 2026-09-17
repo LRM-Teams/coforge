@@ -51,6 +51,19 @@ only the count of withheld messages — never their bodies — as
 other transport failure is reported generically (upstream detail withheld)
 rather than surfacing the server's response text.
 
+`coforge attachment upload --path <file> --target <target> [--mime-type <type>]`
+uploads a local file and prints its attachment id for
+`coforge message send --attachment-id <id>`. `--target` uses the same
+`#channel`/`@user` grammar as `message send`; the Agent must already belong to
+that conversation. Without `--mime-type`, the type is inferred from the file
+extension (falling back to `application/octet-stream`). The CLI checks the
+file exists, is a non-empty regular file, and is at or under the server's
+advertised size limit before uploading; a file over the limit is rejected
+locally with `ATTACHMENT_TOO_LARGE`, never partially uploaded. Download an
+attachment's bytes with `coforge attachment view <id> --output <path>` (or
+`--id <id>`); an Agent may download its own upload before sending it, but not
+another Agent's not-yet-sent upload.
+
 `coforge weekly-report context|list|read` is the weekly-report assistant's
 authorized on-demand read surface. It reuses the Credential Proxy and Agent
 HTTPS API. Context is a compact page manifest, list is cursor-bounded, and

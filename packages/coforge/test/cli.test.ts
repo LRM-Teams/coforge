@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseArgs, run } from "../index";
 import { CliError, renderCliErrorJson, renderCliErrorText } from "../src/cli-error";
 import { validateTaskRequest } from "@lrm/coforge-sdk/internal";
@@ -708,6 +711,190 @@ test("parses attachment view with an output path", () => {
     attachmentId: "attachment-1",
     output: "/tmp/file.txt",
   });
+});
+
+test("parses attachment view with a positional id, Raft-style", () => {
+  expect(parseArgs(["attachment", "view", "attachment-1", "--output", "/tmp/file.txt"])).toEqual({
+    command: "attachment.view",
+    attachmentId: "attachment-1",
+    output: "/tmp/file.txt",
+  });
+});
+
+test("parses attachment upload with target, mime type, and --json", () => {
+  expect(
+    parseArgs(["attachment", "upload", "--path", "/tmp/file.txt", "--target", "@ada"]),
+  ).toEqual({
+    command: "attachment.upload",
+    path: "/tmp/file.txt",
+    target: "@ada",
+    mimeType: undefined,
+  });
+  expect(
+    parseArgs([
+      "attachment",
+      "upload",
+      "--path",
+      "/tmp/file.txt",
+      "--target",
+      "@ada",
+      "--mime-type",
+      "image/png",
+      "--json",
+    ]),
+  ).toEqual({
+    command: "attachment.upload",
+    path: "/tmp/file.txt",
+    target: "@ada",
+    mimeType: "image/png",
+    json: true,
+  });
+});
+
+test("dispatches attachment upload through the injected transport with an inferred mime type", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  const path = join(dir, "note.txt");
+  await writeFile(path, "hello");
+  try {
+    const calls: unknown[] = [];
+    const result = await run(["attachment", "upload", "--path", path, "--target", "@ada"], {
+      check: async () => {
+        throw new Error("unused");
+      },
+      read: async () => {
+        throw new Error("unused");
+      },
+      send: async () => {
+        throw new Error("unused");
+      },
+      view: async () => {
+        throw new Error("unused");
+      },
+      upload: async (input) => {
+        calls.push(input);
+        return {
+          id: "attachment-1",
+          fileName: "note.txt",
+          contentType: "text/plain",
+          sizeBytes: 5,
+        };
+      },
+    });
+    expect(calls).toEqual([{ path, target: "@ada", mimeType: "text/plain" }]);
+    expect(result).toBe(
+      "Attachment uploaded. Attachment ID: attachment-1 (note.txt, text/plain, 5 bytes)\n" +
+        'Use it with: coforge message send --target "@ada" --attachment-id attachment-1',
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("attachment upload --json prints the raw response object", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  const path = join(dir, "image.png");
+  await writeFile(path, "fake-png-bytes");
+  try {
+    const result = await run(
+      ["attachment", "upload", "--path", path, "--target", "#general", "--json"],
+      {
+        check: async () => {
+          throw new Error("unused");
+        },
+        read: async () => {
+          throw new Error("unused");
+        },
+        send: async () => {
+          throw new Error("unused");
+        },
+        view: async () => {
+          throw new Error("unused");
+        },
+        upload: async () => ({
+          id: "attachment-1",
+          fileName: "image.png",
+          contentType: "image/png",
+          sizeBytes: 14,
+        }),
+      },
+    );
+    expect(JSON.parse(result as string)).toEqual({
+      id: "attachment-1",
+      fileName: "image.png",
+      contentType: "image/png",
+      sizeBytes: 14,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("attachment upload rejects local preconditions before any transport call", async () => {
+  const transport = {
+    check: async () => {
+      throw new Error("unused");
+    },
+    read: async () => {
+      throw new Error("unused");
+    },
+    send: async () => {
+      throw new Error("unused");
+    },
+    view: async () => {
+      throw new Error("unused");
+    },
+    upload: async () => {
+      throw new Error("must not upload: a local precondition failed");
+    },
+  };
+  await expect(run(["attachment", "upload", "--target", "@ada"], transport)).rejects.toMatchObject({
+    code: "INVALID_ARG",
+    message: "--path is required",
+  });
+  await expect(
+    run(
+      ["attachment", "upload", "--path", "/tmp/coforge-does-not-exist.bin", "--target", "@ada"],
+      transport,
+    ),
+  ).rejects.toMatchObject({ code: "INVALID_ARG" });
+
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  try {
+    const emptyPath = join(dir, "empty.txt");
+    await writeFile(emptyPath, "");
+    await expect(
+      run(["attachment", "upload", "--path", emptyPath, "--target", "@ada"], transport),
+    ).rejects.toMatchObject({
+      code: "INVALID_ARG",
+      message: "--path is empty; refusing to upload a 0-byte attachment",
+    });
+    await expect(
+      run(["attachment", "upload", "--path", dir, "--target", "@ada"], transport),
+    ).rejects.toMatchObject({ code: "INVALID_ARG" });
+
+    const filePath = join(dir, "note.txt");
+    await writeFile(filePath, "hello");
+    await expect(
+      run(
+        [
+          "attachment",
+          "upload",
+          "--path",
+          filePath,
+          "--target",
+          "@ada",
+          "--mime-type",
+          "not-a-mime-type",
+        ],
+        transport,
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_ARG" });
+    await expect(
+      run(["attachment", "upload", "--path", filePath], transport),
+    ).rejects.toMatchObject({ code: "INVALID_ARG", message: "--target is required" });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("rejects agent-internal arguments", () => {
