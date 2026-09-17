@@ -150,7 +150,6 @@ describe("ManageAgents", () => {
       { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "assistant-agent",
-        name: "weekly-report-assistant-user-1",
         description: "",
         provider: RUNTIME_PROVIDER.PI,
         computerId: "computer-1",
@@ -180,7 +179,6 @@ describe("ManageAgents", () => {
     records[0]!.runtimeConfig.environment = environment;
     await agentManagement.update(principal, {
       agentId: created.agent.id,
-      name: "renamed",
       description: "Builder",
       provider: RUNTIME_PROVIDER.CODEX,
       model: "new-model",
@@ -411,7 +409,7 @@ describe("ManageAgents", () => {
     expect(records).toEqual([]);
   });
 
-  test("updates metadata without control and keeps the Computer fixed", async () => {
+  test("updates metadata without control, keeps the Computer fixed, and never renames the handle", async () => {
     const { agentManagement, records, controls, updates } = fixture();
     const created = await agentManagement.create(
       { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
@@ -427,19 +425,48 @@ describe("ManageAgents", () => {
       { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: created.agent.id,
-        name: " New ",
         description: " New description ",
         provider: RUNTIME_PROVIDER.PI,
       },
     );
     expect(result.restart).toBe("not-required");
+    // The handle (`name`) is fixed at creation; an update without a displayName keeps it too.
     expect(records[0]).toMatchObject({
-      name: "new",
-      displayName: "new",
+      name: "old",
+      displayName: "old",
+      description: "New description",
       computerId: "computer-1",
     });
     expect(controls).toEqual(["persist"]);
     expect(updates[0]).not.toHaveProperty("runtimeConfig");
+    expect(updates[0]).not.toHaveProperty("name");
+  });
+
+  test("update with a new displayName changes only the displayName; the handle is untouched", async () => {
+    const { agentManagement, records } = fixture();
+    const created = await agentManagement.create(
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
+      {
+        name: "builder",
+        description: "Old",
+        provider: RUNTIME_PROVIDER.PI,
+        computerId: "computer-1",
+      },
+    );
+    const result = await agentManagement.update(
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
+      {
+        agentId: created.agent.id,
+        displayName: "周报 Helper",
+        description: "Old",
+        provider: RUNTIME_PROVIDER.PI,
+      },
+    );
+    expect(result.restart).toBe("not-required");
+    expect(records[0]).toMatchObject({
+      name: "builder",
+      displayName: "周报 Helper",
+    });
   });
 
   test("updates metadata when the unchanged runtime is no longer selectable", async () => {
@@ -468,7 +495,6 @@ describe("ManageAgents", () => {
       { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "agent-1",
-        name: "new",
         description: "New description",
         provider: RUNTIME_PROVIDER.CODEX,
         model: "gpt-5",
@@ -507,7 +533,6 @@ describe("ManageAgents", () => {
       { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "agent-1",
-        name: "builder",
         description: "",
         provider: RUNTIME_PROVIDER.COFORGE,
         model: "new",
@@ -524,7 +549,6 @@ describe("ManageAgents", () => {
         { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
         {
           agentId: "agent-1",
-          name: "builder",
           description: "",
           provider: RUNTIME_PROVIDER.COFORGE,
           modelProvider: "anthropic",
@@ -539,7 +563,6 @@ describe("ManageAgents", () => {
       { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "agent-1",
-        name: "builder",
         description: "",
         provider: RUNTIME_PROVIDER.COFORGE,
         modelProvider: "anthropic",
@@ -578,7 +601,6 @@ describe("ManageAgents", () => {
       { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "agent-1",
-        name: "pi",
         description: "",
         provider: RUNTIME_PROVIDER.PI,
         model: "gpt",
@@ -635,7 +657,6 @@ describe("ManageAgents", () => {
         { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
         {
           agentId: created.agent.id,
-          name: "a",
           description: "",
           provider: RUNTIME_PROVIDER.CODEX,
         },
@@ -660,7 +681,6 @@ describe("ManageAgents", () => {
           { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
           {
             agentId: other.agent.id,
-            name: "a",
             description: "",
             provider: RUNTIME_PROVIDER.CODEX,
           },

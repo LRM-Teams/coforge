@@ -8,15 +8,16 @@ export function updateAgentInputFromForm(
 ): UpdateAgentInput {
   const computerId = String(form.get("computerId") ?? fallback.computerId ?? "").trim();
   const apiKey = String(form.get("apiKey") ?? "").trim();
+  const displayName = String(form.get("displayName") ?? "").trim();
   return {
     agentId: fallback.agentId,
-    name: String(form.get("name") ?? ""),
     description: String(form.get("description") ?? ""),
     provider: parseRuntimeProvider(form.get("provider")) ?? RUNTIME_PROVIDER.COFORGE,
     modelProvider: String(form.get("modelProvider") ?? ""),
     model: String(form.get("model") ?? ""),
     reasoning: String(form.get("reasoning") ?? ""),
     ...(apiKey ? { apiKey } : {}),
+    ...(displayName ? { displayName } : {}),
     ...(computerId ? { computerId } : {}),
   };
 }

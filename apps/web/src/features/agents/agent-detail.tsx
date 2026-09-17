@@ -27,7 +27,7 @@ import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "@/lib/app-error";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import { updateAgentInputFromForm } from "./agent-form";
-import type { UpdateAgentInput } from "./agent.schemas";
+import { AGENT_DISPLAY_NAME_MAX_LENGTH, type UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
 import { agentDisplay } from "./agent-activity-presentation";
 import { AgentActivityAvatar } from "./agent-activity-avatar";
@@ -235,12 +235,10 @@ const Profile = memo(function Profile({
   const nameMatchesDisplayName = detail.name === detail.displayName;
   const fields = [
     { label: m.agent_profile_id(), value: detail.id, breakAll: true },
+    { label: m.agent_form_username(), value: `@${detail.name}` },
     ...(nameMatchesDisplayName
       ? []
-      : [
-          { label: m.agent_profile_name(), value: detail.name },
-          { label: m.agent_profile_display_name(), value: detail.displayName },
-        ]),
+      : [{ label: m.agent_profile_display_name(), value: detail.displayName }]),
     ...(detail.description
       ? [{ label: m.agent_profile_description(), value: detail.description }]
       : []),
@@ -343,11 +341,18 @@ const Profile = memo(function Profile({
               />
               <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
                 <Input
-                  label={m.agent_form_name()}
-                  name="name"
-                  isRequired
+                  label={m.agent_form_display_name()}
+                  name="displayName"
                   isReadOnly={detail.isWeeklyReportAssistant}
-                  defaultValue={detail.name}
+                  defaultValue={detail.displayName}
+                  maxLength={AGENT_DISPLAY_NAME_MAX_LENGTH}
+                  className="min-w-0 sm:col-span-2"
+                />
+                <Input
+                  label={m.agent_form_username()}
+                  isReadOnly
+                  value={`@${detail.name}`}
+                  hint={m.agent_form_username_locked_hint()}
                   className="min-w-0 sm:col-span-2"
                 />
                 <TextArea
