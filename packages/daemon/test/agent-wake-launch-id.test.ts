@@ -64,8 +64,12 @@ async function harness() {
     previousLaunchId?: string;
   }> = [];
   const activities: Array<{ launchId: string; clientSeq: number }> = [];
-  const controlResults: Array<{ phase: string; requestId: string; launchId?: string; epoch: number }> =
-    [];
+  const controlResults: Array<{
+    phase: string;
+    requestId: string;
+    launchId?: string;
+    epoch: number;
+  }> = [];
   const runtime = new DaemonRuntime(
     connection,
     () => ({
@@ -75,7 +79,10 @@ async function harness() {
         exitListeners = new Set();
         return {
           ...sessionSpy(),
-          readSessionIdentity: async () => ({ sessionId: "session-a", state: "resumable" as const }),
+          readSessionIdentity: async () => ({
+            sessionId: "session-a",
+            state: "resumable" as const,
+          }),
           notify: async () => {},
           onExit(listener: () => void) {
             exitListeners.add(listener);
@@ -116,7 +123,11 @@ async function harness() {
       }),
     },
     undefined,
-    { runtimes: async () => [], cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }), catalogs: async () => [] },
+    {
+      runtimes: async () => [],
+      cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+      catalogs: async () => [],
+    },
     stateDirectory,
   );
   return {
@@ -198,7 +209,9 @@ test("clientSeq continues across a wake instead of restarting at the reused laun
   try {
     await h.runtime.start(connection);
     await h.runtime.handleAgentStart(managedStart("wake-b", "start-1", 1, "launch-1"));
-    const beforeExit = h.activities.filter((a) => a.launchId === "launch-1").map((a) => a.clientSeq);
+    const beforeExit = h.activities
+      .filter((a) => a.launchId === "launch-1")
+      .map((a) => a.clientSeq);
     expect(beforeExit.length).toBeGreaterThan(0);
     const highWaterMark = Math.max(...beforeExit);
     expect(h.runtime.agentProcessManager.lastClientSeq("wake-b")).toBe(highWaterMark);

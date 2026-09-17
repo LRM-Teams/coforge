@@ -82,7 +82,9 @@ const reusedWakeInput = {
 };
 
 test("authorizeLaunch accepts a wake that reuses the exact scope its last completed operation ran under, without writing", async () => {
-  await expect(controlFor(completedManagedAgent()).authorizeLaunch(reusedWakeInput)).resolves.toBeUndefined();
+  await expect(
+    controlFor(completedManagedAgent()).authorizeLaunch(reusedWakeInput),
+  ).resolves.toBeUndefined();
 });
 
 test("authorizeLaunch refuses a wake whose scope was superseded by a different requestId/epoch", async () => {
