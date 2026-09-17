@@ -121,7 +121,17 @@ export class FileAgentRuntimeStateStore implements AgentRuntimeStateStore {
       throw error;
     }
     // The process tree has already stopped. rm unlinks internal symlinks, never their targets.
-    for (const entry of entries) await rm(join(workspace, entry), { recursive: true, force: true });
+    // One undeletable entry must not leave the rest of the workspace in place: continue past a
+    // failing entry, collecting the first error, then throw so the caller logs and flags a warning.
+    let firstError: unknown;
+    for (const entry of entries) {
+      try {
+        await rm(join(workspace, entry), { recursive: true, force: true });
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError !== undefined) throw firstError;
   }
 }
 

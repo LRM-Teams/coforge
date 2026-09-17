@@ -689,7 +689,14 @@ identity 并声明替代旧 ID，不能以相同 ID 冒充 resume。切换 runti
 三种操作均先确认旧 Runtime/进程树已停止。Full Reset 必须经明确的破坏性确认；路径由
 可信 Workspace/Agent 身份计算，不能由浏览器指定。删除范围不包含用户 HOME、Global
 Skills、其他 Agent 目录、云端 Message 或位于原生 HOME 的 Claude/Codex Session 文件。
-停止失败禁止删除或启动；删除失败禁止启动；Start 失败明确报告失败，不伪装操作成功。
+停止失败禁止删除或启动（`confirmed_stop_required`；刻意保留于 Raft 之外的检查，避免在
+存活进程下删除 workspace——失败的 Stop 本身可在 PR #317 之后直接重试，不损失可用性）。
+删除失败不再禁止启动：liveness over durable receipts（ADR 0034），清理失败是非致命的——
+Daemon 以 error 级别记录失败原因，仍在本地清除旧 Session 绑定，并把结果报告为携带
+`warningCode`（`workspace_clear_incomplete`）的 `workspace-reset`，链条照常推进到 Start；
+前端据此在结果已展示的面板内联提示，不使用 toast，也不展示原始 code。清空逐条删除时，
+某个条目不可删除不会中止其余条目的删除，只收集首个错误，在结束后 throw 交由控制层
+转换为该 warning。Start 失败明确报告失败，不伪装操作成功。
 Full Reset 已删除的用户文件不可因随后 Start 失败而自动还原。重新启动可重新生成必要的
 运行目录；“清空”不是要求运行中的 Agent workspace 永久为空。
 
@@ -709,8 +716,10 @@ Reset 的例外规则同样适用于已放弃的 Full Reset：仅显式确认的
 错误类型，不记录原始消息或负载；写入端仍保持原有的 403 线路行为不变。
 Clear Session 是云端本地步骤，与下一步骤状态在同一 PostgreSQL 事务提交；Session 与
 控制写入先锁 Agent 行，再重新读取关联 Session，避免旧快照覆盖新的绑定或可恢复状态。
-执行结果未知时保留当前步骤，重发沿用原标识；明确失败停止推进。失败的 Full Reset
-不由 ready recovery 或普通 Start 绕过，显式重试重新建立 Stop/Reset 前置条件。
+执行结果未知时保留当前步骤，重发沿用原标识。任一步骤的失败结果都不再锁死后续操作
+（ADR 0034）：一旦当前操作到达终态（`completed`/`failed`），下一次 start、stop、restart、
+reset-session、full-reset 都可以立即发起，不要求先完成特定动作的显式重试；仍在进行中的
+操作（非终态）依旧拒绝新的竞争请求，这条规则未变。
 这保证顺序、互斥和防重复，不是跨进程、文件系统和数据库的全有或全无事务；无通用
 工作流引擎、任务队列或自动补偿。原子命令的拆分参考
 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
@@ -721,7 +730,8 @@ Clear Session 是云端本地步骤，与下一步骤状态在同一 PostgreSQL 
 `Agent.currentSessionId` 指向当前会话。`Agent.runtimeSession` JSONB 只保存上游 launch fence：
 provider、Computer、start request、Daemon instance、launch ID 与 session mode；读取时从
 `AgentSession` hydrate native identity/state。`Agent.controlState` JSONB 只保存当前
-epoch/action/phase/sequence 控制进度，不复制 native Session ID，也不是通用任务表。新 launch
+epoch/action/phase/sequence 控制进度和可选的非致命 `warningCode`（旧行缺省该字段仍可解析），
+不复制 native Session ID，也不是通用任务表。新 launch
 报告不同 identity 时新建 Session 行，保留旧行；同一 launch 不允许偷偷换 identity。
 Session 不是 Profile 列表或 transcript 展示功能。
 
@@ -758,6 +768,13 @@ stopped 并以 error 级别记录修复事件（修复即上一次写入方留�
 保证前一个 Daemon 实例拥有的 Agent 进程不会存活进新实例（见 ADR 0033）。仍标记
 `exitUnconfirmed` 的记录继续 fail closed，需要人工诊断，删除防护记录仍不能当作修复。
 启动后才发生的 provider replay 错误尚不自动 fresh fallback。
+
+ADR 0034（2026-09-17）之后，`resetWorkspace` 的清理失败不再把记录写成终态 `failed`：
+Daemon 以 error 级别记录失败原因，仍照常清除本地 Session 绑定，并把记录和回执都写成
+`workspace-reset`，附带 `warningCode`，让 Start 照常发生。旧 Daemon 遗留在磁盘上、
+action 为 `reset-workspace` 且 phase 为 `failed` 的记录不再无条件地拒绝后续任何 epoch
+的 Start；只保留通用规则——同一 epoch 的终态记录才拒绝重复请求，跨 epoch 的新 Start
+照常发起，不再有 reset-workspace 专属的跨 epoch 锁定。
 
 部署需要兼容 Web receiver 和加法数据库迁移，再配套升级 Daemon；旧 Daemon 没有完整
 控制能力时不能以 publish 成功冒充完成。未实现协议能力协商，混合版本部署应关闭操作

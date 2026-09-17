@@ -17,6 +17,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "../src/lib/app-error";
 import type { WorkspaceMemberRole } from "../src/server/workspaces/member-role.server";
+import { stateSchema } from "../src/server/db/repositories/agent-control.repositories.server";
 
 function observationRace() {
   const runtimeConfig = {
@@ -145,6 +146,27 @@ function observationRace() {
       control.publishStop({ agentId: "a", workspaceId: "w", requestId: "config-stop" }, "owner"),
   };
 }
+
+test("a legacy controlState row with no warningCode key still parses, and a row with a warning parses too", () => {
+  const legacy = {
+    version: 1,
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi",
+    epoch: 1,
+    action: "full-reset",
+    phase: "completed",
+    configRevision: "revision",
+    controlSequence: 1,
+    sessionSequence: 0,
+  } as const;
+  expect(stateSchema.parse(legacy)).toEqual(legacy);
+  const withWarning = { ...legacy, warningCode: "workspace_clear_incomplete" };
+  expect(stateSchema.parse(withWarning)).toEqual(withWarning);
+});
 
 test("configuration stop retries a Session observation race before allowing the config write", async () => {
   const { fixture, observe, stop } = observationRace();
@@ -587,7 +609,7 @@ test("start wakes retain the completed launch fence while ready recovery creates
   expect(agent.state?.phase).toBe("starting");
 });
 
-test("Full Reset halts on failed clearing and automatic starts cannot bypass the chain", async () => {
+test("Full Reset halts on a terminal failure and a competing action while pending is still rejected", async () => {
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
@@ -633,6 +655,8 @@ test("Full Reset halts on failed clearing and automatic starts cannot bypass the
   expect((await control.execute(input)).phase).toBe("pending");
   const stop = decodeAgentStopIntent(sent[0]!);
   const scope = { ...stop, provider: stop.provider!, epoch: stop.controlEpoch! };
+  // The pending-operation rule is unchanged: a competing action while an operation is still
+  // in flight is rejected.
   await expect(
     control.execute({ ...input, requestId: "competing", action: "restart" }),
   ).rejects.toThrow("pending");
@@ -641,30 +665,251 @@ test("Full Reset halts on failed clearing and automatic starts cannot bypass the
     requestId: "reset",
     epoch: 1,
   });
+  // A legacy daemon (pre this liveness fix) can still report a bare "failed" reset-workspace
+  // result; the server keeps that terminal-failure handling.
   await control.result(scope, {
     ...scope,
     phase: "failed",
     sequence: 2,
     errorCode: "workspace_clear_failed",
   });
-  await expect(
-    control.publishStop({ agentId: "a", workspaceId: "w", requestId: "config-stop" }, "owner"),
-  ).rejects.toThrow("Explicit Agent reset retry is required");
-  await expect(
-    control.execute({ ...input, requestId: "restart", action: "restart" }),
-  ).rejects.toThrow("Explicit Agent reset retry is required");
-  const start = { ...scope, requestId: "automatic", model: "", reasoning: "" };
-  await expect(control.recover(start, "owner")).rejects.toThrow(
-    "Explicit Agent reset retry is required",
-  );
-  await expect(control.publishStart(start, "owner")).rejects.toThrow(
-    "Explicit Agent reset retry is required",
-  );
-  expect(sent).toHaveLength(2);
   expect((await control.execute(input)).phase).toBe("failed");
-  // An explicit retry starts with a new confirmed-stop boundary, not a naked Start.
-  await control.execute({ ...input, requestId: "retry" });
-  expect(decodeAgentStopIntent(sent[2]!)).toMatchObject({ requestId: "retry", controlEpoch: 2 });
+  expect(sent).toHaveLength(2);
+});
+
+test("a failed operation never latches: start, stop, restart, reset-session, and full-reset may all begin right after", async () => {
+  function failedFullResetAgent(): {
+    agent: AgentControlAgent;
+    store: AgentControlStore;
+    sent: Uint8Array[];
+  } {
+    const scope = {
+      protocolMajor: 1 as const,
+      requestId: "reset",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi" as const,
+      epoch: 1,
+    };
+    let agent: AgentControlAgent = {
+      id: "a",
+      ownerId: "owner",
+      workspaceId: "w",
+      computerId: "c",
+      runtimeConfig: {
+        runtime: "pi",
+        provider: { kind: "default" },
+        model: "",
+        modelProvider: "",
+        reasoning: "",
+      },
+      state: {
+        ...scope,
+        version: 1,
+        action: "full-reset",
+        phase: "failed",
+        configRevision: agentControlRevision({
+          runtime: "pi",
+          provider: { kind: "default" },
+          model: "",
+          modelProvider: "",
+          reasoning: "",
+        }),
+        controlSequence: 2,
+        sessionSequence: 0,
+        errorCode: "workspace_clear_failed",
+      },
+    };
+    const sent: Uint8Array[] = [];
+    const store: AgentControlStore = {
+      get: async () => structuredClone(agent),
+      replace: async (before, state) => {
+        if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+        agent = { ...agent, state: structuredClone(state) };
+        return true;
+      },
+    };
+    return { agent, store, sent };
+  }
+
+  {
+    const { store, sent } = failedFullResetAgent();
+    const control = new AgentControl(
+      store,
+      { publish: async (_channel, bytes) => void sent.push(bytes) },
+      { run: async (_id, work) => work() },
+    );
+    await control.publishStart(
+      {
+        protocolMajor: 1,
+        requestId: "s",
+        workspaceId: "w",
+        computerId: "c",
+        agentId: "a",
+        provider: "pi",
+        model: "",
+        reasoning: "",
+      },
+      "owner",
+    );
+    expect(sent).toHaveLength(1);
+    expect(decodeAgentStartIntent(sent[0]!)).toMatchObject({ requestId: "s" });
+  }
+  {
+    const { store, sent } = failedFullResetAgent();
+    const control = new AgentControl(
+      store,
+      { publish: async (_channel, bytes) => void sent.push(bytes) },
+      { run: async (_id, work) => work() },
+      { timeoutMs: 0, fallbackMs: 0 },
+    );
+    // publishStop's begin() now succeeds; only the unrelated drive-timeout rejects.
+    await expect(
+      control.publishStop({ agentId: "a", workspaceId: "w", requestId: "stop-retry" }, "owner"),
+    ).rejects.toThrow("Agent stop has not completed");
+    expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "stop-retry" });
+  }
+  {
+    const { store, sent } = failedFullResetAgent();
+    const control = new AgentControl(
+      store,
+      { publish: async (_channel, bytes) => void sent.push(bytes) },
+      { run: async (_id, work) => work() },
+      { timeoutMs: 0, fallbackMs: 0 },
+    );
+    expect(
+      (
+        await control.execute({
+          userId: "owner",
+          workspaceId: "w",
+          agentId: "a",
+          requestId: "restart",
+          action: "restart",
+        })
+      ).phase,
+    ).toBe("pending");
+    expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "restart" });
+  }
+  {
+    const { store, sent } = failedFullResetAgent();
+    const control = new AgentControl(
+      store,
+      { publish: async (_channel, bytes) => void sent.push(bytes) },
+      { run: async (_id, work) => work() },
+      { timeoutMs: 0, fallbackMs: 0 },
+    );
+    expect(
+      (
+        await control.execute({
+          userId: "owner",
+          workspaceId: "w",
+          agentId: "a",
+          requestId: "reset-session",
+          action: "reset-session",
+        })
+      ).phase,
+    ).toBe("pending");
+    expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "reset-session" });
+  }
+  {
+    const { store, sent } = failedFullResetAgent();
+    const control = new AgentControl(
+      store,
+      { publish: async (_channel, bytes) => void sent.push(bytes) },
+      { run: async (_id, work) => work() },
+      { timeoutMs: 0, fallbackMs: 0 },
+    );
+    expect(
+      (
+        await control.execute({
+          userId: "owner",
+          workspaceId: "w",
+          agentId: "a",
+          requestId: "retry",
+          action: "full-reset",
+          confirmed: true,
+        })
+      ).phase,
+    ).toBe("pending");
+    expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "retry", controlEpoch: 2 });
+  }
+});
+
+test("Full Reset completes with a warning when the workspace clear could not finish, and the Agent starts with a fresh session", async () => {
+  let agent: AgentControlAgent = {
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    identity: { sessionId: "old", state: "resumable" },
+    runtimeConfig: {
+      runtime: "pi",
+      provider: { kind: "default" },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    },
+    state: null,
+  };
+  let allowClear = false;
+  const sent: Uint8Array[] = [];
+  const store: AgentControlStore = {
+    get: async () => structuredClone(agent),
+    replace: async (before, state, options) => {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      if (options?.clearSession && !allowClear) throw new Error("transaction failed");
+      agent = { ...agent, state: structuredClone(state), identity: state.identity };
+      return true;
+    },
+  };
+  const api = {
+    publish: async (_channel: string, bytes: Uint8Array) => {
+      sent.push(bytes);
+    },
+  };
+  const lock = { run: async <T>(_id: string, work: () => Promise<T>) => work() };
+  allowClear = true;
+  const control = new AgentControl(store, api, lock, { timeoutMs: 0, fallbackMs: 0 });
+  const input = {
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "reset",
+    action: "full-reset" as const,
+    confirmed: true,
+  };
+  await control.execute(input);
+  const stop = decodeAgentStopIntent(sent[0]!);
+  const scope = { ...stop, provider: stop.provider!, epoch: stop.controlEpoch! };
+  await control.result(scope, { ...scope, phase: "stopped", sequence: 1 });
+  // The daemon's clear failed, but it is non-fatal: the result still carries "workspace-reset"
+  // (not "failed"), with a warning code instead of an error code, and the chain still proceeds.
+  await control.result(scope, {
+    ...scope,
+    phase: "workspace-reset",
+    sequence: 2,
+    warningCode: "workspace_clear_incomplete",
+  });
+  expect(decodeAgentStartIntent(sent[2]!)).toMatchObject({ requestId: "reset", controlEpoch: 1 });
+  expect(decodeAgentStartIntent(sent[2]!).sessionId).toBeUndefined();
+  expect((await store.get("a"))?.state?.identity).toBeUndefined();
+  await control.authorizeLaunch({
+    ...scope,
+    requestId: "reset",
+    launchId: "launch-a",
+    controlEpoch: 1,
+  });
+  await control.result(scope, {
+    ...scope,
+    phase: "started",
+    launchId: "launch-a",
+    sequence: 3,
+    identity: { sessionId: "new-native-id", state: "empty" },
+  });
+  const view = await control.execute(input);
+  expect(view).toMatchObject({ phase: "completed", warning: "workspace_clear_incomplete" });
+  expect((await store.get("a"))?.state?.identity).toMatchObject({ sessionId: "new-native-id" });
 });
 
 test("Clear Session and advancement commit together; recovery retries that step, not workspace deletion", async () => {

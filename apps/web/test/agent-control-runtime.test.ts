@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -224,6 +224,149 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
     expect(launches.at(-1)?.runtime?.provider).toBe("codex");
     expect(await Bun.file(marker).text()).toBe("new files");
   } finally {
+    await Promise.allSettled(deliveries);
+    await runtime.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Full Reset completes with a warning, not a failure, when the workspace clear cannot finish", async () => {
+  // macOS resolves os.tmpdir() through the /var -> /private/var symlink, which the
+  // store's symlinked-ancestor guard rightly rejects; anchor the fixture on the real path.
+  const root = await mkdtemp(join(await realpath(tmpdir()), "control-roundtrip-warning-"));
+  const connection = { workspaceId: "w", computerId: "c", workspaceRoot: join(root, "workspaces") };
+  let agent: AgentControlAgent = {
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: {
+      runtime: "pi",
+      provider: { kind: "default" },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    },
+    state: null,
+  };
+  const store: AgentControlStore = {
+    async get() {
+      return structuredClone(agent);
+    },
+    async replace(before, state) {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state: structuredClone(state) };
+      return true;
+    },
+  };
+  let runtime: DaemonRuntime;
+  const deliveries = new Set<Promise<unknown>>();
+  const control = new AgentControl(
+    store,
+    {
+      async publish(_channel, bytes) {
+        let delivery: Promise<unknown> | undefined;
+        try {
+          delivery = runtime.handleAgentStop(decodeAgentStopIntent(bytes));
+        } catch {}
+        if (!delivery) {
+          try {
+            delivery = runtime.handleAgentWorkspaceReset(decodeAgentWorkspaceResetRequest(bytes));
+          } catch {}
+        }
+        delivery ??= runtime.handleAgentStart(decodeAgentStartIntent(bytes));
+        deliveries.add(delivery);
+        const pending = delivery;
+        void pending.finally(() => deliveries.delete(pending)).catch(() => {});
+      },
+    },
+    { run: async (_id, work) => work() },
+  );
+  const sessions = new AgentSessionReceiver(store);
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save("w", "c", "daemon-token");
+  let launches = 0;
+  runtime = new DaemonRuntime(
+    connection,
+    (provider) => ({
+      provider,
+      async createAgentSession(options) {
+        launches++;
+        const identity = {
+          sessionId: options.sessionId ?? `native-${launches}`,
+          state: "resumable" as const,
+        };
+        return {
+          readSessionIdentity: async () => identity,
+          sendMessage: async () => {},
+          notify: async () => {},
+          subscribe: () => () => {},
+          onExit: () => () => {},
+          interrupt: async () => {},
+          dispose: async () => {},
+        };
+      },
+    }),
+    credentials,
+    {
+      create: () => ({
+        start: async () => {},
+        ready: async () => {},
+        stop: async () => {},
+        async requestAgentLaunchConfig(input) {
+          await control.authorizeLaunch({ ...input, computerId: "c" });
+          return { agentApiKey: `sk_agent_${"x".repeat(43)}` };
+        },
+        revokeAgentApiKey: async () => {},
+        sendAgentControlResult: (result) => control.result(connection, result),
+        async reportAgentSession(report) {
+          await sessions.authorize(connection, report);
+          if (report.sequence !== undefined && report.controlEpoch && report.sessionState)
+            await sessions.accept(connection, {
+              ...report,
+              requestId: report.startRequestId,
+              epoch: report.controlEpoch,
+              sequence: report.sequence,
+              identity: { sessionId: report.sessionId, state: report.sessionState },
+            });
+        },
+      }),
+    },
+    undefined,
+    {
+      runtimes: async () => [],
+      cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+      catalogs: async () => [],
+    },
+    join(root, "state"),
+  );
+  const execute = (action: "restart" | "full-reset") =>
+    control.execute({
+      action,
+      agentId: "a",
+      workspaceId: "w",
+      userId: "owner",
+      requestId: crypto.randomUUID(),
+      confirmed: true,
+    });
+  const workspace = join(connection.workspaceRoot, "w", "agents", "a");
+  const blocked = join(workspace, "blocked-dir");
+  try {
+    await runtime.start(connection);
+    expect((await execute("restart")).phase).toBe("completed");
+    await mkdir(blocked, { recursive: true });
+    await Bun.write(join(blocked, "stuck"), "cannot delete me");
+    await Bun.write(join(workspace, "keep.txt"), "deletable");
+    // No write permission on `blocked`: the daemon's clear cannot remove its contents.
+    await chmod(blocked, 0o500);
+    const result = await execute("full-reset");
+    expect(result).toMatchObject({ phase: "completed", warning: "workspace_clear_incomplete" });
+    expect(await Bun.file(join(workspace, "keep.txt")).exists()).toBe(false);
+    expect(await Bun.file(join(blocked, "stuck")).exists()).toBe(true);
+    // The chain still reached Start: a fresh session launched despite the clear failure.
+    expect(agent.state?.identity?.sessionId).toBeDefined();
+  } finally {
+    await chmod(blocked, 0o700).catch(() => {});
     await Promise.allSettled(deliveries);
     await runtime.stop();
     await rm(root, { recursive: true, force: true });

@@ -171,7 +171,12 @@ Stop the Agent runtime, delete all contents of only its Agent workspace, discard
 its current session association, and start a new Agent session in one confirmed
 user operation. It does not delete cloud Messages, provider home directories,
 Global Skills, or another Agent's files. Raft `resetAgentWorkspace` capability:
-Workspace owner or admin only, even when the actor owns the Agent (ADR 0034).
+Workspace owner or admin only, even when the actor owns the Agent (ADR 0034). A
+workspace clear that cannot remove every file is non-fatal: the operation still
+completes and the chain still starts a fresh session, carrying a warning the actor is
+told about, instead of latching the Agent into a state only an explicit reset retry
+could leave (ADR 0036). Stopping the Agent runtime first remains a hard precondition
+(`confirmed_stop_required`) so a workspace is never deleted under a live process.
 
 **Agent runtime**:
 A short-lived execution and audit identity for one Agent in one Workspace runtime session. Its configuration selects a provider, model, and reasoning behavior; provider-specific adapters translate that configuration into the native runtime settings. It never inherits User or Computer authority.

@@ -72,6 +72,10 @@ export type AgentControlState = AgentControlScope & {
    * compared for CAS equality (see `operationFence`) and never a liveness signal for anything
    * else. */
   updatedAtMs?: number;
+  /** Non-fatal: the operation still completed (e.g. a workspace clear that could not remove
+   * every file); the chain still proceeds. Carried through `advance()` to completion so the
+   * owner can be told, never treated as a reason to stop or latch. */
+  warningCode?: string;
 };
 export type AgentControlAgent = {
   id: string;
@@ -104,6 +108,9 @@ export type AgentControlView = {
   action: AgentControlAction;
   phase: "pending" | "completed" | "failed";
   error?: string;
+  /** Non-fatal outcome to surface inline once the view is terminal, e.g.
+   * `workspace_clear_incomplete`. */
+  warning?: string;
   recovered?: boolean;
 };
 export function agentControlRevision(config: unknown) {
@@ -118,6 +125,7 @@ function view(state: AgentControlState): AgentControlView {
     action: state.action,
     phase: state.phase === "completed" || state.phase === "failed" ? state.phase : "pending",
     ...(state.errorCode ? { error: state.errorCode } : {}),
+    ...(state.warningCode ? { warning: state.warningCode } : {}),
     ...(state.recovered ? { recovered: true } : {}),
   };
 }
@@ -331,13 +339,10 @@ export class AgentControl {
     // `old`, epoch+1 and all, except the destructive full-reset chain right below it.
     const abandoned = !!old && !terminal(old) && this.isAbandoned(old);
     if (old && !terminal(old) && !abandoned) throw new Error("Agent control operation is pending");
-    if (
-      old?.action === "full-reset" &&
-      ((old.phase === "failed" &&
-        (action === "start" ||
-          (old.errorCode === "workspace_clear_failed" && action !== "full-reset"))) ||
-        (abandoned && action !== "full-reset"))
-    )
+    // A FAILED operation never latches (ADR 0036): any next action may begin once the current
+    // operation is terminal. Only an ABANDONED, still non-terminal full-reset keeps yielding
+    // solely to a new full-reset (ADR 0035): its workspace deletion may be half done.
+    if (old?.action === "full-reset" && abandoned && action !== "full-reset")
       throw new Error("Explicit Agent reset retry is required");
     if (old && abandoned)
       console.warn(
@@ -578,6 +583,9 @@ export class AgentControl {
         : {}),
       ...(identity ? { identity } : {}),
       ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+      // Sticky once set: a workspace-reset result's warning must still be visible once the
+      // chain reaches its next (start) result, which carries no warningCode of its own.
+      ...(result.warningCode ? { warningCode: result.warningCode } : {}),
     };
     if (!(await this.store.replace(agent, next))) throw new Error("Control result lost its fence");
     if (next.phase === "stopped" || next.phase === "workspace-reset") {
