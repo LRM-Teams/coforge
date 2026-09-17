@@ -200,34 +200,55 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             />
           </Button>
           <ModalOverlay isDismissable>
-            <Modal className="w-fit max-w-[min(96vw,80rem)] bg-transparent shadow-none">
-              <Dialog aria-label={attachment.fileName} className="w-fit">
-                {({ close }) => (
-                  <div className="relative">
-                    <img
-                      src={previewSrc}
-                      onError={handlePreviewError}
-                      alt={attachment.fileName}
-                      className="block max-h-[calc(var(--visual-viewport-height)-var(--modal-pt)-var(--modal-pb))] max-w-full rounded-lg object-contain"
-                    />
-                    <div className="absolute top-2 right-2 flex items-center gap-1 rounded-lg bg-primary/90 p-1 shadow-xs">
-                      <ButtonUtility
-                        icon={Download01}
-                        size="sm"
-                        color="tertiary"
-                        tooltip={m.conversation_attachment_download()}
-                        href={`${href}?download`}
-                      />
-                      <ButtonUtility
-                        icon={XClose}
-                        size="sm"
-                        color="tertiary"
-                        tooltip={m.controls_close()}
-                        onClick={close}
-                      />
+            {/* The lightbox fills the viewport: the action bar owns a top strip so it pins to the
+                page's top-right corner and never overlaps the image, even for viewport-filling
+                images; the image is centered in the remaining space below. */}
+            <Modal className="h-full w-full max-w-full bg-transparent shadow-none">
+              <Dialog aria-label={attachment.fileName} className="h-full">
+                {({ close }) => {
+                  // The modal covers the whole overlay, so backdrop dismissal is handled here:
+                  // pressing a backdrop area itself (not the image or the actions) closes,
+                  // matching ModalOverlay's dismiss behavior.
+                  const dismissOnBackdrop = (event: React.PointerEvent) => {
+                    if (event.target === event.currentTarget) close();
+                  };
+                  return (
+                    <div className="flex h-full w-full flex-col">
+                      <div
+                        className="flex shrink-0 justify-end p-4"
+                        onPointerDown={dismissOnBackdrop}
+                      >
+                        <div className="flex items-center gap-1 rounded-lg bg-primary/90 p-1 shadow-xs">
+                          <ButtonUtility
+                            icon={Download01}
+                            size="sm"
+                            color="tertiary"
+                            tooltip={m.conversation_attachment_download()}
+                            href={`${href}?download`}
+                          />
+                          <ButtonUtility
+                            icon={XClose}
+                            size="sm"
+                            color="tertiary"
+                            tooltip={m.controls_close()}
+                            onClick={close}
+                          />
+                        </div>
+                      </div>
+                      <div
+                        className="flex min-h-0 flex-1 items-center justify-center"
+                        onPointerDown={dismissOnBackdrop}
+                      >
+                        <img
+                          src={previewSrc}
+                          onError={handlePreviewError}
+                          alt={attachment.fileName}
+                          className="block max-h-full max-w-[min(96vw,80rem)] rounded-lg object-contain"
+                        />
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                }}
               </Dialog>
             </Modal>
           </ModalOverlay>
