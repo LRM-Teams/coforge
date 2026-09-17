@@ -75,6 +75,7 @@ test("healthy machine reports every section as readable and reachable", async ()
         pid: 111,
         pidSource: "daemon-snapshot",
         pending: [],
+        unsettledUpgrades: [],
       },
     ],
   });
@@ -143,6 +144,7 @@ test("Coordinator missing: not loaded, no PID, RPC unreachable", async () => {
         pid: null,
         pidSource: null,
         pending: [],
+        unsettledUpgrades: [],
       },
     ],
   });
@@ -279,6 +281,52 @@ test("pending restart and upgrade requests are surfaced without further interpre
         pending: [
           { kind: "restart", requestId: "restart-1", phase: "starting" },
           { kind: "upgrade", requestId: "upgrade-1", expectedVersion: "1.5.0" },
+        ],
+      },
+    ],
+  });
+});
+
+test("unsettled Computer upgrade operations are surfaced with their age, and acknowledged ones are not", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      loadBindings: async () => ({
+        ok: true,
+        bindings: [
+          healthyBinding({
+            upgradeOperations: [
+              {
+                requestId: "old",
+                expectedVersion: "1.3.0",
+                state: "acknowledged",
+                requestedAt: NOW.getTime() - 60_000,
+              },
+              {
+                requestId: "req-1",
+                expectedVersion: "1.5.0",
+                state: "pending",
+                requestedAt: NOW.getTime() - 5_000,
+              },
+              {
+                requestId: "req-0",
+                expectedVersion: "1.4.0",
+                state: "failed",
+                requestedAt: NOW.getTime() - 10_000,
+              },
+            ],
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(report.workspaces).toMatchObject({
+    readable: true,
+    workspaces: [
+      {
+        unsettledUpgrades: [
+          { requestId: "req-1", expectedVersion: "1.5.0", state: "pending", ageMs: 5_000 },
+          { requestId: "req-0", expectedVersion: "1.4.0", state: "failed", ageMs: 10_000 },
         ],
       },
     ],

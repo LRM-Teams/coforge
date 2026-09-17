@@ -33,6 +33,22 @@ export type PendingRequest =
   | { kind: "restart"; requestId: string; phase: string }
   | { kind: "upgrade"; requestId: string; expectedVersion: string };
 
+/**
+ * One Computer upgrade operation this Workspace binding has not yet settled with the server -
+ * `pending` (an external job may still be running, or its receipt has not been swept yet),
+ * `succeeded`, or `failed` (a report is owed but not yet acknowledged). An `acknowledged`
+ * operation is audit-only history and is never listed here. Read-only: `status` never offers a
+ * way to acknowledge one (see ADR 0037; Raft Computer 1.0.32 has the same single-slot rule
+ * and shows the same thing under `raft-computer status`).
+ */
+export type UnsettledUpgradeOperation = {
+  requestId: string;
+  expectedVersion: string;
+  state: "pending" | "succeeded" | "failed";
+  /** How long ago this machine opened the operation, in milliseconds. */
+  ageMs: number;
+};
+
 /** Where a Workspace's `pid` came from. The Coordinator's `daemon:snapshot` is the primary
  * source, but its cached OS-instance identity can go stale (e.g. the OS job was restarted by
  * `KeepAlive` after the Coordinator last observed it), reporting `processId: 0` for a Workspace
@@ -48,6 +64,7 @@ export type WorkspaceStatus = {
   pid: number | null;
   pidSource: WorkspacePidSource | null;
   pending: PendingRequest[];
+  unsettledUpgrades: UnsettledUpgradeOperation[];
 };
 
 export type WorkspacesStatus =
@@ -94,6 +111,12 @@ export type StatusBinding = {
   enabled: boolean;
   restart?: { requestId: string; phase: string };
   upgradeRequests?: { requestId: string; expectedVersion: string }[];
+  upgradeOperations?: {
+    requestId: string;
+    expectedVersion: string;
+    state: "pending" | "succeeded" | "failed" | "acknowledged";
+    requestedAt: number;
+  }[];
 };
 
 export type DaemonRuntimeSnapshotEntry = { workspaceId: string; processId: number };

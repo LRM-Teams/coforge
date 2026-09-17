@@ -220,3 +220,9 @@ dedupe set is the only thing in play.
 
 The upgrade identity key's expiry and the liveness check performed before a new upgrade request
 begins are superseded by [ADR 0030](0030-upgrade-identity-durable-snapshot.md).
+
+The settlement-timing flaw in this record's own design - the Coordinator that launches a job is
+never the one that gets to see its receipt, and the startup sweep here ran too early to see it
+either - together with the Coordinator outliving its own shutdown, is fixed by
+[ADR 0037](0037-upgrade-settlement-and-coordinator-shutdown.md), which keeps watching after startup
+instead of only once.
