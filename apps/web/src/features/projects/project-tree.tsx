@@ -347,10 +347,12 @@ function Breadcrumb({
   // segments" overall) and collapses everything earlier to an ellipsis.
   const mobileLinks = links.length > 1 ? links.slice(-1) : links;
 
-  function renderCrumb(crumb: (typeof links)[number], index: number) {
+  function renderCrumb(crumb: (typeof links)[number], index: number, withLeadingChevron: boolean) {
     return (
       <Fragment key={index}>
-        <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-quaternary" />
+        {withLeadingChevron && (
+          <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-quaternary" />
+        )}
         {crumb.to === "project" ? (
           <Link to="/projects/$projectSlug" params={{ projectSlug }} className={crumbLinkClassName}>
             {crumb.label}
@@ -368,6 +370,11 @@ function Breadcrumb({
     );
   }
 
+  // The bold PageHeader heading is the final trail entry; this chevron is its separator.
+  const headingSeparator = (
+    <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-quaternary" />
+  );
+
   return (
     <>
       <nav
@@ -379,16 +386,17 @@ function Breadcrumb({
             …
           </span>
         )}
-        {mobileLinks.map(renderCrumb)}
+        {mobileLinks.map((crumb, index) =>
+          renderCrumb(crumb, index, mobileLinks.length < links.length),
+        )}
+        {headingSeparator}
       </nav>
       <nav
         aria-label={m.project_tree_files()}
         className="hidden min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm text-tertiary sm:flex"
       >
-        <Link to="/projects" className={crumbLinkClassName}>
-          {m.projects_title()}
-        </Link>
-        {links.map(renderCrumb)}
+        {links.map((crumb, index) => renderCrumb(crumb, index, index > 0))}
+        {headingSeparator}
       </nav>
     </>
   );
