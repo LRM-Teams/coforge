@@ -39,6 +39,31 @@ test("Task protobuf round-trips asymmetric command and result fields", () => {
   expect(decodeTaskResponse(encodeTaskResponse(response))).toEqual(response);
 });
 
+test("Task unassign round-trips as its own operation, distinct from assign's null assignee", () => {
+  const unassign = {
+    protocolMajor: 1,
+    requestId: "request-1",
+    workspaceId: "workspace-1",
+    agentId: "agent-1",
+    operation: "unassign",
+    target: "#general",
+    number: 2,
+    expectedRevision: 4,
+  } as const;
+  expect(decodeTaskRequest(encodeTaskRequest(unassign))).toEqual(unassign);
+  const clearAssign = {
+    protocolMajor: 1,
+    requestId: "request-2",
+    workspaceId: "workspace-1",
+    agentId: "agent-1",
+    operation: "assign",
+    target: "#general",
+    number: 2,
+    assignee: null,
+  } as const;
+  expect(decodeTaskRequest(encodeTaskRequest(clearAssign))).toEqual(clearAssign);
+});
+
 test("Task codec rejects invalid operation, thread targets, and missing operation arguments", () => {
   const base = {
     protocolMajor: 1,
@@ -63,6 +88,15 @@ test("Task codec rejects invalid operation, thread targets, and missing operatio
   expect(() => encodeTaskRequest({ ...base, operation: "unclaim", number: 2_147_483_648 })).toThrow(
     "invalid Task number",
   );
+  expect(() => encodeTaskRequest({ ...base, operation: "unassign" })).toThrow(
+    "missing Task operation argument",
+  );
+  expect(() =>
+    encodeTaskRequest({ ...base, operation: "unassign", number: 2, assignee: "@ada" }),
+  ).toThrow("missing Task operation argument");
+  expect(() =>
+    encodeTaskRequest({ ...base, operation: "unassign", number: 2, numbers: [2, 3] }),
+  ).toThrow("missing Task operation argument");
   expect(() =>
     encodeTaskRequest({
       ...base,
