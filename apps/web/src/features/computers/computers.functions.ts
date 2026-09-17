@@ -31,8 +31,8 @@ import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/co
 import { RestartComputer } from "../../server/computers/restart-computer.server";
 import { getComputerRestartStore } from "../../server/computers/computer-restart-store.server";
 import { getComputerUpgradeStore } from "../../server/computers/computer-upgrade-store.server";
+import { UpgradeComputer } from "../../server/computers/upgrade-computer.server";
 import { resolveReleaseFeedUrl } from "../../server/install/install-script.server";
-import { encodeComputerUpgradeIntent } from "@lrm/coforge-sdk/internal";
 
 export const restartComputer = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
@@ -200,6 +200,15 @@ export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
     return status;
   });
 
+async function fetchExpectedUpgradeVersion(): Promise<string> {
+  const feedUrl = resolveReleaseFeedUrl();
+  if (!feedUrl) throw new AppError("RELEASE_FEED_UNAVAILABLE");
+  const response = await fetch(`${feedUrl}/latest`, { signal: AbortSignal.timeout(3_000) });
+  const expectedVersion = response.ok ? (await response.text()).trim() : "";
+  if (!isValidReleaseVersion(expectedVersion)) throw new AppError("RELEASE_FEED_UNAVAILABLE");
+  return expectedVersion;
+}
+
 export const upgradeComputer = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(restartComputerInputSchema)
@@ -209,40 +218,18 @@ export const upgradeComputer = createServerFn({ method: "POST" })
       select: { ownerId: true },
     });
     if (!computer || computer.ownerId !== user.id) throw new Error("Computer is not available");
+    const scope = { workspaceId, computerId: data.computerId };
     const connection = await db.workspaceComputer.findFirst({
-      where: { workspaceId, computerId: data.computerId },
+      where: scope,
       select: { id: true },
     });
     if (!connection) throw new Error("Computer is not available");
-    const feedUrl = resolveReleaseFeedUrl();
-    if (!feedUrl) throw new AppError("RELEASE_FEED_UNAVAILABLE");
-    const response = await fetch(`${feedUrl}/latest`, { signal: AbortSignal.timeout(3_000) });
-    const expectedVersion = response.ok ? (await response.text()).trim() : "";
-    if (!isValidReleaseVersion(expectedVersion)) throw new AppError("RELEASE_FEED_UNAVAILABLE");
-    const store = getComputerUpgradeStore();
-    const registered = await store.begin(
-      { workspaceId, computerId: data.computerId },
-      data.requestId,
-      expectedVersion,
-    );
-    if (!registered.created) return registered.status;
-    try {
-      await createCentrifugoServerApi().publish(
-        `daemon:${workspaceId}:${data.computerId}`,
-        encodeComputerUpgradeIntent({
-          protocolMajor: 1,
-          requestId: data.requestId,
-          workspaceId,
-          computerId: data.computerId,
-          target: "latest",
-          expectedVersion,
-        }),
-      );
-      return registered.status;
-    } catch (error) {
-      await store.publicationFailed({ workspaceId, computerId: data.computerId }, data.requestId);
-      throw error;
-    }
+    return new UpgradeComputer(
+      getComputerUpgradeStore(),
+      getComputerStatusCache(),
+      fetchExpectedUpgradeVersion,
+      createCentrifugoServerApi(),
+    ).execute({ workspaceId }, data);
   });
 
 export const getLatestComputerVersion = createServerFn({ method: "GET" }).handler(async () => {

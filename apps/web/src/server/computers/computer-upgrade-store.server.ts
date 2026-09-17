@@ -1,7 +1,6 @@
 import { RedisClient } from "bun";
 import { sanitizeUpgradeErrorText } from "@lrm/coforge-sdk/internal";
 import { AppError } from "@/lib/app-error";
-import { COMPUTER_STATUS_LEASE_MS } from "../centrifugo/computer-status.server";
 
 export type ComputerUpgradeStatus =
   | { requestId: string; status: "accepted"; expectedVersion: string; expiresAt: string }
@@ -41,15 +40,14 @@ type Identity = {
 type Stored = ComputerUpgradeStatus & { previousWorkerInstanceId?: string };
 /** How long an upgrade request record survives - long enough to poll a Computer to completion. */
 const REQUEST_TTL = 10 * 60;
-/**
- * How long the Computer's process identity survives without a fresh signal. Aligned with the
- * Computer presence lease (3x the Daemon's periodic status interval) so "identity present" tracks
- * "Computer online", rather than the unrelated 10-minute request TTL: a Computer connected longer
- * than that lease used to lose its identity and fail every subsequent upgrade with an opaque
- * internal error even though it was still online.
- */
-const IDENTITY_TTL = COMPUTER_STATUS_LEASE_MS / 1000;
 const REPLACE = `if redis.call("GET", KEYS[1]) == ARGV[1] then redis.call("SET", KEYS[1], ARGV[2], "EX", ARGV[3]); return 1 end return 0`;
+/**
+ * Identity is a durable snapshot, not a liveness signal - it is overwritten monotonically on
+ * every `ready`, never expired. (Precedent: `computer-restart-store.server.ts` stores its own
+ * process identity the same way.) Liveness for "can this Computer be upgraded right now" comes
+ * from Computer presence (`computer-status.server.ts`), which is re-leased on every periodic
+ * Daemon status and therefore self-heals independently of this key.
+ */
 const STORE_NEWER_IDENTITY = `
 local current = redis.call("GET", KEYS[1])
 local candidate = cjson.decode(ARGV[1])
@@ -60,7 +58,7 @@ if current then
     return 0
   end
 end
-redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[2])
+redis.call("SET", KEYS[1], ARGV[1])
 return 1`;
 const COMMIT_READY = `
 local current = redis.call("GET", KEYS[1])
@@ -74,8 +72,8 @@ if identity then
   end
 end
 if current ~= ARGV[1] or cjson.decode(current).status ~= "accepted" then return 0 end
-redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[4])
-redis.call("SET", KEYS[1], ARGV[3], "EX", ARGV[5])
+redis.call("SET", KEYS[2], ARGV[2])
+redis.call("SET", KEYS[1], ARGV[3], "EX", ARGV[4])
 return 1`;
 
 export class RedisComputerUpgradeStore {
@@ -95,7 +93,7 @@ export class RedisComputerUpgradeStore {
     const existing = existingRaw ? this.parse(existingRaw) : undefined;
     if (existing) return { status: this.public(existing), created: false };
     const current = await this.identity(scope);
-    if (!current) throw new AppError("COMPUTER_OFFLINE");
+    if (!current) throw new AppError("COMPUTER_IDENTITY_UNKNOWN");
     const record: Stored = {
       requestId,
       status: "accepted",
@@ -198,23 +196,19 @@ export class RedisComputerUpgradeStore {
     await this.storeNewerIdentity(scope, identity);
   }
   /**
-   * Renews the identity lease on every accepted periodic Computer status, so a Computer that
-   * stays connected does not silently lose its identity between Daemon reconnects (which are the
-   * only other writer). The periodic status carries no identity fields of its own, so this
-   * re-submits whatever is currently stored through the same monotonic guard `ready` uses -
-   * a concurrent `ready()` reporting a genuinely newer identity is never clobbered by a stale
-   * renewal that read the identity a moment earlier.
+   * Transitional only: identity keys are durable now (no expiry) and only `ready` creates or
+   * replaces one, so this can never fabricate an identity for a Computer that does not have one
+   * on record. What it does do is clear a leftover 90s lease that a pre-durable-identity Web
+   * deploy left on an already-connected Computer's identity key - re-submitting the stored value
+   * through the same monotonic guard `ready` uses SETs it back without an expiry. Daemons do not
+   * reconnect just because Web deployed, so without this call a Computer that stayed connected
+   * across the deploy would keep the old lease until it happened to reconnect on its own. Safe to
+   * remove once every Computer has re-reported `ready` at least once after this change ships.
    */
   async touchIdentity(scope: Scope): Promise<void> {
     const raw = await this.redis.get(this.identityKey(scope));
     if (!raw || !this.parseIdentity(raw)) return;
-    await this.redis.send("EVAL", [
-      STORE_NEWER_IDENTITY,
-      "1",
-      this.identityKey(scope),
-      raw,
-      String(IDENTITY_TTL),
-    ]);
+    await this.redis.send("EVAL", [STORE_NEWER_IDENTITY, "1", this.identityKey(scope), raw]);
   }
   private async storeNewerIdentity(scope: Scope, identity: Identity) {
     await this.redis.send("EVAL", [
@@ -222,7 +216,6 @@ export class RedisComputerUpgradeStore {
       "1",
       this.identityKey(scope),
       JSON.stringify(identity),
-      String(IDENTITY_TTL),
     ]);
   }
   private async replace(scope: Scope, requestId: string, record: Stored) {
@@ -268,7 +261,6 @@ export class RedisComputerUpgradeStore {
         current,
         JSON.stringify(identity),
         JSON.stringify(record),
-        String(IDENTITY_TTL),
         String(REQUEST_TTL),
       ])) === 1
     );

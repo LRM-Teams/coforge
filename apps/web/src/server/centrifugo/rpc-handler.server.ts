@@ -396,10 +396,11 @@ export function createDaemonConnectionStatusMethod(
     );
     if (request.online) {
       await reminderCapabilities?.refresh(request.workspaceId, request.computerId);
-      // The Computer is still connected: keep its upgrade identity from expiring on the same
-      // lease as its presence, so an upgrade request never fails an online Computer with
-      // "offline" just because it has been connected longer than the identity's old, unrelated
-      // 10-minute TTL.
+      // Transitional: identity keys are durable now (only `ready` writes one, with no expiry),
+      // so this cannot create an identity for a Computer that never reported one. It only clears
+      // a leftover 90s lease that a pre-durable-identity Web deploy left on an already-connected
+      // Computer's identity key - Daemons do not reconnect just because Web deployed, so without
+      // this the stale lease would otherwise sit there until the Daemon happened to reconnect.
       await upgrades?.touchIdentity({
         workspaceId: request.workspaceId,
         computerId: request.computerId,

@@ -122,6 +122,7 @@
   "computer_upgrade_succeeded_toast": "已升级到 {version}",
   "computer_upgrade_retry": "重试升级",
   "computer_upgrade_offline": "这台 Computer 当前未连接，无法升级",
+  "computer_upgrade_identity_unknown": "这台 Computer 还没有上报当前运行的版本；请先重启它，再重试升级",
   "computer_upgrade_feed_unavailable": "无法读取发布源",
   "computer_upgrade_request_failed": "升级请求失败",
   "computer_upgrade_error_reference": "错误编号 {id}"

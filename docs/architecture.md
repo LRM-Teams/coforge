@@ -201,9 +201,16 @@ it never runs the upgrade in its own service cgroup. Linux uses a systemd user
 transient unit and macOS a per-user launchd job, both outside the managed
 service kill scope. The entrypoint reuses the Computer upgrade coordinator's
 download, checksum, snapshot, health and rollback transaction. Unsupported
-platforms fail closed. Accepted publication is not completion evidence.
-Completion is reported only after a fresh ready identity and the same request
-ID are observed; outcomes are accepted, completed, failed, or unknown.
+platforms fail closed. Web refuses to register a new request unless the
+Computer's presence cache (the same 90-second, self-healing lease as its
+online status) reports it online; a Computer with no ready identity on record
+yet fails distinctly as unknown-identity rather than offline. Accepted
+publication is not completion evidence. Completion is reported only after a
+fresh ready identity and the same request ID are observed; outcomes are
+accepted, completed, failed, or unknown. The stored identity itself is a
+durable snapshot with no expiry, overwritten monotonically on every ready -
+it is evidence of the last reported version, never a liveness signal (see
+[ADR 0030](adr/0030-upgrade-identity-durable-snapshot.md)).
 Each upgrade is one operation with an identity carried explicitly from the
 process boundary - never through an environment variable - and a durable
 request/result receipt pair under
