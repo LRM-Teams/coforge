@@ -81,6 +81,8 @@ export class SendDirectMessage {
     agentId: string;
     target: string;
     body: string;
+    attachmentId?: string;
+    mentions?: readonly { type: "user" | "agent"; id: string; name: string }[];
   }) {
     if (
       !input.requestId ||
@@ -112,8 +114,9 @@ export class SendDirectMessage {
           conversation.id,
           input.agentId,
           input.body,
-          undefined,
+          input.attachmentId,
           input.target.split(":")[1],
+          input.mentions,
         );
         if (!persisted) throw new Error("agent message persistence is unavailable");
         return persisted;

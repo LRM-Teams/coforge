@@ -81,6 +81,8 @@ export type AgentMessagesPage = {
   throughSequence?: number;
 };
 
+export type AgentMentionSelector = { type: "user" | "agent"; id: string; name: string };
+
 export type AgentSendMessageInput = {
   requestId: string;
   workspaceId: string;
@@ -91,6 +93,8 @@ export type AgentSendMessageInput = {
   continueAnyway?: boolean;
   seenUpToSequence?: number;
   freshnessContextMode?: "inline" | "withheld";
+  attachmentId?: string;
+  mentions?: AgentMentionSelector[];
 };
 
 export type AgentSendMessageResult = {
@@ -102,6 +106,8 @@ export type AgentSendMessageResult = {
   anywayAllowed?: boolean;
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
+  /** Only when `sideEffectDecision === "anyway_accepted"` and `freshnessContextMode !== "withheld"`. */
+  recentUnread?: readonly AgentMessageRecord[];
 };
 
 export async function executeAgentSendMessage(
@@ -112,6 +118,8 @@ export async function executeAgentSendMessage(
       agentId: string;
       target: string;
       body: string;
+      attachmentId?: string;
+      mentions?: AgentMentionSelector[];
     }): Promise<{ id: string }>;
   },
   input: AgentSendMessageInput,
@@ -255,7 +263,17 @@ export async function executeAgentSendMessageWithPolicy(
       freshnessContextMode: mode,
     };
   const sent = await executeAgentSendMessage(dependencies.sender, input);
-  return { ...sent, messages: [], freshnessContextMode: mode };
+  return {
+    ...sent,
+    messages: [],
+    freshnessContextMode: mode,
+    // Every other sent result reports no recently-missed messages; only a bypassed hold does, and
+    // withheld mode never returns bodies for anything, including these.
+    recentUnread:
+      sent.sideEffectDecision === "anyway_accepted" && mode !== "withheld"
+        ? (pending?.slice(-3) ?? [])
+        : [],
+  };
 }
 
 export async function readAgentMessages(

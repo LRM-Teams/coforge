@@ -5,6 +5,7 @@ import { PrismaDirectConversationRepository } from "#/server/db/repositories/dir
 import {
   readAgentMessages,
   executeAgentSendMessageWithPolicy,
+  type AgentMentionSelector,
   type AgentMessageRepository,
   type AgentSendMessageResult,
 } from "#/server/agents/agent-messages.service";
@@ -13,6 +14,7 @@ import { getMessageRequestIdempotency } from "#/server/conversations/redis-messa
 import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server";
 import { CentrifugoConversationRealtime } from "#/server/conversations/conversation-realtime.server";
 import { bestEffortMessageNotifier } from "#/server/notifications/web-push-composition.server";
+import { isAppError } from "#/lib/app-error";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 
@@ -77,15 +79,16 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult & { mes
     ...message,
     createdAt: message.createdAt.toISOString(),
   })) as AgentMessage[];
+  const state =
+    result.sideEffectDecision === "hold"
+      ? "held"
+      : result.sideEffectDecision === "anyway_denied"
+        ? "denied"
+        : "sent";
   const response: AgentSendResponse = {
     protocolMajor: 1,
     requestId,
-    state:
-      result.sideEffectDecision === "hold"
-        ? "held"
-        : result.sideEffectDecision === "anyway_denied"
-          ? "denied"
-          : "sent",
+    state,
     messageId: result.messageId,
     holdToken: result.holdToken,
     bypass: result.sideEffectDecision === "anyway_accepted" ? true : undefined,
@@ -95,8 +98,36 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult & { mes
     context: result.freshnessContextMode === "withheld" ? [] : context,
     freshnessContextMode: result.freshnessContextMode,
     withheldMessageCount: result.withheldMessageCount,
+    // Only ever populated for `state: "sent"`; every other result carries none.
+    recentUnread:
+      state === "sent"
+        ? ((result.recentUnread ?? []).map((message) => ({
+            ...message,
+            createdAt: message.createdAt.toISOString(),
+          })) as AgentMessage[])
+        : [],
   };
   return response;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MENTION_HANDLE = /^[a-z0-9][a-z0-9_-]*$/;
+
+/** Shape-only validation; the repository enforces that a binding matches a conversation member. */
+function isValidMentions(value: unknown): value is AgentMentionSelector[] {
+  if (!Array.isArray(value) || value.length > 32) return false;
+  return value.every(
+    (mention) =>
+      mention &&
+      typeof mention === "object" &&
+      ((mention as Record<string, unknown>).type === "user" ||
+        (mention as Record<string, unknown>).type === "agent") &&
+      typeof (mention as Record<string, unknown>).id === "string" &&
+      UUID_PATTERN.test((mention as Record<string, unknown>).id as string) &&
+      typeof (mention as Record<string, unknown>).name === "string" &&
+      ((mention as Record<string, unknown>).name as string).length <= 128 &&
+      MENTION_HANDLE.test((mention as Record<string, unknown>).name as string),
+  );
 }
 
 export type AgentMessagesPostPrincipal = { workspaceId: string; agentId: string };
@@ -122,19 +153,47 @@ export async function handleAgentMessagesPost(
     freshnessContextMode !== "withheld"
   )
     return Response.json({ error: "invalid freshnessContextMode" }, { status: 400 });
+  if (
+    body.attachmentId !== undefined &&
+    (typeof body.attachmentId !== "string" || !UUID_PATTERN.test(body.attachmentId))
+  )
+    return Response.json({ error: "invalid attachmentId" }, { status: 400 });
+  if (body.mentions !== undefined && !isValidMentions(body.mentions))
+    return Response.json({ error: "invalid mentions" }, { status: 400 });
   const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
-  const result = await executeAgentSendMessageWithPolicy(dependencies, {
-    requestId,
-    workspaceId: principal.workspaceId,
-    agentId: principal.agentId,
-    target: body.target,
-    body: body.body,
-    holdToken: typeof body.holdToken === "string" ? body.holdToken : undefined,
-    continueAnyway: body.continueAnyway === true,
-    seenUpToSequence: typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
-    freshnessContextMode,
-  });
-  return Response.json(mapSendResult(requestId, result));
+  try {
+    const result = await executeAgentSendMessageWithPolicy(dependencies, {
+      requestId,
+      workspaceId: principal.workspaceId,
+      agentId: principal.agentId,
+      target: body.target,
+      body: body.body,
+      holdToken: typeof body.holdToken === "string" ? body.holdToken : undefined,
+      continueAnyway: body.continueAnyway === true,
+      seenUpToSequence:
+        typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
+      freshnessContextMode,
+      attachmentId: typeof body.attachmentId === "string" ? body.attachmentId : undefined,
+      mentions: body.mentions as AgentMentionSelector[] | undefined,
+    });
+    return Response.json(mapSendResult(requestId, result));
+  } catch (error) {
+    if (isAppError(error)) {
+      if (error.code === "ACCESS_DENIED")
+        return Response.json(
+          { error: "attachment is not available for this message" },
+          { status: 403 },
+        );
+      if (error.code === "INVALID_INPUT")
+        return Response.json(
+          {
+            error: `mention binding does not match a conversation member: @${error.errorId ?? ""}`,
+          },
+          { status: 400 },
+        );
+    }
+    throw error;
+  }
 }
 
 export const Route = createFileRoute("/api/agent/v1/messages")({

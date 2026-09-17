@@ -567,3 +567,73 @@ test("send policy rejects continueAnyway without a valid hold", async () => {
   );
   expect(result).toMatchObject({ accepted: false, sideEffectDecision: "anyway_denied" });
 });
+
+test("a bypassed hold's sent result carries up to three bypassed messages as recentUnread", async () => {
+  const holds = new Map<string, AgentMessageHold>();
+  const holdStore = {
+    issue: async (hold: AgentMessageHold) => {
+      const token = `token-${holds.size}`;
+      holds.set(token, hold);
+      return token;
+    },
+    get: async (token: string) => holds.get(token),
+    consume: async (token: string) => holds.delete(token),
+  };
+  const pendingRows = Array.from({ length: 5 }, (_, index) => ({
+    id: `message-${index + 1}`,
+    sequence: index + 1,
+    sender: "@bea",
+    target: "@user",
+    body: `pending ${index + 1}`,
+    createdAt: new Date("2026-09-10T00:00:00Z"),
+  }));
+  const repo = repository({ readPendingAgentContext: async () => pendingRows });
+  const sender = { executeFromAgent: async () => ({ id: "sent-message" }) };
+  const send = async (holdToken?: string, continueAnyway?: boolean) =>
+    executeAgentSendMessageWithPolicy(
+      { repository: repo, sender, holdStore },
+      {
+        requestId: crypto.randomUUID(),
+        workspaceId: "workspace-1",
+        agentId: "agent-a",
+        target: "@user",
+        body: "reply",
+        holdToken,
+        continueAnyway,
+      },
+    );
+
+  const first = await send();
+  expect(first).toMatchObject({ accepted: false, sideEffectDecision: "hold" });
+  expect(first.recentUnread).toBeUndefined();
+
+  const second = await send(first.holdToken);
+  expect(second).toMatchObject({
+    accepted: false,
+    sideEffectDecision: "hold",
+    anywayAllowed: true,
+  });
+
+  const sentResult = await send(second.holdToken, true);
+  expect(sentResult).toMatchObject({ accepted: true, sideEffectDecision: "anyway_accepted" });
+  expect(sentResult.recentUnread?.map((m) => m.id)).toEqual([
+    "message-3",
+    "message-4",
+    "message-5",
+  ]);
+});
+
+test("every non-bypassed sent result reports an empty recentUnread", async () => {
+  const result = await executeAgentSendMessageWithPolicy(
+    { repository: repository(), sender: { executeFromAgent: async () => ({ id: "message-1" }) } },
+    {
+      requestId: "request-1",
+      workspaceId: "workspace-1",
+      agentId: "agent-1",
+      target: "#general",
+      body: "hello",
+    },
+  );
+  expect(result).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
+  expect(result.recentUnread).toEqual([]);
+});
