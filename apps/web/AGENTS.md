@@ -78,7 +78,18 @@ instructions for the TanStack Start Web/backend modular monolith.
   `/projects/$projectSlug` owns project detail. AppShell exposes one Projects
   navigation item on desktop and mobile; project creation belongs on the page,
   not in either sidebar. `GitHubConnection` owns user-authorized repository
-  overview reads; project functions enforce Workspace scope before invoking it.
+  reads: `repositoryOverview` (project detail, full installation verification) and the browse
+  reads behind `/projects/$projectSlug/tree/$` — `repositoryTree`, `repositoryObject`,
+  `repositoryDirectoryCommits`, `repositoryRaw` — which rely on GitHub's user-token scope and
+  check repository identity per request (ADR 0030). Project functions enforce Workspace scope
+  before invoking it; `server/projects/project-files.server.ts` (`ProjectFiles`) does the same
+  for the download route `/api/projects/$projectId/raw/$`, which stays a thin adapter.
+  The file browser lives in `features/projects/`: `project-tree.tsx` is the page shell,
+  `project-tree-queries.ts` holds its React Query options (tree once per visit, file content
+  keyed by blob oid), `tree-index.ts` indexes GitHub's flat tree, `project-file-tree.tsx` is the
+  React Aria `NavigationTree` side tree, `project-file-view.tsx` the file viewer (with
+  `use-find-in-file.ts`, `find-in-text.ts`, `split-highlighted-lines.ts`), and
+  `project-file-urls.ts` builds its GitHub and download URLs.
   Discussion groups reuse `PublicChannels.create` and the existing channel route.
   Project creation no longer creates a first discussion group; discussion groups
   are created on demand through the project page's "New discussion group" button

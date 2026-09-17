@@ -1,25 +1,19 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, notFound } from "@tanstack/react-router";
-import {
-  ArrowLeft,
-  ArrowUpRight,
-  ChevronRight,
-  File02,
-  Folder,
-  LayoutLeft,
-  LayoutRight,
-} from "@untitledui/icons";
+import { ArrowLeft, ArrowUpRight, ChevronRight, File02, Folder } from "@untitledui/icons";
 import { Button as AriaButton, Disclosure, DisclosurePanel, Heading } from "react-aria-components";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
-import { Button } from "@/components/base/buttons/button";
+import { Avatar } from "@/components/base/avatar/avatar";
 import { PageHeader } from "@/components/layout/page-header";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import { downloadUrl, ProjectFileTree } from "./project-file-tree";
+import { ProjectFileTree } from "./project-file-tree";
+import { githubUrl as buildGithubUrl, projectFileDownloadUrl } from "./project-file-urls";
 import { ProjectFileView, ProjectFileViewSkeleton } from "./project-file-view";
 import {
   projectDirectoryCommitsQuery,
@@ -28,23 +22,11 @@ import {
   projectTreeQuery,
 } from "./project-tree-queries";
 import { RepositoryStatusMessage } from "./repository-status";
-import { buildTreeIndex, childrenOf, type TreeEntry } from "./tree-index";
+import { buildTreeIndex, childrenOf, isBrowsable, type TreeEntry } from "./tree-index";
 
 type LastCommit = { sha: string; message: string; date: string } | null;
-type TreeSide = "left" | "right";
-
-const TREE_SIDE_KEY = "coforge-project-tree-side";
 const crumbLinkClassName =
   "max-w-32 shrink-0 truncate rounded p-1 outline-focus-ring hover:text-primary hover:underline focus-visible:outline-2";
-
-/** Per-device preference, like the rail labels: which side the file tree sits on. */
-function readTreeSide(): TreeSide {
-  try {
-    return localStorage.getItem(TREE_SIDE_KEY) === "left" ? "left" : "right";
-  } catch {
-    return "right";
-  }
-}
 
 /**
  * The repository browser. The header, breadcrumb and side tree stay mounted while the User
@@ -54,7 +36,6 @@ export function ProjectTree({ slug, path }: { slug: string; path: string }) {
   const queryClient = useQueryClient();
   const { data: project } = useSuspenseQuery(projectQuery(slug));
   const { data: repository } = useSuspenseQuery(projectTreeQuery(slug));
-  const [treeSide, setTreeSide] = useState(readTreeSide);
   // One tree instance at a time: a second, hidden copy would double the rows and the prefetches.
   const isDesktop = useBreakpoint("lg");
   const layout = useDefaultLayout({
@@ -97,16 +78,6 @@ export function ProjectTree({ slug, path }: { slug: string; path: string }) {
   const entry = path === "" ? undefined : index.byPath.get(path);
   const isFile = entry ? entry.type !== "dir" : false;
   const githubUrl = buildGithubUrl(fullName, defaultBranch, path, isFile ? "blob" : "tree");
-
-  function toggleTreeSide() {
-    const next = treeSide === "right" ? "left" : "right";
-    setTreeSide(next);
-    try {
-      localStorage.setItem(TREE_SIDE_KEY, next);
-    } catch {
-      // Private mode or blocked storage: the choice still holds for this visit.
-    }
-  }
 
   const tree = (className?: string) => (
     <ProjectFileTree
@@ -186,14 +157,7 @@ export function ProjectTree({ slug, path }: { slug: string; path: string }) {
           githubUrl={githubUrl}
         />
       ) : (
-        <ProjectFileView
-          path={path}
-          name={entry.name}
-          byteSize={0}
-          text={null}
-          githubUrl={githubUrl}
-          downloadUrl={downloadUrl(project.id, path)}
-        />
+        <ProjectFileView path={path} name={entry.name} text={null} githubUrl={githubUrl} />
       )}
     </Panel>
   );
@@ -206,20 +170,9 @@ export function ProjectTree({ slug, path }: { slug: string; path: string }) {
       maxSize="45"
       className="flex min-h-0 min-w-0 flex-col"
     >
-      <div className="flex items-center justify-between pt-3 pr-2 pb-1 pl-5">
-        <h2 className="text-xs font-semibold tracking-wide text-quaternary uppercase">
-          {m.project_tree_files()}
-        </h2>
-        <Button
-          size="sm"
-          color="tertiary"
-          iconLeading={treeSide === "right" ? LayoutLeft : LayoutRight}
-          aria-label={
-            treeSide === "right" ? m.project_tree_move_left() : m.project_tree_move_right()
-          }
-          onPress={toggleTreeSide}
-        />
-      </div>
+      <h2 className="px-5 pt-4 pb-2 text-xs font-semibold tracking-wide text-quaternary uppercase">
+        {m.project_tree_files()}
+      </h2>
       {tree("min-h-0 flex-1 px-2 pb-3")}
       {truncatedNotice}
     </Panel>
@@ -260,17 +213,14 @@ export function ProjectTree({ slug, path }: { slug: string; path: string }) {
         }
       />
       <Group
-        // The saved widths belong to a panel order, so each side keeps its own.
-        key={isDesktop ? treeSide : "stacked"}
-        id={`project-tree-${treeSide}`}
+        key={isDesktop ? "split" : "stacked"}
+        id="project-tree"
         orientation="horizontal"
         defaultLayout={layout.defaultLayout}
         onLayoutChanged={layout.onLayoutChanged}
         className="flex min-h-0 min-w-0 flex-1"
       >
-        {treeSide === "left"
-          ? [treePanel, separator, mainPanel]
-          : [mainPanel, separator, treePanel]}
+        {isDesktop ? [mainPanel, separator, treePanel] : mainPanel}
       </Group>
     </main>
   );
@@ -292,14 +242,18 @@ function FileBody({
 }) {
   const queryClient = useQueryClient();
   const name = path.split("/").pop() ?? path;
-  const { data } = useQuery(projectObjectQuery(slug, path, oid));
+  const { data, isError } = useQuery(projectObjectQuery(slug, path, oid));
+  const retry = () => queryClient.invalidateQueries({ queryKey: ["project", slug, "object"] });
+  // The server function itself failing (offline, 5xx, expired session) must not leave the
+  // skeleton up forever.
+  if (isError) return <RepositoryStatusMessage status="unavailable" onRetry={retry} />;
   if (!data) return <ProjectFileViewSkeleton name={name} />;
   if (data.status === "not_found") throw notFound();
   if (data.status !== "ready" || data.node.kind !== "blob")
     return (
       <RepositoryStatusMessage
         status={data.status === "ready" ? "unavailable" : data.status}
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ["project", slug, "object"] })}
+        onRetry={retry}
       />
     );
   return (
@@ -311,7 +265,7 @@ function FileBody({
       byteSize={data.node.byteSize}
       text={data.node.text}
       githubUrl={githubUrl}
-      downloadUrl={downloadUrl(projectId, path)}
+      downloadUrl={projectFileDownloadUrl(projectId, path)}
     />
   );
 }
@@ -455,25 +409,75 @@ function DirectoryBody({
   defaultBranch: string;
   treeSha: string;
 }) {
-  const projectSlug = slug;
   // The listing renders from the tree at once; last commits fill in when their request lands.
   const { data: history } = useQuery(projectDirectoryCommitsQuery(slug, path, treeSha));
   const commits: Record<string, LastCommit> = history?.status === "ready" ? history.commits : {};
+  const latest = history?.status === "ready" ? history.latest : null;
   const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  // Proportional columns, as GitHub's listing has them: a name keeps its full width until it
+  // would actually collide with the commit message, instead of truncating at a fixed width.
   const rowClassName =
-    "flex min-w-0 items-center gap-3 px-4 py-2.5 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2";
+    "grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_4.5rem] items-center gap-3 px-4 py-2.5 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2 sm:grid-cols-[1.25rem_minmax(0,2fr)_minmax(0,3fr)_4.5rem]";
   return (
     <div className="overflow-hidden rounded-xl border border-secondary">
+      {/* Held open while loading so the rows below do not jump when the commit arrives. */}
+      {(!history || latest) && (
+        <div
+          aria-busy={!history}
+          className="flex h-12 min-w-0 items-center gap-3 border-b border-secondary bg-secondary px-4"
+        >
+          {latest ? (
+            <>
+              <span className="flex shrink-0 -space-x-1.5">
+                {latest.people.slice(0, 3).map((person) => (
+                  <Avatar
+                    key={person.name}
+                    size="xs"
+                    src={person.avatarUrl ?? undefined}
+                    initials={avatarInitial(person.name)}
+                    contentClassName={avatarToneClassName(person.name)}
+                    className="ring-2 ring-bg-secondary"
+                    alt=""
+                  />
+                ))}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm text-tertiary">
+                <span className="font-medium text-primary">
+                  {latest.people.map((person) => person.name).join(", ")}
+                </span>{" "}
+                {latest.message}
+              </span>
+              <a
+                href={`https://github.com/${fullName}/commit/${latest.sha}`}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0 rounded font-mono text-xs text-tertiary outline-focus-ring hover:text-primary hover:underline focus-visible:outline-2"
+              >
+                {latest.sha.slice(0, 7)}
+              </a>
+              {latest.date && (
+                <RelativeTime
+                  value={latest.date}
+                  plain
+                  className="shrink-0 text-xs text-tertiary"
+                />
+              )}
+            </>
+          ) : (
+            <span className="h-2.5 w-64 max-w-full animate-pulse rounded bg-tertiary motion-reduce:animate-none" />
+          )}
+        </div>
+      )}
       <ul className="divide-y divide-secondary">
         {path !== "" && (
           <li>
             <Link
               to="/projects/$projectSlug/tree/$"
-              params={{ projectSlug, _splat: parentPath }}
+              params={{ projectSlug: slug, _splat: parentPath }}
               className={cn(rowClassName, "text-tertiary")}
             >
               <Folder aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
-              <span className="text-sm">{m.project_tree_parent()}</span>
+              <span className="col-span-2 text-sm sm:col-span-3">{m.project_tree_parent()}</span>
             </Link>
           </li>
         )}
@@ -488,32 +492,38 @@ function DirectoryBody({
                 ) : (
                   <File02 aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
                 )}
-                <span
-                  className={cn(
-                    "w-56 shrink-0 truncate text-sm text-primary",
-                    entry.type === "dir" && "font-medium",
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "truncate text-sm text-primary",
+                      entry.type === "dir" && "font-medium",
+                    )}
+                  >
+                    {entry.name}
+                  </span>
+                  {!isBrowsable(entry.type) && (
+                    <ArrowUpRight
+                      aria-hidden="true"
+                      className="size-3.5 shrink-0 text-quaternary"
+                    />
                   )}
-                >
-                  {entry.name}
                 </span>
-                <span className="hidden min-w-0 flex-1 truncate text-xs text-tertiary sm:block">
+                <span className="hidden truncate text-xs text-tertiary sm:block">
                   {commits[entry.path]?.message.split("\n")[0]}
                 </span>
-                {commits[entry.path]?.date && (
-                  <RelativeTime
-                    value={commits[entry.path]!.date}
-                    plain
-                    className="shrink-0 text-xs text-tertiary"
-                  />
-                )}
+                <span className="text-right text-xs text-tertiary">
+                  {commits[entry.path]?.date && (
+                    <RelativeTime value={commits[entry.path]!.date} plain />
+                  )}
+                </span>
               </>
             );
             return (
               <li key={entry.path}>
-                {entry.type === "dir" || entry.type === "file" ? (
+                {isBrowsable(entry.type) ? (
                   <Link
                     to="/projects/$projectSlug/tree/$"
-                    params={{ projectSlug, _splat: entry.path }}
+                    params={{ projectSlug: slug, _splat: entry.path }}
                     className={rowClassName}
                   >
                     {content}
@@ -527,10 +537,6 @@ function DirectoryBody({
                     className={rowClassName}
                   >
                     {content}
-                    <ArrowUpRight
-                      aria-hidden="true"
-                      className="size-3.5 shrink-0 text-quaternary"
-                    />
                   </a>
                 )}
               </li>
@@ -540,16 +546,4 @@ function DirectoryBody({
       </ul>
     </div>
   );
-}
-
-function buildGithubUrl(
-  fullName: string,
-  branch: string,
-  path: string,
-  kind: "tree" | "blob",
-): string {
-  const base = `https://github.com/${fullName}`;
-  if (path === "") return base;
-  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-  return `${base}/${kind}/${encodeURIComponent(branch)}/${encodedPath}`;
 }

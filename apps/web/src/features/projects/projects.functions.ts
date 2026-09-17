@@ -2,6 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import type { PrismaClient } from "../../../generated/client";
 import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { configuredGitHub } from "../../server/integrations/github-config.server";
+import type { RepositorySelection } from "../../server/integrations/github-connection.server";
+import { gitObjectIdSchema } from "../../lib/git-object-id";
+import { linkedRepositoryOf } from "../../server/projects/project-files.server";
 import { AppError, isAppError } from "../../lib/app-error";
 import { ProjectSettings } from "../../server/projects/project-settings.server";
 import { z } from "zod";
@@ -42,7 +45,6 @@ export const getProjectRepository = createServerFn({ method: "GET" })
     }
   });
 
-type LinkedRepository = { installationId: number; repositoryId: number; fullName: string };
 type GitHubReads = NonNullable<Awaited<ReturnType<typeof configuredGitHub>>>["connection"];
 
 /**
@@ -52,32 +54,26 @@ type GitHubReads = NonNullable<Awaited<ReturnType<typeof configuredGitHub>>>["co
 async function readLinkedRepository<T>(
   context: { db: PrismaClient; workspaceId: string },
   slug: string,
-  read: (github: GitHubReads, repository: LinkedRepository) => Promise<T>,
+  read: (github: GitHubReads, repository: RepositorySelection) => Promise<T>,
 ) {
   const project = await context.db.project.findFirst({
     where: { workspaceId: context.workspaceId, slug },
     select: { githubInstallationId: true, githubRepositoryId: true, githubFullName: true },
   });
   if (!project) throw new AppError("NOT_FOUND");
-  if (!project.githubFullName || !project.githubInstallationId || !project.githubRepositoryId)
-    return { status: "unlinked" as const };
+  const repository = linkedRepositoryOf(project);
+  if (!repository) return { status: "unlinked" as const };
   try {
     const github = await configuredGitHub();
     if (!github) return { status: "unavailable" as const };
-    const result = await read(github.connection, {
-      installationId: project.githubInstallationId,
-      repositoryId: project.githubRepositoryId,
-      fullName: project.githubFullName,
-    });
-    return { status: "ready" as const, fullName: project.githubFullName, ...result };
+    const result = await read(github.connection, repository);
+    return { status: "ready" as const, fullName: repository.fullName, ...result };
   } catch (error) {
     if (isAppError(error) && error.code === "ACCESS_DENIED") return { status: "denied" as const };
     if (isAppError(error) && error.code === "NOT_FOUND") return { status: "not_found" as const };
     return { status: "unavailable" as const };
   }
 }
-
-const gitObjectId = z.string().regex(/^[a-f0-9]{40,64}$/i);
 
 /** The whole default-branch tree; the file browser fetches it once and expands folders locally. */
 export const getProjectTree = createServerFn({ method: "GET" })
@@ -93,7 +89,11 @@ export const getProjectTree = createServerFn({ method: "GET" })
 export const getProjectObject = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(
-    z.object({ slug: z.string().min(1), path: z.string().max(4096), oid: gitObjectId.optional() }),
+    z.object({
+      slug: z.string().min(1),
+      path: z.string().max(4096),
+      oid: gitObjectIdSchema.optional(),
+    }),
   )
   .handler(({ data, context }) =>
     readLinkedRepository(context, data.slug, async (github, repository) => ({
@@ -109,9 +109,9 @@ export const getProjectDirectoryCommits = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(z.object({ slug: z.string().min(1), path: z.string().max(4096) }))
   .handler(({ data, context }) =>
-    readLinkedRepository(context, data.slug, async (github, repository) => ({
-      commits: await github.repositoryDirectoryCommits(context.user.id, repository, data.path),
-    })),
+    readLinkedRepository(context, data.slug, (github, repository) =>
+      github.repositoryDirectoryCommits(context.user.id, repository, data.path),
+    ),
   );
 
 export const getProject = createServerFn({ method: "GET" })

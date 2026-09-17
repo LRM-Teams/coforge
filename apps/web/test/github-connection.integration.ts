@@ -1449,10 +1449,12 @@ test("repositoryTree fetches the recursive default-branch tree and maps entry ty
   }
 });
 
-test("repositoryTree revalidates with If-None-Match and serves the cached tree on 304", async () => {
+test("repositoryTree revalidates with If-None-Match per User and serves the cached tree on 304", async () => {
   const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
   const repositoryId = randomRepositoryId();
+  const otherUser = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
   let treeRequests = 0;
+  let githubUserId = 502;
   const connection = new GitHubConnection(db, config, async (url, init) => {
     if (url.endsWith("/access_token"))
       return Response.json({
@@ -1463,7 +1465,7 @@ test("repositoryTree revalidates with If-None-Match and serves the cached tree o
         token_type: "bearer",
       });
     if (url === "https://api.github.com/user")
-      return Response.json({ id: 502, login: "tree-cache-owner" });
+      return Response.json({ id: githubUserId, login: `tree-cache-owner-${githubUserId}` });
     if (url.includes("/user/installations"))
       return Response.json({ total_count: 0, installations: [] });
     if (url === "https://api.github.com/repos/example-org/tree-cache-repo")
@@ -1476,7 +1478,9 @@ test("repositoryTree revalidates with If-None-Match and serves the cached tree o
       url === "https://api.github.com/repos/example-org/tree-cache-repo/git/trees/main?recursive=1"
     ) {
       treeRequests++;
-      if (treeRequests === 1) {
+      // The first read of each User is unconditional: GitHub's ETag depends on the token, so
+      // another User's ETag would never produce a 304.
+      if (treeRequests !== 2) {
         expect(new Headers(init.headers).has("if-none-match")).toBe(false);
         return new Response(
           JSON.stringify({
@@ -1500,8 +1504,14 @@ test("repositoryTree revalidates with If-None-Match and serves the cached tree o
     const second = await connection.repositoryTree(user.id, selected);
     expect(second).toEqual(first);
     expect(treeRequests).toBe(2);
+
+    githubUserId = 5020;
+    const other = await connection.begin(otherUser.id);
+    expect(await connection.complete(otherUser.id, other.state, other.state, "code")).toBe(true);
+    expect(await connection.repositoryTree(otherUser.id, selected)).toEqual(first);
+    expect(treeRequests).toBe(3);
   } finally {
-    await db.user.delete({ where: { id: user.id } });
+    await db.user.deleteMany({ where: { id: { in: [user.id, otherUser.id] } } });
   }
 });
 
@@ -1777,7 +1787,7 @@ test("repositoryObject returns Blob text for a small file and marks binary, trun
   }
 });
 
-test("repositoryDirectoryCommits maps each entry to its last commit and rejects a blob path", async () => {
+test("repositoryDirectoryCommits returns the directory's latest commit and each entry's last commit, and rejects a blob path", async () => {
   const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
   const repositoryId = randomRepositoryId();
   const connection = new GitHubConnection(db, config, async (url, init) => {
@@ -1832,6 +1842,44 @@ test("repositoryDirectoryCommits maps each entry to its last commit and rejects 
           },
         });
       }
+      if ("path" in body.variables) {
+        expect(body.variables).toEqual({
+          owner: "example-org",
+          name: "dir-commits-repo",
+          path: "docs",
+        });
+        return Response.json({
+          data: {
+            repository: {
+              databaseId: repositoryId,
+              defaultBranchRef: {
+                target: {
+                  history: {
+                    nodes: [
+                      {
+                        oid: "f".repeat(40),
+                        messageHeadline: "Move the guide under docs (#12)",
+                        committedDate: "2026-03-01T00:00:00Z",
+                        authors: {
+                          nodes: [
+                            {
+                              name: "Dir Author",
+                              avatarUrl: "https://avatars.githubusercontent.com/u/1?s=80",
+                              user: { login: "dir-author" },
+                            },
+                            { name: "Pair", avatarUrl: null, user: null },
+                          ],
+                        },
+                        committer: { name: "GitHub", avatarUrl: null, user: { login: "web-flow" } },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
       expect(body.variables).toEqual({
         owner: "example-org",
         name: "dir-commits-repo",
@@ -1866,12 +1914,25 @@ test("repositoryDirectoryCommits maps each entry to its last commit and rejects 
     const { state } = await connection.begin(user.id);
     expect(await connection.complete(user.id, state, state, "code")).toBe(true);
     expect(await connection.repositoryDirectoryCommits(user.id, selected, "docs")).toEqual({
-      "docs/adr": {
-        sha: "e".repeat(40),
-        message: "Reorganize ADRs",
-        date: "2026-02-01T00:00:00Z",
+      // Author, co-authors, then the committer when it is someone else (web-flow here).
+      latest: {
+        sha: "f".repeat(40),
+        message: "Move the guide under docs (#12)",
+        date: "2026-03-01T00:00:00Z",
+        people: [
+          { name: "dir-author", avatarUrl: "https://avatars.githubusercontent.com/u/1?s=80" },
+          { name: "Pair", avatarUrl: null },
+          { name: "web-flow", avatarUrl: null },
+        ],
       },
-      "docs/guide.md": null,
+      commits: {
+        "docs/adr": {
+          sha: "e".repeat(40),
+          message: "Reorganize ADRs",
+          date: "2026-02-01T00:00:00Z",
+        },
+        "docs/guide.md": null,
+      },
     });
     await expect(
       connection.repositoryDirectoryCommits(user.id, selected, "docs/guide.md"),
@@ -1881,7 +1942,7 @@ test("repositoryDirectoryCommits maps each entry to its last commit and rejects 
   }
 });
 
-test("repositoryRaw fetches raw contents after an identity check and rejects an empty path", async () => {
+test("repositoryRaw fetches raw contents after an identity check and reports empty or missing paths as NOT_FOUND", async () => {
   const user = await db.user.create({ data: { username: `github-${crypto.randomUUID()}` } });
   const repositoryId = randomRepositoryId();
   const requested: string[] = [];
@@ -1926,6 +1987,10 @@ test("repositoryRaw fetches raw contents after an identity check and rejects an 
     ]);
 
     await expect(connection.repositoryRaw(user.id, selected, "")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    // The repository was just read with this token, so a missing path is not an access problem.
+    await expect(connection.repositoryRaw(user.id, selected, "gone.md")).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   } finally {
