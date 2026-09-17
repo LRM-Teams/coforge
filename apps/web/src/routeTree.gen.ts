@@ -67,6 +67,7 @@ import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/works
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as ApiIntegrationsGithubWebhookRouteImport } from './routes/api/integrations/github/webhook'
 import { Route as ApiProjectsProjectIdIconRouteImport } from './routes/api/projects.$projectId.icon'
+import { Route as AppProjectsProjectSlugTreeSplatRouteImport } from './routes/_app/projects.$projectSlug_.tree.$'
 import { Route as AppRecordsWeeksYearWeekRouteImport } from './routes/_app/records.weeks.$year.$week'
 import { Route as ApiAgentV1AttachmentsIndexRouteImport } from './routes/api/agent/v1/attachments/index'
 import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/api/agent/v1/attachments/$attachmentId'
@@ -380,6 +381,12 @@ const ApiProjectsProjectIdIconRoute =
     path: '/api/projects/$projectId/icon',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AppProjectsProjectSlugTreeSplatRoute =
+  AppProjectsProjectSlugTreeSplatRouteImport.update({
+    id: '/projects/$projectSlug_/tree/$',
+    path: '/projects/$projectSlug/tree/$',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppRecordsWeeksYearWeekRoute = AppRecordsWeeksYearWeekRouteImport.update({
   id: '/weeks/$year/$week',
   path: '/weeks/$year/$week',
@@ -504,6 +511,7 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
+  '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
@@ -571,6 +579,7 @@ export interface FileRoutesByTo {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
+  '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
@@ -643,6 +652,7 @@ export interface FileRoutesById {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
+  '/_app/projects/$projectSlug_/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/_app/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
@@ -715,6 +725,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
     | '/api/projects/$projectId/icon'
+    | '/projects/$projectSlug/tree/$'
     | '/records/weeks/$year/$week'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
@@ -782,6 +793,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
     | '/api/projects/$projectId/icon'
+    | '/projects/$projectSlug/tree/$'
     | '/records/weeks/$year/$week'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
@@ -853,6 +865,7 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
     | '/api/projects/$projectId/icon'
+    | '/_app/projects/$projectSlug_/tree/$'
     | '/_app/records/weeks/$year/$week'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
@@ -1324,6 +1337,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProjectsProjectIdIconRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/projects/$projectSlug_/tree/$': {
+      id: '/_app/projects/$projectSlug_/tree/$'
+      path: '/projects/$projectSlug/tree/$'
+      fullPath: '/projects/$projectSlug/tree/$'
+      preLoaderRoute: typeof AppProjectsProjectSlugTreeSplatRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/records/weeks/$year/$week': {
       id: '/_app/records/weeks/$year/$week'
       path: '/weeks/$year/$week'
@@ -1465,6 +1485,7 @@ interface AppRouteChildren {
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppProjectsProjectSlugSettingsRoute: typeof AppProjectsProjectSlugSettingsRoute
+  AppProjectsProjectSlugTreeSplatRoute: typeof AppProjectsProjectSlugTreeSplatRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -1478,6 +1499,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAgentsIndexRoute: AppAgentsIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppProjectsProjectSlugSettingsRoute: AppProjectsProjectSlugSettingsRoute,
+  AppProjectsProjectSlugTreeSplatRoute: AppProjectsProjectSlugTreeSplatRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

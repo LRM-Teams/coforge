@@ -342,14 +342,25 @@ Project 独立设置页允许 Workspace 成员修改名称、描述、上传项�
 
 项目详情的仓库概览由 `GitHubConnection.repositoryOverview` 使用当前查看者的个人
 user token 读取。先校验 installation、repository ID 和完整名称均仍可访问，再校验仓库
-metadata 身份；Workspace 内的 Project 可见性不授予 GitHub 内容访问权，不回退到公共
-匿名请求或 installation token。只读默认分支最近五条提交及根目录文件（GitHub Contents
-API 最多 1,000 项），不持久化代码或向浏览器传递 token；文件与提交链接跳转 GitHub。
-未关联、未授权、空仓库和服务暂不可用分别显示状态，不阻断项目讨论组的使用。
-需要 App 的 repository Contents: read 权限，但本次实现不修改任何现有 App 授权配置。
+metadata 身份（REST）；Workspace 内的 Project 可见性不授予 GitHub 内容访问权，不回退到
+公共匿名请求或 installation token。身份校验通过后改用 GitHub GraphQL 读取默认分支：
+一次查询取最近五条提交历史（含 signature 校验状态与 statusCheckRollup）及根目录 Tree，
+再按需分批（每批最多 50 个路径、最多覆盖前 100 个路径）用别名 `history(first:1, path:$p)`
+查询各路径最后一次改动的提交；空仓库（`defaultBranchRef` 为 null）视为无提交、无文件。
+不持久化代码或向浏览器传递 token；文件与提交链接跳转 GitHub。未关联、未授权、空仓库和
+服务暂不可用分别显示状态，不阻断项目讨论组的使用。需要 App 的 repository Contents: read
+权限，以及 Checks: read / Commit statuses: read 权限以获取 statusCheckRollup（均已按
+`infra/staging/README.md` 授予），本次实现不修改任何现有 App 授权配置。
+项目详情同时支持在 CoForge 内浏览默认分支任意路径（`/projects/$projectSlug/tree/$`，
+`GitHubConnection.repositoryPath`）：目录路径返回该目录的 Tree 及其每个祖先目录的 Tree
+（供右侧文件树仅展开当前路径），并复用同一按路径分批查询最后提交的逻辑；文本文件通过
+GraphQL `object(expression:"<branch>:<path>")` 读取正文，1 MB 以内、非二进制且未被截断的
+Markdown 以只读方式用 Records 编辑器渲染或显示高亮源码，其余文本文件仅显示高亮源码；二进制、
+超过 1 MB、被截断的文件以及图片（GraphQL 无法返回图片字节）均不在站内预览，链接跳转 GitHub。
+同样仅使用查看者个人 user token 读取，不做任何持久化。
 依据：[repository metadata](https://docs.github.com/en/rest/repos/repos#get-a-repository)、
-[commits](https://docs.github.com/en/rest/commits/commits#list-commits)、
-[contents](https://docs.github.com/en/rest/repos/contents#get-repository-content)。
+[GraphQL Commit object](https://docs.github.com/en/graphql/reference/objects#commit)、
+[GraphQL Blob/Tree objects](https://docs.github.com/en/graphql/reference/objects#blob)。
 
 PostgreSQL 的首要领域对象是：
 
