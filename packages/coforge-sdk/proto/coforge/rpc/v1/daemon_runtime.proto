@@ -71,6 +71,10 @@ message ComputerUpgradeResult {
   string message_type = 7;
   optional string version = 8;
   optional string error = 9;
+  // Stable machine-readable reason, carried from wherever this failure actually happened
+  // (Coordinator refusal, or the upgrade job's own receipt). Additive: an older peer that has
+  // never heard of a value here still has `error`, the human sentence. See UPGRADE_ERROR_CODE.
+  optional string error_code = 10;
 }
 
 message DaemonRuntimeCodeAgentsUpdateRequest {

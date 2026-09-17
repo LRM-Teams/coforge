@@ -173,7 +173,12 @@ test("candidate health failure verifies and restores old bytes and exact running
   const stages: string[] = [];
 
   await expect(coordinateUpgrade(options, (stage) => stages.push(stage))).rejects.toMatchObject({
-    result: { status: "failed", restoredVersion: "1.0.0", error: "wrong pid" },
+    result: {
+      status: "failed",
+      restoredVersion: "1.0.0",
+      error: "wrong pid",
+      errorCode: "UPGRADE_ROLLED_BACK",
+    },
   });
   expect(calls.slice(-5)).toEqual([
     "stop",
@@ -374,6 +379,7 @@ test("rollback verification failure is reported and launches remain paused", asy
     expect((error as UpgradeCoordinatorError).result.error).toContain(
       "rollback failed: old bytes corrupt",
     );
+    expect((error as UpgradeCoordinatorError).result.errorCode).toBe("UPGRADE_ROLLBACK_FAILED");
   }
   expect(calls).not.toContain("resume");
 });

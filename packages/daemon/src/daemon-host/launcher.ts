@@ -51,6 +51,21 @@ export type LocalDaemonConnection = {
   close(): void;
 };
 
+/** A lifecycle command the Coordinator answered with `accepted: false`, carrying the real reason
+ * across the local process boundary instead of a bare "did not accept" message. `code`, when
+ * present, is one of `UPGRADE_ERROR_CODE`'s values (the only vocabulary a lifecycle refusal
+ * currently uses) - but may be a well-formed value this build does not know the name of yet. */
+export class DaemonCommandRejectedError extends Error {
+  constructor(
+    readonly operation: string,
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "DaemonCommandRejectedError";
+  }
+}
+
 export type LocalDaemonLauncherOptions = {
   executablePath: string;
   socketPath: string;
@@ -176,13 +191,14 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
         ),
       );
       const commandResponse = decodeDaemonCommandResponse(response.payload);
-      if (
-        response.method !== method ||
-        commandResponse.protocolMajor !== 1 ||
-        commandResponse.requestId !== requestId ||
-        !commandResponse.accepted
-      ) {
+      if (response.method !== method || commandResponse.protocolMajor !== 1)
         throw new Error(`coforge-daemon did not accept ${operation}`);
+      if (commandResponse.requestId !== requestId || !commandResponse.accepted) {
+        throw new DaemonCommandRejectedError(
+          operation,
+          commandResponse.error || `coforge-daemon did not accept ${operation}`,
+          commandResponse.errorCode,
+        );
       }
       return commandResponse.runtimes ?? [];
     } finally {

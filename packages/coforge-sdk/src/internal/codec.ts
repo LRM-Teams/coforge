@@ -7,6 +7,7 @@ import {
 import {
   RUNTIME_PROVIDER,
   AGENT_SESSION_INVALIDATE_REASONS,
+  UPGRADE_ERROR_CODE_PATTERN,
   isChannelMessageTarget,
   type ComputerRegisterRequest,
   type ComputerRegisterResponse,
@@ -239,6 +240,8 @@ export function sanitizeUpgradeErrorText(value: string): string {
 export function encodeComputerUpgradeResult(value: ComputerUpgradeResult): Uint8Array {
   if (value.status !== "succeeded" && value.status !== "failed")
     throw new Error("invalid Computer upgrade result status");
+  if (value.errorCode !== undefined && !UPGRADE_ERROR_CODE_PATTERN.test(value.errorCode))
+    throw new Error("invalid Computer upgrade result error code");
   return toBinary(
     ComputerUpgradeResultSchema,
     create(ComputerUpgradeResultSchema, {
@@ -251,6 +254,7 @@ export function encodeComputerUpgradeResult(value: ComputerUpgradeResult): Uint8
       messageType: COMPUTER_UPGRADE_RESULT_MESSAGE_TYPE,
       ...(value.version ? { version: value.version } : {}),
       ...(value.error ? { error: sanitizeUpgradeErrorText(value.error) } : {}),
+      ...(value.errorCode ? { errorCode: value.errorCode } : {}),
     }),
   );
 }
@@ -268,6 +272,11 @@ export function decodeComputerUpgradeResult(bytes: Uint8Array): ComputerUpgradeR
   const completedAtMs = Number(value.completedAtMs);
   if (!Number.isSafeInteger(completedAtMs) || completedAtMs < 0)
     throw new Error("invalid Computer upgrade result completion time");
+  // The shape is enforced (a malformed value is a decode failure); membership in the known
+  // vocabulary is not - a newer peer's code this build has not learned about yet must still
+  // arrive intact rather than being dropped or rejected.
+  if (value.errorCode !== undefined && !UPGRADE_ERROR_CODE_PATTERN.test(value.errorCode))
+    throw new Error("invalid Computer upgrade result error code");
   return {
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,
@@ -277,6 +286,7 @@ export function decodeComputerUpgradeResult(bytes: Uint8Array): ComputerUpgradeR
     completedAtMs,
     ...(value.version ? { version: value.version } : {}),
     ...(value.error ? { error: sanitizeUpgradeErrorText(value.error) } : {}),
+    ...(value.errorCode ? { errorCode: value.errorCode } : {}),
     messageType: COMPUTER_UPGRADE_RESULT_MESSAGE_TYPE,
   };
 }

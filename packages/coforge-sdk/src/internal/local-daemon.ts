@@ -474,6 +474,12 @@ export type DaemonCommandResponse = {
   requestId: string;
   accepted: boolean;
   runtimes?: ManagedRuntimeIdentity[];
+  /** Set only when `accepted` is false. Local Coordinator<->Workspace daemon process boundary
+   * only - never the wire to the server. */
+  error?: string;
+  /** See `UPGRADE_ERROR_CODE` (the only vocabulary a lifecycle refusal currently uses); may be
+   * absent even when `error` is set, and may name a code this build does not know yet. */
+  errorCode?: string;
 };
 export type LocalRpcRequest = { method: string; payload: Uint8Array };
 export type LocalRpcResponse = { method: string; payload: Uint8Array };
@@ -563,6 +569,8 @@ export function decodeDaemonCommandResponse(bytes: Uint8Array): DaemonCommandRes
         version,
       }),
     ),
+    ...(value.error ? { error: value.error } : {}),
+    ...(value.errorCode ? { errorCode: value.errorCode } : {}),
   };
 }
 

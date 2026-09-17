@@ -19,6 +19,8 @@ export type ComputerUpgradeStatus =
       /** "reported" is the Computer's own terminal receipt; the others are server inferences. */
       reason: "timeout" | "publication" | "evidence" | "reported";
       error?: string;
+      /** See `UPGRADE_ERROR_CODE`; only ever set alongside `reason: "reported"`. */
+      errorCode?: string;
     }
   | { requestId: string; status: "unknown"; reason: "corrupt" };
 
@@ -29,6 +31,7 @@ export type ReportedComputerUpgradeResult = {
   status: "succeeded" | "failed";
   version?: string;
   error?: string;
+  errorCode?: string;
   completedAtMs: number;
 };
 type Identity = {
@@ -141,6 +144,7 @@ export class RedisComputerUpgradeStore {
         status: "failed",
         reason: "reported",
         ...(result.error ? { error: sanitizeUpgradeErrorText(result.error) } : {}),
+        ...(result.errorCode ? { errorCode: result.errorCode } : {}),
       });
       return;
     }
@@ -299,7 +303,8 @@ export class RedisComputerUpgradeStore {
           value.reason === "publication" ||
           value.reason === "evidence" ||
           value.reason === "reported") &&
-          (value.error === undefined || typeof value.error === "string")
+          (value.error === undefined || typeof value.error === "string") &&
+          (value.errorCode === undefined || typeof value.errorCode === "string")
           ? value
           : undefined;
       return value.status === "unknown" && value.reason === "corrupt" ? value : undefined;

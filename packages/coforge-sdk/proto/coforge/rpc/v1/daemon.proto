@@ -30,6 +30,10 @@ message DaemonCommandResponse {
   string request_id = 2;
   bool accepted = 3;
   repeated ManagedRuntimeIdentity runtimes = 4;
+  // Set only when accepted is false. Local process-to-process only, never the wire to the
+  // server; lets a refused daemon:upgrade/etc. carry the real reason instead of a closed socket.
+  optional string error = 5;
+  optional string error_code = 6;
 }
 
 message ManagedRuntimeIdentity {

@@ -1,6 +1,7 @@
 import { getLogger } from "@logtape/logtape";
 import type { DaemonConfig } from "../daemon-runtime/runtime";
 import { holdRunnersUntilQuiescent, type RunnerHoldSnapshot } from "./runner-hold";
+import { UpgradeLaunchesPausedError, UpgradeOperationPendingError } from "./upgrade-error";
 
 export type RestartProgress = {
   requestId: string;
@@ -17,7 +18,14 @@ export type RestartResult =
  * `acknowledged` means the server accepted the reported result and the record is audit only.
  */
 export type UpgradeOperationState = "pending" | "succeeded" | "failed" | "acknowledged";
-export type UpgradeOperationTerminal = { version?: string; error?: string; at: number };
+export type UpgradeOperationTerminal = {
+  version?: string;
+  error?: string;
+  /** See `UPGRADE_ERROR_CODE`. Set only when the job (or the Coordinator, on a launch failure)
+   * can name a stable reason for this terminal state. */
+  errorCode?: string;
+  at: number;
+};
 export type UpgradeOperation = {
   requestId: string;
   expectedVersion: string;
@@ -253,7 +261,7 @@ export class MachineSupervisor {
           return undefined;
         });
         if (!settlement)
-          throw new Error(
+          throw new UpgradeOperationPendingError(
             `Computer upgrade operation ${pending.requestId} is still pending; wait for it to finish before starting another`,
           );
         const { status, ...terminal } = settlement;
@@ -450,7 +458,11 @@ export class MachineSupervisor {
     this.#instances.delete(binding.workspaceId);
   }
   #assertMutable() {
-    if (this.#paused) throw new Error("machine lifecycle is paused for upgrade");
+    // `#paused` is set only by an in-flight Computer upgrade (`daemon:pause`/the launch-hold
+    // file), so every caller of this guard - configure, command, and recordUpgrade - is refusing
+    // for that one reason.
+    if (this.#paused)
+      throw new UpgradeLaunchesPausedError("machine lifecycle is paused for upgrade");
   }
   #serialize<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.#mutation.then(operation);

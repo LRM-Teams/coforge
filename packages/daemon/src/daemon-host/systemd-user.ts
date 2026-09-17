@@ -85,6 +85,20 @@ export class SystemdUserDaemonHost implements DaemonLauncher {
     const result = await this.#run(["systemctl", "--user", "stop", this.#serviceName]);
     if (result !== 0) throw new Error("could not stop the CoForge Daemon user service");
   }
+
+  /**
+   * The in-place replacement `coforge-computer restart --supervisor` uses to restart the
+   * Coordinator process itself (not a Workspace runtime). `reset-failed` clears any earlier
+   * failed-state latch a previous crash may have left on the unit - its own exit code is
+   * ignored, since there is usually nothing to reset - so a stale failure never blocks this
+   * restart; `restart` then does the actual stop-and-start in one systemd transaction.
+   */
+  async restart(): Promise<void> {
+    await this.#run(["systemctl", "--user", "reset-failed", this.#serviceName]);
+    const result = await this.#run(["systemctl", "--user", "restart", this.#serviceName]);
+    if (result !== 0) throw new Error("could not restart the CoForge Daemon user service");
+    await this.#local.ensureRunning();
+  }
 }
 
 export function systemdUserUnit(

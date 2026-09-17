@@ -116,6 +116,7 @@ test("a pending operation without a receipt expires once, and only past its TTL"
         requestId: "stranded",
         status: "failed",
         error: UPGRADE_EXPIRED_WITHOUT_RECEIPT,
+        errorCode: "UPGRADE_EXPIRED_WITHOUT_RECEIPT",
         at: now,
       },
     ]);
@@ -321,6 +322,7 @@ describe("watchComputerUpgradeReceipt", () => {
           requestId: "stranded",
           status: "failed",
           error: UPGRADE_EXPIRED_WITHOUT_RECEIPT,
+          errorCode: "UPGRADE_EXPIRED_WITHOUT_RECEIPT",
           at: 40,
         },
       ]);

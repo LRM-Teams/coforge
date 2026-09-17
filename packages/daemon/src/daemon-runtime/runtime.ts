@@ -67,6 +67,7 @@ import {
   WEEKLY_REPORT_PROTOCOL_MAJOR,
   threadParentTarget,
   mentionsInContent,
+  parseUpgradeErrorCode,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -132,6 +133,8 @@ export type RecoveredUpgradeResult = {
   completedAtMs: number;
   version?: string;
   error?: string;
+  /** See `UPGRADE_ERROR_CODE`. */
+  errorCode?: string;
 };
 const FULL_THREAD_TARGET =
   /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
@@ -772,7 +775,9 @@ export class DaemonRuntime {
         computerId: connection.computerId,
         serverHttpUrl: connection.serverHttpUrl,
         requestRestart: this.lifecycle.requestRestart,
-        requestUpgrade: this.lifecycle.requestUpgrade,
+        requestUpgrade: this.lifecycle.requestUpgrade
+          ? (requestId, expectedVersion) => this.#requestUpgrade(requestId, expectedVersion)
+          : undefined,
       });
       await this.#agentControl.replay();
       await this.#agentSessions.replay();
@@ -823,6 +828,55 @@ export class DaemonRuntime {
   }
 
   /**
+   * Wraps `lifecycle.requestUpgrade` (the local call into the Coordinator): when it rejects -
+   * refused (a pending operation, launches paused) or the launch itself failing - this Workspace
+   * still owes the server an immediate, reasoned failure report. Without this, the caller
+   * (`DaemonConnection#acceptLifecycleRequest`) just swallows the rejection and the server is
+   * left waiting until it times out with a generic "did not report in time", even though this
+   * machine knew exactly why (ADR 0041). Reported through the same wire
+   * message and dedupe `#reportUpgradeResults` uses (`#transport.sendUpgradeResult`), so a retry
+   * of the same request cannot double-report. Rethrown so the caller's existing
+   * dedupe-clearing behaviour on a rejection is unaffected.
+   */
+  async #requestUpgrade(requestId: string, expectedVersion?: string): Promise<void> {
+    const requestUpgrade = this.lifecycle.requestUpgrade;
+    if (!requestUpgrade) throw new Error("upgrade requests are unsupported");
+    try {
+      await requestUpgrade(requestId, expectedVersion);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const errorCode = parseUpgradeErrorCode((error as { code?: unknown } | null)?.code);
+      logger.warn("Computer upgrade request was refused", {
+        event: "upgrade:request_refused",
+        request_id: requestId,
+        workspace_id: this.#connection.workspaceId,
+        error_code: errorCode ?? diagnosticErrorCode(error),
+        error_message: message,
+      });
+      await this.#transport
+        .sendUpgradeResult?.({
+          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+          requestId,
+          workspaceId: this.#connection.workspaceId,
+          computerId: this.#connection.computerId ?? "",
+          status: "failed",
+          completedAtMs: Date.now(),
+          error: message,
+          ...(errorCode ? { errorCode } : {}),
+        })
+        .catch((reportError) => {
+          logger.error("Refused Computer upgrade could not be reported", {
+            event: "upgrade:refusal_report_failed",
+            request_id: requestId,
+            workspace_id: this.#connection.workspaceId,
+            error_code: diagnosticErrorCode(reportError),
+          });
+        });
+      throw error;
+    }
+  }
+
+  /**
    * Reports every terminal upgrade operation this machine has not settled yet. The server's
    * acceptance is the acknowledgement: only then does the local record become audit history.
    * A refused or failed report is left alone so the next ready handshake retries it.
@@ -846,6 +900,7 @@ export class DaemonRuntime {
           completedAtMs: result.completedAtMs,
           ...(result.version ? { version: result.version } : {}),
           ...(result.error ? { error: result.error } : {}),
+          ...(result.errorCode ? { errorCode: result.errorCode } : {}),
         });
         await this.lifecycle.acknowledgeUpgradeResult?.(result.requestId);
       } catch (error) {

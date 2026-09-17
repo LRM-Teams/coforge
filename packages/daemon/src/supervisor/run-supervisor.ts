@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
+import { UPGRADE_ERROR_CODE, type ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 import { startDaemonLocalRpcServer, type DaemonHoldReport } from "../local-rpc";
 import { FileDaemonCredentialStore } from "../credentials/credential-store";
 import { DaemonConfigStore } from "../persistence/daemon-config";
@@ -25,6 +25,7 @@ import { answeredWithin } from "./runner-hold";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
 import { sweepLeftoverComputerUpgradeJobs } from "../platform/computer-upgrade-sweep";
+import { UpgradeLaunchFailedError } from "./upgrade-error";
 import {
   sweepComputerUpgradeReceipts,
   watchComputerUpgradeReceipt,
@@ -356,6 +357,7 @@ async function runWithSupervisorLock(
       at: receipt.at,
       ...(receipt.version ? { version: receipt.version } : {}),
       ...(receipt.error ? { error: receipt.error } : {}),
+      ...(receipt.errorCode ? { errorCode: receipt.errorCode } : {}),
     });
     if (recorded) {
       upgradeLogger.info("Computer upgrade operation reached its terminal state", {
@@ -496,9 +498,26 @@ async function runWithSupervisorLock(
               // Pushes down any settlement `recordUpgrade` just applied to the pending operation
               // it replaced, in addition to the new one, without restarting this Workspace.
               await refreshChildUpgradeConfig(request.workspaceId);
-              await launchComputerUpgrade(request.requestId, request.expectedVersion, {
-                stateDirectory,
-              });
+              try {
+                await launchComputerUpgrade(request.requestId, request.expectedVersion, {
+                  stateDirectory,
+                });
+              } catch (error) {
+                // `recordUpgrade` already committed a "pending" operation for this request; a
+                // job that never started must not leave it sitting there for the full pending
+                // TTL, refusing every later upgrade in the meantime (the requirement this
+                // record exists for: never leave an operation pending when the launch itself is
+                // what failed).
+                const message = error instanceof Error ? error.message : String(error);
+                await completeUpgrade(request.workspaceId, request.requestId, {
+                  requestId: request.requestId,
+                  status: "failed",
+                  at: Date.now(),
+                  error: message,
+                  errorCode: UPGRADE_ERROR_CODE.LAUNCH_FAILED,
+                });
+                throw new UpgradeLaunchFailedError(message, { cause: error });
+              }
               watchPendingUpgrade(request.workspaceId, request.requestId, Date.now());
             }
           } else if (method === "daemon:upgrade_ack") {

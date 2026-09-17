@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { UPGRADE_ERROR_CODE } from "@lrm/coforge-sdk/internal";
 
 /**
  * The Computer's external upgrade job reports only through a durable receipt file. Nothing else
@@ -11,6 +12,9 @@ export type ComputerUpgradeReceipt = {
   status: "succeeded" | "failed";
   version?: string;
   error?: string;
+  /** See `UPGRADE_ERROR_CODE`. Set only when the upgrade job itself knew a stable reason for a
+   * "failed" receipt (e.g. it rolled back, or the updater reported a typed `UpdateError`). */
+  errorCode?: string;
   /** When the receipt became durable, taken from the file itself. */
   at: number;
 };
@@ -72,6 +76,9 @@ export async function readComputerUpgradeReceipt(
     status: receipt.status,
     ...(typeof receipt.version === "string" && receipt.version ? { version: receipt.version } : {}),
     ...(typeof receipt.error === "string" && receipt.error ? { error: receipt.error } : {}),
+    ...(typeof receipt.errorCode === "string" && receipt.errorCode
+      ? { errorCode: receipt.errorCode }
+      : {}),
     at: file.lastModified > 0 ? file.lastModified : Date.now(),
   };
 }
@@ -120,6 +127,7 @@ function expiredReceipt(
     requestId: operation.requestId,
     status: "failed",
     error: UPGRADE_EXPIRED_WITHOUT_RECEIPT,
+    errorCode: UPGRADE_ERROR_CODE.EXPIRED_WITHOUT_RECEIPT,
     at: now,
   };
 }

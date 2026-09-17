@@ -81,6 +81,32 @@ describe("Computer upgrade result method", () => {
     ]);
   });
 
+  test("carries the Daemon's error code through to the store", async () => {
+    const reported: unknown[] = [];
+    const method = createComputerUpgradeResultMethod({
+      reported: async (scope, result) => {
+        reported.push([scope, result]);
+      },
+    });
+
+    await method(upgradeResultPayload({ errorCode: "UPGRADE_OPERATION_PENDING" }), {
+      principal: principal(),
+    });
+
+    expect(reported).toEqual([
+      [
+        { workspaceId: "workspace-1", computerId: "computer-1" },
+        {
+          requestId: "operation-1",
+          status: "failed",
+          completedAtMs: 1_700_000_000_000,
+          error: "candidate failed",
+          errorCode: "UPGRADE_OPERATION_PENDING",
+        },
+      ],
+    ]);
+  });
+
   test("refuses a report for another Computer and an undecodable payload", async () => {
     const method = createComputerUpgradeResultMethod({
       reported: async () => {

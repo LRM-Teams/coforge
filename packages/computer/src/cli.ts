@@ -15,6 +15,7 @@ import {
 } from "./paths";
 import { ComputerUpdater, UpdateError } from "./updater";
 import { resolveUpgradeCoordinatorPaths, runUpgradeOperation } from "./release/upgrade-runner";
+import { UpgradeCoordinatorError } from "./release/upgrade-coordinator";
 import {
   createLocalUpgradeOperation,
   type UpgradeOperation,
@@ -32,10 +33,12 @@ import {
   HttpWorkspaceRpcTransport,
   resolveDaemonConnectionEndpoint,
 } from "./cloud-rpc-transport";
-import { ComputerRegistrationClient } from "@lrm/coforge-sdk/internal";
+import { ComputerRegistrationClient, type HeldBusyAgent } from "@lrm/coforge-sdk/internal";
 import {
   cleanupComputerUpgradeJob,
   createDaemonHost,
+  holdRunnersUntilQuiescent,
+  LocalDaemonLauncher,
   readOperatingSystem,
   resolveDaemonExecutablePath,
   runMachineSupervisor,
@@ -71,6 +74,9 @@ export interface DaemonCommand {
   start(workspace?: string): Promise<void>;
   stop(workspace?: string): Promise<void>;
   restart(workspace?: string): Promise<void>;
+  /** Restarts the Coordinator process itself (not a Workspace runtime) through the platform
+   * host, holding runners first. See `coforge-computer restart --supervisor`. */
+  restartSupervisor?(): Promise<void>;
 }
 
 export interface LogsCommand {
@@ -206,9 +212,25 @@ export async function runCli(
     .command("restart")
     .description("Restart the Daemon and all configured Daemon Runtimes.")
     .option("--workspace <slug-or-id>", "Affect only this local Workspace binding")
-    .action((options: { workspace?: string }) =>
-      requireDaemon(dependencies).restart(options.workspace),
-    );
+    .option(
+      "--supervisor",
+      "Restart the Computer supervisor process itself (not a Workspace runtime), through the platform's process manager",
+    )
+    .action((options: { workspace?: string; supervisor?: boolean }) => {
+      if (options.supervisor && options.workspace)
+        throw new CliError(
+          "RESTART_CONFLICTING_TARGET",
+          "--supervisor and --workspace cannot be used together.",
+          "Use --supervisor to restart the Computer supervisor itself, or --workspace to restart one Workspace runtime, not both.",
+        );
+      if (options.supervisor) {
+        const daemon = requireDaemon(dependencies);
+        if (!daemon.restartSupervisor)
+          throw new Error("Supervisor restart is unavailable in this build");
+        return daemon.restartSupervisor();
+      }
+      return requireDaemon(dependencies).restart(options.workspace);
+    });
   program
     .command("foreground")
     .description("Run the Daemon supervisor in the foreground for external supervision.")
@@ -462,6 +484,13 @@ export function createSetupCommand(
   };
 }
 
+function daemonExecutablePathFor(platform: "darwin" | "linux" | "win32", installDirectory: string) {
+  return process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" &&
+    process.env.COFORGE_E2E_DAEMON_EXECUTABLE
+    ? process.env.COFORGE_E2E_DAEMON_EXECUTABLE
+    : resolveDaemonExecutablePath({ installRoot: installDirectory, platform });
+}
+
 function createDaemonLauncher(
   platform: "darwin" | "linux" | "win32",
   installDirectory: string,
@@ -470,10 +499,7 @@ function createDaemonLauncher(
 ) {
   return createDaemonHost({
     platform,
-    executablePath:
-      process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" && process.env.COFORGE_E2E_DAEMON_EXECUTABLE
-        ? process.env.COFORGE_E2E_DAEMON_EXECUTABLE
-        : resolveDaemonExecutablePath({ installRoot: installDirectory, platform }),
+    executablePath: daemonExecutablePathFor(platform, installDirectory),
     socketPath: resolveDaemonSocketPath({ platform, stateDirectory }),
     stateDirectory,
     serverUrl,
@@ -485,6 +511,100 @@ function createDaemonLauncher(
     homeDirectory: homedir(),
     uid: process.getuid?.() ?? 0,
   });
+}
+
+/** The pieces `restartSupervisor` needs from the platform host and the local socket client;
+ * satisfied in production by `createDaemonLauncher`'s return value and a plain
+ * `LocalDaemonLauncher`, and by hand-written fakes in tests. */
+export type RestartSupervisorHost = {
+  assertRestartable?(): Promise<void>;
+  restart(): Promise<void>;
+};
+export type RestartSupervisorLocal = {
+  identity(): Promise<unknown>;
+  hold(
+    operation: "hold" | "release",
+    reason?: string,
+  ): Promise<{ accepted: boolean; busyAgents: readonly HeldBusyAgent[] }>;
+};
+
+/**
+ * Restarts the Coordinator process itself through the platform host - `coforge-computer restart
+ * --supervisor` - rather than a Workspace runtime the ordinary `restart` command targets. Engages
+ * the same runner hold a Coordinator-initiated restart uses today (ADR 0021) so a live tool call
+ * is not cut, unless the Coordinator cannot be reached at all: that unreachable case is exactly
+ * why this command exists, so it restarts anyway rather than refusing.
+ */
+export async function restartSupervisor(
+  host: RestartSupervisorHost,
+  local: RestartSupervisorLocal,
+  io: { stdout: (line: string) => void },
+): Promise<void> {
+  const foregroundRefusal = (cause: unknown): Error =>
+    new Error(
+      "Cannot restart the supervisor of a foreground externally supervised Computer while it is running. Restart it through its external supervisor, or install the supported user service.",
+      { cause },
+    );
+  // launchd only: refuse outright rather than silently falling back to bootstrapping a fresh
+  // user agent, which `restart()`'s own recovery branch would otherwise do for a Computer that
+  // never installed one.
+  if (host.assertRestartable) {
+    try {
+      await host.assertRestartable();
+    } catch (error) {
+      throw foregroundRefusal(error);
+    }
+  }
+  let held = false;
+  try {
+    await local.identity();
+    held = true;
+  } catch {
+    io.stdout("Computer supervisor is unreachable; restarting without a runner hold.");
+  }
+  try {
+    if (held) {
+      io.stdout("Holding Agent runners until idle...");
+      const outcome = await holdRunnersUntilQuiescent({
+        hold: async () => {
+          const response = await local.hold("hold", "restart-supervisor");
+          if (!response.accepted) throw new Error("Coordinator did not accept the runner hold");
+          return { busyAgents: response.busyAgents, unreachableWorkspaceIds: [] };
+        },
+      });
+      io.stdout(
+        outcome.quiescent
+          ? "Every Agent runner reported idle."
+          : `Runner hold expired after ${outcome.elapsedMs}ms with ${outcome.busyAgents.length} Agent(s) still busy; restarting anyway.`,
+      );
+    }
+    io.stdout("Restarting the Computer supervisor...");
+    try {
+      await host.restart();
+    } catch (error) {
+      throw host.assertRestartable ? error : foregroundRefusal(error);
+    }
+    io.stdout("Computer supervisor restarted and answered its local handshake.");
+  } finally {
+    if (held) await local.hold("release", "restart-supervisor").catch(() => {});
+  }
+}
+
+function createRestartSupervisorHost(
+  platform: "darwin" | "linux" | "win32",
+  installDirectory: string,
+  stateDirectory: string,
+  serverUrl: string,
+): { host: RestartSupervisorHost; local: RestartSupervisorLocal } {
+  return {
+    host: createDaemonLauncher(platform, installDirectory, stateDirectory, serverUrl),
+    local: new LocalDaemonLauncher({
+      executablePath: daemonExecutablePathFor(platform, installDirectory),
+      socketPath: resolveDaemonSocketPath({ platform, stateDirectory }),
+      stateDirectory,
+      serverUrl,
+    }),
+  };
 }
 
 function createCommand(
@@ -527,6 +647,15 @@ function createCommand(
       // The supervisor skips disabled bindings on an unscoped restart; a scoped restart always
       // acts on its one target, so there is nothing to report there.
       if (!workspace) reportSkippedRestarts(io, runtimes);
+    },
+    restartSupervisor: () => {
+      const { host, local } = createRestartSupervisorHost(
+        platform,
+        installDirectory,
+        stateDirectory,
+        serverUrl,
+      );
+      return restartSupervisor(host, local, io);
     },
   };
 }
@@ -576,6 +705,21 @@ export function reportStoppedWorkspaces(
   }
 }
 
+/**
+ * The next command a caller should run after `coforge-computer upgrade` itself fails - `runCli`'s
+ * catch already prints the reason (an `UpdateError`'s `code: message`, or an
+ * `UpgradeCoordinatorError`'s message, or a bare Error's message); this only names what to run
+ * next, and never changes what is thrown or its exit code.
+ */
+export function nextUpgradeCommandHint(error: unknown): string {
+  if (error instanceof UpgradeCoordinatorError) {
+    if (error.result.restoredVersion)
+      return "The previous version was restored. Check 'coforge-computer logs' for detail, then retry with 'coforge-computer upgrade'.";
+    return "Neither version could be confirmed healthy. Check 'coforge-computer status' and 'coforge-computer logs' before retrying.";
+  }
+  return "Check 'coforge-computer status', then retry with 'coforge-computer upgrade'.";
+}
+
 /** A thin CLI adapter: it builds one operation per command and renders the durable result. */
 export function createUpdateCommand(io: {
   stdout: (line: string) => void;
@@ -622,7 +766,16 @@ export function createUpdateCommand(io: {
     async upgrade(version) {
       const current = await updater.getCurrentVersion();
       io.stdout(`==> Updating CoForge Computer${current ? ` from ${current}` : ""} to ${version}`);
-      const result = await coordinate("upgrade", version, undefined, true);
+      let result: Awaited<ReturnType<typeof coordinate>>;
+      try {
+        result = await coordinate("upgrade", version, undefined, true);
+      } catch (error) {
+        // The reason is already on stderr from `UpdateError`/`UpgradeCoordinatorError` handling
+        // in `runCli`'s catch below; this only adds the next command, never changes what is
+        // thrown or its exit code.
+        io.stderr(nextUpgradeCommandHint(error));
+        throw error;
+      }
       io.stdout(`CoForge Computer ${result.version} updated successfully.`);
       reportStoppedWorkspaces(io, result);
     },
