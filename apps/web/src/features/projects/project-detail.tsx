@@ -83,16 +83,14 @@ export function ProjectDetail({
           <section className="order-1 min-w-0 lg:order-2">
             <div className="mb-3 flex min-h-9 items-center justify-between gap-3">
               <h2 className="text-base font-semibold text-primary">{m.project_discussions()}</h2>
-              {project.canManageChannels && (
-                <Button
-                  size="sm"
-                  color="secondary"
-                  iconLeading={Plus}
-                  onPress={() => setCreating(true)}
-                >
-                  {m.project_discussion_create()}
-                </Button>
-              )}
+              <Button
+                size="sm"
+                color="secondary"
+                iconLeading={Plus}
+                onPress={() => setCreating(true)}
+              >
+                {m.project_discussion_create()}
+              </Button>
             </div>
             <div className="min-h-52 overflow-hidden rounded-xl border border-secondary">
               {project.conversations.length ? (

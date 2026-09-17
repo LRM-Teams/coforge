@@ -3,23 +3,15 @@ import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { MessagesPending } from "@/features/conversations/conversation-pending";
 import { ConversationNavigation } from "@/features/conversations/conversation-navigation";
 import { PageLoadError } from "@/features/errors/page-load-error";
-import {
-  listPublicChannels,
-  loadChannelManagementRole,
-} from "@/features/conversations/channels.functions";
+import { listPublicChannels } from "@/features/conversations/channels.functions";
 import { listProjects } from "@/features/projects/projects.functions";
 
 export const Route = createFileRoute("/_app/messages")({
   loader: async () => {
-    const [channels, projects, role] = await Promise.all([
-      listPublicChannels(),
-      listProjects(),
-      loadChannelManagementRole(),
-    ]);
+    const [channels, projects] = await Promise.all([listPublicChannels(), listProjects()]);
     return {
       channels,
       projects,
-      canManageChannels: role.canManageChannels,
     };
   },
   pendingMs: 300,

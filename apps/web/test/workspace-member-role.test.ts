@@ -6,7 +6,6 @@ import {
   assertCanChangeMemberRole,
   assertCanInvite,
   assertCanLeaveWorkspace,
-  assertCanManageChannels,
   assertCanManageMembers,
   assertCanRemoveMember,
   isAdminLike,
@@ -77,12 +76,6 @@ test("owner cannot leave; admin and member can", () => {
   expect(() => assertCanLeaveWorkspace("owner")).toThrow(AppError);
   expect(() => assertCanLeaveWorkspace("admin")).not.toThrow();
   expect(() => assertCanLeaveWorkspace("member")).not.toThrow();
-});
-
-test("only owner and admin may manage channels", () => {
-  expect(() => assertCanManageChannels("owner")).not.toThrow();
-  expect(() => assertCanManageChannels("admin")).not.toThrow();
-  expect(() => assertCanManageChannels("member")).toThrow(AppError);
 });
 
 test("only owner and admin may create Agents", () => {

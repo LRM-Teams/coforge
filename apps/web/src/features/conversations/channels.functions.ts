@@ -5,8 +5,6 @@ import {
   type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
 import { PublicChannels } from "../../server/conversations/public-channels.server";
-import { isAdminLike } from "../../server/workspaces/member-role.server";
-import { workspaceMemberRole } from "../../server/workspaces/members.server";
 import { attachmentView } from "../../server/attachments/attachment-view.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
@@ -77,13 +75,6 @@ export const loadPublicChannelUpdates = createServerFn({ method: "GET" })
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
     return channels.updates(workspaceId, userId, data.channelId, data.afterSequence);
-  });
-
-export const loadChannelManagementRole = createServerFn({ method: "GET" })
-  .middleware([workspaceUserMiddleware])
-  .handler(async ({ context: { db, workspaceId, user } }) => {
-    const role = await workspaceMemberRole(db, workspaceId, user.id);
-    return { canManageChannels: isAdminLike(role) };
   });
 
 export const loadPublicChannelMembers = createServerFn({ method: "GET" })

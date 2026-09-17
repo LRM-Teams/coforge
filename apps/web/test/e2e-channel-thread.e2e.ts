@@ -36,8 +36,7 @@ test("channel threads cross real WSS and Agent HTTP transport without notificati
     data: {
       slug: `e2e-channel-${suffix}`,
       name: "E2E channel transport",
-      // Admin so this test's user may create the "other" channel below.
-      members: { create: { userId: user.id, role: "admin" } },
+      members: { create: { userId: user.id } },
     },
   });
   await mkdir(workspaceRoot, { recursive: true });

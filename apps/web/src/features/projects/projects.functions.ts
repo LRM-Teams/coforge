@@ -6,8 +6,6 @@ import { ProjectSettings } from "../../server/projects/project-settings.server";
 import { z } from "zod";
 import { projectIconUploadInput, updateProjectInput } from "./projects.schemas";
 import { ProjectImages, projectIconUrl } from "../../server/projects/project-images.server";
-import { isAdminLike } from "../../server/workspaces/member-role.server";
-import { workspaceMemberRole } from "../../server/workspaces/members.server";
 
 export const uploadProjectIcon = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
@@ -46,39 +44,31 @@ export const getProject = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(z.object({ slug: z.string().min(1) }))
   .handler(async ({ data, context }) => {
-    const { db, workspaceId, user } = context;
-    const [project, actorRole] = await Promise.all([
-      db.project.findFirst({
-        where: { workspaceId, slug: data.slug },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          description: true,
-          iconObjectKey: true,
-          githubFullName: true,
-          githubHtmlUrl: true,
-          conversations: {
-            select: {
-              id: true,
-              channelName: true,
-              createdAt: true,
-              _count: { select: { members: true } },
-            },
-            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    const { db, workspaceId } = context;
+    const project = await db.project.findFirst({
+      where: { workspaceId, slug: data.slug },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        iconObjectKey: true,
+        githubFullName: true,
+        githubHtmlUrl: true,
+        conversations: {
+          select: {
+            id: true,
+            channelName: true,
+            createdAt: true,
+            _count: { select: { members: true } },
           },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         },
-      }),
-      workspaceMemberRole(db, workspaceId, user.id),
-    ]);
+      },
+    });
     if (!project) return null;
     const { iconObjectKey, ...view } = project;
-    // Channel creation requires Workspace owner/admin; see PublicChannels.create.
-    return {
-      ...view,
-      iconUrl: projectIconUrl(project.id, iconObjectKey),
-      canManageChannels: isAdminLike(actorRole),
-    };
+    return { ...view, iconUrl: projectIconUrl(project.id, iconObjectKey) };
   });
 
 export const updateProject = createServerFn({ method: "POST" })

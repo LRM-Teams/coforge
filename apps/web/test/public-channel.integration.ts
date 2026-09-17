@@ -43,8 +43,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     data: {
       slug: suffix,
       name: "Channels",
-      // Channel creation requires owner/admin; alice manages channels, bob stays a plain member.
-      members: { create: [{ userId: alice.id, role: "admin" }, { userId: bob.id }] },
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
     },
   });
   try {
@@ -105,10 +104,9 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     await expect(channels.create(workspace.id, outsider.id, "secret")).rejects.toThrow(
       "ACCESS_DENIED",
     );
-    // A plain Workspace member (bob) cannot create a channel; only owner/admin can.
-    await expect(channels.create(workspace.id, bob.id, "member-channel")).rejects.toThrow(
-      "ACCESS_DENIED",
-    );
+    // Any Workspace member (bob, a plain member) can create a channel.
+    const memberChannel = await channels.create(workspace.id, bob.id, "member-channel");
+    expect(memberChannel.id).toEqual(expect.any(String));
     await expect(channels.join(workspace.id, outsider.id, engineering.id)).rejects.toThrow(
       "ACCESS_DENIED",
     );
@@ -317,8 +315,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     data: {
       slug: crypto.randomUUID(),
       name: "Agent channels",
-      // Admin so this test's user may create the "not-joined" channel below.
-      members: { create: { userId: user.id, role: "admin" } },
+      members: { create: { userId: user.id } },
     },
   });
   try {
@@ -599,8 +596,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
     data: {
       slug: `thread-${suffix}`,
       name: "Channel threads",
-      // Alice creates the "threads" channel below, so she needs admin authority.
-      members: { create: [{ userId: alice.id, role: "admin" }, { userId: bob.id }] },
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
     },
   });
   const foreignWorkspace = await db.workspace.create({
@@ -981,14 +977,17 @@ test("reads never enroll: general membership comes from write points and the bac
   }
 });
 
-test("owner/admin manage channel membership: add humans and Agents; a member cannot; invalid ids are rejected", async () => {
+test("channel members add humans and Agents; a Workspace member outside the channel cannot; invalid ids are rejected", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
   const suffix = crypto.randomUUID().slice(0, 8);
   const owner = await db.user.create({ data: { username: `mo${suffix}` } });
-  const member = await db.user.create({ data: { username: `mm${suffix}` } });
+  // A plain `member` role who joins the channel; Slack lets any channel member add people.
+  const channelMember = await db.user.create({ data: { username: `mc${suffix}` } });
+  // A plain `member` role who never joins the channel.
+  const outsideMember = await db.user.create({ data: { username: `mm${suffix}` } });
   const newcomer = await db.user.create({ data: { username: `mn${suffix}` } });
   const workspace = await db.workspace.create({
     data: {
@@ -997,7 +996,8 @@ test("owner/admin manage channel membership: add humans and Agents; a member can
       members: {
         create: [
           { userId: owner.id, role: "owner" },
-          { userId: member.id },
+          { userId: channelMember.id },
+          { userId: outsideMember.id },
           { userId: newcomer.id },
         ],
       },
@@ -1026,46 +1026,56 @@ test("owner/admin manage channel membership: add humans and Agents; a member can
       publishJson: async () => {},
     });
 
-    const channel = await channels.create(workspace.id, owner.id, "roster");
+    // A plain Workspace member creates the channel (Slack: any member can create a channel).
+    const channel = await channels.create(workspace.id, channelMember.id, "roster");
+    await channels.join(workspace.id, owner.id, channel.id);
 
-    // Any Workspace member may read membership, but only owner/admin may manage it.
-    const memberView = await channels.members(workspace.id, member.id, channel.id);
-    expect(memberView.canManage).toBe(false);
-    expect(memberView.humans.map((human) => human.id)).toEqual([owner.id]);
-    expect(memberView.agents).toEqual([]);
-    expect(memberView.candidates.humans.map((human) => human.id).sort()).toEqual(
-      [member.id, newcomer.id].sort(),
+    // A Workspace member who is NOT in the channel may still read it, but cannot add members.
+    const outsideView = await channels.members(workspace.id, outsideMember.id, channel.id);
+    expect(outsideView.canAddMembers).toBe(false);
+    expect(outsideView.humans.map((human) => human.id).sort()).toEqual(
+      [channelMember.id, owner.id].sort(),
     );
-    expect(memberView.candidates.agents.map((candidate) => candidate.id)).toEqual([agent.id]);
+    expect(outsideView.agents).toEqual([]);
+    expect(outsideView.candidates.humans.map((human) => human.id).sort()).toEqual(
+      [outsideMember.id, newcomer.id].sort(),
+    );
+    expect(outsideView.candidates.agents.map((candidate) => candidate.id)).toEqual([agent.id]);
 
     await expect(
-      channels.addMembers(workspace.id, member.id, channel.id, {
+      channels.addMembers(workspace.id, outsideMember.id, channel.id, {
         userIds: [newcomer.id],
         agentIds: [],
       }),
     ).rejects.toThrow("ACCESS_DENIED");
 
+    // A channel member with a plain `member` Workspace role may read and add members.
+    const memberView = await channels.members(workspace.id, channelMember.id, channel.id);
+    expect(memberView.canAddMembers).toBe(true);
+
     await expect(
-      channels.addMembers(workspace.id, owner.id, channel.id, {
+      channels.addMembers(workspace.id, channelMember.id, channel.id, {
         userIds: [crypto.randomUUID()],
         agentIds: [],
       }),
     ).rejects.toThrow("INVALID_INPUT");
     await expect(
-      channels.addMembers(workspace.id, owner.id, channel.id, {
+      channels.addMembers(workspace.id, channelMember.id, channel.id, {
         userIds: [],
         agentIds: [crypto.randomUUID()],
       }),
     ).rejects.toThrow("INVALID_INPUT");
 
-    const afterAdd = await channels.addMembers(workspace.id, owner.id, channel.id, {
+    const afterAdd = await channels.addMembers(workspace.id, channelMember.id, channel.id, {
       userIds: [newcomer.id],
       agentIds: [agent.id],
     });
-    expect(afterAdd.canManage).toBe(true);
-    expect(afterAdd.humans.map((human) => human.id).sort()).toEqual([newcomer.id, owner.id].sort());
+    expect(afterAdd.canAddMembers).toBe(true);
+    expect(afterAdd.humans.map((human) => human.id).sort()).toEqual(
+      [newcomer.id, owner.id, channelMember.id].sort(),
+    );
     expect(afterAdd.agents.map((candidate) => candidate.id)).toEqual([agent.id]);
-    expect(afterAdd.candidates.humans.map((human) => human.id)).toEqual([member.id]);
+    expect(afterAdd.candidates.humans.map((human) => human.id)).toEqual([outsideMember.id]);
     expect(afterAdd.candidates.agents).toEqual([]);
 
     // The newly added human is a real conversation member and can send.
@@ -1092,15 +1102,19 @@ test("owner/admin manage channel membership: add humans and Agents; a member can
     ).not.toBeNull();
 
     // Re-adding an existing member is a no-op (skipDuplicates), not a conflict.
-    const reAdded = await channels.addMembers(workspace.id, owner.id, channel.id, {
+    const reAdded = await channels.addMembers(workspace.id, channelMember.id, channel.id, {
       userIds: [newcomer.id],
       agentIds: [],
     });
-    expect(reAdded.humans.map((human) => human.id).sort()).toEqual([newcomer.id, owner.id].sort());
+    expect(reAdded.humans.map((human) => human.id).sort()).toEqual(
+      [newcomer.id, owner.id, channelMember.id].sort(),
+    );
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: owner.id } });
-    await db.user.deleteMany({ where: { id: { in: [owner.id, member.id, newcomer.id] } } });
+    await db.user.deleteMany({
+      where: { id: { in: [owner.id, channelMember.id, outsideMember.id, newcomer.id] } },
+    });
     await db.$disconnect();
     redis.close();
   }

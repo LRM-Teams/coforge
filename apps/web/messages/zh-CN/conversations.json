@@ -27,7 +27,7 @@
   "channel_members_add_submit": "添加",
   "channel_members_add_submitting": "添加中…",
   "channel_members_add_error": "添加成员失败，请重试。",
-  "channel_members_access_denied": "只有工作空间的 owner 和 admin 可以管理此频道的成员。",
+  "channel_members_access_denied": "只有该频道的成员才能添加成员。",
   "messages_title": "消息",
   "messages_agent_list_label": "智能体会话",
   "messages_agents_action": "私聊",

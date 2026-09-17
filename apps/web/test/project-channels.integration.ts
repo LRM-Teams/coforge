@@ -16,8 +16,7 @@ test("one project owns multiple discussion channels without crossing Workspace b
     data: {
       slug: `project-${suffix}`,
       name: "Project discussions",
-      // Admin so this test's user may create additional discussion channels below.
-      members: { create: { userId: user.id, role: "admin" } },
+      members: { create: { userId: user.id } },
     },
   });
   const foreignWorkspace = await db.workspace.create({

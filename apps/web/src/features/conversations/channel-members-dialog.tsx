@@ -18,7 +18,7 @@ type LoadState =
   | { status: "error" }
   | { status: "ready"; data: ChannelMembersView };
 
-/** Owner/admin channel member management, opened from the channel header. */
+/** Channel member roster and add-members action, opened from the channel header. */
 export function ChannelMembersDialog({
   channelId,
   open,
@@ -152,7 +152,7 @@ export function ChannelMembersDialog({
                     <p className="text-sm text-tertiary">{m.channel_members_none()}</p>
                   )}
                 </section>
-                {state.data.canManage && (
+                {state.data.canAddMembers && (
                   <section className="border-t border-secondary pt-4">
                     <h2 className="mb-2 text-sm font-semibold text-primary">
                       {m.channel_members_add_section()}

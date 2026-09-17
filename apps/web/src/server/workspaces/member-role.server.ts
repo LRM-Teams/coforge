@@ -18,11 +18,6 @@ export function assertCanManageMembers(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
-/** Creating a channel or managing its membership requires Workspace owner/admin authority. */
-export function assertCanManageChannels(actorRole: WorkspaceMemberRole): void {
-  if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
-}
-
 /** Creating an Agent requires Workspace owner/admin authority, kept as its own named seam. */
 export function assertCanCreateAgents(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");

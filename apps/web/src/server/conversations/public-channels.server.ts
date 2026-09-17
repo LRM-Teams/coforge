@@ -24,8 +24,6 @@ import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { attachmentView } from "../attachments/attachment-view.server";
-import { assertCanManageChannels, isAdminLike } from "../workspaces/member-role.server";
-import { workspaceMemberRole } from "../workspaces/members.server";
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
@@ -284,7 +282,10 @@ export class PublicChannels {
   }
 
   private async authorize(workspaceId: string, userId: string) {
-    return { role: await workspaceMemberRole(this.db, workspaceId, userId) };
+    const membership = await this.db.workspaceMembership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+    if (!membership) throw new AppError("ACCESS_DENIED");
   }
 
   async list(workspaceId: string, userId: string) {
@@ -308,8 +309,7 @@ export class PublicChannels {
   }
 
   async create(workspaceId: string, userId: string, name: string, projectId?: string) {
-    const membership = await this.authorize(workspaceId, userId);
-    assertCanManageChannels(membership.role);
+    await this.authorize(workspaceId, userId);
     if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) throw new AppError("INVALID_INPUT");
     // general is reserved for automatic enrollment, including before the first list request.
     if (name === "general") throw new AppError("CONFLICT");
@@ -361,11 +361,12 @@ export class PublicChannels {
 
   /**
    * Current members split into humans and Agents, plus candidates (Workspace
-   * humans and Agents not yet members) and whether the actor may manage them.
-   * Any Workspace member may read this; channels are public within the Workspace.
+   * humans and Agents not yet members) and whether the actor may add members
+   * (has a ConversationMember row in this channel). Any Workspace member may
+   * read this; channels are public within the Workspace.
    */
   async members(workspaceId: string, actorUserId: string, channelId: string) {
-    const membership = await this.authorize(workspaceId, actorUserId);
+    await this.authorize(workspaceId, actorUserId);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
       select: { id: true },
@@ -398,7 +399,7 @@ export class PublicChannels {
     const memberAgentIds = new Set(memberRows.flatMap((row) => (row.agent ? [row.agent.id] : [])));
 
     return {
-      canManage: isAdminLike(membership.role),
+      canAddMembers: memberUserIds.has(actorUserId),
       humans: memberRows
         .filter((row) => row.user)
         .map((row) => ({
@@ -435,8 +436,9 @@ export class PublicChannels {
   }
 
   /**
-   * Owner/admin adds Workspace humans and/or Agents as channel members. Membership
-   * alone never creates attention: delivery eligibility is computed at message time.
+   * A channel member adds Workspace humans and/or Agents as channel members
+   * (Slack: you add people to channels you belong to). Membership alone never
+   * creates attention: delivery eligibility is computed at message time.
    */
   async addMembers(
     workspaceId: string,
@@ -444,13 +446,18 @@ export class PublicChannels {
     channelId: string,
     input: { userIds: string[]; agentIds: string[] },
   ) {
-    const membership = await this.authorize(workspaceId, actorUserId);
-    assertCanManageChannels(membership.role);
+    await this.authorize(workspaceId, actorUserId);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
       select: { id: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
+
+    const actorMembership = await this.db.conversationMember.findUnique({
+      where: { conversationId_userId: { conversationId: channelId, userId: actorUserId } },
+      select: { id: true },
+    });
+    if (!actorMembership) throw new AppError("ACCESS_DENIED");
 
     const userIds = [...new Set(input.userIds)];
     const agentIds = [...new Set(input.agentIds)];
