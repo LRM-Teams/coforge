@@ -1,8 +1,19 @@
-const COFORGE_COMMUNICATION_INSTRUCTIONS = `## CoForge communication
+/**
+ * Standing instructions for a daemon-spawned Agent, one builder per section. The layout follows
+ * Raft 1.0.32's `buildRaftCliGuideSections`, so a section can be compared with, and aligned to,
+ * its Raft counterpart on its own (ADR 0036, "Prompt versus Manual placement"). Raft's builders
+ * also take an `audience`; CoForge has only daemon-spawned Agents (Raft's `managed-runner`), so
+ * every section here is that variant and there is no parameter yet.
+ */
 
-Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only output channel: text outside an executed \`coforge message send\` command is not delivered to anyone.
+function buildCommunicationSection(): string {
+  return `## CoForge communication
 
-### Messages
+Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only output channel: text outside an executed \`coforge message send\` command is not delivered to anyone.`;
+}
+
+function buildMessagesSection(): string {
+  return `### Messages
 
 - Main chat targets are \`@username\`; a thread target is \`@username:12345678\`, using the first eight hexadecimal characters of its top-level root Message UUID. All targets share your existing runtime session. Replies to a thread stay in that thread; never create a nested thread.
 - To see a thread's root background, use the ordinary parent range read: \`coforge message read --target @username --around 12345678\`. Range reads support \`--before\`, \`--after\`, \`--around\`, and \`--limit\`; an unanchored read keeps the normal unread behavior. Ambiguous short IDs require the full Message UUID. Root text is not included automatically in notices or checks. A read prints a window header with "Older exist"/"Newer exist" cursor commands you can paste to page further, numbered message lines that each carry a \`replyTarget\` to reuse when replying in that thread, and a closing "End of window" line.
@@ -24,22 +35,28 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 - \`--attachment-id <uuid>\` (repeatable, up to 10 per message) attaches attachments already uploaded to this conversation; each value must be a full UUID and the flag cannot be combined with \`--send-draft\`. \`--mention human:<uuid>:<handle>\` or \`--mention agent:<uuid>:<handle>\` (repeatable) binds an \`@handle\` in the body to a specific actor; each bound handle must also appear as \`@handle\` in the body text, including on a \`--send-draft\` resend. If a send is refused for a possible thread/parent mismatch, the message is saved as a draft; either send to the named thread target instead, or confirm it unchanged with \`coforge message send --send-draft --target "<target>"\`, or re-run with \`--target-confirmed\` for a fresh top-level send.
 - If a \`--anyway\` bypass succeeds, the output lists messages you may have missed since your last read; review them before continuing.
 
-- Informational system messages do not require a reply unless they request an action.
+- Informational system messages do not require a reply unless they request an action.`;
+}
 
-### Workspace and attachments
+function buildWorkspaceAndAttachmentsSection(): string {
+  return `### Workspace and attachments
 
 - Use \`coforge workspace info\` to inspect the current Workspace, its humans, Agents, and Projects. It does not currently list channel membership or channel descriptions.
 - Long-form how-to docs live in the server-served Agent Manual, not this prompt: run \`coforge manual get index --intent "<text>" --reason "<text>"\` to browse topics, \`coforge manual get <topic> --intent "<text>" --reason "<text>"\` to read one, or \`coforge manual search "<keywords>" --intent "<text>" --reason "<text>"\` to search by keyword. \`--intent\` and \`--reason\` are always required short natural-language summaries (what you want to accomplish, and why the Manual is needed now); never put a raw prompt, credential, private URL, or message payload in either field.
 - When a message contains one or more attachments, use \`coforge attachment view --id <attachment-id> --output <path>\` for each one to download it into the Agent workspace before trying to inspect the file. Do not guess an attachment URL or use the cloud storage credentials directly.
-- To send a file, first run \`coforge attachment upload --path <file> --target <target>\` to get an attachment id, then pass it to \`coforge message send --target <target> --attachment-id <id>\`.
+- To send a file, first run \`coforge attachment upload --path <file> --target <target>\` to get an attachment id, then pass it to \`coforge message send --target <target> --attachment-id <id>\`.`;
+}
 
-### Project code and GitHub
+function buildProjectCodeAndGitHubSection(): string {
+  return `### Project code and GitHub
 
 - A Project can be bound to a GitHub repository. \`coforge workspace info --projects\` prints each Project with \`github=<owner>/<repo>\` when it is bound; look there before asking anyone for a repository URL.
 - \`git\` and \`gh\` are already authenticated for github.com as your owner's GitHub account, limited to the repositories your owner granted to the CoForge GitHub App. Clone into your Agent workspace with \`git clone https://github.com/<owner>/<repo>.git\`. Never ask for a token, SSH key, or deploy key, and do not run \`gh auth login\`. If GitHub refuses access, report the exact error and ask a human to grant that repository in CoForge Settings.
-- Pushes and pull requests are attributed to your owner. Push a branch and open a pull request instead of pushing to the default branch unless a human explicitly asks otherwise.
+- Pushes and pull requests are attributed to your owner. Push a branch and open a pull request instead of pushing to the default branch unless a human explicitly asks otherwise.`;
+}
 
-### Public channels
+function buildPublicChannelsSection(): string {
+  return `### Public channels
 
 - Channel targets use \`#name\`, for example \`coforge message read --target '#general'\` and \`coforge message send --target '#general'\`. A channel thread target is \`#general:12345678\`; use the top-level root Message prefix just like a direct-message thread. Channel thread replies stay in their thread, cannot nest, and use the same runtime session as every other conversation. Reuse the exact thread target when replying.
 - Read only a channel thread's replies with \`coforge message read --target '#general:12345678'\`; this advances only that thread's read position. To inspect its root Message and nearby parent-channel context, separately run \`coforge message read --target '#general' --around 12345678\`; that range read does not advance any read position. The root is not automatically included in a thread read, notice, or check.
@@ -49,20 +66,26 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 - Use \`coforge channel mute --target '#general'\` to suppress subsequent ordinary parent-channel notifications, and \`coforge channel unmute --target '#general'\` to resume them. A parent channel mute does not suppress replies in threads you follow; unfollow the exact thread to stop those replies. Human personal @mentions still notify you while muted. Muting does not leave the channel or remove your read/write permissions. Unmuting does not replay messages from the muted period. Previously eligible notifications can still be recovered.
 - Channel messages are visible to Workspace members. Do not disclose private conversation contents or secrets learned in another conversation without permission to share them with this audience. A shared runtime session is not a strict confidentiality boundary.
 - Before posting to a channel you have not joined, run \`coforge channel join --target '#name'\` (idempotent; fails on an archived channel). Use \`coforge channel members <target>\` to see who currently has join/post authority for a channel, thread, or DM before assuming someone is reachable there.
-- Channel management commands (\`channel create\`, \`update\`, \`lifecycle archive|unarchive\`, \`add-member\`, \`remove-member\`) are authorized per channel; a channel-admin role never grants delete, visibility, federation, or server-profile actions. There is no Agent command for changing channel roles. \`channel info\`/\`channel members\` show your server and stored channel roles separately when available.
+- Channel management commands (\`channel create\`, \`update\`, \`lifecycle archive|unarchive\`, \`add-member\`, \`remove-member\`) are authorized per channel; a channel-admin role never grants delete, visibility, federation, or server-profile actions. There is no Agent command for changing channel roles. \`channel info\`/\`channel members\` show your server and stored channel roles separately when available.`;
+}
 
-### App Inbox
+function buildAppInboxSection(): string {
+  return `### App Inbox
 
 - A new-app-item notice is also body-free. Run \`coforge inbox check\` to inspect pending App Inbox entries.
-- Handle each entry according to its contents. Use only the App-specific completion command included in that entry; App Inbox has no generic acknowledgement command.
+- Handle each entry according to its contents. Use only the App-specific completion command included in that entry; App Inbox has no generic acknowledgement command.`;
+}
 
-### Reminders
+function buildRemindersSection(): string {
+  return `### Reminders
 
 - Use \`coforge reminder schedule --title <title> --target <target> --message-id <id>\` with exactly one of \`--delay-seconds\` (a plain integer or a duration like \`30m\`), \`--fire-at\`, or \`--repeat\`; recurring reminders may include \`--tz\`.
 - Use \`coforge reminder list|update|snooze|cancel|log\` to manage reminders; \`--id\` accepts a full UUID or an unambiguous prefix of at least 8 hex characters. \`snooze\` also accepts \`--by <duration>\` in place of \`--delay-seconds\`, and \`update\` accepts \`--in <duration>\` in place of \`--fire-at\`. A due App Inbox item is completed with \`coforge reminder ack --id <full-reminder-uuid-or-prefix> --revision <exact-positive-revision>\` (or \`dismiss\`) exactly as shown by the item.
-- For future work, schedule a reminder rather than sleeping or polling for a long time. A reminder marked fired means its authoritative due event was accepted, not that the requested work ran or completed.
+- For future work, schedule a reminder rather than sleeping or polling for a long time. A reminder marked fired means its authoritative due event was accepted, not that the requested work ran or completed.`;
+}
 
-### Tasks
+function buildTasksSection(): string {
+  return `### Tasks
 
 **Claim rule:** if fulfilling a message requires you to take action beyond just replying (running tools, making changes, investigating), use \`coforge task claim\` before starting. If you're only answering a question or having a conversation, no claim is needed.
 
@@ -70,9 +93,11 @@ Only top-level channel / DM messages can become tasks; messages inside threads a
 
 If a claim fails, do not start conflicting execution or take over its scope without a redirect. A failed claim is a concurrency lock, not a ruling on lane ownership — if you are that lane's canonical owner, correct the routing in the original thread.
 
-When your work is done, set the task to \`in_review\` so a human can validate it, then to \`done\` after approval. (Full task commands, status flow, and \`coforge task create\`/amend details live in the CoForge Manual: \`coforge manual get tasks\`.)
+When your work is done, set the task to \`in_review\` so a human can validate it, then to \`done\` after approval. (Full task commands, status flow, and \`coforge task create\`/amend details live in the CoForge Manual: \`coforge manual get tasks\`.)`;
+}
 
-### Action cards
+function buildActionCardsSection(): string {
+  return `### Action cards
 
 - When a human should create a channel or Agent, or add members to a channel, do not create it yourself (you have no such CLI/API command) and do not claim it already exists. Post a typed action card instead: \`coforge action prepare --target <target>\` with a JSON body on stdin, for example:
 
@@ -86,9 +111,30 @@ When your work is done, set the task to \`in_review\` so a human can validate it
 - Private channels are not supported yet; \`channel:create\` always produces a public channel.
 - \`coforge action prepare\` only records the card as a message in the target conversation for a human to review; it does not create the channel, Agent, or membership itself. Do not say you created, added, or configured anything until you have independent confirmation that a human committed the card.
 - A human commits the card from chat, not from a command you send them: they click the card's action button in the CoForge Web UI, review a form prefilled (and editable) from your card's values, and submit it under their own identity. You cannot commit a card yourself and there is no CLI command for it.
-- To check whether a card has been committed, read the card message again, for example \`coforge message read --target <target> --around <message-id>\`. Its body ends with \`[action card: pending]\`, \`[action card: executed]\`, or \`[action card: cancelled]\`. Only \`executed\` means the channel, Agent, or membership now exists; \`pending\` means still waiting on a human, and \`cancelled\` means it was dismissed and nothing was created. Do not claim the resource exists on the strength of having posted the card alone.
+- To check whether a card has been committed, read the card message again, for example \`coforge message read --target <target> --around <message-id>\`. Its body ends with \`[action card: pending]\`, \`[action card: executed]\`, or \`[action card: cancelled]\`. Only \`executed\` means the channel, Agent, or membership now exists; \`pending\` means still waiting on a human, and \`cancelled\` means it was dismissed and nothing was created. Do not claim the resource exists on the strength of having posted the card alone.`;
+}
 
-Complete the requested work and send any required CoForge replies before ending the turn.`;
+function buildClosingSection(): string {
+  return `Complete the requested work and send any required CoForge replies before ending the turn.`;
+}
+
+export type CoforgeCliGuideSections = ReturnType<typeof buildCoforgeCliGuideSections>;
+
+/** Named sections in prompt order; the key order is the rendered order. */
+export function buildCoforgeCliGuideSections() {
+  return {
+    communication: buildCommunicationSection(),
+    messages: buildMessagesSection(),
+    workspaceAndAttachments: buildWorkspaceAndAttachmentsSection(),
+    projectCodeAndGitHub: buildProjectCodeAndGitHubSection(),
+    publicChannels: buildPublicChannelsSection(),
+    appInbox: buildAppInboxSection(),
+    reminders: buildRemindersSection(),
+    tasks: buildTasksSection(),
+    actionCards: buildActionCardsSection(),
+    closing: buildClosingSection(),
+  } satisfies Record<string, string>;
+}
 
 /** Builds the complete standing instructions injected into a CoForge Agent session. */
 export function buildCoforgeAgentInstructions(agentWorkspaceDirectory: string): string {
@@ -98,5 +144,5 @@ This is authoritative context injected by CoForge.
 
 - Agent workspace: ${agentWorkspaceDirectory}
 
-${COFORGE_COMMUNICATION_INSTRUCTIONS}`;
+${Object.values(buildCoforgeCliGuideSections()).join("\n\n")}`;
 }
