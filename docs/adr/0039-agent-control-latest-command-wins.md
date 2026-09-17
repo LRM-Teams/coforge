@@ -199,26 +199,31 @@ command is still executing and immediately publishes the next command at epoch +
 | `resetWorkspace()` awaiting `store.clearWorkspace()` | Any command | Queues behind the mutex; the clear always runs to completion (it is not interruptible today, independent of this record) before the queued command is evaluated | The clear's own `workspace-reset` result carries the old epoch and is rejected the same way |
 | `start()` already completed (`phase: "running"`, process alive) | Another Start (double Start click, or a user Start racing a Daemon-ready `recover()`-initiated Start) | `start()`'s own `agent_already_running` rejection fires, **before** the daemon ever calls `runtime.result(...)` for this attempt — no result is published for it at all | **No.** The newest epoch's server-side state stays non-terminal (`"starting"`) until a further command supersedes it or the Daemon's next `ready()` triggers `recover()`'s republish |
 
-The `agent_already_running` case is the one genuine "worse than today" outcome, and it is a
-**pre-existing divergence from Raft becoming newly reachable**, not a new bug this record
-introduces: [ADR 0033](0033-agent-stop-outcome-and-control-repair.md)'s own Raft comparison
-already states "A Start that meets a running, starting or queued Agent is a rebind to the newer
-request, never a rejection; epochs only cancel superseded work" — verified again for this record
-against `cancelQueuedAgentStart`'s behaviour above. Before this record, `begin()`'s pending-block
-made this daemon-side collision essentially unreachable (a second Start could not reach the
-Daemon while the first was still non-terminal server-side, except through the narrow
-`isAbandoned`-gated path). With pending-blocks removed, a double Start click — or a user Start
-racing a Daemon-ready `recover()`-initiated Start — can now reach the Daemon a second time while
-the first is genuinely running, and the Daemon rejects it invisibly to the server. The
-practical impact is bounded and not a correctness or safety issue: the Agent is, in fact, running
-(the first Start succeeded), `agent:status`/Activity already reflect that independently of
-`controlState`, and the stuck non-terminal `controlState` row is cleared the moment any further
-command (including the next Daemon `ready()`) touches it. No state is corrupted and no workspace
-is deleted under a live process in any row of the table above — this was checked specifically per
-the brief's stop condition, and none of the cases qualify. This is flagged as a candidate Daemon
-follow-up (teaching `start()` to treat "already running, newer epoch" as a rebind rather than a
-rejection, matching Raft's `cancelQueuedAgentStart` shape for the *launch* case too) for the owner
-to decide on; it is out of scope for this record, which touches Web/backend only.
+The `agent_already_running` case is the one outcome that is worse than before, and review found
+it is more than a cosmetic stuck row. When a newer Start supersedes an operation that is already
+`starting`, the launch that is actually running belongs to the OLD epoch: its `started` result
+and its Session snapshots are rejected as stale (rule 6), so the server never records the new
+native Session, and the next Restart cannot resume it. It is also easy to reach: during a Restart
+the Agent shows offline, so the UI offers Start.
+
+**7a. A user Start joins a launch already in flight.** Raft treats a Start that meets a
+running, starting or queued Agent as a rebind, never a second launch
+([ADR 0033](0033-agent-stop-outcome-and-control-repair.md)'s Raft comparison;
+`cancelQueuedAgentStart` verified again for this record). `execute()` therefore does not call
+`begin()` for `action: "start"` when the current operation is non-terminal, in phase `starting`,
+still current for the Agent's scope, and the Agent is not marked stopped: it drives the in-flight
+request instead and returns that request's view. No epoch is minted, nothing is published twice,
+no supersede is logged. Every other action still supersedes a `starting` operation (a Stop must
+win over a launch), and `publishStart()` already behaved this way for internal callers.
+
+What remains for a Daemon follow-up, out of scope here: a Start that reaches the Daemon while the
+Agent is ALREADY RUNNING under an older, completed operation (a user Start racing a Daemon-ready
+`recover()` Start, or Start clicked on an Agent the UI wrongly shows offline) is still rejected
+with `agent_already_running` and no result, leaving the new operation non-terminal until the next
+command. That case existed before this record. Raft answers it with a rebind; doing the same
+needs the Daemon to report the running launch under the new scope and the server to accept it,
+which is a wire-visible change for the owner to decide. No row of the table above corrupts state
+or deletes a workspace under a live process.
 
 **8. UI.** `apps/web/src/features/agents/agent-control.tsx` already resolves normally (no throw,
 no `catch` handler invoked) for a `superseded` outcome, since `executeAgentControl` only throws on

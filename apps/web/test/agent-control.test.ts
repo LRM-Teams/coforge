@@ -2269,3 +2269,77 @@ test("a pending operation is superseded by a user-initiated Start (ADR 0039)", a
     controlEpoch: 5,
   });
 });
+
+test("a user Start that meets an Agent already starting joins that launch instead of superseding it (ADR 0039)", async () => {
+  const starting = (action: "start" | "restart") =>
+    pendingOpStore({
+      id: "a",
+      ownerId: "owner",
+      workspaceId: "w",
+      computerId: "c",
+      runtimeConfig: pendingRuntimeConfig,
+      state: {
+        version: 1,
+        protocolMajor: 1,
+        requestId: "first",
+        workspaceId: "w",
+        computerId: "c",
+        agentId: "a",
+        provider: "pi",
+        epoch: 4,
+        action,
+        phase: "starting",
+        configRevision: agentControlRevision(pendingRuntimeConfig),
+        controlSequence: 0,
+        sessionSequence: 0,
+      },
+    });
+  for (const action of ["start", "restart"] as const) {
+    const { store, current } = starting(action);
+    const published: number[] = [];
+    const info = captureInfo();
+    try {
+      const control = new AgentControl(
+        store,
+        {
+          publish: async (_channel, bytes) => {
+            published.push(decodeAgentStartIntent(bytes).controlEpoch!);
+          },
+        },
+        { run: async (_id, work) => work() },
+        { timeoutMs: 0 },
+      );
+      const view = await control.execute({
+        userId: "owner",
+        workspaceId: "w",
+        agentId: "a",
+        requestId: "second",
+        action: "start",
+      });
+      // The caller is told about the launch that is actually running, under its own request.
+      expect(view).toMatchObject({ requestId: "first", action, phase: "pending" });
+    } finally {
+      info.restore();
+    }
+    expect(current().state).toMatchObject({ requestId: "first", epoch: 4, phase: "starting" });
+    expect(published.every((epoch) => epoch === 4)).toBe(true);
+    expect(info.events).toEqual([]);
+  }
+
+  // Anything other than Start still supersedes a starting operation.
+  const { store, current } = starting("start");
+  const control = new AgentControl(
+    store,
+    { publish: async () => {} },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0 },
+  );
+  await control.execute({
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "third",
+    action: "stop",
+  });
+  expect(current().state).toMatchObject({ requestId: "third", epoch: 5, phase: "stopping" });
+});

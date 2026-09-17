@@ -297,6 +297,7 @@ export class AgentControl {
       input.action === "start" && this.conversations
         ? await this.conversations.readAgentRecoveryContext(input.workspaceId, input.agentId)
         : undefined;
+    let drivenRequestId = input.requestId;
     await this.runtimeLock.run(input.agentId, async () => {
       const agent = await this.authorizedForExecute(
         input.userId,
@@ -304,9 +305,25 @@ export class AgentControl {
         input.agentId,
         input.action,
       );
+      // Raft: a Start that meets an Agent already starting joins that launch, it never issues
+      // a second one. Superseding here would publish Start at epoch + 1 while the Daemon is
+      // still launching the previous epoch; the Daemon answers that with `agent_already_running`
+      // and no result, and the running launch's own `started` result and Session snapshots are
+      // then stale, so the server would never learn the new Session (ADR 0039).
+      const inFlight = agent.state;
+      if (
+        input.action === "start" &&
+        inFlight &&
+        inFlight.phase === "starting" &&
+        current(agent, inFlight) &&
+        !agent.stoppedAt
+      ) {
+        drivenRequestId = inFlight.requestId;
+        return;
+      }
       await this.begin(agent, input.action, input.requestId, 1, stoppedAt);
     });
-    return this.drive(input.agentId, input.requestId, recovery);
+    return this.drive(input.agentId, drivenRequestId, recovery);
   }
   private async authorized(userId: string, workspaceId: string, agentId: string) {
     const agent = await this.store.get(agentId);
