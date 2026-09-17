@@ -22,10 +22,20 @@ import type {
 } from "../index";
 import {
   agentApiRoutes,
+  decodeAgentManualErrorResponse,
+  decodeAgentManualGetResponse,
+  decodeAgentManualSearchResponse,
   decodeGitHubCredentialResponse,
   type ActionCardAction,
+  type AgentManualGetResponse,
+  type AgentManualSearchResponse,
 } from "@lrm/coforge-sdk/agent";
-import { CliError, NO_MESSAGE_SENT_NEXT_ACTION, unknownDeliveryNextAction } from "./cli-error";
+import {
+  CliError,
+  MANUAL_NOT_FOUND_NEXT_ACTION,
+  NO_MESSAGE_SENT_NEXT_ACTION,
+  unknownDeliveryNextAction,
+} from "./cli-error";
 
 /**
  * A legacy or pre-request-validation daemon may still answer with a bare-text body (never JSON):
@@ -170,6 +180,58 @@ function proxyTransportFailure(operation: string, target: string | undefined): C
   });
 }
 
+function manualFailedCode(errorCode: string | undefined): string {
+  return errorCode ? errorCode.toUpperCase() : "MANUAL_FAILED";
+}
+
+/**
+ * GETs one of the two Agent Manual routes (`ADR 0036`) through the local daemon proxy. Unlike
+ * `call` above (the multiplexed `messages` operation), the Manual routes always answer a domain
+ * error as JSON `{ ok: false, errorCode, error }`, so that `errorCode` becomes the `CliError`
+ * code directly, and a `knowledge_not_found` gets the Raft-aligned "browse the index" guidance.
+ */
+async function manualRequest<T>(
+  proxyEndpoint: (path: string) => URL,
+  context: string,
+  proxyUrl: string,
+  path: string,
+  query: Record<string, string>,
+  decode: (value: unknown) => T,
+): Promise<T> {
+  if (!context) throw preIssuanceError("manual", "coforge agent context is not configured");
+  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+    throw preIssuanceError("manual", "coforge agent context is invalid");
+  if (!proxyUrl) throw preIssuanceError("manual", "coforge agent proxy is not configured");
+  const endpoint = proxyEndpoint(path);
+  for (const [key, value] of Object.entries(query)) endpoint.searchParams.set(key, value);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "GET",
+      headers: { authorization: `Bearer ${context}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new CliError({
+      code: "MANUAL_FAILED",
+      message: "agent proxy request failed (network or timeout)",
+      retryable: false,
+    });
+  }
+  const rawBody: unknown = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    const errorBody = decodeAgentManualErrorResponse(rawBody);
+    throw new CliError({
+      code: manualFailedCode(errorBody?.errorCode),
+      message: errorBody?.error ?? `HTTP ${response.status}`,
+      retryable: false,
+      suggestedNextAction:
+        errorBody?.errorCode === "knowledge_not_found" ? MANUAL_NOT_FOUND_NEXT_ACTION : undefined,
+    });
+  }
+  return decode(rawBody);
+}
+
 export function connectLocal(
   _socketPath: string,
   context: string,
@@ -310,6 +372,28 @@ export function connectLocal(
       if (!response.ok) throw new Error(`GitHub credential request failed (${response.status})`);
       return decodeGitHubCredentialResponse(await response.json());
     },
+    manualGet: (topic: string, intent: string, reason: string): Promise<AgentManualGetResponse> =>
+      manualRequest(
+        proxyEndpoint,
+        context,
+        proxyUrl,
+        agentApiRoutes.manual.get.path,
+        { topic, intent, reason },
+        decodeAgentManualGetResponse,
+      ),
+    manualSearch: (
+      query: string,
+      intent: string,
+      reason: string,
+    ): Promise<AgentManualSearchResponse> =>
+      manualRequest(
+        proxyEndpoint,
+        context,
+        proxyUrl,
+        agentApiRoutes.manual.search.path,
+        { query, intent, reason },
+        decodeAgentManualSearchResponse,
+      ),
     view: async (attachmentId: string) => {
       if (!context) throw new Error("coforge agent context is not configured");
       if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))

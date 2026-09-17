@@ -2,6 +2,10 @@
 export const agentApiRoutes = {
   proxy: {
     workspace: { method: "GET", path: "/api/agent/v1/workspace" },
+    manual: {
+      get: { method: "GET", path: "/api/agent/v1/manual" },
+      search: { method: "GET", path: "/api/agent/v1/manual/search" },
+    },
     messages: { method: "POST", path: "/api/agent/v1/messages" },
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
@@ -47,6 +51,10 @@ export const agentApiRoutes = {
   },
   cloud: {
     workspace: { info: { method: "GET", path: "/api/agent/v1/workspace" } },
+    manual: {
+      get: { method: "GET", path: "/api/agent/v1/manual" },
+      search: { method: "GET", path: "/api/agent/v1/manual/search" },
+    },
     events: { method: "GET", path: "/api/agent/v1/events" },
     messages: {
       list: { method: "GET", path: "/api/agent/v1/messages" },
@@ -161,6 +169,18 @@ export const agentApiRoutes = {
       key: "workspaceInfo",
       method: "GET",
       path: "/api/agent/v1/workspace",
+    },
+  },
+  manual: {
+    get: {
+      key: "manualGet",
+      method: "GET",
+      path: "/api/agent/v1/manual",
+    },
+    search: {
+      key: "manualSearch",
+      method: "GET",
+      path: "/api/agent/v1/manual/search",
     },
   },
 } as const;

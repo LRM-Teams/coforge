@@ -92,6 +92,10 @@ import type {
   AgentActionPrepareResponse,
   GitHubCredentialRequest,
   GitHubCredentialResponse,
+  AgentManualGetRequest,
+  AgentManualGetResponse,
+  AgentManualSearchRequest,
+  AgentManualSearchResponse,
 } from "@lrm/coforge-sdk/agent";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
@@ -2206,6 +2210,26 @@ export class DaemonRuntime {
     if (!this.#transport.githubCredential)
       throw new Error("GitHub credential endpoint is not configured");
     return this.#transport.githubCredential(request, agentApiKey);
+  }
+
+  async manualGet(
+    context: string,
+    request: AgentManualGetRequest,
+    agentApiKey?: string,
+  ): Promise<AgentManualGetResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.manualGet) throw new Error("Agent Manual endpoint is not configured");
+    return this.#transport.manualGet(request, agentApiKey);
+  }
+
+  async manualSearch(
+    context: string,
+    request: AgentManualSearchRequest,
+    agentApiKey?: string,
+  ): Promise<AgentManualSearchResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.manualSearch) throw new Error("Agent Manual endpoint is not configured");
+    return this.#transport.manualSearch(request, agentApiKey);
   }
 
   async agentTask(

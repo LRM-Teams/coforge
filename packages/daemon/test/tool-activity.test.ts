@@ -338,6 +338,20 @@ test("CoForge CLI invocations resolve to a semantic tool and allowlisted summary
       detail: "coforge_cli",
     },
     {
+      command:
+        "coforge manual get index --intent 'Learn available CoForge workflows' --reason 'Browse the topic catalog'",
+      detailKind: "tool_started",
+      toolName: "get_manual",
+      detail: "index",
+    },
+    {
+      command:
+        "coforge manual search 'github pull request' --intent 'Open a PR' --reason 'Find the right command'",
+      detailKind: "tool_started",
+      toolName: "search_manual",
+      detail: "github pull request",
+    },
+    {
       command: "/usr/local/bin/coforge message check",
       detailKind: "checking_messages",
       toolName: "check_messages",

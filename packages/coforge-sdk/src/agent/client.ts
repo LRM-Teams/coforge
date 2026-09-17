@@ -32,6 +32,12 @@ import type {
   AgentChannelAddMemberResponse,
   AgentChannelRemoveMemberResponse,
 } from "./channels";
+import type {
+  AgentManualGetRequest,
+  AgentManualGetResponse,
+  AgentManualSearchRequest,
+  AgentManualSearchResponse,
+} from "./manual";
 
 export type AgentAttachmentDownload = {
   bytes: Uint8Array;
@@ -193,6 +199,10 @@ export type AgentApiClient = {
     removeReaction(request: AgentMessagesReactionRequest): Promise<AgentReactionResponse>;
   };
   events: { get(request: AgentEventsGetRequest): Promise<AgentEventsResponse> };
+  manual: {
+    get(request: AgentManualGetRequest): Promise<AgentManualGetResponse>;
+    search(request: AgentManualSearchRequest): Promise<AgentManualSearchResponse>;
+  };
   channels: {
     mute(channelId: string): Promise<AgentChannelAttentionResponse>;
     unmute(channelId: string): Promise<AgentChannelAttentionResponse>;
@@ -273,6 +283,10 @@ export type RawAgentApiClient = {
     ): Promise<AgentApiResult<AgentReactionResponse>>;
   };
   events: { get(request: AgentEventsGetRequest): Promise<AgentApiResult<AgentEventsResponse>> };
+  manual: {
+    get(request: AgentManualGetRequest): Promise<AgentApiResult<AgentManualGetResponse>>;
+    search(request: AgentManualSearchRequest): Promise<AgentApiResult<AgentManualSearchResponse>>;
+  };
   channels: {
     mute(channelId: string): Promise<AgentApiResult<AgentChannelAttentionResponse>>;
     unmute(channelId: string): Promise<AgentApiResult<AgentChannelAttentionResponse>>;
@@ -327,6 +341,7 @@ export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentA
     actions: actionResources(transport),
     messages: messageResources(transport),
     events: eventsResources(transport),
+    manual: manualResources(transport),
     channels: {
       mute: (channelId) =>
         transport.request(agentApiRoutes.cloud.channels.mute.path(channelId)) as Promise<
@@ -457,6 +472,10 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
     events: {
       get: async (request) => unwrap(await rawClient.events.get(request)),
     },
+    manual: {
+      get: async (request) => unwrap(await rawClient.manual.get(request)),
+      search: async (request) => unwrap(await rawClient.manual.search(request)),
+    },
     channels: {
       mute: async (channelId) => unwrap(await rawClient.channels.mute(channelId)),
       unmute: async (channelId) => unwrap(await rawClient.channels.unmute(channelId)),
@@ -575,6 +594,19 @@ function eventsResources(transport: AgentApiTransport): RawAgentApiClient["event
     get: (request) =>
       transport.request(agentApiRoutes.cloud.events, request) as Promise<
         AgentApiResult<AgentEventsResponse>
+      >,
+  };
+}
+
+function manualResources(transport: AgentApiTransport): RawAgentApiClient["manual"] {
+  return {
+    get: (request) =>
+      transport.request(agentApiRoutes.cloud.manual.get, request) as Promise<
+        AgentApiResult<AgentManualGetResponse>
+      >,
+    search: (request) =>
+      transport.request(agentApiRoutes.cloud.manual.search, request) as Promise<
+        AgentApiResult<AgentManualSearchResponse>
       >,
   };
 }

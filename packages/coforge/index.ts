@@ -24,8 +24,11 @@ import {
   createAgentApiClient,
   createMessageTransportAgentApiTransport,
   type ActionCardAction,
+  type AgentManualGetResponse,
+  type AgentManualSearchResponse,
   type GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
+import { formatManualGet, formatManualSearchResults } from "./src/manual-format";
 import { parseActionCardInput, toActionCardAction } from "./src/action-prepare-input";
 import {
   formatAttachmentDownloadSuccess,
@@ -143,6 +146,9 @@ export type WeeklyReportInvocation = {
 };
 export type ActionPrepareInvocation = { command: "action-prepare"; target: string };
 export type ActionPrepareResult = { messageId?: string; metadata?: { kind: string } };
+export type ManualInvocation =
+  | { command: "manual-get"; topic: string; intent: string; reason: string }
+  | { command: "manual-search"; query: string; intent: string; reason: string };
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[]; hasMore?: boolean }>;
@@ -183,6 +189,8 @@ export type MessageTransport = {
   weeklyReport?(command: WeeklyReportCommand): Promise<WeeklyReportResponse>;
   githubCredential?(): Promise<GitHubCredentialResponse>;
   actionPrepare?(target: string, action: ActionCardAction): Promise<ActionPrepareResult>;
+  manualGet?(topic: string, intent: string, reason: string): Promise<AgentManualGetResponse>;
+  manualSearch?(query: string, intent: string, reason: string): Promise<AgentManualSearchResponse>;
 };
 
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
@@ -205,7 +213,10 @@ export function parseArgs(
   | TaskInvocation
   | WorkspaceInfoInvocation
   | WeeklyReportInvocation
-  | ActionPrepareInvocation {
+  | ActionPrepareInvocation
+  | ManualInvocation {
+  if (args[0] === "manual" && (args[1] === "get" || args[1] === "search"))
+    return parseManualArgs(args.slice(1));
   if (args[0] === "workspace" && args[1] === "info") return parseWorkspaceInfoArgs(args.slice(2));
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (args[0] === "task") return parseTaskArgs(args.slice(1));
@@ -478,7 +489,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge action prepare --target <target>",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge action prepare --target <target> | coforge manual get <topic> --intent <text> --reason <text> | coforge manual search \"<keywords>\" --intent <text> --reason <text>",
   );
 }
 
@@ -713,6 +724,81 @@ function parseChannelManagementArgs(args: readonly string[]): ChannelManagementI
   throw new Error("Usage:");
 }
 
+const MANUAL_INTENT_REASON_MIN_LENGTH = 12;
+const MANUAL_INTENT_REASON_MAX_LENGTH = 500;
+const MANUAL_USAGE =
+  'Usage: coforge manual get <topic> --intent "<text>" --reason "<text>" | coforge manual ' +
+  'search "<keywords>" --intent "<text>" --reason "<text>"';
+
+function isValidManualField(value: string | undefined): value is string {
+  if (value === undefined) return false;
+  const trimmed = value.trim();
+  return (
+    trimmed.length >= MANUAL_INTENT_REASON_MIN_LENGTH &&
+    trimmed.length <= MANUAL_INTENT_REASON_MAX_LENGTH
+  );
+}
+
+/** Client-side mirror of the server's `--intent`/`--reason` validation (see
+ * `apps/web/src/server/agents/manual/manual-validation.ts`): both required, trimmed, 12-500
+ * characters. When both are invalid, one error names both rather than only the first checked. */
+function validateManualIntentReasonArgs(intent: string | undefined, reason: string | undefined) {
+  const intentValid = isValidManualField(intent);
+  const reasonValid = isValidManualField(reason);
+  if (intentValid && reasonValid) return;
+  const range = `${MANUAL_INTENT_REASON_MIN_LENGTH}-${MANUAL_INTENT_REASON_MAX_LENGTH}`;
+  const safetyNote =
+    "Never put a raw prompt, a credential, a private URL, or a message payload in either field.";
+  if (!intentValid && !reasonValid)
+    throw new CliError({
+      code: "KNOWLEDGE_INTENT_INVALID",
+      message:
+        `--intent and --reason are both required and must be ${range} characters after ` +
+        `trimming. ${safetyNote}`,
+      retryable: false,
+    });
+  if (!intentValid)
+    throw new CliError({
+      code: "KNOWLEDGE_INTENT_INVALID",
+      message:
+        `--intent is required and must be ${range} characters after trimming: state what you ` +
+        `ultimately want to accomplish. ${safetyNote}`,
+      retryable: false,
+    });
+  throw new CliError({
+    code: "KNOWLEDGE_REASON_INVALID",
+    message:
+      `--reason is required and must be ${range} characters after trimming: state why the ` +
+      `Manual is needed at this point. ${safetyNote}`,
+    retryable: false,
+  });
+}
+
+function parseManualArgs(args: readonly string[]): ManualInvocation {
+  const sub = args[0];
+  let value: string | undefined;
+  let intent: string | undefined;
+  let reason: string | undefined;
+  // The positional may come before or after the flags; Agents write both orders.
+  for (let index = 1; index < args.length; index += 1) {
+    const name = args[index]!;
+    if (name === "--intent" || name === "--reason") {
+      const flagValue = args[index + 1];
+      if (flagValue === undefined) throw new Error(MANUAL_USAGE);
+      if (name === "--intent") intent = flagValue;
+      else reason = flagValue;
+      index += 1;
+    } else if (name.startsWith("--") || value !== undefined) throw new Error(MANUAL_USAGE);
+    else value = name;
+  }
+  if (!value?.trim()) throw new Error(MANUAL_USAGE);
+  validateManualIntentReasonArgs(intent, reason);
+  const context = { intent: intent!.trim(), reason: reason!.trim() };
+  return sub === "get"
+    ? { command: "manual-get", topic: value.trim(), ...context }
+    : { command: "manual-search", query: value.trim(), ...context };
+}
+
 function parseActionPrepareArgs(args: readonly string[]): ActionPrepareInvocation {
   let target: string | undefined;
   for (let index = 0; index < args.length; index++) {
@@ -731,6 +817,24 @@ function parseActionPrepareArgs(args: readonly string[]): ActionPrepareInvocatio
 
 export async function run(args: readonly string[], transport: MessageTransport): Promise<unknown> {
   const invocation = parseArgs(args);
+  if (invocation.command === "manual-get") {
+    if (!transport.manualGet) throw new Error("Manual transport is unavailable");
+    const result = await transport.manualGet(
+      invocation.topic,
+      invocation.intent,
+      invocation.reason,
+    );
+    return formatManualGet(result.content);
+  }
+  if (invocation.command === "manual-search") {
+    if (!transport.manualSearch) throw new Error("Manual transport is unavailable");
+    const result = await transport.manualSearch(
+      invocation.query,
+      invocation.intent,
+      invocation.reason,
+    );
+    return formatManualSearchResults(result.results);
+  }
   if (invocation.command === "workspace.info") {
     const client = createAgentApiClient(createMessageTransportAgentApiTransport(transport));
     return formatWorkspaceInfo(await client.workspace.info(), invocation);

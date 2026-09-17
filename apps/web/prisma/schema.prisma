@@ -25,6 +25,7 @@ model Workspace {
   conversationMembers    ConversationMember[]
   messageDeliveries      AgentMessageDelivery[]
   agentActivity          AgentActivity[]
+  agentManualEvents      AgentManualEvent[]
   reminders              Reminder[]
   reminderEvents         ReminderEvent[]
   attachments            Attachment[]
@@ -207,6 +208,7 @@ model Agent {
   deliveries                AgentMessageDelivery[]
   apiKeys                   AgentApiKey[]
   activity                  AgentActivity[]
+  manualEvents              AgentManualEvent[]
   reminders                 Reminder[]
   reminderOperationReceipts ReminderOperationReceipt[]
   preparedActionCards       ActionCard[]
@@ -282,6 +284,28 @@ model AgentActivity {
   @@unique([agentId, launchId, clientSeq])
   @@index([workspaceId, agentId, occurredAt(sort: Desc), clientSeq(sort: Desc)])
   @@map("agent_activities")
+}
+
+/// One `coforge manual get|search` call (ADR 0036): who asked, what topic/query with its
+/// required intent/reason, and whether it hit. Written for both `hit` and `not_found`; an
+/// invalid-input 400 (bad topic slug, invalid query, invalid intent/reason) is never recorded.
+model AgentManualEvent {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspaceId  String    @db.Uuid
+  agentId      String    @db.Uuid
+  kind         String
+  topicOrQuery String
+  intent       String
+  reason       String
+  outcome      String
+  resultSlugs  String[]  @default([])
+  createdAt    DateTime  @default(now())
+  agent        Agent     @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([agentId, createdAt])
+  @@map("agent_manual_events")
 }
 
 model AgentApiKey {

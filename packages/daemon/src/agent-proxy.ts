@@ -22,11 +22,16 @@ import {
   validateActionCardAction,
   type AgentActionPrepareRequest,
   type AgentActionPrepareResponse,
+  type AgentManualGetRequest,
+  type AgentManualGetResponse,
+  type AgentManualSearchRequest,
+  type AgentManualSearchResponse,
   type GitHubCredentialRequest,
   type GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
 import { isAgentApiKey } from "./credentials/agent-api-key";
 import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
+import { AgentManualRequestError } from "./connection/agent-manual-request-error";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentProxy = {
@@ -155,6 +160,16 @@ export function startAgentProxy(input: {
       request: GitHubCredentialRequest,
       agentApiKey?: string,
     ): Promise<GitHubCredentialResponse>;
+    manualGet?(
+      context: string,
+      request: AgentManualGetRequest,
+      agentApiKey?: string,
+    ): Promise<AgentManualGetResponse>;
+    manualSearch?(
+      context: string,
+      request: AgentManualSearchRequest,
+      agentApiKey?: string,
+    ): Promise<AgentManualSearchResponse>;
     agentWeeklyReport?(
       context: string,
       request: WeeklyReportCommand,
@@ -185,6 +200,10 @@ export function startAgentProxy(input: {
       if (
         (request.method !== LOCAL_PROXY_ROUTES.workspace.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.workspace.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.manual.get.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.manual.get.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.manual.search.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.manual.search.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.messages.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.messages.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.inbox.method ||
@@ -227,6 +246,59 @@ export function startAgentProxy(input: {
             method: request.method,
             path: requestUrl.pathname,
             routeFamily: "agent-api/workspace-info",
+            agentId: binding.agentId,
+          });
+        }
+      }
+      // The Manual routes always answer a domain error as JSON `{ ok: false, errorCode, error }`
+      // (ADR 0036, Raft-aligned), so a well-formed `AgentManualRequestError` is forwarded through
+      // unchanged rather than folded into the generic proxy-failure taxonomy below.
+      if (requestUrl.pathname === LOCAL_PROXY_ROUTES.manual.get.path) {
+        if (!input.runtime.manualGet) return new Response("not found", { status: 404 });
+        const params = requestUrl.searchParams;
+        try {
+          return Response.json(
+            await input.runtime.manualGet(binding.context, {
+              topic: params.get("topic") ?? "",
+              intent: params.get("intent") ?? "",
+              reason: params.get("reason") ?? "",
+            }),
+          );
+        } catch (error) {
+          if (error instanceof AgentManualRequestError)
+            return Response.json(
+              { ok: false, errorCode: error.errorCode, error: error.message },
+              { status: error.status },
+            );
+          return proxyFailureResponse(error, {
+            method: request.method,
+            path: requestUrl.pathname,
+            routeFamily: "agent-api/manual-get",
+            agentId: binding.agentId,
+          });
+        }
+      }
+      if (requestUrl.pathname === LOCAL_PROXY_ROUTES.manual.search.path) {
+        if (!input.runtime.manualSearch) return new Response("not found", { status: 404 });
+        const params = requestUrl.searchParams;
+        try {
+          return Response.json(
+            await input.runtime.manualSearch(binding.context, {
+              query: params.get("query") ?? "",
+              intent: params.get("intent") ?? "",
+              reason: params.get("reason") ?? "",
+            }),
+          );
+        } catch (error) {
+          if (error instanceof AgentManualRequestError)
+            return Response.json(
+              { ok: false, errorCode: error.errorCode, error: error.message },
+              { status: error.status },
+            );
+          return proxyFailureResponse(error, {
+            method: request.method,
+            path: requestUrl.pathname,
+            routeFamily: "agent-api/manual-search",
             agentId: binding.agentId,
           });
         }
