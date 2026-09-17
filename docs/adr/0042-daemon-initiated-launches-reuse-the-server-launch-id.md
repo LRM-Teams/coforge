@@ -1,6 +1,6 @@
 # ADR 0042: Daemon-initiated launches reuse the server-supplied `launchId`
 
-Status: proposed
+Status: accepted
 Date: 2026-09-17
 
 ## Context
