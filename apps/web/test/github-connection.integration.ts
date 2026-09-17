@@ -455,6 +455,7 @@ test("repository overview verifies the selected installation and maps GitHub rep
                         committedDate: "2026-09-15T08:30:00Z",
                         author: {
                           name: "Author Name",
+                          email: "55881810+linked-login@users.noreply.github.com",
                           avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
                           user: { login: "linked-login" },
                         },
@@ -462,22 +463,29 @@ test("repository overview verifies the selected installation and maps GitHub rep
                           nodes: [
                             {
                               name: "Author Name",
+                              email: "55881810+linked-login@users.noreply.github.com",
                               avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
                               user: { login: "linked-login" },
                             },
                             {
                               name: "Claude",
+                              email: "noreply@anthropic.com",
                               avatarUrl: "https://avatars.githubusercontent.com/u/99?v=4",
                               user: null,
                             },
                             {
                               name: "Co Dev",
+                              email: "co-dev@example.com",
                               avatarUrl: null,
                               user: { login: "co-dev-login" },
                             },
                           ],
                         },
-                        committer: { name: "Committer Name", user: { login: "committer-login" } },
+                        committer: {
+                          name: "Committer Name",
+                          email: "committer@example.com",
+                          user: { login: "committer-login" },
+                        },
                         signature: { isValid: true },
                         statusCheckRollup: { state: "SUCCESS" },
                       },
@@ -488,6 +496,7 @@ test("repository overview verifies the selected installation and maps GitHub rep
                         author: {
                           name: "Offline Author",
                           // A non-CDN host must never be trusted as an avatar URL.
+                          email: "offline@example.com",
                           avatarUrl: "https://evil.example.com/avatar.png",
                           user: null,
                         },
@@ -495,6 +504,7 @@ test("repository overview verifies the selected installation and maps GitHub rep
                           nodes: [
                             {
                               name: "Offline Author",
+                              email: "offline@example.com",
                               avatarUrl: "https://evil.example.com/avatar.png",
                               user: null,
                             },
@@ -586,15 +596,18 @@ test("repository overview verifies the selected installation and maps GitHub rep
           sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           message: "Ship asymmetric fixture",
           author: "linked-login",
+          authorEmail: "55881810+linked-login@users.noreply.github.com",
           authorAvatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
           coAuthors: [
             {
               name: "Claude",
+              email: "noreply@anthropic.com",
               avatarUrl: "https://avatars.githubusercontent.com/u/99?v=4",
             },
-            { name: "co-dev-login", avatarUrl: null },
+            { name: "co-dev-login", email: "co-dev@example.com", avatarUrl: null },
           ],
           committer: "committer-login",
+          committerEmail: "committer@example.com",
           date: "2026-09-15T08:30:00Z",
           verified: true,
           checks: "success",
@@ -603,9 +616,11 @@ test("repository overview verifies the selected installation and maps GitHub rep
           sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           message: "Unlinked author",
           author: "Offline Author",
+          authorEmail: "offline@example.com",
           authorAvatarUrl: null,
           coAuthors: [],
           committer: null,
+          committerEmail: null,
           date: null,
           verified: false,
           checks: null,
@@ -867,9 +882,21 @@ test("repository overview denies a forbidden top-level GraphQL error but tolerat
                       oid: "ffffffffffffffffffffffffffffffffffffffff",
                       messageHeadline: "Tolerate field error",
                       committedDate: "2026-02-01T00:00:00Z",
-                      author: { name: "Someone", avatarUrl: null, user: { login: "someone" } },
+                      author: {
+                        name: "Someone",
+                        email: "someone@example.com",
+                        avatarUrl: null,
+                        user: { login: "someone" },
+                      },
                       authors: {
-                        nodes: [{ name: "Someone", avatarUrl: null, user: { login: "someone" } }],
+                        nodes: [
+                          {
+                            name: "Someone",
+                            email: "someone@example.com",
+                            avatarUrl: null,
+                            user: { login: "someone" },
+                          },
+                        ],
                       },
                       committer: null,
                       signature: null,
@@ -903,9 +930,11 @@ test("repository overview denies a forbidden top-level GraphQL error but tolerat
           sha: "ffffffffffffffffffffffffffffffffffffffff",
           message: "Tolerate field error",
           author: "someone",
+          authorEmail: "someone@example.com",
           authorAvatarUrl: null,
           coAuthors: [],
           committer: null,
+          committerEmail: null,
           date: "2026-02-01T00:00:00Z",
           verified: false,
           checks: null,

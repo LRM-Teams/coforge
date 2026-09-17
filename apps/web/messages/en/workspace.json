@@ -35,6 +35,8 @@
   "project_commits": "Recent commits",
   "project_commits_to": "Commits to {branch}",
   "project_commit_verified": "Verified",
+  "project_commit_role_author": "Author",
+  "project_commit_role_coauthored": "Co-authored",
   "project_checks_success": "Checks passed",
   "project_checks_failure": "Checks failed",
   "project_checks_pending": "Checks pending",

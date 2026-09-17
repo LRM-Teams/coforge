@@ -16,6 +16,7 @@ import {
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { PageHeader } from "@/components/layout/page-header";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -254,24 +255,20 @@ function RepositoryContents({ data, projectSlug }: { data: Repository; projectSl
                   rel="noreferrer"
                   className="flex min-w-0 items-center gap-3 px-4 py-3 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2"
                 >
-                  <span className="flex shrink-0 -space-x-1">
-                    <Avatar
-                      size="xs"
-                      src={commit.authorAvatarUrl ?? undefined}
-                      initials={avatarInitial(commit.author)}
-                      contentClassName={avatarToneClassName(commit.author)}
-                      className="ring-2 ring-primary"
-                      alt=""
+                  <span className="flex shrink-0 -space-x-1.5">
+                    <CommitIdentity
+                      name={commit.author}
+                      email={commit.authorEmail}
+                      role={m.project_commit_role_author()}
+                      avatarUrl={commit.authorAvatarUrl}
                     />
                     {commit.coAuthors.slice(0, 2).map((coAuthor) => (
-                      <Avatar
+                      <CommitIdentity
                         key={coAuthor.name}
-                        size="xs"
-                        src={coAuthor.avatarUrl ?? undefined}
-                        initials={avatarInitial(coAuthor.name)}
-                        contentClassName={avatarToneClassName(coAuthor.name)}
-                        className="ring-2 ring-primary"
-                        alt=""
+                        name={coAuthor.name}
+                        email={coAuthor.email}
+                        role={m.project_commit_role_coauthored()}
+                        avatarUrl={coAuthor.avatarUrl}
                       />
                     ))}
                   </span>
@@ -355,55 +352,60 @@ function RepositoryContents({ data, projectSlug }: { data: Repository; projectSl
                     a.name.localeCompare(b.name),
                 )
                 .map((file) => {
-                  const rowClassName =
-                    "flex min-w-0 items-center gap-3 px-4 py-3 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2";
-                  const rowContent = (
-                    <>
-                      {file.type === "dir" ? (
-                        <Folder aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
-                      ) : (
-                        <File02 aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
-                      )}
-                      <span className="max-w-[40%] shrink-0 truncate text-sm text-primary">
-                        {file.name}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-xs text-tertiary">
-                        {file.lastCommit?.message.split("\n")[0]}
-                      </span>
-                      {file.lastCommit?.date && (
-                        <RelativeTime
-                          value={file.lastCommit.date}
-                          plain
-                          className="shrink-0 text-xs text-tertiary"
-                        />
-                      )}
-                    </>
-                  );
+                  const nameLinkClassName =
+                    "flex min-w-0 max-w-[40%] shrink-0 items-center gap-3 outline-focus-ring focus-visible:outline-2 focus-visible:-outline-offset-2";
                   return (
                     <li key={file.path}>
-                      {file.type === "dir" || file.type === "file" ? (
-                        <Link
-                          to="/projects/$projectSlug/tree/$"
-                          params={{ projectSlug, _splat: file.path }}
-                          className={rowClassName}
-                        >
-                          {rowContent}
-                        </Link>
-                      ) : (
-                        <a
+                      <div className="flex min-w-0 items-center gap-3 px-4 py-3 hover:bg-primary_hover">
+                        {file.type === "dir" || file.type === "file" ? (
+                          <Link
+                            to="/projects/$projectSlug/tree/$"
+                            params={{ projectSlug, _splat: file.path }}
+                            className={nameLinkClassName}
+                          >
+                            <Folder aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
+                            <span className="min-w-0 truncate text-sm text-primary">
+                              {file.name}
+                            </span>
+                          </Link>
+                        ) : (
                           // Reached only for "symlink"/"submodule" — neither is "dir", so this is always a blob URL.
-                          href={`${base}/blob/${encodeURIComponent(data.defaultBranch)}/${file.path.split("/").map(encodeURIComponent).join("/")}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={rowClassName}
-                        >
-                          {rowContent}
-                          <ArrowUpRight
-                            aria-hidden="true"
-                            className="size-3.5 shrink-0 text-quaternary"
+                          <a
+                            href={`${base}/blob/${encodeURIComponent(data.defaultBranch)}/${file.path.split("/").map(encodeURIComponent).join("/")}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={nameLinkClassName}
+                          >
+                            <File02 aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
+                            <span className="min-w-0 truncate text-sm text-primary">
+                              {file.name}
+                            </span>
+                            <ArrowUpRight
+                              aria-hidden="true"
+                              className="size-3.5 shrink-0 text-quaternary"
+                            />
+                          </a>
+                        )}
+                        {file.lastCommit ? (
+                          <a
+                            href={`${base}/commit/${file.lastCommit.sha}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="min-w-0 flex-1 truncate text-xs text-tertiary outline-focus-ring hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2"
+                          >
+                            {file.lastCommit.message.split("\n")[0]}
+                          </a>
+                        ) : (
+                          <span className="min-w-0 flex-1" />
+                        )}
+                        {file.lastCommit?.date && (
+                          <RelativeTime
+                            value={file.lastCommit.date}
+                            plain
+                            className="shrink-0 text-xs text-tertiary"
                           />
-                        </a>
-                      )}
+                        )}
+                      </div>
                     </li>
                   );
                 })}
@@ -414,6 +416,33 @@ function RepositoryContents({ data, projectSlug }: { data: Repository; projectSl
         )}
       </RepositorySection>
     </>
+  );
+}
+
+function CommitIdentity({
+  name,
+  email,
+  role,
+  avatarUrl,
+}: {
+  name: string;
+  email: string | null;
+  role: string;
+  avatarUrl: string | null;
+}) {
+  return (
+    <Tooltip title={`${name} · ${role}`} description={email ?? undefined}>
+      <TooltipTrigger className="flex rounded-full">
+        <Avatar
+          size="xs"
+          src={avatarUrl ?? undefined}
+          initials={avatarInitial(name)}
+          contentClassName={avatarToneClassName(name)}
+          className="ring-2 ring-primary"
+          alt=""
+        />
+      </TooltipTrigger>
+    </Tooltip>
   );
 }
 

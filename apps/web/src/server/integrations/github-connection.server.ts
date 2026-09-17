@@ -108,6 +108,7 @@ const graphqlErrorSchema = z.object({ type: z.string().optional() });
 const graphqlIdentitySchema = z.object({ login: z.string().min(1).max(100) }).nullable();
 const graphqlGitActorSchema = z.object({
   name: z.string().nullable(),
+  email: z.string().max(320).nullable(),
   avatarUrl: avatarUrlSchema,
   user: graphqlIdentitySchema,
 });
@@ -118,7 +119,13 @@ const graphqlCommitNodeSchema = z.object({
   author: graphqlGitActorSchema.nullable(),
   /** Git author plus `Co-authored-by` trailers; the git author is always first. */
   authors: z.object({ nodes: z.array(graphqlGitActorSchema).max(5) }),
-  committer: z.object({ name: z.string().nullable(), user: graphqlIdentitySchema }).nullable(),
+  committer: z
+    .object({
+      name: z.string().nullable(),
+      email: z.string().max(320).nullable(),
+      user: graphqlIdentitySchema,
+    })
+    .nullable(),
   signature: z.object({ isValid: z.boolean() }).nullable(),
   statusCheckRollup: z.object({ state: z.string() }).nullable(),
 });
@@ -308,9 +315,9 @@ const REPOSITORY_OVERVIEW_QUERY = `
                 oid
                 messageHeadline
                 committedDate
-                author { name avatarUrl(size: 80) user { login } }
-                authors(first: 5) { nodes { name avatarUrl(size: 80) user { login } } }
-                committer { name user { login } }
+                author { name email avatarUrl(size: 80) user { login } }
+                authors(first: 5) { nodes { name email avatarUrl(size: 80) user { login } } }
+                committer { name email user { login } }
                 signature { isValid }
                 statusCheckRollup { state }
               }
@@ -833,6 +840,7 @@ export class GitHubConnection {
           const coAuthors = node.authors.nodes
             .map((actor) => ({
               name: actor.user?.login ?? actor.name ?? "Unknown",
+              email: actor.email ?? null,
               avatarUrl: actor.avatarUrl ?? null,
             }))
             .filter((actor) => actor.name !== author && actor.name !== committerDisplay);
@@ -840,9 +848,14 @@ export class GitHubConnection {
             sha: node.oid,
             message: node.messageHeadline,
             author,
+            authorEmail: node.author?.email ?? null,
             authorAvatarUrl: node.author?.avatarUrl ?? null,
             coAuthors,
             committer: committerDisplay && committerDisplay !== author ? committerDisplay : null,
+            committerEmail:
+              committerDisplay && committerDisplay !== author
+                ? (node.committer?.email ?? null)
+                : null,
             date: node.committedDate ?? null,
             verified: node.signature?.isValid ?? false,
             checks: mapChecksState(node.statusCheckRollup?.state),
