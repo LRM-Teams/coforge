@@ -1176,6 +1176,101 @@ test("parses attachment view with a positional id, Raft-style", () => {
   });
 });
 
+test("parses attachment view --json", () => {
+  expect(
+    parseArgs(["attachment", "view", "attachment-1", "--output", "/tmp/file.txt", "--json"]),
+  ).toEqual({
+    command: "attachment.view",
+    attachmentId: "attachment-1",
+    output: "/tmp/file.txt",
+    json: true,
+  });
+});
+
+test("attachment view rejects both a positional id and --id, matching Raft's validateViewOpts", () => {
+  expect(() =>
+    parseArgs(["attachment", "view", "attachment-1", "--id", "attachment-2", "--output", "/tmp/f"]),
+  ).toThrow(CliError);
+  try {
+    parseArgs(["attachment", "view", "attachment-1", "--id", "attachment-2", "--output", "/tmp/f"]);
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("INVALID_ARG");
+    expect((error as CliError).message).toBe(
+      "pass the attachment id either positionally or with --id, not both",
+    );
+  }
+});
+
+test("attachment view rejects a missing id with Raft's exact code and message", () => {
+  expect(() => parseArgs(["attachment", "view", "--output", "/tmp/file.txt"])).toThrow(CliError);
+  try {
+    parseArgs(["attachment", "view", "--output", "/tmp/file.txt"]);
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("INVALID_ARG");
+    expect((error as CliError).message).toBe(
+      "attachment id is required (pass <attachmentId> or --id)",
+    );
+  }
+});
+
+test("attachment view rejects a missing --output with Raft's exact code and message", () => {
+  expect(() => parseArgs(["attachment", "view", "attachment-1"])).toThrow(CliError);
+  try {
+    parseArgs(["attachment", "view", "attachment-1"]);
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("INVALID_ARG");
+    expect((error as CliError).message).toBe("--output is required");
+  }
+});
+
+test("dispatches attachment view and prints Raft's exact download-destination line", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  const output = join(dir, "downloaded.txt");
+  try {
+    const result = await run(["attachment", "view", "attachment-1", "--output", output], {
+      check: async () => {
+        throw new Error("unused");
+      },
+      read: async () => {
+        throw new Error("unused");
+      },
+      send: async () => {
+        throw new Error("unused");
+      },
+      view: async () => ({ bytes: new TextEncoder().encode("hello") }),
+    });
+    expect(result).toBe(`Downloaded to: ${output}`);
+    expect(await Bun.file(output).text()).toBe("hello");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("attachment view --json prints the attachment id and output path as an object", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
+  const output = join(dir, "downloaded.txt");
+  try {
+    const result = await run(["attachment", "view", "attachment-1", "--output", output, "--json"], {
+      check: async () => {
+        throw new Error("unused");
+      },
+      read: async () => {
+        throw new Error("unused");
+      },
+      send: async () => {
+        throw new Error("unused");
+      },
+      view: async () => ({ bytes: new TextEncoder().encode("hello") }),
+    });
+    expect(JSON.parse(result as string)).toEqual({ attachmentId: "attachment-1", path: output });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("parses attachment upload with target, mime type, and --json", () => {
   expect(
     parseArgs(["attachment", "upload", "--path", "/tmp/file.txt", "--target", "@ada"]),

@@ -78,9 +78,14 @@ Use this ID with coforge message send --attachment-id <id> to include it in a me
 ```
 
 `--json` prints the raw response object instead. Download an attachment's
-bytes with `coforge attachment view <id> --output <path>` (or `--id <id>`);
-an Agent may download its own upload before sending it, but not another
-Agent's not-yet-sent upload.
+bytes with `coforge attachment view <id> --output <path>` (or `--id <id>`,
+not both — `INVALID_ARG` either way if the id or `--output` is missing).
+On success it prints `Downloaded to: <path>` (matching Raft 1.0.32's
+`formatAttachmentDownloaded`); `--json` prints `{ attachmentId, path }`
+instead. A download failure is `VIEW_FAILED` (`SERVER_5XX` for ≥ 500), with
+a fixed `Attachment is unavailable.` message on a 404 rather than relaying
+upstream detail. An Agent may download its own upload before sending it,
+but not another Agent's not-yet-sent upload.
 
 `coforge weekly-report context|list|read` is the weekly-report assistant's
 authorized on-demand read surface. It reuses the Credential Proxy and Agent

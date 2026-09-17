@@ -22,6 +22,7 @@ import {
   type GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
 import {
+  formatAttachmentDownloadSuccess,
   formatAttachmentUploadSuccess,
   formatHeldSend,
   formatMessageLine,
@@ -70,6 +71,7 @@ export type AttachmentInvocation = {
   command: "attachment.view";
   attachmentId: string;
   output: string;
+  json?: boolean;
 };
 export type AttachmentUploadInvocation = {
   command: "attachment.upload";
@@ -186,24 +188,54 @@ export function parseArgs(
   if (args[0] === "inbox" && args[1] === "check" && args.length === 2)
     return { command: "inbox-check" };
   if (args[0] === "attachment" && args[1] === "view") {
-    let attachmentId: string | undefined;
+    let positionalId: string | undefined;
+    let explicitId: string | undefined;
     let output: string | undefined;
+    let json = false;
     let index = 2;
     // A positional id (`coforge attachment view <id> --output <path>`), as Raft accepts, in
     // addition to `--id <id>`.
-    if (args[index] !== undefined && args[index] !== "--id" && args[index] !== "--output") {
-      attachmentId = args[index];
+    if (
+      args[index] !== undefined &&
+      args[index] !== "--id" &&
+      args[index] !== "--output" &&
+      args[index] !== "--json"
+    ) {
+      positionalId = args[index];
       index++;
     }
-    for (; index < args.length; index += 2) {
-      const name = args[index];
-      const value = args[index + 1];
-      if (name === "--id" && value && !attachmentId) attachmentId = value;
-      else if (name === "--output" && value) output = value;
+    for (; index < args.length; index++) {
+      if (args[index] === "--id" && args[index + 1]) explicitId = args[++index];
+      else if (args[index] === "--output" && args[index + 1]) output = args[++index];
+      else if (args[index] === "--json") json = true;
       else throw new Error("Usage:");
     }
-    if (attachmentId && output) return { command: "attachment.view", attachmentId, output };
-    throw new Error("Usage:");
+    // Raft's `validateViewOpts`: the same three preconditions, same codes and messages.
+    if (positionalId && explicitId)
+      throw new CliError({
+        code: "INVALID_ARG",
+        message: "pass the attachment id either positionally or with --id, not both",
+        retryable: false,
+      });
+    const attachmentId = positionalId || explicitId;
+    if (!attachmentId)
+      throw new CliError({
+        code: "INVALID_ARG",
+        message: "attachment id is required (pass <attachmentId> or --id)",
+        retryable: false,
+      });
+    if (!output)
+      throw new CliError({
+        code: "INVALID_ARG",
+        message: "--output is required",
+        retryable: false,
+      });
+    return {
+      command: "attachment.view",
+      attachmentId,
+      output,
+      ...(json ? { json: true as const } : {}),
+    };
   }
   if (args[0] === "attachment" && args[1] === "upload") {
     let path: string | undefined;
@@ -360,7 +392,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
   );
 }
 
@@ -476,7 +508,9 @@ export async function run(args: readonly string[], transport: MessageTransport):
   if (invocation.command === "attachment.view") {
     const result = await transport.view(invocation.attachmentId);
     await Bun.write(invocation.output, result.bytes);
-    return { attachmentId: invocation.attachmentId, path: invocation.output };
+    if (invocation.json)
+      return JSON.stringify({ attachmentId: invocation.attachmentId, path: invocation.output });
+    return formatAttachmentDownloadSuccess(invocation.output);
   }
   if (invocation.command === "attachment.upload") {
     if (!transport.upload) throw new Error("Attachment upload transport is unavailable");

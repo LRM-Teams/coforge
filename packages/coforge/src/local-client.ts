@@ -300,7 +300,26 @@ export function connectLocal(
         headers: { authorization: `Bearer ${context}` },
         signal: AbortSignal.timeout(60_000),
       });
-      if (!response.ok) throw new Error(`attachment download failed (${response.status})`);
+      if (!response.ok) {
+        // Mirrors Raft 1.0.32's attachmentViewCommand: VIEW_FAILED (SERVER_5XX for >= 500), with
+        // a fixed message for a 404 rather than relaying upstream detail for a missing attachment.
+        const text = await response.text().catch(() => "");
+        let message = text;
+        try {
+          const parsed = JSON.parse(text) as { error?: string };
+          if (parsed && typeof parsed.error === "string") message = parsed.error;
+        } catch {
+          // Not JSON: keep the raw text (e.g. a legacy bare-text proxy error).
+        }
+        throw new CliError({
+          code: response.status >= 500 ? "SERVER_5XX" : "VIEW_FAILED",
+          message:
+            response.status === 404
+              ? "Attachment is unavailable."
+              : message || `HTTP ${response.status}`,
+          retryable: false,
+        });
+      }
       return {
         bytes: new Uint8Array(await response.arrayBuffer()),
         fileName: response.headers.get("content-disposition") ?? undefined,

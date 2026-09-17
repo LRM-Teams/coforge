@@ -237,6 +237,11 @@ export function formatAttachmentUploadSuccess(response: AttachmentUploadResponse
   );
 }
 
+/** Matches Raft 1.0.32's `formatAttachmentDownloaded` shape exactly. */
+export function formatAttachmentDownloadSuccess(output: string): string {
+  return `Downloaded to: ${output}`;
+}
+
 type HeldSendResponse = {
   attentionCount?: number;
   anywayAllowed?: boolean;

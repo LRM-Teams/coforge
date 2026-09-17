@@ -149,6 +149,38 @@ test("downloads attachments through the daemon-local proxy", async () => {
   );
 });
 
+test("a 404 attachment download fails as VIEW_FAILED with a fixed unavailable message", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("not found", { status: 404 }));
+  const attempt = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).view("attachment-1");
+  await expect(attempt).rejects.toBeInstanceOf(CliError);
+  await expect(attempt).rejects.toMatchObject({
+    code: "VIEW_FAILED",
+    message: "Attachment is unavailable.",
+  });
+});
+
+test("a non-404 attachment download failure maps to VIEW_FAILED (or SERVER_5XX for >= 500)", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("access denied", { status: 403 }));
+  const denied = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).view("attachment-1");
+  await expect(denied).rejects.toMatchObject({ code: "VIEW_FAILED", message: "access denied" });
+
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("internal error", { status: 500 }));
+  const failed = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).view("attachment-1");
+  await expect(failed).rejects.toMatchObject({ code: "SERVER_5XX" });
+});
+
 test("uploads an attachment after checking capabilities through the same GET forwarding as view", async () => {
   const calls: Array<{ url: string; method?: string; authorization: string | null }> = [];
   spyOn(globalThis, "fetch").mockImplementation((async (input, init) => {
