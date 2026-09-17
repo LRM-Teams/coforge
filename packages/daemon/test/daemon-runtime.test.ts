@@ -214,7 +214,7 @@ test("a duplicate fenced start wakes the managed runtime without replaying recov
   }
 });
 
-test("a Start that meets an already-running process rebinds it: exactly one launch, the next session report/status/activity carry the new scope (ADR 0040)", async () => {
+test("a Start that meets an already-running process rebinds it: exactly one launch, the next session report/status/activity carry the new scope (ADR 0041)", async () => {
   const stateDirectory = join(tempRoot, `coforge-rebind-${crypto.randomUUID()}`);
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");

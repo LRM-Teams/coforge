@@ -96,7 +96,7 @@ export class AgentSessions {
       sessionMode,
       startRequestId: intent.requestId,
       daemonInstanceId,
-      // ADR 0040: the server already knows this operation's launchId (it minted it before
+      // ADR 0041: the server already knows this operation's launchId (it minted it before
       // publish) whenever the intent is managed, so record it here, ahead of the Daemon's own
       // report — this is what lets a rebind's later Session report (same launchId the intent
       // carried) satisfy `verify()`'s exact-match fence directly, instead of relying only on

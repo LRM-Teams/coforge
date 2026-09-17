@@ -260,7 +260,7 @@ export class AgentControl {
       const next = chain[index];
       if (next === "clear-session") throw new Error("Invalid Agent control chain");
       const { identity, launchId: _launch, ...fields } = state;
-      // ADR 0040: a chain step that moves into "starting" (e.g. Restart's stop -> start,
+      // ADR 0041: a chain step that moves into "starting" (e.g. Restart's stop -> start,
       // Reset session's stop -> clear-session -> start) mints a fresh launchId here, the moment
       // of the same phase transition `begin()` mints one for a direct `action: "start"` — never
       // carried forward from the step this operation just finished.
@@ -398,7 +398,7 @@ export class AgentControl {
     const retain =
       old && old.computerId === agent.computerId && old.provider === agent.runtimeConfig.runtime;
     const identity = retain ? old.identity : !old ? agent.identity : undefined;
-    // ADR 0040: the server mints one launchId per operation's start step, the moment the
+    // ADR 0041: the server mints one launchId per operation's start step, the moment the
     // operation enters phase "starting", in this same compare-and-swap write — never later, and
     // never re-minted for a republish of the same operation (`state.requestId === requestId`
     // stays idempotent above and never reaches here; `advance()` mints its own when a chain's
@@ -495,7 +495,7 @@ export class AgentControl {
       const reset =
         state.phase !== "completed" &&
         (state.action === "reset-session" || state.action === "full-reset");
-      // ADR 0040: `launchId` should already be minted (`begin()`/`advance()`, the moment this
+      // ADR 0041: `launchId` should already be minted (`begin()`/`advance()`, the moment this
       // operation entered "starting"); the only gap is a "starting" row written before this
       // record shipped. Mint and persist it here, once, before publish — never for a "completed"
       // republish, which already has one from when it first started.
@@ -603,7 +603,7 @@ export class AgentControl {
   /**
    * Verifies a launch before minting its credential; never accepts user-selected Session IDs.
    *
-   * ADR 0040: `launchId` is minted and persisted by `begin()`/`advance()`/`publishCurrent()` the
+   * ADR 0041: `launchId` is minted and persisted by `begin()`/`advance()`/`publishCurrent()` the
    * moment the operation enters "starting" — before this is ever called. This method only
    * verifies the Daemon's claimed `launchId` matches that already-stored value; it performs no
    * write, so there is no compare-and-swap race left to retry here (a concurrent Session write,

@@ -1,4 +1,4 @@
-# ADR 0040: The server supplies `launchId`; a Start that meets a running Agent rebinds
+# ADR 0041: The server supplies `launchId`; a Start that meets a running Agent rebinds
 
 Status: accepted
 Date: 2026-09-17
@@ -15,7 +15,7 @@ epoch and requestId, the running launch's later Session reports were stale.
 
 A second, related fact: the Daemon minted `launchId` and the server learned it through
 `authorizeLaunch`, a read-validate-**write**. That write raced the fire-and-forget
-`agent:session:invalidate` of [ADR 0037](0037-agent-session-invalidate.md) and needed a re-read
+`agent:session:invalidate` of [ADR 0040](0040-agent-session-invalidate.md) and needed a re-read
 and retry loop.
 
 ### Raft Computer 1.0.32
@@ -48,7 +48,7 @@ the same stored id. A `starting` row persisted before this record gets one minte
 by `publishCurrent` before it is published.
 
 **B. `authorizeLaunch` only verifies.** It checks the current scope, `phase === "starting"`,
-requestId, epoch and `input.launchId === state.launchId`, and writes nothing. ADR 0037's re-read
+requestId, epoch and `input.launchId === state.launchId`, and writes nothing. ADR 0040's re-read
 and retry loop and the "Agent launch lost its fence" error are removed: with no write there is no
 race with a concurrent Session clear. `AgentSessions.prepare()` records the intent's `launchId` on
 the session reference ahead of the Daemon's first report, so `verify()` keeps an exact-match fence
@@ -57,7 +57,7 @@ for the whole operation. `result()` is unchanged and stays strict: a `started` r
 
 **C. The Daemon uses the supplied id.** `AgentControl.start()` launches under `intent.launchId`.
 A managed intent without one produces a `failed` result (`agent_launch_id_required`). The cold-start
-retry of ADR 0037 keeps reusing the same id.
+retry of ADR 0040 keeps reusing the same id.
 
 **D. A Start that meets a running Agent rebinds.** When the process is running, the on-disk
 record is `running` with a `launchId` and the same provider, and the incoming epoch is higher,
@@ -74,7 +74,7 @@ record is `running` with a `launchId` and the same provider, and the incoming ep
   active, delivers the Start's wake message through the existing `wake` hook, and sends a
   `started` result for the new scope, stored for equal-epoch replay;
 - the Agent API key and local proxy token are kept; no launch config is requested;
-- a pending `agent:session:invalidate` for the replaced launch is dropped by ADR 0037's existing
+- a pending `agent:session:invalidate` for the replaced launch is dropped by ADR 0040's existing
   rule once the re-report goes out;
 - logged once as `agent_control:start_rebound` (info).
 

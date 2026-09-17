@@ -235,7 +235,7 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
   }
 });
 
-test("a Start that meets an already-running process rebinds it: one process, prepare/verify/accept intact, wake delivered (ADR 0040)", async () => {
+test("a Start that meets an already-running process rebinds it: one process, prepare/verify/accept intact, wake delivered (ADR 0041)", async () => {
   // macOS resolves os.tmpdir() through the /var -> /private/var symlink, which the
   // store's symlinked-ancestor guard rightly rejects; anchor the fixture on the real path.
   const root = await mkdtemp(join(await realpath(tmpdir()), "control-rebind-"));
@@ -268,7 +268,7 @@ test("a Start that meets an already-running process rebinds it: one process, pre
     },
   };
   // The real `AgentSessions` (`agent-sessions.server.ts`) `prepare`/`verify`/`accept` seam, not
-  // just `AgentSessionReceiver` — this is what proves ADR 0040's `prepare()` fix (rule 6): the
+  // just `AgentSessionReceiver` — this is what proves ADR 0041's `prepare()` fix (rule 6): the
   // server-supplied launchId is carried into `RuntimeSessionReference` ahead of the Daemon's own
   // report, so a rebind's later Session report is accepted by exact launchId match.
   let sessionRef: RuntimeSessionReference | null = null;

@@ -40,7 +40,7 @@ type Runtime = {
   ): void;
   /**
    * Rebinds an already-running process to a newer control scope without spawning a second one
-   * (docs/adr/0040): a Start that finds `running(agentId)` true under an older, TERMINAL
+   * (docs/adr/0041): a Start that finds `running(agentId)` true under an older, TERMINAL
    * operation adopts the new request instead of being rejected, mirroring Raft's
    * `rebindRunningStart`. `launchId` is the identity the running process adopts for every later
    * daemon->server message about it (today always `intent.launchId`, the server-supplied id for
@@ -300,7 +300,7 @@ export class AgentControl {
       )
         throw new Error("previous_control_not_completed");
       if (!intent.launchId) {
-        // ADR 0040: the server mints and supplies launchId for every managed start; the SDK
+        // ADR 0041: the server mints and supplies launchId for every managed start; the SDK
         // decode step already rejects a controlEpoch-carrying intent with none, so this is a
         // defensive, should-not-happen guard. Checked before the running-process branch below:
         // a rebind needs a launchId to adopt just as much as a fresh launch needs one to use.
@@ -315,7 +315,7 @@ export class AgentControl {
         throw new Error("agent_launch_id_required");
       }
       if (this.runtime.running(intent.agentId)) {
-        // ADR 0040: a Start that reaches an already-running process under an older, TERMINAL
+        // ADR 0041: a Start that reaches an already-running process under an older, TERMINAL
         // operation (a user Start racing a Daemon-ready `recover()` Start, or Start clicked on
         // an Agent the UI wrongly shows offline) rebinds the running process to the new scope
         // instead of rejecting it — matching Raft's `rebindRunningStart`. Every precondition is
@@ -425,7 +425,7 @@ export class AgentControl {
     });
   }
   /**
-   * A Start met an already-running process under an older, terminal operation (docs/adr/0040).
+   * A Start met an already-running process under an older, terminal operation (docs/adr/0041).
    * Keeps the process — never spawns, never stops it — and adopts the new scope: the record
    * moves to the new epoch/requestId, keeps `identity`/`daemonInstanceId`, and takes the new
    * `launchId` the server minted for this operation. Sequence restarts the way a fresh record's

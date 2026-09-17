@@ -55,7 +55,7 @@ specific launch. Carrying the redundant fields would only widen the wire message
 strengthening the check. Raft's own daemon-side invalidate carries only `agentId`/`sessionId`/
 `launchId`/`reason` (plus its own transport envelope), the same shape this message converges on.
 
-> Amended 2026-09-17 by [ADR 0040](0040-server-supplied-launch-id-and-start-rebind.md): `launchId` is now
+> Amended 2026-09-17 by [ADR 0041](0041-server-supplied-launch-id-and-start-rebind.md): `launchId` is now
 > minted by the server when the operation enters `starting` and only verified by
 > `authorizeLaunch`, which no longer writes. The argument above is unchanged — a stored
 > `launchId` still belongs to exactly one operation — and the race between this message and

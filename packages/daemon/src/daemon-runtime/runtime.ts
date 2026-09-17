@@ -155,7 +155,7 @@ const CONTROL_ERROR_CODES = new Set([
   "control_epoch_required",
   "agent_already_running",
   "confirmed_stop_required",
-  // ADR 0040: the server mints and supplies launchId for every managed start; a managed
+  // ADR 0041: the server mints and supplies launchId for every managed start; a managed
   // intent that somehow arrives without one is a protocol bug, not a normal race.
   "agent_launch_id_required",
 ]);
@@ -371,7 +371,7 @@ export class DaemonRuntime {
       sessionMode?: SessionMode;
       launchId?: string;
       /** The control epoch of the request this reference was last launched/rebound under
-       * (docs/adr/0040); read live by `#launchAgent`'s `reportAgentSession` closure (via this
+       * (docs/adr/0041); read live by `#launchAgent`'s `reportAgentSession` closure (via this
        * same object, mutated in place by `#rebindAgent`, never replaced) so a session report
        * sent after a rebind carries the new epoch instead of the one captured at launch time. */
       controlEpoch?: number;
@@ -1394,7 +1394,7 @@ export class DaemonRuntime {
                 daemonInstanceId: this.#runtimeInstanceId,
                 launchId: launch.launchId,
                 // Read live off `reference` (the same object `#rebindAgent` mutates in place,
-                // docs/adr/0040), not the `requestId`/`control` consts this closure captured at
+                // docs/adr/0041), not the `requestId`/`control` consts this closure captured at
                 // launch time: a driver-side session replacement reported after a rebind must
                 // carry the NEW request/epoch, not the one this launch started under.
                 startRequestId: reference.requestId,
@@ -1498,7 +1498,7 @@ export class DaemonRuntime {
   }
 
   /**
-   * Rebinds the agent's already-running process to a newer control scope (docs/adr/0040):
+   * Rebinds the agent's already-running process to a newer control scope (docs/adr/0041):
    * `AgentControl.start()`'s single seam for "a Start met a process that is already running
    * under an older, terminal operation." Never spawns or stops anything, never requests a new
    * launch config/credential (the running process's Agent API key and local proxy token are

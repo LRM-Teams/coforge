@@ -328,7 +328,7 @@ test("reset is one confirmed-stop then fresh-start operation and retains no old 
         events.push("start");
         expect(start.sessionId).toBeUndefined();
         expect(start.controlEpoch).toBe(1);
-        // ADR 0040: the server mints and publishes launchId; the Daemon adopts it as-is.
+        // ADR 0041: the server mints and publishes launchId; the Daemon adopts it as-is.
         expect(start.launchId).toBeTruthy();
         await control.authorizeLaunch({ ...start, controlEpoch: start.controlEpoch! });
         await control.result(start, {
@@ -897,7 +897,7 @@ test("Full Reset completes when the workspace clear could not finish, and the Ag
   const secondStart = decodeAgentStartIntent(sent[2]!);
   expect(secondStart).toMatchObject({ requestId: "reset", controlEpoch: 1 });
   expect(secondStart.sessionId).toBeUndefined();
-  // ADR 0040: the server minted this operation's launchId already (`begin()`), carried in the
+  // ADR 0041: the server minted this operation's launchId already (`begin()`), carried in the
   // Start intent it just published.
   expect(secondStart.launchId).toBeTruthy();
   expect((await store.get("a"))?.state?.identity).toBeUndefined();
@@ -2347,8 +2347,8 @@ test("a user Start that meets an Agent already starting joins that launch instea
   expect(current().state).toMatchObject({ requestId: "third", epoch: 5, phase: "stopping" });
 });
 
-test("authorizeLaunch verifies without writing (ADR 0040): a concurrent Session write cannot affect it", async () => {
-  // ADR 0040: `launchId` is minted and persisted by `begin()`/`advance()`/`publishCurrent()` the
+test("authorizeLaunch verifies without writing (ADR 0041): a concurrent Session write cannot affect it", async () => {
+  // ADR 0041: `launchId` is minted and persisted by `begin()`/`advance()`/`publishCurrent()` the
   // moment the operation enters "starting" — before the Daemon ever calls this. `authorizeLaunch`
   // only verifies the Daemon's claimed launchId against that already-stored value; it never
   // writes, so there is no compare-and-swap race left for a concurrent Session write (e.g. an
@@ -2486,7 +2486,7 @@ test("authorizeLaunch rejects a launch that is no longer current, without writin
 });
 
 test.each(["start", "restart", "reset-session", "full-reset"] as const)(
-  "%s publishes a Start intent carrying the server-minted launchId (ADR 0040)",
+  "%s publishes a Start intent carrying the server-minted launchId (ADR 0041)",
   async (action) => {
     const { store } = pendingOpStore({
       id: "a",
@@ -2617,7 +2617,7 @@ test("a launchId is minted once per operation and stays stable across a republis
   expect(current().state?.requestId).toBe("start-1");
 });
 
-test("publishCurrent mints and persists a launchId for a legacy 'starting' row that predates ADR 0040", async () => {
+test("publishCurrent mints and persists a launchId for a legacy 'starting' row that predates ADR 0041", async () => {
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
@@ -2638,7 +2638,7 @@ test("publishCurrent mints and persists a launchId for a legacy 'starting' row t
       configRevision: agentControlRevision(pendingRuntimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
-      // No launchId: exactly the shape a row written before ADR 0040 shipped would have.
+      // No launchId: exactly the shape a row written before ADR 0041 shipped would have.
     },
   };
   const store: AgentControlStore = {
