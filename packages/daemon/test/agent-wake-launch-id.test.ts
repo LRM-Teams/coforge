@@ -136,7 +136,8 @@ async function harness() {
     sessionCount: () => sessions,
     exitProcess: () => {
       if (exitListeners.size === 0) throw new Error("no process to exit");
-      for (const listener of [...exitListeners]) listener();
+      const listeners = Array.from(exitListeners);
+      for (const listener of listeners) listener();
     },
     sessionReports,
     activities,

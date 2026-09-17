@@ -133,6 +133,7 @@ test("a session report after a wake is accepted by AgentSessionReceiver.authoriz
       { workspaceId: "w", computerId: "c" },
       {
         protocolMajor: 1,
+        requestId: "report-1",
         agentId: "a",
         workspaceId: "w",
         computerId: "c",
