@@ -285,7 +285,7 @@ test("Full Reset completes, not fails, when the workspace clear cannot finish", 
     },
     { run: async (_id, work) => work() },
   );
-  const sessions = new AgentSessionReceiver(store);
+  const sessions = new AgentSessionReceiver(store, async () => "daemon");
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save("w", "c", "daemon-token");
   let launches = 0;

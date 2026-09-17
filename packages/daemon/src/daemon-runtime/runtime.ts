@@ -48,6 +48,7 @@ import {
   type InboxResponse,
   type LocalAgentMessageRequest,
   type LocalInboxRequest,
+  RUNTIME_PROVIDER,
   type RuntimeProvider,
   type RuntimeMetadata,
   RUNTIME_PROVIDER_USES_EXTERNAL_CLI,
@@ -301,21 +302,15 @@ function recoveryOf(intent: AgentStartIntent): AgentRecoveryContext {
 }
 
 /** Human runtime label for an invalidated-session Activity notice. */
-function runtimeDisplayName(provider: AgentStartIntent["provider"]): string {
-  switch (provider) {
-    case "codex":
-      return "Codex";
-    case "claude-code":
-      return "Claude Code";
-    case "kiro":
-      return "Kiro";
-    case "pi":
-      return "Pi";
-    case "coforge":
-      return "CoForge";
-    default:
-      return provider;
-  }
+const RUNTIME_DISPLAY_NAME: Record<RuntimeProvider, string> = {
+  [RUNTIME_PROVIDER.CODEX]: "Codex",
+  [RUNTIME_PROVIDER.CLAUDE_CODE]: "Claude Code",
+  [RUNTIME_PROVIDER.KIRO]: "Kiro",
+  [RUNTIME_PROVIDER.PI]: "Pi",
+  [RUNTIME_PROVIDER.COFORGE]: "CoForge",
+};
+function runtimeDisplayName(provider: RuntimeProvider): string {
+  return RUNTIME_DISPLAY_NAME[provider];
 }
 
 /** Raft-equivalent narration for a daemon-initiated cold start after a session invalidate. */

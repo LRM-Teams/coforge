@@ -2133,8 +2133,9 @@ test("authorizeLaunch re-reads and retries when a concurrent Session write wins 
   const runtimeConfig = {
     runtime: "pi" as const,
     provider: { kind: "default" as const },
-    model: "m",
-    reasoning: "default" as const,
+    model: "",
+    modelProvider: "",
+    reasoning: "",
   };
   let agent: AgentControlAgent = {
     id: "a",
