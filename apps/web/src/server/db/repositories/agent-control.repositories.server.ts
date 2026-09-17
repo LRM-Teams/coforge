@@ -6,6 +6,7 @@ import type {
   AgentControlState,
   AgentControlStore,
 } from "../../agents/agent-control.server";
+import type { WorkspaceMemberRole } from "../../workspaces/member-role.server";
 
 const stateSchema = z
   .object({
@@ -224,5 +225,13 @@ export class PrismaAgentControlStore implements AgentControlStore {
         await tx.agent.update({ where: { id: before.id }, data: { currentSessionId: sessionId } });
       return true;
     });
+  }
+  /** The ACTOR's own current Workspace role for execute()'s capability check. */
+  async memberRole(workspaceId: string, userId: string): Promise<WorkspaceMemberRole | undefined> {
+    const membership = await this.db.workspaceMembership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { role: true },
+    });
+    return membership ? (membership.role as WorkspaceMemberRole) : undefined;
   }
 }

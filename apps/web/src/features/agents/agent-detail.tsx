@@ -521,11 +521,12 @@ const Profile = memo(function Profile({
           onLoad={onLoadSkills}
         />
       )}
-      {detail.ownedByCurrentUser && onExecuteControl && (
+      {onExecuteControl && (
         <AgentControl
           key={`control:${detail.id}`}
           agentId={detail.id}
           agentName={detail.displayName}
+          canFullReset={detail.canFullResetAgent}
           onExecute={onExecuteControl}
         />
       )}

@@ -5,6 +5,7 @@ import { Heading, Text } from "react-aria-components";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
 type AgentControlRequest = {
@@ -17,13 +18,18 @@ type AgentControlRequest = {
 export function AgentControl({
   agentId,
   agentName,
+  /** Raft `resetAgentWorkspace`: Workspace owner/admin only. Restart and Reset session need only
+   * `controlAgentRuntime`, held by any current Workspace member, so they are always offered here;
+   * the server is still the authority (AgentControl.execute()). */
+  canFullReset,
   onExecute,
 }: {
   agentId: string;
   agentName: string;
+  canFullReset: boolean;
   onExecute: (request: AgentControlRequest) => Promise<void>;
 }) {
-  const [submitFailed, setSubmitFailed] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState<AgentControlRequest["action"]>("restart");
   const options = [
@@ -37,24 +43,34 @@ export function AgentControl({
       label: m.agent_control_reset_session(),
       description: m.agent_control_reset_session_description(),
     },
-    {
-      action: "full-reset",
-      label: m.agent_control_full_reset(),
-      description: m.agent_control_full_reset_description(),
-    },
+    ...(canFullReset
+      ? ([
+          {
+            action: "full-reset",
+            label: m.agent_control_full_reset(),
+            description: m.agent_control_full_reset_description(),
+          },
+        ] as const)
+      : []),
   ] as const;
   const selected = options.find((option) => option.action === action)!;
   const destructive = action === "full-reset";
 
   function submit() {
     setOpen(false);
-    setSubmitFailed(false);
+    setSubmitError(null);
     void onExecute({
       agentId,
       action,
       requestId: crypto.randomUUID(),
       ...(destructive && { confirmed: true }),
-    }).catch(() => setSubmitFailed(true));
+    }).catch((cause: unknown) => {
+      setSubmitError(
+        isAppError(cause) && cause.code === "ACCESS_DENIED"
+          ? m.agent_control_access_denied()
+          : m.agent_control_submit_error(),
+      );
+    });
   }
 
   return (
@@ -72,9 +88,9 @@ export function AgentControl({
           {m.agent_control_restart()}
         </Button>
       </div>
-      {submitFailed && (
+      {submitError && (
         <p className="mt-4 text-sm text-error-primary" role="alert">
-          {m.agent_control_submit_error()}
+          {submitError}
         </p>
       )}
       <ModalOverlay isOpen={open} onOpenChange={setOpen}>

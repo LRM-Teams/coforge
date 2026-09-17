@@ -13,6 +13,11 @@ import { runtimeStartFields } from "./manage-agents.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentSessions } from "./agent-sessions.server";
 import { LocalAgentControlSignal, type AgentControlSignal } from "./agent-control-signal.server";
+import {
+  assertHasAgentControlCapability,
+  type AgentControlCapability,
+  type WorkspaceMemberRole,
+} from "../workspaces/member-role.server";
 
 /** Application button intent; never sent as a daemon command. */
 export type AgentControlAction = "start" | "stop" | "restart" | "reset-session" | "full-reset";
@@ -33,6 +38,15 @@ const commands = {
   },
   start: { pending: "starting", result: "started", completed: "completed" },
 } as const;
+/** Raft capability required for each user-initiated execute() action. */
+const EXECUTE_CAPABILITY: Record<
+  "restart" | "reset-session" | "full-reset",
+  AgentControlCapability
+> = {
+  restart: "controlAgentRuntime",
+  "reset-session": "controlAgentRuntime",
+  "full-reset": "resetAgentWorkspace",
+};
 export type AgentControlState = AgentControlScope & {
   version: 1;
   action: AgentControlAction;
@@ -76,6 +90,9 @@ export interface AgentControlStore {
     state: AgentControlState,
     options?: { clearSession: boolean },
   ): Promise<boolean>;
+  /** The ACTOR's current Workspace role; undefined when the actor is not a member. Used only by
+   * execute()'s capability check, never by the Agent-record authorization above. */
+  memberRole(workspaceId: string, userId: string): Promise<WorkspaceMemberRole | undefined>;
 }
 export type AgentControlView = {
   requestId: string;
@@ -211,7 +228,12 @@ export class AgentControl {
     if (input.action === "full-reset" && input.confirmed !== true)
       throw new Error("Full reset confirmation is required");
     await this.runtimeLock.run(input.agentId, async () => {
-      const agent = await this.authorized(input.userId, input.workspaceId, input.agentId);
+      const agent = await this.authorizedForExecute(
+        input.userId,
+        input.workspaceId,
+        input.agentId,
+        input.action,
+      );
       await this.begin(agent, input.action, input.requestId);
     });
     return this.drive(input.agentId, input.requestId);
@@ -220,6 +242,25 @@ export class AgentControl {
     const agent = await this.store.get(agentId);
     if (!agent || agent.ownerId !== userId || agent.workspaceId !== workspaceId)
       throw new Error("Agent is not authorized or assigned");
+    return agent;
+  }
+  /**
+   * execute() is the only user-initiated control path; it authorizes by the actor's current
+   * Workspace membership and Raft capability, not by Agent ownership (`authorized()` above,
+   * still used unchanged by recover/publishStart/publishStop).
+   */
+  private async authorizedForExecute(
+    userId: string,
+    workspaceId: string,
+    agentId: string,
+    action: "restart" | "reset-session" | "full-reset",
+  ) {
+    const agent = await this.store.get(agentId);
+    if (!agent || agent.workspaceId !== workspaceId)
+      throw new Error("Agent is not authorized or assigned");
+    const role = await this.store.memberRole(workspaceId, userId);
+    if (!role) throw new Error("Agent is not authorized or assigned");
+    assertHasAgentControlCapability(role, EXECUTE_CAPABILITY[action]);
     return agent;
   }
   private async begin(

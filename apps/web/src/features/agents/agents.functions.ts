@@ -350,12 +350,18 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     const canManageAgentRole = viewerMembership
       ? isAdminLike(viewerMembership.role as WorkspaceMemberRole)
       : false;
+    // `findAuthorized` above already required current Workspace membership, so every viewer who
+    // reaches this point holds Raft's `controlAgentRuntime` capability (Restart/Reset session);
+    // `resetAgentWorkspace` (Full reset) is owner/admin only, same role check as agent-role
+    // management. Server-side authorization lives in AgentControl.execute(); this is UI gating.
+    const canFullResetAgent = canManageAgentRole;
     return {
       ...result,
       runtimeConfig: publicAgentRuntimeConfig(parseAgentRuntimeConfig(result.runtimeConfig)),
       ownedByCurrentUser,
       runtimeCredential,
       canManageAgentRole,
+      canFullResetAgent,
     };
   });
 
