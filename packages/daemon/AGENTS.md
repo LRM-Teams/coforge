@@ -151,6 +151,20 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   `activity-trajectory.ts` owns launch-local 350ms display-delta coalescing,
   boundary flushing, bounded retention and assembled-text redaction; adapters
   supply only official display events and explicit lineage, never raw reasoning.
+- `agent-runtime/agent-process-manager.ts`'s `AgentRestartConfig` remembers, per Agent and for
+  exactly its own lifetime (set on a managed launch or a rebind, forgotten on `stop()`/
+  `shutdown()`), the last server-supplied launch identity (`serverLaunch`: requestId/controlEpoch/
+  launchId) and the Activity `clientSeq` last sent for it (a separate map, since `start()` replaces
+  the whole restart-config entry). `daemon-runtime/runtime.ts`'s `#launchAgent` reuses that
+  identity — never mints a fresh `launchId` — for any launch it initiates itself (an idle,
+  exited-but-wakeable Agent woken by a message delivery or an App Inbox item), continuing the
+  `clientSeq` counter instead of restarting it (the server's Activity idempotency key is
+  `(agentId, launchId, clientSeq)`, `docs/observability.md`) and sending no `previousLaunchId`
+  hand-over for the unchanged identity. An Agent with no remembered identity (never brought under
+  `AgentControl`, or forgotten by an explicit Stop) still mints, unchanged. `AgentControl.wake()`
+  is the mirror image of `stopped()`: it makes the on-disk record truthful (`phase: "running"`)
+  again after such a reused-identity launch, so a later server Start correctly rebinds instead of
+  finding a stale `"stopped"` record (ADR 0042).
 - `agent-runtime/agent-control.ts` owns request/epoch-fenced stop/reset-workspace/start
   and control completion, not Session delivery. A managed Start launches under the
   server-supplied `launchId` (ADR 0041), never a locally minted one; a Start that meets an
