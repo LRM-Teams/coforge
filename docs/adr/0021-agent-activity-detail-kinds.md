@@ -1,7 +1,36 @@
 # ADR 0021: Agent activity detail-kind vocabulary
 
-Status: accepted
+Status: amended
 Date: 2026-09-16
+
+> **Amendment (2026-09-17):** the Activity log is a complete chronological work log, not a
+> liveness-only display. `tool_end`, `thinking_end` and `compaction_finished` are reclassified
+> from "liveness only: never stored in history, dropped from the popover" to ordinary status
+> observations: persisted to `agent_activities` and shown live in the Agent detail Activity tab
+> and profile panel, one single-line row each — primary label from the existing activity-kind
+> classification (all three read as "Working"), secondary muted text naming what finished ("Tool
+> finished", "Thinking finished", "Compaction finished") — the daemon's own `detail` wins when it
+> sends one (current daemons send "Tool finished"/"Thinking finished" directly), falling back to
+> that wording only for an empty `detail` (older daemons, and rows stored before this amendment).
+> They stay excluded from the avatar's short recent-activity popover
+> (`POPOVER_EXCLUDED_DETAIL_KINDS`, `apps/web/src/features/agents/agent-activity.ts`) — a tool or
+> thinking phase ends often enough that showing every one there would crowd out genuinely
+> noteworthy events in that 5-row view. Separately, `thinking_started`/`model_response_started`
+> are each reported twice: once as a content-free "run-start marker" (no `entries`, empty
+> `detail`) whose only job is flipping the display status the instant a run begins, and again with
+> real `entries` once there is text to flush. Only the marker is filtered from history and the
+> timeline (`isRunStartMarker`, same file); the real flush is an ordinary Thinking/Output row,
+> unaffected. `runtime_progress` is unchanged by this amendment: it is still a content-free
+> liveness filler,
+> never persisted and never shown anywhere, because the daemon sends it with no renderable text at
+> all (unlike the other three, which now carry real completion semantics worth recording). The
+> display/lease reducer (`agent-display.server.ts`'s `LIVENESS_ONLY_DETAIL_KINDS`, the busy
+> heartbeat every 60s, and the liveness-sweep probe) is untouched by this amendment — only history
+> persistence and list visibility changed, not what renews the display lease or what is a
+> heartbeat/probe reply. The two "liveness only" table rows below for `tool_end`/`thinking_end`/
+> `compaction_finished` describe the original decision; see `apps/web/src/features/agents/
+> agent-activity-presentation.ts`'s `STATUS_SECONDARY_LABEL` and `docs/observability.md`'s Web
+> 展示契约 for the current behavior.
 
 ## Context
 

@@ -209,6 +209,55 @@ describe("Agent activity publication", () => {
     expect(reduced).toMatchObject({ probeId: "probe-1" });
   });
 
+  // A content-free run-start marker only flips the display status; the same detail kind with
+  // real entries is the actual Thinking/Output flush and must be persisted like any other
+  // Activity.
+  test.each(["thinking_started", "model_response_started"])(
+    "does not persist a content-free %s run-start marker to history, but persists its real flush",
+    async (detailKind) => {
+      const markerHistory: unknown[] = [];
+      const markerResponse = await handleAgentActivityPublication(
+        request({
+          b64data: encodedBase64({ ...activity, detailKind, detail: "", entries: [] }),
+        }),
+        {
+          proxySecret: "test-secret",
+          agentBelongsToWorkspace: async () => true,
+          agentBelongsToComputer: async () => true,
+          computerBelongsToWorkspace: async () => true,
+          observe: async (value) => {
+            markerHistory.push(value);
+          },
+        },
+      );
+      expect(markerResponse.status).toBe(200);
+      expect(markerHistory).toHaveLength(0);
+
+      const flushHistory: unknown[] = [];
+      const flushResponse = await handleAgentActivityPublication(
+        request({
+          b64data: encodedBase64({
+            ...activity,
+            detailKind,
+            detail: "",
+            entries: [{ kind: "text", text: "hello" }],
+          }),
+        }),
+        {
+          proxySecret: "test-secret",
+          agentBelongsToWorkspace: async () => true,
+          agentBelongsToComputer: async () => true,
+          computerBelongsToWorkspace: async () => true,
+          observe: async (value) => {
+            flushHistory.push(value);
+          },
+        },
+      );
+      expect(flushResponse.status).toBe(200);
+      expect(flushHistory).toHaveLength(1);
+    },
+  );
+
   test("does not persist a content-free runtime_progress frame to history", async () => {
     const history: unknown[] = [];
     const response = await handleAgentActivityPublication(
@@ -234,38 +283,17 @@ describe("Agent activity publication", () => {
     expect(history).toHaveLength(0);
   });
 
-  // ADR 0021: tool_end, thinking_end, and compaction_finished are the same
-  // liveness-only shape as runtime_progress.
-  test.each(["tool_end", "thinking_end", "compaction_finished"])(
-    "does not persist a content-free %s frame to history",
-    async (detailKind) => {
-      const history: unknown[] = [];
-      const response = await handleAgentActivityPublication(
-        request({
-          b64data: encodedBase64({
-            ...activity,
-            detailKind,
-            detail: "",
-            entries: [],
-          }),
-        }),
-        {
-          proxySecret: "test-secret",
-          agentBelongsToWorkspace: async () => true,
-          agentBelongsToComputer: async () => true,
-          computerBelongsToWorkspace: async () => true,
-          observe: async (value) => {
-            history.push(value);
-          },
-        },
-      );
-      expect(response.status).toBe(200);
-      expect(history).toHaveLength(0);
-    },
-  );
-
-  test("persists compacting_context and subagent_activity to history like other visible working kinds", async () => {
-    for (const detailKind of ["compacting_context", "subagent_activity"]) {
+  // ADR 0021, amended: tool_end, thinking_end and compaction_finished are ordinary status
+  // observations now — persisted like compacting_context/subagent_activity below, not
+  // liveness-only like runtime_progress.
+  test("persists compacting_context, subagent_activity, tool_end, thinking_end and compaction_finished to history like other visible working kinds", async () => {
+    for (const detailKind of [
+      "compacting_context",
+      "subagent_activity",
+      "tool_end",
+      "thinking_end",
+      "compaction_finished",
+    ]) {
       const history: unknown[] = [];
       const response = await handleAgentActivityPublication(
         request({

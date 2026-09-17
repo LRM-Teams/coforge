@@ -10,13 +10,12 @@ import {
 import {
   activityKindForObservation,
   getAgentDisplay,
-  LIVENESS_ONLY_DETAIL_KINDS,
   type AgentDisplay,
 } from "./agent-display.server";
 import { ensureAgentActivitySweep } from "./agent-activity-sweep.server";
 import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
 import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
-import { agentActivityChannel } from "../../features/agents/agent-activity";
+import { agentActivityChannel, isRunStartMarker } from "../../features/agents/agent-activity";
 import type { AgentActivityKind } from "@lrm/coforge-sdk/internal";
 
 type AgentActivityPublicationDependencies = {
@@ -92,14 +91,17 @@ export async function handleAgentActivityPublication(
         ? "offline"
         : activityKindForObservation(activity);
     const cloudActivity = { ...activity, activityKind: mappedKind };
-    // A busy heartbeat, a content-free liveness-only frame (runtime_progress,
-    // tool_end, thinking_end, compaction_finished; ADR 0021), or a reply to
-    // the server's own liveness probe only renews the display lease; none of
-    // them carry anything worth keeping in history or the recent-activity
-    // popover.
+    // A busy heartbeat, a content-free runtime_progress frame, a content-free run-start
+    // marker (thinking_started/model_response_started with no entries — see
+    // isRunStartMarker), or a reply to the server's own liveness probe only renews the
+    // display lease; none of them carry anything worth keeping in history. ADR 0021
+    // (amended): tool_end, thinking_end and compaction_finished are ordinary status
+    // observations now and are persisted like any other Activity — the log records tool
+    // and thinking completion, only content-free progress pings stay lease-only.
     const isFillerActivity =
       activity.isHeartbeat === true ||
-      LIVENESS_ONLY_DETAIL_KINDS.has(activity.detailKind) ||
+      activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS ||
+      isRunStartMarker(activity.detailKind, activity.entries) ||
       Boolean(activity.probeId);
     const history = isFillerActivity
       ? Promise.resolve()

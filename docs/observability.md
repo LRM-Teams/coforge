@@ -91,10 +91,10 @@ ADR 0021 在 `detailKind` 上新增了以下值，只在对应 provider 确有�
 
 | detailKind | 上报条件 | 展示 |
 | --- | --- | --- |
-| `tool_end` | Claude 的 `tool_result`、Codex 的 `item/completed`（命令）、Kiro 的 `tool_call_update` 终态、Pi 的 `tool_execution_end` | 仅续租，不写入历史，不出现在 popover |
-| `thinking_end` | Claude 的 thinking content block `content_block_stop`；Codex 的 `item/completed`（reasoning）；Kiro、Pi 无对应信号，不上报 | 同 `tool_end` |
+| `tool_end` | Claude 的 `tool_result`、Codex 的 `item/completed`（命令）、Kiro 的 `tool_call_update` 终态、Pi 的 `tool_execution_end` | 可见，写入历史，Activity timeline 展示为一行状态行（主标题 Working，副标题“Tool finished”），不出现在头像 popover（ADR 0021 amendment） |
+| `thinking_end` | Claude 的 thinking content block `content_block_stop`；Codex 的 `item/completed`（reasoning）；Kiro、Pi 无对应信号，不上报 | 同 `tool_end`，副标题“Thinking finished” |
 | `compacting_context` | Claude 的 `system/status=compacting`（原先误报为 `runtime_progress`）；Kiro 的 ACP `compaction_update`（`status=in_progress`）；Codex 无对应信号 | 可见，写入历史，文案“Compacting context…” |
-| `compaction_finished` | 上述两个 provider 各自的结束信号（Claude 的 `compact_boundary`；Kiro 的 `compaction_update` 转为非 `in_progress`） | 仅续租，不写入历史，不出现在 popover |
+| `compaction_finished` | 上述两个 provider 各自的结束信号（Claude 的 `compact_boundary`；Kiro 的 `compaction_update` 转为非 `in_progress`） | 同 `tool_end`，副标题“Compaction finished”（ADR 0021 amendment；此前仅续租、不写入历史） |
 | `subagent_activity` | 任意携带 subagent 归属（Claude `parent_tool_use_id`）的 trajectory entry；只有 Claude 产生这类归属 | 可见，写入历史，文案“Subagent working…” |
 | `message_received` | 消息投递/唤醒后既有的“Message received”上报，改用这个 kind 而不是通用的 `model_request_started` | 可见，写入历史 |
 | `runtime_crashed` | Claude、Codex 进程在非主动停止下意外退出（沿用既有的 `errorClass`/`errorReason`/`fingerprint`，只改 kind）；Kiro、Pi 目前没有等价的进程级信号，意外退出仍报 `stopped` | 可见，写入历史，视为错误 |
@@ -223,7 +223,7 @@ Centrifugo 仅在 `activity` namespace 开启 publish proxy；Backend 根据服�
 metadata 校验 Workspace、Computer、Agent 与 payload scope，并禁止 Daemon 向 control
 channel 发布。通过校验的 observation 按 `(agent_id, launch_id, client_seq)` 幂等写入
 PostgreSQL；`computer_id` 只取可信 connection metadata，不接受 payload 自报。Agent
-详情页读取最近 100 条持久 observation，并用最近一条展示最近观测到的 Computer。写入
+详情页读取最近 500 条持久 observation，并用最近一条展示最近观测到的 Computer。写入
 失败不会反向改变 publication 结果，因此该历史仍可能缺项。单条连接通常保留发送次序，
 但消费者不得依赖 Activity 完整、有序或唯一。
 
@@ -254,6 +254,19 @@ subagent 归属、彼此相邻且中间没有其他条目（包括被隐藏渲�
 `send_message`）的连续文本（或 thinking）帧合并为一行，按时间先后拼接原文，显示为一个
 段落而不是逐帧的碎片行；已持久化的历史同样在读取时按这条规则合并，不需要改动
 Daemon 或存储。
+
+Activity timeline 是完整的按时间顺序工作记录（ADR 0021 amendment），不是只读最新状态的
+展示层：除忙碌心跳（`is_heartbeat=true`）和 liveness probe 应答（带 `probe_id`）外，其余
+每条 Activity 都写入历史并出现在 timeline 里，`tool_end`/`thinking_end`/
+`compaction_finished` 也不例外，渲染为一行状态行（主标题沿用现有 activity-kind 分类，
+副标题说明具体完成了什么）。`runtime_progress` 保持原状——只续租、不落库、不展示。
+`thinking_started`/`model_response_started` 会先以不带 `entries`、`detail` 为空的
+"run-start marker" 上报一次（只用于让展示状态立即翻转到 thinking/working，不代表有可读
+内容），再在有实际文本时补发一条带 `entries` 的正式帧；Web 按 `detailKind` 和 `entries`
+是否为空识别并丢弃前者，只保留带 `entries` 的正式帧进历史和 timeline。`tool_end`/
+`thinking_end` 的副标题优先使用 daemon 上报的 `detail`（当前 daemon 发送 "Tool
+finished"/"Thinking finished"），仅当 `detail` 为空（旧版 daemon、或改版前已落库的历史
+行）时才回退到 Web 自己的措辞；服务端在持久化前不改写、不清空这个 `detail`。
 
 ## 健康与就绪探针
 

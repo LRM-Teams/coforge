@@ -165,6 +165,59 @@ test("compacting_context uses a dedicated label instead of the generic working t
   ]);
 });
 
+// ADR 0021, amended
+test.each([
+  ["tool_end", "Tool finished"],
+  ["thinking_end", "Thinking finished"],
+  ["compaction_finished", "Compaction finished"],
+])(
+  "%s renders one status row: primary label from the activity kind, secondary text naming what finished",
+  (detailKind, secondary) => {
+    const observation = {
+      activityKind: "working" as const,
+      detailKind,
+      level: "info",
+      detail: "",
+    };
+    expect(presentActivity(observation)).toMatchObject([
+      { label: "Working", detail: secondary, tone: "working", monospace: false, expandable: false },
+    ]);
+  },
+);
+
+test("a daemon-sent tool_end/thinking_end detail wins over the fallback wording", () => {
+  const observation = {
+    activityKind: "working" as const,
+    detailKind: "tool_end",
+    level: "info",
+    detail: "Tool finished after 3 retries",
+  };
+  expect(presentActivity(observation)).toMatchObject([
+    { label: "Working", detail: "Tool finished after 3 retries" },
+  ]);
+});
+
+test("runtime_progress has no secondary text (it never reaches the timeline, but stays harmless if it did)", () => {
+  const observation = {
+    activityKind: "working" as const,
+    detailKind: "runtime_progress",
+    level: "info",
+    detail: "",
+  };
+  expect(presentActivity(observation)).toMatchObject([{ label: "Working", detail: "" }]);
+});
+
+test("a tool_end status row between two text fragments closes the merge group like any other atom", () => {
+  const activity = [
+    textFrame(3, "after"),
+    frame({ clientSeq: 2, detailKind: "tool_end", detail: "", activityKind: "working" }),
+    textFrame(1, "before"),
+  ];
+  const rows = presentActivityRows(activity);
+  expect(rows.map((row) => row.label)).toEqual(["Output", "Working", "Output"]);
+  expect(rows.map((row) => row.detail)).toEqual(["after", "Tool finished", "before"]);
+});
+
 test("subagent_activity always shows one unified label, even with entries", () => {
   const observation = {
     activityKind: "working" as const,

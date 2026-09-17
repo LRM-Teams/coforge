@@ -25,15 +25,39 @@ export const agentActivityChannel = (workspaceId: string) => `agent:activity:${w
 /** The avatar popover's row count. */
 export const RECENT_ACTIVITY_LIMIT = 5;
 
-// ADR 0021: liveness-only fillers, same treatment as runtime_progress. Kept
-// local (rather than imported from the server display module) because this
-// file is shared with the browser bundle.
-const LIVENESS_ONLY_DETAIL_KINDS: ReadonlySet<string> = new Set([
+/**
+ * ADR 0021 (amended): `runtime_progress` is the one detail kind that stays a
+ * content-free liveness filler — never persisted, never shown anywhere.
+ * `tool_end`, `thinking_end` and `compaction_finished` are ordinary status
+ * rows now (persisted to history, part of the live Activity timeline); they
+ * are still excluded from the avatar's short recent-activity popover
+ * (`agent-activity-avatar.tsx`) so that view stays limited to genuinely
+ * noteworthy events instead of every tool/thinking completion. Kept local
+ * (rather than imported from the server display module) because this file is
+ * shared with the browser bundle.
+ */
+export const POPOVER_EXCLUDED_DETAIL_KINDS: ReadonlySet<string> = new Set([
   AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
   AGENT_ACTIVITY_DETAIL_KIND.TOOL_END,
   AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
   AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
 ]);
+
+/**
+ * `thinking_started`/`model_response_started` fire twice: once as a content-free marker the
+ * instant a run begins (no `entries`, empty `detail` — its only job is flipping the display
+ * status, which `agent-display.server.ts` already does from `detailKind`/`level` alone, entries
+ * or not), and again with real `entries` once the daemon has actual thinking/output text to
+ * flush. Only the marker is filtered out of history and the timeline; the real flush is an
+ * ordinary Thinking/Output row and is untouched by this predicate.
+ */
+export function isRunStartMarker(detailKind: string, entries?: ActivityTrajectoryEntry[]) {
+  return (
+    (detailKind === AGENT_ACTIVITY_DETAIL_KIND.THINKING_STARTED ||
+      detailKind === AGENT_ACTIVITY_DETAIL_KIND.MODEL_RESPONSE_STARTED) &&
+    !(entries && entries.length > 0)
+  );
+}
 
 export type AgentActivityObservation = { agentId: string; entry: ActivityEntry };
 
@@ -58,13 +82,17 @@ export function decodeActivityObservation(
       event.clientSeq < 1 ||
       !Number.isSafeInteger(event.observedAtMs) ||
       event.observedAtMs < 1 ||
-      // A busy heartbeat only renews the display lease; a liveness-only frame
-      // (runtime_progress, tool_end, thinking_end, compaction_finished; ADR
-      // 0021) carries no rendered content; a reply to the server's own
-      // liveness probe (ADR 0020) is a liveness fact, not new content. None
-      // belong in the recent-activity list.
+      // A busy heartbeat only renews the display lease; a content-free
+      // runtime_progress frame carries no rendered content (ADR 0021,
+      // amended — tool_end/thinking_end/compaction_finished no longer belong
+      // here, see POPOVER_EXCLUDED_DETAIL_KINDS); a run-start marker carries
+      // no rendered content either (see isRunStartMarker); a reply to the
+      // server's own liveness probe (ADR 0020) is a liveness fact, not new
+      // content. None of these belong in the Activity timeline or the
+      // recent-activity list.
       event.isHeartbeat === true ||
-      LIVENESS_ONLY_DETAIL_KINDS.has(event.detailKind) ||
+      event.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS ||
+      isRunStartMarker(event.detailKind, event.entries) ||
       Boolean(event.probeId)
     )
       return undefined;
@@ -87,18 +115,22 @@ export function decodeActivityObservation(
   }
 }
 
+/** The client keeps up to this many activity frames per Agent (mirrors the server's history
+ * cap in `AgentActivityRepository.list`). */
+const ACTIVITY_WINDOW = 500;
+
 export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityEntry[]) {
   const entries = new Map<string, ActivityEntry>();
   for (const entry of [...current, ...incoming]) {
-    // Defense in depth: a content-free liveness-only frame should already
+    // Defense in depth: a content-free runtime_progress frame should already
     // have been dropped by decodeActivityObservation before reaching here.
-    if (LIVENESS_ONLY_DETAIL_KINDS.has(entry.detailKind)) continue;
+    if (entry.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS) continue;
     const key = `${entry.launchId}:${entry.clientSeq}`;
     // Live observations have no database ID; never downgrade a persisted copy.
     if (entries.get(key)?.id && !entry.id) continue;
     entries.set(key, entry);
   }
-  return orderActivity([...entries.values()]).slice(0, 100);
+  return orderActivity([...entries.values()]).slice(0, ACTIVITY_WINDOW);
 }
 
 function orderActivity<T extends ActivityEntry>(activity: T[]): T[] {

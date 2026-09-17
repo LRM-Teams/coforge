@@ -55,10 +55,21 @@ test("chat activity history uses a compact parameterized member-scoped query", a
     },
     { id: "agent-empty", activity: [] },
   ]);
-  expect(query.slice(1)).toEqual(["workspace-1", "user-1", "workspace-1", "workspace-1"]);
+  // Two WHERE clauses now also exclude the popover-hidden status kinds (ADR 0021, amended):
+  // tool_end, thinking_end, compaction_finished, once per CTE.
+  const excludedKinds = ["tool_end", "thinking_end", "compaction_finished"];
+  expect(query.slice(1)).toEqual([
+    "workspace-1",
+    "user-1",
+    "workspace-1",
+    ...excludedKinds,
+    "workspace-1",
+    ...excludedKinds,
+  ]);
   const sql = String.raw({ raw: query[0] as string[] });
   expect(sql).toContain("ROW_NUMBER() OVER");
   expect(sql).toContain('agent."workspaceId" = ');
+  expect(sql).toContain('activity."detailKind" NOT IN');
   expect(sql).not.toContain("workspace-1");
   expect(sql).not.toContain("runtime_config");
   expect(sql).not.toContain('activity."message"');

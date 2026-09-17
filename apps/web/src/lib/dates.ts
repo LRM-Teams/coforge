@@ -25,6 +25,51 @@ export function formatDateForDisplay(
   }).format(new Date(value));
 }
 
+/** Absolute 24h wall-clock time (`HH:MM:SS`), for contexts that need a fixed
+ * timestamp instead of relative text (the Activity timeline's clock column). */
+export function formatClockTime(
+  value: Date | string,
+  timeZone: string | null | undefined,
+  locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
+) {
+  const browserTimeZone =
+    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+  }).format(new Date(value));
+}
+
+/** A sortable `YYYY-MM-DD` key for the calendar day `value` falls on in `timeZone`, used to
+ * detect a day change between two instants (not for display). */
+export function calendarDayKey(value: Date | string, timeZone: string | null | undefined) {
+  const browserTimeZone =
+    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
+/** The display label for a date-separator row: the calendar day only, no time. */
+export function formatCalendarDayLabel(
+  value: Date | string,
+  timeZone: string | null | undefined,
+  locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
+) {
+  const browserTimeZone =
+    typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeZone: resolveTimeZone(timeZone, browserTimeZone),
+  }).format(new Date(value));
+}
+
 export function formatRelativeTime(
   value: Date | string,
   now = new Date(),
