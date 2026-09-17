@@ -5,6 +5,7 @@ import { AgentMessageRequestError } from "../src/connection/agent-message-reques
 import { AgentTaskRequestError } from "../src/connection/agent-task-request-error";
 import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
 import { AgentTransportError } from "../src/connection/agent-transport-error";
+import { AgentManualRequestError } from "../src/connection/agent-manual-request-error";
 import type { AgentProxyFailureBody } from "../src/agent-proxy-failure";
 
 const proxies: Array<{ close(): void }> = [];
@@ -265,6 +266,85 @@ test("proxy forwards validated GitHub credential requests without caching", asyn
       agentApiKey,
     },
   ]);
+});
+
+test("proxy forwards Agent Manual get requests as a plain GET with query parameters", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      manualGet: async (context, request) => {
+        calls.push({ context, request });
+        return {
+          ok: true,
+          docId: "github",
+          topicOrPath: "github",
+          docVersion: "abc123",
+          docState: "published",
+          contentType: "text/markdown",
+          content: "# GitHub\n",
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const endpoint = new URL(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.manual.get.path),
+  );
+  endpoint.searchParams.set("topic", "github");
+  endpoint.searchParams.set("intent", "Open a pull request for the bound repository");
+  endpoint.searchParams.set("reason", "Confirm the exact clone and push commands");
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ ok: true, docId: "github" });
+  expect(calls).toEqual([
+    {
+      context: "agent-a",
+      request: {
+        topic: "github",
+        intent: "Open a pull request for the bound repository",
+        reason: "Confirm the exact clone and push commands",
+      },
+    },
+  ]);
+});
+
+test("proxy forwards an Agent Manual error response's errorCode unchanged, not the generic proxy-failure shape", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      manualSearch: async () => {
+        throw new AgentManualRequestError(
+          "knowledge_not_found",
+          'No Manual topic matched "xyzzy".',
+          404,
+        );
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const endpoint = new URL(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.manual.search.path),
+  );
+  endpoint.searchParams.set("query", "xyzzy");
+  endpoint.searchParams.set("intent", "Find a workflow that does not exist");
+  endpoint.searchParams.set("reason", "Confirm the Manual has no such topic");
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({
+    ok: false,
+    errorCode: "knowledge_not_found",
+    error: 'No Manual topic matched "xyzzy".',
+  });
 });
 
 test("proxy rejects unexpected GitHub credential fields before forwarding", async () => {

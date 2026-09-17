@@ -14,8 +14,14 @@ import type {
   AgentActionPrepareResponse,
   GitHubCredentialRequest,
   GitHubCredentialResponse,
+  AgentManualGetRequest,
+  AgentManualGetResponse,
+  AgentManualSearchRequest,
+  AgentManualSearchResponse,
+  AgentManualErrorCode,
 } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "./agent-message-request-error";
+import { AgentManualRequestError } from "./agent-manual-request-error";
 import { AgentTransportError } from "./agent-transport-error";
 import {
   decodeAgentWorkspaceResetRequest,
@@ -169,6 +175,10 @@ export interface AgentMessageHttpClient {
   requestGitHubCredential?(
     input: AgentHttpInput<GitHubCredentialRequest>,
   ): Promise<GitHubCredentialResponse>;
+  requestManualGet?(input: AgentHttpInput<AgentManualGetRequest>): Promise<AgentManualGetResponse>;
+  requestManualSearch?(
+    input: AgentHttpInput<AgentManualSearchRequest>,
+  ): Promise<AgentManualSearchResponse>;
 }
 
 /**
@@ -312,6 +322,11 @@ export interface DaemonConnectionClient {
     request: GitHubCredentialRequest,
     agentApiKey?: string,
   ): Promise<GitHubCredentialResponse>;
+  manualGet?(request: AgentManualGetRequest, agentApiKey?: string): Promise<AgentManualGetResponse>;
+  manualSearch?(
+    request: AgentManualSearchRequest,
+    agentApiKey?: string,
+  ): Promise<AgentManualSearchResponse>;
   onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
   sendAgentControlResult?(result: AgentControlResult): Promise<void>;
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
@@ -531,6 +546,51 @@ async function getAgentJson<Result>(
   return readAgentResponseJson<Result>(response, input.what, input.validate);
 }
 
+/**
+ * GETs an Agent Manual route, whose JSON error body is always `{ ok: false, errorCode, error }`
+ * (Raft-aligned; see ADR 0036), unlike the plain-text/allowlisted `messages` error contract
+ * `getAgentJson` assumes. A well-formed error body becomes a typed `AgentManualRequestError`
+ * carrying its `errorCode` through to the CLI; anything else is a genuine transport failure.
+ */
+async function getAgentManualJson<Result extends { ok: true }>(
+  fetcher: HttpFetch,
+  input: Omit<AgentHttpInput<never>, "request"> & {
+    query: Record<string, string | undefined>;
+    what: string;
+  },
+): Promise<Result> {
+  const endpoint = new URL(input.url);
+  for (const [key, value] of Object.entries(input.query))
+    if (value !== undefined) endpoint.searchParams.set(key, value);
+  const response = await fetchAgentResponse(
+    fetcher,
+    endpoint,
+    { method: "GET", headers: agentHeaders(input) },
+    input.what,
+  );
+  let data: unknown;
+  try {
+    data = await readAgentResponseText(response, input.what).then((text) => JSON.parse(text));
+  } catch {
+    throw AgentTransportError.protocolMismatch(
+      input.what,
+      response.status,
+      "response body is not valid JSON",
+    );
+  }
+  if (!response.ok) {
+    const body = data as { errorCode?: unknown; error?: unknown } | null;
+    if (body && typeof body.errorCode === "string" && typeof body.error === "string")
+      throw new AgentManualRequestError(
+        body.errorCode as AgentManualErrorCode,
+        body.error,
+        response.status,
+      );
+    throw AgentTransportError.upstreamHttpResponse(input.what, response.status);
+  }
+  return data as Result;
+}
+
 const AGENT_SEND_STATES = new Set(["sent", "held", "denied"]);
 
 /** Validates the send route's response shape; the incident this module exists to prevent. */
@@ -686,6 +746,18 @@ export const createAgentMessageHttpClient = (
     );
     return { ...data, protocolMajor: request.protocolMajor, requestId: request.requestId };
   },
+  requestManualGet: ({ request, ...keys }) =>
+    getAgentManualJson<AgentManualGetResponse>(httpClient, {
+      ...keys,
+      what: "agent manual get",
+      query: { topic: request.topic, intent: request.intent, reason: request.reason },
+    }),
+  requestManualSearch: ({ request, ...keys }) =>
+    getAgentManualJson<AgentManualSearchResponse>(httpClient, {
+      ...keys,
+      what: "agent manual search",
+      query: { query: request.query, intent: request.intent, reason: request.reason },
+    }),
   async requestGitHubCredential({ url, request, ...keys }) {
     const response = await httpClient(url, {
       method: "POST",
@@ -1253,6 +1325,36 @@ export class DaemonConnection implements DaemonConnectionClient {
       throw new Error("GitHub credential HTTP client is unavailable");
     return this.agentMessageHttpClient.requestGitHubCredential({
       url: this.#serverEndpoint("GitHub credential", agentApiRoutes.cloud.githubCredentials.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async manualGet(
+    request: AgentManualGetRequest,
+    agentApiKey?: string,
+  ): Promise<AgentManualGetResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent Manual endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestManualGet)
+      throw new Error("Agent Manual HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestManualGet({
+      url: this.#serverEndpoint("Agent manual get", agentApiRoutes.cloud.manual.get.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async manualSearch(
+    request: AgentManualSearchRequest,
+    agentApiKey?: string,
+  ): Promise<AgentManualSearchResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent Manual endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestManualSearch)
+      throw new Error("Agent Manual HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestManualSearch({
+      url: this.#serverEndpoint("Agent manual search", agentApiRoutes.cloud.manual.search.path),
       ...this.#agentKeys(agentApiKey),
       request,
     });

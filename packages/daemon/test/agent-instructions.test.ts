@@ -57,6 +57,24 @@ test("channels allow selective replies and self mute without hiding history", ()
   expect(instructions).toContain("Do not disclose private conversation contents");
 });
 
+test("the Agent Manual is introduced as a short capability pointer, not a restructured section", () => {
+  expect(instructions).toContain('coforge manual get index --intent "<text>" --reason "<text>"');
+  expect(instructions).toContain(
+    'coforge manual search "<keywords>" --intent "<text>" --reason "<text>"',
+  );
+  expect(instructions).toContain("--intent");
+  expect(instructions).toContain("--reason");
+  expect(instructions).toContain(
+    "never put a raw prompt, credential, private URL, or message payload in either field",
+  );
+  // Not adjacent to "### Public channels": another in-flight PR inserts a new heading right
+  // before it, and this bullet must not collide with that insertion point.
+  const manualBulletIndex = instructions.indexOf("coforge manual get index");
+  const publicChannelsIndex = instructions.indexOf("### Public channels");
+  expect(manualBulletIndex).toBeGreaterThan(-1);
+  expect(publicChannelsIndex - manualBulletIndex).toBeGreaterThan(200);
+});
+
 test("channel management authority matches Raft's per-channel rule and disclaims Agent role changes", () => {
   expect(instructions).toContain(
     "Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`, `add-member`, `remove-member`) are authorized per channel",

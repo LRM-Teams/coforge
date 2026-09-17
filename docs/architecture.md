@@ -1430,6 +1430,24 @@ Agent 创建仍受 ADR 0025 的 owner/admin 门槛约束：`agent:create` action
 （`toAgentMessage`）在卡片消息末尾追加 `[action card: pending|executed|
 cancelled]`，避免 Agent 在卡片仅是 `pending` 时就误认为资源已创建。
 
+### 6.8 Agent Manual
+
+`coforge manual get <topic>|index` 与 `coforge manual search "<keywords>"`（ADR 0036）对齐
+Raft 1.0.32 的 `raft manual` / `/knowledge`：standing prompt
+（`packages/daemon/src/code-agent/agent-instructions.ts`）只保留一条能力索引式的提示，长文档
+按需从服务端拉取，这样内容修正不需要 Daemon 发版。契约位于
+`packages/coforge-sdk/src/agent/manual.ts`，服务端路由是
+`GET /api/agent/v1/manual`（`topic`/`intent`/`reason`）与
+`GET /api/agent/v1/manual/search`（`query`/`intent`/`reason`），响应字段名沿用 Raft
+（`docId`/`topicOrPath`/`docVersion`/`docState`/`contentType`/`content`，以及 search 的
+`slug`/`title`/`firstScreen`），路由路径改用 CoForge 自己的 `manual` 命名。`--intent`/
+`--reason` 在 CLI 侧和服务端各校验一次（12–500 字符，两者都非法时一条错误同时指出两者），
+每次调用（含 `not_found`）都写入 `AgentManualEvent`，非法输入的 400 不记录，写入失败不影响
+读取。搜索是关键词打分（v1 不含向量/概念扩展），标题/slug 权重高于摘要、摘要高于正文，
+含 CJK 字符的词按子串而非词边界匹配。首批内容只有 `github`、`manual` 两个主题，加上从注册表
+生成的 `index`；主题 markdown 存放在 `apps/web/src/server/agents/manual/topics/`，用 Vite 的
+`?raw` 后缀在构建期打包为字符串（`bun test` 下同样有效，无需额外 loader）。
+
 ## 7. 端到端链路
 
 ```text

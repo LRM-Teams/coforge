@@ -2496,3 +2496,157 @@ test("message send forwards mentions and targetConfirmed to the transport on --s
     },
   ]);
 });
+
+test("manual get parses topic, --intent and --reason and dispatches to the transport", async () => {
+  const validIntent = "Open a pull request for a bound repository";
+  const validReason = "Confirm the exact clone and push commands to use";
+  expect(
+    parseArgs(["manual", "get", "github", "--intent", validIntent, "--reason", validReason]),
+  ).toEqual({
+    command: "manual-get",
+    topic: "github",
+    intent: validIntent,
+    reason: validReason,
+  });
+  const calls: unknown[] = [];
+  const output = await run(
+    ["manual", "get", "github", "--intent", validIntent, "--reason", validReason],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      manualGet: async (topic, intent, reason) => {
+        calls.push({ topic, intent, reason });
+        return {
+          ok: true,
+          docId: "github",
+          topicOrPath: "github",
+          docVersion: "abc123",
+          docState: "published",
+          contentType: "text/markdown",
+          content: "# GitHub\n\nClone it.",
+        };
+      },
+    },
+  );
+  expect(calls).toEqual([{ topic: "github", intent: validIntent, reason: validReason }]);
+  // Content is verbatim; the entry point's console.log supplies the single trailing newline.
+  expect(output).toBe("# GitHub\n\nClone it.");
+});
+
+test("manual search parses keywords, --intent and --reason and formats numbered results", async () => {
+  const validIntent = "Open a pull request for a bound repository";
+  const validReason = "Confirm the exact clone and push commands to use";
+  expect(
+    parseArgs([
+      "manual",
+      "search",
+      "github pull request",
+      "--intent",
+      validIntent,
+      "--reason",
+      validReason,
+    ]),
+  ).toEqual({
+    command: "manual-search",
+    query: "github pull request",
+    intent: validIntent,
+    reason: validReason,
+  });
+  const output = await run(
+    ["manual", "search", "github pull request", "--intent", validIntent, "--reason", validReason],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      manualSearch: async () => ({
+        ok: true,
+        query: "github pull request",
+        scope: null,
+        results: [
+          {
+            slug: "github",
+            title: "Working with GitHub",
+            firstScreen: "Clone a repo.\nOpen a PR.",
+          },
+        ],
+      }),
+    },
+  );
+  expect(output).toBe("1. github — Working with GitHub\n   Clone a repo.\n   Open a PR.");
+});
+
+test("manual rejects a missing topic/keywords argument", () => {
+  expect(() =>
+    parseArgs(["manual", "get", "--intent", "x".repeat(20), "--reason", "y".repeat(20)]),
+  ).toThrow();
+  expect(() => parseArgs(["manual", "search"])).toThrow();
+});
+
+test("manual client-side validates --intent/--reason (12-500 chars, trimmed) before sending", () => {
+  const long = "x".repeat(20);
+  // Missing both.
+  expect(() => parseArgs(["manual", "get", "github"])).toThrow(CliError);
+  try {
+    parseArgs(["manual", "get", "github"]);
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("KNOWLEDGE_INTENT_INVALID");
+    expect((error as CliError).message).toContain("--intent");
+    expect((error as CliError).message).toContain("--reason");
+  }
+  // Reason too short.
+  try {
+    parseArgs(["manual", "get", "github", "--intent", long, "--reason", "short"]);
+    throw new Error("expected a CliError");
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("KNOWLEDGE_REASON_INVALID");
+  }
+  // Both present and long enough: no throw.
+  expect(() =>
+    parseArgs(["manual", "get", "github", "--intent", long, "--reason", long]),
+  ).not.toThrow();
+});
+
+test("manual get surfaces a knowledge_not_found CliError with the Raft-aligned browse-index guidance", async () => {
+  const validIntent = "Open a pull request for a bound repository";
+  const validReason = "Confirm the exact clone and push commands to use";
+  try {
+    await run(
+      ["manual", "get", "does-not-exist", "--intent", validIntent, "--reason", validReason],
+      {
+        check: async () => ({ messages: [] }),
+        read: async () => undefined,
+        send: async () => undefined,
+        view: async () => ({ bytes: new Uint8Array() }),
+        manualGet: async () => {
+          throw new CliError({
+            code: "knowledge_not_found",
+            message: 'No Manual topic "does-not-exist".',
+            retryable: false,
+            suggestedNextAction: "Retry with a close topic id or different keywords",
+          });
+        },
+      },
+    );
+    throw new Error("expected a CliError");
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("knowledge_not_found");
+    expect(renderCliErrorText(error as CliError)).toContain("Next action:");
+  }
+});
+
+test("manual accepts flags before the positional and trims every value", () => {
+  const intent = "Clone the project repository";
+  const reason = "Need the documented git workflow";
+  expect(
+    parseArgs(["manual", "search", "--intent", ` ${intent} `, "--reason", reason, " clone repo "]),
+  ).toEqual({ command: "manual-search", query: "clone repo", intent, reason });
+  expect(() =>
+    parseArgs(["manual", "get", "github", "extra", "--intent", intent, "--reason", reason]),
+  ).toThrow();
+});

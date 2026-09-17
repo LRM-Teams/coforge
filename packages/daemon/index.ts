@@ -178,6 +178,8 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           agentWeeklyReport: async (...input) => requireRuntime().agentWeeklyReport(...input),
           workspaceInfo: async (...input) => requireRuntime().workspaceInfo(...input),
           githubCredential: async (...input) => requireRuntime().githubCredential(...input),
+          manualGet: async (...input) => requireRuntime().manualGet(...input),
+          manualSearch: async (...input) => requireRuntime().manualSearch(...input),
           issueAgentContext: (agentId) => requireRuntime().issueAgentContext(agentId),
         },
       });

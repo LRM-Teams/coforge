@@ -175,3 +175,10 @@ export function unknownDeliveryNextAction(target: string): string {
 /** Guidance for a failure raised BEFORE any request was issued; nothing to undo or wait on. */
 export const NO_MESSAGE_SENT_NEXT_ACTION =
   "No message was sent; fix the problem above, then run the command again.";
+
+/** Raft-aligned guidance for `coforge manual get|search` when the topic or query did not match:
+ * retry narrower, or browse the generated catalog via the `index` topic. */
+export const MANUAL_NOT_FOUND_NEXT_ACTION =
+  "Retry with a close topic id or different keywords, keeping the same --intent/--reason. To " +
+  'browse all topics, run the index command: coforge manual get index --intent "Learn ' +
+  'available CoForge workflows" --reason "Browse the topic catalog after a missing topic"';
