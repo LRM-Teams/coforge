@@ -1,8 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentProcessManager } from "../src/agent-runtime/agent-process-manager";
+import { buildInitialMemoryMd } from "../src/agent-runtime/agent-memory-seed";
 import type { AgentSession, AgentRuntimeConfig, AgentSessionOptions } from "@coforge/agent";
 import type { CodeAgentProvider } from "../src/code-agent/contract";
 import { AgentProcessCleanupError } from "../src/code-agent/contract";
@@ -129,6 +130,96 @@ describe("AgentProcessManager", () => {
     try {
       await manager.start("agent-1", config, workspace);
       expect(directoryExistsAtStart).toBe(true);
+    } finally {
+      await manager.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("seeds MEMORY.md into the Agent workspace on start, using the server-authored identity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-agent-memory-seed-manager-"));
+    const workspace = join(root, "agents", "agent-1");
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async createAgentSession() {
+        return sessionSpy();
+      },
+    }));
+
+    try {
+      await manager.start(
+        "agent-1",
+        config,
+        workspace,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        { name: "scout", displayName: "Scout", description: "Reviews pull requests." },
+      );
+      const content = await readFile(join(workspace, "MEMORY.md"), "utf8");
+      expect(content).toBe(
+        buildInitialMemoryMd({
+          name: "scout",
+          displayName: "Scout",
+          description: "Reviews pull requests.",
+        }),
+      );
+    } finally {
+      await manager.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a second start leaves an Agent-modified MEMORY.md alone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-agent-memory-seed-preserve-"));
+    const workspace = join(root, "agents", "agent-1");
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async createAgentSession() {
+        return sessionSpy();
+      },
+    }));
+
+    try {
+      await manager.start(
+        "agent-1",
+        config,
+        workspace,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        {
+          name: "scout",
+        },
+      );
+      await manager.stop("agent-1");
+      const memoryPath = join(workspace, "MEMORY.md");
+      const ownedContent = "# Scout\n\n## Role\nKnowledge the Agent accumulated on its own.\n";
+      await writeFile(memoryPath, ownedContent, { encoding: "utf8" });
+
+      await manager.start(
+        "agent-1",
+        config,
+        workspace,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        {
+          name: "scout",
+          description: "A brand-new description that must not overwrite the file above.",
+        },
+      );
+
+      expect(await readFile(memoryPath, "utf8")).toBe(ownedContent);
     } finally {
       await manager.shutdown();
       await rm(root, { recursive: true, force: true });

@@ -239,7 +239,12 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   When an Agent session lacks older user-referenced context, the standing
   instructions direct it to lexical `coforge message search` and then a
   target-scoped `message read --around`; restart recovery must not eagerly load
-  all canonical history.
+  all canonical history. `agent-runtime/agent-memory-seed.ts` seeds a starter
+  `MEMORY.md` into the Agent workspace right after `AgentProcessManager.start`'s
+  workspace `mkdir`, matching the standing prompt's `Workspace & Memory`/
+  `Compaction safety` sections (ADR 0036). It only ever creates the file
+  (`flag: "wx"`, `EEXIST` swallowed) and never overwrites one an Agent has
+  already written to; a seed failure is logged and never fails the launch.
 - `agent-app-inbox/` owns typed App-item identity, validation, retention, and
   acknowledgement. It is separate from canonical chat Message attention.
 - `agent-reminder/` owns the authenticated cloud schedule mirror, version-fenced
