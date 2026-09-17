@@ -1,10 +1,12 @@
 import {
   decodeLocalReminderRequest,
   encodeLocalReminderRequest,
+  isReminderId,
   isValidReactionEmoji,
   type AgentMessageRecord,
   type AgentReminderOperationResponse,
   type LocalReminderRequest,
+  type ReminderSummaryRecord,
   type TaskCommand,
   type TaskResult,
   type TaskStatus,
@@ -13,6 +15,7 @@ import {
   type WeeklyReportResponse,
   WEEKLY_REPORT_SUBJECT_TYPES,
 } from "@lrm/coforge-sdk/internal";
+import { parseDurationSeconds } from "./src/reminder-duration";
 import {
   createAgentApiClient,
   createMessageTransportAgentApiTransport,
@@ -366,7 +369,8 @@ export async function run(args: readonly string[], transport: MessageTransport):
   if (invocation.command === "reminder") {
     if (!transport.reminder) throw new Error("Reminder transport is unavailable");
     const { command: _command, ...request } = invocation;
-    return formatReminderResponse(request.operation, await transport.reminder(request));
+    const resolved = await resolveReminderRequestId(transport, request);
+    return formatReminderResponse(resolved.operation, await transport.reminder(resolved));
   }
   if (invocation.command === "task") {
     if (!transport.task) throw new Error("Task transport is unavailable");
@@ -645,7 +649,10 @@ function isMessageCommand(value: string | undefined): value is MessageCommand {
 }
 
 const REMINDER_USAGE =
-  "Usage: coforge reminder schedule --title <title> --target <target> --message-id <full UUID|8hex> (--delay-seconds <n> | --fire-at <timestamp> | --repeat <rule>) [--repeat <rule>] [--tz <timezone>] | coforge reminder list (--all | --status scheduled|fired|canceled) | coforge reminder update --id <full UUID> [--title <title>] [--fire-at <timestamp>] [--repeat <rule|none>] [--tz <timezone>] | coforge reminder snooze --id <full UUID> (--delay-seconds <n> | --fire-at <timestamp>) | coforge reminder cancel|log --id <full UUID> | coforge reminder ack|dismiss --id <full UUID> --revision <n>";
+  "Usage: coforge reminder schedule --title <title> (--target <target>|--channel <target>) (--message-id <full UUID|8hex>|--msg-id <full UUID|8hex>) (--delay-seconds <n|duration> | --fire-at <timestamp> | --repeat <rule>) [--repeat <rule>] [--tz <timezone>] | coforge reminder list [--all | --status <comma-list of scheduled,fired,canceled; default scheduled,fired>] | coforge reminder update --id <full UUID|8hex+> (--fire-at <timestamp> | --in <duration> | --repeat <rule|none>|--cadence <rule|none> | --title <title>) [--tz <timezone>] | coforge reminder snooze --id <full UUID|8hex+> (--delay-seconds <n|duration> | --by <duration> | --fire-at <timestamp>) | coforge reminder cancel|log --id <full UUID|8hex+> | coforge reminder ack|dismiss --id <full UUID|8hex+> --revision <n>";
+
+/** A resolvable `--id` is a full UUID or a case-insensitive hex prefix of at least 8 characters. */
+const REMINDER_ID_PREFIX = /^[0-9a-f]{8,}$/i;
 
 function parseReminderArgs(args: readonly string[]): ReminderInvocation {
   const operation = args[0];
@@ -658,16 +665,29 @@ function parseReminderArgs(args: readonly string[]): ReminderInvocation {
     "--id": "reminderId",
     "--title": "title",
     "--target": "target",
+    "--channel": "target",
     "--message-id": "messageId",
+    "--msg-id": "messageId",
     "--delay-seconds": "delaySeconds",
     "--fire-at": "fireAt",
     "--repeat": "repeat",
+    "--cadence": "repeat",
     "--tz": "timezone",
     "--status": "status",
     "--revision": "revision",
   };
   const request: Record<string, unknown> = { command: "reminder", operation };
   const seen = new Set<string>();
+  // Tracks which literal flag last claimed each logical field, so an alias used together with its
+  // canonical spelling (or with another alias of the same field) is a usage error even though the
+  // two flags are spelled differently and so never collide in `seen`.
+  const flagForField = new Map<string, string>();
+  const claimField = (field: string, flag: string) => {
+    const existing = flagForField.get(field);
+    if (existing !== undefined && existing !== flag)
+      throw new Error(`Cannot combine ${flag} with ${existing}.\n${REMINDER_USAGE}`);
+    flagForField.set(field, flag);
+  };
   for (let index = 1; index < args.length; index++) {
     const flag = args[index]!;
     if (seen.has(flag)) throw new Error(`Duplicate reminder flag: ${flag}\n${REMINDER_USAGE}`);
@@ -676,11 +696,32 @@ function parseReminderArgs(args: readonly string[]): ReminderInvocation {
       request.all = true;
       continue;
     }
+    if (flag === "--by" || flag === "--in") {
+      // Both are duration spellings of the same wire field, `delaySeconds`: `--by` on snooze and
+      // `--in` on update. Neither computes an absolute `fireAt` locally — the daemon/server derive
+      // the due time from `delaySeconds` exactly as they already do for snooze.
+      const value = args[++index];
+      if (value === undefined || value.startsWith("--"))
+        throw new Error(`Unknown or incomplete reminder flag: ${flag}\n${REMINDER_USAGE}`);
+      const seconds = parseDurationSeconds(value);
+      if (seconds === null)
+        throw new Error(`Invalid duration for ${flag}: '${value}'.\n${REMINDER_USAGE}`);
+      claimField("delaySeconds", flag);
+      request.delaySeconds = seconds;
+      continue;
+    }
     const field = names[flag];
     const value = args[++index];
     if (!field || value === undefined || value.startsWith("--"))
       throw new Error(`Unknown or incomplete reminder flag: ${flag}\n${REMINDER_USAGE}`);
-    if (field === "delaySeconds" || field === "revision") {
+    claimField(field, flag);
+    if (field === "delaySeconds") {
+      const integer = Number(value);
+      const seconds =
+        Number.isSafeInteger(integer) && integer >= 1 ? integer : parseDurationSeconds(value);
+      if (seconds === null) throw new Error(REMINDER_USAGE);
+      request[field] = seconds;
+    } else if (field === "revision") {
       const number = Number(value);
       if (!Number.isSafeInteger(number) || number < 1) throw new Error(REMINDER_USAGE);
       request[field] = number;
@@ -693,9 +734,16 @@ function parseReminderArgs(args: readonly string[]): ReminderInvocation {
   )
     request.timezone = "Asia/Shanghai";
   validateReminderShape(request as ReminderInvocation);
+  // The wire-level round trip below requires a full UUID for `reminderId` (the daemon and server
+  // never see a bare prefix — it is resolved to a full ID before the real request goes out; see
+  // `resolveReminderRequestId`). Substitute a throwaway, well-formed UUID so this local check still
+  // validates every other field early; the substitution is discarded and never sent anywhere.
+  const rawId = request.reminderId as string | undefined;
+  const needsIdProbe = rawId !== undefined && !isReminderId(rawId);
   decodeLocalReminderRequest(
     encodeLocalReminderRequest({
       ...request,
+      ...(needsIdProbe ? { reminderId: "12345678-1234-4123-8123-123456789abc" } : {}),
       requestId: "cli-validation",
       context: "cli-validation",
     } as LocalReminderRequest),
@@ -708,7 +756,7 @@ function validateReminderShape(value: ReminderInvocation): void {
   const allowed: Record<string, readonly (keyof ReminderTransportRequest)[]> = {
     schedule: ["title", "target", "messageId", "delaySeconds", "fireAt", "repeat", "timezone"],
     list: ["all", "status"],
-    update: ["reminderId", "title", "fireAt", "repeat", "timezone"],
+    update: ["reminderId", "title", "fireAt", "delaySeconds", "repeat", "timezone"],
     snooze: ["reminderId", "delaySeconds", "fireAt"],
     cancel: ["reminderId"],
     log: ["reminderId"],
@@ -721,11 +769,10 @@ function validateReminderShape(value: ReminderInvocation): void {
   if (fields.some((field) => !allowed[value.operation]!.includes(field)))
     throw new Error(REMINDER_USAGE);
   const id = value.reminderId;
-  if (
-    id !== undefined &&
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
-  )
-    throw new Error(`Invalid reminder ID; full UUID required.\n${REMINDER_USAGE}`);
+  if (id !== undefined && !isReminderId(id) && !REMINDER_ID_PREFIX.test(id))
+    throw new Error(
+      `Invalid reminder ID; full UUID or an id prefix of at least 8 hex characters required.\n${REMINDER_USAGE}`,
+    );
   const timed = Number(present("delaySeconds")) + Number(present("fireAt"));
   if (
     value.operation === "schedule" &&
@@ -737,18 +784,105 @@ function validateReminderShape(value: ReminderInvocation): void {
       value.repeat === "none")
   )
     throw new Error(REMINDER_USAGE);
-  if (value.operation === "list" && Number(present("all")) + Number(present("status")) !== 1)
+  // Raft's `list` defaults to scheduled,fired when neither `--all` nor `--status` is given
+  // (the server already applies that default); only passing both together is a usage error.
+  if (value.operation === "list" && present("all") && present("status"))
     throw new Error(REMINDER_USAGE);
   if (["cancel", "log"].includes(value.operation) && !id) throw new Error(REMINDER_USAGE);
   if (value.operation === "snooze" && (!id || timed !== 1)) throw new Error(REMINDER_USAGE);
-  if (
-    value.operation === "update" &&
-    (!id ||
-      ![value.title, value.fireAt, value.repeat, value.timezone].some((item) => item !== undefined))
-  )
-    throw new Error(REMINDER_USAGE);
+  if (value.operation === "update") {
+    if (!id || timed > 1) throw new Error(REMINDER_USAGE);
+    // Raft: "Pass exactly one of --fire-at, --in, --cadence, or --title" (code INVALID_ARG).
+    // --fire-at and --in both land in `timed` (the time mutation), so they count as one slot.
+    const mutations = [timed === 1, value.repeat !== undefined, value.title !== undefined].filter(
+      Boolean,
+    ).length;
+    if (mutations !== 1)
+      throw new Error(
+        `Pass exactly one of --fire-at, --in, --cadence, or --title.\n${REMINDER_USAGE}`,
+      );
+    if (value.timezone !== undefined && value.repeat === undefined)
+      throw new Error(
+        `--tz may only accompany a cadence change (--cadence/--repeat).\n${REMINDER_USAGE}`,
+      );
+  }
   if (["ack", "dismiss"].includes(value.operation) && (!id || !value.revision))
     throw new Error(REMINDER_USAGE);
+}
+
+/** The `list` scope an `--id` prefix lookup runs under, matching Raft's per-command scoping. */
+export type ReminderIdResolutionScope = { all: true } | { statuses: readonly string[] };
+
+/**
+ * Reminder operations that take `--id`, and the `list` scope each resolves a short prefix within.
+ * `cancel`/`snooze` only ever act on an active reminder, so they resolve within scheduled/fired,
+ * same as Raft. `update`, `log`, `ack`, and `dismiss` can target any status (Raft's `update` passes
+ * `all: true`; `log` doesn't resolve client-side at all in Raft, but our wire protocol always
+ * requires a full UUID, so we resolve unscoped — the "if it resolves with all, use all" case).
+ */
+const REMINDER_ID_RESOLUTION_SCOPE: Record<string, ReminderIdResolutionScope> = {
+  cancel: { statuses: ["scheduled", "fired"] },
+  snooze: { statuses: ["scheduled", "fired"] },
+  update: { all: true },
+  log: { all: true },
+  ack: { all: true },
+  dismiss: { all: true },
+};
+
+/**
+ * Resolves `request.reminderId` to a full UUID when it is a short prefix, leaving every other
+ * request untouched. A full UUID never triggers the lookup (the brief's "skip the lookup" case).
+ */
+async function resolveReminderRequestId(
+  transport: Pick<MessageTransport, "reminder">,
+  request: ReminderTransportRequest,
+): Promise<ReminderTransportRequest> {
+  const scope = REMINDER_ID_RESOLUTION_SCOPE[request.operation];
+  if (!scope || !request.reminderId) return request;
+  if (isReminderId(request.reminderId)) return request;
+  return {
+    ...request,
+    reminderId: await resolveReminderId(transport, request.reminderId, scope),
+  };
+}
+
+/**
+ * Resolves an `--id` prefix (at least 8 hex characters, case-insensitive) to the one full reminder
+ * ID it matches, by listing reminders within `scope` and comparing prefixes against each id with
+ * its formatting dashes stripped. Takes the transport directly (rather than reaching for the
+ * ambient one) so it is unit-testable with a fake transport.
+ */
+export async function resolveReminderId(
+  transport: Pick<MessageTransport, "reminder">,
+  prefix: string,
+  scope: ReminderIdResolutionScope = { all: true },
+): Promise<string> {
+  if (!transport.reminder) throw new Error("Reminder transport is unavailable");
+  const response = (await transport.reminder(
+    "all" in scope
+      ? { operation: "list", all: true }
+      : { operation: "list", status: scope.statuses.join(",") },
+  )) as AgentReminderOperationResponse;
+  const lowerPrefix = prefix.toLowerCase();
+  const matches = (response.reminders ?? []).filter((item: ReminderSummaryRecord) =>
+    item.reminderId.replace(/-/g, "").toLowerCase().startsWith(lowerPrefix),
+  );
+  // Mirrors Raft's `resolveReminderId`: an unscoped ("all") lookup just says "reminder"; a
+  // status-scoped lookup names the scope, e.g. "scheduled/fired reminder".
+  const scopeLabel = "all" in scope ? "reminder" : `${scope.statuses.join("/")} reminder`;
+  if (matches.length === 0)
+    throw new CliError({
+      code: "NOT_FOUND",
+      message: `No ${scopeLabel} matches id prefix '${prefix}'.`,
+      retryable: false,
+    });
+  if (matches.length > 1)
+    throw new CliError({
+      code: "AMBIGUOUS",
+      message: `Ambiguous id prefix '${prefix}' matches ${matches.length} reminders; pass a longer id.`,
+      retryable: false,
+    });
+  return matches[0]!.reminderId;
 }
 
 function formatReminderResponse(

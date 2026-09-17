@@ -17,6 +17,8 @@ message AgentReminderOperationRequest {
   optional uint32 delay_seconds = 12;
   optional string repeat = 13;
   optional string timezone = 14;
+  // list only: a comma-separated, duplicate-free subset of scheduled,fired,canceled. Omitting both
+  // status and all defaults to scheduled,fired; all requests every status, including canceled.
   optional string status = 15;
   optional bool all = 16;
 }
@@ -29,6 +31,7 @@ message ReminderSummaryRecord {
   string target = 5;
   string message_id = 6;
   string fire_at = 7;
+  // A single reminder's own status: scheduled, fired, or canceled.
   string status = 8;
   optional string repeat = 9;
   optional string timezone = 10;
