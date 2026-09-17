@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 
+import { formatMessageLine } from "@lrm/coforge/message-format";
+import type { AgentMessageRecord } from "@lrm/coforge-sdk/internal";
+
 import {
   buildCoforgeAgentInstructions,
   buildCoforgeCliGuideSections,
@@ -393,6 +396,7 @@ test("the prompt is its named sections, in order, each opening with its own head
     credentialHandling: "### Credential handling",
     criticalRules: "CRITICAL RULES:",
     startupSequence: "## Startup sequence",
+    messaging: "## Messaging",
     messages: "### Messages",
     workspaceAndAttachments: "### Workspace and attachments",
     projectCodeAndGitHub: "### Project code and GitHub",
@@ -401,6 +405,8 @@ test("the prompt is its named sections, in order, each opening with its own head
     reminders: "### Reminders",
     tasks: "### Tasks",
     splittingTasks: "### Splitting tasks for parallel execution",
+    mentions: "## @Mentions",
+    formatting: "## Formatting — mentions and references",
     actionCards: "### Action cards",
     communicationStyle: "## Communication style",
     conversationEtiquette: "### Conversation etiquette",
@@ -477,10 +483,9 @@ test("CRITICAL RULES is not a Markdown heading and carries the two fixed CoForge
 });
 
 test("CRITICAL RULES renders extra rules between the first and the last two fixed rules", () => {
-  const section = buildCoforgeCliGuideSections([
-    "- Extra rule one.",
-    "- Extra rule two.",
-  ]).criticalRules;
+  const section = buildCoforgeCliGuideSections({
+    extraCriticalRules: ["- Extra rule one.", "- Extra rule two."],
+  }).criticalRules;
   const lines = section.split("\n");
   expect(lines).toEqual([
     "CRITICAL RULES:",
@@ -524,4 +529,103 @@ test("extraCriticalRules threads through buildCoforgeAgentInstructions and defau
   );
   expect(criticalRulesIndex).toBeLessThan(extraIndex);
   expect(extraIndex).toBeLessThan(lastFixedRuleIndex);
+});
+
+test("Messaging sits between Startup sequence and Messages, and reconciles with the check rule", () => {
+  expect(instructions.indexOf("## Startup sequence")).toBeLessThan(
+    instructions.indexOf("## Messaging"),
+  );
+  expect(instructions.indexOf("## Messaging")).toBeLessThan(instructions.indexOf("### Messages"));
+  expect(instructions).toContain("Choose when to run `coforge message check`");
+  // Must not contradict the existing Messages rule that a successful check's pending messages are
+  // processed before the turn ends.
+  expect(instructions).toContain(
+    "once a check actually returns pending messages, process all of them before you finish that turn",
+  );
+  expect(instructions).toContain(
+    "A successful check displays only newly pending messages and marks them read. Process them before finishing your turn.",
+  );
+});
+
+test("Messaging's example lines are the real formatMessageLine shape, not a hand-copied format", () => {
+  const fixture: AgentMessageRecord = {
+    id: "11111111-2222-3333-4444-555555555555",
+    sequence: 1,
+    sender: "@alice",
+    target: "@alice",
+    body: "Can you look at the login bug?",
+    createdAt: "2026-03-15T09:00:00.000Z",
+    attachments: [],
+  };
+  const rendered = formatMessageLine(fixture);
+  // Structural shape shared by every example line: [target=<t> msg=<8 hex> time=<UTC>] <sender>: <body>
+  const lineShape =
+    /^\[target=\S+ msg=[0-9a-f]{8} time=\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z\] \S+: .+$/;
+  expect(rendered).toMatch(lineShape);
+  expect(rendered).not.toContain("type=");
+
+  const messagingSection = buildCoforgeCliGuideSections().messaging;
+  const exampleLines = messagingSection.split("\n").filter((line) => line.startsWith("[target="));
+  expect(exampleLines.length).toBeGreaterThanOrEqual(4);
+  for (const line of exampleLines) {
+    expect(line).toMatch(lineShape);
+    expect(line).not.toContain("type=");
+  }
+  // Covers a DM, a channel, a channel thread, an Agent sender, and a system sender.
+  expect(exampleLines.some((line) => line.startsWith("[target=@"))).toBe(true);
+  expect(exampleLines.some((line) => /^\[target=#\w+ /.test(line))).toBe(true);
+  expect(exampleLines.some((line) => /^\[target=#\w+:[0-9a-f]{8} /.test(line))).toBe(true);
+  expect(exampleLines.some((line) => / system: /.test(line))).toBe(true);
+});
+
+test("@Mentions omits the identity bullets when the launch identity has no name", () => {
+  const section = buildCoforgeCliGuideSections().mentions;
+  expect(section.startsWith("## @Mentions")).toBe(true);
+  expect(section).not.toContain("Your stable @mention handle is");
+  expect(section).not.toContain("Your display name is");
+  expect(section).toContain("Mention others, not yourself.");
+  expect(section).toContain(
+    "An @mention only resolves — becomes a real, deliverable mention — in a public channel",
+  );
+});
+
+test("@Mentions includes the Agent's own handle and display name when the identity is known", () => {
+  const withHandleOnly = buildCoforgeCliGuideSections({ identity: { name: "scout" } }).mentions;
+  expect(withHandleOnly).toContain("Your stable @mention handle is `@scout`");
+  expect(withHandleOnly).toContain('Your display name is "scout".');
+
+  const withDisplayName = buildCoforgeCliGuideSections({
+    identity: { name: "scout", displayName: 'Scout "the\nBuilder"' },
+  }).mentions;
+  expect(withDisplayName).toContain('Your display name is "Scout the Builder".');
+  expect(withDisplayName).toContain(
+    "your stable `name` above, not the display name, is what @mentions and identity checks use",
+  );
+});
+
+test("@Mentions sits after Tasks and before Formatting/Action cards", () => {
+  const fullInstructions = buildCoforgeAgentInstructions({
+    agentWorkspaceDirectory: AGENT_WORKSPACES[0],
+    identity: { name: "scout" },
+  });
+  const tasksIndex = fullInstructions.indexOf("### Tasks");
+  const mentionsIndex = fullInstructions.indexOf("## @Mentions");
+  const formattingIndex = fullInstructions.indexOf("## Formatting — mentions and references");
+  const actionCardsIndex = fullInstructions.indexOf("### Action cards");
+  expect(tasksIndex).toBeLessThan(mentionsIndex);
+  expect(mentionsIndex).toBeLessThan(formattingIndex);
+  expect(formattingIndex).toBeLessThan(actionCardsIndex);
+});
+
+test("Formatting section describes real rendering: mention chips, plain-text channel and task references", () => {
+  const section = buildCoforgeCliGuideSections().formatting;
+  expect(section.startsWith("## Formatting — mentions and references")).toBe(true);
+  expect(section).toContain("highlighted chip in the CoForge Web UI");
+  expect(section).toContain("it is a reference, not a clickable link");
+  expect(section).toContain(
+    "CoForge does not resolve a mention written inside inline code or a fenced code block",
+  );
+  expect(section).toContain("references are shown to humans as plain text");
+  expect(section).toContain('always "task #N", not a bare "#N"');
+  expect(section).toContain("never write it yourself");
 });

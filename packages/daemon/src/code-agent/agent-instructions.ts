@@ -203,6 +203,40 @@ function buildStartupSequenceSection(): string {
 5. **Complete ALL your work before stopping.** If a task requires multi-step work (research, code changes, testing), finish everything, report results, then stop. You do not need to stay active or repeatedly poll just to wait for new messages.`;
 }
 
+/**
+ * What a received message looks like. The example lines are the shape `formatMessageLine`
+ * (`packages/coforge/src/message-format.ts`) produces for `message check`, `message resolve` and
+ * held Task context; `agent-instructions.test.ts` renders a fixture through that function, so the
+ * examples cannot drift from the code. The sender kind is read from the text after `]`: `@handle`
+ * for a human or an Agent, the word `system` for a system message. The opening paragraph defers
+ * to `### Messages`: once a check returns pending messages, they are processed before the turn
+ * ends.
+ */
+function buildMessagingSection(): string {
+  return `## Messaging
+
+People and agents collaborate asynchronously in CoForge. Keep making progress on your current work, and adjust your plan and priorities based on new information you read. Choose when to run \`coforge message check\`: a pending notice does not mean there is no work to do right now, and it does not by itself demand you drop what you are doing. A notice itself carries no message content (see Messages, below); once a check actually returns pending messages, process all of them before you finish that turn.
+
+A received message line looks like this:
+
+\`\`\`
+[target=@alice msg=10000001 time=2026-03-15 09:00:00Z] @alice: Can you look at the login bug?
+[target=#general msg=10000002 time=2026-03-15 09:00:05Z] @bob: morning all
+[target=#general:10000002 msg=10000003 time=2026-03-15 09:01:00Z] @bob: following up here
+[target=#general msg=10000004 time=2026-03-15 09:02:00Z] @scout: deploy finished, all green
+[target=#general msg=10000005 time=2026-03-15 09:03:00Z] system: @scout was assigned task #12.
+\`\`\`
+
+- \`target=\` — where the message came from; reuse this exact value as \`--target\` when replying. \`@handle\` is a direct chat with that human; \`#name\` is a public channel; either form with \`:\` plus 8 more hex characters appended is a thread rooted at that message.
+- \`msg=\` — the message's own short ID, the first 8 hexadecimal characters of its UUID.
+- \`time=\` — a UTC timestamp, \`YYYY-MM-DD HH:MM:SSZ\`.
+- After the closing \`]\`: the sender, then \`: \`, then the body. The sender is \`@handle\` for a human or another Agent, or the literal word \`system\` for a system-authored message.
+
+The IDs and handles above (\`10000001\`…\`10000005\`, \`@alice\`, \`@bob\`, \`@scout\`) are placeholders that only show the shape of a real line; they are not messages you received. Never cite them as evidence that a message, thread, or task exists — cite only an ID or handle you actually read in a message or a \`coforge message read\`/\`coforge message search\` result.
+
+System messages are covered under Messages, below.`;
+}
+
 function buildMessagesSection(): string {
   return `### Messages
 
@@ -300,6 +334,54 @@ When you need to break down a large task into subtasks, structure them so agents
 To find open work, run \`coforge task list --target <channel-or-dm> [--status <status>]\` in the relevant conversation and claim tasks relevant to your skills before creating new ones.`;
 }
 
+/**
+ * The Agent's own handle and how mentions resolve. The two identity bullets are omitted when the
+ * launch identity has no `name`. `name` is unique per Workspace (`@@unique([workspaceId, name])`,
+ * "Username" in the UI) and fixed at creation. A mention resolves into a stored token and a
+ * delivery target only in a public channel and only for an active member of that channel
+ * (`normalizeMentionBody`); in a DM, or for anyone else, it stays plain text. Consistent with the
+ * Public channels rule that an Agent message notifies another Agent only by @mentioning it.
+ */
+function buildMentionsSection(identity?: AgentLaunchIdentity): string {
+  const lines = [
+    "## @Mentions",
+    "",
+    "- In a channel, mention a person or Agent by their unique `name` (for example `@alice`).",
+  ];
+  if (identity?.name) {
+    lines.push(
+      `- Your stable @mention handle is \`@${collapseWhitespace(identity.name)}\`; it is fixed when you are created and never renamed.`,
+    );
+    const displayName = identity.displayName
+      ? sanitizeQuotedName(identity.displayName)
+      : identity.name;
+    lines.push(
+      `- Your display name is "${displayName}". Treat it as presentation only: your stable \`name\` above, not the display name, is what @mentions and identity checks use.`,
+    );
+  }
+  lines.push(
+    '- Every human and Agent in a Workspace has a unique `name` (shown as "Username" in CoForge), distinct from its freely editable display name — this is the stable identifier @mentions resolve against.',
+    "- Mention others, not yourself.",
+    "- An @mention only resolves — becomes a real, deliverable mention — in a public channel, and only for a person or Agent who is currently an active member of that exact channel; in a DM, or for anyone outside the channel, it stays inert plain `@name` text with no resolution, notification, or delivery. Channels are the isolation boundary for who a mention can reach.",
+  );
+  return lines.join("\n");
+}
+
+/**
+ * How references render. Only a resolved `@mention` renders specially in the Web UI, as a
+ * highlighted non-interactive chip (`message-body.tsx`, `mention-text.ts`); channel, thread and
+ * task references are plain text. Server and client both skip a mention inside a code span, so
+ * backticks make it inert, not merely unstyled.
+ */
+function buildFormattingSection(): string {
+  return `## Formatting — mentions and references
+
+- Write \`@name\` as plain inline text, the same way you would type any other word. A mention that resolves (see @Mentions, above) is shown to humans as a highlighted chip in the CoForge Web UI; it is a reference, not a clickable link.
+- Never wrap \`@name\` in backticks or a code span when you want it recognized: CoForge does not resolve a mention written inside inline code or a fenced code block, so it stays inert — no chip, no notification, no delivery.
+- \`#name\` channel references, \`#name:shortid\` thread references, and \`task #N\` references are shown to humans as plain text; write them so a human reader can follow them (always "task #N", not a bare "#N").
+- These are different from the \`user:name\`/\`channel:name\`/\`task:n\` forms rewritten inside a \`coforge message search\` \`<preview>\` (see Messages, above) — that rewritten form only ever appears there, to mark quoted text as not a real reference; never write it yourself.`;
+}
+
 function buildActionCardsSection(): string {
   return `### Action cards
 
@@ -368,13 +450,20 @@ function buildClosingSection(): string {
 
 export type CoforgeCliGuideSections = ReturnType<typeof buildCoforgeCliGuideSections>;
 
+export type CoforgeCliGuideOptions = {
+  identity?: AgentLaunchIdentity;
+  /** Provider hook for the `CRITICAL RULES:` section; see `buildCriticalRulesSection`. */
+  extraCriticalRules?: readonly string[];
+};
+
 /** Named sections in prompt order; the key order is the rendered order. */
-export function buildCoforgeCliGuideSections(extraCriticalRules: readonly string[] = []) {
+export function buildCoforgeCliGuideSections(options: CoforgeCliGuideOptions = {}) {
   return {
     communication: buildCommunicationSection(),
     credentialHandling: buildCredentialHandlingSection(),
-    criticalRules: buildCriticalRulesSection(extraCriticalRules),
+    criticalRules: buildCriticalRulesSection(options.extraCriticalRules ?? []),
     startupSequence: buildStartupSequenceSection(),
+    messaging: buildMessagingSection(),
     messages: buildMessagesSection(),
     workspaceAndAttachments: buildWorkspaceAndAttachmentsSection(),
     projectCodeAndGitHub: buildProjectCodeAndGitHubSection(),
@@ -383,6 +472,8 @@ export function buildCoforgeCliGuideSections(extraCriticalRules: readonly string
     reminders: buildRemindersSection(),
     tasks: buildTasksSection(),
     splittingTasks: buildSplittingTasksSection(),
+    mentions: buildMentionsSection(options.identity),
+    formatting: buildFormattingSection(),
     actionCards: buildActionCardsSection(),
     communicationStyle: buildCommunicationStyleSection(),
     conversationEtiquette: buildConversationEtiquetteSection(),
@@ -403,5 +494,5 @@ ${buildRuntimeContextSection(context)}
 
 ${buildHowInstructionsApplySection()}
 
-${Object.values(buildCoforgeCliGuideSections(context.extraCriticalRules ?? [])).join("\n\n")}${initialRole}`;
+${Object.values(buildCoforgeCliGuideSections({ identity: context.identity, extraCriticalRules: context.extraCriticalRules })).join("\n\n")}${initialRole}`;
 }

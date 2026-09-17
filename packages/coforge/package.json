@@ -14,7 +14,8 @@
   "module": "index.ts",
   "exports": {
     ".": "./index.ts",
-    "./runner": "./src/cli.ts"
+    "./runner": "./src/cli.ts",
+    "./message-format": "./src/message-format.ts"
   },
   "scripts": {
     "test": "bun test",
