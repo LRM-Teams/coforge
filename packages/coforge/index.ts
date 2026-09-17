@@ -3,9 +3,12 @@ import {
   encodeLocalReminderRequest,
   isReminderId,
   isValidReactionEmoji,
+  mentionsInContent,
+  parseMentionSelector,
   type AgentMessageRecord,
   type AgentReminderOperationResponse,
   type LocalReminderRequest,
+  type MentionSelectorInput as MentionSelector,
   type ReminderSummaryRecord,
   type TaskCommand,
   type TaskResult,
@@ -30,7 +33,12 @@ import {
   formatSearchResults,
   formatSendSuccess,
 } from "./src/message-format";
-import { CliError, unknownDeliveryNextAction, withOutputMode } from "./src/cli-error";
+import {
+  CliError,
+  NO_MESSAGE_SENT_NEXT_ACTION,
+  unknownDeliveryNextAction,
+  withOutputMode,
+} from "./src/cli-error";
 import { attachmentMimeType, validateAttachmentUploadArgs } from "./src/attachment-upload";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
@@ -64,6 +72,9 @@ export type MessageInvocation =
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
       json?: boolean;
+      attachmentId?: string;
+      mentions?: MentionSelector[];
+      targetConfirmed?: boolean;
     }
   | { command: "resolve"; messageId: string }
   | { command: "react"; messageId: string; emoji: string; remove?: true };
@@ -124,6 +135,9 @@ export type MessageTransport = {
       sendDraft?: boolean;
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
+      attachmentId?: string;
+      mentions?: MentionSelector[];
+      targetConfirmed?: boolean;
     },
   ): Promise<unknown>;
   view(attachmentId: string): Promise<{ bytes: Uint8Array; fileName?: string }>;
@@ -149,6 +163,8 @@ export type MessageTransport = {
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
 const MESSAGE_ANCHOR_PATTERN =
   /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A full UUID; `--attachment-id` never accepts an eight-hex short form. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function parseArgs(
   args: readonly string[],
@@ -372,14 +388,51 @@ export function parseArgs(
       let continueAnyway = false;
       let json = false;
       let reviewerIsolation = reviewerIsolationFromEnvironment();
+      let attachmentId: string | undefined;
+      let attachmentIdSeen = false;
+      const rawMentions: string[] = [];
+      let targetConfirmed = false;
       for (let index = 2; index < args.length; index++) {
         if (args[index] === "--target" && args[index + 1]) target = args[++index];
         else if (args[index] === "--send-draft") sendDraft = true;
         else if (args[index] === "--anyway") continueAnyway = true;
         else if (args[index] === "--reviewer-isolation") reviewerIsolation = true;
         else if (args[index] === "--json") json = true;
+        else if (args[index] === "--target-confirmed") targetConfirmed = true;
+        else if (args[index] === "--attachment-id" && args[index + 1]) {
+          if (attachmentIdSeen) throw new Error("Usage:");
+          attachmentIdSeen = true;
+          attachmentId = args[++index];
+        } else if (args[index] === "--mention" && args[index + 1]) rawMentions.push(args[++index]!);
         else throw new Error("Usage:");
       }
+      const outputMode = json ? "json" : "text";
+      if (attachmentId !== undefined && !UUID_PATTERN.test(attachmentId))
+        throw withOutputMode(
+          new CliError({
+            code: "INVALID_ARG",
+            message: "--attachment-id must be a full attachment UUID.",
+            retryable: false,
+            draftSaved: false,
+            suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+          }),
+          outputMode,
+        );
+      if (attachmentId !== undefined && sendDraft)
+        throw withOutputMode(
+          new CliError({
+            code: "INVALID_ARG",
+            message:
+              "--attachment-id cannot be used with --send-draft. Use a normal send to replace the draft.",
+            retryable: false,
+            draftSaved: false,
+            suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+          }),
+          outputMode,
+        );
+      const mentions = rawMentions.length
+        ? parseMentionSelectors(rawMentions, outputMode)
+        : undefined;
       if (target && (!continueAnyway || sendDraft))
         return {
           command: "send",
@@ -388,12 +441,60 @@ export function parseArgs(
           ...(continueAnyway ? { continueAnyway: true } : {}),
           ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
           ...(json ? { json: true as const } : {}),
+          ...(attachmentId !== undefined ? { attachmentId } : {}),
+          ...(mentions ? { mentions } : {}),
+          ...(targetConfirmed ? { targetConfirmed: true } : {}),
         };
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>] [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
   );
+}
+
+/**
+ * Validates each `--mention` value's shape and rejects a handle bound to two different actors in
+ * the same message. Duplicate identical bindings (same handle, same actor) collapse to one entry.
+ * Whether each bound handle actually appears in the message body is checked separately in `run()`,
+ * once the body is known.
+ */
+function parseMentionSelectors(
+  raw: readonly string[],
+  outputMode: "text" | "json",
+): MentionSelector[] {
+  const byHandle = new Map<string, MentionSelector>();
+  const result: MentionSelector[] = [];
+  for (const value of raw) {
+    const parsed = parseMentionSelector(value);
+    if (!parsed)
+      throw withOutputMode(
+        new CliError({
+          code: "INVALID_MENTION_SELECTOR",
+          message: "--mention must be human:<actor-uuid>:<handle> or agent:<actor-uuid>:<handle>.",
+          retryable: false,
+          draftSaved: false,
+          suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+        }),
+        outputMode,
+      );
+    const existing = byHandle.get(parsed.name);
+    if (existing && (existing.type !== parsed.type || existing.id !== parsed.id))
+      throw withOutputMode(
+        new CliError({
+          code: "MENTION_BINDING_CONFLICT",
+          message: `@${parsed.name} cannot be bound to more than one actor in the same message.`,
+          retryable: false,
+          draftSaved: false,
+          suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+        }),
+        outputMode,
+      );
+    if (!existing) {
+      byHandle.set(parsed.name, parsed);
+      result.push(parsed);
+    }
+  }
+  return result;
 }
 
 function parseWorkspaceInfoArgs(args: readonly string[]): WorkspaceInfoInvocation {
@@ -523,17 +624,34 @@ export async function run(args: readonly string[], transport: MessageTransport):
   const { command } = invocation;
   if (command === "send") {
     const outputMode = invocation.json ? "json" : "text";
+    const body = invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text();
+    // With `--send-draft`, the body (and thus content presence) is only known to the daemon, which
+    // already re-sends the draft's own saved mentions when no explicit override is given.
+    if (invocation.mentions?.length && body !== undefined) {
+      const present = mentionsInContent(body);
+      for (const mention of invocation.mentions)
+        if (!present.has(mention.name))
+          throw withOutputMode(
+            new CliError({
+              code: "MENTION_NOT_IN_CONTENT",
+              message: `Structured mention @${mention.name} is not present in the message body.`,
+              retryable: false,
+              draftSaved: false,
+              suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+            }),
+            outputMode,
+          );
+    }
     let result: unknown;
     try {
-      result = await transport.send(
-        invocation.target,
-        invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text(),
-        {
-          sendDraft: invocation.sendDraft,
-          continueAnyway: invocation.continueAnyway,
-          freshnessContextMode: invocation.freshnessContextMode,
-        },
-      );
+      result = await transport.send(invocation.target, body, {
+        sendDraft: invocation.sendDraft,
+        continueAnyway: invocation.continueAnyway,
+        freshnessContextMode: invocation.freshnessContextMode,
+        attachmentId: invocation.attachmentId,
+        mentions: invocation.mentions,
+        targetConfirmed: invocation.targetConfirmed,
+      });
     } catch (error) {
       // The transport (`local-client.ts`) already redacts upstream detail for a withheld request;
       // this fallback only covers a transport that throws a bare `Error` without going through it.
@@ -563,14 +681,15 @@ export async function run(args: readonly string[], transport: MessageTransport):
         ),
         outputMode,
       );
-    const sent = result as { messageId?: string };
+    const sent = result as { messageId?: string; recentUnread?: AgentMessageRecord[] };
     if (invocation.json)
       return JSON.stringify({
         state: "sent",
         target: invocation.target,
         messageId: sent.messageId,
+        recentUnread: sent.recentUnread ?? [],
       });
-    return formatSendSuccess(invocation.target, sent as { messageId: string });
+    return formatSendSuccess(invocation.target, sent as { messageId: string }, sent.recentUnread);
   }
   if (command === "search") {
     if (!transport.search) throw new Error("Message search transport is unavailable");

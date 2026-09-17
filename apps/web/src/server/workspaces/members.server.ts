@@ -1,5 +1,20 @@
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
+import type { WorkspaceMemberRole } from "./member-role.server";
+
+/** The actor's Workspace role; ACCESS_DENIED when the user is not a member. */
+export async function workspaceMemberRole(
+  db: Pick<PrismaClient, "workspaceMembership">,
+  workspaceId: string,
+  userId: string,
+): Promise<WorkspaceMemberRole> {
+  const membership = await db.workspaceMembership.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+    select: { role: true },
+  });
+  if (!membership) throw new AppError("ACCESS_DENIED");
+  return membership.role as WorkspaceMemberRole;
+}
 
 export class WorkspaceMembers {
   constructor(private readonly db: PrismaClient) {}

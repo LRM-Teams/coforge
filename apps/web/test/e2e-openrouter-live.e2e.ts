@@ -158,7 +158,7 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
       () => credentialEncryption,
     );
     const agent = await manage.create(
-      { userId: user.id, workspaceId: workspace.id },
+      { userId: user.id, workspaceId: workspace.id, role: "owner" },
       {
         name: `openrouter-${suffix.slice(0, 8)}`,
         description: "Live OpenRouter E2E Agent",

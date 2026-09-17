@@ -341,6 +341,57 @@ describe("SendDirectMessage", () => {
     ]);
   });
 
+  test("forwards attachmentId and mentions from an Agent send to the repository", async () => {
+    const calls: unknown[] = [];
+    const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
+    const repository = {
+      async sendMessage() {
+        throw new Error("not used");
+      },
+      async userIdForUsername() {
+        return "internal-user";
+      },
+      async getOrCreateUserAgent() {
+        return { id: "conversation-a" };
+      },
+      async sendAgentMessage(
+        conversationId: string,
+        agentId: string,
+        body: string,
+        attachmentId?: string,
+        threadRootId?: string,
+        mentionsArg?: unknown,
+      ) {
+        calls.push({ conversationId, agentId, body, attachmentId, threadRootId, mentionsArg });
+        return { ...persisted, deliveryId: undefined, target: "@frank" };
+      },
+    } satisfies DirectConversationRepository;
+    const useCase = new SendDirectMessage(repository, new MemoryMessageRequestIdempotency(), {
+      async publish() {},
+    });
+
+    await useCase.executeFromAgent({
+      requestId: "attachment-mention-request",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      target: "@frank",
+      body: "hi @ada",
+      attachmentId: "attachment-1",
+      mentions,
+    });
+
+    expect(calls).toEqual([
+      {
+        conversationId: "conversation-a",
+        agentId: "agent-a",
+        body: "hi @ada",
+        attachmentId: "attachment-1",
+        threadRootId: undefined,
+        mentionsArg: mentions,
+      },
+    ]);
+  });
+
   test("does not publish when Agent persistence fails", async () => {
     let published = false;
     const repository = {

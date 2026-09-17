@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import { AppError } from "../src/lib/app-error";
 import {
+  assertCanCreateAgents,
   assertCanChangeMemberRole,
   assertCanInvite,
   assertCanLeaveWorkspace,
@@ -75,4 +76,10 @@ test("owner cannot leave; admin and member can", () => {
   expect(() => assertCanLeaveWorkspace("owner")).toThrow(AppError);
   expect(() => assertCanLeaveWorkspace("admin")).not.toThrow();
   expect(() => assertCanLeaveWorkspace("member")).not.toThrow();
+});
+
+test("only owner and admin may create Agents", () => {
+  expect(() => assertCanCreateAgents("owner")).not.toThrow();
+  expect(() => assertCanCreateAgents("admin")).not.toThrow();
+  expect(() => assertCanCreateAgents("member")).toThrow(AppError);
 });

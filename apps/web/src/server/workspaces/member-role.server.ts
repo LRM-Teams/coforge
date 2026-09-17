@@ -18,6 +18,11 @@ export function assertCanManageMembers(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
+/** Creating an Agent requires Workspace owner/admin authority, kept as its own named seam. */
+export function assertCanCreateAgents(actorRole: WorkspaceMemberRole): void {
+  if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
+}
+
 export function normalizeInvitableRole(role: string): InvitableWorkspaceRole {
   if (role === "admin" || role === "member") return role;
   throw new AppError("INVALID_INPUT");

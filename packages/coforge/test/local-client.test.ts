@@ -33,6 +33,25 @@ test("accepts sfp_ daemon-local Proxy tokens", async () => {
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
+test("forwards attachmentId, mentions, and targetConfirmed on a send request", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+  );
+  const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
+
+  await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).send(
+    "@ada",
+    "hi @ada",
+    { attachmentId: "attachment-1", mentions, targetConfirmed: true },
+  );
+
+  const [, init] = fetch.mock.calls[0]!;
+  const body = JSON.parse(init!.body as string);
+  expect(body.attachmentId).toBe("attachment-1");
+  expect(body.mentions).toEqual(mentions);
+  expect(body.targetConfirmed).toBe(true);
+});
+
 test("requests GitHub credentials through the daemon-local proxy", async () => {
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json({
@@ -517,6 +536,39 @@ test("a send that fails after the daemon reports a local precondition keeps the 
   expect(cliError.code).toBe("NO_HELD_DRAFT");
   expect(cliError.draftSaved).toBe(false);
   expect(cliError.suggestedNextAction).toContain("No message was sent");
+});
+
+test("a local precondition that explicitly saved a draft (e.g. --target-confirmed) reports draftSaved: true", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        error: "Possible thread target mismatch: ...",
+        code: "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
+        proxy: {
+          correlation_id: "corr-2",
+          route_family: "agent-api/send",
+          failure_class: "local_precondition",
+          cause_code: "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
+          response_started: false,
+          response_complete: false,
+          draft_saved: true,
+        },
+      },
+      { status: 400 },
+    ),
+  );
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@ada", "top-level reply")
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED");
+  expect(cliError.draftSaved).toBe(true);
+  expect(cliError.retryable).toBe(false);
 });
 
 test("a send that fails after a transport/protocol failure marks the draft saved and refuses to say it is safe to retry", async () => {

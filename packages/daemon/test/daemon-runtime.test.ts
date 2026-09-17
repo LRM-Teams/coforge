@@ -21,6 +21,7 @@ import {
   type CentrifugeWorkspaceClient,
 } from "../src/connection/daemon-connection";
 import { startAgentProxy, type AgentProxy } from "../src/agent-proxy";
+import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
 import type { AgentMessageRequest, TaskRequest, TaskResponse } from "@lrm/coforge-sdk/internal";
 
 function sessionSpy() {
@@ -1388,6 +1389,476 @@ describe("DaemonRuntime", () => {
         body: "original body",
         holdToken: "opaque-token",
       });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("blocks a top-level send after a more recently read thread, saves the draft (Raft-aligned), and --send-draft resends it unchanged", async () => {
+    const rootId = "12345678-1234-4234-8234-123456789abc";
+    const sends: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      if (request.operation === "read")
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          messages: [messageRecord(1, "@ada", request.target)],
+        };
+      sends.push(request);
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messageId: "sent",
+        messages: [],
+        sideEffectDecision: "forward",
+      };
+    });
+    try {
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "read-thread",
+          context: harness.context,
+          operation: "read",
+          target: `@ada:${rootId}`,
+        },
+        harness.apiKey,
+      );
+      const blocked = await harness.runtime
+        .agentMessage(
+          harness.context,
+          {
+            requestId: "blocked-send",
+            context: harness.context,
+            operation: "send",
+            target: "@ada",
+            body: "top-level reply",
+          },
+          harness.apiKey,
+        )
+        .catch((error: unknown) => error);
+      expect(blocked).toBeInstanceOf(AgentPreflightError);
+      const preflight = blocked as AgentPreflightError;
+      expect(preflight.code).toBe("THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED");
+      expect(preflight.message).toContain("Possible thread target mismatch");
+      expect(preflight.message).toContain('coforge message send --send-draft --target "@ada"');
+      // Raft-aligned: the guard saves the outgoing content as a draft before refusing, and reports
+      // that back so the CLI renders `Draft saved: yes`, not `no`.
+      expect(preflight.draftSaved).toBe(true);
+      expect(sends).toEqual([]);
+
+      // The saved draft resends unchanged via --send-draft, with no holdToken (there was no hold).
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "resend-saved-draft",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          sendDraft: true,
+        },
+        harness.apiKey,
+      );
+      expect(sends).toHaveLength(1);
+      expect(sends[0]).toMatchObject({
+        target: "@ada",
+        body: "top-level reply",
+        holdToken: undefined,
+      });
+
+      // --target-confirmed remains the other bypass, for a fresh (non-draft) send.
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "confirmed-send",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          body: "top-level reply",
+          targetConfirmed: true,
+        },
+        harness.apiKey,
+      );
+      expect(sends).toHaveLength(2);
+      expect(sends[1]).toMatchObject({ target: "@ada" });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("a --send-draft resend of a tokenless draft sends as a plain send and rejects --anyway", async () => {
+    const rootId = "12345678-1234-4234-8234-123456789abc";
+    const sends: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      if (request.operation === "read")
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          messages: [messageRecord(1, "@ada", request.target)],
+        };
+      sends.push(request);
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messageId: "sent",
+        messages: [],
+        sideEffectDecision: "forward",
+      };
+    });
+    try {
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "read-thread",
+          context: harness.context,
+          operation: "read",
+          target: `@ada:${rootId}`,
+        },
+        harness.apiKey,
+      );
+      await harness.runtime
+        .agentMessage(
+          harness.context,
+          {
+            requestId: "blocked-send",
+            context: harness.context,
+            operation: "send",
+            target: "@ada",
+            body: "top-level reply",
+          },
+          harness.apiKey,
+        )
+        .catch(() => undefined);
+
+      // --anyway has nothing to bypass without a hold token.
+      await expect(
+        harness.runtime.agentMessage(
+          harness.context,
+          {
+            requestId: "resend-anyway",
+            context: harness.context,
+            operation: "send",
+            target: "@ada",
+            sendDraft: true,
+            continueAnyway: true,
+          },
+          harness.apiKey,
+        ),
+      ).rejects.toThrow("Held draft token is unavailable");
+      expect(sends).toEqual([]);
+
+      // Without --anyway, the same tokenless draft resends as an ordinary send.
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "resend-plain",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          sendDraft: true,
+        },
+        harness.apiKey,
+      );
+      expect(sends).toHaveLength(1);
+      expect(sends[0]).toMatchObject({ holdToken: undefined, continueAnyway: undefined });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("the mention-in-content check runs on a --send-draft resend against the effective mentions", async () => {
+    const sends: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      sends.push(request);
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: false,
+        attentionCount: 1,
+        messages: [],
+        sideEffectDecision: "hold",
+        holdToken: "opaque-token",
+      };
+    });
+    try {
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "held-send",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          body: "hi @ada",
+          mentions: [{ type: "user", id: "actor-1", name: "ada" }],
+        },
+        harness.apiKey,
+      );
+      expect(sends).toHaveLength(1);
+
+      const rejected = await harness.runtime
+        .agentMessage(
+          harness.context,
+          {
+            requestId: "resend-with-bad-override",
+            context: harness.context,
+            operation: "send",
+            target: "@ada",
+            sendDraft: true,
+            mentions: [{ type: "user", id: "actor-2", name: "ghost" }],
+          },
+          harness.apiKey,
+        )
+        .catch((error: unknown) => error);
+      expect(rejected).toBeInstanceOf(AgentPreflightError);
+      expect((rejected as AgentPreflightError).code).toBe("MENTION_NOT_IN_CONTENT");
+      expect((rejected as Error).message).toBe(
+        "Structured mention @ghost is not present in the message body.",
+      );
+      // No second transport call: the daemon caught this before ever reaching the transport.
+      expect(sends).toHaveLength(1);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("does not block a top-level send when the parent itself was read more recently than any thread", async () => {
+    const rootId = "12345678-1234-4234-8234-123456789abc";
+    const sends: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      if (request.operation === "read")
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          messages: [messageRecord(1, "@ada", request.target)],
+        };
+      sends.push(request);
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messageId: "sent",
+        messages: [],
+        sideEffectDecision: "forward",
+      };
+    });
+    try {
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "read-thread",
+          context: harness.context,
+          operation: "read",
+          target: `@ada:${rootId}`,
+        },
+        harness.apiKey,
+      );
+      await harness.runtime.agentMessage(
+        harness.context,
+        { requestId: "read-parent", context: harness.context, operation: "read", target: "@ada" },
+        harness.apiKey,
+      );
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "unconfirmed-send",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          body: "top-level reply",
+        },
+        harness.apiKey,
+      );
+      expect(sends).toHaveLength(1);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("forwards attachmentId and mentions on send; --send-draft resend reuses them unless overridden", async () => {
+    const sends: AgentMessageRequest[] = [];
+    const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
+    const harness = await messageHarness(async (request) => {
+      sends.push(request);
+      if (sends.length === 1)
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: false,
+          attentionCount: 1,
+          messages: [],
+          sideEffectDecision: "hold",
+          holdToken: "opaque-token",
+        };
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messageId: "sent",
+        messages: [],
+        sideEffectDecision: "forward",
+      };
+    });
+    try {
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "held-send",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          body: "first body @ada",
+          attachmentId: "attachment-1",
+          mentions,
+        },
+        harness.apiKey,
+      );
+      expect(sends[0]).toMatchObject({ attachmentId: "attachment-1", mentions });
+
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "resend-draft",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          sendDraft: true,
+        },
+        harness.apiKey,
+      );
+      expect(sends[1]).toMatchObject({ attachmentId: "attachment-1", mentions });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("an explicit --mention on --send-draft replaces the draft's saved mentions", async () => {
+    const sends: AgentMessageRequest[] = [];
+    const overrideMentions = [{ type: "agent" as const, id: "actor-2", name: "helper" }];
+    const harness = await messageHarness(async (request) => {
+      sends.push(request);
+      if (sends.length === 1)
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: false,
+          attentionCount: 1,
+          messages: [],
+          sideEffectDecision: "hold",
+          holdToken: "opaque-token",
+        };
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messageId: "sent",
+        messages: [],
+        sideEffectDecision: "forward",
+      };
+    });
+    try {
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "held-send",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          body: "first body @ada @helper",
+          mentions: [{ type: "user", id: "actor-1", name: "ada" }],
+        },
+        harness.apiKey,
+      );
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "resend-draft-with-override",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          sendDraft: true,
+          mentions: overrideMentions,
+        },
+        harness.apiKey,
+      );
+      expect(sends[1]).toMatchObject({ mentions: overrideMentions });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("recentUnread from a bypassed hold is returned and advances modelSeen for future sends", async () => {
+    const sends: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      if (request.operation !== "send")
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          messages: [],
+        };
+      sends.push(request);
+      if (sends.length === 1)
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          messageId: "sent-1",
+          messages: [],
+          sideEffectDecision: "anyway_accepted",
+          recentUnread: [messageRecord(11, "@bea", "@ada")],
+        };
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messageId: "sent-2",
+        messages: [],
+        sideEffectDecision: "forward",
+      };
+    });
+    try {
+      const result = await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "anyway-send",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          body: "reply",
+          continueAnyway: true,
+        },
+        harness.apiKey,
+      );
+      expect(result.recentUnread?.map((m) => m.id)).toEqual(["message-11"]);
+
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "follow-up-send",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          body: "follow up",
+        },
+        harness.apiKey,
+      );
+      expect(sends[1]).toMatchObject({ seenUpToSequence: 11 });
     } finally {
       await harness.runtime.stop();
     }
