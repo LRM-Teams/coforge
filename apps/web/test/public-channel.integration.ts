@@ -25,6 +25,7 @@ import { RedisAgentMessageHoldStore } from "../src/server/conversations/agent-me
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
 import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";
 import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
+import { AgentChannelManagement } from "../src/server/conversations/agent-channel-management.server";
 
 test("Workspace humans enrolled in general see one general channel; outsiders cannot discover it", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
@@ -88,7 +89,9 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       channels.list(workspace.id, alice.id),
       channels.list(workspace.id, bob.id),
     ]);
-    expect(first).toEqual([{ id: expect.any(String), name: "general", joined: true }]);
+    expect(first).toEqual([
+      { id: expect.any(String), name: "general", joined: true, archived: false },
+    ]);
     expect(second).toEqual(first);
     expect(await channels.list(workspace.id, alice.id)).toEqual(first);
     await expect(channels.list(workspace.id, outsider.id)).rejects.toThrow("ACCESS_DENIED");
@@ -944,7 +947,7 @@ test("reads never enroll: general membership comes from write points and the bac
       [alice.id, bob.id, agent.id].sort(),
     );
     expect(await channels.list(workspace.id, bob.id)).toEqual([
-      { id: general.id, name: "general", joined: true },
+      { id: general.id, name: "general", joined: true, archived: false },
     ]);
 
     // Re-running the backfill is a no-op.
@@ -958,7 +961,7 @@ test("reads never enroll: general membership comes from write points and the bac
         data: { workspaceId: workspace.id, userId: carol.id },
       });
       expect(await channels.list(workspace.id, carol.id)).toEqual([
-        { id: general.id, name: "general", joined: false },
+        { id: general.id, name: "general", joined: false, archived: false },
       ]);
       await channels.open(workspace.id, carol.id, general.id);
       expect(await db.conversationMember.count({ where: { conversationId: general.id } })).toBe(3);
@@ -969,6 +972,183 @@ test("reads never enroll: general membership comes from write points and the bac
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: alice.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+  }
+});
+
+test("Agent channel management: authority, join/leave, archive, and add/remove member", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const owner = await db.user.create({ data: { username: `mo${suffix}` } });
+  const outsider = await db.user.create({ data: { username: `mu${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `manage-${suffix}`,
+      name: "Channel management",
+      members: {
+        create: [{ userId: owner.id, role: "owner" }, { userId: outsider.id }],
+      },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: owner.id, machineId: crypto.randomUUID() },
+    });
+    const admin = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: owner.id,
+        computerId: computer.id,
+        name: `admin${suffix}`,
+        displayName: "Admin",
+        role: "admin",
+        runtimeConfig: {},
+      },
+    });
+    const member = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: owner.id,
+        computerId: computer.id,
+        name: `member${suffix}`,
+        displayName: "Member",
+        role: "member",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    const manage = new AgentChannelManagement(db);
+
+    // Authority: only an admin-role Agent may create.
+    await expect(manage.create(workspace.id, member.id, "eng", undefined)).rejects.toThrow(
+      "this Agent's owner lacks admin authority for create",
+    );
+    const created = await manage.create(workspace.id, admin.id, "#eng", "Engineering");
+    expect(created).toEqual({
+      target: "#eng",
+      channel: { id: expect.any(String), name: "#eng", description: "Engineering" },
+    });
+
+    // Any Agent may join a non-archived channel; idempotent.
+    await manage.join(workspace.id, member.id, "#eng");
+    await manage.join(workspace.id, member.id, "#eng");
+    const info = await manage.info(workspace.id, member.id, "#eng");
+    expect(info).toMatchObject({
+      name: "#eng",
+      description: "Engineering",
+      archived: false,
+      joined: true,
+      muted: false,
+      memberCounts: { agents: 2, humans: 0 },
+    });
+
+    // Roster reflects both Agents, tagging the caller "self" and the creator "admin".
+    const roster = await manage.members(workspace.id, member.id, "#eng");
+    expect(roster.agents.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+      { name: admin.name, displayName: "Admin", description: "", role: "admin", self: false },
+      { name: member.name, displayName: "Member", description: "", role: "member", self: true },
+    ]);
+
+    // Leave, then re-join: the row is soft-left and cleared, not deleted; membership count
+    // reflects only active members while left.
+    await manage.leave(workspace.id, member.id, "#eng");
+    expect((await manage.info(workspace.id, member.id, "#eng")).joined).toBe(false);
+    expect((await manage.info(workspace.id, admin.id, "#eng")).memberCounts.agents).toBe(1);
+    expect(
+      await db.conversationMember.count({
+        where: { agentId: member.id, conversation: { channelName: "eng" } },
+      }),
+    ).toBe(1);
+    await manage.join(workspace.id, member.id, "#eng");
+    expect((await manage.info(workspace.id, member.id, "#eng")).joined).toBe(true);
+
+    // #general cannot be left, renamed, archived, or have a member removed.
+    await expect(manage.leave(workspace.id, member.id, "#general")).rejects.toThrow(
+      "cannot leave #general",
+    );
+    await expect(
+      manage.update(workspace.id, admin.id, "#general", { name: "renamed" }),
+    ).rejects.toThrow("cannot rename #general");
+    await expect(manage.setArchived(workspace.id, admin.id, "#general", true)).rejects.toThrow(
+      "cannot archive #general",
+    );
+    await expect(
+      manage.removeMember(workspace.id, admin.id, "#general", { agent: `@${member.name}` }),
+    ).rejects.toThrow("cannot remove a member from #general");
+
+    // Update requires admin authority and at least one field; general is reserved.
+    await expect(manage.update(workspace.id, member.id, "#eng", { name: "x" })).rejects.toThrow(
+      "this Agent's owner lacks admin authority for update",
+    );
+    await expect(manage.update(workspace.id, admin.id, "#eng", {})).rejects.toThrow(
+      "update requires --name or --description",
+    );
+    await expect(
+      manage.update(workspace.id, admin.id, "#eng", { name: "general" }),
+    ).rejects.toThrow("general is reserved");
+    const updated = await manage.update(workspace.id, admin.id, "#eng", {
+      description: "Eng team",
+    });
+    expect(updated.description).toBe("Eng team");
+
+    // Archive/unarchive: admin only; join and post are refused while archived.
+    await expect(manage.setArchived(workspace.id, member.id, "#eng", true)).rejects.toThrow(
+      "this Agent's owner lacks admin authority for archive",
+    );
+    const archived = await manage.setArchived(workspace.id, admin.id, "#eng", true);
+    expect(archived).toEqual({ target: "#eng", archived: true });
+    expect((await manage.info(workspace.id, admin.id, "#eng")).archived).toBe(true);
+    await expect(manage.join(workspace.id, admin.id, "#eng")).rejects.toThrow(
+      "channel is archived",
+    );
+    await manage.setArchived(workspace.id, admin.id, "#eng", false);
+    expect((await manage.info(workspace.id, admin.id, "#eng")).archived).toBe(false);
+
+    // add-member: admin only; unknown handle 404s; a human must already be a Workspace member.
+    await expect(
+      manage.addMember(workspace.id, member.id, "#eng", { user: `@${outsider.username}` }),
+    ).rejects.toThrow("this Agent's owner lacks admin authority for add-member");
+    await expect(
+      manage.addMember(workspace.id, admin.id, "#eng", { user: "@nobody" }),
+    ).rejects.toThrow("member not found: @nobody");
+    const addedHuman = await manage.addMember(workspace.id, admin.id, "#eng", {
+      user: `@${outsider.username}`,
+    });
+    expect(addedHuman).toEqual({
+      target: "#eng",
+      member: { kind: "user", handle: `@${outsider.username}` },
+      added: true,
+    });
+    expect((await manage.info(workspace.id, admin.id, "#eng")).memberCounts.humans).toBe(1);
+
+    // remove-member: admin required for another member; self-removal (an Agent removing
+    // itself) is allowed without admin authority, the same as `leave`.
+    await expect(
+      manage.removeMember(workspace.id, member.id, "#eng", { user: `@${outsider.username}` }),
+    ).rejects.toThrow("this Agent's owner lacks admin authority for remove-member");
+    await manage.removeMember(workspace.id, member.id, "#eng", { agent: `@${member.name}` });
+    expect((await manage.info(workspace.id, member.id, "#eng")).joined).toBe(false);
+    const removedHuman = await manage.removeMember(workspace.id, admin.id, "#eng", {
+      user: `@${outsider.username}`,
+    });
+    expect(removedHuman).toEqual({ target: "#eng", removed: true });
+    expect((await manage.info(workspace.id, admin.id, "#eng")).memberCounts.humans).toBe(0);
+
+    // members() also resolves the Agent-DM target form (`@user`).
+    const dmRoster = await manage.members(workspace.id, admin.id, `@${owner.username}`);
+    expect(dmRoster).toEqual({
+      target: `@${owner.username}`,
+      agents: [
+        { name: admin.name, displayName: "Admin", description: "", role: "admin", self: true },
+      ],
+      humans: [{ username: owner.username, role: "owner" }],
+    });
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: owner.id } });
+    await db.user.deleteMany({ where: { id: { in: [owner.id, outsider.id] } } });
     await db.$disconnect();
   }
 });

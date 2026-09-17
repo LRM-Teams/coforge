@@ -13,6 +13,7 @@ import { getMessageRequestIdempotency } from "#/server/conversations/redis-messa
 import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server";
 import { CentrifugoConversationRealtime } from "#/server/conversations/conversation-realtime.server";
 import { bestEffortMessageNotifier } from "#/server/notifications/web-push-composition.server";
+import { isAppError } from "#/lib/app-error";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 
@@ -123,18 +124,25 @@ export async function handleAgentMessagesPost(
   )
     return Response.json({ error: "invalid freshnessContextMode" }, { status: 400 });
   const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
-  const result = await executeAgentSendMessageWithPolicy(dependencies, {
-    requestId,
-    workspaceId: principal.workspaceId,
-    agentId: principal.agentId,
-    target: body.target,
-    body: body.body,
-    holdToken: typeof body.holdToken === "string" ? body.holdToken : undefined,
-    continueAnyway: body.continueAnyway === true,
-    seenUpToSequence: typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
-    freshnessContextMode,
-  });
-  return Response.json(mapSendResult(requestId, result));
+  try {
+    const result = await executeAgentSendMessageWithPolicy(dependencies, {
+      requestId,
+      workspaceId: principal.workspaceId,
+      agentId: principal.agentId,
+      target: body.target,
+      body: body.body,
+      holdToken: typeof body.holdToken === "string" ? body.holdToken : undefined,
+      continueAnyway: body.continueAnyway === true,
+      seenUpToSequence:
+        typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
+      freshnessContextMode,
+    });
+    return Response.json(mapSendResult(requestId, result));
+  } catch (error) {
+    if (isAppError(error) && error.code === "CONFLICT")
+      return new Response("channel is archived", { status: 409 });
+    throw error;
+  }
 }
 
 export const Route = createFileRoute("/api/agent/v1/messages")({

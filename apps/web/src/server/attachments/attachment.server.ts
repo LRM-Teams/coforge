@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { getFileStorage, type FileStorage, type StoredFile } from "../files/file-storage.server";
+import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_SESSION_SECONDS = 900;
@@ -109,6 +110,7 @@ export async function readAuthorizedAttachment(
           where: {
             conversationId: attachment.conversationId,
             agentId: input.agentId,
+            ...ACTIVE_MEMBER_WHERE,
           },
         })),
       );

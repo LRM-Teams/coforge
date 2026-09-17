@@ -1,8 +1,10 @@
 import { lockConversation } from "../../conversations/conversation-lock.server";
 import type { MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
+import { AppError } from "../../../lib/app-error";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
+import { ACTIVE_MEMBER_WHERE } from "../../conversations/active-member.server";
 import { mentionedNames } from "../../conversations/mentions";
 import {
   MESSAGE_REACTIONS_SELECT,
@@ -238,6 +240,7 @@ function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
     FROM "messages" m
     JOIN "conversation_members" am ON am."conversationId" = m."conversationId"
       AND am."workspaceId" = ${workspaceId}::uuid AND am."agentId" = ${agentId}::uuid
+      AND am."leftAt" IS NULL
     JOIN "conversations" c ON c."id" = m."conversationId"
     LEFT JOIN "messages" r ON r."id" = m."threadRootId"
     LEFT JOIN "thread_reads" tr ON tr."memberId" = am."id" AND tr."rootMessageId" = m."threadRootId"
@@ -635,7 +638,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       where: {
         workspaceId,
         conversation: {
-          members: { some: { agentId } },
+          members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } },
           ...(scope ? { id: scope.conversationId } : {}),
         },
         ...(scope && options.target?.includes(":") ? { threadRootId: scope.threadRootId } : {}),
@@ -690,7 +693,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const rows = await this.db.message.findMany({
       where: {
         workspaceId,
-        conversation: { members: { some: { agentId } } },
+        conversation: { members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } } },
         id:
           anchor.length === 8
             ? {
@@ -739,7 +742,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   ) {
     const row = await this.resolveAgentScopedMessage(workspaceId, agentId, anchor);
     const member = await this.db.conversationMember.findFirst({
-      where: { conversationId: row.conversationId, workspaceId, agentId },
+      where: { conversationId: row.conversationId, workspaceId, agentId, ...ACTIVE_MEMBER_WHERE },
       select: { id: true },
     });
     if (!member)
@@ -1508,8 +1511,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       include: { members: true },
     });
     if (!conversation) throw new Error("conversation scope is not authorized");
-    const sender = conversation.members.find((m) => m.agentId === agentId);
-    const user = conversation.members.find((m) => m.userId);
+    if (conversation.channelName && conversation.archivedAt) throw new AppError("CONFLICT");
+    const sender = conversation.members.find((m) => m.agentId === agentId && !m.leftAt);
+    const user = conversation.members.find((m) => m.userId && !m.leftAt);
     if (!sender || (!conversation.channelName && !user))
       throw new Error("agent is not a conversation member");
     const root = threadRootId
@@ -1523,6 +1527,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           where: {
             conversationId,
             OR: [{ user: { username: { in: names } } }, { agent: { name: { in: names } } }],
+            ...ACTIVE_MEMBER_WHERE,
           },
           select: { id: true },
         });

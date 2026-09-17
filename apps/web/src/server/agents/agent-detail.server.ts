@@ -12,6 +12,7 @@ type DetailAgent = {
   name: string;
   displayName: string;
   description?: string;
+  role: string;
   createdAt: Date;
   computerId?: string | null;
   owner: { id: string; username: string };

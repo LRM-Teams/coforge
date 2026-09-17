@@ -12,6 +12,7 @@ import {
   getAgentDetail,
   saveAgentRuntimeCredential,
   updateAgent,
+  updateAgentRole,
   getAgentEnvironment,
   saveAgentEnvironment,
 } from "@/features/agents/agents.functions";
@@ -62,6 +63,7 @@ function AgentDetailPage() {
   const loadEnvironment = useServerFn(getAgentEnvironment);
   const saveEnvironment = useServerFn(saveAgentEnvironment);
   const update = useServerFn(updateAgent);
+  const updateRole = useServerFn(updateAgentRole);
   const loadComputers = useServerFn(listComputers);
   const loadCatalog = useServerFn(getComputerRuntimeCatalog);
   const loadSkills = useServerFn(getAgentSkills);
@@ -129,6 +131,13 @@ function AgentDetailPage() {
     },
     [update, router],
   );
+  const onUpdateRole = useCallback(
+    async (input: Parameters<typeof updateRole>[0]["data"]) => {
+      await updateRole({ data: input });
+      await router.invalidate({ sync: true });
+    },
+    [updateRole, router],
+  );
   return (
     <AgentDetail
       activity={activity.length ? activity : detail.activity}
@@ -145,6 +154,7 @@ function AgentDetailPage() {
       onSaveRuntimeCredential={onSaveRuntimeCredential}
       onDeleteRuntimeCredential={onDeleteRuntimeCredential}
       onUpdate={onUpdate}
+      onUpdateRole={onUpdateRole}
       availableComputers={computers.map((computer) => ({
         id: computer.id,
         displayName: computer.displayName,

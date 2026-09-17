@@ -1,5 +1,6 @@
 import type { PrismaClient } from "../../../generated/client";
 import { mentionedNames } from "../conversations/mentions";
+import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
 import type {
   WebPushSubscriptionInput,
   WebPushSubscriptionStore,
@@ -37,6 +38,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
         conversationId: message.conversationId,
         ...(message.senderMemberId ? { id: { not: message.senderMemberId } } : {}),
         userId: { not: null },
+        ...ACTIVE_MEMBER_WHERE,
         ...(channelName
           ? {
               OR: [

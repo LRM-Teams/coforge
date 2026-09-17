@@ -72,6 +72,11 @@ export const updateAgentInputSchema = z
 export type UpdateAgentInput = z.infer<typeof updateAgentInputSchema>;
 
 export const agentIdSchema = z.uuid();
+export const updateAgentRoleInputSchema = z.object({
+  agentId: agentIdSchema,
+  role: z.enum(["admin", "member"]),
+});
+export type UpdateAgentRoleInput = z.infer<typeof updateAgentRoleInputSchema>;
 export const saveAgentRuntimeCredentialInputSchema = z.object({
   agentId: agentIdSchema,
   apiKey: z.string().trim().min(8).max(4096),

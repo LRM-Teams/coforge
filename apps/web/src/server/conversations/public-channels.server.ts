@@ -1,6 +1,7 @@
 import { lockConversation } from "./conversation-lock.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
+import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
 import {
@@ -156,7 +157,7 @@ export async function getAgentChannel(
     where: {
       workspaceId,
       channelName: target.slice(1),
-      members: { some: { agentId, agent: { workspaceId } } },
+      members: { some: { agentId, agent: { workspaceId }, ...ACTIVE_MEMBER_WHERE } },
     },
   });
   if (!channel) throw new AppError("ACCESS_DENIED");
@@ -211,7 +212,7 @@ export class PublicChannels {
     await this.db.$transaction(async (tx) => {
       await lockConversation(tx, channel.id);
       const updated = await tx.conversationMember.updateMany({
-        where: { conversationId: channel.id, userId },
+        where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
         data: { channelMuted: muted },
       });
       if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
@@ -296,7 +297,8 @@ export class PublicChannels {
       select: {
         id: true,
         channelName: true,
-        members: { where: { userId }, select: { id: true } },
+        archivedAt: true,
+        members: { where: { userId, ...ACTIVE_MEMBER_WHERE }, select: { id: true } },
       },
     });
     return channels
@@ -304,6 +306,7 @@ export class PublicChannels {
         id: channel.id,
         name: channel.channelName!,
         joined: channel.members.length > 0,
+        archived: channel.archivedAt !== null,
       }))
       .sort((a, b) => Number(b.name === "general") - Number(a.name === "general"));
   }
@@ -353,9 +356,12 @@ export class PublicChannels {
 
   async join(workspaceId: string, userId: string, channelId: string) {
     await this.channel(workspaceId, userId, channelId);
-    await this.db.conversationMember.createMany({
-      data: { workspaceId, userId, conversationId: channelId },
-      skipDuplicates: true,
+    // Upsert (not createMany/skipDuplicates): a human previously removed from this channel by
+    // an admin Agent has a row with `leftAt` set, which re-joining must clear rather than skip.
+    await this.db.conversationMember.upsert({
+      where: { conversationId_userId: { conversationId: channelId, userId } },
+      create: { workspaceId, userId, conversationId: channelId },
+      update: { leftAt: null },
     });
   }
 
@@ -433,8 +439,9 @@ export class PublicChannels {
   }) {
     const { workspaceId, userId, channelId, requestId, attachmentId, threadRootId } = input;
     const channel = await this.channel(workspaceId, userId, channelId);
-    const member = await this.db.conversationMember.findUnique({
-      where: { conversationId_userId: { conversationId: channelId, userId } },
+    if (channel.archivedAt) throw new AppError("CONFLICT");
+    const member = await this.db.conversationMember.findFirst({
+      where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
     });
     if (!member) throw new AppError("ACCESS_DENIED");
     const body = input.body.trim();
@@ -477,6 +484,7 @@ export class PublicChannels {
               where: {
                 conversationId: channelId,
                 OR: [{ user: { username: { in: names } } }, { agent: { name: { in: names } } }],
+                ...ACTIVE_MEMBER_WHERE,
               },
               select: { id: true },
             });
@@ -495,6 +503,7 @@ export class PublicChannels {
               conversationId: channelId,
               agentId: { not: null },
               agent: { workspaceId },
+              ...ACTIVE_MEMBER_WHERE,
               OR: [
                 { channelMuted: false },
                 { agent: { name: { in: names } } },
