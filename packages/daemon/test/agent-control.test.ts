@@ -435,7 +435,14 @@ test("unconfirmed launch cleanup remains fenced across daemon restart", async ()
   expect(creates).toBe(1);
 });
 
-test("a newer Start cannot bypass an in-progress (clearing) workspace deletion", async () => {
+/** Shared fixture for the two "a newer Start ... does not block" tests below: a hand-built
+ * record with `action: "reset-workspace"` at a given phase, a state store that tracks writes,
+ * and an AgentControl wired to count launches and capture results. */
+function replacedRecordFixture(options: {
+  phase: AgentRuntimeRecord["phase"];
+  clearWorkspace?: () => Promise<void>;
+  launchIdentity?: { sessionId: string; state: "empty" | "resumable" | "unknown" };
+}) {
   const scope = {
     protocolMajor: 1,
     requestId: "reset",
@@ -449,71 +456,7 @@ test("a newer Start cannot bypass an in-progress (clearing) workspace deletion",
     version: 1,
     scope,
     action: "reset-workspace",
-    phase: "clearing",
-    daemonInstanceId: "daemon",
-    sequence: 1,
-  };
-  let launches = 0;
-  const state = new AgentRuntimeState({
-    listAgentIds: async () => ["a"],
-    workspaceExists: async () => true,
-    read: async () => structuredClone(record),
-    write: async (_id, next) => {
-      record = structuredClone(next);
-    },
-    clearWorkspace: async () => {},
-  });
-  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
-    running: () => false,
-    cleanupUnconfirmed,
-    stop: async () => undefined,
-    launch: async () => {
-      launches++;
-      return undefined;
-    },
-    result: async () => {},
-  });
-  await expect(
-    control.start({
-      ...scope,
-      requestId: "automatic",
-      controlEpoch: 2,
-      model: "",
-      reasoning: "",
-    }),
-  ).rejects.toThrow("previous_control_not_completed");
-  expect(launches).toBe(0);
-  // Mid-deletion always blocks, regardless of epoch: a deliberate destructive-operation
-  // guard, unrelated to the reset-workspace-failure latch this suite removes below.
-  const retry = { ...scope, requestId: "explicit-retry", epoch: 2 };
-  await control.stop(retry);
-  await expect(
-    control.start({ ...retry, controlEpoch: 2, model: "", reasoning: "" }),
-  ).rejects.toThrow("previous_control_not_completed");
-  await control.resetWorkspace(retry);
-  await control.start({ ...retry, controlEpoch: 2, model: "", reasoning: "" });
-  expect(launches).toBe(1);
-});
-
-test("a pre-existing failed reset-workspace record from an older daemon does not block a newer Start", async () => {
-  // Simulates a record left behind by a daemon that predates the non-fatal-clear-failure fix:
-  // action "reset-workspace" with a terminal "failed" phase. The reset-workspace-specific latch
-  // that used to block every future Start regardless of epoch is gone; only the generic
-  // same-epoch pending-retry rule remains, so a newer-epoch Start now proceeds directly.
-  const scope = {
-    protocolMajor: 1,
-    requestId: "reset",
-    workspaceId: "w",
-    computerId: "c",
-    agentId: "a",
-    provider: "pi" as const,
-    epoch: 1,
-  };
-  let record: AgentRuntimeRecord = {
-    version: 1,
-    scope,
-    action: "reset-workspace",
-    phase: "failed",
+    phase: options.phase,
     daemonInstanceId: "daemon",
     sequence: 1,
   };
@@ -526,9 +469,7 @@ test("a pre-existing failed reset-workspace record from an older daemon does not
     write: async (_id, next) => {
       record = structuredClone(next);
     },
-    clearWorkspace: async () => {
-      throw new Error("must not clear");
-    },
+    clearWorkspace: options.clearWorkspace ?? (async () => {}),
   });
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => false,
@@ -536,11 +477,52 @@ test("a pre-existing failed reset-workspace record from an older daemon does not
     stop: async () => undefined,
     async launch() {
       launches++;
-      return { sessionId: "new-session", state: "empty" };
+      return options.launchIdentity;
     },
     async result(result) {
       results.push(result);
     },
+  });
+  return { scope, control, results, record: () => record, launches: () => launches };
+}
+
+test("a newer Start cannot bypass an in-progress (clearing) workspace deletion", async () => {
+  const { scope, control, launches } = replacedRecordFixture({ phase: "clearing" });
+  await expect(
+    control.start({
+      ...scope,
+      requestId: "automatic",
+      controlEpoch: 2,
+      model: "",
+      reasoning: "",
+    }),
+  ).rejects.toThrow("previous_control_not_completed");
+  expect(launches()).toBe(0);
+  // Mid-deletion always blocks, regardless of epoch: a deliberate destructive-operation
+  // guard, unrelated to the reset-workspace-failure latch this suite removes below.
+  const retry = { ...scope, requestId: "explicit-retry", epoch: 2 };
+  await control.stop(retry);
+  await expect(
+    control.start({ ...retry, controlEpoch: 2, model: "", reasoning: "" }),
+  ).rejects.toThrow("previous_control_not_completed");
+  await control.resetWorkspace(retry);
+  await control.start({ ...retry, controlEpoch: 2, model: "", reasoning: "" });
+  expect(launches()).toBe(1);
+});
+
+test("a pre-existing failed reset-workspace record from an older daemon does not block a newer Start", async () => {
+  // Simulates a record left behind by a daemon that predates the non-fatal-clear-failure fix:
+  // action "reset-workspace" with a terminal "failed" phase. The reset-workspace-specific latch
+  // that used to block every future Start regardless of epoch is gone; only the generic
+  // same-epoch pending-retry rule remains, so a newer-epoch Start now proceeds directly. Start
+  // never routes through resetWorkspace/clearWorkspace at all, so clearWorkspace must not be
+  // called on this path.
+  const { scope, control, results, record, launches } = replacedRecordFixture({
+    phase: "failed",
+    clearWorkspace: async () => {
+      throw new Error("must not clear");
+    },
+    launchIdentity: { sessionId: "new-session", state: "empty" },
   });
   await control.start({
     ...scope,
@@ -549,9 +531,9 @@ test("a pre-existing failed reset-workspace record from an older daemon does not
     model: "",
     reasoning: "",
   });
-  expect(launches).toBe(1);
+  expect(launches()).toBe(1);
   expect(results.at(-1)).toMatchObject({ phase: "started", requestId: "automatic" });
-  expect(record).toMatchObject({ phase: "running" });
+  expect(record()).toMatchObject({ phase: "running" });
 });
 
 test("a delayed old exit cannot stop a replacement launch while waiting for the Agent lock", async () => {
@@ -909,21 +891,25 @@ test("a workspace clear failure is non-fatal: it reports workspace-reset with a 
 
   const { records: logs } = await captureLogs(() => control.resetWorkspace(scope));
 
-  // Non-fatal: the daemon-level outcome is "workspace-reset" with a warning, never "failed".
+  // Non-fatal: the daemon-level outcome is plain "workspace-reset", never "failed" — matching
+  // Raft 1.0.32, which only logs a clear failure and reports nothing on the wire for it.
   expect(record).toMatchObject({ phase: "workspace-reset" });
   expect(record?.identity).toBeUndefined();
   const resetResult = results.at(-1);
-  expect(resetResult).toMatchObject({
-    phase: "workspace-reset",
-    warningCode: "workspace_clear_incomplete",
-  });
-  expect(resetResult).not.toHaveProperty("errorCode");
+  expect(resetResult).toEqual({ ...scope, phase: "workspace-reset", sequence: 2 });
 
   const failureLog = logs.find(
     (entry) => entry.properties.event === "agent_control:workspace_clear_failed",
   );
   expect(failureLog?.level).toBe("error");
-  expect(failureLog?.properties).toMatchObject({ agent_id: "a", error_code: "Error" });
+  expect(failureLog?.properties).toMatchObject({
+    request_id: "reset-a",
+    workspace_id: "w",
+    computer_id: "c",
+    agent_id: "a",
+    error_code: "Error",
+    outcome: "failed",
+  });
 
   // The chain still proceeds: Start is not blocked by the clear failure.
   const start: AgentStartIntent = { ...scope, controlEpoch: 1, model: "", reasoning: "" };
@@ -933,4 +919,60 @@ test("a workspace clear failure is non-fatal: it reports workspace-reset with a 
   expect(sentSessions).toBe(0);
   await sessions.replay("a");
   expect(sentSessions).toBe(1);
+});
+
+test("a workspace clear failure does not weaken confirmed_stop_required: a later reset without a fresh stop still throws", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  let active = true;
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    workspaceExists: async () => true,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {
+      throw new Error("EACCES: permission denied");
+    },
+  };
+  const results: AgentControlResult[] = [];
+  const state = new AgentRuntimeState(store);
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => active,
+    cleanupUnconfirmed,
+    async stop() {
+      active = false;
+      return { sessionId: "old", state: "resumable" };
+    },
+    async launch() {
+      active = true;
+      return { sessionId: "new", state: "empty" };
+    },
+    async result(result) {
+      results.push(result);
+    },
+  });
+  const scope: AgentWorkspaceResetRequest = {
+    protocolMajor: 1,
+    requestId: "reset-b",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi",
+    epoch: 1,
+  };
+  // First reset: confirmed Stop, then a non-fatal clear failure. This must still complete and
+  // proceed, exactly like the test above.
+  await control.stop(scope);
+  await control.resetWorkspace(scope);
+  expect(record).toMatchObject({ phase: "workspace-reset" });
+  await control.start({ ...scope, controlEpoch: 1, model: "", reasoning: "" });
+  expect(record).toMatchObject({ phase: "running" });
+
+  // Second reset at a new epoch: no fresh Stop has been confirmed for this epoch, so the
+  // deliberate confirmed_stop_required guard still applies — a prior clear failure never
+  // weakens it.
+  const next = { ...scope, requestId: "reset-c", epoch: 2 };
+  await expect(control.resetWorkspace(next)).rejects.toThrow("confirmed_stop_required");
+  expect(record).toMatchObject({ phase: "running" });
 });

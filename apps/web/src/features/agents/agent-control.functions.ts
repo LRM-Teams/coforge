@@ -38,5 +38,4 @@ export const executeAgentControl = createServerFn({ method: "POST" })
     setResponseHeader("cache-control", "no-store");
     const result = await agentControl(db).execute({ ...data, userId: user.id, workspaceId });
     if (result.phase === "failed") throw new Error("Agent control failed");
-    return result.warning ? { warning: result.warning } : {};
   });

@@ -130,7 +130,6 @@
   "agent_control_confirm_description": "这会永久删除此智能体工作区中的所有文件，包括隐藏文件、工作区技能和 Pi 会话。此操作不可撤销。不会删除全局技能、其他智能体、云端消息或原生 HOME 中的会话记录。",
   "agent_control_submit_error": "控制请求未能确认。请先查看智能体 Activity，再决定是否重试。",
   "agent_control_access_denied": "你没有权限执行此操作。完全重置需要 Workspace 所有者或管理员权限。",
-  "agent_control_warning_workspace_clear_incomplete": "部分工作区文件未能删除。智能体已使用新会话启动。",
   "agent_skills_title": "技能",
   "agent_skills_caveat": "此处仅为目录元数据，不代表会话已加载技能；不包含插件和额外配置的来源。",
   "agent_skills_refresh": "刷新技能",

@@ -95,6 +95,20 @@ Constraints already in place that the fix has to respect:
    logs `agent_control:pending_superseded` at warning with `agent_id`, the previous
    action/phase/epoch, `age_ms` (or `"unknown"` for a legacy row), and the new action — a stuck
    operation being cleared is an operational event worth seeing, not a silent recovery.
+
+   > **Amendment (2026-09-17, ADR 0036):** both the "mirrors the existing failed-`full-reset`
+   > rule immediately above it" reference and the exception itself are now stale/removed. ADR
+   > 0036 first removed the failed-`full-reset` latch this sentence points at (a failed operation
+   > no longer blocks anything once terminal, for any action), and — after further review of that
+   > same change — also removed this exception outright: an abandoned Full Reset is now
+   > superseded by any next action (start, stop, restart, reset-session, or a fresh full-reset),
+   > exactly like every other abandoned operation, not only by a new, explicitly confirmed
+   > full-reset. Point 4 immediately below, which routes `publishStart()` through this rule "so
+   > rule 3's Full Reset guard applies uniformly," described that guard as it existed at the time;
+   > the guard itself is gone, though `publishStart()` still routes through `begin()` the same
+   > way. See ADR 0036's "Relationship to ADR 0035" section for the current rule and its
+   > reasoning; this note leaves the decision above as an accurate historical record and amends
+   > only its now-stale cross-references.
 4. `publishStart()` had its own inline pending check (`state.action !== "start"` always threw).
    It now routes an abandoned non-`start` pending state through `begin()` instead, so rule 3's
    Full Reset guard applies uniformly instead of being bypassable through this second entry
