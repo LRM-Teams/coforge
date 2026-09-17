@@ -4,21 +4,28 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   ArrowLeft,
   ArrowUpRight,
+  CheckCircle,
+  Circle,
   File02,
   Folder,
   GitBranch01,
-  Hash01,
   Plus,
   Settings01,
+  XCircle,
 } from "@untitledui/icons";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { PageHeader } from "@/components/layout/page-header";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreateChannelDialog } from "@/features/conversations/create-channel-dialog";
 import { createPublicChannel } from "@/features/conversations/channels.functions";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
 import type { getProject, getProjectRepository } from "./projects.functions";
 import { ProjectImage } from "./project-image";
+import { RepositoryStatusMessage } from "./repository-status";
 
 type Repository = Awaited<ReturnType<typeof getProjectRepository>>;
 
@@ -102,13 +109,36 @@ export function ProjectDetail({
                         params={{ channelId: conversation.id }}
                         className="flex min-w-0 items-center gap-3 px-4 py-4 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2"
                       >
-                        <Hash01 aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-primary">
-                          {conversation.channelName}
+                        <Avatar
+                          size="xs"
+                          src={conversation.lastSender?.avatarUrl ?? undefined}
+                          initials={
+                            conversation.lastSender
+                              ? avatarInitial(conversation.lastSender.name)
+                              : undefined
+                          }
+                          contentClassName={
+                            conversation.lastSender
+                              ? avatarToneClassName(conversation.lastSender.name)
+                              : undefined
+                          }
+                          alt=""
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-primary">
+                            {conversation.channelName}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-tertiary">
+                            {conversation.lastSender
+                              ? `${conversation.lastSender.name} · ${m.project_message_count({ count: conversation.messageCount })}`
+                              : m.project_no_messages()}
+                          </span>
                         </span>
-                        <span className="shrink-0 text-xs text-tertiary">
-                          {m.project_member_count({ count: conversation._count.members })}
-                        </span>
+                        <RelativeTime
+                          value={conversation.lastActivityAt}
+                          plain
+                          className="shrink-0 text-xs text-tertiary"
+                        />
                       </Link>
                     </li>
                   ))}
@@ -132,7 +162,9 @@ export function ProjectDetail({
               </>
             }
           >
-            <Await promise={repository}>{(data) => <RepositoryContents data={data} />}</Await>
+            <Await promise={repository}>
+              {(data) => <RepositoryContents data={data} projectSlug={project.slug} />}
+            </Await>
           </Suspense>
         </div>
       </div>
@@ -186,48 +218,12 @@ function RepositoryLoading() {
   );
 }
 
-function RepositoryContents({ data }: { data: Repository }) {
-  const router = useRouter();
-  const [retrying, setRetrying] = useState(false);
+function RepositoryContents({ data, projectSlug }: { data: Repository; projectSlug: string }) {
   if (data.status !== "ready") {
-    const text =
-      data.status === "unlinked"
-        ? m.project_no_repository()
-        : data.status === "denied"
-          ? m.project_repository_denied()
-          : m.project_repository_unavailable();
     return (
       <>
         <RepositorySection title={m.project_commits()}>
-          <div className="flex min-h-52 flex-col items-center justify-center gap-3 px-5 py-8 text-center">
-            <p className="text-sm text-tertiary">{text}</p>
-            {data.status !== "unlinked" && (
-              <>
-                <Link
-                  to="/settings"
-                  search={{ section: "integrations" }}
-                  className="text-sm font-medium text-brand-secondary hover:underline"
-                >
-                  {m.project_github_settings()}
-                </Link>
-                <Button
-                  size="sm"
-                  color="secondary"
-                  isLoading={retrying}
-                  onPress={async () => {
-                    setRetrying(true);
-                    try {
-                      await router.invalidate({ sync: true });
-                    } finally {
-                      setRetrying(false);
-                    }
-                  }}
-                >
-                  {m.project_retry()}
-                </Button>
-              </>
-            )}
-          </div>
+          <RepositoryStatusMessage status={data.status} />
         </RepositorySection>
         <RepositorySection title={m.project_files()} files>
           <p className="px-5 py-16 text-center text-sm text-tertiary">
@@ -244,9 +240,10 @@ function RepositoryContents({ data }: { data: Repository }) {
       <span className="truncate">{data.defaultBranch}</span>
     </span>
   );
+  const latestCommit = data.commits[0];
   return (
     <>
-      <RepositorySection title={m.project_commits()} meta={branch}>
+      <RepositorySection title={m.project_commits_to({ branch: data.defaultBranch })}>
         {data.commits.length ? (
           <ul className="divide-y divide-secondary">
             {data.commits.map((commit) => (
@@ -255,20 +252,38 @@ function RepositoryContents({ data }: { data: Repository }) {
                   href={`${base}/commit/${commit.sha}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="block px-4 py-3 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2"
+                  className="flex min-w-0 items-center gap-3 px-4 py-3 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2"
                 >
-                  <p className="truncate text-sm font-medium text-primary">
-                    {commit.message.split("\n")[0]}
-                  </p>
-                  <p className="mt-1 flex min-w-0 gap-2 text-xs text-tertiary">
-                    <span className="truncate">{commit.author}</span>
-                    <span className="font-mono">{commit.sha.slice(0, 7)}</span>
-                    {commit.date && (
-                      <time className="ml-auto shrink-0" dateTime={commit.date}>
-                        {commit.date.slice(0, 10)}
-                      </time>
+                  <Avatar
+                    size="xs"
+                    src={commit.authorAvatarUrl ?? undefined}
+                    initials={avatarInitial(commit.author)}
+                    contentClassName={avatarToneClassName(commit.author)}
+                    alt=""
+                  />
+                  <span className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-primary">
+                      {commit.message.split("\n")[0]}
+                    </p>
+                    <p className="mt-0.5 flex min-w-0 gap-2 text-xs text-tertiary">
+                      <span className="truncate">
+                        {commit.author}
+                        {commit.committer && `, ${commit.committer}`}
+                      </span>
+                      <span className="shrink-0 font-mono">{commit.sha.slice(0, 7)}</span>
+                    </p>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {commit.verified && (
+                      <Badge size="sm" color="success">
+                        {m.project_commit_verified()}
+                      </Badge>
                     )}
-                  </p>
+                    {commit.date && (
+                      <RelativeTime value={commit.date} plain className="text-xs text-tertiary" />
+                    )}
+                    <CommitChecksIcon checks={commit.checks} />
+                  </span>
                 </a>
               </li>
             ))}
@@ -281,38 +296,131 @@ function RepositoryContents({ data }: { data: Repository }) {
       </RepositorySection>
       <RepositorySection title={m.project_files()} files meta={branch}>
         {data.files.length ? (
-          <ul className="divide-y divide-secondary">
-            {[...data.files]
-              .sort(
-                (a, b) =>
-                  Number(b.type === "dir") - Number(a.type === "dir") ||
-                  a.name.localeCompare(b.name),
-              )
-              .map((file) => (
-                <li key={file.path}>
-                  <a
-                    href={`${base}/${file.type === "dir" ? "tree" : "blob"}/${encodeURIComponent(data.defaultBranch)}/${file.path.split("/").map(encodeURIComponent).join("/")}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex min-w-0 items-center gap-3 px-4 py-3 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2"
-                  >
-                    {file.type === "dir" ? (
-                      <Folder aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
-                    ) : (
-                      <File02 aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
-                    )}
-                    <span className="min-w-0 flex-1 truncate text-sm text-primary">
-                      {file.name}
-                    </span>
-                    <ArrowUpRight aria-hidden="true" className="size-4 shrink-0 text-quaternary" />
-                  </a>
-                </li>
-              ))}
-          </ul>
+          <>
+            {latestCommit && (
+              <div className="flex min-w-0 items-center gap-3 border-b border-secondary px-4 py-3">
+                <Avatar
+                  size="xs"
+                  src={latestCommit.authorAvatarUrl ?? undefined}
+                  initials={avatarInitial(latestCommit.author)}
+                  contentClassName={avatarToneClassName(latestCommit.author)}
+                  alt=""
+                />
+                <span className="min-w-0 flex-1 truncate text-sm text-tertiary">
+                  <span className="font-medium text-primary">{latestCommit.author}</span>{" "}
+                  {latestCommit.message.split("\n")[0]}
+                </span>
+                <span className="shrink-0 font-mono text-xs text-tertiary">
+                  {latestCommit.sha.slice(0, 7)}
+                </span>
+                {latestCommit.date && (
+                  <RelativeTime
+                    value={latestCommit.date}
+                    plain
+                    className="shrink-0 text-xs text-tertiary"
+                  />
+                )}
+                <a
+                  href={`${base}/commits/${encodeURIComponent(data.defaultBranch)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 text-xs font-medium text-brand-secondary hover:underline"
+                >
+                  {m.project_view_commits()}
+                </a>
+              </div>
+            )}
+            <ul className="divide-y divide-secondary">
+              {[...data.files]
+                .sort(
+                  (a, b) =>
+                    Number(b.type === "dir") - Number(a.type === "dir") ||
+                    a.name.localeCompare(b.name),
+                )
+                .map((file) => {
+                  const rowClassName =
+                    "flex min-w-0 items-center gap-3 px-4 py-3 outline-focus-ring hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2";
+                  const rowContent = (
+                    <>
+                      {file.type === "dir" ? (
+                        <Folder aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
+                      ) : (
+                        <File02 aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
+                      )}
+                      <span className="max-w-[40%] shrink-0 truncate text-sm text-primary">
+                        {file.name}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-xs text-tertiary">
+                        {file.lastCommit?.message.split("\n")[0]}
+                      </span>
+                      {file.lastCommit?.date && (
+                        <RelativeTime
+                          value={file.lastCommit.date}
+                          plain
+                          className="shrink-0 text-xs text-tertiary"
+                        />
+                      )}
+                    </>
+                  );
+                  return (
+                    <li key={file.path}>
+                      {file.type === "dir" || file.type === "file" ? (
+                        <Link
+                          to="/projects/$projectSlug/tree/$"
+                          params={{ projectSlug, _splat: file.path }}
+                          className={rowClassName}
+                        >
+                          {rowContent}
+                        </Link>
+                      ) : (
+                        <a
+                          // Reached only for "symlink"/"submodule" — neither is "dir", so this is always a blob URL.
+                          href={`${base}/blob/${encodeURIComponent(data.defaultBranch)}/${file.path.split("/").map(encodeURIComponent).join("/")}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={rowClassName}
+                        >
+                          {rowContent}
+                          <ArrowUpRight
+                            aria-hidden="true"
+                            className="size-3.5 shrink-0 text-quaternary"
+                          />
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
+            </ul>
+          </>
         ) : (
           <p className="px-4 py-16 text-center text-sm text-tertiary">{m.project_files_empty()}</p>
         )}
       </RepositorySection>
     </>
   );
+}
+
+function CommitChecksIcon({ checks }: { checks: "success" | "failure" | "pending" | null }) {
+  if (checks === "success")
+    return (
+      <span className="inline-flex items-center">
+        <CheckCircle aria-hidden="true" className="size-4 text-success-primary" />
+        <span className="sr-only">{m.project_checks_success()}</span>
+      </span>
+    );
+  if (checks === "failure")
+    return (
+      <span className="inline-flex items-center">
+        <XCircle aria-hidden="true" className="size-4 text-error-primary" />
+        <span className="sr-only">{m.project_checks_failure()}</span>
+      </span>
+    );
+  if (checks === "pending")
+    return (
+      <span className="inline-flex items-center">
+        <Circle aria-hidden="true" className="size-2 fill-current text-quaternary" />
+        <span className="sr-only">{m.project_checks_pending()}</span>
+      </span>
+    );
+  return null;
 }
