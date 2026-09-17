@@ -76,6 +76,16 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     const result = await this.#run(["schtasks.exe", "/End", "/TN", this.#taskName]);
     if (result !== 0) throw new Error("could not stop the CoForge Daemon user task");
   }
+
+  /** The in-place replacement `coforge-computer restart --supervisor` uses to restart the
+   * Coordinator process itself. `/End`'s exit code is ignored - the task may already be
+   * stopped, which is not a restart failure - and `/Run` is the actual restart. */
+  async restart(): Promise<void> {
+    await this.#run(["schtasks.exe", "/End", "/TN", this.#taskName]);
+    const result = await this.#run(["schtasks.exe", "/Run", "/TN", this.#taskName]);
+    if (result !== 0) throw new Error("could not restart the CoForge Daemon user task");
+    await this.#local.ensureRunning();
+  }
 }
 
 async function runCommand(command: string[]): Promise<number> {

@@ -248,13 +248,43 @@ class LocalRpcDispatcher {
     const request = decodeDaemonCommandRequest(payload);
     this.#assertOwnServer(request.expectedServerUrl, "request");
     const valid = request.protocolMajor === 1 && request.requestId.length > 0;
-    const runtimes = valid ? await this.#runLifecycle(method, request) : undefined;
-    return encodeDaemonCommandResponse({
-      protocolMajor: 1,
-      requestId: request.requestId,
-      accepted: valid,
-      runtimes,
-    });
+    if (!valid)
+      return encodeDaemonCommandResponse({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: false,
+      });
+    try {
+      const runtimes = await this.#runLifecycle(method, request);
+      return encodeDaemonCommandResponse({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        runtimes,
+      });
+    } catch (error) {
+      // A refused lifecycle command (e.g. `daemon:upgrade` blocked by a pending operation) is a
+      // normal outcome the caller must be able to act on, not a transport failure - closing the
+      // socket here (the outer `receive()` catch's default) would leave the caller with nothing
+      // but a dropped connection, exactly the swallow this carries a reason instead of.
+      const code =
+        typeof (error as { code?: unknown })?.code === "string"
+          ? (error as { code: string }).code
+          : undefined;
+      logger.warn("Local lifecycle command was refused", {
+        event: "daemon.local_rpc.lifecycle_refused",
+        method,
+        error_code: code,
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+      return encodeDaemonCommandResponse({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: false,
+        error: error instanceof Error ? error.message : String(error),
+        ...(code ? { errorCode: code } : {}),
+      });
+    }
   }
 
   async #runLifecycle(

@@ -30,6 +30,8 @@ export type ComputerUpgradeStatus =
       status: "failed";
       reason: "timeout" | "publication" | "evidence" | "reported";
       error?: string;
+      /** See `UPGRADE_ERROR_CODE`; only ever set alongside `reason: "reported"`. */
+      errorCode?: string;
     }
   | { requestId: string; status: "unknown"; reason: "corrupt" };
 

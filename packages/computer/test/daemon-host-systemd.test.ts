@@ -59,6 +59,50 @@ test("start uses systemd rather than launching an unmanaged process", async () =
   expect(commands).toEqual([["systemctl", "--user", "start", "coforge-daemon.service"]]);
 });
 
+test("restart resets any failed-state latch before restarting the systemd user service", async () => {
+  const commands: string[][] = [];
+  const service = new SystemdUserDaemonHost({
+    homeDirectory: "/home/alice",
+    executablePath: "/install/coforge-daemon",
+    socketPath: "/run/user/501/coforge/daemon.sock",
+    run: async (command) => {
+      commands.push(command);
+      // Fails the restart step deliberately so this exercises only the command sequence and
+      // error handling, not the local-handshake wait a real success would go on to do.
+      return command.includes("restart") ? 1 : 0;
+    },
+  });
+  await expect(service.restart()).rejects.toThrow(
+    "could not restart the CoForge Daemon user service",
+  );
+  expect(commands).toEqual([
+    ["systemctl", "--user", "reset-failed", "coforge-daemon.service"],
+    ["systemctl", "--user", "restart", "coforge-daemon.service"],
+  ]);
+});
+
+test("restart ignores reset-failed's own exit code", async () => {
+  const commands: string[][] = [];
+  const service = new SystemdUserDaemonHost({
+    homeDirectory: "/home/alice",
+    executablePath: "/install/coforge-daemon",
+    socketPath: "/run/user/501/coforge/daemon.sock",
+    run: async (command) => {
+      commands.push(command);
+      // reset-failed's own exit code (1: nothing to reset) must not fail the restart; the
+      // restart step is also failed here only to avoid a real local-handshake wait.
+      return 1;
+    },
+  });
+  await expect(service.restart()).rejects.toThrow(
+    "could not restart the CoForge Daemon user service",
+  );
+  expect(commands).toEqual([
+    ["systemctl", "--user", "reset-failed", "coforge-daemon.service"],
+    ["systemctl", "--user", "restart", "coforge-daemon.service"],
+  ]);
+});
+
 test("a validated injected service name isolates native lifecycle integration", async () => {
   const commands: string[][] = [];
   let writtenPath = "";

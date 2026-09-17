@@ -366,6 +366,7 @@ export function createComputerUpgradeResultMethod(
           completedAtMs: result.completedAtMs,
           ...(result.version ? { version: result.version } : {}),
           ...(result.error ? { error: result.error } : {}),
+          ...(result.errorCode ? { errorCode: result.errorCode } : {}),
         },
       );
       // Acceptance is the acknowledgement: the Daemon drops its local record on this reply.

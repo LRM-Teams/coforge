@@ -1,7 +1,13 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { UPGRADE_ERROR_CODE } from "@lrm/coforge-sdk/internal";
 
-import { ComputerUpdater, type LockedComputerUpdater, type PreparedUpdate } from "../updater";
+import {
+  ComputerUpdater,
+  UpdateError,
+  type LockedComputerUpdater,
+  type PreparedUpdate,
+} from "../updater";
 import {
   createSupervisorUpgradeLifecycle,
   type ManagedRuntimeSnapshot,
@@ -43,6 +49,10 @@ export type UpgradeResult = {
   version?: string;
   restoredVersion?: string;
   error?: string;
+  /** See `UPGRADE_ERROR_CODE`. Set when this machine can name a stable reason: the updater's own
+   * `UpdateError.code` when the failure happened before any switch, or a generic rollback-outcome
+   * code once one was attempted. */
+  errorCode?: string;
   /** Whether the Computer supervisor was running before the switch. Kept JSON-plain so a CLI
    * reading the receipt back can tell a caller their Workspaces were never touched. */
   supervisorRunning?: boolean;
@@ -246,6 +256,7 @@ async function switchRuntime(
         status: "failed",
         restoredVersion: prepared.previous,
         error: errorMessage(candidateError),
+        errorCode: UPGRADE_ERROR_CODE.ROLLED_BACK,
       };
       throw new UpgradeCoordinatorError("candidate failed; previous version restored", result, {
         cause: candidateError,
@@ -259,6 +270,7 @@ async function switchRuntime(
         operation,
         status: "failed",
         error: `${errorMessage(candidateError)}; rollback failed: ${errorMessage(rollbackError)}`,
+        errorCode: UPGRADE_ERROR_CODE.ROLLBACK_FAILED,
       };
       throw new UpgradeCoordinatorError("candidate and rollback failed", result, {
         cause: rollbackError,
@@ -291,6 +303,7 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
             operation: request.operation,
             status: "failed",
             error: errorMessage(error),
+            ...(error instanceof UpdateError ? { errorCode: error.code } : {}),
           };
   }
   await writeJsonAtomic(request.resultPath, result);

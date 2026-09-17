@@ -127,6 +127,64 @@ test("ready and reconnect snapshots report the executable version and observed O
   }
 });
 
+test("a refused Computer upgrade request reports exactly one failed result with its code instead of being swallowed", async () => {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-upgrade-refused");
+  let requestUpgrade: ((requestId: string, expectedVersion?: string) => Promise<void>) | undefined;
+  const sentResults: unknown[] = [];
+  let acknowledged = 0;
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+    credentials,
+    {
+      create: () => ({
+        async start(_token, transportConfig) {
+          requestUpgrade = transportConfig.requestUpgrade;
+        },
+        async stop() {},
+        async ready() {},
+        async sendUpgradeResult(result: unknown) {
+          sentResults.push(result);
+          return true;
+        },
+      }),
+    },
+    undefined,
+    emptyCodeAgentDiscovery,
+    workspaceRoot,
+    {
+      requestUpgrade: async () => {
+        const rejection = new Error(
+          "Computer upgrade operation prior-request is still pending; wait for it to finish before starting another",
+        );
+        (rejection as Error & { code?: string }).code = "UPGRADE_OPERATION_PENDING";
+        throw rejection;
+      },
+      acknowledgeUpgradeResult: async () => {
+        acknowledged += 1;
+      },
+    },
+  );
+  try {
+    await runtime.start(connection);
+    await expect(requestUpgrade!("request-refused", "1.2.3")).rejects.toThrow("still pending");
+    expect(sentResults).toHaveLength(1);
+    expect(sentResults[0]).toMatchObject({
+      requestId: "request-refused",
+      workspaceId: connection.workspaceId,
+      status: "failed",
+      errorCode: "UPGRADE_OPERATION_PENDING",
+    });
+    expect((sentResults[0] as { error: string }).error).toContain("still pending");
+    // A refusal is not a terminal receipt this machine owes an acknowledgement flow to; only
+    // #reportUpgradeResults' recovered-terminal path calls this.
+    expect(acknowledged).toBe(0);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("a duplicate fenced start wakes the managed runtime without replaying recovery context", async () => {
   const stateDirectory = join(tempRoot, `coforge-managed-wake-${crypto.randomUUID()}`);
   const credentials = new InMemoryDaemonCredentialStore();

@@ -800,6 +800,20 @@ not answer, or stays busy past the deadline is restarted anyway, logging
 `restart:runner_hold_quiescent` or `restart:runner_hold_expired`. See
 [ADR 0021](adr/0021-restart-runner-hold.md).
 
+`coforge-computer restart --supervisor` is different again: it restarts the
+Coordinator process itself, not a Workspace runtime, through the platform's own
+process manager (`launchctl kickstart -k` on macOS; `systemctl --user
+reset-failed` then `restart` on Linux; ending and re-running the scheduled task
+on Windows), then waits for the local handshake. It is mutually exclusive with
+`--workspace`. Before restarting it engages the same fanned-out runner hold
+described above, unless the Coordinator cannot be reached at all - the case
+this command exists for - in which case it skips the hold and restarts anyway.
+It refuses on a `foreground` externally supervised Computer, with the same
+wording an upgrade's own restartability check uses. Until this record, the only
+way to restart a stuck Coordinator was `systemctl --user restart
+coforge-daemon.service` or `launchctl kickstart -k …` by hand, which must never
+appear in user-facing copy.
+
 ## Rollback
 
 Each release track records its own previous known-healthy identity before

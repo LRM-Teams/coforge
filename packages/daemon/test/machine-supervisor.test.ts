@@ -1,10 +1,15 @@
 import { expect, test } from "bun:test";
+import { UPGRADE_ERROR_CODE } from "@lrm/coforge-sdk/internal";
 import {
   MachineSupervisor,
   UPGRADE_OPERATION_HISTORY,
   type ManagedBinding,
   type PendingUpgradeSettler,
 } from "../src/supervisor/machine-supervisor";
+import {
+  UpgradeLaunchesPausedError,
+  UpgradeOperationPendingError,
+} from "../src/supervisor/upgrade-error";
 
 const NOW = 1_700_000_000_000;
 
@@ -47,6 +52,32 @@ test("only one upgrade operation may be pending, and a replay is not a second la
   expect(operations()).toEqual([
     { requestId: "request-a", expectedVersion: "1.2.3-rc.1", state: "pending", requestedAt: NOW },
   ]);
+});
+
+test("recordUpgrade's pending refusal is a typed error carrying UPGRADE_OPERATION_PENDING", async () => {
+  const { supervisor } = upgradeFixture();
+  await supervisor.recover();
+  await supervisor.recordUpgrade("a", "request-a", "1.2.3");
+
+  const rejection = await supervisor
+    .recordUpgrade("a", "request-b", "1.2.4")
+    .catch((error: unknown) => error);
+  expect(rejection).toBeInstanceOf(UpgradeOperationPendingError);
+  expect((rejection as UpgradeOperationPendingError).code).toBe(
+    UPGRADE_ERROR_CODE.OPERATION_PENDING,
+  );
+});
+
+test("configure's pause refusal is a typed error carrying UPGRADE_LAUNCHES_PAUSED", async () => {
+  const { supervisor } = upgradeFixture();
+  await supervisor.recover();
+  await supervisor.pause();
+
+  const rejection = await supervisor
+    .configure({ workspaceId: "b", computerId: "c", workspaceRoot: "/b" })
+    .catch((error: unknown) => error);
+  expect(rejection).toBeInstanceOf(UpgradeLaunchesPausedError);
+  expect((rejection as UpgradeLaunchesPausedError).code).toBe(UPGRADE_ERROR_CODE.LAUNCHES_PAUSED);
 });
 
 test("recordUpgrade settles an already-receipted pending operation instead of refusing, then accepts the new request", async () => {
@@ -140,6 +171,38 @@ test("an operation moves from pending through its receipt to the server acknowle
   expect(await supervisor.acknowledgeUpgrade("a", "request-a")).toBe(true);
   expect(operations()?.[0]?.state).toBe("acknowledged");
   // An acknowledged operation no longer blocks the next one.
+  expect(await supervisor.recordUpgrade("a", "request-b", "1.2.4")).toBe(true);
+});
+
+test("immediately completing a recorded operation as failed (a launch that never started) leaves nothing pending for the next request", async () => {
+  const { supervisor, operations } = upgradeFixture();
+  await supervisor.recover();
+
+  expect(await supervisor.recordUpgrade("a", "request-a", "1.2.3")).toBe(true);
+  // Mirrors run-supervisor.ts's `daemon:upgrade` handler: `launchComputerUpgrade` failed, so the
+  // operation `recordUpgrade` just opened is settled as failed immediately rather than left
+  // "pending" for the full TTL.
+  expect(
+    await supervisor.completeUpgrade("a", "request-a", {
+      status: "failed",
+      at: NOW + 1,
+      error: "external Computer upgrade coordinator was rejected",
+      errorCode: "UPGRADE_LAUNCH_FAILED",
+    }),
+  ).toBe(true);
+  expect(operations()?.[0]).toEqual({
+    requestId: "request-a",
+    expectedVersion: "1.2.3",
+    state: "failed",
+    requestedAt: NOW,
+    terminal: {
+      error: "external Computer upgrade coordinator was rejected",
+      errorCode: "UPGRADE_LAUNCH_FAILED",
+      at: NOW + 1,
+    },
+  });
+  // Nothing is left pending: a brand-new request is accepted outright, with no settle check
+  // configured and no "still pending" refusal.
   expect(await supervisor.recordUpgrade("a", "request-b", "1.2.4")).toBe(true);
 });
 

@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Edit01 as Pencil, RefreshCw01 as RotateCw } from "@untitledui/icons";
+import {
+  Check,
+  Copy01 as Copy,
+  Edit01 as Pencil,
+  RefreshCw01 as RotateCw,
+} from "@untitledui/icons";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -17,9 +22,11 @@ import {
   type ComputerIdentity,
 } from "./computer-identity";
 import {
+  ComputerUpgradeFailureView,
   describeComputerUpgradeFailure,
   describeComputerUpgradeSuccess,
   describeUpgradeRequestError,
+  type UpgradeFailureView,
 } from "./upgrade-failure";
 import { ComputerTile } from "./computer-tile";
 import { RuntimeIdentity, RuntimeUsage, type UsageView } from "./runtime-usage";
@@ -46,6 +53,28 @@ export type ComputerDetailView = ComputerIdentity & {
   }[];
   usage?: Record<string, UsageView>;
 };
+
+/** One failure-recovery command, in the app's mono command style, with a copy-to-clipboard
+ * affordance - the same `ButtonUtility` + Copy/Check pattern `ComputerInstallCommand` already
+ * uses, sized for an inline list item rather than a terminal block. */
+function UpgradeCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 align-middle font-mono text-xs text-secondary">
+      {command}
+      <ButtonUtility
+        icon={copied ? Check : Copy}
+        size="xs"
+        color="tertiary"
+        aria-label={m.computer_copy_command()}
+        onClick={() => {
+          void navigator.clipboard.writeText(command);
+          setCopied(true);
+        }}
+      />
+    </span>
+  );
+}
 
 /**
  * One Computer's detail panel: what this machine is, which Code Agents it
@@ -100,7 +129,9 @@ export function ComputerDetail({
   >("idle");
   const { upgradingComputerId, setUpgradingComputerId } = useUpgradingComputer();
   const [upgrade, setUpgrade] = useState<
-    { state: "idle" } | { state: "running" } | { state: "failed"; reason: string; errorId?: string }
+    | { state: "idle" }
+    | { state: "running" }
+    | ({ state: "failed"; errorId?: string } & UpgradeFailureView)
   >({ state: "idle" });
   const upgrading = upgrade.state === "running" || upgradingComputerId === computer.id;
   const upgradeAvailable =
@@ -119,7 +150,9 @@ export function ComputerDetail({
     try {
       const accepted = await onUpgrade(requestId);
       if (accepted.status !== "accepted")
-        throw new Error(describeComputerUpgradeFailure({ reason: "publication" }));
+        throw new ComputerUpgradeFailureView(
+          describeComputerUpgradeFailure({ reason: "publication" }),
+        );
       if (!onReadUpgradeStatus) return;
       for (let poll = 0; poll < restartMaxPolls; poll += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, restartPollIntervalMs));
@@ -134,16 +167,26 @@ export function ComputerDetail({
           return;
         }
         if (status.status === "completed")
-          throw new Error(describeComputerUpgradeFailure({ reason: "evidence" }));
-        if (status.status === "failed") throw new Error(describeComputerUpgradeFailure(status));
+          throw new ComputerUpgradeFailureView(
+            describeComputerUpgradeFailure({ reason: "evidence" }),
+          );
+        if (status.status === "failed")
+          throw new ComputerUpgradeFailureView(describeComputerUpgradeFailure(status));
         if (status.status === "unknown")
-          throw new Error(describeComputerUpgradeFailure({ reason: "evidence" }));
+          throw new ComputerUpgradeFailureView(
+            describeComputerUpgradeFailure({ reason: "evidence" }),
+          );
       }
-      throw new Error(describeComputerUpgradeFailure({ reason: "timeout" }));
+      throw new ComputerUpgradeFailureView(describeComputerUpgradeFailure({ reason: "timeout" }));
     } catch (error) {
       settle(() => {
         const copy = describeUpgradeRequestError(error);
-        setUpgrade({ state: "failed", reason: copy.headline, errorId: copy.errorId });
+        setUpgrade({
+          state: "failed",
+          headline: copy.headline,
+          steps: copy.steps,
+          errorId: copy.errorId,
+        });
       });
     } finally {
       settle(() => setUpgradingComputerId(undefined));
@@ -355,9 +398,24 @@ export function ComputerDetail({
                 footer={
                   upgrade.state === "failed" ? (
                     <div role="alert" className="mt-1.5 text-sm text-error-primary">
-                      <p>{upgrade.reason}</p>
+                      <p>{upgrade.headline}</p>
+                      {upgrade.steps.length > 0 && (
+                        <ol className="mt-1.5 list-decimal space-y-1 pl-4 text-sm text-tertiary">
+                          {upgrade.steps.map((step, index) => (
+                            <li key={index}>
+                              {step.text}
+                              {step.command && (
+                                <>
+                                  {" "}
+                                  <UpgradeCommand command={step.command} />
+                                </>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                      )}
                       {upgrade.errorId && (
-                        <p className="mt-0.5 text-xs text-tertiary">
+                        <p className="mt-1.5 text-xs text-tertiary">
                           {m.computer_upgrade_error_reference({ id: upgrade.errorId })}
                         </p>
                       )}

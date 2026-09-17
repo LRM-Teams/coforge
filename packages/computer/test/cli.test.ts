@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  nextUpgradeCommandHint,
   reportSkippedRestarts,
   reportStoppedWorkspaces,
   runCli,
@@ -8,7 +9,63 @@ import {
   type SetupCommand,
   type StatusCommand,
 } from "../src/cli";
+import { UpgradeCoordinatorError } from "../src/release/upgrade-coordinator";
 import { CliError, loginError, setupError } from "../src/errors";
+import { COMPUTER_CLI_COMMANDS } from "@lrm/coforge-sdk/internal";
+
+test("the CLI's actual registered commands match the shared COMPUTER_CLI_COMMANDS vocabulary", async () => {
+  // Drift protection for apps/web's upgrade-failure copy (which names these commands, but does
+  // not depend on this package): if a command here is renamed, added, or removed without
+  // updating COMPUTER_CLI_COMMANDS, this fails instead of the two packages silently disagreeing.
+  // `program.outputHelp()` writes straight to the real process streams (commander's default),
+  // bypassing the `io` shim entirely - captured here instead of through `io`.
+  const chunks: string[] = [];
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    chunks.push(chunk.toString());
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    await runCli([], { login: { async run() {} }, setup: { async run() {} } });
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+  const lines = chunks.join("").split("\n");
+  const commandsHeading = lines.indexOf("Commands:");
+  expect(commandsHeading).toBeGreaterThanOrEqual(0);
+  const names = new Set<string>();
+  for (const line of lines.slice(commandsHeading + 1)) {
+    const match = /^\s{2}(\S+)/.exec(line);
+    if (!match) continue;
+    const name = match[1]!.split("|")[0]!;
+    if (name !== "help") names.add(name);
+  }
+  expect([...names].sort()).toEqual([...COMPUTER_CLI_COMMANDS].sort());
+});
+
+test("the upgrade CLI's next-command hint names the real commands for each outcome", () => {
+  expect(nextUpgradeCommandHint(new Error("boom"))).toContain("coforge-computer status");
+  expect(nextUpgradeCommandHint(new Error("boom"))).toContain("coforge-computer upgrade");
+
+  const rolledBack = new UpgradeCoordinatorError("candidate failed; previous version restored", {
+    schema_version: 1,
+    request_id: "r-1",
+    operation: "upgrade",
+    status: "failed",
+    restoredVersion: "1.0.0",
+  });
+  expect(nextUpgradeCommandHint(rolledBack)).toContain("coforge-computer logs");
+  expect(nextUpgradeCommandHint(rolledBack)).toContain("coforge-computer upgrade");
+
+  const rollbackFailed = new UpgradeCoordinatorError("candidate and rollback failed", {
+    schema_version: 1,
+    request_id: "r-2",
+    operation: "upgrade",
+    status: "failed",
+  });
+  expect(nextUpgradeCommandHint(rollbackFailed)).toContain("coforge-computer status");
+  expect(nextUpgradeCommandHint(rollbackFailed)).toContain("coforge-computer logs");
+});
 
 test("login uses the server selected by the compiled build", async () => {
   const calls: Array<{ serverUrl: string; json: boolean }> = [];
@@ -516,6 +573,79 @@ test("restart hint says nothing when every Workspace binding is enabled", () => 
     { workspaceId: "cc5c27ce-enabled", enabled: true },
   ]);
   expect(output).toEqual([]);
+});
+
+test("restart --supervisor dispatches to restartSupervisor instead of the ordinary restart", async () => {
+  const calls: string[] = [];
+  const dependencies = {
+    login: { async run() {} },
+    setup: { async run() {} },
+    daemon: {
+      async start() {},
+      async stop() {},
+      async restart() {
+        calls.push("restart");
+      },
+      async restartSupervisor() {
+        calls.push("restartSupervisor");
+      },
+    },
+  };
+
+  expect(await runCli(["restart", "--supervisor"], dependencies)).toBe(0);
+  expect(calls).toEqual(["restartSupervisor"]);
+
+  expect(await runCli(["restart"], dependencies)).toBe(0);
+  expect(calls).toEqual(["restartSupervisor", "restart"]);
+});
+
+test("restart --supervisor and --workspace are mutually exclusive", async () => {
+  const stderr: string[] = [];
+  const calls: string[] = [];
+  const dependencies = {
+    login: { async run() {} },
+    setup: { async run() {} },
+    daemon: {
+      async start() {},
+      async stop() {},
+      async restart() {
+        calls.push("restart");
+      },
+      async restartSupervisor() {
+        calls.push("restartSupervisor");
+      },
+    },
+  };
+
+  const exitCode = await runCli(["restart", "--supervisor", "--workspace", "a"], dependencies, {
+    stdout: () => undefined,
+    stderr: (line) => stderr.push(line),
+  });
+
+  expect(exitCode).toBe(1);
+  expect(calls).toEqual([]);
+  expect(stderr.join("\n")).toContain("RESTART_CONFLICTING_TARGET");
+});
+
+test("restart --supervisor is unavailable without a wired dependency", async () => {
+  const stderr: string[] = [];
+  const dependencies = {
+    login: { async run() {} },
+    setup: { async run() {} },
+    daemon: {
+      async start() {},
+      async stop() {},
+      async restart() {},
+    },
+  };
+
+  const exitCode = await runCli(["restart", "--supervisor"], dependencies, {
+    stdout: () => undefined,
+    stderr: (line) => stderr.push(line),
+  });
+
+  expect(exitCode).toBe(1);
+  expect(stderr.join("\n")).toContain("Supervisor restart is unavailable in this build");
 });
 
 test("foreground runs the supervisor in the current process for external supervision", async () => {
