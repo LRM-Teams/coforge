@@ -253,8 +253,12 @@ function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
       AND (c."channelName" IS NULL OR d."deliveryId" IS NOT NULL)`;
 }
 
-/** Next sequence for a conversation; holds the conversation row lock until the transaction ends. */
-async function allocateSequence(tx: Prisma.TransactionClient, conversationId: string) {
+/**
+ * Next sequence for a conversation; holds the conversation row lock until the transaction ends.
+ * Exported so other message-anchored writers (e.g. `ActionCards.prepare`) serialize through the
+ * same lock instead of reimplementing sequence allocation.
+ */
+export async function allocateSequence(tx: Prisma.TransactionClient, conversationId: string) {
   await lockConversation(tx, conversationId);
   const last = await tx.message.findFirst({
     where: { conversationId },

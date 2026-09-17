@@ -145,6 +145,15 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   human-committed action card creates agents). Channels still have no role
   system of their own; private channels are planned but not introduced here.
 
+- Agent-prepared action cards (ADR 0027) belong to
+  `server/conversations/action-cards.server.ts`: `ActionCards.prepare`
+  resolves every handle in a `channel:create`/`agent:create`/
+  `channel:add_member` action to a UUID, reuses the Agent `message send`
+  target resolver and membership rule, and creates the posted Message and
+  the `ActionCard` row in the same conversation-locked transaction. It owns
+  no commit/execute path yet — that is a follow-up PR; today the card is
+  only persisted and rendered as an ordinary Agent message.
+
 - Message threads belong to `features/conversations/` (selection, drafts,
   discussion UI, follow controls and authenticated functions),
   `server/conversations/` (send and notification routing), and

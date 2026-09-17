@@ -14,8 +14,16 @@ import {
   type WeeklyReportCommand,
   type WeeklyReportResponse,
 } from "@lrm/coforge-sdk/internal";
-import type { LocalReminderReceiptResponse, ReminderTransportRequest } from "../index";
-import { agentApiRoutes, decodeGitHubCredentialResponse } from "@lrm/coforge-sdk/agent";
+import type {
+  ActionPrepareResult,
+  LocalReminderReceiptResponse,
+  ReminderTransportRequest,
+} from "../index";
+import {
+  agentApiRoutes,
+  decodeGitHubCredentialResponse,
+  type ActionCardAction,
+} from "@lrm/coforge-sdk/agent";
 import { CliError, NO_MESSAGE_SENT_NEXT_ACTION, unknownDeliveryNextAction } from "./cli-error";
 
 /**
@@ -273,6 +281,7 @@ export function connectLocal(
     react: (messageId: string, emoji: string, remove?: boolean) =>
       call(remove ? "unreact" : "react", undefined, undefined, { messageId, emoji }),
     task: (command: TaskCommand) => callTask(command),
+    actionPrepare: (target: string, action: ActionCardAction) => callActionPrepare(target, action),
     workspaceInfo: async (): Promise<WorkspaceInfoResponse> => {
       if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
         throw new Error("coforge agent context is invalid");
@@ -731,6 +740,47 @@ export function connectLocal(
       throw new Error(`agent Task request failed (${response.status}): ${await response.text()}`);
     }
     return (await response.json()) as TaskResult;
+  }
+
+  /** Server non-2xx maps to `PREPARE_FAILED` (4xx, server error text) or `SERVER_5XX`. */
+  async function callActionPrepare(
+    target: string,
+    action: ActionCardAction,
+  ): Promise<ActionPrepareResult> {
+    if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    let response: Response;
+    try {
+      response = await fetch(proxyEndpoint(agentApiRoutes.proxy.actionPrepare.path), {
+        method: agentApiRoutes.local.actionPrepare.method,
+        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+        body: JSON.stringify({ target, action }),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new CliError({
+        code: "PREPARE_FAILED",
+        message: "agent proxy request failed (network or timeout)",
+        retryable: false,
+      });
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let message = text;
+      try {
+        const json = JSON.parse(text) as { error?: string; message?: string };
+        message = json.message || json.error || text;
+      } catch {
+        // A legacy or bare-text proxy error; fall through with the raw text.
+      }
+      throw new CliError({
+        code: response.status >= 500 ? "SERVER_5XX" : "PREPARE_FAILED",
+        message: message || `HTTP ${response.status}`,
+        retryable: false,
+      });
+    }
+    return (await response.json()) as ActionPrepareResult;
   }
 
   async function callWeeklyReport(command: WeeklyReportCommand) {

@@ -18,12 +18,12 @@ export interface FileStorage {
   remove(objectKey: string): Promise<void>;
   /**
    * Reports one object's size and content type without downloading its bytes, or `null` when it
-   * does not exist. Backs the direct-upload `complete` verification (ADR 0027).
+   * does not exist. Backs the direct-upload `complete` verification (ADR 0028).
    */
   head(objectKey: string): Promise<{ sizeBytes: number; contentType: string | null } | null>;
   /**
    * Issues a short-lived presigned PUT for a not-yet-written object, or is absent when this
-   * backend cannot support direct upload (see ADR 0027; `LocalFileStorage` has none).
+   * backend cannot support direct upload (see ADR 0028; `LocalFileStorage` has none).
    * `attachmentCapabilities` reports `directUploadEnabled` exactly when this method exists. The
    * returned `headers` are the exact headers the caller must send with the PUT — including
    * whichever header this backend uses to refuse to overwrite an existing object.

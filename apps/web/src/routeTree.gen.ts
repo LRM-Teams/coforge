@@ -67,7 +67,9 @@ import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/works
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as ApiIntegrationsGithubWebhookRouteImport } from './routes/api/integrations/github/webhook'
 import { Route as ApiProjectsProjectIdIconRouteImport } from './routes/api/projects.$projectId.icon'
+import { Route as AppProjectsProjectSlugTreeSplatRouteImport } from './routes/_app/projects.$projectSlug_.tree.$'
 import { Route as AppRecordsWeeksYearWeekRouteImport } from './routes/_app/records.weeks.$year.$week'
+import { Route as ApiAgentV1ActionsPrepareRouteImport } from './routes/api/agent/v1/actions/prepare'
 import { Route as ApiAgentV1AttachmentUploadSessionsIndexRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/index'
 import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/$uploadId'
 import { Route as ApiAgentV1AttachmentsIndexRouteImport } from './routes/api/agent/v1/attachments/index'
@@ -383,11 +385,23 @@ const ApiProjectsProjectIdIconRoute =
     path: '/api/projects/$projectId/icon',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AppProjectsProjectSlugTreeSplatRoute =
+  AppProjectsProjectSlugTreeSplatRouteImport.update({
+    id: '/projects/$projectSlug_/tree/$',
+    path: '/projects/$projectSlug/tree/$',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppRecordsWeeksYearWeekRoute = AppRecordsWeeksYearWeekRouteImport.update({
   id: '/weeks/$year/$week',
   path: '/weeks/$year/$week',
   getParentRoute: () => AppRecordsRoute,
 } as any)
+const ApiAgentV1ActionsPrepareRoute =
+  ApiAgentV1ActionsPrepareRouteImport.update({
+    id: '/api/agent/v1/actions/prepare',
+    path: '/api/agent/v1/actions/prepare',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1AttachmentUploadSessionsIndexRoute =
   ApiAgentV1AttachmentUploadSessionsIndexRouteImport.update({
     id: '/api/agent/v1/attachment-upload-sessions/',
@@ -525,7 +539,9 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
+  '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
+  '/api/agent/v1/actions/prepare': typeof ApiAgentV1ActionsPrepareRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
@@ -595,7 +611,9 @@ export interface FileRoutesByTo {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
+  '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
+  '/api/agent/v1/actions/prepare': typeof ApiAgentV1ActionsPrepareRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
@@ -670,7 +688,9 @@ export interface FileRoutesById {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
+  '/_app/projects/$projectSlug_/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/_app/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
+  '/api/agent/v1/actions/prepare': typeof ApiAgentV1ActionsPrepareRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
@@ -745,7 +765,9 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
     | '/api/projects/$projectId/icon'
+    | '/projects/$projectSlug/tree/$'
     | '/records/weeks/$year/$week'
+    | '/api/agent/v1/actions/prepare'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
@@ -815,7 +837,9 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
     | '/api/projects/$projectId/icon'
+    | '/projects/$projectSlug/tree/$'
     | '/records/weeks/$year/$week'
+    | '/api/agent/v1/actions/prepare'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
@@ -889,7 +913,9 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
     | '/api/projects/$projectId/icon'
+    | '/_app/projects/$projectSlug_/tree/$'
     | '/_app/records/weeks/$year/$week'
+    | '/api/agent/v1/actions/prepare'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
@@ -943,6 +969,7 @@ export interface RootRouteChildren {
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubWebhookRoute: typeof ApiIntegrationsGithubWebhookRoute
   ApiProjectsProjectIdIconRoute: typeof ApiProjectsProjectIdIconRoute
+  ApiAgentV1ActionsPrepareRoute: typeof ApiAgentV1ActionsPrepareRoute
   ApiAgentV1AttachmentUploadSessionsUploadIdRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
@@ -1365,12 +1392,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProjectsProjectIdIconRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/projects/$projectSlug_/tree/$': {
+      id: '/_app/projects/$projectSlug_/tree/$'
+      path: '/projects/$projectSlug/tree/$'
+      fullPath: '/projects/$projectSlug/tree/$'
+      preLoaderRoute: typeof AppProjectsProjectSlugTreeSplatRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/records/weeks/$year/$week': {
       id: '/_app/records/weeks/$year/$week'
       path: '/weeks/$year/$week'
       fullPath: '/records/weeks/$year/$week'
       preLoaderRoute: typeof AppRecordsWeeksYearWeekRouteImport
       parentRoute: typeof AppRecordsRoute
+    }
+    '/api/agent/v1/actions/prepare': {
+      id: '/api/agent/v1/actions/prepare'
+      path: '/api/agent/v1/actions/prepare'
+      fullPath: '/api/agent/v1/actions/prepare'
+      preLoaderRoute: typeof ApiAgentV1ActionsPrepareRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/agent/v1/attachment-upload-sessions/': {
       id: '/api/agent/v1/attachment-upload-sessions/'
@@ -1527,6 +1568,7 @@ interface AppRouteChildren {
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppProjectsProjectSlugSettingsRoute: typeof AppProjectsProjectSlugSettingsRoute
+  AppProjectsProjectSlugTreeSplatRoute: typeof AppProjectsProjectSlugTreeSplatRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -1540,6 +1582,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAgentsIndexRoute: AppAgentsIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppProjectsProjectSlugSettingsRoute: AppProjectsProjectSlugSettingsRoute,
+  AppProjectsProjectSlugTreeSplatRoute: AppProjectsProjectSlugTreeSplatRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
@@ -1622,6 +1665,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubWebhookRoute: ApiIntegrationsGithubWebhookRoute,
   ApiProjectsProjectIdIconRoute: ApiProjectsProjectIdIconRoute,
+  ApiAgentV1ActionsPrepareRoute: ApiAgentV1ActionsPrepareRoute,
   ApiAgentV1AttachmentUploadSessionsUploadIdRoute:
     ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren,
   ApiAgentV1AttachmentsAttachmentIdRoute:

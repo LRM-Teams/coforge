@@ -1,4 +1,4 @@
-# ADR 0027: Presigned direct upload for `coforge attachment upload`
+# ADR 0028: Presigned direct upload for `coforge attachment upload`
 
 Status: accepted
 Date: 2026-09-17

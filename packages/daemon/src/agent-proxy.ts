@@ -15,7 +15,11 @@ import {
   type WeeklyReportCommand,
 } from "@lrm/coforge-sdk/internal";
 import {
+  actionCardActionSchema,
   agentApiRoutes,
+  validateActionCardAction,
+  type AgentActionPrepareRequest,
+  type AgentActionPrepareResponse,
   type GitHubCredentialRequest,
   type GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
@@ -39,7 +43,7 @@ const LOCAL_ATTACHMENT_UPLOAD_PATH = agentApiRoutes.local.attachments.upload.pat
 // Mirrors `apps/web`'s `ATTACHMENT_MAX_BYTES` (10 MiB) plus slack for multipart framing
 // overhead (boundary markers, field headers); the daemon package cannot import from `apps/web`.
 const ATTACHMENT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024 + 64 * 1024;
-// The four presigned-direct-upload session routes (ADR 0027) are plain JSON, so they reuse the
+// The four presigned-direct-upload session routes (ADR 0028) are plain JSON, so they reuse the
 // JSON body path below rather than the multipart forwarding above. `create` is a fixed path;
 // `complete`/`cancel`/`get` share a `/:uploadId[/complete]` prefix.
 const LOCAL_UPLOAD_SESSION_CREATE_PATH = agentApiRoutes.local.attachmentUploadSessions.create.path;
@@ -58,6 +62,7 @@ function forwardResponse(response: Response): Response {
 function routeFamilyFor(pathname: string, payload: Record<string, unknown> | undefined): string {
   if (pathname === LOCAL_PROXY_ROUTES.reminders.path) return "agent-api/reminder";
   if (pathname === LOCAL_PROXY_ROUTES.tasks.path) return "agent-api/task";
+  if (pathname === LOCAL_PROXY_ROUTES.actionPrepare.path) return "agent-api/action-prepare";
   if (pathname === LOCAL_PROXY_ROUTES.weeklyReports.path) return "agent-api/weekly-report";
   if (pathname === LOCAL_PROXY_ROUTES.inbox.path) return "agent-api/inbox";
   if (pathname === LOCAL_PROXY_ROUTES.messages.path) {
@@ -128,6 +133,11 @@ export function startAgentProxy(input: {
       agentApiKey: string,
     ): Promise<unknown>;
     agentTask?(context: string, request: TaskCommand, agentApiKey: string): Promise<unknown>;
+    agentActionPrepare?(
+      context: string,
+      request: AgentActionPrepareRequest,
+      agentApiKey: string,
+    ): Promise<AgentActionPrepareResponse>;
     workspaceInfo?(
       context: string,
       request: WorkspaceInfoRequest,
@@ -176,6 +186,8 @@ export function startAgentProxy(input: {
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.reminders.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.tasks.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.tasks.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.actionPrepare.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.actionPrepare.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.weeklyReports.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.weeklyReports.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.githubCredentials.method ||
@@ -412,6 +424,25 @@ export function startAgentProxy(input: {
           const result = await input.runtime.agentTask(
             binding.context,
             command,
+            binding.agentApiKey,
+          );
+          return Response.json(result);
+        }
+        if (requestUrl.pathname === LOCAL_PROXY_ROUTES.actionPrepare.path) {
+          if (!input.runtime.agentActionPrepare) return new Response("not found", { status: 404 });
+          if (typeof payload.target !== "string" || !payload.target)
+            return new Response("bad request", { status: 400 });
+          const parsedAction = actionCardActionSchema.safeParse(payload.action);
+          if (!parsedAction.success) return new Response("bad request", { status: 400 });
+          if (validateActionCardAction(parsedAction.data))
+            return new Response("bad request", { status: 400 });
+          const request: AgentActionPrepareRequest = {
+            target: payload.target,
+            action: parsedAction.data,
+          };
+          const result = await input.runtime.agentActionPrepare(
+            binding.context,
+            request,
             binding.agentApiKey,
           );
           return Response.json(result);

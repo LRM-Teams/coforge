@@ -5,6 +5,7 @@ import type {
   AgentTaskRequest,
   AgentTaskResponse,
 } from "./types";
+import type { AgentActionPrepareRequest, AgentActionPrepareResponse } from "./action-cards";
 import type {
   AgentMessagesReadRequest,
   AgentMessagesSearchRequest,
@@ -36,7 +37,7 @@ export type AgentAttachmentUploadResponse = {
 };
 
 /**
- * Presigned direct-upload sessions (ADR 0027), mirroring Raft 1.0.32's
+ * Presigned direct-upload sessions (ADR 0028), mirroring Raft 1.0.32's
  * `attachment-upload-sessions` state machine. `create`'s request field is `target` (this
  * repo's `#channel`/`@user` grammar), not Raft's resolved `channelId`.
  */
@@ -170,6 +171,9 @@ export type AgentApiClient = {
     cancel(request: AgentReminderInput): Promise<AgentReminderResponse>;
     log(request: AgentReminderInput): Promise<AgentReminderResponse>;
   };
+  actions: {
+    prepare(request: AgentActionPrepareRequest): Promise<AgentActionPrepareResponse>;
+  };
   messages: {
     read(request: AgentMessagesReadRequest): Promise<AgentHistoryResponse>;
     search(request: AgentMessagesSearchRequest): Promise<AgentSearchResponse>;
@@ -222,6 +226,11 @@ export type RawAgentApiClient = {
     cancel(request: AgentReminderInput): Promise<AgentApiResult<AgentReminderResponse>>;
     log(request: AgentReminderInput): Promise<AgentApiResult<AgentReminderResponse>>;
   };
+  actions: {
+    prepare(
+      request: AgentActionPrepareRequest,
+    ): Promise<AgentApiResult<AgentActionPrepareResponse>>;
+  };
   messages: {
     read(request: AgentMessagesReadRequest): Promise<AgentApiResult<AgentHistoryResponse>>;
     search(request: AgentMessagesSearchRequest): Promise<AgentApiResult<AgentSearchResponse>>;
@@ -264,6 +273,7 @@ export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentA
     },
     tasks: taskResources(transport),
     reminders: reminderResources(transport),
+    actions: actionResources(transport),
     messages: messageResources(transport),
     events: eventsResources(transport),
     channels: {
@@ -340,6 +350,9 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
       cancel: async (request) => unwrap(await rawClient.reminders.cancel(request)),
       log: async (request) => unwrap(await rawClient.reminders.log(request)),
     },
+    actions: {
+      prepare: async (request) => unwrap(await rawClient.actions.prepare(request)),
+    },
     messages: {
       read: async (request) => unwrap(await rawClient.messages.read(request)),
       search: async (request) => unwrap(await rawClient.messages.search(request)),
@@ -410,6 +423,15 @@ function reminderResources(transport: AgentApiTransport): RawAgentApiClient["rem
     snooze: execute("snooze"),
     cancel: execute("cancel"),
     log: execute("log"),
+  };
+}
+
+function actionResources(transport: AgentApiTransport): RawAgentApiClient["actions"] {
+  return {
+    prepare: (request) =>
+      transport.request(agentApiRoutes.cloud.actionPrepare, request) as Promise<
+        AgentApiResult<AgentActionPrepareResponse>
+      >,
   };
 }
 
