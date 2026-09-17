@@ -141,6 +141,7 @@ export async function createSession(options: {
                   "COFORGE_CURRENT_WORKSPACE_NAME",
                   "COFORGE_CURRENT_COMPUTER_ID",
                   "COFORGE_CURRENT_COMPUTER_NAME",
+                  "COFORGE_CURRENT_COMPUTER_HOSTNAME",
                   "COFORGE_CURRENT_COMPUTER_OS",
                   "COFORGE_CURRENT_COMPUTER_VERSION",
                   "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
