@@ -14,6 +14,7 @@ import {
   type WeeklyReportResponse,
 } from "@lrm/coforge-sdk/internal";
 import type { LocalReminderReceiptResponse, ReminderTransportRequest } from "../index";
+import type { MentionSelector } from "./mentions";
 import { agentApiRoutes, decodeGitHubCredentialResponse } from "@lrm/coforge-sdk/agent";
 import { CliError, NO_MESSAGE_SENT_NEXT_ACTION, unknownDeliveryNextAction } from "./cli-error";
 
@@ -195,6 +196,9 @@ export function connectLocal(
       offset?: number;
       messageId?: string;
       emoji?: string;
+      attachmentId?: string;
+      mentions?: MentionSelector[];
+      targetConfirmed?: boolean;
     },
   ) => {
     if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
@@ -256,6 +260,9 @@ export function connectLocal(
         sendDraft?: boolean;
         continueAnyway?: boolean;
         freshnessContextMode?: "withheld";
+        attachmentId?: string;
+        mentions?: MentionSelector[];
+        targetConfirmed?: boolean;
       },
     ) => call("send", target, body, options),
     resolve: (messageId: string) => call("resolve", undefined, undefined, { messageId }),

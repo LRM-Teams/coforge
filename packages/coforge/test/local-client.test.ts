@@ -30,6 +30,25 @@ test("accepts sfp_ daemon-local Proxy tokens", async () => {
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
+test("forwards attachmentId, mentions, and targetConfirmed on a send request", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+  );
+  const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
+
+  await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).send(
+    "@ada",
+    "hi @ada",
+    { attachmentId: "attachment-1", mentions, targetConfirmed: true },
+  );
+
+  const [, init] = fetch.mock.calls[0]!;
+  const body = JSON.parse(init!.body as string);
+  expect(body.attachmentId).toBe("attachment-1");
+  expect(body.mentions).toEqual(mentions);
+  expect(body.targetConfirmed).toBe(true);
+});
+
 test("requests GitHub credentials through the daemon-local proxy", async () => {
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json({
