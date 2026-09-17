@@ -180,6 +180,42 @@ test("schedule persists before best-effort publication and defaults recurring ti
   expect(stored?.timezone).toBe("Asia/Shanghai");
 });
 
+test("list forwards the status filter, or its absence, straight to the repository", async () => {
+  const calls: unknown[] = [];
+  const repository = {
+    authorize: async () => true,
+    list: async (_scope: unknown, status?: string, all?: boolean) => {
+      calls.push({ status, all });
+      return [];
+    },
+  } as unknown as ReminderRepository;
+  const reminders = new Reminders(repository, { supports: async () => true }, async () => {});
+  const base = {
+    protocolMajor: 1 as const,
+    workspaceId: "workspace",
+    computerId: "computer",
+    agentId: "agent",
+    operation: "list" as const,
+  };
+  await reminders.execute({ ...base, requestId: "list-default" }, "owner");
+  await reminders.execute(
+    { ...base, requestId: "list-status", status: "scheduled,fired" },
+    "owner",
+  );
+  await reminders.execute({ ...base, requestId: "list-all", all: true }, "owner");
+  expect(calls).toEqual([
+    { status: undefined, all: undefined },
+    { status: "scheduled,fired", all: undefined },
+    { status: undefined, all: true },
+  ]);
+  await expect(
+    reminders.execute(
+      { ...base, requestId: "list-invalid", status: "scheduled,scheduled" },
+      "owner",
+    ),
+  ).rejects.toThrow("invalid reminder status");
+});
+
 test("snapshot is bounded canonical daemon state", async () => {
   const rows = Array.from({ length: 51 }, (_, index) => ({
     reminderId: `${String(index).padStart(8, "0")}-1111-4111-8111-111111111111`,

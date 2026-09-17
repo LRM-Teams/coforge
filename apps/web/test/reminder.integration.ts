@@ -396,6 +396,98 @@ test("update computes fireAt from delaySeconds exactly as snooze does", async ()
   }
 });
 
+test("list filters by a comma-separated status set, defaulting to scheduled,fired", async () => {
+  const scheduled = (
+    await reminders.execute(
+      schedule(`status-list-scheduled-${crypto.randomUUID()}`, {
+        fireAt: new Date(now.getTime() + 3_600_000).toISOString(),
+      }),
+      fixture.userId,
+    )
+  ).reminders[0]!;
+  const toCancel = (
+    await reminders.execute(
+      schedule(`status-list-to-cancel-${crypto.randomUUID()}`, {
+        fireAt: new Date(now.getTime() + 3_600_000).toISOString(),
+      }),
+      fixture.userId,
+    )
+  ).reminders[0]!;
+  try {
+    const canceled = (
+      await reminders.execute(
+        {
+          ...schedule(`status-list-cancel-${crypto.randomUUID()}`),
+          operation: "cancel",
+          reminderId: toCancel.reminderId,
+          title: undefined,
+          target: undefined,
+          messageId: undefined,
+          fireAt: undefined,
+        },
+        fixture.userId,
+      )
+    ).reminders[0]!;
+    expect(canceled.status).toBe("canceled");
+
+    const list = async (extra: Partial<AgentReminderOperationRequest>) =>
+      (
+        await reminders.execute(
+          {
+            ...schedule(`status-list-query-${crypto.randomUUID()}`),
+            operation: "list",
+            title: undefined,
+            target: undefined,
+            messageId: undefined,
+            fireAt: undefined,
+            ...extra,
+          },
+          fixture.userId,
+        )
+      ).reminders.map((r) => r.reminderId);
+
+    const defaultIds = await list({});
+    expect(defaultIds).toContain(scheduled.reminderId);
+    expect(defaultIds).not.toContain(canceled.reminderId);
+
+    const canceledOnly = await list({ status: "canceled" });
+    expect(canceledOnly).toContain(canceled.reminderId);
+    expect(canceledOnly).not.toContain(scheduled.reminderId);
+
+    const scheduledAndCanceled = await list({ status: "scheduled,canceled" });
+    expect(scheduledAndCanceled).toContain(scheduled.reminderId);
+    expect(scheduledAndCanceled).toContain(canceled.reminderId);
+
+    const everything = await list({ all: true });
+    expect(everything).toContain(scheduled.reminderId);
+    expect(everything).toContain(canceled.reminderId);
+
+    // `status` wins over `all` when both are given, matching Raft's CLI precedence.
+    const statusWinsOverAll = await list({ all: true, status: "canceled" });
+    expect(statusWinsOverAll).toContain(canceled.reminderId);
+    expect(statusWinsOverAll).not.toContain(scheduled.reminderId);
+
+    await expect(
+      reminders.execute(
+        {
+          ...schedule(`status-list-invalid-${crypto.randomUUID()}`),
+          operation: "list",
+          title: undefined,
+          target: undefined,
+          messageId: undefined,
+          fireAt: undefined,
+          status: "scheduled,scheduled",
+        },
+        fixture.userId,
+      ),
+    ).rejects.toThrow("invalid reminder status");
+  } finally {
+    await db.reminder.deleteMany({
+      where: { id: { in: [scheduled.reminderId, toCancel.reminderId] } },
+    });
+  }
+});
+
 test("Daemon reminder RPC derives the assigned Agent owner and rejects another Computer's Agent", async () => {
   const row = await db.reminder.create({
     data: {
