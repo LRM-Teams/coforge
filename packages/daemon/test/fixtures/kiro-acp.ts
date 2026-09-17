@@ -181,19 +181,38 @@ async function handle(request: Message) {
           result(replaced, { stopReason: "end_turn" });
           replaced = undefined;
         }
+        // Real kiro-cli 2.22.0 tool_call frames carry only a human-readable
+        // title and an ACP `kind`, never a programmatic name.
         update({
           sessionUpdate: "tool_call",
           toolCallId: "tool-1",
-          title: "Run tests",
-          name: "Bash",
+          title: "Run Command",
+          kind: "execute",
           status: "in_progress",
-          rawInput: { command: "bun test" },
+          rawInput: { command: "bun test", run_in_background: false },
         });
         update({
           sessionUpdate: "tool_call_update",
           toolCallId: "tool-1",
           content: [{ type: "content", content: { type: "text", text: "tests passed" } }],
           status: "completed",
+        });
+        update({
+          sessionUpdate: "tool_call",
+          toolCallId: "tool-2",
+          title: "Read File",
+          kind: "read",
+          status: "pending",
+          rawInput: { path: "/abs/probe.py", offset: null, limit: null },
+          locations: [{ path: "/abs/probe.py" }],
+        });
+        update({
+          sessionUpdate: "tool_call",
+          toolCallId: "tool-3",
+          title: "Task List",
+          kind: "other",
+          status: "pending",
+          rawInput: {},
         });
         update({
           sessionUpdate: "session_info_update",

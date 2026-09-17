@@ -11,6 +11,7 @@ import type {
   SessionNotification,
   SessionConfigOption,
   NewSessionRequest,
+  ToolKind,
 } from "@agentclientprotocol/sdk";
 import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { agentEnvironment } from "../environment";
@@ -23,6 +24,18 @@ import { discoverKiroCatalog } from "./catalog";
 import { discoverExternalCodeAgents } from "../runtime-inventory";
 import { assertKiroVersionSupported } from "./version";
 import type { ProviderDiscoveryOptions } from "../contract";
+
+// Kiro's tool_call frames never carry a programmatic name (only a
+// human-readable title, e.g. "Run Command", "Read File"), so the ACP `kind`
+// field is the only stable source for the canonical tool name. Kinds with no
+// canonical CoForge tool fall back to the title.
+const TOOL_KIND_NAMES: Readonly<Partial<Record<ToolKind, string>>> = {
+  execute: "bash",
+  read: "read_file",
+  edit: "edit_file",
+  search: "grep",
+  fetch: "web_fetch",
+};
 
 export class KiroProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.KIRO;
@@ -331,7 +344,7 @@ class KiroSession implements AgentSession {
       });
     }
     if (update.sessionUpdate === "tool_call") {
-      const name = update.name ?? update.title;
+      const name = (update.kind && TOOL_KIND_NAMES[update.kind]) || update.title;
       this.#emit({ type: "tool-start", id: update.toolCallId, name });
       this.#emit({ type: "activity", activity: toolActivity(name, update.rawInput) });
     }
