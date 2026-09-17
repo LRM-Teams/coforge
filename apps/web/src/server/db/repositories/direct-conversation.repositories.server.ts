@@ -312,6 +312,16 @@ function messageTask(
 export type DirectConversationRepository = {
   userIdForUsername?(target: string): Promise<string>;
   getAgentChannel?(workspaceId: string, agentId: string, target: string): Promise<{ id: string }>;
+  resolveAgentTarget?(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+  ): Promise<{
+    conversationId: string;
+    threadRootId: string | null;
+    canonicalTarget: string;
+    isChannel: boolean;
+  }>;
   setAgentThreadFollowed?(
     workspaceId: string,
     agentId: string,
@@ -580,9 +590,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   /**
    * Resolve an Agent-facing target (`#channel` or `@user`, optionally `:root` for a thread)
-   * to its conversation, thread root and canonical spelling.
+   * to its conversation, thread root and canonical spelling. Public so other Agent HTTP routes
+   * (e.g. attachment upload) can reuse the same target grammar instead of duplicating it.
    */
-  private async resolveAgentTarget(workspaceId: string, agentId: string, target: string) {
+  async resolveAgentTarget(workspaceId: string, agentId: string, target: string) {
     const parentTarget = target.split(":")[0]!;
     const isChannel = parentTarget.startsWith("#");
     const conversation = isChannel

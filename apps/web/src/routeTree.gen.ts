@@ -67,6 +67,7 @@ import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/works
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as ApiIntegrationsGithubWebhookRouteImport } from './routes/api/integrations/github/webhook'
 import { Route as ApiProjectsProjectIdIconRouteImport } from './routes/api/projects.$projectId.icon'
+import { Route as ApiAgentV1AttachmentsIndexRouteImport } from './routes/api/agent/v1/attachments/index'
 import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/api/agent/v1/attachments/$attachmentId'
 import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
 import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent/v1/messages_.search'
@@ -378,6 +379,12 @@ const ApiProjectsProjectIdIconRoute =
     path: '/api/projects/$projectId/icon',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAgentV1AttachmentsIndexRoute =
+  ApiAgentV1AttachmentsIndexRouteImport.update({
+    id: '/api/agent/v1/attachments/',
+    path: '/api/agent/v1/attachments/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1AttachmentsAttachmentIdRoute =
   ApiAgentV1AttachmentsAttachmentIdRouteImport.update({
     id: '/api/agent/v1/attachments/$attachmentId',
@@ -494,6 +501,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
+  '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
   '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
@@ -559,6 +567,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
+  '/api/agent/v1/attachments': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
   '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
@@ -629,6 +638,7 @@ export interface FileRoutesById {
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages_/search': typeof ApiAgentV1MessagesSearchRoute
+  '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/channels_/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
   '/api/agent/v1/channels_/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages_/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
@@ -699,6 +709,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages/search'
+    | '/api/agent/v1/attachments/'
     | '/api/agent/v1/channels/$channel/mute'
     | '/api/agent/v1/channels/$channel/unmute'
     | '/api/agent/v1/messages/$messageId/reactions'
@@ -764,6 +775,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages/search'
+    | '/api/agent/v1/attachments'
     | '/api/agent/v1/channels/$channel/mute'
     | '/api/agent/v1/channels/$channel/unmute'
     | '/api/agent/v1/messages/$messageId/reactions'
@@ -833,6 +845,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages_/search'
+    | '/api/agent/v1/attachments/'
     | '/api/agent/v1/channels_/$channel/mute'
     | '/api/agent/v1/channels_/$channel/unmute'
     | '/api/agent/v1/messages_/$messageId/reactions'
@@ -882,6 +895,7 @@ export interface RootRouteChildren {
   ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
   ApiAgentV1MessagesSearchRoute: typeof ApiAgentV1MessagesSearchRoute
+  ApiAgentV1AttachmentsIndexRoute: typeof ApiAgentV1AttachmentsIndexRoute
   ApiAgentV1ChannelsChannelMuteRoute: typeof ApiAgentV1ChannelsChannelMuteRoute
   ApiAgentV1ChannelsChannelUnmuteRoute: typeof ApiAgentV1ChannelsChannelUnmuteRoute
   ApiAgentV1MessagesMessageIdReactionsRoute: typeof ApiAgentV1MessagesMessageIdReactionsRoute
@@ -1298,6 +1312,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProjectsProjectIdIconRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v1/attachments/': {
+      id: '/api/agent/v1/attachments/'
+      path: '/api/agent/v1/attachments'
+      fullPath: '/api/agent/v1/attachments/'
+      preLoaderRoute: typeof ApiAgentV1AttachmentsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/attachments/$attachmentId': {
       id: '/api/agent/v1/attachments/$attachmentId'
       path: '/api/agent/v1/attachments/$attachmentId'
@@ -1508,6 +1529,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1AttachmentsCapabilitiesRoute:
     ApiAgentV1AttachmentsCapabilitiesRoute,
   ApiAgentV1MessagesSearchRoute: ApiAgentV1MessagesSearchRoute,
+  ApiAgentV1AttachmentsIndexRoute: ApiAgentV1AttachmentsIndexRoute,
   ApiAgentV1ChannelsChannelMuteRoute: ApiAgentV1ChannelsChannelMuteRoute,
   ApiAgentV1ChannelsChannelUnmuteRoute: ApiAgentV1ChannelsChannelUnmuteRoute,
   ApiAgentV1MessagesMessageIdReactionsRoute:
