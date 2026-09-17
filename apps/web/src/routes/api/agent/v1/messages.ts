@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentHistoryResponse, AgentSendResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
+import { isValidMentionSelectorArray } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
@@ -14,7 +15,7 @@ import { getMessageRequestIdempotency } from "#/server/conversations/redis-messa
 import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server";
 import { CentrifugoConversationRealtime } from "#/server/conversations/conversation-realtime.server";
 import { bestEffortMessageNotifier } from "#/server/notifications/web-push-composition.server";
-import { isAppError } from "#/lib/app-error";
+import { AgentSendRejectedError } from "#/server/conversations/agent-send-rejected-error.server";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 
@@ -111,24 +112,6 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult & { mes
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MENTION_HANDLE = /^[a-z0-9][a-z0-9_-]*$/;
-
-/** Shape-only validation; the repository enforces that a binding matches a conversation member. */
-function isValidMentions(value: unknown): value is AgentMentionSelector[] {
-  if (!Array.isArray(value) || value.length > 32) return false;
-  return value.every(
-    (mention) =>
-      mention &&
-      typeof mention === "object" &&
-      ((mention as Record<string, unknown>).type === "user" ||
-        (mention as Record<string, unknown>).type === "agent") &&
-      typeof (mention as Record<string, unknown>).id === "string" &&
-      UUID_PATTERN.test((mention as Record<string, unknown>).id as string) &&
-      typeof (mention as Record<string, unknown>).name === "string" &&
-      ((mention as Record<string, unknown>).name as string).length <= 128 &&
-      MENTION_HANDLE.test((mention as Record<string, unknown>).name as string),
-  );
-}
 
 export type AgentMessagesPostPrincipal = { workspaceId: string; agentId: string };
 
@@ -158,7 +141,7 @@ export async function handleAgentMessagesPost(
     (typeof body.attachmentId !== "string" || !UUID_PATTERN.test(body.attachmentId))
   )
     return Response.json({ error: "invalid attachmentId" }, { status: 400 });
-  if (body.mentions !== undefined && !isValidMentions(body.mentions))
+  if (body.mentions !== undefined && !isValidMentionSelectorArray(body.mentions))
     return Response.json({ error: "invalid mentions" }, { status: 400 });
   const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
   try {
@@ -178,20 +161,11 @@ export async function handleAgentMessagesPost(
     });
     return Response.json(mapSendResult(requestId, result));
   } catch (error) {
-    if (isAppError(error)) {
-      if (error.code === "ACCESS_DENIED")
-        return Response.json(
-          { error: "attachment is not available for this message" },
-          { status: 403 },
-        );
-      if (error.code === "INVALID_INPUT")
-        return Response.json(
-          {
-            error: `mention binding does not match a conversation member: @${error.errorId ?? ""}`,
-          },
-          { status: 400 },
-        );
-    }
+    // Only this send-specific class is mapped here; every other error (including any AppError
+    // raised elsewhere, e.g. getAgentChannel's ACCESS_DENIED for a non-member) propagates
+    // unchanged, exactly as it did before this class existed.
+    if (error instanceof AgentSendRejectedError)
+      return Response.json({ error: error.message }, { status: error.status });
     throw error;
   }
 }

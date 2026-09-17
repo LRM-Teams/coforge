@@ -1372,10 +1372,36 @@ test("message send rejects a second --attachment-id occurrence", () => {
   ).toThrow("Usage:");
 });
 
-test("message send rejects a non-uuid --attachment-id", () => {
-  expect(() =>
-    parseArgs(["message", "send", "--target", "@ada", "--send-draft", "--attachment-id", "abc"]),
-  ).toThrow("Usage:");
+test("message send rejects a non-uuid --attachment-id with a typed usage error", () => {
+  const error = (() => {
+    try {
+      parseArgs(["message", "send", "--target", "@ada", "--attachment-id", "abc"]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("INVALID_ARG");
+  expect(cliError.message).toBe("--attachment-id must be a full attachment UUID.");
+  expect(cliError.draftSaved).toBe(false);
+});
+
+test("message send --json reports a non-uuid --attachment-id as structured JSON", () => {
+  const error = (() => {
+    try {
+      parseArgs(["message", "send", "--target", "@ada", "--attachment-id", "abc", "--json"]);
+      return undefined;
+    } catch (caught) {
+      return caught;
+    }
+  })();
+  expect(error).toBeInstanceOf(CliError);
+  expect((error as CliError).outputMode).toBe("json");
+  const parsed = JSON.parse(renderCliErrorJson(error as CliError));
+  expect(parsed.error.code).toBe("INVALID_ARG");
+  expect(parsed.error.draft_saved).toBe(false);
 });
 
 test("--attachment-id combined with --send-draft is a typed usage error", () => {

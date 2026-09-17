@@ -4,7 +4,7 @@ import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
 import { mentionedNames } from "../../conversations/mentions";
-import { AppError } from "../../../lib/app-error";
+import { AgentSendRejectedError } from "../../conversations/agent-send-rejected-error.server";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
@@ -1535,7 +1535,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           },
           select: { id: true },
         });
-        if (!attachment) throw new AppError("ACCESS_DENIED");
+        if (!attachment)
+          throw new AgentSendRejectedError(403, "attachment is not available for this message");
       }
       const mentionedMemberIds: string[] = [];
       if (mentions?.length) {
@@ -1555,7 +1556,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
               ? member.userId === mention.id && member.user?.username === mention.name
               : member.agentId === mention.id && member.agent?.name === mention.name,
           );
-          if (!match) throw new AppError("INVALID_INPUT", { errorId: mention.name });
+          if (!match)
+            throw new AgentSendRejectedError(
+              400,
+              `mention binding does not match a conversation member: @${mention.name}`,
+            );
           mentionedMemberIds.push(match.id);
         }
       }

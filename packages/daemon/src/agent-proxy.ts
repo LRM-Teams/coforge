@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   encodeLocalReminderRequest,
+  isValidMentionSelectorArray,
   isValidReactionEmoji,
   validateTaskRequest,
   validateWeeklyReportRequest,
@@ -33,27 +34,9 @@ const LOCAL_PROXY_TOKEN = /^sfp_[A-Za-z0-9_-]{43}$/;
 const MESSAGE_ID_ANCHOR =
   /^[0-9a-f]{8}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MENTION_HANDLE = /^[a-z0-9][a-z0-9_-]*$/;
 const LOCAL_ATTACHMENT_ROUTE_PREFIX = agentApiRoutes.local.attachments.path("");
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
-
-/** Shape-only validation; `#sendAgentMessage` and Web/backend enforce binding semantics. */
-function isValidMentionSelectorArray(value: unknown): boolean {
-  if (!Array.isArray(value) || value.length > 32) return false;
-  return value.every(
-    (mention) =>
-      mention &&
-      typeof mention === "object" &&
-      ((mention as Record<string, unknown>).type === "user" ||
-        (mention as Record<string, unknown>).type === "agent") &&
-      typeof (mention as Record<string, unknown>).id === "string" &&
-      UUID.test((mention as Record<string, unknown>).id as string) &&
-      typeof (mention as Record<string, unknown>).name === "string" &&
-      ((mention as Record<string, unknown>).name as string).length <= 128 &&
-      MENTION_HANDLE.test((mention as Record<string, unknown>).name as string),
-  );
-}
 
 /** The `route_family` tag on a classified failure: which local proxy route it came from. */
 function routeFamilyFor(pathname: string, payload: Record<string, unknown> | undefined): string {

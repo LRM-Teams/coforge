@@ -2,9 +2,12 @@ import {
   decodeLocalReminderRequest,
   encodeLocalReminderRequest,
   isValidReactionEmoji,
+  mentionsInContent,
+  parseMentionSelector,
   type AgentMessageRecord,
   type AgentReminderOperationResponse,
   type LocalReminderRequest,
+  type MentionSelectorInput as MentionSelector,
   type TaskCommand,
   type TaskResult,
   type TaskStatus,
@@ -31,7 +34,6 @@ import {
   unknownDeliveryNextAction,
   withOutputMode,
 } from "./src/cli-error";
-import { mentionsInContent, parseMentionSelector, type MentionSelector } from "./src/mentions";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 
@@ -316,8 +318,18 @@ export function parseArgs(
         } else if (args[index] === "--mention" && args[index + 1]) rawMentions.push(args[++index]!);
         else throw new Error("Usage:");
       }
-      if (attachmentId !== undefined && !UUID_PATTERN.test(attachmentId)) throw new Error("Usage:");
       const outputMode = json ? "json" : "text";
+      if (attachmentId !== undefined && !UUID_PATTERN.test(attachmentId))
+        throw withOutputMode(
+          new CliError({
+            code: "INVALID_ARG",
+            message: "--attachment-id must be a full attachment UUID.",
+            retryable: false,
+            draftSaved: false,
+            suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+          }),
+          outputMode,
+        );
       if (attachmentId !== undefined && sendDraft)
         throw withOutputMode(
           new CliError({

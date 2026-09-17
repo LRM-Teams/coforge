@@ -7,6 +7,7 @@ import {
   encodeLocalReminderRequest,
   type AgentReminderOperationResponse,
   type LocalReminderRequest,
+  type MentionSelectorInput as MentionSelector,
   type TaskCommand,
   type TaskResult,
   type WorkspaceInfoResponse,
@@ -14,7 +15,6 @@ import {
   type WeeklyReportResponse,
 } from "@lrm/coforge-sdk/internal";
 import type { LocalReminderReceiptResponse, ReminderTransportRequest } from "../index";
-import type { MentionSelector } from "./mentions";
 import { agentApiRoutes, decodeGitHubCredentialResponse } from "@lrm/coforge-sdk/agent";
 import { CliError, NO_MESSAGE_SENT_NEXT_ACTION, unknownDeliveryNextAction } from "./cli-error";
 
@@ -43,6 +43,7 @@ type AgentProxyErrorBody = {
     upstream_status?: number;
     response_started?: boolean;
     response_complete?: boolean;
+    draft_saved?: boolean;
   };
 };
 
@@ -91,6 +92,9 @@ function proxyHttpFailure(
   const isSend = operation === "send";
   const proxy = body.json?.proxy;
   const isLocalPrecondition = proxy?.failure_class === "local_precondition";
+  // A local precondition usually means nothing was saved, but a guard that saves a draft before
+  // refusing (e.g. --target-confirmed) says so explicitly via `draft_saved`; honour it when present.
+  const draftSaved = proxy?.draft_saved !== undefined ? proxy.draft_saved : !isLocalPrecondition;
   const legacyText = body.text && SAFE_LEGACY_PROXY_TEXT.has(body.text) ? body.text : undefined;
   const message = body.json?.error || legacyText || `HTTP ${status}`;
   const code = failureCode(operation, status, body.json);
@@ -98,7 +102,7 @@ function proxyHttpFailure(
     code,
     message,
     retryable: false,
-    ...(isSend ? { draftSaved: !isLocalPrecondition } : {}),
+    ...(isSend ? { draftSaved } : {}),
     correlationId: proxy?.correlation_id,
     proxy: proxy
       ? {

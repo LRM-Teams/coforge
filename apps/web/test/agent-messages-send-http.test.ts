@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { handleAgentMessagesPost } from "../src/routes/api/agent/v1/messages";
 import type { AgentMessageHold } from "../src/server/conversations/agent-message-hold.server";
 import { AppError } from "../src/lib/app-error";
+import { AgentSendRejectedError } from "../src/server/conversations/agent-send-rejected-error.server";
 
 const request = (body: unknown) =>
   new Request("https://server.example/api/agent/v1/messages", {
@@ -157,7 +158,7 @@ test("rejects malformed mentions with 400", async () => {
   expect(await result.json()).toEqual({ error: "invalid mentions" });
 });
 
-test("maps an ACCESS_DENIED AppError from the sender to a 403", async () => {
+test("maps an AgentSendRejectedError from the sender to its own status and message", async () => {
   const result = await handleAgentMessagesPost(
     request({
       target: "@ada",
@@ -169,15 +170,16 @@ test("maps an ACCESS_DENIED AppError from the sender to a 403", async () => {
       repository: {},
       sender: {
         executeFromAgent: async () => {
-          throw new AppError("ACCESS_DENIED");
+          throw new AgentSendRejectedError(403, "attachment is not available for this message");
         },
       },
     },
   );
   expect(result.status).toBe(403);
+  expect(await result.json()).toEqual({ error: "attachment is not available for this message" });
 });
 
-test("maps an INVALID_INPUT AppError to a 400 naming the offending mention", async () => {
+test("maps an AgentSendRejectedError naming the offending mention to a 400", async () => {
   const result = await handleAgentMessagesPost(
     request({
       target: "@ada",
@@ -189,7 +191,10 @@ test("maps an INVALID_INPUT AppError to a 400 naming the offending mention", asy
       repository: {},
       sender: {
         executeFromAgent: async () => {
-          throw new AppError("INVALID_INPUT", { errorId: "ghost" });
+          throw new AgentSendRejectedError(
+            400,
+            "mention binding does not match a conversation member: @ghost",
+          );
         },
       },
     },
@@ -198,6 +203,43 @@ test("maps an INVALID_INPUT AppError to a 400 naming the offending mention", asy
   expect(await result.json()).toEqual({
     error: "mention binding does not match a conversation member: @ghost",
   });
+});
+
+test("a channel ACCESS_DENIED AppError from channel resolution is not reported as an attachment error", async () => {
+  // getAgentChannel throws AppError("ACCESS_DENIED") when the Agent is not a channel member; this
+  // must never be mistaken for AgentSendRejectedError's attachment-unavailable case (the bug this
+  // test guards against), and must propagate unchanged rather than becoming a Response.
+  const caught = await handleAgentMessagesPost(
+    request({ target: "#general", body: "hello" }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      repository: {},
+      sender: {
+        executeFromAgent: async () => {
+          throw new AppError("ACCESS_DENIED");
+        },
+      },
+    },
+  ).catch((error: unknown) => error);
+  expect(caught).toBeInstanceOf(Error);
+  expect((caught as Error).message).not.toContain("attachment");
+});
+
+test("a malformed-channel INVALID_INPUT AppError is not reported as a mention error", async () => {
+  const caught = await handleAgentMessagesPost(
+    request({ target: "#general", body: "hello" }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      repository: {},
+      sender: {
+        executeFromAgent: async () => {
+          throw new AppError("INVALID_INPUT");
+        },
+      },
+    },
+  ).catch((error: unknown) => error);
+  expect(caught).toBeInstanceOf(Error);
+  expect((caught as Error).message).not.toContain("mention binding");
 });
 
 test("a bypassed hold's sent response carries recentUnread; every other response carries none", async () => {
