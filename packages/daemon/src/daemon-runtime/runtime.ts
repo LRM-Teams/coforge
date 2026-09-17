@@ -85,7 +85,12 @@ import { COFORGE_DAEMON_VERSION } from "../version";
 import { ReminderScheduler, reminderAppInboxPreview } from "../agent-reminder/reminder-scheduler";
 import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
-import type { GitHubCredentialRequest, GitHubCredentialResponse } from "@lrm/coforge-sdk/agent";
+import type {
+  AgentActionPrepareRequest,
+  AgentActionPrepareResponse,
+  GitHubCredentialRequest,
+  GitHubCredentialResponse,
+} from "@lrm/coforge-sdk/agent";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
 
@@ -2163,6 +2168,23 @@ export class DaemonRuntime {
       },
       agentApiKey,
     );
+  }
+
+  /**
+   * Posts an Agent-prepared action card (`coforge action prepare`). Unlike `agentTask`, the wire
+   * request carries no `workspaceId`/`agentId` — the HTTPS route derives the principal from the
+   * authenticated Agent/daemon API key pair, exactly like an ordinary Agent message send.
+   */
+  async agentActionPrepare(
+    context: string,
+    request: AgentActionPrepareRequest,
+    agentApiKey?: string,
+  ): Promise<AgentActionPrepareResponse> {
+    this.#assertRunning();
+    this.#agentIdForContext(context);
+    if (!this.#transport.agentActionPrepare) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.agentActionPrepare(request, agentApiKey);
   }
 
   /** Applies the attention preflight to a Task claim/update; returns the held result, if any. */

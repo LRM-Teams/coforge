@@ -163,6 +163,38 @@ export async function getAgentChannel(
   return channel;
 }
 
+/**
+ * Resolves a thread anchor (an eight-hex prefix or a full UUID) to its top-level root Message in
+ * `conversationId`. Shared by `PublicChannels.threadRoot` and `ActionCards.prepare`
+ * (`action-cards.server.ts`) so a channel thread target resolves identically everywhere.
+ */
+export async function resolveChannelThreadRoot(
+  db: Pick<PrismaClient, "message">,
+  conversationId: string,
+  anchor: string,
+) {
+  const rows = await db.message.findMany({
+    where: {
+      conversationId,
+      threadRootId: null,
+      id:
+        anchor.length === 8
+          ? {
+              gte: `${anchor}-0000-0000-0000-000000000000`,
+              lte: `${anchor}-ffff-ffff-ffff-ffffffffffff`,
+            }
+          : anchor,
+    },
+    take: 2,
+    select: { id: true },
+  });
+  if (rows.length > 1)
+    throw new AgentMessageValidationError("ambiguous message prefix; use the full UUID");
+  if (!rows[0])
+    throw new AgentMessageValidationError("message anchor not found in this conversation");
+  return rows[0];
+}
+
 /** Workspace-visible history with per-Agent notification preferences. */
 export class PublicChannels {
   constructor(
@@ -259,26 +291,7 @@ export class PublicChannels {
   }
 
   private async threadRoot(conversationId: string, anchor: string) {
-    const rows = await this.db.message.findMany({
-      where: {
-        conversationId,
-        threadRootId: null,
-        id:
-          anchor.length === 8
-            ? {
-                gte: `${anchor}-0000-0000-0000-000000000000`,
-                lte: `${anchor}-ffff-ffff-ffff-ffffffffffff`,
-              }
-            : anchor,
-      },
-      take: 2,
-      select: { id: true },
-    });
-    if (rows.length > 1)
-      throw new AgentMessageValidationError("ambiguous message prefix; use the full UUID");
-    if (!rows[0])
-      throw new AgentMessageValidationError("message anchor not found in this conversation");
-    return rows[0];
+    return resolveChannelThreadRoot(this.db, conversationId, anchor);
   }
 
   private async authorize(workspaceId: string, userId: string) {

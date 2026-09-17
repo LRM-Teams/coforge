@@ -1277,6 +1277,55 @@ reviewer isolation 或结构化子任务/依赖调度。子任务首版只是各
 生产迁移或发布。验证 seam 为 TaskBoard 的真实 PostgreSQL 行为、Agent RPC/CLI 和
 浏览器交互，重点覆盖并发认领、越权、幂等、旧 revision 与消息/Thread 无回归。
 
+### 6.7 Agent Action Card
+
+用户批准"参考 raft 的就行"，对齐 Raft 1.0.32 的 `raft action prepare` /
+`POST /prepare-action`（见 `docs/agents/reference-cli-research.md` 与
+ADR 0027）：Agent 通过 `coforge action prepare --target <target>` 提交一张
+typed action card，人类之后在自己的身份下 commit；本次 PR 只落地 prepare 端，
+commit 与卡片 UI 留给下一个 PR。CoForge 首版仅支持三种 kind：
+`channel:create`、`agent:create`、`channel:add_member`，不引入 Raft 的
+`integration:*`（CoForge 尚无对应的 marketplace）。
+
+契约位于 `packages/coforge-sdk/src/agent/action-cards.ts`：zod schema 逐字段
+对齐 Raft `packages/shared/src/actionCards.ts`，改用 CoForge 频道/Agent 命名
+规则，`agent:create` 不含 runtime/model/reasoning（这些仍是人类挑选的技术字
+段）；`validateActionCardAction` 提供跨字段规则（`agent:create` 的
+`suggestedComputer`/`requiredComputer` 至多一个；`channel:add_member` 至少
+一个 human 或 agent）。Agent 用 handle（`@alice`/`alice`/`#general`/
+`general`）或 UUID 指代人类、Agent、频道、Computer，从不自己编造数据库
+id；`ActionCards.prepare`（`apps/web/src/server/conversations/
+action-cards.server.ts`）在 prepare 时把每个 handle 解析为 UUID，解析失败
+返回 422 `INVALID_HANDLE` 并指出具体字段；解析后的 UUID-only payload 才落库。
+
+target 解析与成员校验复用 Agent `message send` 的同一套语法与代码路径
+（`#channel[:thread]`、`@user[:thread]`、`getAgentChannel`/direct
+conversation 解析）：Agent 必须已是目标会话成员，与发普通消息完全一致，本次
+不新增频道成员管理的 Agent CLI 命令。`channel:create` 的 `visibility:
+"private"` 被 schema 接受但在 prepare 时以 422 `INVALID_ACTION` 拒绝（私有
+频道尚未实现）；channel/agent 命名冲突分别返回 409 `CHANNEL_EXISTS` /
+`AGENT_EXISTS`。
+
+prepare 在同一 conversation 行锁事务内创建两行：一条普通 Message（正文是
+`Action card: create channel #design` 这类单行摘要，Agent 提供 draftHint
+时另起一行附上）和以该 Message id 为主键的 `ActionCard` 记录，与 §6.6 Task
+相同的 message-anchored 模式。这是一条普通 Agent 消息：不唤醒其他 Agent，
+沿用既有 mute/mention/通知与 realtime 发布路径，不影响 Task 与公开频道的既
+有行为。`ActionCard` 保存 `kind`、解析后的 `payload`、`draftHint`、
+`preparedByAgentId`，`state` 默认 `pending`，本次不驱动到其他状态。
+
+Agent 创建仍受 ADR 0025 的 owner/admin 门槛约束：`agent:create` action card
+本身不创建 Agent，只是记录请求；下一个 PR 实现 commit 时，真正创建 Agent 的
+人类仍需满足 `assertCanCreateAgents`，本次不构成越权。standing instructions
+（`packages/daemon/src/code-agent/agent-instructions.ts`）新增一节：人类要
+求新建频道/Agent 或把某人加入频道时，Agent 用 `coforge action prepare`
+提交卡片，不得声称资源已创建，只如实说明卡片已记录、后续由人类处理。
+
+`apps/web/test/action-cards.integration.ts` 用显式本地 PostgreSQL/Redis 验
+证三种 kind 的 handle 解析（`@alice`/`alice`/`#general`/UUID）、未知 handle
+按字段报错、私有频道拒绝、频道/Agent 命名冲突、非成员 Agent 的 `ACCESS_DENIED`
+及 thread target 的正确落位。
+
 ## 7. 端到端链路
 
 ```text
