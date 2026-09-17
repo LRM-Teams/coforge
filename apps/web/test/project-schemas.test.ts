@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  createProjectInput,
   projectIconUploadInput,
   updateProjectInput,
 } from "../src/features/projects/projects.schemas";
@@ -9,6 +10,33 @@ const update = {
   name: "Launch",
   description: "Release planning",
 };
+
+test("creating a project accepts a public GitHub full name without an installation", () => {
+  expect(
+    createProjectInput.parse({ name: "Widgets", slug: "widgets", fullName: "acme/widgets" }),
+  ).toEqual({
+    name: "Widgets",
+    slug: "widgets",
+    fullName: "acme/widgets",
+  });
+  expect(
+    createProjectInput.parse({
+      name: "Widgets",
+      slug: "widgets",
+      installationId: 7,
+      repositoryId: 42,
+      fullName: "acme/widgets",
+    }).repositoryId,
+  ).toBe(42);
+  expect(
+    createProjectInput.safeParse({
+      name: "Widgets",
+      slug: "widgets",
+      repositoryId: 42,
+      fullName: "acme/widgets",
+    }).success,
+  ).toBeFalse();
+});
 
 test("project metadata leaves image and omitted repository changes absent", () => {
   const unchanged = updateProjectInput.parse(update);

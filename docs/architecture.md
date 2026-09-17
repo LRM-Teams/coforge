@@ -309,8 +309,10 @@ PostgreSQL 只持久化使用独立环境主密钥 AES-GCM 加密的凭据，以
 GitHub 已轮换 token 但数据库提交前崩溃仍可能需要用户重新授权；这不是分布式原子事务。
 用户凭据不交给浏览器，也不持久化到 Computer、Daemon 或 Agent。仓库列表使用
 user-token installation endpoint，权限为用户权限、App 安装仓库授权与 App permissions
-的交集；断开只删除 CoForge 本地连接，不卸载 GitHub App。Project 保存已选择仓库的
-installation/repository ID。Agent 执行 Git 或 `gh` 时，经 Daemon Credential Proxy 和
+的交集；断开只删除 CoForge 本地连接，不卸载 GitHub App。Project 可关联一个 GitHub
+仓库：已连接时保存 installation/repository ID；未连接时也可保存一个经 GitHub REST
+确认的公开 `github.com` 仓库（无 installation ID）。其他 Git 主机和私有仓库仍要求
+GitHub Connection。Agent 执行 Git 或 `gh` 时，经 Daemon Credential Proxy 和
 Agent-authenticated HTTPS 按需取得 Agent owner 当前的短期 GitHub App user token；
 Web/backend 在既有每用户数据库锁下刷新加密凭据。token 不进入命令参数、日志、快照或
 磁盘：Git credential helper 忽略 `store`/`erase`，`gh` 仅在子进程环境中接收 `GH_TOKEN`。
@@ -349,8 +351,9 @@ Project 独立设置页允许 Workspace 成员修改名称、描述、上传项�
 
 项目详情的仓库概览由 `GitHubConnection.repositoryOverview` 使用当前查看者的个人
 user token 读取。先校验 installation、repository ID 和完整名称均仍可访问，再校验仓库
-metadata 身份（REST）；Workspace 内的 Project 可见性不授予 GitHub 内容访问权，不回退到
-公共匿名请求或 installation token。身份校验通过后改用 GitHub GraphQL 读取默认分支：
+metadata 身份（REST）；Workspace 内的 Project 可见性不授予 GitHub 内容访问权。仅有公开
+仓库名称、没有 installation 的 Project 在查看者未连接或不在授权范围内时显示 denied，
+不回退到公共匿名请求或 installation token。身份校验通过后改用 GitHub GraphQL 读取默认分支：
 一次查询取最近五条提交历史（含 signature 校验状态与 statusCheckRollup）及根目录 Tree，
 再按需分批（每批最多 50 个路径、最多覆盖前 100 个路径）用别名 `history(first:1, path:$p)`
 查询各路径最后一次改动的提交；空仓库（`defaultBranchRef` 为 null）视为无提交、无文件。

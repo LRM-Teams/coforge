@@ -9,18 +9,28 @@ export function isValidProjectSlug(slug: string): boolean {
 
 const projectSlug = z.string().trim().refine(isValidProjectSlug);
 
-export const createProjectInput = z.object({
-  name: z.string().trim().min(1).max(100),
-  slug: projectSlug,
-  installationId: z.number().int().positive().safe().optional(),
-  repositoryId: z.number().int().positive().safe().optional(),
-  fullName: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
-    .max(300)
-    .optional(),
-});
+const githubFullName = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
+  .max(300);
+
+export const createProjectInput = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    slug: projectSlug,
+    installationId: z.number().int().positive().safe().optional(),
+    repositoryId: z.number().int().positive().safe().optional(),
+    fullName: githubFullName.optional(),
+  })
+  .refine((data) => {
+    const hasInstallation = data.installationId !== undefined;
+    const hasRepository = data.repositoryId !== undefined;
+    const hasName = data.fullName !== undefined;
+    if (!hasInstallation && !hasRepository && !hasName) return true;
+    if (hasInstallation && hasRepository && hasName) return true;
+    return !hasInstallation && !hasRepository && hasName;
+  });
 
 export const projectIconUploadInput = z
   .instanceof(FormData)

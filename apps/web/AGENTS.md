@@ -106,7 +106,9 @@ instructions for the TanStack Start Web/backend modular monolith.
   `server/projects/project-images.server.ts` owns authorized image replacement/read
   through `FileStorage`; the GET icon route only serves authorized image bytes.
   Shared image validation lives in `server/files/image-upload.server.ts`.
-  Repository changes require the caller's GitHub access. Deletion preserves
+  Creating a Project from an existing repository may use a public github.com
+  URL without a GitHub Connection; private repositories and later repository
+  changes still require the caller's GitHub access. Deletion preserves
   discussion groups, memberships and messages by clearing their Project relation.
 
 - Personal GitHub connections belong to `server/integrations/github-connection.server.ts`.
