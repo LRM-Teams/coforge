@@ -47,19 +47,33 @@ test("accepts well-formed type/subtype mime strings and rejects malformed ones",
     } catch (error) {
       expect(error).toBeInstanceOf(CliError);
       expect((error as CliError).code).toBe("INVALID_ARG");
+      expect((error as CliError).message).toBe(
+        `--mime-type must look like type/subtype, got: ${invalid}`,
+      );
     }
   }
 });
 
-test("rejects a missing --path or --target before any file system access", async () => {
+test("rejects a missing --path before any file system access", async () => {
   await expect(validateAttachmentUploadArgs({ target: "@ada" })).rejects.toMatchObject({
     code: "INVALID_ARG",
     message: "--path is required",
   });
-  await expect(validateAttachmentUploadArgs({ path: "/tmp/x" })).rejects.toMatchObject({
-    code: "INVALID_ARG",
-    message: "--target is required",
-  });
+});
+
+test("rejects a missing --target, after the file checks, with Raft's MISSING_CHANNEL code", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-attachment-"));
+  try {
+    const path = join(dir, "note.txt");
+    await writeFile(path, "hello");
+    await expect(validateAttachmentUploadArgs({ path })).rejects.toMatchObject({
+      code: "MISSING_CHANNEL",
+      message:
+        "A target is required to attach the upload to. Pass --target '#name', '@user', or a thread target.",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("rejects a --path that does not exist", async () => {
@@ -96,14 +110,42 @@ test("rejects an empty file", async () => {
   }
 });
 
-test("rejects an invalid --mime-type before touching the file system", async () => {
+test("rejects an invalid --mime-type last, after the path and target checks pass", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-attachment-"));
+  try {
+    const path = join(dir, "note.txt");
+    await writeFile(path, "hello");
+    await expect(
+      validateAttachmentUploadArgs({ path, target: "@ada", mimeType: "bad" }),
+    ).rejects.toMatchObject({
+      code: "INVALID_ARG",
+      message: "--mime-type must look like type/subtype, got: bad",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("checks the path before the target: a bad path wins over a missing target", async () => {
   await expect(
-    validateAttachmentUploadArgs({
-      path: "/tmp/coforge-missing-file.bin",
-      target: "@ada",
-      mimeType: "bad",
-    }),
-  ).rejects.toMatchObject({ code: "INVALID_ARG", message: "--mime-type is invalid: bad" });
+    validateAttachmentUploadArgs({ path: "/tmp/coforge-missing-file.bin" }),
+  ).rejects.toMatchObject({
+    code: "INVALID_ARG",
+    message: "--path does not exist: /tmp/coforge-missing-file.bin",
+  });
+});
+
+test("checks the target before --mime-type: a missing target wins over a bad mime type", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "coforge-attachment-"));
+  try {
+    const path = join(dir, "note.txt");
+    await writeFile(path, "hello");
+    await expect(validateAttachmentUploadArgs({ path, mimeType: "bad" })).rejects.toMatchObject({
+      code: "MISSING_CHANNEL",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("returns the file size for a valid, non-empty regular file", async () => {

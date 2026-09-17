@@ -804,6 +804,44 @@ test("parses attachment upload with target, mime type, and --json", () => {
   });
 });
 
+test("parses attachment upload's legacy --channel alias for --target", () => {
+  expect(
+    parseArgs(["attachment", "upload", "--path", "/tmp/file.txt", "--channel", "#general"]),
+  ).toEqual({
+    command: "attachment.upload",
+    path: "/tmp/file.txt",
+    target: "#general",
+    mimeType: undefined,
+  });
+});
+
+test("rejects attachment upload given both --target and --channel, even when equal", () => {
+  expect(() =>
+    parseArgs([
+      "attachment",
+      "upload",
+      "--path",
+      "/tmp/file.txt",
+      "--target",
+      "@ada",
+      "--channel",
+      "@ada",
+    ]),
+  ).toThrow("Usage:");
+  expect(() =>
+    parseArgs([
+      "attachment",
+      "upload",
+      "--path",
+      "/tmp/file.txt",
+      "--target",
+      "@ada",
+      "--channel",
+      "#other",
+    ]),
+  ).toThrow("Usage:");
+});
+
 test("dispatches attachment upload through the injected transport with an inferred mime type", async () => {
   const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
   const path = join(dir, "note.txt");
@@ -835,8 +873,9 @@ test("dispatches attachment upload through the injected transport with an inferr
     });
     expect(calls).toEqual([{ path, target: "@ada", mimeType: "text/plain" }]);
     expect(result).toBe(
-      "Attachment uploaded. Attachment ID: attachment-1 (note.txt, text/plain, 5 bytes)\n" +
-        'Use it with: coforge message send --target "@ada" --attachment-id attachment-1',
+      "File uploaded: note.txt (0.0KB)\n" +
+        "Attachment ID: attachment-1\n\n" +
+        "Use this ID with coforge message send --attachment-id attachment-1 to include it in a message.",
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -941,10 +980,22 @@ test("attachment upload rejects local preconditions before any transport call", 
         ],
         transport,
       ),
-    ).rejects.toMatchObject({ code: "INVALID_ARG" });
+    ).rejects.toMatchObject({
+      code: "INVALID_ARG",
+      message: "--mime-type must look like type/subtype, got: not-a-mime-type",
+    });
+    // Missing --target surfaces after the path checks, as Raft's MISSING_CHANNEL, and wins
+    // over a bad --mime-type since the target check runs first.
     await expect(
-      run(["attachment", "upload", "--path", filePath], transport),
-    ).rejects.toMatchObject({ code: "INVALID_ARG", message: "--target is required" });
+      run(
+        ["attachment", "upload", "--path", filePath, "--mime-type", "not-a-mime-type"],
+        transport,
+      ),
+    ).rejects.toMatchObject({
+      code: "MISSING_CHANNEL",
+      message:
+        "A target is required to attach the upload to. Pass --target '#name', '@user', or a thread target.",
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

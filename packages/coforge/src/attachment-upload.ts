@@ -29,16 +29,29 @@ function invalidArg(message: string): CliError {
   return new CliError({ code: "INVALID_ARG", message, retryable: false });
 }
 
+/** Raft 1.0.32's code and message shape for a missing upload target (`resolveTargetAlias`). */
+function missingTarget(): CliError {
+  return new CliError({
+    code: "MISSING_CHANNEL",
+    message:
+      "A target is required to attach the upload to. Pass --target '#name', '@user', or a thread target.",
+    retryable: false,
+  });
+}
+
 /** Validates `--mime-type`; a local precondition `CliError`, never a request. */
 export function validateAttachmentMimeType(mimeType: string): void {
-  if (!MIME_TYPE_PATTERN.test(mimeType)) throw invalidArg(`--mime-type is invalid: ${mimeType}`);
+  if (!MIME_TYPE_PATTERN.test(mimeType))
+    throw invalidArg(`--mime-type must look like type/subtype, got: ${mimeType}`);
 }
 
 /**
- * The `coforge attachment upload` preconditions that never issue a request: presence of
- * `--path`/`--target`, that `--path` names an existing, non-empty regular file, and that an
- * explicit `--mime-type` is well-formed. Returns the file's size for the caller's subsequent
- * server-capability size check (`GET .../attachments/capabilities`), which does issue a request.
+ * The `coforge attachment upload` preconditions that never issue a request, in Raft 1.0.32's
+ * exact order (`src/commands/attachment/upload.ts`): `--path` presence, existence, regular-file,
+ * non-empty, then `--target` presence (`MISSING_CHANNEL`, Raft's code for a missing upload
+ * target), then `--mime-type` well-formedness. Returns the file's size for the caller's
+ * subsequent server-capability size check (`GET .../attachments/capabilities`), which does issue
+ * a request.
  */
 export async function validateAttachmentUploadArgs(input: {
   path?: string;
@@ -46,8 +59,6 @@ export async function validateAttachmentUploadArgs(input: {
   mimeType?: string;
 }): Promise<{ path: string; target: string; sizeBytes: number }> {
   if (!input.path) throw invalidArg("--path is required");
-  if (!input.target) throw invalidArg("--target is required");
-  if (input.mimeType !== undefined) validateAttachmentMimeType(input.mimeType);
   let stats: Awaited<ReturnType<typeof stat>>;
   try {
     stats = await stat(input.path);
@@ -56,5 +67,7 @@ export async function validateAttachmentUploadArgs(input: {
   }
   if (!stats.isFile()) throw invalidArg(`--path is not a regular file: ${input.path}`);
   if (stats.size === 0) throw invalidArg("--path is empty; refusing to upload a 0-byte attachment");
+  if (!input.target) throw missingTarget();
+  if (input.mimeType !== undefined) validateAttachmentMimeType(input.mimeType);
   return { path: input.path, target: input.target, sizeBytes: stats.size };
 }

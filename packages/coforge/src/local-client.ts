@@ -310,7 +310,12 @@ export function connectLocal(
       callAttachmentUpload(input),
   };
 
-  async function callAttachmentCapabilities(): Promise<{ maxBytes: number }> {
+  /**
+   * `null` means "no capability endpoint" (a 404, matching Raft 1.0.32's `attachmentUploadCommand`:
+   * `capabilityResponse.status === 404` falls back rather than failing) — the caller skips its
+   * client-side size check and lets the server enforce its own limit on the real upload.
+   */
+  async function callAttachmentCapabilities(): Promise<{ maxBytes: number } | null> {
     if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
       throw new Error("coforge agent context is invalid");
     if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
@@ -323,12 +328,26 @@ export function connectLocal(
     // change breaks this, add explicit forwarding in `agent-proxy.ts` instead of relying on it.
     endpoint.pathname = agentApiRoutes.local.attachments.path("capabilities");
     endpoint.search = "";
-    const response = await fetch(endpoint, {
-      headers: { authorization: `Bearer ${context}` },
-      signal: AbortSignal.timeout(10_000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        headers: { authorization: `Bearer ${context}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new CliError({
+        code: "UPLOAD_CAPABILITY_FAILED",
+        message: "attachment capabilities request failed (network or timeout)",
+        retryable: false,
+      });
+    }
+    if (response.status === 404) return null;
     if (!response.ok)
-      throw new Error(`attachment capabilities request failed (${response.status})`);
+      throw new CliError({
+        code: "UPLOAD_CAPABILITY_FAILED",
+        message: `attachment capabilities request failed (${response.status})`,
+        retryable: false,
+      });
     return (await response.json()) as { maxBytes: number };
   }
 
@@ -340,7 +359,7 @@ export function connectLocal(
     const file = Bun.file(input.path);
     const sizeBytes = file.size;
     const capabilities = await callAttachmentCapabilities();
-    if (sizeBytes > capabilities.maxBytes)
+    if (capabilities && sizeBytes > capabilities.maxBytes)
       throw new CliError({
         code: "ATTACHMENT_TOO_LARGE",
         message: `File is ${sizeBytes} bytes; the server allows at most ${capabilities.maxBytes} bytes.`,

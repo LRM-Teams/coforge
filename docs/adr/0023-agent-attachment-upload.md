@@ -85,26 +85,50 @@ does not touch the send route, its policy, or `message send` argument parsing.
    invoked through it in production today — the CLI and daemon both talk to the local proxy or the
    cloud route directly); the addition keeps that contract's shape complete rather than adding a
    second, asymmetric surface later.
-5. **`coforge attachment upload --path <file> --target <target> [--mime-type <type>] [--json]`.**
-   Local, pre-request validation (`packages/coforge/src/attachment-upload.ts`, unit-tested)
-   rejects a missing `--path`/`--target`, a `--path` that does not exist, is not a regular file, or
-   is empty, and a malformed `--mime-type` — all as `CliError` code `INVALID_ARG`, before any
-   request is issued. An explicit `--mime-type` wins; otherwise the type is inferred from the file
-   extension for `.jpg .jpeg .png .gif .webp .pdf .txt .md .json .csv`, defaulting to
-   `application/octet-stream`. `local-client.ts`'s `upload()` then `GET`s
-   `/api/agent/v1/attachments/capabilities` through the *existing* GET-prefix forwarding — the
-   attachment-download forwarding in `agent-proxy.ts` treats any path segment after the attachment
-   route prefix as an opaque attachment id and reaches the identical cloud URL unchanged, and
-   `capabilities` is itself a literal cloud sub-route registered ahead of `$attachmentId`, so this
-   already-shaped request reaches it with no daemon change; a `local-client.test.ts` case pins this
-   behavior, and both call sites carry a comment pointing at each other. If `size > maxBytes`, the
-   CLI fails locally with `CliError` code `ATTACHMENT_TOO_LARGE` before ever POSTing the file. A
+5. **`coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type
+   <type>] [--json]`, aligned with Raft 1.0.32's own command byte-for-byte where it applies.**
+   `--channel` is Raft's legacy alias for `--target`; giving both is a usage error even when they
+   agree (simpler than Raft's "must match" check, since the alias is transitional here too).
+   Local, pre-request validation (`packages/coforge/src/attachment-upload.ts`, unit-tested) runs
+   in Raft's exact order — `--path` presence, existence, regular-file, non-empty (all `CliError`
+   code `INVALID_ARG`), then target presence (`MISSING_CHANNEL`, Raft's code, with a message
+   adapted to this system's target grammar: `#name`/`@user`/thread target instead of Raft's
+   `dm:@peer`), then `--mime-type` well-formedness (`INVALID_ARG`) — before any request is issued.
+   An explicit `--mime-type` wins; otherwise the type is inferred from the file extension for
+   `.jpg .jpeg .png .gif .webp .pdf .txt .md .json .csv`, defaulting to `application/octet-stream`.
+   `local-client.ts`'s `upload()` then `GET`s `/api/agent/v1/attachments/capabilities` through the
+   *existing* GET-prefix forwarding — the attachment-download forwarding in `agent-proxy.ts`
+   treats any path segment after the attachment route prefix as an opaque attachment id and
+   reaches the identical cloud URL unchanged, and `capabilities` is itself a literal cloud
+   sub-route registered ahead of `$attachmentId`, so this already-shaped request reaches it with
+   no daemon change; a `local-client.test.ts` case pins this behavior, and both call sites carry a
+   comment pointing at each other. A 404 from that route (matching Raft's own
+   `capabilityResponse.status === 404` branch) means "no capability endpoint": the CLI skips its
+   client-side size check entirely and lets the server enforce its own limit on the real upload,
+   rather than substituting a hardcoded default the way Raft does — this repo's `ATTACHMENT_MAX_BYTES`
+   is already the server's one source of truth, so a second client-side copy of it would drift.
+   Any other non-2xx capabilities response is `CliError` code `UPLOAD_CAPABILITY_FAILED`, before
+   ever reading the file into memory. When a limit is advertised and `size > maxBytes`, the CLI
+   fails locally with `CliError` code `ATTACHMENT_TOO_LARGE` before ever POSTing the file. A
    non-2xx upload response becomes `CliError` code `UPLOAD_FAILED` (or `SERVER_5XX` for ≥ 500),
    reading the upstream `{ error }` text — the same shape whether the failure came from the web
    route's own JSON body or from the daemon proxy's classified failure envelope, since both carry a
-   top-level `error` field. `coforge attachment view` additionally accepts a positional id
-   (`coforge attachment view <id> --output <path>`), matching Raft, alongside the existing `--id
-   <id>` form.
+   top-level `error` field. On success the CLI prints Raft's exact `formatAttachmentUploaded` shape
+   (`raft` swapped for `coforge`):
+   ```
+   File uploaded: <fileName> (<sizeKB, one decimal>KB)
+   Attachment ID: <id>
+
+   Use this ID with coforge message send --attachment-id <id> to include it in a message.
+   ```
+   `--json` prints the raw response object instead. `coforge attachment view` additionally
+   accepts a positional id (`coforge attachment view <id> --output <path>`), matching Raft,
+   alongside the existing `--id <id>` form.
+   A `local-client.test.ts` case confirms, against a real `Bun.serve` round trip (not a mocked
+   `fetch`), that the CLI's multipart `FormData` upload body carries a `content-length` header:
+   Bun's `fetch` computes it up front for a `FormData` body the same way it does for a `Blob` or
+   string body, so the daemon-local proxy's 413-on-missing-`content-length` guard (`agent-proxy.ts`)
+   never fires for this CLI's own requests.
 6. **The uploading Agent may always read back its own not-yet-sent upload.**
    `readAuthorizedAttachment` keeps requiring `messageId` to be set for every other reader (an
    Agent that is merely a member of the same conversation still cannot see an attachment nobody
@@ -154,6 +178,14 @@ does not touch the send route, its policy, or `message send` argument parsing.
   `README.md` and `agent-instructions.ts` document the new command.
 - No wire-format break: every new field (`uploaderAgentId`, the new routes, the new response type)
   is additive.
+- The generated migration also runs `ALTER TABLE "weekly_report_assistants" ALTER COLUMN "id"
+  DROP DEFAULT`, unrelated to this change's own schema edits: it is real, pre-existing drift.
+  The `20260916100000_weekly_report_assistant` migration added a Postgres-level `DEFAULT
+  gen_random_uuid()` that `WeeklyReportAssistant.id`'s `@default(uuid())` never asked for —
+  Prisma's `uuid()` default is generated client-side, not at the database level — and `prisma
+  migrate dev` correctly detects and corrects that mismatch the next time any migration touches
+  the schema. It is kept as generated, per this ADR's own "commit the generated migration as
+  generated, do not hand-trim" rule.
 
 ## Validation and rollback
 

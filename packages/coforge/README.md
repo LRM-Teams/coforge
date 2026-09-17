@@ -55,14 +55,32 @@ rather than surfacing the server's response text.
 uploads a local file and prints its attachment id for
 `coforge message send --attachment-id <id>`. `--target` uses the same
 `#channel`/`@user` grammar as `message send`; the Agent must already belong to
-that conversation. Without `--mime-type`, the type is inferred from the file
-extension (falling back to `application/octet-stream`). The CLI checks the
-file exists, is a non-empty regular file, and is at or under the server's
-advertised size limit before uploading; a file over the limit is rejected
-locally with `ATTACHMENT_TOO_LARGE`, never partially uploaded. Download an
-attachment's bytes with `coforge attachment view <id> --output <path>` (or
-`--id <id>`); an Agent may download its own upload before sending it, but not
-another Agent's not-yet-sent upload.
+that conversation. `--channel <target>` is accepted as a legacy alias for
+`--target` (Raft's transition alias); passing both is a usage error even when
+they agree. Local checks run in this order, matching Raft 1.0.32: `--path`
+presence, existence, regular-file, non-empty (all `INVALID_ARG`), then
+`--target`/`--channel` presence (`MISSING_CHANNEL`), then `--mime-type`
+well-formedness (`INVALID_ARG`) — the first failing check wins. Without
+`--mime-type`, the type is inferred from the file extension (falling back to
+`application/octet-stream`). Before uploading, the CLI checks the file
+against the server's advertised size limit; a capabilities lookup that 404s
+is treated as "no limit advertised" and skips this client-side check (the
+server still enforces its own limit), any other capabilities failure is
+`UPLOAD_CAPABILITY_FAILED`, and a file over an advertised limit is rejected
+locally with `ATTACHMENT_TOO_LARGE`, never partially uploaded. On success it
+prints:
+
+```
+File uploaded: <fileName> (<sizeKB>KB)
+Attachment ID: <id>
+
+Use this ID with coforge message send --attachment-id <id> to include it in a message.
+```
+
+`--json` prints the raw response object instead. Download an attachment's
+bytes with `coforge attachment view <id> --output <path>` (or `--id <id>`);
+an Agent may download its own upload before sending it, but not another
+Agent's not-yet-sent upload.
 
 `coforge weekly-report context|list|read` is the weekly-report assistant's
 authorized on-demand read surface. It reuses the Credential Proxy and Agent

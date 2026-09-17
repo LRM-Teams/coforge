@@ -205,19 +205,23 @@ export function parseArgs(
   if (args[0] === "attachment" && args[1] === "upload") {
     let path: string | undefined;
     let target: string | undefined;
+    // Legacy alias for --target (Raft's transition alias); giving both is a usage error.
+    let channelAlias: string | undefined;
     let mimeType: string | undefined;
     let json = false;
     for (let index = 2; index < args.length; index++) {
       if (args[index] === "--path" && args[index + 1]) path = args[++index];
       else if (args[index] === "--target" && args[index + 1]) target = args[++index];
+      else if (args[index] === "--channel" && args[index + 1]) channelAlias = args[++index];
       else if (args[index] === "--mime-type" && args[index + 1]) mimeType = args[++index];
       else if (args[index] === "--json") json = true;
       else throw new Error("Usage:");
     }
+    if (target !== undefined && channelAlias !== undefined) throw new Error("Usage:");
     return {
       command: "attachment.upload",
       path,
-      target,
+      target: target ?? channelAlias,
       mimeType,
       ...(json ? { json: true as const } : {}),
     };
@@ -476,7 +480,7 @@ export async function run(args: readonly string[], transport: MessageTransport):
     const mimeType = attachmentMimeType(path, invocation.mimeType);
     const result = await transport.upload({ path, target, mimeType });
     if (invocation.json) return JSON.stringify(result);
-    return formatAttachmentUploadSuccess(target, result);
+    return formatAttachmentUploadSuccess(result);
   }
   const { command } = invocation;
   if (command === "send") {
