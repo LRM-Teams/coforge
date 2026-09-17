@@ -76,6 +76,58 @@ function fixture(options?: {
 }
 
 describe("ManageAgents", () => {
+  test("a member principal cannot create an Agent; an admin can", async () => {
+    const { agentManagement, records } = fixture();
+    await expect(
+      agentManagement.create(
+        { userId: "user-1", workspaceId: "workspace-1", role: "member" },
+        {
+          name: "builder",
+          description: "",
+          provider: RUNTIME_PROVIDER.CODEX,
+          computerId: "computer-1",
+        },
+      ),
+    ).rejects.toMatchObject({ name: "AppError", code: "ACCESS_DENIED" });
+    expect(records).toEqual([]);
+
+    await expect(
+      agentManagement.create(
+        { userId: "user-1", workspaceId: "workspace-1" },
+        {
+          name: "builder",
+          description: "",
+          provider: RUNTIME_PROVIDER.CODEX,
+          computerId: "computer-1",
+        },
+      ),
+    ).rejects.toMatchObject({ name: "AppError", code: "ACCESS_DENIED" });
+    expect(records).toEqual([]);
+
+    const result = await agentManagement.create(
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" },
+      {
+        name: "builder",
+        description: "",
+        provider: RUNTIME_PROVIDER.CODEX,
+        computerId: "computer-1",
+      },
+    );
+    expect(result.agent.name).toBe("builder");
+    expect(records).toHaveLength(1);
+
+    const ownerCreated = await agentManagement.create(
+      { userId: "user-1", workspaceId: "workspace-1", role: "owner" },
+      {
+        name: "second",
+        description: "",
+        provider: RUNTIME_PROVIDER.CODEX,
+        computerId: "computer-1",
+      },
+    );
+    expect(ownerCreated.agent.name).toBe("second");
+  });
+
   test("configures an unbound Agent with a Computer and starts its runtime", async () => {
     const { agentManagement, records, starts } = fixture();
     records.push({
@@ -95,7 +147,7 @@ describe("ManageAgents", () => {
     });
 
     const result = await agentManagement.update(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "assistant-agent",
         name: "weekly-report-assistant-user-1",
@@ -117,7 +169,7 @@ describe("ManageAgents", () => {
 
   test("profile runtime edits preserve encrypted environment while list and starts omit it", async () => {
     const { agentManagement, records, starts } = fixture();
-    const principal = { userId: "user-1", workspaceId: "workspace-1" };
+    const principal = { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const };
     const created = await agentManagement.create(principal, {
       name: "builder",
       description: "Builder",
@@ -157,7 +209,7 @@ describe("ManageAgents", () => {
     });
 
     const result = await agentManagement.create(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         name: "  MY-Agent  ",
         description: "Build and release helper",
@@ -197,7 +249,7 @@ describe("ManageAgents", () => {
     const { agentManagement, records, starts } = fixture({ encryptionFails: true });
     await expect(
       agentManagement.create(
-        { userId: "user-1", workspaceId: "workspace-1" },
+        { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
         {
           name: "secure",
           description: "",
@@ -216,7 +268,7 @@ describe("ManageAgents", () => {
     const { agentManagement, starts } = fixture();
 
     const result = await agentManagement.create(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         name: "external-pi",
         description: "External Pi agent",
@@ -238,7 +290,7 @@ describe("ManageAgents", () => {
   test("creates an authorized manual CoForge model without a catalog match", async () => {
     const { agentManagement } = fixture();
     const result = await agentManagement.create(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         name: "manual-model",
         description: "Manual model",
@@ -261,7 +313,7 @@ describe("ManageAgents", () => {
     const { agentManagement } = fixture();
     await expect(
       agentManagement.create(
-        { userId: "user-1", workspaceId: "workspace-1" },
+        { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
         {
           name: "missing-key",
           description: "",
@@ -276,7 +328,7 @@ describe("ManageAgents", () => {
       errorId: "agent-api-key-required",
     });
     const pi = await agentManagement.create(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         name: "local-pi",
         description: "",
@@ -319,7 +371,7 @@ describe("ManageAgents", () => {
   test("keeps the canonical Agent when start publication fails", async () => {
     const { agentManagement, records } = fixture({ publishFails: true });
     const result = await agentManagement.create(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         name: "builder",
         description: "Build helper",
@@ -343,7 +395,7 @@ describe("ManageAgents", () => {
     const { agentManagement, records } = fixture({ unavailable: true });
     await expect(
       agentManagement.create(
-        { userId: "user-1", workspaceId: "workspace-1" },
+        { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
         {
           name: "builder",
           description: "Build helper",
@@ -362,7 +414,7 @@ describe("ManageAgents", () => {
   test("updates metadata without control and keeps the Computer fixed", async () => {
     const { agentManagement, records, controls, updates } = fixture();
     const created = await agentManagement.create(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         name: "old",
         description: "Old",
@@ -372,7 +424,7 @@ describe("ManageAgents", () => {
     );
     controls.length = 0;
     const result = await agentManagement.update(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: created.agent.id,
         name: " New ",
@@ -413,7 +465,7 @@ describe("ManageAgents", () => {
     });
 
     const result = await agentManagement.update(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "agent-1",
         name: "new",
@@ -452,7 +504,7 @@ describe("ManageAgents", () => {
       },
     });
     await agentManagement.update(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "agent-1",
         name: "builder",
@@ -469,7 +521,7 @@ describe("ManageAgents", () => {
     controls.length = 0;
     await expect(
       agentManagement.update(
-        { userId: "user-1", workspaceId: "workspace-1" },
+        { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
         {
           agentId: "agent-1",
           name: "builder",
@@ -484,7 +536,7 @@ describe("ManageAgents", () => {
       errorId: "agent-api-key-required",
     });
     await agentManagement.update(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "agent-1",
         name: "builder",
@@ -523,7 +575,7 @@ describe("ManageAgents", () => {
       },
     });
     const result = await agentManagement.update(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         agentId: "agent-1",
         name: "pi",
@@ -541,7 +593,7 @@ describe("ManageAgents", () => {
 
   test("Pi model edits advertise the preserved key without disclosing it to catalog checks", async () => {
     const { agentManagement, selections } = fixture();
-    const principal = { userId: "user-1", workspaceId: "workspace-1" };
+    const principal = { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const };
     const input = {
       name: "pi",
       description: "",
@@ -569,7 +621,7 @@ describe("ManageAgents", () => {
   test("does not persist after stop failure and reports a deferred start failure", async () => {
     const stopped = fixture({ stopFails: true });
     const created = await stopped.agentManagement.create(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         name: "a",
         description: "",
@@ -580,7 +632,7 @@ describe("ManageAgents", () => {
     stopped.controls.length = 0;
     await expect(
       stopped.agentManagement.update(
-        { userId: "user-1", workspaceId: "workspace-1" },
+        { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
         {
           agentId: created.agent.id,
           name: "a",
@@ -593,7 +645,7 @@ describe("ManageAgents", () => {
 
     const deferred = fixture({ publishFails: true });
     const other = await deferred.agentManagement.create(
-      { userId: "user-1", workspaceId: "workspace-1" },
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
       {
         name: "a",
         description: "",
@@ -605,7 +657,7 @@ describe("ManageAgents", () => {
     expect(
       (
         await deferred.agentManagement.update(
-          { userId: "user-1", workspaceId: "workspace-1" },
+          { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
           {
             agentId: other.agent.id,
             name: "a",

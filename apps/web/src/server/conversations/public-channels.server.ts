@@ -24,6 +24,8 @@ import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { attachmentView } from "../attachments/attachment-view.server";
+import { assertCanManageChannels, isAdminLike } from "../workspaces/member-role.server";
+import { workspaceMemberRole } from "../workspaces/members.server";
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
@@ -282,10 +284,7 @@ export class PublicChannels {
   }
 
   private async authorize(workspaceId: string, userId: string) {
-    const membership = await this.db.workspaceMembership.findUnique({
-      where: { workspaceId_userId: { workspaceId, userId } },
-    });
-    if (!membership) throw new AppError("ACCESS_DENIED");
+    return { role: await workspaceMemberRole(this.db, workspaceId, userId) };
   }
 
   async list(workspaceId: string, userId: string) {
@@ -309,7 +308,8 @@ export class PublicChannels {
   }
 
   async create(workspaceId: string, userId: string, name: string, projectId?: string) {
-    await this.authorize(workspaceId, userId);
+    const membership = await this.authorize(workspaceId, userId);
+    assertCanManageChannels(membership.role);
     if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) throw new AppError("INVALID_INPUT");
     // general is reserved for automatic enrollment, including before the first list request.
     if (name === "general") throw new AppError("CONFLICT");
@@ -357,6 +357,125 @@ export class PublicChannels {
       data: { workspaceId, userId, conversationId: channelId },
       skipDuplicates: true,
     });
+  }
+
+  /**
+   * Current members split into humans and Agents, plus candidates (Workspace
+   * humans and Agents not yet members) and whether the actor may manage them.
+   * Any Workspace member may read this; channels are public within the Workspace.
+   */
+  async members(workspaceId: string, actorUserId: string, channelId: string) {
+    const membership = await this.authorize(workspaceId, actorUserId);
+    const channel = await this.db.conversation.findFirst({
+      where: { id: channelId, workspaceId, channelName: { not: null } },
+      select: { id: true },
+    });
+    if (!channel) throw new AppError("NOT_FOUND");
+
+    const [memberRows, workspaceUsers, workspaceAgents] = await Promise.all([
+      this.db.conversationMember.findMany({
+        where: { conversationId: channelId },
+        select: {
+          user: {
+            select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+          },
+          agent: { select: { id: true, name: true, displayName: true } },
+        },
+      }),
+      this.db.user.findMany({
+        where: { memberships: { some: { workspaceId } } },
+        select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+        orderBy: [{ username: "asc" }, { id: "asc" }],
+      }),
+      this.db.agent.findMany({
+        where: { workspaceId, weeklyReportAssistant: null },
+        select: { id: true, name: true, displayName: true },
+        orderBy: [{ name: "asc" }, { id: "asc" }],
+      }),
+    ]);
+
+    const memberUserIds = new Set(memberRows.flatMap((row) => (row.user ? [row.user.id] : [])));
+    const memberAgentIds = new Set(memberRows.flatMap((row) => (row.agent ? [row.agent.id] : [])));
+
+    return {
+      canManage: isAdminLike(membership.role),
+      humans: memberRows
+        .filter((row) => row.user)
+        .map((row) => ({
+          id: row.user!.id,
+          username: row.user!.username,
+          displayName: row.user!.displayName?.trim() || row.user!.username,
+          avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user!.id, row.user!.avatarObjectKey),
+        })),
+      agents: memberRows
+        .filter((row) => row.agent)
+        .map((row) => ({
+          id: row.agent!.id,
+          name: row.agent!.name,
+          displayName: row.agent!.displayName?.trim() || row.agent!.name,
+        })),
+      candidates: {
+        humans: workspaceUsers
+          .filter((user) => !memberUserIds.has(user.id))
+          .map((user) => ({
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName?.trim() || user.username,
+            avatarUrl: workspaceUserAvatarUrl(workspaceId, user.id, user.avatarObjectKey),
+          })),
+        agents: workspaceAgents
+          .filter((agent) => !memberAgentIds.has(agent.id))
+          .map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            displayName: agent.displayName?.trim() || agent.name,
+          })),
+      },
+    };
+  }
+
+  /**
+   * Owner/admin adds Workspace humans and/or Agents as channel members. Membership
+   * alone never creates attention: delivery eligibility is computed at message time.
+   */
+  async addMembers(
+    workspaceId: string,
+    actorUserId: string,
+    channelId: string,
+    input: { userIds: string[]; agentIds: string[] },
+  ) {
+    const membership = await this.authorize(workspaceId, actorUserId);
+    assertCanManageChannels(membership.role);
+    const channel = await this.db.conversation.findFirst({
+      where: { id: channelId, workspaceId, channelName: { not: null } },
+      select: { id: true },
+    });
+    if (!channel) throw new AppError("NOT_FOUND");
+
+    const userIds = [...new Set(input.userIds)];
+    const agentIds = [...new Set(input.agentIds)];
+    if (userIds.length) {
+      const validUsers = await this.db.workspaceMembership.count({
+        where: { workspaceId, userId: { in: userIds } },
+      });
+      if (validUsers !== userIds.length) throw new AppError("INVALID_INPUT");
+    }
+    if (agentIds.length) {
+      const validAgents = await this.db.agent.count({
+        where: { workspaceId, id: { in: agentIds } },
+      });
+      if (validAgents !== agentIds.length) throw new AppError("INVALID_INPUT");
+    }
+
+    await this.db.conversationMember.createMany({
+      data: [
+        ...userIds.map((userId) => ({ workspaceId, conversationId: channelId, userId })),
+        ...agentIds.map((agentId) => ({ workspaceId, conversationId: channelId, agentId })),
+      ],
+      skipDuplicates: true,
+    });
+
+    return this.members(workspaceId, actorUserId, channelId);
   }
 
   async open(

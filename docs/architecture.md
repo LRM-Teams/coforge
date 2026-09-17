@@ -1028,10 +1028,14 @@ runtime 生命周期和单条 WSS。Web 使用会话实时信号与 canonical HT
 ### 6.4 Workspace 公开频道
 
 公开仅指同一 Workspace：现有真人成员可以发现频道、读取完整历史及已发送的附件，
-Workspace 外部用户无权访问。任意现有真人成员可创建频道；创建者自动加入，
-其他成员主动加入后才能发送消息或上传附件。Workspace 人类成员分为 owner、admin、member：
-创建者成为不可转让的 owner；owner/admin 可通过用户名邀请 admin/member，被邀请人接受后加入；
-owner 不可离开或被移除。频道层不另建角色体系，也不引入私有频道。
+Workspace 外部用户无权访问。创建频道要求 Workspace owner/admin 权限（ADR 0025，对齐 Raft
+"server admin authority" 模型）；创建者自动加入，其他成员主动加入后才能发送消息或上传附件。
+Workspace 人类成员分为 owner、admin、member：创建者成为不可转让的 owner；owner/admin 可通过
+用户名邀请 admin/member，被邀请人接受后加入；owner 不可离开或被移除。owner/admin 还可将
+Workspace 真人或 Agent 添加为任意公开频道的成员（`PublicChannels.members`/`addMembers`）；
+频道层复用 Workspace 角色，不另建独立角色体系，也不引入私有频道。当前未实现频道成员移除：
+`Message.sender` 外键对 `ConversationMember` 是 `onDelete: Restrict`，删除已发过消息的成员会
+被数据库拒绝，移除留待后续决策（ADR 0025）。
 每个 Workspace 有一个保留名称 `#general`，所有真人成员与 Agent 自动加入；迁移回填旧数据，
 Workspace 创建事务写入默认频道，Agent 创建事务同步加入，频道发现和打开时补齐现有成员。
 
@@ -1044,7 +1048,9 @@ conversation 行锁分配单调 sequence，沿用 Redis 请求幂等机制；sen
 Web 复用聊天气泡、输入框和附件，增加频道列表、创建与加入入口；未加入时只读。
 沿用会话实时信号和 canonical Message 历史恢复，不新增真人持久化未读游标。
 Agent 通过已有独立 HTTPS RPC 使用 CLI `#channel` target 读写已加入的频道，
-仍复用单 Agent runtime session，不创建频道 session。当前不新增非默认频道的 Agent 加入入口。
+仍复用单 Agent runtime session，不创建频道 session。owner/admin 可在 Web 侧将 Agent 加入
+任意非默认公开频道（ADR 0025）；这只增加 Web 端加入入口，不新增 Agent CLI join/leave 命令
+或 action card。
 频道 Thread 的 root 必须是同频道顶层 Message；Workspace 真人可随父频道可见性读取，只有
 已加入成员可回复或上传附件。主频道与每个 Thread 的 Agent/Human ThreadRead 独立；读取
 `#general:<root>` 只返回并推进该 Thread 回复，root 与父频道上下文需另用
@@ -1081,9 +1087,10 @@ check 才能继续排空。恢复沿用 canonical Message/read 边界，不建�
 mute 不压制已 follow Thread。CoForge 额外要求短 target 经父频道 authenticated `around`
 canonicalization、Web/backend 始终输出完整 UUID、主频道/各 Thread 分别维护 read/recovery/
 freshness 边界、notice 与 channel recovery 不含正文，并保持单 Agent shared runtime session。
-CoForge 当前缺少 Raft 的显式 Agent channel join/leave、private channel、channel member/admin
-与 DM Thread follow/unfollow 能力；standing instructions
-不得声称或复制这些能力。Raft 官方默认频道名为
+CoForge 当前缺少 Raft 的显式 Agent CLI channel join/leave 命令、private channel 与 DM Thread
+follow/unfollow 能力；channel member/admin 已在 Web 侧实现（ADR 0025：创建频道与频道成员
+增删要求 Workspace owner/admin，仅真人发起，不新增 Agent CLI 命令或 action card）。standing
+instructions 不得声称或复制尚未实现的能力。Raft 官方默认频道名为
 [#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
 [Thread 文档](https://docs.raft.build/features/messaging/threads/)定义上述 follow/unfollow 行为；
 已核对的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)

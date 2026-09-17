@@ -112,11 +112,27 @@ instructions for the TanStack Start Web/backend modular monolith.
   Agent creation and default-channel repair enroll Workspace Agents in `#general`.
   PublicChannels owns mute/mention delivery eligibility; the existing conversation
   repository owns Agent target-scoped reads and eligible-notification recovery,
-  and the Agent HTTPS functions enforce its authenticated identity. No additional
-  Agent enrollment entrypoint or Channel roles are introduced. Workspace human
+  and the Agent HTTPS functions enforce its authenticated identity. Workspace human
   roles and invitations belong to `server/workspaces/member-role.server.ts`,
   `member-directory.server.ts`, `features/workspaces/members.functions.ts`, and
   the Settings Members section.
+
+  Creating a channel (`PublicChannels.create`) and managing its membership
+  require Workspace owner/admin, enforced by `assertCanManageChannels` in
+  `member-role.server.ts` (ADR 0025); joining stays open to any member.
+  `PublicChannels.members` returns current human/Agent members plus
+  add-candidates and `canManage` for any Workspace member to read; owner/admin
+  call `PublicChannels.addMembers` to add Workspace humans and/or Agents to any
+  public channel — this is the one entrypoint for enrolling an Agent in a
+  non-default channel. Channel member removal is not implemented: `Message.sender`
+  is `onDelete: Restrict` against `ConversationMember`, so hard-deleting a member
+  who has sent messages would be rejected by PostgreSQL. `features/conversations/
+channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembers`;
+  `channel-members-dialog.tsx` is the Web UI, opened from a "Members" button on
+  the channel header. Agent creation (`ManageAgents.create`) requires the same
+  owner/admin role via `assertCanCreateAgents`, a separate named policy built on
+  the same `isAdminLike` rule. Channels still have no role system of their own
+  and private channels are not introduced.
 
 - Message threads belong to `features/conversations/` (selection, drafts,
   discussion UI, follow controls and authenticated functions),

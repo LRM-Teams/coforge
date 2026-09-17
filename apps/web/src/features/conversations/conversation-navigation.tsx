@@ -25,7 +25,7 @@ export function useConversationDetailVisible() {
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { channels, projects } = messagesRoute.useLoaderData();
+  const { channels, projects, canManageChannels } = messagesRoute.useLoaderData();
   const agents = useLiveAgents();
   const desktop = useBreakpoint("lg");
   const router = useRouter();
@@ -52,9 +52,11 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
           <PageHeader
             heading={m.navigation_chat()}
             actions={
-              <Button size="sm" iconLeading={Plus} onPress={() => setCreating(true)}>
-                {m.channel_create()}
-              </Button>
+              canManageChannels ? (
+                <Button size="sm" iconLeading={Plus} onPress={() => setCreating(true)}>
+                  {m.channel_create()}
+                </Button>
+              ) : undefined
             }
           />
           <div className="min-h-0 flex-1 overflow-y-auto py-4">

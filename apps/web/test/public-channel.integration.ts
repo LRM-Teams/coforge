@@ -4,6 +4,7 @@ import { PrismaClient } from "../generated/client";
 import {
   PublicChannels,
   enrollGeneralChannel,
+  getAgentChannel,
 } from "../src/server/conversations/public-channels.server";
 import { RedisClient } from "bun";
 import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
@@ -42,7 +43,8 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     data: {
       slug: suffix,
       name: "Channels",
-      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+      // Channel creation requires owner/admin; alice manages channels, bob stays a plain member.
+      members: { create: [{ userId: alice.id, role: "admin" }, { userId: bob.id }] },
     },
   });
   try {
@@ -101,6 +103,10 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       "ACCESS_DENIED",
     );
     await expect(channels.create(workspace.id, outsider.id, "secret")).rejects.toThrow(
+      "ACCESS_DENIED",
+    );
+    // A plain Workspace member (bob) cannot create a channel; only owner/admin can.
+    await expect(channels.create(workspace.id, bob.id, "member-channel")).rejects.toThrow(
       "ACCESS_DENIED",
     );
     await expect(channels.join(workspace.id, outsider.id, engineering.id)).rejects.toThrow(
@@ -311,7 +317,8 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     data: {
       slug: crypto.randomUUID(),
       name: "Agent channels",
-      members: { create: { userId: user.id } },
+      // Admin so this test's user may create the "not-joined" channel below.
+      members: { create: { userId: user.id, role: "admin" } },
     },
   });
   try {
@@ -592,7 +599,8 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
     data: {
       slug: `thread-${suffix}`,
       name: "Channel threads",
-      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+      // Alice creates the "threads" channel below, so she needs admin authority.
+      members: { create: [{ userId: alice.id, role: "admin" }, { userId: bob.id }] },
     },
   });
   const foreignWorkspace = await db.workspace.create({
@@ -970,5 +978,130 @@ test("reads never enroll: general membership comes from write points and the bac
     await db.computer.deleteMany({ where: { ownerId: alice.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
     await db.$disconnect();
+  }
+});
+
+test("owner/admin manage channel membership: add humans and Agents; a member cannot; invalid ids are rejected", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const owner = await db.user.create({ data: { username: `mo${suffix}` } });
+  const member = await db.user.create({ data: { username: `mm${suffix}` } });
+  const newcomer = await db.user.create({ data: { username: `mn${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `members-${suffix}`,
+      name: "Channel membership",
+      members: {
+        create: [
+          { userId: owner.id, role: "owner" },
+          { userId: member.id },
+          { userId: newcomer.id },
+        ],
+      },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: owner.id, machineId: crypto.randomUUID() },
+    });
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: owner.id,
+        computerId: computer.id,
+        name: "roster-helper",
+        displayName: "Roster Helper",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    const published: ReturnType<typeof decodeAgentMessageDelivery>[] = [];
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async (_channel, payload) => {
+        published.push(decodeAgentMessageDelivery(payload));
+      },
+      publishJson: async () => {},
+    });
+
+    const channel = await channels.create(workspace.id, owner.id, "roster");
+
+    // Any Workspace member may read membership, but only owner/admin may manage it.
+    const memberView = await channels.members(workspace.id, member.id, channel.id);
+    expect(memberView.canManage).toBe(false);
+    expect(memberView.humans.map((human) => human.id)).toEqual([owner.id]);
+    expect(memberView.agents).toEqual([]);
+    expect(memberView.candidates.humans.map((human) => human.id).sort()).toEqual(
+      [member.id, newcomer.id].sort(),
+    );
+    expect(memberView.candidates.agents.map((candidate) => candidate.id)).toEqual([agent.id]);
+
+    await expect(
+      channels.addMembers(workspace.id, member.id, channel.id, {
+        userIds: [newcomer.id],
+        agentIds: [],
+      }),
+    ).rejects.toThrow("ACCESS_DENIED");
+
+    await expect(
+      channels.addMembers(workspace.id, owner.id, channel.id, {
+        userIds: [crypto.randomUUID()],
+        agentIds: [],
+      }),
+    ).rejects.toThrow("INVALID_INPUT");
+    await expect(
+      channels.addMembers(workspace.id, owner.id, channel.id, {
+        userIds: [],
+        agentIds: [crypto.randomUUID()],
+      }),
+    ).rejects.toThrow("INVALID_INPUT");
+
+    const afterAdd = await channels.addMembers(workspace.id, owner.id, channel.id, {
+      userIds: [newcomer.id],
+      agentIds: [agent.id],
+    });
+    expect(afterAdd.canManage).toBe(true);
+    expect(afterAdd.humans.map((human) => human.id).sort()).toEqual([newcomer.id, owner.id].sort());
+    expect(afterAdd.agents.map((candidate) => candidate.id)).toEqual([agent.id]);
+    expect(afterAdd.candidates.humans.map((human) => human.id)).toEqual([member.id]);
+    expect(afterAdd.candidates.agents).toEqual([]);
+
+    // The newly added human is a real conversation member and can send.
+    const opened = await channels.open(workspace.id, newcomer.id, channel.id);
+    expect(opened.senderMemberId).not.toBe("");
+
+    // The newly added Agent can now be resolved by its target...
+    await getAgentChannel(db, workspace.id, agent.id, "#roster");
+    // ...and receives an AgentMessageDelivery when a human posts afterward.
+    const sent = await channels.send({
+      workspaceId: workspace.id,
+      userId: owner.id,
+      channelId: channel.id,
+      requestId: crypto.randomUUID(),
+      body: "Welcome to the roster channel",
+    });
+    expect(published).toContainEqual(
+      expect.objectContaining({ agentId: agent.id, messageId: sent.id }),
+    );
+    expect(
+      await db.agentMessageDelivery.findFirst({
+        where: { conversationId: channel.id, agentId: agent.id, messageId: sent.id },
+      }),
+    ).not.toBeNull();
+
+    // Re-adding an existing member is a no-op (skipDuplicates), not a conflict.
+    const reAdded = await channels.addMembers(workspace.id, owner.id, channel.id, {
+      userIds: [newcomer.id],
+      agentIds: [],
+    });
+    expect(reAdded.humans.map((human) => human.id).sort()).toEqual([newcomer.id, owner.id].sort());
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: owner.id } });
+    await db.user.deleteMany({ where: { id: { in: [owner.id, member.id, newcomer.id] } } });
+    await db.$disconnect();
+    redis.close();
   }
 });
