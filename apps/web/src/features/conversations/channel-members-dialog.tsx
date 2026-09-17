@@ -1,22 +1,74 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { Shield01 } from "@untitledui/icons";
 
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { Avatar } from "@/components/base/avatar/avatar";
+import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
-import { addPublicChannelMembers, loadPublicChannelMembers } from "./channels.functions";
+import {
+  addPublicChannelMembers,
+  loadPublicChannelMembers,
+  setPublicChannelMemberRole,
+} from "./channels.functions";
 
 type ChannelMembersView = Awaited<ReturnType<typeof loadPublicChannelMembers>>;
+type ChannelMemberTarget = { userId?: string; agentId?: string };
 
 type LoadState =
   | { status: "loading" }
   | { status: "error" }
   | { status: "ready"; data: ChannelMembersView };
+
+/** Badge + Promote/Demote control for one roster row, reused for humans and Agents. The "Admin"
+ * badge is always shown so every member can see who is a channel admin; the Dropdown itself only
+ * renders when the viewer has `manage_roles` on this channel (ADR 0030). */
+function ChannelRoleControl({
+  channelRole,
+  canManageRoles,
+  pending,
+  onToggle,
+}: {
+  channelRole: string;
+  canManageRoles: boolean;
+  pending: boolean;
+  onToggle: () => void;
+}) {
+  const isAdmin = channelRole === "admin";
+  const actionLabel = isAdmin ? m.channel_members_demote() : m.channel_members_promote();
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      {isAdmin && (
+        <Badge size="sm" color="brand">
+          {m.channel_members_role_admin()}
+        </Badge>
+      )}
+      {canManageRoles && (
+        <Dropdown.Root>
+          <ButtonUtility
+            icon={Shield01}
+            size="sm"
+            color="tertiary"
+            isDisabled={pending}
+            tooltip={actionLabel}
+          />
+          <Dropdown.Popover placement="bottom end" className="w-52">
+            <Dropdown.Menu aria-label={actionLabel} onAction={() => onToggle()}>
+              <Dropdown.Item id="toggle-channel-role" icon={Shield01} label={actionLabel} />
+            </Dropdown.Menu>
+          </Dropdown.Popover>
+        </Dropdown.Root>
+      )}
+    </div>
+  );
+}
 
 /** Channel member roster and add-members action, opened from the channel header, or (with
  * `preselected`/`commit`) from an Agent-prepared `channel:add_member` action card's commit
@@ -43,7 +95,9 @@ export function ChannelMembersDialog({
 }) {
   const load = useServerFn(loadPublicChannelMembers);
   const addMembers = useServerFn(addPublicChannelMembers);
+  const setRole = useServerFn(setPublicChannelMemberRole);
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [roleTargetId, setRoleTargetId] = useState<string | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     () => new Set(preselected?.userIds),
   );
@@ -108,6 +162,22 @@ export function ChannelMembersDialog({
     }
   }
 
+  async function submitRole(target: ChannelMemberTarget, role: "admin" | "member") {
+    if (state.status !== "ready") return;
+    const targetId = target.userId ?? target.agentId!;
+    setRoleTargetId(targetId);
+    setError("");
+    try {
+      await setRole({ data: { channelId, ...target, role } });
+      const data = await load({ data: { channelId } });
+      setState({ status: "ready", data });
+    } catch {
+      setError(m.channel_members_role_error());
+    } finally {
+      setRoleTargetId(null);
+    }
+  }
+
   return (
     <ModalOverlay
       isOpen={open}
@@ -146,6 +216,17 @@ export function ChannelMembersDialog({
                           <span className="min-w-0 flex-1 truncate text-sm text-primary">
                             {human.displayName}
                           </span>
+                          <ChannelRoleControl
+                            channelRole={human.channelRole}
+                            canManageRoles={state.data.channelCapabilities.manage_roles}
+                            pending={roleTargetId === human.id}
+                            onToggle={() =>
+                              void submitRole(
+                                { userId: human.id },
+                                human.channelRole === "admin" ? "member" : "admin",
+                              )
+                            }
+                          />
                         </li>
                       ))}
                     </ul>
@@ -168,6 +249,17 @@ export function ChannelMembersDialog({
                           <span className="min-w-0 flex-1 truncate text-sm text-primary">
                             {agent.displayName}
                           </span>
+                          <ChannelRoleControl
+                            channelRole={agent.channelRole}
+                            canManageRoles={state.data.channelCapabilities.manage_roles}
+                            pending={roleTargetId === agent.id}
+                            onToggle={() =>
+                              void submitRole(
+                                { agentId: agent.id },
+                                agent.channelRole === "admin" ? "member" : "admin",
+                              )
+                            }
+                          />
                         </li>
                       ))}
                     </ul>
@@ -175,6 +267,11 @@ export function ChannelMembersDialog({
                     <p className="text-sm text-tertiary">{m.channel_members_none()}</p>
                   )}
                 </section>
+                {error && (
+                  <p role="alert" className="text-sm text-error-primary">
+                    {error}
+                  </p>
+                )}
                 {state.data.canAddMembers && (
                   <section className="border-t border-secondary pt-4">
                     <h2 className="mb-2 text-sm font-semibold text-primary">
@@ -226,11 +323,6 @@ export function ChannelMembersDialog({
                               />
                             ))}
                           </div>
-                        )}
-                        {error && (
-                          <p role="alert" className="text-sm text-error-primary">
-                            {error}
-                          </p>
                         )}
                         <Button
                           onPress={() => void submitAdd()}
