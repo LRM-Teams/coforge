@@ -112,11 +112,31 @@ instructions for the TanStack Start Web/backend modular monolith.
   Agent creation and default-channel repair enroll Workspace Agents in `#general`.
   PublicChannels owns mute/mention delivery eligibility; the existing conversation
   repository owns Agent target-scoped reads and eligible-notification recovery,
-  and the Agent HTTPS functions enforce its authenticated identity. No additional
-  Agent enrollment entrypoint or Channel roles are introduced. Workspace human
+  and the Agent HTTPS functions enforce its authenticated identity. Workspace human
   roles and invitations belong to `server/workspaces/member-role.server.ts`,
   `member-directory.server.ts`, `features/workspaces/members.functions.ts`, and
   the Settings Members section.
+
+  Creating a channel (`PublicChannels.create`) requires only the existing
+  Workspace membership check (ADR 0025: Slack's default — any member may
+  create a channel); joining stays open to any member. `PublicChannels.members`
+  returns current human/Agent members plus add-candidates and `canAddMembers`
+  for any Workspace member to read (true when the actor has a
+  `ConversationMember` row in that channel). A channel member calls
+  `PublicChannels.addMembers` to add Workspace humans and/or Agents to that
+  channel (Slack: you add people to channels you belong to) — this is the one
+  entrypoint for enrolling an Agent in a non-default channel; a non-member is
+  rejected with `ACCESS_DENIED`. Channel member removal is not implemented:
+  `Message.sender` is `onDelete: Restrict` against `ConversationMember`, so
+  hard-deleting a member who has sent messages would be rejected by
+  PostgreSQL; the planned rule (owner/admin remove from public channels,
+  never from `#general`) is a follow-up. `features/conversations/
+channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembers`;
+  `channel-members-dialog.tsx` is the Web UI, opened from a "Members" button on
+  the channel header. Agent creation (`ManageAgents.create`) still requires
+  Workspace owner/admin via `assertCanCreateAgents` (Raft: only a
+  human-committed action card creates agents). Channels still have no role
+  system of their own; private channels are planned but not introduced here.
 
 - Message threads belong to `features/conversations/` (selection, drafts,
   discussion UI, follow controls and authenticated functions),

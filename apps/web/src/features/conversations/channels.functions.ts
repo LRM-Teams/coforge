@@ -77,6 +77,30 @@ export const loadPublicChannelUpdates = createServerFn({ method: "GET" })
     return channels.updates(workspaceId, userId, data.channelId, data.afterSequence);
   });
 
+export const loadPublicChannelMembers = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput)
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.members(workspaceId, userId, data.channelId);
+  });
+
+export const addPublicChannelMembers = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    channelInput.extend({
+      userIds: z.array(z.uuid()).default([]),
+      agentIds: z.array(z.uuid()).default([]),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.addMembers(workspaceId, userId, data.channelId, {
+      userIds: data.userIds,
+      agentIds: data.agentIds,
+    });
+  });
+
 export const joinPublicChannel = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput)

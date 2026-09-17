@@ -23,6 +23,7 @@ import { authMiddleware, workspaceUserMiddleware } from "../../server/auth/funct
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
+import { workspaceMemberRole } from "../../server/workspaces/members.server";
 import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
 import { PrismaAgentRuntimeCredentialRepository } from "../../server/db/repositories/agent-runtime-credential.repositories.server";
@@ -230,7 +231,8 @@ export const createAgent = createServerFn({ method: "POST" })
       user,
       getRequest().headers.get("accept-language") ?? "",
     );
-    return manageAgents(db).create({ userId: user.id, workspaceId }, data);
+    const role = await workspaceMemberRole(db, workspaceId, user.id);
+    return manageAgents(db).create({ userId: user.id, workspaceId, role }, data);
   });
 
 export const updateAgent = createServerFn({ method: "POST" })

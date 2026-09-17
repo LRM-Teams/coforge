@@ -89,6 +89,8 @@ export function AgentsContent({
   const [computerId, setComputerId] = useState(computers[0]?.id ?? "");
   const memberCount = directory.people.length + directory.agents.length;
   const canInviteMember = directory.actorRole === "owner" || directory.actorRole === "admin";
+  // Agent creation requires Workspace owner/admin; see ManageAgents.create / assertCanCreateAgents.
+  const canCreateAgent = canInviteMember;
   const memberTypes = [
     { value: "all", label: m.filters_all(), count: memberCount },
     { value: "human", label: m.member_person(), count: directory.people.length },
@@ -158,9 +160,16 @@ export function AgentsContent({
                   {m.workspace_invite_button()}
                 </Button>
               )}
-              <Button size="sm" color="secondary" iconLeading={Plus} onPress={() => setOpen(true)}>
-                {m.header_new_agent()}
-              </Button>
+              {canCreateAgent && (
+                <Button
+                  size="sm"
+                  color="secondary"
+                  iconLeading={Plus}
+                  onPress={() => setOpen(true)}
+                >
+                  {m.header_new_agent()}
+                </Button>
+              )}
             </>
           }
         />

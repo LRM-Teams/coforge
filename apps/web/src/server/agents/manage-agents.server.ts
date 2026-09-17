@@ -9,6 +9,7 @@ import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repo
 import { publicAgentRuntimeConfig } from "./agent-runtime-config.server";
 import type { AgentRuntimeCredentials } from "./agent-runtime-credentials.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
+import { assertCanCreateAgents, type WorkspaceMemberRole } from "../workspaces/member-role.server";
 
 const providers = new Set<unknown>(Object.values(RUNTIME_PROVIDER));
 
@@ -23,7 +24,11 @@ export type AgentCreateInput = {
   apiKey?: string;
 };
 
-type AgentPrincipal = { userId: string; workspaceId: string };
+/**
+ * `role` is only required (and enforced) by `create`; `list`/`update` accept
+ * the same shape without it so their call sites do not need a role lookup.
+ */
+type AgentPrincipal = { userId: string; workspaceId: string; role?: WorkspaceMemberRole };
 type AgentRuntimeControl = {
   start(intent: AgentStartIntent, userId: string): Promise<void>;
   stop(intent: AgentStopIntent, userId: string): Promise<void>;
@@ -64,6 +69,8 @@ export class ManageAgents {
   }
 
   async create(principal: AgentPrincipal, input: AgentCreateInput) {
+    if (!principal.role) throw new AppError("ACCESS_DENIED");
+    assertCanCreateAgents(principal.role);
     const name = input.name.trim().toLowerCase();
     if (!name) throw new Error("name is required");
     const description = input.description.trim();
