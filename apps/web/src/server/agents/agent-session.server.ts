@@ -9,9 +9,9 @@ import { requireCurrentAgentScope, type AgentControlStore } from "./agent-contro
 export class AgentSessionReceiver {
   constructor(
     private readonly store: AgentControlStore,
-    /** Same daemon-freshness check `AgentSessions.verify` uses; optional so existing
-     * composition/tests that never call `invalidate` need not supply it. */
-    private readonly currentDaemon?: (
+    /** Same daemon-freshness check `AgentSessions.verify` uses. Required: a skipped freshness
+     * check must never be possible by omitting this constructor argument. */
+    private readonly currentDaemon: (
       workspaceId: string,
       computerId: string,
     ) => Promise<string | undefined>,
@@ -63,8 +63,10 @@ export class AgentSessionReceiver {
    * instance, or a Session/launch that no longer matches the current control state are all
    * silently ignored (never an error) so a late or duplicate report can never clear a newer
    * Session. Clears the current Session association the same way "Reset Session" does
-   * (`clearSession`), preserving the old native Session row, and marks the control state
-   * `recovered` when an operation is in flight so the UI's existing presentation is used.
+   * (`clearSession`), preserving the old native Session row, and leaves every other control
+   * state field untouched. The user learns of the invalidate only through the daemon's own
+   * cold-start Activity (ADR 0037, matching Raft); this never marks the state `recovered` —
+   * that stays `AgentControl.result`'s and the Session snapshot path's own, separate signal.
    */
   async invalidate(
     claim: { workspaceId: string; computerId: string },
@@ -81,9 +83,8 @@ export class AgentSessionReceiver {
     )
       return;
     if (
-      this.currentDaemon &&
       (await this.currentDaemon(message.workspaceId, message.computerId)) !==
-        message.daemonInstanceId
+      message.daemonInstanceId
     )
       return;
     const state = agent.state;
@@ -94,16 +95,11 @@ export class AgentSessionReceiver {
     )
       return;
     const { identity: _identity, ...fields } = state;
-    const inFlight = state.phase !== "completed" && state.phase !== "failed";
-    await this.store
-      .replace(
-        agent,
-        { ...fields, ...(inFlight || state.recovered ? { recovered: true } : {}) },
-        { clearSession: true },
-      )
-      .catch(() => {
-        // Lost a concurrent race (e.g. a newer result/snapshot already moved the Session
-        // association forward). Safe to drop: never retried, never surfaced as an error.
-      });
+    // `store.replace` signals a lost compare-and-swap by RETURNING false, not by throwing: a
+    // concurrent write (e.g. a newer control result or Session snapshot already moved the
+    // association forward) is its own idempotent no-op here, same as every mismatch check
+    // above. A thrown error (DB, schema parse) is a genuine failure and propagates to the RPC
+    // method, which logs it — never swallowed here.
+    await this.store.replace(agent, fields, { clearSession: true });
   }
 }

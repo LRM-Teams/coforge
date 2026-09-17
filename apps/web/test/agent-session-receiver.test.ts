@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
-import { encodeAgentSessionReport } from "@lrm/coforge-sdk/internal";
-import { createAgentSessionMethod } from "../src/server/centrifugo/agent-session-receiver.server";
+import { encodeAgentSessionReport, encodeAgentSessionInvalidate } from "@lrm/coforge-sdk/internal";
+import {
+  createAgentSessionMethod,
+  createAgentSessionInvalidateMethod,
+} from "../src/server/centrifugo/agent-session-receiver.server";
 import type { AgentSessions } from "../src/server/agents/agent-sessions.server";
+import type { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
 import type { CentrifugoRpcMetadata } from "../src/server/centrifugo/rpc-handler.server";
 
 function captureWarnings() {
@@ -82,4 +86,61 @@ test("a successful snapshot is never logged", async () => {
   }
   expect(response).toEqual(new Uint8Array());
   expect(capture.warnings).toEqual([]);
+});
+
+const invalidatePayload = encodeAgentSessionInvalidate({
+  protocolMajor: 1,
+  requestId: "invalidate-a",
+  workspaceId: "w",
+  computerId: "c",
+  agentId: "agent-a",
+  provider: "pi",
+  sessionId: "stale-a",
+  daemonInstanceId: "daemon-a",
+  launchId: "launch-a",
+  reason: "missing",
+});
+
+test("an idempotent no-op invalidate is never logged", async () => {
+  const receiver: Pick<AgentSessionReceiver, "invalidate"> = {
+    invalidate: async () => {},
+  };
+  const method = createAgentSessionInvalidateMethod(receiver);
+  const capture = captureWarnings();
+  let response;
+  try {
+    response = await method(invalidatePayload, metadata);
+  } finally {
+    capture.restore();
+  }
+  expect(response).toEqual(new Uint8Array());
+  expect(capture.warnings).toEqual([]);
+});
+
+test("a genuine invalidate failure (propagated, not swallowed) logs with request_id and stays a bare 403", async () => {
+  const receiver: Pick<AgentSessionReceiver, "invalidate"> = {
+    invalidate: async () => {
+      throw new Error("database unavailable");
+    },
+  };
+  const method = createAgentSessionInvalidateMethod(receiver);
+  const capture = captureWarnings();
+  let response;
+  try {
+    response = await method(invalidatePayload, metadata);
+  } finally {
+    capture.restore();
+  }
+  expect(response).toEqual({ code: 403, message: "Agent Session invalidate is not authorized" });
+  expect(capture.warnings).toEqual([
+    expect.objectContaining({
+      event: "agent_session:invalidate_rejected",
+      request_id: "invalidate-a",
+      agent_id: "agent-a",
+      workspace_id: "w",
+      computer_id: "c",
+      launch_id: "launch-a",
+      reason: "unexpected: Error",
+    }),
+  ]);
 });

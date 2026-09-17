@@ -6,6 +6,7 @@ import {
 } from "./gen/coforge/rpc/v1/computer_pb";
 import {
   RUNTIME_PROVIDER,
+  AGENT_SESSION_INVALIDATE_REASONS,
   isChannelMessageTarget,
   type ComputerRegisterRequest,
   type ComputerRegisterResponse,
@@ -426,8 +427,6 @@ function validateAgentSessionReport(value: {
     throw new Error("invalid session report sessionId");
 }
 
-const AGENT_SESSION_INVALIDATE_REASONS = ["missing", "provider_replay_rejected"];
-
 export function encodeAgentSessionInvalidate(value: AgentSessionInvalidate): Uint8Array {
   validateAgentSessionInvalidate(value);
   const bytes = toBinary(AgentSessionInvalidateSchema, create(AgentSessionInvalidateSchema, value));
@@ -447,7 +446,6 @@ export function decodeAgentSessionInvalidate(bytes: Uint8Array): AgentSessionInv
 function validateAgentSessionInvalidate(value: {
   protocolMajor: number;
   provider: string;
-  controlEpoch: number;
   reason: string;
   [key: string]: unknown;
 }): asserts value is AgentSessionInvalidate {
@@ -456,15 +454,13 @@ function validateAgentSessionInvalidate(value: {
     !Object.values(RUNTIME_PROVIDER).includes(value.provider as RuntimeProvider)
   )
     throw new Error("invalid session invalidate protocol/provider");
-  assertPositiveControlCounter(value.controlEpoch, "Agent control epoch");
-  if (!AGENT_SESSION_INVALIDATE_REASONS.includes(value.reason))
+  if (!Object.values(AGENT_SESSION_INVALIDATE_REASONS).includes(value.reason as never))
     throw new Error("invalid session invalidate reason");
   for (const field of [
     "requestId",
     "workspaceId",
     "computerId",
     "agentId",
-    "startRequestId",
     "daemonInstanceId",
     "launchId",
   ])

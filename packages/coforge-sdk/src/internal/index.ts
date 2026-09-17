@@ -79,6 +79,10 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   CHECKING_MESSAGES: "checking_messages",
   RUNTIME_RECONNECTING: "runtime_reconnecting",
   RUNTIME_ERROR: "runtime_error",
+  // A stored native Session could not be resumed (missing, or rejected on replay); the
+  // daemon reported it invalidated and is cold-starting without it (ADR 0037). Working-level,
+  // like `runtime_reconnecting` above: it narrates a fallback in progress, not a terminal state.
+  RUNTIME_UNAVAILABLE: "runtime_unavailable",
   // Content-free provider stream/system event (no rendered text): keeps the
   // busy lease warm without adding a trajectory entry.
   RUNTIME_PROGRESS: "runtime_progress",
@@ -94,9 +98,6 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   // Terminal detail kinds.
   RUNTIME_CRASHED: "runtime_crashed",
   RUNTIME_INTERRUPTED: "runtime_interrupted",
-  // A stored native Session could not be resumed (missing, or rejected on replay); the
-  // daemon reported it invalidated and is cold-starting without it.
-  RUNTIME_UNAVAILABLE: "runtime_unavailable",
   OTHER: "other",
 } as const;
 export type AgentActivityDetailKind =
@@ -122,9 +123,19 @@ export type AgentSessionReport = {
 export const AGENT_SESSION_INVALIDATE_METHOD = "agent:session:invalidate" as const;
 /** `missing`: the stored native Session no longer exists. `provider_replay_rejected`: the
  * provider rejected replaying it. Mirrors `AgentSessionRecoveryCode`, minus `session_in_use`. */
-export type AgentSessionInvalidateReason = "missing" | "provider_replay_rejected";
-/** Fire-and-forget daemon-to-cloud notice that a stored native Session is gone or was
- * rejected on replay; the daemon is cold-starting without it. Never delivered as Activity. */
+export const AGENT_SESSION_INVALIDATE_REASONS = {
+  MISSING: "missing",
+  PROVIDER_REPLAY_REJECTED: "provider_replay_rejected",
+} as const;
+export type AgentSessionInvalidateReason =
+  (typeof AGENT_SESSION_INVALIDATE_REASONS)[keyof typeof AGENT_SESSION_INVALIDATE_REASONS];
+/**
+ * Fire-and-forget daemon-to-cloud notice that a stored native Session is gone or was
+ * rejected on replay; the daemon is cold-starting without it. Never delivered as Activity.
+ * No control-fence fields (no `startRequestId`/`controlEpoch`, unlike `AgentSessionReport`):
+ * the server's exact match is on `launchId` + `sessionId` alone — see ADR 0037, "Why no
+ * control fence fields".
+ */
 export type AgentSessionInvalidate = {
   protocolMajor: number;
   requestId: string;
@@ -133,10 +144,8 @@ export type AgentSessionInvalidate = {
   agentId: string;
   provider: RuntimeProvider;
   sessionId: string;
-  startRequestId: string;
   daemonInstanceId: string;
   launchId: string;
-  controlEpoch: number;
   reason: AgentSessionInvalidateReason;
 };
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;

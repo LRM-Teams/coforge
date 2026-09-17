@@ -72,16 +72,20 @@ test("Session RPC preserves control state and rejects stale scope, revoked acces
         daemonInstanceId: snapshot.daemonInstanceId,
       }),
     },
-    new AgentSessionReceiver({
-      get: async (id) => (authorized && id === agent.id ? structuredClone(agent) : undefined),
-      replace: async (_before, state) => {
-        if (!writable) return false;
-        writes++;
-        agent = { ...agent, state };
-        return true;
+    new AgentSessionReceiver(
+      {
+        get: async (id) => (authorized && id === agent.id ? structuredClone(agent) : undefined),
+        replace: async (_before, state) => {
+          if (!writable) return false;
+          writes++;
+          agent = { ...agent, state };
+          return true;
+        },
+        memberRole: async () => "owner",
       },
-      memberRole: async () => "owner",
-    }),
+      // Not exercised by `.authorize`/`.accept`, only by `.invalidate`.
+      async () => "daemon",
+    ),
   );
   const principal = { userId: "owner", workspaceId: "workspace", computerId: "computer" };
   const bytes = encodeAgentSessionReport(snapshot);
@@ -166,16 +170,14 @@ function invalidateFixture() {
     agentId: "agent",
     provider: "codex",
     sessionId: "stale-session",
-    startRequestId: "request",
     daemonInstanceId: "daemon-current",
     launchId: "launch-1",
-    controlEpoch: 1,
     reason: "missing",
   };
   return { agent, message };
 }
 
-test("session invalidate clears a matching Session association and marks the state recovered", async () => {
+test("session invalidate clears a matching Session association and leaves every other field unchanged", async () => {
   const { agent, message } = invalidateFixture();
   let stored = agent;
   const calls: Array<{ clearSession?: boolean }> = [];
@@ -197,7 +199,74 @@ test("session invalidate clears a matching Session association and marks the sta
 
   expect(calls).toEqual([{ clearSession: true }]);
   expect(stored.state?.identity).toBeUndefined();
-  expect(stored.state?.recovered).toBe(true);
+  // Raft reports this only through the daemon's own cold-start Activity; the invalidate never
+  // marks the state `recovered` (that stays `AgentControl.result`'s and the snapshot path's own
+  // signal), and every other field is untouched — including `updatedAtMs`, deliberately absent
+  // from the fixture and still absent here.
+  expect(stored.state?.recovered).toBeUndefined();
+  expect(stored.state?.updatedAtMs).toBeUndefined();
+  expect(stored.state).toMatchObject({
+    phase: agent.state!.phase,
+    action: agent.state!.action,
+    launchId: agent.state!.launchId,
+    controlSequence: agent.state!.controlSequence,
+    sessionSequence: agent.state!.sessionSequence,
+  });
+});
+
+test("session invalidate is a no-op when the Agent has no server control state", async () => {
+  const { agent, message } = invalidateFixture();
+  let calls = 0;
+  const receiver = new AgentSessionReceiver(
+    {
+      get: async (id) => (id === agent.id ? { ...structuredClone(agent), state: null } : undefined),
+      memberRole: async () => "owner",
+      replace: async () => {
+        calls++;
+        return true;
+      },
+    },
+    async () => "daemon-current",
+  );
+
+  await receiver.invalidate({ workspaceId: "workspace", computerId: "computer" }, message);
+
+  expect(calls).toBe(0);
+});
+
+test("session invalidate silently drops a lost compare-and-swap race instead of throwing", async () => {
+  const { agent, message } = invalidateFixture();
+  const receiver = new AgentSessionReceiver(
+    {
+      get: async (id) => (id === agent.id ? structuredClone(agent) : undefined),
+      memberRole: async () => "owner",
+      // `store.replace` signals a lost CAS by returning false, not by throwing.
+      replace: async () => false,
+    },
+    async () => "daemon-current",
+  );
+
+  await expect(
+    receiver.invalidate({ workspaceId: "workspace", computerId: "computer" }, message),
+  ).resolves.toBeUndefined();
+});
+
+test("session invalidate propagates a genuine store failure instead of swallowing it", async () => {
+  const { agent, message } = invalidateFixture();
+  const receiver = new AgentSessionReceiver(
+    {
+      get: async (id) => (id === agent.id ? structuredClone(agent) : undefined),
+      memberRole: async () => "owner",
+      replace: async () => {
+        throw new Error("database unavailable");
+      },
+    },
+    async () => "daemon-current",
+  );
+
+  await expect(
+    receiver.invalidate({ workspaceId: "workspace", computerId: "computer" }, message),
+  ).rejects.toThrow("database unavailable");
 });
 
 test("session invalidate ignores a non-matching session id, launch id, or scope idempotently", async () => {
@@ -231,7 +300,7 @@ test("session invalidate ignores a non-matching session id, launch id, or scope 
   expect(calls).toBe(0);
 });
 
-test("session invalidate rejects a stale daemon instance", async () => {
+test("session invalidate from a stale daemon instance is ignored, not rejected", async () => {
   const { agent, message } = invalidateFixture();
   let calls = 0;
   const receiver = new AgentSessionReceiver(

@@ -11,10 +11,8 @@ function invalidate() {
     agentId: "a",
     provider: "codex" as const,
     sessionId: "stale-native-session",
-    startRequestId: "start",
     daemonInstanceId: "daemon",
     launchId: "launch",
-    controlEpoch: 3,
     reason: "missing" as const,
   };
 }
@@ -31,7 +29,7 @@ test("round-trips the provider_replay_rejected reason", () => {
   expect(decodeAgentSessionInvalidate(encodeAgentSessionInvalidate(message))).toEqual(message);
 });
 
-test("rejects an invalid reason, protocol, provider, control epoch, and session id", () => {
+test("rejects an invalid reason, protocol, provider, and session id", () => {
   const message = invalidate();
   expect(() =>
     encodeAgentSessionInvalidate({ ...message, reason: "unknown" as "missing" }),
@@ -42,7 +40,6 @@ test("rejects an invalid reason, protocol, provider, control epoch, and session 
   expect(() =>
     encodeAgentSessionInvalidate({ ...message, provider: "unknown" as "codex" }),
   ).toThrow("invalid session invalidate protocol/provider");
-  expect(() => encodeAgentSessionInvalidate({ ...message, controlEpoch: 0 })).toThrow();
   expect(() => encodeAgentSessionInvalidate({ ...message, sessionId: "" })).toThrow(
     "invalid session invalidate sessionId",
   );
@@ -52,7 +49,7 @@ test("rejects an oversized payload", () => {
   expect(() => decodeAgentSessionInvalidate(new Uint8Array(32_769))).toThrow("too large");
 });
 
-test("keeps wire tags stable and matches the neighboring AgentSessionReport numbering", () => {
+test("keeps wire tags stable, numbered contiguously (no control-fence fields)", () => {
   const fields = Object.fromEntries(
     AgentSessionInvalidateSchema.fields.map((field) => [field.localName, field.number]),
   );
@@ -64,10 +61,8 @@ test("keeps wire tags stable and matches the neighboring AgentSessionReport numb
     agentId: 5,
     provider: 6,
     sessionId: 7,
-    startRequestId: 8,
-    daemonInstanceId: 9,
-    launchId: 10,
-    controlEpoch: 11,
-    reason: 12,
+    daemonInstanceId: 8,
+    launchId: 9,
+    reason: 10,
   });
 });

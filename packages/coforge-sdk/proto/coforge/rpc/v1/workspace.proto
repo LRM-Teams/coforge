@@ -76,6 +76,11 @@ message AgentSessionReport {
 // Fire-and-forget daemon-to-cloud notice that a stored native Session is gone
 // or was rejected on replay; the daemon is cold-starting without it. Never
 // delivered as Activity. `reason` is "missing" or "provider_replay_rejected".
+// No control-fence fields (no start_request_id/control_epoch, unlike
+// AgentSessionReport): the server's exact match is on launch_id + session_id
+// alone (docs/adr/0037-agent-session-invalidate.md, "Why no control fence
+// fields"). This message never shipped, so its fields are numbered
+// contiguously rather than reserving the two removed tags.
 message AgentSessionInvalidate {
   uint32 protocol_major = 1;
   string request_id = 2;
@@ -84,11 +89,9 @@ message AgentSessionInvalidate {
   string agent_id = 5;
   string provider = 6;
   string session_id = 7;
-  string start_request_id = 8;
-  string daemon_instance_id = 9;
-  string launch_id = 10;
-  uint32 control_epoch = 11;
-  string reason = 12;
+  string daemon_instance_id = 8;
+  string launch_id = 9;
+  string reason = 10;
 }
 
 // Versioned server-to-daemon intent.

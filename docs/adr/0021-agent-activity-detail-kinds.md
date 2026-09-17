@@ -41,6 +41,12 @@ nothing will ever emit.
 | `runtime_crashed` | Claude and Codex: the process exits unexpectedly (the shared `JsonlProcess` wrapper's `"code agent process exited unexpectedly"` failure, observed outside the session's own `dispose()`) — same `errorClass`/`errorReason`/`fingerprint` fields as before, only the kind changes. Kiro and Pi have no provider-level crash signal distinct from an ordinary process exit and keep reporting `stopped`; they are skipped | error | visible, stored |
 | `runtime_interrupted` | A requested stop/restart (`stopAgent`/`#abandonLaunch`) cuts a turn that was busy (working/thinking) at the moment the stop was requested. Also mapped from a `completed` event's `interrupted` status for forward compatibility, though that path is unreachable today per the Context section | online | visible, stored |
 
+Added later, following this same discipline (ADR 0037, "An explicit `agent:session:invalidate` RPC replaces implicit-only session-loss reporting"):
+
+| kind | daemon emits when | display kind | popover / history |
+| --- | --- | --- | --- |
+| `runtime_unavailable` | The daemon detects a stored native Session it cannot resume — missing (kiro/pi's classified `session_missing`, or Claude Code/Codex's own in-driver replacement, both reported as reason `missing`) or rejected on replay (kiro/pi's `provider_replay_rejected`) — reports it once via `agent:session:invalidate`, then cold-starts a fresh session under the same `launchId` | working | visible, label "Stored `<Runtime>` session missing/replay rejected; cold-starting a new session…", stored |
+
 `runtime_starting` is **not** added to the enum: the daemon has exactly one
 spawn moment (`#launchAgent` emits `starting` once the process is up; there is
 no separate "launch intent" activity), so the reducer's dead `runtime_starting`

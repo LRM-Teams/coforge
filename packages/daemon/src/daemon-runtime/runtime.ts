@@ -34,6 +34,8 @@ import {
   TASK_PROTOCOL_MAJOR,
   AGENT_ACTIVITY_DETAIL_KIND,
   type AgentActivity,
+  type AgentSessionInvalidate,
+  type AgentSessionInvalidateReason,
   type AgentMessageRecord,
   type AgentMessageResponse,
   type WorkspaceInfoRequest,
@@ -262,6 +264,12 @@ type LaunchRequest = {
   sessionMode?: SessionMode;
   control?: { controlEpoch?: number; launchId: string };
   replacedSessionId?: string;
+  /** Set only alongside `replacedSessionId`, threaded from `AgentControl.start()`'s retry
+   * launch through `Runtime.launch(...)`; narrates the retry's cold-start Activity with the
+   * reason that was actually reported. Replaces the old `#pendingSessionInvalidateReason`
+   * side-channel map: a reason can no longer outlive its launch or attach to an unrelated one,
+   * and is never set without being consumed. */
+  invalidateReason?: AgentSessionInvalidateReason;
 };
 
 type AgentProxy = {
@@ -314,7 +322,7 @@ function runtimeDisplayName(provider: AgentStartIntent["provider"]): string {
 function sessionInvalidateActivityText(
   runtimeLabel: string,
   staleSessionId: string,
-  reason: "missing" | "provider_replay_rejected",
+  reason: AgentSessionInvalidateReason,
 ): { detail: string; entryText: string } {
   const rejected = reason === "provider_replay_rejected";
   return {
@@ -362,12 +370,6 @@ export class DaemonRuntime {
     }
   >();
   readonly #agentInputQueues = new Map<string, AgentInputQueue>();
-  /** Set by `AgentControl`'s `invalidateSession` just before its fresh retry launch; consumed
-   * once by `#launchAgent` to narrate that retry's cold-start Activity with the right reason. */
-  readonly #pendingSessionInvalidateReason = new Map<
-    string,
-    "missing" | "provider_replay_rejected"
-  >();
   readonly #stoppingAgents = new Set<string>();
   readonly #agentStops = new Map<string, Promise<void>>();
   readonly #currentActivityLaunches = new Map<string, ActivityLaunch>();
@@ -481,7 +483,7 @@ export class DaemonRuntime {
         await this.stopAgent(agentId);
         return session?.readSessionIdentity?.();
       },
-      launch: async (intent, launchId, replacedSessionId) => {
+      launch: async (intent, launchId, replacedSessionId, invalidateReason) => {
         if (replacedSessionId) this.#sessionReferences.delete(intent.agentId);
         const runtime = await this.#startAgent(
           intent.agentId,
@@ -494,6 +496,7 @@ export class DaemonRuntime {
             sessionMode: intent.sessionMode,
             control: { controlEpoch: intent.controlEpoch, launchId },
             replacedSessionId,
+            invalidateReason,
           },
         );
         return runtime.session.readSessionIdentity?.();
@@ -506,23 +509,20 @@ export class DaemonRuntime {
           { requestId: intent.requestId },
         );
       },
+      // `launchId` is always present here (minted synchronously by `AgentControl.start()`
+      // before this call); the wire message and the retry's cold-start Activity
+      // (`#launchAgent`'s `request.invalidateReason` narration) both follow that same,
+      // effectively-unconditional signal — there is no longer a separate controlEpoch gate.
       invalidateSession: (intent, launchId, sessionId, reason) => {
-        this.#pendingSessionInvalidateReason.set(intent.agentId, reason);
-        if (!intent.controlEpoch) return;
-        this.#transport.sendSessionInvalidate?.({
-          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-          requestId: crypto.randomUUID(),
-          workspaceId: this.#connection.workspaceId,
-          computerId: this.#connection.computerId,
-          agentId: intent.agentId,
-          provider: intent.provider,
-          sessionId,
-          startRequestId: intent.requestId,
-          daemonInstanceId: this.#runtimeInstanceId,
-          launchId,
-          controlEpoch: intent.controlEpoch,
-          reason,
-        });
+        this.#transport.sendSessionInvalidate?.(
+          this.#sessionInvalidateMessage(
+            intent.agentId,
+            intent.provider,
+            sessionId,
+            launchId,
+            reason,
+          ),
+        );
       },
       result: async (result) => {
         await this.#transport.sendAgentControlResult?.(result);
@@ -1271,14 +1271,14 @@ export class DaemonRuntime {
     this.#clearActivityHeartbeat(agentId);
     // AgentControl's fresh retry after a kiro/pi AgentSessionRecoveryError: the invalidate was
     // already reported before this launch (see `invalidateSession` above); narrate the cold
-    // start here, where the real launch's ActivityLaunch now exists.
-    const invalidatedReason = this.#pendingSessionInvalidateReason.get(agentId);
-    this.#pendingSessionInvalidateReason.delete(agentId);
-    if (request.replacedSessionId && invalidatedReason) {
+    // start here, where the real launch's ActivityLaunch now exists. `invalidateReason` is
+    // threaded explicitly through this one launch's request (see `LaunchRequest`), never a
+    // side channel: it can neither outlive this launch nor attach to a later unrelated one.
+    if (request.replacedSessionId && request.invalidateReason) {
       const { detail, entryText } = sessionInvalidateActivityText(
         runtimeDisplayName(config.provider),
         request.replacedSessionId,
-        invalidatedReason,
+        request.invalidateReason,
       );
       this.#emitAgentActivity(
         agentId,
@@ -1322,10 +1322,36 @@ export class DaemonRuntime {
         },
         launch.launchId,
         this.#transport.reportAgentSession
-          ? async (reportedSessionId, replacedSessionId) => {
+          ? async (reportedSessionId, driverReplacedSessionId) => {
               if (!current() || this.#stopping)
                 throw new Error("Agent session launch was superseded");
-              const replaced = replacedSessionId ?? request.replacedSessionId;
+              // Kept for compat on the session report's own `replacedSessionId` field only
+              // (unrelated to whether an invalidate is sent below): either a driver-reported
+              // replacement just now, or one carried over from AgentControl's own retry.
+              const replaced = driverReplacedSessionId ?? request.replacedSessionId;
+              if (driverReplacedSessionId) {
+                // Claude Code/Codex replace a missing native session inside the driver, with
+                // no separate "before the fresh launch" moment; this callback IS the point the
+                // daemon learns of it. Only a driver-reported replacement (this callback's own
+                // argument, never AgentControl's carried-over `request.replacedSessionId`,
+                // which was already reported once by `invalidateSession` before this launch)
+                // emits here — fixes a prior bug that re-sent a second invalidate/Activity for
+                // AgentControl's own retry, including harmlessly for `session_in_use`, which
+                // never sets `request.replacedSessionId` together with a reason to begin with.
+                // Sent BEFORE the session report below — fire-and-forget, never awaited, never
+                // delays or fails the report — so the server's exact match against the still-
+                // current stale session can still succeed; once the report lands below the
+                // server has already moved to the new id and this would always be a no-op.
+                this.#transport.sendSessionInvalidate?.(
+                  this.#sessionInvalidateMessage(
+                    agentId,
+                    config.provider,
+                    driverReplacedSessionId,
+                    launch.launchId,
+                    "missing",
+                  ),
+                );
+              }
               await this.#transport.reportAgentSession!({
                 protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
                 requestId: crypto.randomUUID(),
@@ -1345,28 +1371,10 @@ export class DaemonRuntime {
               reference.sessionId = reportedSessionId;
               reference.sessionMode = "resume";
               reference.launchId = launch.launchId;
-              if (replaced) {
-                // Claude Code/Codex replace a missing native session inside the driver, with
-                // no separate "before the fresh launch" moment; this callback IS the point the
-                // daemon learns of it, so the invalidate is reported here.
-                if (control?.controlEpoch)
-                  this.#transport.sendSessionInvalidate?.({
-                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                    requestId: crypto.randomUUID(),
-                    workspaceId: this.#connection.workspaceId,
-                    computerId: this.#connection.computerId,
-                    agentId,
-                    provider: config.provider,
-                    sessionId: replaced,
-                    startRequestId: requestId,
-                    daemonInstanceId: this.#runtimeInstanceId,
-                    launchId: launch.launchId,
-                    controlEpoch: control.controlEpoch,
-                    reason: "missing",
-                  });
+              if (driverReplacedSessionId) {
                 const { detail, entryText } = sessionInvalidateActivityText(
                   runtimeDisplayName(config.provider),
-                  replaced,
+                  driverReplacedSessionId,
                   "missing",
                 );
                 this.#emitAgentActivity(
@@ -1812,6 +1820,33 @@ export class DaemonRuntime {
       level,
       detail,
       ...extra,
+    };
+  }
+
+  /**
+   * Builds the one wire shape both `invalidateSession` emit sites send (previously constructed
+   * twice, field by field). No control-fence fields (no `startRequestId`/`controlEpoch`, unlike
+   * `AgentSessionReport`) — see ADR 0037, "Why no control fence fields": `launchId` is always
+   * present at both call sites, so there is no separate gating condition here either.
+   */
+  #sessionInvalidateMessage(
+    agentId: string,
+    provider: RuntimeProvider,
+    sessionId: string,
+    launchId: string,
+    reason: AgentSessionInvalidateReason,
+  ): AgentSessionInvalidate {
+    return {
+      protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+      requestId: crypto.randomUUID(),
+      workspaceId: this.#connection.workspaceId,
+      computerId: this.#connection.computerId,
+      agentId,
+      provider,
+      sessionId,
+      daemonInstanceId: this.#runtimeInstanceId,
+      launchId,
+      reason,
     };
   }
 

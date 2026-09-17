@@ -2,6 +2,7 @@ import {
   decodeAgentSessionInvalidate,
   decodeAgentSessionReport,
   type AgentSessionReport,
+  type AgentSessionInvalidate,
 } from "@lrm/coforge-sdk/internal";
 import type { AgentSessionReceiver } from "../agents/agent-session.server";
 import type { AgentSessions } from "../agents/agent-sessions.server";
@@ -85,12 +86,29 @@ export function createAgentSessionMethod(
   };
 }
 
+/** `AgentSessionReceiver.invalidate` never throws its own domain rejection: every mismatch
+ * (unknown Agent, foreign scope, stale daemon instance, or a non-matching launch/Session,
+ * including a lost `store.replace` compare-and-swap) is its own idempotent no-op. Anything
+ * that reaches this handler's catch is therefore a real failure (DB, schema parse, decode) —
+ * this allowlist stays empty and every entry logs as "unexpected", mirroring the allowlist
+ * discipline `agent-control-receiver.server.ts`'s sibling handler uses for its own rejections. */
+const KNOWN_INVALIDATE_REJECTION_REASONS = new Set<string>([]);
+
+function invalidateRejectionReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : undefined;
+  if (message && KNOWN_INVALIDATE_REJECTION_REASONS.has(message)) return message;
+  return `unexpected: ${error instanceof Error ? error.name : typeof error}`;
+}
+
 /**
  * Fire-and-forget from the daemon's side (the daemon never awaits or retries this RPC's
  * result). A malformed payload or foreign scope is a 403, matching `createAgentSessionMethod`;
  * a *recognized but no-longer-current* invalidate (stale launch, already-replaced Session,
  * stale daemon instance) is `AgentSessionReceiver.invalidate`'s own idempotent no-op, not an
- * error, since the daemon must never treat that as something to retry.
+ * error, since the daemon must never treat that as something to retry. A genuine failure is
+ * logged with the same `event`/allowlisted-`reason` convention #321 introduced for
+ * `agent_control:result_rejected`/`agent_session:snapshot_rejected`, so it is diagnosable; the
+ * wire response is unchanged either way.
  */
 export function createAgentSessionInvalidateMethod(
   receiver: Pick<AgentSessionReceiver, "invalidate">,
@@ -103,8 +121,9 @@ export function createAgentSessionInvalidateMethod(
     )
       return { code: 401, message: "daemon authentication required" };
     if (metadata.principal.agentId) return { code: 403, message: "daemon authentication required" };
+    let message: AgentSessionInvalidate | undefined;
     try {
-      const message = decodeAgentSessionInvalidate(payload);
+      message = decodeAgentSessionInvalidate(payload);
       if (
         metadata.principal.workspaceId !== message.workspaceId ||
         metadata.principal.computerId !== message.computerId
@@ -112,7 +131,18 @@ export function createAgentSessionInvalidateMethod(
         return { code: 403, message: "Agent session scope is not authorized" };
       await receiver.invalidate(metadata.principal, message);
       return new Uint8Array();
-    } catch {
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "agent_session:invalidate_rejected",
+          request_id: message?.requestId,
+          agent_id: message?.agentId,
+          workspace_id: metadata.principal.workspaceId,
+          computer_id: metadata.principal.computerId,
+          launch_id: message?.launchId,
+          reason: invalidateRejectionReason(error),
+        }),
+      );
       return { code: 403, message: "Agent Session invalidate is not authorized" };
     }
   };
