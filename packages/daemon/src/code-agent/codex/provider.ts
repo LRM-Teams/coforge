@@ -395,41 +395,28 @@ class CodexAgentSession implements AgentSession {
       const item = asRecord(params?.item);
       if (item?.type === "commandExecution" && typeof item.id === "string") {
         this.#commandOutputBytes.set(item.id, 0);
-        this.#emit({ type: "tool-start", id: item.id, name: "command" });
         const command = typeof item.command === "string" ? item.command : "command";
+        // Reported as a raw "bash" tool-start, same as every other provider, so the
+        // daemon core's `toolActivity` resolves a `coforge …` command to its hidden
+        // tool (e.g. `send_message`) instead of showing it as a generic shell command.
         this.#emit({
-          type: "activity",
-          activity: {
-            ...createAgentActivity(
-              AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND,
-              "info",
-              command,
-              eventTime(record),
-            ),
-            entries: [{ kind: "tool_start", toolName: "bash" }],
-          },
+          type: "tool-start",
+          id: item.id,
+          name: "bash",
+          input: { command },
+          occurredAt: eventTime(record),
         });
       } else if (item?.type === "fileChange") {
-        for (const change of fileChanges(item)) {
-          const activity = change.kind === "add" ? "writing_file" : "editing_file";
+        const itemId = typeof item.id === "string" ? item.id : "file-change";
+        fileChanges(item).forEach((change, index) => {
           this.#emit({
-            type: "activity",
-            activity: {
-              ...createAgentActivity(
-                AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED,
-                "info",
-                change.path,
-                eventTime(record),
-              ),
-              entries: [
-                {
-                  kind: "tool_start",
-                  toolName: activity === "writing_file" ? "write_file" : "edit_file",
-                },
-              ],
-            },
+            type: "tool-start",
+            id: `${itemId}:${index}`,
+            name: change.kind === "add" ? "write_file" : "edit_file",
+            input: { file_path: change.path },
+            occurredAt: eventTime(record),
           });
-        }
+        });
       }
       return;
     }

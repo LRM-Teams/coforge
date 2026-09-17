@@ -362,6 +362,17 @@ test("embedded Pi default bash preserves host prefix and composes runtime and ho
   session.subscribe((event) => events.push(event));
   try {
     await session.sendMessage("inspect the environment");
+    // Pi reports only the raw tool-start event, with the provider's tool
+    // arguments as `input`; the daemon core alone decides what Activity a
+    // "bash" call is.
+    expect(events.filter((event) => event.type === "tool-start")).toMatchObject([
+      {
+        type: "tool-start",
+        id: "bash-env",
+        name: "bash",
+        input: { command: expect.stringContaining("COFORGE_PREFIX_SENTINEL") },
+      },
+    ]);
     expect(events.filter((event) => event.type === "tool-output")).toEqual([
       expect.objectContaining({
         text: expect.stringContaining(

@@ -430,16 +430,12 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
     await waitForEvent(events, "completed");
     expect(events.filter((event) => event.type !== "session")).toEqual([
       { type: "text-delta", text: "Claude response" },
-      { type: "tool-start", id: "tool-1", name: "Bash" },
       {
-        type: "activity",
-        activity: {
-          detailKind: "running_command",
-          level: "info",
-          detail: "printf safe",
-          observedAtMs: Date.parse("2026-01-02T03:04:05.000Z"),
-          entries: [{ kind: "tool_start", toolName: "bash" }],
-        },
+        type: "tool-start",
+        id: "tool-1",
+        name: "Bash",
+        input: { command: "printf safe" },
+        occurredAt: "2026-01-02T03:04:05.000Z",
       },
       { type: "tool-output", id: "tool-1", text: "tests passed" },
       { type: "tool-end", id: "tool-1", isError: false },
@@ -1004,11 +1000,11 @@ async function toolBoundary(emit: (...records: Record<string, unknown>[]) => Pro
   );
 }
 
-test("Claude tool events retain file semantics for aliases without exposing patch bodies", async () => {
+test("Claude reports raw tool-start events, leaving activity resolution to the daemon core", async () => {
   const fixture = await controlledClaude();
-  const activities: AgentRuntimeEvent[] = [];
+  const toolStarts: AgentRuntimeEvent[] = [];
   fixture.session.subscribe((event) => {
-    if (event.type === "activity") activities.push(event);
+    if (event.type === "tool-start") toolStarts.push(event);
   });
   try {
     await fixture.session.sendMessage("wait");
@@ -1037,30 +1033,53 @@ test("Claude tool events retain file semantics for aliases without exposing patc
         ],
       },
     });
-    expect(activities).toMatchObject([
+    expect(toolStarts).toMatchObject([
       {
-        type: "activity",
-        activity: {
-          detailKind: "tool_started",
-          detail: "src/read.ts",
-          entries: [{ kind: "tool_start", toolName: "read_file" }],
-        },
+        type: "tool-start",
+        id: "alias-read",
+        name: "ReadFile",
+        input: { path: "src/read.ts" },
       },
       {
-        type: "activity",
-        activity: {
-          detailKind: "tool_started",
-          detail: "src/edit.ts",
-          entries: [{ kind: "tool_start", toolName: "edit_file" }],
-        },
+        type: "tool-start",
+        id: "alias-edit",
+        name: "apply_patch",
+        input: { path: "src/edit.ts", patch: "private patch contents" },
       },
       {
-        type: "activity",
-        activity: {
-          detailKind: "tool_started",
-          detail: "CustomTool",
-          entries: [{ kind: "tool_start", toolName: "CustomTool" }],
-        },
+        type: "tool-start",
+        id: "alias-other",
+        name: "CustomTool",
+        input: { prompt: "private prompt" },
+      },
+    ]);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("Claude tags a subagent's tool-start with its parent_tool_use_id", async () => {
+  const fixture = await controlledClaude();
+  const toolStarts: AgentRuntimeEvent[] = [];
+  fixture.session.subscribe((event) => {
+    if (event.type === "tool-start") toolStarts.push(event);
+  });
+  try {
+    await fixture.session.sendMessage("wait");
+    await fixture.emit({
+      type: "assistant",
+      parent_tool_use_id: "parent-1",
+      message: {
+        content: [{ type: "tool_use", id: "child-tool", name: "Bash", input: { command: "ls" } }],
+      },
+    });
+    expect(toolStarts).toMatchObject([
+      {
+        type: "tool-start",
+        id: "child-tool",
+        name: "Bash",
+        input: { command: "ls" },
+        subagent: { parentToolUseId: "parent-1" },
       },
     ]);
   } finally {

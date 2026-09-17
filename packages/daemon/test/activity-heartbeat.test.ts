@@ -402,6 +402,150 @@ test("a subagent-scoped error activity keeps its error classification", async ()
   }
 });
 
+// A `tool-start` AgentRuntimeEvent carries only the provider's raw name/input;
+// the daemon core is the single place that turns it into an Activity, via the
+// same `toolActivity` allowlist every provider used to call for itself.
+test("a bash tool-start reports running_command with the command", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({ type: "tool-start", id: "1", name: "Bash", input: { command: "ls -la" } });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      detailKind: "running_command",
+      level: "info",
+      detail: "ls -la",
+      entries: [{ kind: "tool_start", toolName: "bash" }],
+    });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a Codex-shaped bash tool-start resolves `coforge message send` to send_message, not a generic command", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({
+      type: "tool-start",
+      id: "item-1",
+      name: "bash",
+      input: {
+        command: [
+          "coforge message send --target '#x' <<'COFORGE_MESSAGE'",
+          "hi",
+          "COFORGE_MESSAGE",
+        ].join("\n"),
+      },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      detailKind: "tool_started",
+      detail: "#x",
+      entries: [{ kind: "tool_start", toolName: "send_message" }],
+    });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("`coforge message check` reports checking_messages", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({
+      type: "tool-start",
+      id: "1",
+      name: "bash",
+      input: { command: "coforge message check" },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      detailKind: "checking_messages",
+      entries: [{ kind: "tool_start", toolName: "check_messages" }],
+    });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a file tool-start reports its path", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({
+      type: "tool-start",
+      id: "1",
+      name: "read_file",
+      input: { file_path: "src/a.ts" },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      detailKind: "tool_started",
+      detail: "src/a.ts",
+      entries: [{ kind: "tool_start", toolName: "read_file" }],
+    });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("an unrecognized tool-start reports its name only", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({
+      type: "tool-start",
+      id: "1",
+      name: "MysteryTool",
+      input: { secret: "private" },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      detailKind: "tool_started",
+      detail: "MysteryTool",
+      entries: [{ kind: "tool_start", toolName: "MysteryTool" }],
+    });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("pending text is flushed before a tool-start's Activity", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({ type: "text-delta", text: "Thinking about it" });
+    emitEvent({ type: "tool-start", id: "1", name: "Bash", input: { command: "ls" } });
+    expect(activities).toHaveLength(2);
+    expect(activities[0]).toMatchObject({
+      detailKind: "model_response_started",
+      entries: [{ kind: "text", text: "Thinking about it" }],
+    });
+    expect(activities[1]).toMatchObject({ detailKind: "running_command", detail: "ls" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a subagent-scoped tool-start is reclassified as subagent_activity", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({
+      type: "tool-start",
+      id: "1",
+      name: "Bash",
+      input: { command: "ls" },
+      subagent: { parentToolUseId: "t1" },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ detailKind: "subagent_activity" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test.each(["runtime_crashed", "runtime_interrupted"] as const)(
   "%s stops the heartbeat like other terminal kinds",
   async (detailKind) => {

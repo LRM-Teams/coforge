@@ -7,7 +7,6 @@ import type {
 import { AgentSessionRecoveryError, type CodeAgentProvider } from "../contract";
 import { agentEnvironment } from "../environment";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
-import { toolActivity } from "../tool-activity";
 import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import {
@@ -161,10 +160,7 @@ class AgentSessionImpl implements AgentSession {
           type: "tool-start",
           id: event.toolCallId,
           name: event.toolName,
-        });
-        this.#emit({
-          type: "activity",
-          activity: toolActivity(event.toolName, event.args),
+          input: event.args,
         });
       }
       if (event.type === "tool_execution_update") {

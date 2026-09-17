@@ -17,7 +17,6 @@ import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/i
 import { agentEnvironment } from "../environment";
 import { AgentSessionRecoveryError } from "../contract";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
-import { toolActivity } from "../tool-activity";
 import { bounded, KIRO_ACP_ARGS, KiroConnection, record } from "./connection";
 import { readKiroUsage } from "./usage";
 import { discoverKiroCatalog } from "./catalog";
@@ -345,8 +344,7 @@ class KiroSession implements AgentSession {
     }
     if (update.sessionUpdate === "tool_call") {
       const name = (update.kind && TOOL_KIND_NAMES[update.kind]) || update.title;
-      this.#emit({ type: "tool-start", id: update.toolCallId, name });
-      this.#emit({ type: "activity", activity: toolActivity(name, update.rawInput) });
+      this.#emit({ type: "tool-start", id: update.toolCallId, name, input: update.rawInput });
     }
     if (update.sessionUpdate === "tool_call_update") {
       for (const item of update.content ?? []) {

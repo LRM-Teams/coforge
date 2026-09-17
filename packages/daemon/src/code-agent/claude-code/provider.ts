@@ -8,7 +8,6 @@ import type { AgentSession, AgentSessionIdentity, AgentSessionOptions } from "@c
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
-import { toolActivity } from "../tool-activity";
 import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { readClaudeCodeUsage } from "./usage";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -622,18 +621,15 @@ class ClaudeCodeAgentSession implements AgentSession {
           typeof block.id === "string" &&
           typeof block.name === "string"
         ) {
-          this.#emit({ type: "tool-start", id: block.id, name: block.name });
-          const activity = toolActivity(block.name, block.input, eventTime(record));
-          if (typeof record.parent_tool_use_id === "string")
-            activity.entries = activity.entries.map((entry) => ({
-              ...entry,
-              subagent: {
-                parentToolUseId: record.parent_tool_use_id as string,
-              },
-            }));
           this.#emit({
-            type: "activity",
-            activity,
+            type: "tool-start",
+            id: block.id,
+            name: block.name,
+            input: block.input,
+            occurredAt: eventTime(record),
+            ...(typeof record.parent_tool_use_id === "string"
+              ? { subagent: { parentToolUseId: record.parent_tool_use_id } }
+              : {}),
           });
         }
       }
