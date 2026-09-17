@@ -29,7 +29,23 @@ const db = {
         },
       });
       return allowed
-        ? { id: "agent-1", workspaceId: "workspace-1", ownerId: "owner-1", runtimeConfig }
+        ? {
+            id: "agent-1",
+            workspaceId: "workspace-1",
+            ownerId: "owner-1",
+            runtimeConfig,
+            name: "scout",
+            displayName: "Scout",
+            description: "Reviews pull requests.",
+            workspace: { slug: "acme", name: "Acme" },
+            computer: {
+              name: "workstation-7",
+              displayName: "Builder Box",
+              platform: "darwin",
+              osVersion: "15.6",
+              computerVersion: "0.1.0-dev.40",
+            },
+          }
         : null;
     },
   },
@@ -123,6 +139,20 @@ test("authorized launch HTTP response contains decrypted explicit env only, no-s
   const payload = await response.json();
   expect(payload.envVars).toEqual({ OPENROUTER_API_KEY: "explicit-secret", EMPTY: "" });
   expect(payload.apiKey).toMatch(/^sk_agent_/);
+  expect(payload.identity).toEqual({
+    name: "scout",
+    displayName: "Scout",
+    description: "Reviews pull requests.",
+    runtimeContext: {
+      workspaceId: "workspace-1",
+      workspaceSlug: "acme",
+      workspaceName: "Acme",
+      computerId: "computer-1",
+      computerName: "Builder Box",
+      computerOs: "darwin 15.6",
+      computerVersion: "0.1.0-dev.40",
+    },
+  });
   expect(JSON.stringify(payload)).not.toContain(runtimeConfig.environment!.ciphertext);
   const queried = lookups;
   expect(((await request()) as Response).status).toBe(401);

@@ -191,6 +191,31 @@ describe("AgentProcessManager", () => {
     expect(options?.sessionId).toBe("session-7");
   });
 
+  test("threads the server-authored identity through to the standing instructions", async () => {
+    let options: { instructions: string } | undefined;
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async createAgentSession(startOptions) {
+        options = startOptions;
+        return sessionSpy();
+      },
+    }));
+    await manager.start(
+      "agent-1",
+      config,
+      join(testWorkspaceRoot, "identity", "agent-1"),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      { name: "scout", runtimeContext: { computerName: "Builder Box" } },
+    );
+    expect(options?.instructions).toContain('You are "scout", an AI agent in CoForge');
+    expect(options?.instructions).toContain("- Computer: Builder Box");
+  });
+
   test("does not retain a runtime when provider startup fails", async () => {
     const manager = new AgentProcessManager(() => ({
       provider: "pi",

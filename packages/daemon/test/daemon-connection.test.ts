@@ -2546,6 +2546,126 @@ test("rejects non-canonical runtime provider config from the server", async () =
   }
 });
 
+test("decodes a well-formed Agent launch identity, trimmed and with empty sub-objects dropped", async () => {
+  const fake = fakeClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = Object.assign(
+    async () =>
+      Response.json({
+        apiKey: `sk_agent_${"a".repeat(43)}`,
+        identity: {
+          name: "  scout  ",
+          displayName: "Scout",
+          description: "  Reviews pull requests.  ",
+          runtimeContext: {
+            workspaceId: "workspace-a",
+            workspaceSlug: "acme",
+            workspaceName: "Acme",
+            computerId: "computer-a",
+            computerName: "Builder Box",
+            computerOs: "darwin 15.6",
+            computerVersion: "0.1.0-dev.40",
+          },
+        },
+      }),
+    { preconnect: originalFetch.preconnect },
+  );
+  try {
+    const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+    await transport.start("daemon-token", {
+      ...config,
+      serverHttpUrl: "https://server.example/api/internal/centrifugo",
+    });
+    const launchConfig = await transport.requestAgentLaunchConfig({
+      agentId: "agent-1",
+      workspaceId: config.workspaceId,
+    });
+    expect(launchConfig.identity).toEqual({
+      name: "scout",
+      displayName: "Scout",
+      description: "Reviews pull requests.",
+      runtimeContext: {
+        workspaceId: "workspace-a",
+        workspaceSlug: "acme",
+        workspaceName: "Acme",
+        computerId: "computer-a",
+        computerName: "Builder Box",
+        computerOs: "darwin 15.6",
+        computerVersion: "0.1.0-dev.40",
+      },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a missing or entirely malformed Agent launch identity yields undefined and never fails the launch", async () => {
+  const fake = fakeClient();
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const identity of [
+      undefined,
+      null,
+      "scout",
+      42,
+      [],
+      {},
+      { name: 42, displayName: null, description: [] },
+      { name: "s".repeat(81) },
+      { description: "d".repeat(2001) },
+      { runtimeContext: "not-an-object" },
+      { runtimeContext: { workspaceId: 1, computerName: "s".repeat(201) } },
+    ]) {
+      globalThis.fetch = Object.assign(
+        async () => Response.json({ apiKey: `sk_agent_${"a".repeat(43)}`, identity }),
+        { preconnect: originalFetch.preconnect },
+      );
+      const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+      await transport.start("daemon-token", {
+        ...config,
+        serverHttpUrl: "https://server.example/api/internal/centrifugo",
+      });
+      const launchConfig = await transport.requestAgentLaunchConfig({
+        agentId: "agent-1",
+        workspaceId: config.workspaceId,
+      });
+      expect(launchConfig.identity).toBeUndefined();
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("an identity with one garbage field and one valid field keeps only the valid field", async () => {
+  const fake = fakeClient();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = Object.assign(
+    async () =>
+      Response.json({
+        apiKey: `sk_agent_${"a".repeat(43)}`,
+        identity: {
+          name: 42,
+          runtimeContext: { workspaceId: 1, computerName: "Builder Box" },
+        },
+      }),
+    { preconnect: originalFetch.preconnect },
+  );
+  try {
+    const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+    await transport.start("daemon-token", {
+      ...config,
+      serverHttpUrl: "https://server.example/api/internal/centrifugo",
+    });
+    const launchConfig = await transport.requestAgentLaunchConfig({
+      agentId: "agent-1",
+      workspaceId: config.workspaceId,
+    });
+    expect(launchConfig.identity).toEqual({ runtimeContext: { computerName: "Builder Box" } });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("reconnect ready retries back off exponentially up to a minute", async () => {
   const fake = fakeClient();
   let readyCalls = 0;

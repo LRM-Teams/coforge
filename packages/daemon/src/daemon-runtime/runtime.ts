@@ -1484,6 +1484,7 @@ export class DaemonRuntime {
           : undefined,
         reference.sessionMode,
         parseAssignedSkillPacks(launchConfig.assignedSkillPacks),
+        launchConfig.identity,
       );
       if (this.#stoppingAgents.has(agentId)) {
         await this.#agentProcessManager.stop(agentId);

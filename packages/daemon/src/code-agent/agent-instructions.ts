@@ -6,6 +6,134 @@
  * every section here is that variant and there is no parameter yet.
  */
 
+/**
+ * The Agent's server-authored identity, decoded from the launch-config wire response (see
+ * `daemon-connection.ts#parseAgentLaunchIdentity`). Every field is optional: an older Web sends
+ * none of this, and a garbage or missing value must never fail a launch. `runtimeContext` mirrors
+ * Raft's `agent:start` `config.runtimeContext`, except CoForge carries it over the launch-config
+ * response (where the Agent's other per-launch server data already travels), not a dedicated
+ * start message, and never repeats `agentId`: the daemon always knows that locally already.
+ */
+export type AgentLaunchIdentity = {
+  name?: string;
+  displayName?: string;
+  description?: string;
+  runtimeContext?: {
+    workspaceId?: string;
+    workspaceSlug?: string;
+    workspaceName?: string;
+    computerId?: string;
+    computerName?: string;
+    computerOs?: string;
+    computerVersion?: string;
+  };
+};
+
+/**
+ * Everything `buildCoforgeAgentInstructions` needs. `agentWorkspaceDirectory` and `agentId` are
+ * local facts the daemon always has; `identity` is server-authored and optional end to end,
+ * matching Raft's `withLocalRuntimeContext(config, agentId, workspacePath)`: the daemon's only
+ * local contribution is the Agent workspace path and an `agentId` fallback.
+ */
+export type CoforgeAgentPromptContext = {
+  agentWorkspaceDirectory: string;
+  agentId?: string;
+  identity?: AgentLaunchIdentity;
+};
+
+/** Collapses newlines/whitespace runs to a single space and trims; used wherever user-written
+ * identity text (displayName, description, name) is rendered inline so it cannot inject blank
+ * lines or forge Markdown structure through whitespace alone. */
+function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** Sanitizes a value quoted inline in the identity opening: collapses newlines to spaces and
+ * strips double quotes so the quoted name cannot break out of its own quotes. */
+function sanitizeQuotedName(name: string): string {
+  return collapseWhitespace(name).replace(/"/g, "");
+}
+
+/** Strips any line-leading `#` characters so a user-written description cannot forge a Markdown
+ * heading inside `## Initial role`. */
+function stripHeadingMarkers(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/^#+/, ""))
+    .join("\n");
+}
+
+/** Appends Raft's "This may evolve." suffix without doubling a sentence-ending punctuation mark
+ * the description may already end with. */
+function appendMayEvolve(description: string): string {
+  const endsWithPunctuation = /[.!?。！？]$/.test(description.trim());
+  return `${description}${endsWithPunctuation ? "" : "."} This may evolve.`;
+}
+
+/** `You are "<name>", an AI agent in CoForge — ...`; omits the quoted name entirely when neither
+ * displayName nor name is known. */
+function buildIdentityOpening(context: CoforgeAgentPromptContext): string {
+  const rawName = context.identity?.displayName || context.identity?.name;
+  const name = rawName ? sanitizeQuotedName(rawName) : undefined;
+  const who = name ? `You are "${name}", an AI agent in CoForge` : "You are an AI agent in CoForge";
+  return `${who} — a collaborative platform for human-AI collaboration, serving as a shared message service for humans and agents who may be running on different computers.`;
+}
+
+/** CoForge has no MEMORY.md convention (unlike Raft); the Agent workspace is the persistence
+ * story instead. */
+function buildWhoYouAreSection(): string {
+  return `## Who you are
+
+Your Agent workspace persists across turns, so you can recover context when resumed. Think of yourself as a colleague who is always available, accumulates knowledge over time, and develops expertise through interactions.`;
+}
+
+/** Same fallback Raft uses for `machineName`/`machineId`: prefer "label (id)", fall back to
+ * whichever single value is present. */
+function labelWithId(label: string | undefined, id: string | undefined): string | undefined {
+  if (label && id) return `${label} (${id})`;
+  return label || id;
+}
+
+/**
+ * `## Current Runtime Context`, in Raft's bullet order with CoForge's divergences: a `Username`
+ * bullet (Raft has none), a `Workspace` bullet in place of Raft's `Server ID` (CoForge's
+ * Workspace is the tenant, distinct from the Agent workspace directory below), and the existing
+ * `Agent workspace` label kept instead of Raft's `Workspace` for that last bullet, since in
+ * CoForge "Workspace" already names the tenant. Raft's `Daemon: v…` bullet is `Computer version`
+ * here: the server records the Computer executable's version, which bundles the Daemon. Raft's
+ * `Hostname` bullet has no source today: the server does not store a Computer hostname, so it is
+ * omitted rather than read locally.
+ */
+function buildRuntimeContextSection(context: CoforgeAgentPromptContext): string {
+  const identity = context.identity;
+  const runtimeContext = identity?.runtimeContext;
+  const lines = [
+    "## Current Runtime Context",
+    "",
+    "This is authoritative context injected by CoForge. Prefer using the Computer identity from this section over inferring it from hostname or cwd.",
+    "",
+  ];
+  const description = identity?.description?.trim();
+  if (description) lines.push(`- Role: ${collapseWhitespace(stripHeadingMarkers(description))}`);
+  if (identity?.name) lines.push(`- Username: @${collapseWhitespace(identity.name)}`);
+  if (context.agentId) lines.push(`- Agent ID: ${context.agentId}`);
+  const workspace = labelWithId(runtimeContext?.workspaceName, runtimeContext?.workspaceSlug);
+  if (workspace) lines.push(`- Workspace: ${workspace}`);
+  const computer = labelWithId(runtimeContext?.computerName, runtimeContext?.computerId);
+  if (computer) lines.push(`- Computer: ${computer}`);
+  if (runtimeContext?.computerOs) lines.push(`- OS: ${runtimeContext.computerOs}`);
+  if (runtimeContext?.computerVersion)
+    lines.push(`- Computer version: v${runtimeContext.computerVersion}`);
+  lines.push(`- Agent workspace: ${context.agentWorkspaceDirectory}`);
+  return lines.join("\n");
+}
+
+/** `## Initial role`, appended only when a description is known; heading markers are stripped so
+ * a user-written description cannot forge a prompt heading. */
+function buildInitialRoleSection(description: string): string {
+  return `## Initial role\n${appendMayEvolve(stripHeadingMarkers(description))}`;
+}
+
 function buildCommunicationSection(): string {
   return `## CoForge communication
 
@@ -137,12 +265,14 @@ export function buildCoforgeCliGuideSections() {
 }
 
 /** Builds the complete standing instructions injected into a CoForge Agent session. */
-export function buildCoforgeAgentInstructions(agentWorkspaceDirectory: string): string {
-  return `## Current Runtime Context
+export function buildCoforgeAgentInstructions(context: CoforgeAgentPromptContext): string {
+  const description = context.identity?.description?.trim();
+  const initialRole = description ? `\n\n${buildInitialRoleSection(description)}` : "";
+  return `${buildIdentityOpening(context)}
 
-This is authoritative context injected by CoForge.
+${buildWhoYouAreSection()}
 
-- Agent workspace: ${agentWorkspaceDirectory}
+${buildRuntimeContextSection(context)}
 
-${Object.values(buildCoforgeCliGuideSections()).join("\n\n")}`;
+${Object.values(buildCoforgeCliGuideSections()).join("\n\n")}${initialRole}`;
 }

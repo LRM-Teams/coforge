@@ -98,6 +98,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
+import type { AgentLaunchIdentity } from "../code-agent/agent-instructions";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
 import { AgentWeeklyReportRequestError } from "./agent-weekly-report-request-error";
 import { getLogger } from "@logtape/logtape";
@@ -107,6 +108,9 @@ export type AgentLaunchConfig = {
   providerConfig?: AgentRuntimeProviderConfig;
   envVars?: Record<string, string>;
   assignedSkillPacks?: string[];
+  /** Server-authored Agent identity for the standing prompt; see `agent-instructions.ts`. Not
+   * part of the shared SDK today because the whole launch-config contract lives only here. */
+  identity?: AgentLaunchIdentity;
 };
 
 const AGENT_STATUS_REFRESH_MS = 30_000;
@@ -1665,16 +1669,19 @@ export class DaemonConnection implements DaemonConnectionClient {
       providerConfig?: unknown;
       envVars?: unknown;
       assignedSkillPacks?: unknown;
+      identity?: unknown;
     };
     const providerConfig = parseAgentRuntimeProviderConfig(value.providerConfig);
     const assignedSkillPacks = Array.isArray(value.assignedSkillPacks)
       ? value.assignedSkillPacks.filter((entry): entry is string => typeof entry === "string")
       : [];
+    const identity = parseAgentLaunchIdentity(value.identity);
     return {
       agentApiKey: parseAgentApiKey(value.apiKey),
       ...(providerConfig ? { providerConfig } : {}),
       envVars: parseAgentEnvironment(value.envVars),
       ...(assignedSkillPacks.length > 0 ? { assignedSkillPacks } : {}),
+      ...(identity ? { identity } : {}),
     };
   }
 
@@ -2064,6 +2071,64 @@ function parseAgentEnvironment(value: unknown): Record<string, string> {
     envVars[name] = entry;
   }
   return envVars;
+}
+
+const IDENTITY_NAME_MAX_LENGTH = 80;
+const IDENTITY_DESCRIPTION_MAX_LENGTH = 2000;
+const IDENTITY_OTHER_MAX_LENGTH = 200;
+
+/** A trimmed, length-capped wire string, or `undefined` for anything else (wrong type, empty
+ * after trimming, or over the cap) — never a thrown error, so one bad field never invalidates
+ * the rest of `identity`. */
+function parseIdentityString(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed && trimmed.length <= maxLength ? trimmed : undefined;
+}
+
+function parseIdentityRuntimeContext(
+  value: unknown,
+): AgentLaunchIdentity["runtimeContext"] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const runtimeContext = {
+    workspaceId: parseIdentityString(record.workspaceId, IDENTITY_OTHER_MAX_LENGTH),
+    workspaceSlug: parseIdentityString(record.workspaceSlug, IDENTITY_OTHER_MAX_LENGTH),
+    workspaceName: parseIdentityString(record.workspaceName, IDENTITY_OTHER_MAX_LENGTH),
+    computerId: parseIdentityString(record.computerId, IDENTITY_OTHER_MAX_LENGTH),
+    computerName: parseIdentityString(record.computerName, IDENTITY_OTHER_MAX_LENGTH),
+    computerOs: parseIdentityString(record.computerOs, IDENTITY_OTHER_MAX_LENGTH),
+    computerVersion: parseIdentityString(record.computerVersion, IDENTITY_OTHER_MAX_LENGTH),
+  };
+  const present = Object.fromEntries(
+    Object.entries(runtimeContext).filter(([, entry]) => entry !== undefined),
+  );
+  return Object.keys(present).length > 0
+    ? (present as AgentLaunchIdentity["runtimeContext"])
+    : undefined;
+}
+
+/**
+ * Decodes the launch-config response's optional `identity` field defensively: every field is
+ * optional and string-only on the wire, so an older Web (no `identity` at all) or a newer Web
+ * (fields this Daemon does not understand yet) both still launch normally. Unlike
+ * `parseAgentRuntimeProviderConfig`/`parseAgentApiKey`, an invalid shape never throws — it
+ * degrades to `undefined` (or drops just the invalid sub-field) so a malformed or missing
+ * identity never fails the launch, only the standing prompt's identity-derived text.
+ */
+function parseAgentLaunchIdentity(value: unknown): AgentLaunchIdentity | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const identity: AgentLaunchIdentity = {
+    name: parseIdentityString(record.name, IDENTITY_NAME_MAX_LENGTH),
+    displayName: parseIdentityString(record.displayName, IDENTITY_NAME_MAX_LENGTH),
+    description: parseIdentityString(record.description, IDENTITY_DESCRIPTION_MAX_LENGTH),
+    runtimeContext: parseIdentityRuntimeContext(record.runtimeContext),
+  };
+  const present = Object.fromEntries(
+    Object.entries(identity).filter(([, entry]) => entry !== undefined),
+  );
+  return Object.keys(present).length > 0 ? (present as AgentLaunchIdentity) : undefined;
 }
 
 function parseAgentRuntimeProviderConfig(value: unknown): AgentRuntimeProviderConfig | undefined {
