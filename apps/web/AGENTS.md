@@ -156,11 +156,27 @@ instructions for the TanStack Start Web/backend modular monolith.
   deferred removal rule (owner/admin removes, never from `#general`, via a
   soft `ConversationMember.leftAt` marker since `Message.sender`'s
   `onDelete: Restrict` makes a hard delete impossible for anyone who has
-  sent a message). There is still no human UI for remove/update/archive.
+  sent a message). There is still no human UI for `update`/`archive`.
+
+  The human side of leave/remove is `PublicChannels.leave(workspaceId,
+userId, channelId)` (any active member leaves themselves, never
+  `#general`) and `PublicChannels.removeMember(workspaceId, actorUserId,
+channelId, target: ChannelActor)` (Workspace owner/admin only, via the new
+  `assertCanRemoveChannelMembers` in `member-role.server.ts`, never
+  `#general`) — ADR 0031, the human-side equivalent of ADR 0024's Agent
+  `channel leave`/`remove-member`, sharing the same `leftAt`/
+  `ACTIVE_MEMBER_WHERE` representation through one private helper
+  (`softLeaveMember`) rather than a second one. `PublicChannels.members`
+  additionally reports `canRemoveMembers`/`canLeave` per viewer.
   `features/conversations/
-channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembers`;
-  `channel-members-dialog.tsx` is the Web UI, opened from a "Members" button on
-  the channel header. Agent creation (`ManageAgents.create`) still requires
+channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembers`/
+  `leavePublicChannel`/`removePublicChannelMember`; `channel-members-dialog.tsx`
+  is the Web UI, opened from a "Members" button on the channel header, with a
+  per-row "Remove" action and a "Leave channel" footer action, both with an
+  inline confirm step (no toast, no browser `confirm()`). Leaving flips the
+  conversation to the existing not-joined read-only state and the channel
+  list to `joined: false`, the same paths a never-joined channel already
+  uses. Agent creation (`ManageAgents.create`) still requires
   Workspace owner/admin via `assertCanCreateAgents` (Raft: only a
   human-committed action card creates agents). Channels still have no role
   system of their own; private channels are planned but not introduced here.

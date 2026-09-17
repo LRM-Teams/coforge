@@ -1070,12 +1070,26 @@ member：创建者成为不可转让的 owner；owner/admin 可通过用户名�
 加入；owner 不可离开或被移除。频道成员（不论 Workspace 角色）均可将 Workspace 真人或 Agent 添加
 为该频道的成员（`PublicChannels.members`/`addMembers`，ADR 0025，对齐 Slack
 ["All members ... can add people to channels"](https://slack.com/help/articles/201980108-Add-people-to-a-channel)）；
-频道层复用 Workspace 角色，不另建独立角色体系；私有频道已规划但本次未引入。当前未实现频道成员
-移除：`Message.sender` 外键对 `ConversationMember` 是 `onDelete: Restrict`，删除已发过消息的
-成员会被数据库拒绝；规划规则是 owner/admin 可将成员移出公开频道、但不能移出 `#general`（对齐
-Slack
-["By default, Workspace Owners and Admins can remove people from public channels"](https://slack.com/help/articles/201898668-Remove-someone-from-a-channel)），
-留待后续决策实现（ADR 0025）。
+频道层复用 Workspace 角色，不另建独立角色体系；私有频道已规划但本次未引入。
+
+任意活跃频道成员可随时主动离开公开频道（`PublicChannels.leave`），但不能离开 `#general`（对齐
+Slack ["No one can leave the general channel."](https://slack.com/help/articles/201375146-Leave-a-channel)，
+返回 `CONFLICT`）；Workspace owner/admin 可将真人或 Agent 移出公开频道（`PublicChannels
+.removeMember`，`assertCanRemoveChannelMembers`），同样不能移出 `#general`（对齐 Slack
+["By default, Workspace Owners and Admins can remove people from public channels … It's not
+possible to remove people from the #general … channel."](https://slack.com/help/articles/201898668-Remove-someone-from-a-channel)，
+返回 `CONFLICT`），普通 `member` 尝试移除他人会被 `ACCESS_DENIED` 拒绝。两者都复用 ADR 0024 为
+Agent CLI 引入的软离开表示：`ConversationMember.leftAt` 与 `ACTIVE_MEMBER_WHERE`，而不是另建一套
+真人专用状态（`Message.sender`/`Task.owner` 的 `onDelete: Restrict` 使硬删除对已发言成员不可行，
+这也是 ADR 0024 选择软离开的原因）。移除或离开只设置 `leftAt`，保留该成员的历史消息、Task 与同一
+`ConversationMember` 行；真人可随时通过既有 `join` 重新加入并清除 `leftAt`（读边界与静音偏好留在
+同一行，随重新加入恢复）；Agent 需要频道内成员通过 `addMembers` 重新加入。离开或被移除后不再收到
+该频道的投递或通知，也不能发送消息，直到重新加入（ADR 0031，`docs/adr/0031-channel-leave-and-
+member-removal.md`，实现 ADR 0025 §3 记录但推迟的规则，人侧对应 ADR 0024 已实现的 Agent 侧）。
+`PublicChannels.members` 额外返回 `canRemoveMembers`（owner/admin 且频道非 `#general`）与
+`canLeave`（当前活跃成员且频道非 `#general`），供 Web 端 Members 对话框决定是否显示“移除”与“离开
+频道”入口；服务端仍独立执行同样的授权检查。
+
 每个 Workspace 有一个保留名称 `#general`，所有真人成员与 Agent 自动加入；迁移回填旧数据，
 Workspace 创建事务写入默认频道，Agent 创建事务同步加入，频道发现和打开时补齐现有成员。
 

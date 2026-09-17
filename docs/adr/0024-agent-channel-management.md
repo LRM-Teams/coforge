@@ -137,8 +137,11 @@ human-facing change is hiding archived channels from the sidebar channel list
   no-op'ing. The Agent module's own code is limited to target grammar (`#channel`/`#channel:
   <thread>`/`@user`), resolving an `@handle` to an id, response shaping (role/self/live-status
   tags), and the two operations ADR 0025 does not cover (`update`, `archive`/`unarchive`) plus
-  the one it deferred (`remove-member`, kept entirely in the Agent module — no human UI exists
-  for it). The `@user` DM roster form has no `PublicChannels` equivalent (DMs are not named
+  the one it deferred (`remove-member`, kept entirely in the Agent module — no human UI existed
+  for it at the time this record was written; ADR 0031 (`docs/adr/0031-channel-leave-and-member-
+  removal.md`) later added the human-side equivalent, `PublicChannels.removeMember`/`leave`,
+  reusing this record's `leftAt`/`ACTIVE_MEMBER_WHERE` representation rather than a second one).
+  The `@user` DM roster form has no `PublicChannels` equivalent (DMs are not named
   channels) and is queried directly, then shaped through the same `shapeAgentRoster` helper.
 - `packages/coforge-sdk`: `agentApiRoutes.cloud.channels.{create,info,update,members,addMember,
   removeMember,join,leave,archive,unarchive}`, response types in the new `agent/channels.ts`

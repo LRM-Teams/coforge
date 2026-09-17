@@ -63,7 +63,13 @@ channel-level role system.
    eligibility is computed at message-send time from current membership and
    mute/mention/follow state, so adding a member requires no realtime or
    notification change.
-3. Removing a channel member is **not implemented in this PR**. `Message.sender`
+3. Removing a channel member is **not implemented in this PR**. **Superseded**:
+   the Agent-CLI side is implemented by ADR 0024
+   (`docs/adr/0024-agent-channel-management.md`, `channel remove-member`) and
+   the human/Web side by ADR 0031
+   (`docs/adr/0031-channel-leave-and-member-removal.md`,
+   `PublicChannels.removeMember`/`leave`), both using the soft `leftAt`
+   marker this point anticipated needing. `Message.sender`
    references `ConversationMember` with `onDelete: Restrict` (confirmed in
    `prisma/schema.prisma`), so deleting a `ConversationMember` row that has
    ever sent a message in that channel would be rejected by PostgreSQL, and a
