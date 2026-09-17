@@ -115,6 +115,9 @@ function buildAgentLaunchIdentity(agent: {
     ...(agent.computer?.computerVersion?.trim()
       ? { computerVersion: agent.computer.computerVersion.trim() }
       : {}),
+    // `Computer.name` is the OS hostname: registration sets and refreshes it on every setup, and
+    // it has no rename control (`displayName` is the editable one), so it needs no column of its own.
+    ...(agent.computer?.name.trim() ? { computerHostname: agent.computer.name.trim() } : {}),
   };
   const identity = {
     ...(agent.name ? { name: agent.name } : {}),

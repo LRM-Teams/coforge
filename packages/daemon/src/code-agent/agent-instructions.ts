@@ -24,6 +24,7 @@ export type AgentLaunchIdentity = {
     workspaceName?: string;
     computerId?: string;
     computerName?: string;
+    computerHostname?: string;
     computerOs?: string;
     computerVersion?: string;
   };
@@ -100,9 +101,10 @@ function labelWithId(label: string | undefined, id: string | undefined): string 
  * Workspace is the tenant, distinct from the Agent workspace directory below), and the existing
  * `Agent workspace` label kept instead of Raft's `Workspace` for that last bullet, since in
  * CoForge "Workspace" already names the tenant. Raft's `Daemon: v…` bullet is `Computer version`
- * here: the server records the Computer executable's version, which bundles the Daemon. Raft's
- * `Hostname` bullet has no source today: the server does not store a Computer hostname, so it is
- * omitted rather than read locally.
+ * here: the server records the Computer executable's version, which bundles the Daemon. The
+ * `Hostname` bullet is server-authored like every other bullet here: the server sends the
+ * Computer record's `name`, which is the OS hostname the Computer registered with, and this
+ * Daemon only renders the value it is handed — it never reads the local hostname itself.
  */
 function buildRuntimeContextSection(context: CoforgeAgentPromptContext): string {
   const identity = context.identity;
@@ -121,6 +123,8 @@ function buildRuntimeContextSection(context: CoforgeAgentPromptContext): string 
   if (workspace) lines.push(`- Workspace: ${workspace}`);
   const computer = labelWithId(runtimeContext?.computerName, runtimeContext?.computerId);
   if (computer) lines.push(`- Computer: ${computer}`);
+  if (runtimeContext?.computerHostname)
+    lines.push(`- Hostname: ${runtimeContext.computerHostname}`);
   if (runtimeContext?.computerOs) lines.push(`- OS: ${runtimeContext.computerOs}`);
   if (runtimeContext?.computerVersion)
     lines.push(`- Computer version: v${runtimeContext.computerVersion}`);

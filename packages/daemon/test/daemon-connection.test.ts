@@ -2563,6 +2563,7 @@ test("decodes a well-formed Agent launch identity, trimmed and with empty sub-ob
             workspaceName: "Acme",
             computerId: "computer-a",
             computerName: "Builder Box",
+            computerHostname: "  workstation-7.local  ",
             computerOs: "darwin 15.6",
             computerVersion: "0.1.0-dev.40",
           },
@@ -2590,6 +2591,7 @@ test("decodes a well-formed Agent launch identity, trimmed and with empty sub-ob
         workspaceName: "Acme",
         computerId: "computer-a",
         computerName: "Builder Box",
+        computerHostname: "workstation-7.local",
         computerOs: "darwin 15.6",
         computerVersion: "0.1.0-dev.40",
       },
@@ -2615,6 +2617,7 @@ test("a missing or entirely malformed Agent launch identity yields undefined and
       { description: "d".repeat(2001) },
       { runtimeContext: "not-an-object" },
       { runtimeContext: { workspaceId: 1, computerName: "s".repeat(201) } },
+      { runtimeContext: { computerHostname: "s".repeat(201) } },
     ]) {
       globalThis.fetch = Object.assign(
         async () => Response.json({ apiKey: `sk_agent_${"a".repeat(43)}`, identity }),
