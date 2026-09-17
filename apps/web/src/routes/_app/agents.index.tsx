@@ -6,7 +6,7 @@ import { PageLoadError } from "@/features/errors/page-load-error";
 import { AgentsContent } from "@/features/agents/agents-content";
 import { AgentsPending } from "@/features/agents/agents-pending";
 import { createAgent } from "@/features/agents/agents.functions";
-import { useLiveAgents } from "@/features/conversations/conversation-layout";
+import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
 import { inviteWorkspaceMember } from "@/features/workspaces/members.functions";
 import { listWorkspaceMembers } from "@/features/workspaces/workspaces.functions";

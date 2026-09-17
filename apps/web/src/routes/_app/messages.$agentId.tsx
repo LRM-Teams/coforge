@@ -10,7 +10,7 @@ import {
   ConversationLoadError,
   ConversationPending,
 } from "@/features/conversations/conversation-pending";
-import { useConversationAgentStatus } from "@/features/conversations/conversation-layout";
+import { useLiveAgent } from "@/features/agents/workspace-agents-realtime";
 import {
   directConversationQuery,
   directConversationUpdates,
@@ -46,7 +46,7 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
 
 function DirectConversationPage() {
   const { agentId } = Route.useParams();
-  const agentStatus = useConversationAgentStatus(agentId);
+  const agentStatus = useLiveAgent(agentId)?.status.value;
   const { view, layout } = Route.useSearch();
   const taskLayout = useTaskLayout(layout);
   const send = useServerFn(sendDirectConversationMessage);

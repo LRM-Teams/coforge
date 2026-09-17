@@ -19,6 +19,7 @@
   "agent_avatar_working": "Working",
   "agent_avatar_loading": "Loading activity…",
   "agent_avatar_error": "Activity unavailable",
+  "agent_avatar_stale": "Live updates paused",
   "agent_status_unknown": "Status unavailable",
   "agent_private_chat": "Private chat",
   "agent_chat_unavailable": "Private chat is coming in the next update",

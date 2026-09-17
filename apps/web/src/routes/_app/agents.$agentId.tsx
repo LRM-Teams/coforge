@@ -18,10 +18,9 @@ import {
 import { getUserPreferences } from "@/features/settings/settings.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
-import {
-  useWorkspaceAgent,
-  useWorkspaceAgentActivity,
-} from "@/features/conversations/conversation-layout";
+import { useAgentActivityFeed, useLiveAgent } from "@/features/agents/workspace-agents-realtime";
+import { agentActivityFeedQuery } from "@/features/agents/agent-activity-queries";
+import { mergeAgentActivity } from "@/features/agents/agent-activity";
 
 function detailTab(value: unknown): "profile" | "activity" | "reminders" {
   if (value === "activity") return "activity";
@@ -34,12 +33,17 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
     tab: detailTab(search.tab),
     edit: search.edit === true,
   }),
-  loader: async ({ params }) => {
+  loader: async ({ context, params }) => {
     const [detail, preferences, computers] = await Promise.all([
       getAgentDetail({ data: params.agentId }),
       getUserPreferences(),
       listComputers(),
     ]);
+    // Seed the Activity tab's feed in the Query cache; the shared Activity
+    // subscription patches this entry from here on.
+    context.queryClient.setQueryData(agentActivityFeedQuery(params.agentId).queryKey, (current) =>
+      mergeAgentActivity(current ?? [], detail.activity),
+    );
     return { detail, timeZone: preferences.timeZone, computers };
   },
   pendingMs: 300,
@@ -67,8 +71,8 @@ function AgentDetailPage() {
   const loadSkills = useServerFn(getAgentSkills);
   const executeControl = useServerFn(executeAgentControl);
   const loadReminders = useServerFn(listAgentReminders);
-  const liveAgent = useWorkspaceAgent(detail.id);
-  const activity = useWorkspaceAgentActivity(detail.id).activity;
+  const liveAgent = useLiveAgent(detail.id);
+  const activity = useAgentActivityFeed(detail.id) ?? detail.activity;
   const loadAgentSkills = useCallback(
     () => loadSkills({ data: detail.id }),
     [loadSkills, detail.id],
@@ -131,7 +135,7 @@ function AgentDetailPage() {
   );
   return (
     <AgentDetail
-      activity={activity.length ? activity : detail.activity}
+      activity={activity}
       detail={detail}
       display={liveAgent?.display ?? detail.display}
       timeZone={timeZone}

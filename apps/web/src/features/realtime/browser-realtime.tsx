@@ -4,7 +4,9 @@ import { Centrifuge, type Subscription } from "centrifuge/build/protobuf";
 /** The one realtime subscription type for the shared Workspace connection. */
 export type BrowserRealtimeSubscription = Subscription;
 
-const BrowserRealtimeContext = createContext<Centrifuge | null>(null);
+// `undefined` means no provider above the caller; `null` means the provider's
+// connection is not open yet.
+const BrowserRealtimeContext = createContext<Centrifuge | null | undefined>(undefined);
 
 export function BrowserRealtimeProvider({
   workspaceId,
@@ -37,7 +39,12 @@ export function BrowserRealtimeProvider({
 }
 
 export function useBrowserRealtime() {
-  return useContext(BrowserRealtimeContext);
+  const client = useContext(BrowserRealtimeContext);
+  // A subscription hook called in the component that renders the provider sees
+  // no client and would silently never subscribe; fail loudly instead.
+  if (client === undefined)
+    throw new Error("useBrowserRealtime must be called inside BrowserRealtimeProvider");
+  return client;
 }
 
 export type RealtimePublication = { channel: string; data: unknown };
