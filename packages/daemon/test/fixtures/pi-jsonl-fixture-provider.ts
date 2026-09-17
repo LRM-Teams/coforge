@@ -13,7 +13,7 @@ import { JsonlProcess } from "../../src/code-agent/jsonl-process";
 import { toolActivity } from "../../src/code-agent/tool-activity";
 
 /** Test-only adapter for deterministic subprocess fixtures that speak Pi's legacy JSONL RPC. */
-export class PiJsonlFixtureDriver implements CodeAgentProvider {
+export class PiJsonlFixtureProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.PI;
 
   constructor(private readonly command: readonly string[]) {}

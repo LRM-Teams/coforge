@@ -1,4 +1,4 @@
-import type { CodeAgentModelCatalog } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER, type CodeAgentModelCatalog } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
 import { agentEnvironment } from "../environment";
 import { diagnosticErrorCode } from "../../platform/diagnostic-error-code";
@@ -35,7 +35,7 @@ export async function discoverKiroCatalog(
     if (option?.type !== "select") throw new Error("Kiro model catalog unavailable");
     const entries = option.options.flatMap((entry) => ("value" in entry ? [entry] : entry.options));
     return {
-      provider: "kiro",
+      provider: RUNTIME_PROVIDER.KIRO,
       models: entries.map((entry) => {
         const metadata = record(entry._meta?.kiro);
         const reasoningEfforts = Array.isArray(metadata?.effortLevels)

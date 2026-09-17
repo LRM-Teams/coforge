@@ -3,9 +3,9 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClaudeCodeProvider } from "../src/code-agent/claude-code/driver";
-import { CodexProvider } from "../src/code-agent/codex/driver";
-import { PiProvider } from "../src/code-agent/pi/driver";
+import { ClaudeCodeProvider } from "../src/code-agent/claude-code/provider";
+import { CodexProvider } from "../src/code-agent/codex/provider";
+import { PiProvider } from "../src/code-agent/pi/provider";
 
 // macOS tmpdir lives under /var, a symlink. Persisted Pi sessions are keyed by
 // the realpath of the workspace, so a literal /var/folders path here would
@@ -14,11 +14,11 @@ const tempRoot = realpathSync(tmpdir());
 
 const TEST_AGENT_INSTRUCTIONS = "Test instructions.";
 
-for (const Driver of [ClaudeCodeProvider, CodexProvider]) {
-  test(`${Driver.name} rejects an empty resume ID instead of treating it as a fresh session`, async () => {
-    const driver = new Driver({ command: ["/not-an-installed-provider"] });
+for (const Provider of [ClaudeCodeProvider, CodexProvider]) {
+  test(`${Provider.name} rejects an empty resume ID instead of treating it as a fresh session`, async () => {
+    const provider = new Provider({ command: ["/not-an-installed-provider"] });
     await expect(
-      driver.createAgentSession({
+      provider.createAgentSession({
         agentWorkspaceDirectory: tmpdir(),
         instructions: TEST_AGENT_INSTRUCTIONS,
         sessionId: "",

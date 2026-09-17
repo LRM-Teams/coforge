@@ -47,7 +47,7 @@ on every busy emission (including its own heartbeat firing), never a
 
 **`runtime_progress`.** A new, additive `AgentActivityDetailKind` for a
 provider stream/system event that carries no renderable text. It is emitted
-only where a driver already parses such an event — no provider gets an event
+only where a provider already parses such an event — no provider gets an event
 invented for it:
 
 - **Claude Code**: the `system`/`status` "compacting" notification, and any
@@ -62,7 +62,7 @@ invented for it:
   progress signal today.
 
 Because a chatty provider could turn this into a flood, the daemon runtime (not
-each driver) rate-limits `runtime_progress` to at most one emission every 10
+each provider) rate-limits `runtime_progress` to at most one emission every 10
 seconds per Agent, ahead of the busy-heartbeat logic.
 
 **Protocol.** `AgentActivity` gains `bool is_heartbeat` and

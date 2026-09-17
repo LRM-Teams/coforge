@@ -4,6 +4,7 @@ import { join, isAbsolute } from "node:path";
 import type { UsageSnapshot } from "../contract";
 import { UsageUnavailableError } from "../contract";
 import { record } from "./connection";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
 // Kiro's private CLI store/API, also consumed by CodexBar. Never refresh or
 // migrate this store. Unknown identities and schemas fail closed.
@@ -135,7 +136,7 @@ function snapshot(value: unknown): UsageSnapshot | null {
   const monthEnd = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
   const title = record(data.subscriptionInfo)?.subscriptionTitle;
   return {
-    provider: "kiro",
+    provider: RUNTIME_PROVIDER.KIRO,
     ...(typeof title === "string" && title.trim() ? { planType: title } : {}),
     creditUsage: { used, limit, overage },
     primary: {

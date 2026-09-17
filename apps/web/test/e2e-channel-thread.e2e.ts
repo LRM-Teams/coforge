@@ -21,7 +21,7 @@ import {
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
 } from "../../../packages/daemon";
-import { PiJsonlFixtureDriver } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-driver";
+import { PiJsonlFixtureProvider } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-provider";
 
 const databaseUrl = requireEnvironment("DATABASE_URL");
 const workspaceRoot = join(import.meta.dir, `../../../.amp/e2e/channel-${crypto.randomUUID()}`);
@@ -95,7 +95,7 @@ test("channel threads cross real WSS and Agent HTTP transport without notificati
         serverHttpUrl: "http://127.0.0.1:8789",
       },
       () =>
-        new PiJsonlFixtureDriver([
+        new PiJsonlFixtureProvider([
           process.execPath,
           join(import.meta.dir, "fixtures/channel-thread-e2e-runtime.ts"),
         ]),

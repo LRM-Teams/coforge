@@ -157,7 +157,7 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   capabilities from provider-internal modules. The registry returns Providers,
   never lifecycle wrappers or forwarding adapters. Higher layers must consume
   normalized status and activity messages and
-  must not parse Claude, Codex, or Pi output. `codex/driver.ts` owns retry
+  must not parse Claude, Codex, or Pi output. `codex/provider.ts` owns retry
   classification: structured `willRetry: true` notifications remain internal
   diagnostics, while numbered stderr reconnect lines become informational
   `runtime_reconnecting` Activity, matching Raft 1.0.17. Other errors keep their
@@ -189,7 +189,7 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   the provider's native system/developer-instruction mechanism: Codex uses
   app-server `developerInstructions`, Claude Code uses its system-prompt-file
   option, and CoForge Agent uses its resource-loader system-prompt override. Do
-  not copy the text into each driver or write `AGENTS.md`/`CLAUDE.md` into the user's Agent workspace
+  not copy the text into each provider or write `AGENTS.md`/`CLAUDE.md` into the user's Agent workspace
   for providers that support native injection. Deliver Message recovery bodies
   directly as turn input and App Inbox wakeups separately; never append them to the standing
   instructions. A start for an already running Agent preserves its process,

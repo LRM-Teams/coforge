@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverPiModels } from "@coforge/agent";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
-import { CoforgeProvider, PiProvider } from "../src/code-agent/pi/driver";
+import { CoforgeProvider, PiProvider } from "../src/code-agent/pi/provider";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
 

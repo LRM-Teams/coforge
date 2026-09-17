@@ -3,7 +3,7 @@ import {
   AgentSkillsListRequestSchema,
   AgentSkillsListResultSchema,
 } from "./gen/coforge/rpc/v1/agent_skills_pb";
-import type { RuntimeProvider } from "./index";
+import { parseRuntimeProvider, type RuntimeProvider } from "./index";
 
 export const AGENT_SKILLS_LIST_METHOD = "agent:skills:list";
 export const AGENT_SKILLS_LIST_RESULT_METHOD = "agent:skills:list_result";
@@ -45,15 +45,8 @@ function request(value: {
     )
   )
     throw new Error("Invalid Skills request scope");
-  const provider = value.provider;
-  if (
-    provider !== "coforge" &&
-    provider !== "pi" &&
-    provider !== "codex" &&
-    provider !== "claude-code" &&
-    provider !== "kiro"
-  )
-    throw new Error("Invalid Skills provider");
+  const provider = parseRuntimeProvider(value.provider);
+  if (provider === undefined) throw new Error("Invalid Skills provider");
   return {
     protocolMajor: 1,
     requestId: value.requestId,

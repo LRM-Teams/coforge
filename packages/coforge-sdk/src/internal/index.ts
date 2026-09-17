@@ -161,13 +161,31 @@ export const RUNTIME_PROVIDER = {
   KIRO: "kiro",
 } as const;
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PROVIDER];
-const RUNTIME_PROVIDERS: ReadonlySet<string> = new Set(Object.values(RUNTIME_PROVIDER));
+/** Every RuntimeProvider value, for a zod `z.enum` or other exhaustive-tuple consumer. */
+export const RUNTIME_PROVIDER_VALUES = Object.values(RUNTIME_PROVIDER) as [
+  RuntimeProvider,
+  ...RuntimeProvider[],
+];
+const RUNTIME_PROVIDERS: ReadonlySet<string> = new Set(RUNTIME_PROVIDER_VALUES);
 /** The RuntimeProvider a persisted or user-supplied value names, or undefined. */
 export function parseRuntimeProvider(value: unknown): RuntimeProvider | undefined {
   return typeof value === "string" && RUNTIME_PROVIDERS.has(value)
     ? (value as RuntimeProvider)
     : undefined;
 }
+/**
+ * Whether the Daemon runs this provider as a spawned external CLI process (Codex, Claude Code,
+ * Kiro) rather than in-process through the Pi SDK (Pi, CoForge). Governs whether usage scanning
+ * reads that CLI's own local usage data, and whether a CoForge-managed model-provider API key
+ * applies (only the in-process providers accept one).
+ */
+export const RUNTIME_PROVIDER_USES_EXTERNAL_CLI: Record<RuntimeProvider, boolean> = {
+  [RUNTIME_PROVIDER.COFORGE]: false,
+  [RUNTIME_PROVIDER.CODEX]: true,
+  [RUNTIME_PROVIDER.CLAUDE_CODE]: true,
+  [RUNTIME_PROVIDER.PI]: false,
+  [RUNTIME_PROVIDER.KIRO]: true,
+};
 export type AgentRuntimeProviderConfig =
   | { kind: "default" }
   | { kind: "coforge"; providerId: string };

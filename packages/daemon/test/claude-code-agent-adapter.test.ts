@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ClaudeCodeProvider } from "../src/code-agent/claude-code/driver";
+import { ClaudeCodeProvider } from "../src/code-agent/claude-code/provider";
 import { AGENT_RUNTIME_EVENT_TYPE, type AgentRuntimeEvent } from "../src/code-agent/contract";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
@@ -86,14 +86,14 @@ test.each([
 });
 
 test("Claude forwards cloud-selected persistent resume while retaining approved permissions", async () => {
-  const driver = new ClaudeCodeProvider({
+  const provider = new ClaudeCodeProvider({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
       "expect-resume",
     ],
   });
-  const session = await driver.createAgentSession({
+  const session = await provider.createAgentSession({
     agentWorkspaceDirectory: tmpdir(),
     instructions: TEST_AGENT_INSTRUCTIONS,
     sessionId: "selected-session",

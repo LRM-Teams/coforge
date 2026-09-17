@@ -1,8 +1,8 @@
-import { ClaudeCodeProvider } from "./claude-code/driver";
-import { CodexProvider } from "./codex/driver";
+import { ClaudeCodeProvider } from "./claude-code/provider";
+import { CodexProvider } from "./codex/provider";
 import type { CodeAgentProvider } from "./contract";
-import { CoforgeProvider, PiProvider } from "./pi/driver";
-import { KiroProvider } from "./kiro/driver";
+import { CoforgeProvider, PiProvider } from "./pi/provider";
+import { KiroProvider } from "./kiro/provider";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
@@ -18,5 +18,9 @@ export function createCodeAgentProvider(provider: RuntimeProvider): CodeAgentPro
       return new ClaudeCodeProvider();
     case RUNTIME_PROVIDER.KIRO:
       return new KiroProvider();
+    default: {
+      const unreachable: never = provider;
+      throw new Error(`Unhandled runtime provider: ${unreachable}`);
+    }
   }
 }

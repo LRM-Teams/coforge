@@ -1,7 +1,11 @@
 import { constants } from "node:fs";
 import { lstat, open, opendir, realpath } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
-import type { AgentSkillsScope, RuntimeProvider } from "@lrm/coforge-sdk/internal";
+import {
+  RUNTIME_PROVIDER,
+  type AgentSkillsScope,
+  type RuntimeProvider,
+} from "@lrm/coforge-sdk/internal";
 import { agentEnvironment } from "./environment";
 
 type Root = { path: string; label: string; legacy?: "commands" | "pi" };
@@ -38,7 +42,7 @@ export async function listAgentSkills(options: {
   let globals: Root[] = [],
     locals: Root[];
   switch (options.provider) {
-    case "claude-code":
+    case RUNTIME_PROVIDER.CLAUDE_CODE:
       locals = [local(".claude/skills"), local(".claude/commands", "commands")];
       if (home)
         globals = [
@@ -46,7 +50,7 @@ export async function listAgentSkills(options: {
           native("CLAUDE_CONFIG_DIR", ".claude", "commands", "commands"),
         ];
       break;
-    case "codex":
+    case RUNTIME_PROVIDER.CODEX:
       locals = [local(".agents/skills"), local(".codex/skills")];
       if (home)
         globals = [
@@ -56,11 +60,11 @@ export async function listAgentSkills(options: {
           { path: "/etc/codex/skills", label: "$SYSTEM_CODEX_SKILLS" },
         ];
       break;
-    case "kiro":
+    case RUNTIME_PROVIDER.KIRO:
       locals = [local(".kiro/skills")];
       if (home) globals = [native("KIRO_HOME", ".kiro", "skills")];
       break;
-    case "pi":
+    case RUNTIME_PROVIDER.PI:
       locals = [local(".pi/skills", "pi"), local(".agents/skills")];
       if (home)
         globals = [
@@ -68,14 +72,18 @@ export async function listAgentSkills(options: {
           personal(".agents/skills"),
         ];
       break;
-    case "coforge":
+    case RUNTIME_PROVIDER.COFORGE:
       locals = [local(".pi/skills", "pi"), local(".agents/skills")];
       break;
+    default: {
+      const unreachable: never = options.provider;
+      throw new Error(`Unhandled runtime provider: ${unreachable}`);
+    }
   }
   const deadline = Date.now() + 3_000;
   return {
     global:
-      options.provider === "coforge" || !home
+      options.provider === RUNTIME_PROVIDER.COFORGE || !home
         ? { status: "unsupported", entries: [], directories: [] }
         : await scan(globals, deadline),
     workspace: await scan(locals, deadline),

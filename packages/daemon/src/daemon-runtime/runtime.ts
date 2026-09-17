@@ -48,6 +48,7 @@ import {
   type LocalInboxRequest,
   type RuntimeProvider,
   type RuntimeMetadata,
+  RUNTIME_PROVIDER_USES_EXTERNAL_CLI,
   type CodeAgentModelCatalog,
   type UsageScanResponse,
   REMINDER_CAPABILITY,
@@ -510,7 +511,7 @@ export class DaemonRuntime {
       ...(snapshot ? { snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)) } : {}),
       ...(message ? { message } : {}),
     });
-    if (provider !== "codex" && provider !== "claude-code" && provider !== "kiro")
+    if (!RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider])
       return result("unsupported", undefined, "Pi usage scanning is unsupported");
     const codeAgentProvider = this.#createProvider(provider);
     if (!codeAgentProvider.readUsage) return result("unsupported");

@@ -30,7 +30,7 @@ import {
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
 } from "../../../packages/daemon";
-import { PiProvider } from "../../../packages/daemon/src/code-agent/pi/driver";
+import { PiProvider } from "../../../packages/daemon/src/code-agent/pi/provider";
 
 const dbUrl = required("DATABASE_URL");
 const webOrigin = Bun.env.COFORGE_E2E_WEB_ORIGIN ?? "http://127.0.0.1:8789";

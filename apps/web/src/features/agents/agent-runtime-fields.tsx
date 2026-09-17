@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   parseRuntimeProvider,
   RUNTIME_PROVIDER,
+  RUNTIME_PROVIDER_USES_EXTERNAL_CLI,
   type CodeAgentModelMetadata,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
@@ -11,6 +12,7 @@ import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 import { KEYED_MODEL_PROVIDERS } from "./agent.schemas";
+import { RUNTIME_PROVIDER_DISPLAY_ORDER, runtimeProviderLabel } from "./runtime-provider-display";
 
 export type RuntimeCatalog = {
   provider: string;
@@ -41,7 +43,7 @@ export function AgentRuntimeFields({
   credentialConfigured?: boolean;
   onLoad: (computerId: string) => Promise<RuntimeOptions>;
 }) {
-  const [provider, setProvider] = useState(initial?.provider ?? "coforge");
+  const [provider, setProvider] = useState(initial?.provider ?? RUNTIME_PROVIDER.COFORGE);
   const [modelProvider, setModelProvider] = useState(initial?.modelProvider ?? "");
   const initialModelKey = initial?.model
     ? `${encodeURIComponent(initial.modelProvider ?? "")}--${encodeURIComponent(initial.model)}`
@@ -92,9 +94,13 @@ export function AgentRuntimeFields({
       });
   }, [computerId, failed, initial, onLoad, open, options, retry]);
 
-  const providers = new Set(["coforge", initial?.provider, ...(options?.providers ?? [])]);
+  const providers = new Set([
+    RUNTIME_PROVIDER.COFORGE,
+    initial?.provider,
+    ...(options?.providers ?? []),
+  ]);
   const catalogModels =
-    provider === "pi" ? piCatalogModels(options) : runtimeModels(options, provider);
+    provider === RUNTIME_PROVIDER.PI ? piCatalogModels(options) : runtimeModels(options, provider);
   const modelProviders = [
     ...new Set(
       catalogModels
@@ -105,7 +111,7 @@ export function AgentRuntimeFields({
   const selectedModel = catalogModels.find(
     (model) =>
       modelOptionValue(model) === modelKey &&
-      (provider !== "coforge" || model.modelProvider === modelProvider),
+      (provider !== RUNTIME_PROVIDER.COFORGE || model.modelProvider === modelProvider),
   );
   const configuredModelSelected = Boolean(
     initial?.model && provider === initial.provider && modelKey === initialModelKey,
@@ -114,7 +120,7 @@ export function AgentRuntimeFields({
     ? selectedModel?.displayName || initial?.model
     : undefined;
   const submittedModelProvider =
-    provider === "coforge"
+    provider === RUNTIME_PROVIDER.COFORGE
       ? modelProvider
       : (selectedModel?.modelProvider ??
         (modelKey === initialModelKey ? (initial?.modelProvider ?? "") : ""));
@@ -123,8 +129,9 @@ export function AgentRuntimeFields({
     initial?.provider === provider &&
     initial.modelProvider === modelProvider;
   const visibleModels = catalogModels.filter((model) => {
-    if (provider === "coforge") return model.modelProvider === modelProvider;
-    if (provider === "pi" && modelProvider) return model.modelProvider === modelProvider;
+    if (provider === RUNTIME_PROVIDER.COFORGE) return model.modelProvider === modelProvider;
+    if (provider === RUNTIME_PROVIDER.PI && modelProvider)
+      return model.modelProvider === modelProvider;
     return true;
   });
 
@@ -145,24 +152,28 @@ export function AgentRuntimeFields({
           setApiKey("");
         }}
       >
-        <Select.Item id="coforge" label={m.agent_provider_pi_builtin()} />
-        {providers.has("pi") && <Select.Item id="pi" label="Pi" />}
-        {providers.has("codex") && <Select.Item id="codex" label="Codex" />}
-        {providers.has("claude-code") && <Select.Item id="claude-code" label="Claude Code" />}
-        {providers.has("kiro") && <Select.Item id="kiro" label="Kiro" />}
+        <Select.Item
+          id={RUNTIME_PROVIDER.COFORGE}
+          label={runtimeProviderLabel(RUNTIME_PROVIDER.COFORGE)}
+        />
+        {RUNTIME_PROVIDER_DISPLAY_ORDER.filter((candidate) => providers.has(candidate)).map(
+          (candidate) => (
+            <Select.Item key={candidate} id={candidate} label={runtimeProviderLabel(candidate)} />
+          ),
+        )}
       </Select>
       {failed ? (
         <Input
           label={m.agent_form_model_provider()}
           name="modelProvider"
           size="sm"
-          isRequired={provider === "coforge"}
+          isRequired={provider === RUNTIME_PROVIDER.COFORGE}
           maxLength={100}
           defaultValue={modelProvider}
           onChange={() => setApiKey("")}
         />
       ) : (
-        (provider === "coforge" || provider === "pi") && (
+        !RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider] && (
           <>
             <input type="hidden" name="modelProvider" value={modelProvider} />
             <Select
@@ -187,7 +198,7 @@ export function AgentRuntimeFields({
           </>
         )
       )}
-      {!failed && provider !== "coforge" && provider !== "pi" && (
+      {!failed && RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider] && (
         <input type="hidden" name="modelProvider" value={submittedModelProvider} />
       )}
       {failed ? (
@@ -244,7 +255,7 @@ export function AgentRuntimeFields({
           </Select>
         </>
       )}
-      {(provider === "coforge" || provider === "pi") &&
+      {!RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider] &&
         KEYED_MODEL_PROVIDERS.has(modelProvider) && (
           <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
             {m.agent_runtime_api_key({ provider: modelProvider })}
@@ -254,7 +265,7 @@ export function AgentRuntimeFields({
               aria-label={m.agent_runtime_api_key({ provider: modelProvider })}
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
-              required={provider === "coforge" && !matchingConfiguredCredential}
+              required={provider === RUNTIME_PROVIDER.COFORGE && !matchingConfiguredCredential}
               minLength={8}
               maxLength={4096}
               autoComplete="new-password"
@@ -264,7 +275,7 @@ export function AgentRuntimeFields({
             <span className="text-xs font-normal text-tertiary">
               {matchingConfiguredCredential
                 ? m.agent_form_api_key_preserve_help()
-                : provider === "pi"
+                : provider === RUNTIME_PROVIDER.PI
                   ? m.agent_form_pi_api_key_help()
                   : m.agent_form_coforge_api_key_help()}
             </span>
@@ -324,7 +335,10 @@ function runtimeModels(options: RuntimeOptions | undefined, provider: RuntimePro
 }
 
 function piCatalogModels(options: RuntimeOptions | undefined) {
-  const models = [...runtimeModels(options, "pi"), ...runtimeModels(options, "coforge")];
+  const models = [
+    ...runtimeModels(options, RUNTIME_PROVIDER.PI),
+    ...runtimeModels(options, RUNTIME_PROVIDER.COFORGE),
+  ];
   const unique = new Map<string, CodeAgentModelMetadata>();
   for (const model of models) {
     const key = modelOptionValue(model);

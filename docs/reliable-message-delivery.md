@@ -20,7 +20,7 @@ Daemon connection（WSS/RPC，at-least-once）
 provider-neutral AgentSession.sendMessage(message)
   │
   ▼
-Pi / Codex / Claude Driver → 对应 Agent runtime
+Pi / Codex / Claude provider → 对应 Agent runtime
   │
   └─ coforge message send --target <全站唯一 username> --body ...
                          ▼
@@ -39,7 +39,7 @@ Daemon 通过自身唯一的云端 WebSocket 接收消息，并在本地按 `age
 - **Web/backend** 是业务控制面：认证、成员授权、Conversation/Message 持久化、顺序分配和路由决策。Message 是云端 canonical 事实来源。
 - **Standalone Centrifugo** 只负责 WSS、发布/订阅、RPC、重连相关 transport mechanics；不理解 Conversation、Agent Activity，也不拥有数据库。
 - **Daemon** 是用户机器上的执行协调者，拥有一个 Workspace 云连接和多个 Agent runtime 生命周期；它从云端恢复 Message，并把消息交给正确 runtime。
-- **Code-agent Driver** 提供统一的 provider-neutral seam。Daemon 不知道 Claude、Codex、Pi 的具体协议；Driver 自己转换 provider 协议。
+- **Code-agent provider** 提供统一的 provider-neutral seam。Daemon 不知道 Claude、Codex、Pi 的具体协议；provider 自己转换 provider 协议。
 - **Agent runtime** 执行任务，不拥有 CoForge 消息可靠性、云端游标或成员 unread 真相。
 
 不要混淆 transport channel、业务 Conversation、Message 和 Agent Activity：channel 是传输范围，Conversation 是私聊关系，Message 是业务事实，Activity 是运行过程诊断。`event_id` 等可以是技术字段，但 “Agent Event” 不是业务消息模型。
@@ -110,13 +110,13 @@ attachment identity、provider-independent `object_key`、文件名/类型/大�
 文件内容直接塞进 JSON。授权下载必须先通过 backend 验证可见的 committed Message，再
 由 OSS/CDN adapter 生成短时 opaque URL；signed URL 不写入数据库或日志。
 
-送给 Agent 时由统一 Driver 组装：正文放前，附件信息统一放后。上层不解析 provider
-格式，具体 provider 的附件能力和转换留在 Driver 内。
+送给 Agent 时由统一 provider 组装：正文放前，附件信息统一放后。上层不解析 provider
+格式，具体 provider 的附件能力和转换留在 provider 内。
 
-## Driver 边界
+## Provider 边界
 
 Daemon 只依赖类似 `AgentSession.sendMessage(message)` 的 provider-neutral contract，
-以及启动、订阅活动、中断、释放等通用能力。Pi/Codex/Claude Driver 自己负责 native
+以及启动、订阅活动、中断、释放等通用能力。Pi/Codex/Claude provider 自己负责 native
 protocol、SDK runner 或 ACP 的转换、错误和能力差异；这些细节不可泄漏到 Web、Centrifugo
 或共享业务模型。Agent Activity 跨 transport 时是规范化运行诊断，不是 Message。
 
@@ -158,7 +158,7 @@ delivery ledger。若未来故障证据证明需要 durable 接管记录，必�
 2. 现有版本化 Protobuf 中 delivery/replay/ACK 的精确 envelope，以及 legacy worker 字段的兼容期限。
 3. Daemon 内存 cursor 的生命周期、重连时的起始边界和可测量恢复 SLO。
 4. `coforge message send` 如何绑定当前 Agent 身份、生成幂等键，并在多条 DirectConversation 中解析 target。
-5. Attachment/MessageAttachment 的最终字段与统一 Driver 的附件能力降级策略。
+5. Attachment/MessageAttachment 的最终字段与统一 provider 的附件能力降级策略。
 
 ## 参考代码与基线
 
