@@ -1,7 +1,27 @@
-import { decodeAgentSessionReport } from "@lrm/coforge-sdk/internal";
+import { decodeAgentSessionReport, type AgentSessionReport } from "@lrm/coforge-sdk/internal";
 import type { AgentSessionReceiver } from "../agents/agent-session.server";
 import type { AgentSessions } from "../agents/agent-sessions.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
+
+/** Every fixed message this handler's collaborators throw for a rejected snapshot: the shared
+ * `requireCurrentAgentScope`, `AgentSessionReceiver`, and `AgentSessions`. Mirrors the same
+ * allowlist discipline as `agent-control-receiver.server.ts`'s sibling handler. */
+const KNOWN_REJECTION_REASONS = new Set([
+  "Stale Agent scope",
+  "Agent Session scope is not authorized",
+  "Session launch is not current",
+  "Native Session identity changed during launch",
+  "Session snapshot lost its fence",
+  "Agent session report is stale or unauthorized",
+  "Agent session identity changed concurrently",
+  "Session snapshots are unsupported",
+]);
+
+function rejectionReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : undefined;
+  if (message && KNOWN_REJECTION_REASONS.has(message)) return message;
+  return `unexpected: ${error instanceof Error ? error.name : typeof error}`;
+}
 
 export function createAgentSessionMethod(
   sessions: Pick<AgentSessions, "accept" | "verify">,
@@ -15,8 +35,9 @@ export function createAgentSessionMethod(
     )
       return { code: 401, message: "daemon authentication required" };
     if (metadata.principal.agentId) return { code: 403, message: "daemon authentication required" };
+    let report: AgentSessionReport | undefined;
     try {
-      const report = decodeAgentSessionReport(payload);
+      report = decodeAgentSessionReport(payload);
       if (
         metadata.principal.workspaceId !== report.workspaceId ||
         metadata.principal.computerId !== report.computerId
@@ -41,7 +62,20 @@ export function createAgentSessionMethod(
         await sessions.accept(report);
       }
       return new Uint8Array();
-    } catch {
+    } catch (error) {
+      // A rejected snapshot previously vanished as a bare 403, the same silent pattern fixed
+      // for `agent:control:result`; log it for the same diagnosability.
+      console.warn(
+        JSON.stringify({
+          event: "agent_session:snapshot_rejected",
+          agent_id: report?.agentId,
+          workspace_id: metadata.principal.workspaceId,
+          computer_id: metadata.principal.computerId,
+          epoch: report?.controlEpoch,
+          sequence: report?.sequence,
+          reason: rejectionReason(error),
+        }),
+      );
       return { code: 403, message: "Agent Session snapshot is not authorized" };
     }
   };

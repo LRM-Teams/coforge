@@ -42,6 +42,7 @@ const stateSchema = z
     controlSequence: z.number().int().nonnegative(),
     sessionSequence: z.number().int().nonnegative(),
     errorCode: z.string().optional(),
+    updatedAtMs: z.number().nonnegative().optional(),
   })
   .strict();
 
