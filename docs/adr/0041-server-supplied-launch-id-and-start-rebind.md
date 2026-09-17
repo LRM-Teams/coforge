@@ -111,6 +111,9 @@ for wire changes): a Daemon older than this record ignores `launch_id`, mints it
 - Known remaining difference from Raft: a launch the Daemon initiates itself (an idle Agent woken
   by a delivery) still mints its own `launchId` and hands over with `previousLaunchId`; Raft
   reuses the restart snapshot's id. Out of scope here.
+  **Update (2026-09-17):** closed by [ADR 0042](0042-daemon-initiated-launches-reuse-the-server-launch-id.md),
+  which also found (and fixed) that a self-initiated launch for a managed Agent was being refused
+  outright by `authorizeLaunch`, not merely minting a divergent id.
 - A rebind does not adopt the new Start's runtime config for the running process. In CoForge a
   config change always goes through Stop → persist → Start, so a rebind never carries a different
   config.

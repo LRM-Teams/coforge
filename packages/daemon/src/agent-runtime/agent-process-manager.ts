@@ -19,6 +19,19 @@ export type AgentRuntime = Readonly<{
 export type AgentRestartConfig = Readonly<{
   config: AgentRuntimeConfig;
   sessionId: string | undefined;
+  /** The server's last launch identity for this Agent (docs/adr/0042), set on a managed launch
+   * or a rebind. A self-initiated (daemon-woken) launch reuses it instead of minting a new
+   * `launchId`. Lives only as long as this restart config does: `start()` replaces this whole
+   * entry (so callers must re-apply it after every `start()`), and `stop()`/`shutdown()` delete
+   * it along with everything else this Agent could be woken from. */
+  serverLaunch?: ServerLaunchIdentity;
+}>;
+
+/** The server-minted scope a launch was authorized under (docs/adr/0041, 0042). */
+export type ServerLaunchIdentity = Readonly<{
+  requestId: string;
+  controlEpoch: number;
+  launchId: string;
 }>;
 
 export type { CodeAgentProviderFactory } from "../code-agent/contract";
@@ -29,6 +42,13 @@ export class AgentProcessManager {
   readonly #restartConfigs = new Map<string, AgentRestartConfig>();
   readonly #states = new Map<string, AgentStateMachine>();
   readonly #stopping = new Set<string>();
+  /** The Activity `clientSeq` last sent for this Agent (docs/adr/0042). Kept in its own map,
+   * separate from `AgentRestartConfig`, because `start()` replaces that whole entry on every
+   * call and this counter must survive that replacement to let a woken launch continue it
+   * instead of restarting at 0 under a reused `launchId` — the server's Activity idempotency key
+   * is `(agentId, launchId, clientSeq)` (docs/observability.md). Cleared alongside the restart
+   * config on `stop()`/`shutdown()`. */
+  readonly #launchClientSeq = new Map<string, number>();
 
   constructor(createProvider: CodeAgentProviderFactory) {
     this.#createProvider = createProvider;
@@ -108,6 +128,7 @@ export class AgentProcessManager {
     const runtime = this.#runtimes.get(agentId);
     if (!runtime) {
       this.#restartConfigs.delete(agentId);
+      this.#launchClientSeq.delete(agentId);
       this.#stateFor(agentId).transition("deactivate");
       return;
     }
@@ -116,6 +137,7 @@ export class AgentProcessManager {
     if (this.#runtimes.get(agentId)?.session === runtime.session) this.#runtimes.delete(agentId);
     this.#stopping.delete(agentId);
     this.#restartConfigs.delete(agentId);
+    this.#launchClientSeq.delete(agentId);
     this.#stateFor(agentId).transition("deactivate");
   }
 
@@ -130,6 +152,29 @@ export class AgentProcessManager {
 
   restartConfig(agentId: string): AgentRestartConfig | undefined {
     return this.#restartConfigs.get(agentId);
+  }
+
+  /** Re-applies the server's last launch identity to this Agent's restart config (docs/adr/0042).
+   * A no-op when there is no restart config to attach it to (the Agent is not currently
+   * running/wakeable) — there is nothing for a later wake to read it back from anyway. */
+  rememberServerLaunch(agentId: string, serverLaunch: ServerLaunchIdentity): void {
+    const existing = this.#restartConfigs.get(agentId);
+    if (!existing) return;
+    this.#restartConfigs.set(agentId, { ...existing, serverLaunch });
+  }
+
+  serverLaunch(agentId: string): ServerLaunchIdentity | undefined {
+    return this.#restartConfigs.get(agentId)?.serverLaunch;
+  }
+
+  /** Records the Activity `clientSeq` just sent for this Agent, so a later wake under the same
+   * (remembered) `launchId` can continue from it instead of restarting at 0. */
+  recordClientSeq(agentId: string, clientSeq: number): void {
+    this.#launchClientSeq.set(agentId, clientSeq);
+  }
+
+  lastClientSeq(agentId: string): number {
+    return this.#launchClientSeq.get(agentId) ?? 0;
   }
 
   activeAgentIds(): string[] {
@@ -147,6 +192,7 @@ export class AgentProcessManager {
   async shutdown(): Promise<void> {
     await Promise.all([...this.#runtimes.keys()].map((agentId) => this.stop(agentId)));
     this.#restartConfigs.clear();
+    this.#launchClientSeq.clear();
     for (const state of this.#states.values()) state.transition("deactivate");
   }
 

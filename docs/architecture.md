@@ -988,7 +988,21 @@ SDK 编解码会拒绝缺失的情况。`authorizeLaunch` 只校验、不写库�
 而是 rebind：保留进程、会话和凭证，采用新的 scope 与 `launchId`，重新上报 Session 与
 `agent:status`，投递 wake message，并回 `started` 结果（与 Raft 的 `rebindRunningStart` 一致）。
 不兼容旧 Daemon：旧版本会自行生成 `launchId`，其 `authorizeLaunch` 会被拒绝，需先升级 Computer。
-Daemon 自行发起的启动（空闲 Agent 被消息唤醒）仍自行生成 `launchId`，是与 Raft 尚存的差异。
+
+2026-09-17（ADR 0042）关闭了上一条记录的已知差异：Daemon 自行发起的启动（空闲、可唤醒的 Agent
+被消息投递或 App Inbox 项唤醒）现在复用该 Agent 记忆的服务端 `launchId`（连同其
+`requestId`/`controlEpoch`，随受管启动或 rebind 一起记忆，随显式 Stop 一起遗忘——生命周期与
+`AgentProcessManager` 的 restart config 完全一致），不再自行生成；hand-over 用的
+`previousLaunchId` 在复用同一身份时不再发送。研究同时发现今天的 `authorizeLaunch` 会直接拒绝
+任何已受管 Agent 的自发唤醒（`state.phase` 为 `"completed"` 而非 `"starting"`）——`authorizeLaunch`
+因此新增一个校验分支：当上一次操作以某个以 start 结尾的链完成（`phase === "completed"`）且
+requestId/epoch/launchId 与记忆的值完全一致、且 Agent 未被用户显式停止（ADR 0038 的
+`stoppedAt`）时接受，仍然只校验、不写库。Activity 的 `clientSeq` 计数器（服务端幂等键
+`(agentId, launchId, clientSeq)`，见下文与 `docs/observability.md`）同样跨进程存活并延续，
+否则复用同一 `launchId` 会与唤醒前已写入的行冲突。Daemon 侧的 `AgentRuntimeRecord` 在唤醒成功后
+翻回 `"running"`（`AgentControl.wake()`，`stopped()` 的镜像方法），使随后的服务端 Start 能正确
+rebind，而不是误判为 `agent_already_running`。未曾受管过的 Agent（从未有过服务端 `launchId`）
+继续沿用旧的自行生成行为。详见 ADR 0042。
 
 Codex 用官方 `thread/resume(threadId)` 并验证返回 ID；Pi 用 `--session` 并验证 `get_state.sessionId`；CoForge SDK 在 Agent 独立目录中 list/open；Claude 用 `--resume`。Codex/Pi/CoForge 的早期 identity callback 完成 ACK 后才返回 session 创建成功。Claude control initialize 与会话 ID 不同步：首条云端输入不等待 ID，官方 `system/init` 和顶层 `result`（turn-end）分别排队上报已观察的同一 ID，重复 init 不抑制 turn-end 确认。上报串行但不阻塞事件读取；失败显示 runtime error，不声称云端已保存。新 Claude session 的后续 notify 等待真实首个 result；已知 resume ID 验证后可以在原有完整 tool boundary 接受 notify。退出/dispose 拒绝等待通知，不伪造 prompt 或改变 Message ACK 的 accepted-notify 边界。
 
