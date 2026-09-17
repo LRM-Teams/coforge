@@ -4213,6 +4213,69 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("exports the server-authored launch identity as environment variables, alongside the existing local capabilities", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let capturedEnvironment: Readonly<Record<string, string>> | undefined;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession(input) {
+          capturedEnvironment = input.environment;
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async stop() {},
+          async ready() {},
+          async requestAgentLaunchConfig() {
+            return {
+              agentApiKey: `sk_agent_${"a".repeat(43)}`,
+              identity: {
+                name: "scout",
+                runtimeContext: {
+                  workspaceId: "ws-1",
+                  workspaceSlug: "acme",
+                  workspaceName: "Acme",
+                  computerId: "computer-1",
+                  computerName: "Builder Box",
+                  computerOs: "macOS 27",
+                  computerVersion: "0.1.0-dev.36",
+                },
+              },
+            };
+          },
+        }),
+      },
+    );
+
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      // The local capability sockets already carried this way remain, alongside the new
+      // runtime-context variables sourced from the same launch-config identity.
+      expect(capturedEnvironment?.COFORGE_AGENT_CONTEXT).toBeTruthy();
+      expect(capturedEnvironment).toMatchObject({
+        COFORGE_CURRENT_AGENT_ID: "agent-a",
+        COFORGE_CURRENT_AGENT_NAME: "scout",
+        COFORGE_CURRENT_WORKSPACE_ID: "ws-1",
+        COFORGE_CURRENT_WORKSPACE_SLUG: "acme",
+        COFORGE_CURRENT_WORKSPACE_NAME: "Acme",
+        COFORGE_CURRENT_COMPUTER_ID: "computer-1",
+        COFORGE_CURRENT_COMPUTER_NAME: "Builder Box",
+        COFORGE_CURRENT_COMPUTER_OS: "macOS 27",
+        COFORGE_CURRENT_COMPUTER_VERSION: "0.1.0-dev.36",
+      });
+      expect(capturedEnvironment?.COFORGE_CURRENT_AGENT_WORKSPACE_PATH).toContain("agent-a");
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("publishes current-launch command and tool Activity details", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

@@ -134,6 +134,16 @@ export async function createSession(options: {
                   "COFORGE_AGENT_PROXY_URL",
                   "COFORGE_DAEMON_SOCKET",
                   "COFORGE_SUPERVISOR_SOCKET",
+                  "COFORGE_CURRENT_AGENT_ID",
+                  "COFORGE_CURRENT_AGENT_NAME",
+                  "COFORGE_CURRENT_WORKSPACE_ID",
+                  "COFORGE_CURRENT_WORKSPACE_SLUG",
+                  "COFORGE_CURRENT_WORKSPACE_NAME",
+                  "COFORGE_CURRENT_COMPUTER_ID",
+                  "COFORGE_CURRENT_COMPUTER_NAME",
+                  "COFORGE_CURRENT_COMPUTER_OS",
+                  "COFORGE_CURRENT_COMPUTER_VERSION",
+                  "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
                 ])
                   delete childEnv[key];
                 Object.assign(childEnv, environment);

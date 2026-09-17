@@ -1584,7 +1584,7 @@ Raft 1.0.32 的 `raft manual` / `/knowledge`：standing prompt
 - 凭据不得进入仓库、日志、命令行参数或生成物；
 - Unix socket 使用最小文件权限并验证对端身份；
 - Agent 只能在声明的 Agent workspace 目录中运行；
-- Agent 启动与 runtime inventory 共用 `agentEnvironment()`，继承 Daemon 的全部普通本地环境（包括 provider 凭据和大小写代理变量）；Agent 启动按宿主 → 用户 overrides → adapter extraEnv → 可信启动字段合成，清除旧 CoForge capability 与控制 socket，保留 loopback NO_PROXY。继承结果不上传云端，云端只加密保存用户主动填写的 overrides。
+- Agent 启动与 runtime inventory 共用 `agentEnvironment()`，继承 Daemon 的全部普通本地环境（包括 provider 凭据和大小写代理变量）；Agent 启动按宿主 → 用户 overrides → adapter extraEnv → 可信启动字段合成，清除旧 CoForge capability 与控制 socket，保留 loopback NO_PROXY。继承结果不上传云端，云端只加密保存用户主动填写的 overrides。可信启动字段还包含 `agentRuntimeContextEnvironment()` 从与 standing prompt “Current Runtime Context” 小节同源的服务端 identity 映射出的环境变量——`COFORGE_CURRENT_AGENT_ID`、`COFORGE_CURRENT_AGENT_NAME`、`COFORGE_CURRENT_WORKSPACE_ID`/`_SLUG`/`_NAME`、`COFORGE_CURRENT_COMPUTER_ID`/`_NAME`/`_OS`/`_VERSION`、`COFORGE_CURRENT_AGENT_WORKSPACE_PATH`，逐项仅在取值非空字符串时写入，且都换行/NUL 净化为单行；displayName/description 不导出（详见 ADR 0036）。这些变量名与旧有 CoForge capability/控制 socket 字段一样被清除逻辑覆盖，宿主环境或用户 `envVars`/adapter `extraEnv` 都不能冒充。
 - Caddy、Centrifugo、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；Computer、Daemon、daemon 和 Agent runtime process 的本地分类、滚动、保留、脱敏与失败契约见 [本地日志契约](local-logging.md)。Computer 与 Workspace Daemon 已写入各自 state directory 下的滚动 JSONL；连接、Connect Proxy control-stream binding、ready/reconnect、Agent session/start 及 runtime inventory 探测失败记录稳定关联字段，不记录 credential、消息正文或原始 provider 输出；
 - 开发与 validation 阶段先使用 Docker PostgreSQL 与托管 PostgreSQL，不引入 Kubernetes。
 - WebSocket 依附于 TCP，所属 Centrifugo 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
