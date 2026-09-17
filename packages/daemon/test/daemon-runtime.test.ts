@@ -512,6 +512,7 @@ async function queueHarness(
 async function messageHarness(
   respond: (request: AgentMessageRequest) => Promise<AgentMessageTransportResponse>,
   respondTask?: (request: TaskRequest) => Promise<TaskResponse>,
+  respondAttachmentUpload?: (request: Request, agentApiKey?: string) => Promise<Response>,
 ) {
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -534,6 +535,7 @@ async function messageHarness(
         async sendAgentDeliveryAck() {},
         agentMessage: respond,
         agentTask: respondTask,
+        agentAttachmentUpload: respondAttachmentUpload,
       }),
     },
   );
@@ -865,6 +867,79 @@ test("resolve, react, and unreact reach the transport with messageId, emoji, and
   } finally {
     await harness.runtime.stop();
   }
+});
+
+describe("Agent attachment upload", () => {
+  test("authorizes the local context before delegating the multipart request to the transport", async () => {
+    const calls: Array<{ agentApiKey: string | undefined }> = [];
+    const uploadResponse = Response.json({
+      id: "attachment-1",
+      fileName: "note.txt",
+      contentType: "text/plain",
+      sizeBytes: 4,
+    });
+    const harness = await messageHarness(
+      async (request) => ({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages: [],
+      }),
+      undefined,
+      async (_request, agentApiKey) => {
+        calls.push({ agentApiKey });
+        return uploadResponse;
+      },
+    );
+    try {
+      const request = new Request("http://local-proxy.test/api/agent/v1/attachments", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=b" },
+        body: "irrelevant",
+      });
+      const response = await harness.runtime.agentAttachmentUpload(
+        harness.context,
+        request,
+        harness.apiKey,
+      );
+      expect(response).toBe(uploadResponse);
+      expect(calls).toEqual([{ agentApiKey: harness.apiKey }]);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("rejects an upload from an unrecognized local context before touching the transport", async () => {
+    let calls = 0;
+    const harness = await messageHarness(
+      async (request) => ({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages: [],
+      }),
+      undefined,
+      async () => {
+        calls++;
+        throw new Error("must not forward an unauthorized upload");
+      },
+    );
+    try {
+      const request = new Request("http://local-proxy.test/api/agent/v1/attachments", {
+        method: "POST",
+        headers: { "content-type": "multipart/form-data; boundary=b" },
+        body: "irrelevant",
+      });
+      await expect(
+        harness.runtime.agentAttachmentUpload("forged-context", request, harness.apiKey),
+      ).rejects.toThrow();
+      expect(calls).toBe(0);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
 });
 
 describe("DaemonRuntime", () => {

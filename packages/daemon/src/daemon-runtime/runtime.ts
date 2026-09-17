@@ -2332,6 +2332,17 @@ export class DaemonRuntime {
     return this.#transport.agentAttachment(attachmentId, agentApiKey);
   }
 
+  async agentAttachmentUpload(
+    context: string,
+    request: Request,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUpload)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUpload(request, agentApiKey);
+  }
+
   #contextFor(agentId: string): string {
     const context = crypto.randomUUID();
     this.#agentContexts.set(agentId, context);

@@ -1815,6 +1815,75 @@ test("requestSend on a non-2xx upstream response surfaces the real status, not a
   });
 });
 
+test("forwards a multipart attachment upload with its original content-type and Agent auth headers", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{
+    url: string;
+    method: string | undefined;
+    contentType: string | null;
+    authorization: string | null;
+    agentApiKey: string | null;
+    body: string;
+  }> = [];
+  globalThis.fetch = Object.assign(
+    async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const headers = new Headers(init?.headers);
+      const body =
+        typeof init?.body === "string"
+          ? init.body
+          : init?.body instanceof Blob
+            ? await init.body.text()
+            : String(init?.body);
+      requests.push({
+        url: String(input),
+        method: init?.method,
+        contentType: headers.get("content-type"),
+        authorization: headers.get("authorization"),
+        agentApiKey: headers.get("x-coforge-agent-api-key"),
+        body,
+      });
+      return Response.json({
+        id: "attachment-1",
+        fileName: "note.txt",
+        contentType: "text/plain",
+        sizeBytes: 4,
+      });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  try {
+    const transport = new DaemonConnection("wss://cloud.example", () => fakeClient().client);
+    await transport.start("daemon-token", {
+      ...config,
+      serverHttpUrl: "https://server.example/api/internal/centrifugo",
+    });
+    const request = new Request("http://local-proxy.test/api/agent/v1/attachments", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=b" },
+      body: "multipart body",
+    });
+    const response = await transport.agentAttachmentUpload(request, `sk_agent_${"a".repeat(43)}`);
+    expect(await response.json()).toEqual({
+      id: "attachment-1",
+      fileName: "note.txt",
+      contentType: "text/plain",
+      sizeBytes: 4,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  expect(requests).toEqual([
+    {
+      url: "https://server.example/api/agent/v1/attachments",
+      method: "POST",
+      contentType: "multipart/form-data; boundary=b",
+      authorization: "Bearer daemon-token",
+      agentApiKey: `Bearer sk_agent_${"a".repeat(43)}`,
+      body: "multipart body",
+    },
+  ]);
+});
+
 test("requests and revokes Agent API keys through the server API route", async () => {
   const fake = fakeClient();
   const originalFetch = globalThis.fetch;
