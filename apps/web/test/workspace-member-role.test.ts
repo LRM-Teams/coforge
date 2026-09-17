@@ -7,6 +7,7 @@ import {
   assertCanInvite,
   assertCanLeaveWorkspace,
   assertCanManageMembers,
+  assertCanRemoveChannelMembers,
   assertCanRemoveMember,
   isAdminLike,
   normalizeInvitableRole,
@@ -82,4 +83,10 @@ test("only owner and admin may create Agents", () => {
   expect(() => assertCanCreateAgents("owner")).not.toThrow();
   expect(() => assertCanCreateAgents("admin")).not.toThrow();
   expect(() => assertCanCreateAgents("member")).toThrow(AppError);
+});
+
+test("only owner and admin may remove channel members", () => {
+  expect(() => assertCanRemoveChannelMembers("owner")).not.toThrow();
+  expect(() => assertCanRemoveChannelMembers("admin")).not.toThrow();
+  expect(() => assertCanRemoveChannelMembers("member")).toThrow(AppError);
 });

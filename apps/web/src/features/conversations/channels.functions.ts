@@ -4,6 +4,7 @@ import {
   workspaceUserMiddleware,
   type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
+import { AppError } from "../../lib/app-error";
 import { PublicChannels } from "../../server/conversations/public-channels.server";
 import { attachActionCardViews } from "../../server/conversations/action-cards.server";
 import { attachmentView } from "../../server/attachments/attachment-view.server";
@@ -119,6 +120,34 @@ export const joinPublicChannel = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
     await channels.join(workspaceId, userId, data.channelId);
+  });
+
+export const leavePublicChannel = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput)
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    await channels.leave(workspaceId, userId, data.channelId);
+  });
+
+export const removePublicChannelMember = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    channelInput.extend({
+      userId: z.uuid().optional(),
+      agentId: z.uuid().optional(),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    if ((data.userId === undefined) === (data.agentId === undefined))
+      throw new AppError("INVALID_INPUT");
+    return channels.removeMember(
+      workspaceId,
+      userId,
+      data.channelId,
+      data.userId ? { userId: data.userId } : { agentId: data.agentId! },
+    );
   });
 
 export const setPublicChannelMuted = createServerFn({ method: "POST" })
