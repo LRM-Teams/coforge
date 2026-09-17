@@ -56,8 +56,8 @@ test("chat activity history uses a compact parameterized member-scoped query", a
     { id: "agent-empty", activity: [] },
   ]);
   // Two WHERE clauses now also exclude the popover-hidden status kinds (ADR 0021, amended):
-  // tool_end, thinking_end, compaction_finished, once per CTE.
-  const excludedKinds = ["tool_end", "thinking_end", "compaction_finished"];
+  // tool_end, thinking_end, compaction_finished, review_finished, once per CTE.
+  const excludedKinds = ["tool_end", "thinking_end", "compaction_finished", "review_finished"];
   expect(query.slice(1)).toEqual([
     "workspace-1",
     "user-1",

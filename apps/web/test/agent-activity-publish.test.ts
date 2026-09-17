@@ -342,7 +342,7 @@ describe("Agent activity publication", () => {
     }
   });
 
-  test("does not persist a content-free review_finished frame to history, like tool_end/compaction_finished", async () => {
+  test("persists a review_finished frame to history, like tool_end/compaction_finished", async () => {
     const history: unknown[] = [];
     const response = await handleAgentActivityPublication(
       request({
@@ -359,7 +359,7 @@ describe("Agent activity publication", () => {
       },
     );
     expect(response.status).toBe(200);
-    expect(history).toHaveLength(0);
+    expect(history).toHaveLength(1);
   });
 
   test("keeps a tool_start entry's toolInput and a system entry through the publish/persist round trip", async () => {

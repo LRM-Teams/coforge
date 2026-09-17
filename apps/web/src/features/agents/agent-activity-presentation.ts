@@ -40,6 +40,7 @@ const STATUS_SECONDARY_LABEL: Readonly<Record<string, string>> = {
   [AGENT_ACTIVITY_DETAIL_KIND.TOOL_END]: "Tool finished",
   [AGENT_ACTIVITY_DETAIL_KIND.THINKING_END]: "Thinking finished",
   [AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED]: "Compaction finished",
+  [AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED]: "Review finished",
 };
 
 const toolLabels: Readonly<Record<string, string>> = {
@@ -214,7 +215,6 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
   const starting = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.STARTING;
   const compacting = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT;
   const reviewing = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.REVIEWING_CHANGES;
-  const reviewFinished = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED;
   const compactionStale =
     tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_STALE;
   const reviewStale = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.REVIEW_STALE;
@@ -232,23 +232,21 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
           ? "Compacting context"
           : reviewing
             ? "Reviewing changes"
-            : reviewFinished
-              ? "Review finished"
-              : compactionStale
-                ? "Compaction still running"
-                : reviewStale
-                  ? "Review still running"
-                  : stalledRecovery
-                    ? "Restarting stalled provider"
-                    : tone === "working"
-                      ? "Working"
-                      : tone === "thinking"
-                        ? "Thinking"
-                        : tone === "idle"
-                          ? "Idle"
-                          : tone === "offline"
-                            ? "Stopped"
-                            : "Activity";
+            : compactionStale
+              ? "Compaction still running"
+              : reviewStale
+                ? "Review still running"
+                : stalledRecovery
+                  ? "Restarting stalled provider"
+                  : tone === "working"
+                    ? "Working"
+                    : tone === "thinking"
+                      ? "Thinking"
+                      : tone === "idle"
+                        ? "Idle"
+                        : tone === "offline"
+                          ? "Stopped"
+                          : "Activity";
   const recentLabel =
     tone === "working"
       ? starting
@@ -257,15 +255,13 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
           ? "Compacting context…"
           : reviewing
             ? "Reviewing changes…"
-            : reviewFinished
-              ? "Review finished"
-              : compactionStale
-                ? "Compaction still running…"
-                : reviewStale
-                  ? "Review still running…"
-                  : stalledRecovery
-                    ? "Restarting stalled provider…"
-                    : detail || "Working…"
+            : compactionStale
+              ? "Compaction still running…"
+              : reviewStale
+                ? "Review still running…"
+                : stalledRecovery
+                  ? "Restarting stalled provider…"
+                  : detail || "Working…"
       : tone === "thinking"
         ? "Thinking…"
         : tone === "idle"

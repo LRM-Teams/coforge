@@ -170,19 +170,10 @@ test.each([
   ["tool_end", "Tool finished"],
   ["thinking_end", "Thinking finished"],
   ["compaction_finished", "Compaction finished"],
+  ["review_finished", "Review finished"],
 ])(
   "%s renders one status row: primary label from the activity kind, secondary text naming what finished",
   (detailKind, secondary) => {
-
-test.each([
-  ["reviewing_changes", "Reviewing changes", "Reviewing changes…"],
-  ["review_finished", "Review finished", "Review finished"],
-  ["compaction_stale", "Compaction still running", "Compaction still running…"],
-  ["review_stale", "Review still running", "Review still running…"],
-  ["stalled_recovery", "Restarting stalled provider", "Restarting stalled provider…"],
-])(
-  "%s uses a dedicated label instead of the generic working text",
-  (detailKind, label, recentLabel) => {
     const observation = {
       activityKind: "working" as const,
       detailKind,
@@ -191,8 +182,6 @@ test.each([
     };
     expect(presentActivity(observation)).toMatchObject([
       { label: "Working", detail: secondary, tone: "working", monospace: false, expandable: false },
-
-      { label, recentLabel, currentLabel: recentLabel, tone: "working" },
     ]);
   },
 );
@@ -228,84 +217,6 @@ test("a tool_end status row between two text fragments closes the merge group li
   const rows = presentActivityRows(activity);
   expect(rows.map((row) => row.label)).toEqual(["Output", "Working", "Output"]);
   expect(rows.map((row) => row.detail)).toEqual(["after", "Tool finished", "before"]);
-
-test("runtime_stalled presents with a dedicated Stalled label at error tone", () => {
-  const observation = {
-    activityKind: "error" as const,
-    detailKind: "runtime_stalled",
-    level: "error",
-    detail: "",
-  };
-  expect(presentActivity(observation)).toMatchObject([
-    { label: "Stalled", recentLabel: "Stalled", tone: "error" },
-  ]);
-  expect(presentActivity({ ...observation, detail: "no output for 10 minutes" })).toMatchObject([
-    { label: "Stalled", recentLabel: "Stalled: no output for 10 minutes" },
-  ]);
-});
-
-test("system_message has no dedicated label and falls back to its own detail", () => {
-  const observation = {
-    activityKind: "working" as const,
-    detailKind: "system_message",
-    level: "info",
-    detail: "The daemon restarted your session.",
-  };
-  expect(presentActivity(observation)).toMatchObject([
-    {
-      label: "Working",
-      recentLabel: "The daemon restarted your session.",
-      currentLabel: "The daemon restarted your session.",
-      tone: "working",
-    },
-  ]);
-});
-
-test("a system entry shows its title as the label and its text as the detail", () => {
-  const observation = {
-    activityKind: "working" as const,
-    detailKind: "system_message",
-    level: "info",
-    detail: "",
-    entries: [
-      {
-        kind: "system" as const,
-        title: "Session reset",
-        text: "The daemon restarted the session.",
-      },
-    ],
-  };
-  expect(presentActivity(observation)).toMatchObject([
-    {
-      label: "Session reset",
-      detail: "The daemon restarted the session.",
-      recentLabel: "Session reset",
-      currentLabel: "Session reset",
-      expandable: true,
-    },
-  ]);
-});
-
-test("a tool_start entry's toolInput takes precedence over the activity's own detail", () => {
-  const observation = {
-    activityKind: "working" as const,
-    detailKind: "tool_started",
-    level: "info",
-    detail: "fallback detail from an older daemon",
-  };
-  expect(
-    presentActivity({
-      ...observation,
-      entries: [{ kind: "tool_start", toolName: "bash", toolInput: "ls -la /tmp" }],
-    }),
-  ).toMatchObject([{ label: "Running command", detail: "ls -la /tmp" }]);
-  // Older daemons/stored rows carry no toolInput: keeps using the activity's own detail.
-  expect(
-    presentActivity({
-      ...observation,
-      entries: [{ kind: "tool_start", toolName: "bash" }],
-    }),
-  ).toMatchObject([{ label: "Running command", detail: "fallback detail from an older daemon" }]);
 });
 
 test("subagent_activity always shows one unified label, even with entries", () => {
@@ -515,20 +426,6 @@ test("a hidden send_message tool call between fragments still separates them", (
   expect(rows.map((row) => row.label)).toEqual(["Output", "Output"]);
   expect(rows[0].detail).toBe("final part");
   expect(rows[1].detail).toBe("firstsecond");
-});
-
-test("a system entry closes an open statement merge group instead of merging into it", () => {
-  const activity = [
-    textFrame(3, "after"),
-    frame({
-      clientSeq: 2,
-      entries: [{ kind: "system", title: "Session reset", text: "restarted" }],
-    }),
-    textFrame(1, "before"),
-  ];
-  const rows = presentActivityRows(activity);
-  expect(rows.map((row) => row.label)).toEqual(["Output", "Session reset", "Output"]);
-  expect(rows.map((row) => row.detail)).toEqual(["after", "restarted", "before"]);
 });
 
 test("text followed by thinking does not merge", () => {
@@ -845,4 +742,117 @@ describe("Agent detail", () => {
     });
     expect(await query.get("workspace-1", "agent-1", "outsider")).toBeUndefined();
   });
+});
+
+test.each([
+  ["reviewing_changes", "Reviewing changes", "Reviewing changes…"],
+  ["compaction_stale", "Compaction still running", "Compaction still running…"],
+  ["review_stale", "Review still running", "Review still running…"],
+  ["stalled_recovery", "Restarting stalled provider", "Restarting stalled provider…"],
+])(
+  "%s uses a dedicated label instead of the generic working text",
+  (detailKind, label, recentLabel) => {
+    const observation = {
+      activityKind: "working" as const,
+      detailKind,
+      level: "info",
+      detail: "",
+    };
+    expect(presentActivity(observation)).toMatchObject([
+      { label, recentLabel, currentLabel: recentLabel, tone: "working" },
+    ]);
+  },
+);
+
+test("runtime_stalled presents with a dedicated Stalled label at error tone", () => {
+  const observation = {
+    activityKind: "error" as const,
+    detailKind: "runtime_stalled",
+    level: "error",
+    detail: "",
+  };
+  expect(presentActivity(observation)).toMatchObject([
+    { label: "Stalled", recentLabel: "Stalled", tone: "error" },
+  ]);
+  expect(presentActivity({ ...observation, detail: "no output for 10 minutes" })).toMatchObject([
+    { label: "Stalled", recentLabel: "Stalled: no output for 10 minutes" },
+  ]);
+});
+
+test("system_message has no dedicated label and falls back to its own detail", () => {
+  const observation = {
+    activityKind: "working" as const,
+    detailKind: "system_message",
+    level: "info",
+    detail: "The daemon restarted your session.",
+  };
+  expect(presentActivity(observation)).toMatchObject([
+    {
+      label: "Working",
+      recentLabel: "The daemon restarted your session.",
+      currentLabel: "The daemon restarted your session.",
+      tone: "working",
+    },
+  ]);
+});
+
+test("a system entry shows its title as the label and its text as the detail", () => {
+  const observation = {
+    activityKind: "working" as const,
+    detailKind: "system_message",
+    level: "info",
+    detail: "",
+    entries: [
+      {
+        kind: "system" as const,
+        title: "Session reset",
+        text: "The daemon restarted the session.",
+      },
+    ],
+  };
+  expect(presentActivity(observation)).toMatchObject([
+    {
+      label: "Session reset",
+      detail: "The daemon restarted the session.",
+      recentLabel: "Session reset",
+      currentLabel: "Session reset",
+      expandable: true,
+    },
+  ]);
+});
+
+test("a tool_start entry's toolInput takes precedence over the activity's own detail", () => {
+  const observation = {
+    activityKind: "working" as const,
+    detailKind: "tool_started",
+    level: "info",
+    detail: "fallback detail from an older daemon",
+  };
+  expect(
+    presentActivity({
+      ...observation,
+      entries: [{ kind: "tool_start", toolName: "bash", toolInput: "ls -la /tmp" }],
+    }),
+  ).toMatchObject([{ label: "Running command", detail: "ls -la /tmp" }]);
+  // Older daemons/stored rows carry no toolInput: keeps using the activity's own detail.
+  expect(
+    presentActivity({
+      ...observation,
+      entries: [{ kind: "tool_start", toolName: "bash" }],
+    }),
+  ).toMatchObject([{ label: "Running command", detail: "fallback detail from an older daemon" }]);
+});
+
+test("a system entry closes an open statement merge group instead of merging into it", () => {
+  const activity = [
+    textFrame(3, "after"),
+    frame({
+      clientSeq: 2,
+      entries: [{ kind: "system", title: "Session reset", text: "restarted" }],
+    }),
+    textFrame(1, "before"),
+  ];
+  const rows = presentActivityRows(activity);
+  expect(rows.map((row) => row.label)).toEqual(["Output", "Session reset", "Output"]);
+  expect(rows.map((row) => row.detail)).toEqual(["after", "restarted", "before"]);
 });

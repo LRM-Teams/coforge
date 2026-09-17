@@ -83,7 +83,7 @@ widens the shared SDK/wire/validation surface the daemon changes will need):
 | kind | class | meaning |
 | --- | --- | --- |
 | `reviewing_changes` | busy, visible, stored | The Agent's provider entered a review pass. |
-| `review_finished` | busy, liveness-only filler, same class as `compaction_finished`/`tool_end` | The provider's review pass ended; never stored in history or shown in the popover, only renews the display lease. |
+| `review_finished` | busy, completion row, same class as `compaction_finished`/`tool_end` | The provider's review pass ended; stored and shown in the Activity log as `Working · Review finished`, left out of the avatar popover. |
 | `compaction_stale` | busy, visible, stored | Compaction started and no finish was observed for a long time. |
 | `review_stale` | busy, visible, stored | A review pass started and no finish was observed for a long time. |
 | `runtime_stalled` | error-level presentation, stored | The provider has produced nothing for too long while work is pending. Maps to the `error` display kind the same way `runtime_error`/`runtime_crashed` do, independent of the frame's own `level`. |
