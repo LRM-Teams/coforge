@@ -2497,6 +2497,7 @@ test.each(["start", "restart", "reset-session", "full-reset"] as const)(
       state: null,
     });
     const sent: Uint8Array[] = [];
+    let sequence = 0;
     const control = new AgentControl(
       store,
       {
@@ -2509,11 +2510,22 @@ test.each(["start", "restart", "reset-session", "full-reset"] as const)(
               provider: stop.provider!,
               epoch: stop.controlEpoch!,
               phase: "stopped",
-              sequence: 1,
+              sequence: ++sequence,
             });
             return;
           } catch {
             /* Not a stop intent. */
+          }
+          try {
+            const reset = decodeAgentWorkspaceResetRequest(bytes);
+            await control.result(reset, {
+              ...reset,
+              phase: "workspace-reset",
+              sequence: ++sequence,
+            });
+            return;
+          } catch {
+            /* Not a workspace-reset request. */
           }
           const start = decodeAgentStartIntent(bytes);
           expect(start.launchId).toBeTruthy();
@@ -2523,7 +2535,7 @@ test.each(["start", "restart", "reset-session", "full-reset"] as const)(
             epoch: start.controlEpoch!,
             launchId: start.launchId!,
             phase: "started",
-            sequence: 2,
+            sequence: ++sequence,
             identity: { sessionId: "native", state: "empty" },
           });
         },
@@ -2554,7 +2566,7 @@ test.each(["start", "restart", "reset-session", "full-reset"] as const)(
   },
 );
 
-test("a launchId is minted once per operation and stays stable across a republish (recover/drive retry)", async () => {
+test("a launchId is minted once per operation and stays stable across a republish (recover)", async () => {
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
@@ -2564,13 +2576,14 @@ test("a launchId is minted once per operation and stays stable across a republis
     state: null,
   });
   const sent: Uint8Array[] = [];
-  // The daemon never answers within the deadline, so `drive()` republishes the SAME pending
-  // request more than once — the launchId it carries must never change between republishes.
+  // The daemon never answers, so the operation stays pending: `execute()`'s own single publish,
+  // then two Daemon-ready `recover()` republishes of the SAME pending request. The launchId must
+  // never change across any of them — no new epoch, no new mint.
   const control = new AgentControl(
     store,
     { publish: async (_channel, bytes) => void sent.push(bytes) },
     { run: async (_id, work) => work() },
-    { timeoutMs: 30, fallbackMs: 5 },
+    { timeoutMs: 0, fallbackMs: 0 },
   );
   const view = await control.execute({
     userId: "owner",
@@ -2580,30 +2593,26 @@ test("a launchId is minted once per operation and stays stable across a republis
     action: "start",
   });
   expect(view.phase).toBe("pending");
-  expect(sent.length).toBeGreaterThanOrEqual(2);
-  const launchIds = new Set(sent.map((bytes) => decodeAgentStartIntent(bytes).launchId));
-  expect(launchIds.size).toBe(1);
-  expect([...launchIds][0]).toBeTruthy();
-  const mintedLaunchId = current().state?.launchId;
-  expect(mintedLaunchId).toBe([...launchIds][0]);
+  expect(sent).toHaveLength(1);
+  const mintedLaunchId = decodeAgentStartIntent(sent[0]!).launchId;
+  expect(mintedLaunchId).toBeTruthy();
+  expect(current().state?.launchId).toBe(mintedLaunchId);
 
-  // `recover()` (Daemon-ready reconciliation) republishes the same pending request; the
-  // launchId is unchanged, still no new epoch minted.
+  const recoverIntent = {
+    protocolMajor: 1,
+    requestId: "recover-request",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi" as const,
+    model: "",
+    reasoning: "",
+  };
   sent.length = 0;
-  await control.recover(
-    {
-      protocolMajor: 1,
-      requestId: "recover-request",
-      workspaceId: "w",
-      computerId: "c",
-      agentId: "a",
-      provider: "pi",
-      model: "",
-      reasoning: "",
-    },
-    "owner",
-  );
-  expect(decodeAgentStartIntent(sent[0]!).launchId).toBe(mintedLaunchId);
+  await control.recover(recoverIntent, "owner");
+  await control.recover(recoverIntent, "owner");
+  expect(sent).toHaveLength(2);
+  for (const bytes of sent) expect(decodeAgentStartIntent(bytes).launchId).toBe(mintedLaunchId);
   expect(current().state?.launchId).toBe(mintedLaunchId);
   expect(current().state?.requestId).toBe("start-1");
 });
