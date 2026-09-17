@@ -96,11 +96,21 @@ export class AgentSessions {
       sessionMode,
       startRequestId: intent.requestId,
       daemonInstanceId,
-      ...(compatible &&
-      old?.startRequestId === intent.requestId &&
-      old.daemonInstanceId === daemonInstanceId
-        ? { launchId: old.launchId }
-        : {}),
+      // ADR 0041: the server already knows this operation's launchId (it minted it before
+      // publish) whenever the intent is managed, so record it here, ahead of the Daemon's own
+      // report — this is what lets a rebind's later Session report (same launchId the intent
+      // carried) satisfy `verify()`'s exact-match fence directly, instead of relying only on
+      // `previousLaunchId`'s hand-over fallback, which would otherwise start this new request
+      // with no known launchId at all (a real loosening: the fence would accept any launchId
+      // until the first report). An unmanaged intent (no `launchId`) still falls back to
+      // whatever the previous reference already recorded for the very same request.
+      ...(intent.launchId
+        ? { launchId: intent.launchId }
+        : compatible &&
+            old?.startRequestId === intent.requestId &&
+            old.daemonInstanceId === daemonInstanceId
+          ? { launchId: old.launchId }
+          : {}),
     };
     if (!(await this.repository.replace(intent.agentId, old, next, intent)))
       throw new Error("Agent session selection changed concurrently");

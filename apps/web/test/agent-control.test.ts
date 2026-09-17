@@ -328,12 +328,13 @@ test("reset is one confirmed-stop then fresh-start operation and retains no old 
         events.push("start");
         expect(start.sessionId).toBeUndefined();
         expect(start.controlEpoch).toBe(1);
-        const launchId = "launch-a";
-        await control.authorizeLaunch({ ...start, launchId, controlEpoch: start.controlEpoch! });
+        // ADR 0041: the server mints and publishes launchId; the Daemon adopts it as-is.
+        expect(start.launchId).toBeTruthy();
+        await control.authorizeLaunch({ ...start, controlEpoch: start.controlEpoch! });
         await control.result(start, {
           ...start,
           epoch: start.controlEpoch!,
-          launchId,
+          launchId: start.launchId!,
           phase: "started",
           sequence: 2,
           identity: { sessionId: "new-native-id", state: "empty" },
@@ -405,11 +406,11 @@ test.each([undefined, "pi", "codex", "claude-code", "coforge"] as const)(
           } catch {
             const start = decodeAgentStartIntent(bytes);
             expect(start.sessionId).toBeUndefined();
-            await control.authorizeLaunch({ ...start, launchId: "launch-a" });
+            await control.authorizeLaunch(start);
             await control.result(start, {
               ...start,
               epoch: start.controlEpoch!,
-              launchId: "launch-a",
+              launchId: start.launchId!,
               phase: "started",
               sequence: 2,
               identity: { sessionId: "fresh", state: "empty" },
@@ -893,19 +894,23 @@ test("Full Reset completes when the workspace clear could not finish, and the Ag
     phase: "workspace-reset",
     sequence: 2,
   });
-  expect(decodeAgentStartIntent(sent[2]!)).toMatchObject({ requestId: "reset", controlEpoch: 1 });
-  expect(decodeAgentStartIntent(sent[2]!).sessionId).toBeUndefined();
+  const secondStart = decodeAgentStartIntent(sent[2]!);
+  expect(secondStart).toMatchObject({ requestId: "reset", controlEpoch: 1 });
+  expect(secondStart.sessionId).toBeUndefined();
+  // ADR 0041: the server minted this operation's launchId already (`begin()`), carried in the
+  // Start intent it just published.
+  expect(secondStart.launchId).toBeTruthy();
   expect((await store.get("a"))?.state?.identity).toBeUndefined();
   await control.authorizeLaunch({
     ...scope,
     requestId: "reset",
-    launchId: "launch-a",
+    launchId: secondStart.launchId,
     controlEpoch: 1,
   });
   await control.result(scope, {
     ...scope,
     phase: "started",
-    launchId: "launch-a",
+    launchId: secondStart.launchId!,
     sequence: 3,
     identity: { sessionId: "new-native-id", state: "empty" },
   });
@@ -1036,12 +1041,11 @@ test("a signal-driven wakeup trusts the ACK path and never republishes the comma
         const start = decodeAgentStartIntent(bytes);
         events.push("start");
         later(async () => {
-          const launchId = "launch-a";
-          await control.authorizeLaunch({ ...start, launchId, controlEpoch: start.controlEpoch! });
+          await control.authorizeLaunch({ ...start, controlEpoch: start.controlEpoch! });
           await control.result(start, {
             ...start,
             epoch: start.controlEpoch!,
-            launchId,
+            launchId: start.launchId!,
             phase: "started",
             sequence: 2,
             identity: { sessionId: "native-a", state: "resumable" },
@@ -1614,13 +1618,12 @@ test("same requestId stays idempotent while pending and after completion (no new
   const start = decodeAgentStartIntent(startBytes);
   await control.authorizeLaunch({
     ...start,
-    launchId: "launch-a",
     controlEpoch: start.controlEpoch!,
   });
   await control.result(start, {
     ...start,
     epoch: start.controlEpoch!,
-    launchId: "launch-a",
+    launchId: start.launchId!,
     phase: "started",
     sequence: 2,
     identity: { sessionId: "native", state: "empty" },
@@ -1952,11 +1955,11 @@ test("publishStop drives a pending starting Agent through stop then a fresh star
         }
         const start = decodeAgentStartIntent(bytes);
         events.push("start");
-        await control.authorizeLaunch({ ...start, launchId: "launch-a" });
+        await control.authorizeLaunch(start);
         await control.result(start, {
           ...start,
           epoch: start.controlEpoch!,
-          launchId: "launch-a",
+          launchId: start.launchId!,
           phase: "started",
           sequence: 2,
           identity: { sessionId: "native-a", state: "empty" },
@@ -2344,7 +2347,13 @@ test("a user Start that meets an Agent already starting joins that launch instea
   expect(current().state).toMatchObject({ requestId: "third", epoch: 5, phase: "stopping" });
 });
 
-test("authorizeLaunch re-reads and retries when a concurrent Session write wins the conditional write", async () => {
+test("authorizeLaunch verifies without writing (ADR 0041): a concurrent Session write cannot affect it", async () => {
+  // ADR 0041: `launchId` is minted and persisted by `begin()`/`advance()`/`publishCurrent()` the
+  // moment the operation enters "starting" — before the Daemon ever calls this. `authorizeLaunch`
+  // only verifies the Daemon's claimed launchId against that already-stored value; it never
+  // writes, so there is no compare-and-swap race left for a concurrent Session write (e.g. an
+  // `agent:session:invalidate`-triggered clear) to lose. This replaces the old read-validate-write
+  // retry loop and its "Agent launch lost its fence" error, both removed with the write itself.
   const runtimeConfig = {
     runtime: "pi" as const,
     provider: { kind: "default" as const },
@@ -2383,19 +2392,15 @@ test("authorizeLaunch re-reads and retries when a concurrent Session write wins 
   const store: AgentControlStore = {
     get: async () => {
       reads++;
+      // Simulates an `agent:session:invalidate` clearing the Session association concurrently,
+      // between two reads of the same agent — a mutation `authorizeLaunch` never observes,
+      // because it never re-reads.
+      if (reads === 1) agent = { ...agent, currentSessionId: null, identity: undefined };
       return structuredClone(agent);
     },
     memberRole: async () => "owner",
-    replace: async (before, state) => {
+    replace: async (_before, state) => {
       writes++;
-      // First write: an `agent:session:invalidate` cleared the Session association after the
-      // read, exactly what the Prisma store's currentSessionId comparison rejects.
-      if (writes === 1) {
-        const { identity: _identity, ...cleared } = agent.state!;
-        agent = { ...agent, currentSessionId: null, identity: undefined, state: cleared };
-        return false;
-      }
-      if ((before.currentSessionId ?? null) !== (agent.currentSessionId ?? null)) return false;
       agent = { ...agent, state };
       return true;
     },
@@ -2413,28 +2418,62 @@ test("authorizeLaunch re-reads and retries when a concurrent Session write wins 
     requestId: "start-1",
     launchId: "launch-a",
   });
-  expect(reads).toBe(2);
-  expect(writes).toBe(2);
-  expect(agent.state?.launchId).toBe("launch-a");
+  expect(reads).toBe(1);
+  expect(writes).toBe(0);
+  // The concurrent Session clear is untouched by authorizeLaunch's own (nonexistent) write.
   expect(agent.currentSessionId).toBeNull();
+  expect(agent.state?.launchId).toBe("launch-a");
+});
 
-  // A launch that is no longer current after the re-read is still refused, never retried blind.
-  writes = 0;
-  const stale: AgentControlStore = {
-    ...store,
-    replace: async () => {
-      writes++;
-      agent = { ...agent, state: { ...agent.state!, epoch: 3, requestId: "start-2" } };
-      return false;
+test("authorizeLaunch rejects a launch that is no longer current, without writing", async () => {
+  const runtimeConfig = {
+    runtime: "pi" as const,
+    provider: { kind: "default" as const },
+    model: "",
+    modelProvider: "",
+    reasoning: "",
+  };
+  const agent: AgentControlAgent = {
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig,
+    state: {
+      version: 1,
+      protocolMajor: 1,
+      requestId: "start-2",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      epoch: 3,
+      action: "start",
+      phase: "starting",
+      configRevision: agentControlRevision(runtimeConfig),
+      controlSequence: 0,
+      sessionSequence: 0,
+      launchId: "launch-b",
     },
   };
-  const second = new AgentControl(
-    stale,
+  let writes = 0;
+  const store: AgentControlStore = {
+    get: async () => structuredClone(agent),
+    memberRole: async () => "owner",
+    replace: async () => {
+      writes++;
+      return true;
+    },
+  };
+  const control = new AgentControl(
+    store,
     { publish: async () => {} },
     { run: async (_id, work) => work() },
   );
+  // The launch this caller minted (epoch 2, "launch-a") was superseded by a newer operation
+  // (epoch 3, "launch-b") before this arrived.
   await expect(
-    second.authorizeLaunch({
+    control.authorizeLaunch({
       agentId: "a",
       workspaceId: "w",
       computerId: "c",
@@ -2443,5 +2482,194 @@ test("authorizeLaunch re-reads and retries when a concurrent Session write wins 
       launchId: "launch-a",
     }),
   ).rejects.toThrow("Stale Agent launch");
-  expect(writes).toBe(1);
+  expect(writes).toBe(0);
+});
+
+test.each(["start", "restart", "reset-session", "full-reset"] as const)(
+  "%s publishes a Start intent carrying the server-minted launchId (ADR 0041)",
+  async (action) => {
+    const { store } = pendingOpStore({
+      id: "a",
+      ownerId: "owner",
+      workspaceId: "w",
+      computerId: "c",
+      runtimeConfig: pendingRuntimeConfig,
+      state: null,
+    });
+    const sent: Uint8Array[] = [];
+    let sequence = 0;
+    const control = new AgentControl(
+      store,
+      {
+        async publish(_channel, bytes) {
+          sent.push(bytes);
+          try {
+            const stop = decodeAgentStopIntent(bytes);
+            await control.result(stop, {
+              ...stop,
+              provider: stop.provider!,
+              epoch: stop.controlEpoch!,
+              phase: "stopped",
+              sequence: ++sequence,
+            });
+            return;
+          } catch {
+            /* Not a stop intent. */
+          }
+          try {
+            const reset = decodeAgentWorkspaceResetRequest(bytes);
+            await control.result(reset, {
+              ...reset,
+              phase: "workspace-reset",
+              sequence: ++sequence,
+            });
+            return;
+          } catch {
+            /* Not a workspace-reset request. */
+          }
+          const start = decodeAgentStartIntent(bytes);
+          expect(start.launchId).toBeTruthy();
+          await control.authorizeLaunch(start);
+          await control.result(start, {
+            ...start,
+            epoch: start.controlEpoch!,
+            launchId: start.launchId!,
+            phase: "started",
+            sequence: ++sequence,
+            identity: { sessionId: "native", state: "empty" },
+          });
+        },
+      },
+      { run: async (_id, work) => work() },
+      { timeoutMs: 1, fallbackMs: 0 },
+    );
+    const result = await control.execute({
+      userId: "owner",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "request-1",
+      action,
+      confirmed: true,
+    });
+    expect(result.phase).toBe("completed");
+    const starts = sent
+      .map((bytes) => {
+        try {
+          return decodeAgentStartIntent(bytes);
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((intent) => intent !== undefined);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]!.launchId).toBeTruthy();
+  },
+);
+
+test("a launchId is minted once per operation and stays stable across a republish (recover)", async () => {
+  const { store, current } = pendingOpStore({
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: pendingRuntimeConfig,
+    state: null,
+  });
+  const sent: Uint8Array[] = [];
+  // The daemon never answers, so the operation stays pending: `execute()`'s own single publish,
+  // then two Daemon-ready `recover()` republishes of the SAME pending request. The launchId must
+  // never change across any of them — no new epoch, no new mint.
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void sent.push(bytes) },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+  );
+  const view = await control.execute({
+    userId: "owner",
+    workspaceId: "w",
+    agentId: "a",
+    requestId: "start-1",
+    action: "start",
+  });
+  expect(view.phase).toBe("pending");
+  expect(sent).toHaveLength(1);
+  const mintedLaunchId = decodeAgentStartIntent(sent[0]!).launchId;
+  expect(mintedLaunchId).toBeTruthy();
+  expect(current().state?.launchId).toBe(mintedLaunchId);
+
+  const recoverIntent = {
+    protocolMajor: 1,
+    requestId: "recover-request",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi" as const,
+    model: "",
+    reasoning: "",
+  };
+  sent.length = 0;
+  await control.recover(recoverIntent, "owner");
+  await control.recover(recoverIntent, "owner");
+  expect(sent).toHaveLength(2);
+  for (const bytes of sent) expect(decodeAgentStartIntent(bytes).launchId).toBe(mintedLaunchId);
+  expect(current().state?.launchId).toBe(mintedLaunchId);
+  expect(current().state?.requestId).toBe("start-1");
+});
+
+test("publishCurrent mints and persists a launchId for a legacy 'starting' row that predates ADR 0041", async () => {
+  let agent: AgentControlAgent = {
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: pendingRuntimeConfig,
+    state: {
+      version: 1,
+      protocolMajor: 1,
+      requestId: "legacy-start",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      epoch: 1,
+      action: "start",
+      phase: "starting",
+      configRevision: agentControlRevision(pendingRuntimeConfig),
+      controlSequence: 0,
+      sessionSequence: 0,
+      // No launchId: exactly the shape a row written before ADR 0041 shipped would have.
+    },
+  };
+  const store: AgentControlStore = {
+    memberRole: async () => "owner",
+    get: async () => structuredClone(agent),
+    replace: async (before, state) => {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state };
+      return true;
+    },
+  };
+  const sent: Uint8Array[] = [];
+  const control = new AgentControl(
+    store,
+    { publish: async (_channel, bytes) => void sent.push(bytes) },
+    { run: async (_id, work) => work() },
+  );
+  await control.recover(
+    {
+      protocolMajor: 1,
+      requestId: "legacy-start",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      model: "",
+      reasoning: "",
+    },
+    "owner",
+  );
+  const published = decodeAgentStartIntent(sent[0]!);
+  expect(published.launchId).toBeTruthy();
+  expect(agent.state?.launchId).toBe(published.launchId);
 });

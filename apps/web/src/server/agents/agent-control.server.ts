@@ -260,6 +260,11 @@ export class AgentControl {
       const next = chain[index];
       if (next === "clear-session") throw new Error("Invalid Agent control chain");
       const { identity, launchId: _launch, ...fields } = state;
+      // ADR 0041: a chain step that moves into "starting" (e.g. Restart's stop -> start,
+      // Reset session's stop -> clear-session -> start) mints a fresh launchId here, the moment
+      // of the same phase transition `begin()` mints one for a direct `action: "start"` — never
+      // carried forward from the step this operation just finished.
+      const launchId = next === "start" ? crypto.randomUUID() : undefined;
       if (
         !(await this.store.replace(
           agent,
@@ -268,6 +273,7 @@ export class AgentControl {
             phase: next ? commands[next].pending : "completed",
             sessionSequence: 0,
             ...(!clearSession && identity ? { identity } : {}),
+            ...(launchId ? { launchId } : {}),
           },
           { clearSession },
         ))
@@ -392,6 +398,11 @@ export class AgentControl {
     const retain =
       old && old.computerId === agent.computerId && old.provider === agent.runtimeConfig.runtime;
     const identity = retain ? old.identity : !old ? agent.identity : undefined;
+    // ADR 0041: the server mints one launchId per operation's start step, the moment the
+    // operation enters phase "starting", in this same compare-and-swap write — never later, and
+    // never re-minted for a republish of the same operation (`state.requestId === requestId`
+    // stays idempotent above and never reaches here; `advance()` mints its own when a chain's
+    // stop/clear steps finish and it moves into "starting"). The Daemon no longer mints its own.
     const state: AgentControlState = {
       version: 1,
       protocolMajor: 1,
@@ -407,6 +418,7 @@ export class AgentControl {
       controlSequence: 0,
       sessionSequence: 0,
       ...(identity ? { identity } : {}),
+      ...(action === "start" ? { launchId: crypto.randomUUID() } : {}),
     };
     if (await this.store.replace(agent, state, stoppedAt !== undefined ? { stoppedAt } : undefined))
       return state;
@@ -483,6 +495,21 @@ export class AgentControl {
       const reset =
         state.phase !== "completed" &&
         (state.action === "reset-session" || state.action === "full-reset");
+      // ADR 0041: `launchId` should already be minted (`begin()`/`advance()`, the moment this
+      // operation entered "starting"); the only gap is a "starting" row written before this
+      // record shipped. Mint and persist it here, once, before publish — never for a "completed"
+      // republish, which already has one from when it first started.
+      let launchId = state.launchId;
+      if (state.phase === "starting" && !launchId) {
+        launchId = crypto.randomUUID();
+        if (!(await this.store.replace(agent, { ...state, launchId }))) {
+          const refreshed = await this.store.get(agentId);
+          const refreshedLaunchId =
+            refreshed?.state?.requestId === requestId ? refreshed.state.launchId : undefined;
+          if (!refreshedLaunchId) throw new Error("Agent launch could not be assigned an id");
+          launchId = refreshedLaunchId;
+        }
+      }
       const intent: AgentStartIntent = {
         protocolMajor: 1,
         requestId,
@@ -491,6 +518,7 @@ export class AgentControl {
         agentId,
         ...runtimeStartFields(agent.runtimeConfig),
         controlEpoch: state.epoch,
+        ...(launchId ? { launchId } : {}),
         ...(!reset &&
         identity?.sessionId &&
         (identity.state !== "empty" || state.phase === "completed")
@@ -572,7 +600,16 @@ export class AgentControl {
     }
   }
 
-  /** Register a launch before minting its credential; never accepts user-selected Session IDs. */
+  /**
+   * Verifies a launch before minting its credential; never accepts user-selected Session IDs.
+   *
+   * ADR 0041: `launchId` is minted and persisted by `begin()`/`advance()`/`publishCurrent()` the
+   * moment the operation enters "starting" — before this is ever called. This method only
+   * verifies the Daemon's claimed `launchId` matches that already-stored value; it performs no
+   * write, so there is no compare-and-swap race left to retry here (a concurrent Session write,
+   * e.g. an `agent:session:invalidate`-triggered clear, cannot make a read-only check lose a
+   * race the way the old read-validate-write pass could).
+   */
   async authorizeLaunch(input: {
     agentId: string;
     workspaceId: string;
@@ -580,25 +617,7 @@ export class AgentControl {
     controlEpoch?: number;
     requestId?: string;
     launchId?: string;
-  }) {
-    // A Session write that does not belong to the control chain (a session snapshot, or the
-    // fire-and-forget `agent:session:invalidate` a cold-start retry sends just before it asks
-    // for this launch again) can land between the read and the conditional write. That is not a
-    // lost fence: re-read and re-validate, so a concurrent Session change never fails a launch.
-    for (let attempt = 1; ; attempt++) {
-      if (await this.tryAuthorizeLaunch(input)) return;
-      if (attempt === 3) throw new Error("Agent launch lost its fence");
-    }
-  }
-  /** One read-validate-write pass; false only when the conditional write lost its race. */
-  private async tryAuthorizeLaunch(input: {
-    agentId: string;
-    workspaceId: string;
-    computerId: string;
-    controlEpoch?: number;
-    requestId?: string;
-    launchId?: string;
-  }): Promise<boolean> {
+  }): Promise<void> {
     const agent = await this.store.get(input.agentId);
     if (!agent || agent.workspaceId !== input.workspaceId || agent.computerId !== input.computerId)
       throw new Error("Agent launch is not authorized");
@@ -606,7 +625,7 @@ export class AgentControl {
     if (!state) {
       if (input.controlEpoch || input.requestId || input.launchId)
         throw new Error("Unsolicited managed launch");
-      return true;
+      return;
     }
     if (
       !current(agent, state) ||
@@ -614,10 +633,9 @@ export class AgentControl {
       state.requestId !== input.requestId ||
       state.epoch !== input.controlEpoch ||
       !input.launchId ||
-      (state.launchId && state.launchId !== input.launchId)
+      state.launchId !== input.launchId
     )
       throw new Error("Stale Agent launch");
-    return this.store.replace(agent, { ...state, launchId: input.launchId });
   }
   /** RPC ACK follows conditional persistence; never acquires the control waiter's lock. */
   async result(claim: { workspaceId: string; computerId: string }, result: AgentControlResult) {

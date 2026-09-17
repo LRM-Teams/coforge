@@ -942,15 +942,16 @@ Web 仍校验原有作用域及 start/daemon/launch fence，并要求被替代 I
 `agent:session:invalidate` RPC（`AgentSessionInvalidate`，`workspace.proto`）：Daemon 在得知
 存量 native session 不可用（`missing`）或被 provider 拒绝重放（`provider_replay_rejected`）后、
 发起冷启动重试之前（kiro/pi 的 `AgentSessionRecoveryError` 路径），或在得知 Claude/Codex
-in-driver 自行替换的那一刻，上报该消息，携带 workspace/computer/agent/provider、失效的
-sessionId、launchId、daemonInstanceId、controlEpoch 与 reason。此消息 fire-and-forget，从不
+in-driver 自行替换的那一刻（先于新 session 的上报），上报该消息；每个失效 session 只上报一次，
+`session_in_use` 不上报。消息携带 requestId、workspace/computer/agent/provider、失效的
+sessionId、launchId、daemonInstanceId 与 reason，不带 control fence 字段（`launchId` 已足够区分）。此消息 fire-and-forget，从不
 阻塞或使 launch 失败：连接层复用既有 Activity 回放机制——按 Agent 只保留最新一条待发消息，
-断线期间缓冲、重连后回放，一旦观察到该 Agent 更新 launch 的 Activity 即丢弃过期项，不另建一套
-机制。Web 端按与 `AgentSessionReport` 相同的 scope（当前 Daemon instance、workspace/computer
+断线期间缓冲、重连后先于 Activity 回放；只有当 session report 表明该 Agent 已有更新的 launch 时
+才丢弃过期项（Activity 不算数，与 Raft 的 `observeLaunchIdentity` 一致）。Web 端按与 `AgentSessionReport` 相同的 scope（当前 Daemon instance、workspace/computer
 claim、provider）校验后，仅当当前 Session 关联的 native ID 与失效 ID 完全一致、且仍属于同一
 launch 时，才在一次 compare-and-swap 中清除该关联——与"Reset Session"的 `clearSession` 相同：
-保留旧 `AgentSession` 行，只解除 `Agent.currentSessionId` 与 `runtimeSession` fence——并在存在
-进行中操作时把控制状态标记 `recovered`，供既有"recovered" UI 呈现复用；不匹配（已被替换、过期
+保留旧 `AgentSession` 行，只解除 `Agent.currentSessionId` 与 `runtimeSession` fence，控制状态的
+其他字段一概不动（用户只通过 Daemon 的冷启动 Activity 得知，与 Raft 一致）；不匹配（已被替换、过期
 launch、陌生 Daemon instance）时幂等忽略，绝不清除更新 launch 的 Session。旧 Daemon 从不发送该
 消息，Web 继续依赖 `replaced_session_id` 隐式上报；新 Daemon 对不识别该 RPC 的旧服务端（未知
 方法 404）只记录一次 warning 日志，不重试、不影响 launch。
@@ -978,6 +979,16 @@ sidechain 或无可提取摘要；已发布实现还吞掉 stat 失败。因此�
 [Codex thread processor](https://github.com/openai/codex/blob/main/codex-rs/app-server/src/request_processors/thread_processor.rs)、
 [Codex error codes](https://github.com/openai/codex/blob/main/codex-rs/app-server/src/error_code.rs)、
 [Claude SDK published package](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk/v/0.3.263)。
+
+2026-09-17（ADR 0041）`launchId` 改由服务端下发：操作进入 `starting` 的同一次 CAS 写入里由
+`AgentControl` 生成并存入 `controlState.launchId`，随 `agent:start` 的 `launch_id` 下发；同一操作的
+重发（`recover`、`drive` 重试）使用同一个值。带 `controlEpoch` 的受管 Start 必须携带 `launchId`，
+SDK 编解码会拒绝缺失的情况。`authorizeLaunch` 只校验、不写库。Daemon 以下发的 `launchId` 启动；
+当 Start 到达时进程已在更早的、已完成的操作下运行，Daemon 不再以 `agent_already_running` 拒绝，
+而是 rebind：保留进程、会话和凭证，采用新的 scope 与 `launchId`，重新上报 Session 与
+`agent:status`，投递 wake message，并回 `started` 结果（与 Raft 的 `rebindRunningStart` 一致）。
+不兼容旧 Daemon：旧版本会自行生成 `launchId`，其 `authorizeLaunch` 会被拒绝，需先升级 Computer。
+Daemon 自行发起的启动（空闲 Agent 被消息唤醒）仍自行生成 `launchId`，是与 Raft 尚存的差异。
 
 Codex 用官方 `thread/resume(threadId)` 并验证返回 ID；Pi 用 `--session` 并验证 `get_state.sessionId`；CoForge SDK 在 Agent 独立目录中 list/open；Claude 用 `--resume`。Codex/Pi/CoForge 的早期 identity callback 完成 ACK 后才返回 session 创建成功。Claude control initialize 与会话 ID 不同步：首条云端输入不等待 ID，官方 `system/init` 和顶层 `result`（turn-end）分别排队上报已观察的同一 ID，重复 init 不抑制 turn-end 确认。上报串行但不阻塞事件读取；失败显示 runtime error，不声称云端已保存。新 Claude session 的后续 notify 等待真实首个 result；已知 resume ID 验证后可以在原有完整 tool boundary 接受 notify。退出/dispose 拒绝等待通知，不伪造 prompt 或改变 Message ACK 的 accepted-notify 边界。
 

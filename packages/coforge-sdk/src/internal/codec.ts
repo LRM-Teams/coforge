@@ -491,6 +491,12 @@ function validateAgentSessionInvalidate(value: {
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
   if (value.controlEpoch !== undefined)
     assertPositiveControlCounter(value.controlEpoch, "Agent control epoch");
+  // ADR 0041: the server mints and supplies launchId for every managed (controlEpoch-carrying)
+  // start; a start intent with an epoch but no launchId is an internal bug, not a wire concern.
+  if (value.controlEpoch !== undefined && !value.launchId?.trim())
+    throw new Error("managed Agent start intent requires a launchId");
+  if (value.launchId !== undefined && (!value.launchId.trim() || value.launchId.length > 512))
+    throw new Error("invalid Agent start launchId");
   if ((value.resumeMessages?.length ?? 0) > 100)
     throw new Error("Agent recovery resumeMessages exceeds 100");
   const recoveryMessages = [
@@ -556,6 +562,12 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error(`unsupported runtime provider: ${v.provider}`);
   if (v.controlEpoch !== undefined)
     assertPositiveControlCounter(v.controlEpoch, "Agent control epoch");
+  // ADR 0041: a managed start (one carrying controlEpoch) must carry the server-minted
+  // launchId; a decoded intent that fails this is malformed, not merely "unmanaged."
+  if (v.controlEpoch !== undefined && !v.launchId?.trim())
+    throw new Error("invalid agent start intent: managed start requires a launchId");
+  if (v.launchId !== undefined && v.launchId.length > 512)
+    throw new Error("invalid agent start intent launchId");
   const recoveryMessages = [...(v.wakeMessage ? [v.wakeMessage] : []), ...v.resumeMessages];
   const summaryTargets = new Set(v.unreadSummary.map(({ target }) => target));
   const messageIds = new Set(recoveryMessages.map(({ messageId }) => messageId));
@@ -614,6 +626,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     ...(v.sessionId ? { sessionId: v.sessionId } : {}),
     ...(v.sessionMode ? { sessionMode: v.sessionMode } : {}),
     ...(v.controlEpoch !== undefined ? { controlEpoch: v.controlEpoch } : {}),
+    ...(v.launchId ? { launchId: v.launchId } : {}),
     ...(v.wakeMessage ? { wakeMessage: recoveryMessage(v.wakeMessage) } : {}),
     ...(v.resumeMessages.length ? { resumeMessages: v.resumeMessages.map(recoveryMessage) } : {}),
     ...(v.unreadSummary.length

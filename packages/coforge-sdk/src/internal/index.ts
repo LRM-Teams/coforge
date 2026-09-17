@@ -419,6 +419,9 @@ export type AgentStartIntent = {
   sessionMode?: "create" | "resume";
   previousLaunchId?: string;
   controlEpoch?: number;
+  /** ADR 0041: the server-minted launchId for this control operation's start step; required
+   * whenever `controlEpoch` is set (every managed start). */
+  launchId?: string;
   providerConfig?: AgentRuntimeProviderConfig;
   wakeMessage?: AgentRecoveryMessage;
   resumeMessages?: AgentRecoveryMessage[];

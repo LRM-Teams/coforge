@@ -175,6 +175,9 @@ test("Agent start round-trips lifecycle fence fields", () => {
     reasoning: "high",
     providerConfig: { kind: "default" as const },
     controlEpoch: 7,
+    // ADR 0041: the server mints and supplies launchId for every managed start; required
+    // whenever controlEpoch is set.
+    launchId: "launch-1",
   } satisfies AgentStartIntent;
 
   expect(decodeAgentStartIntent(encodeAgentStartIntent(intent))).toEqual(intent);
