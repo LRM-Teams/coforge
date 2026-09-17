@@ -1756,7 +1756,7 @@ export class DaemonRuntime {
       this.#emitAgentActivity(
         agentId,
         launch,
-        this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.TOOL_END, "info", ""),
+        this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.TOOL_END, "info", "Tool finished"),
       );
       return;
     }
@@ -3124,9 +3124,19 @@ function safeRuntimeActivityMessage(activity: string, level: string, message: st
     return [...scrubActivityText(message)].slice(0, 100).join("");
   if (
     activity === AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED ||
-    activity === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING
+    activity === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING ||
+    activity === AGENT_ACTIVITY_DETAIL_KIND.THINKING_END
   ) {
     return scrubActivityText(message);
+  }
+  // The content-free run-start announcement (ActivityTrajectory#startRun) carries no
+  // message; let it through empty instead of falling to the generic sentence below.
+  if (
+    (activity === AGENT_ACTIVITY_DETAIL_KIND.THINKING_STARTED ||
+      activity === AGENT_ACTIVITY_DETAIL_KIND.MODEL_RESPONSE_STARTED) &&
+    !message
+  ) {
+    return "";
   }
   return "Agent activity observed.";
 }
