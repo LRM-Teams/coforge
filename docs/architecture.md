@@ -697,6 +697,16 @@ Full Reset 已删除的用户文件不可因随后 Start 失败而自动还原�
 Clear Session → Start、Stop → Reset Workspace → Clear Session → Start。前端不编排
 步骤，Daemon 不接收单独的 `full-reset` 命令。Chain 表达顺序，持久化状态机以成功
 回执推进；同一 Agent 的整个组合共享 request/epoch，通过条件写入拒绝其他操作插入。
+非终止阶段若已放弃——缺少 `updatedAtMs`（历史行）或早于 `abandonAfterMs`（默认 60 秒，
+远超 `drive` 的 7 秒等待）——视为无人驱动，允许新操作以 epoch+1 顶替，日志记录
+`agent_control:pending_superseded`；顶替遵循与终止态相同的身份保留规则，且失败 Full
+Reset 的例外规则同样适用于已放弃的 Full Reset：仅显式确认的新 Full Reset 可以顶替，
+其余操作仍然拒绝。Ready recovery 对已放弃的挂起操作只重发原 request，不顶替也不刷新
+`updatedAtMs`——顶替只留给 owner 发起的 execute/publishStart/publishStop，避免每次
+重连铸造新 epoch（[ADR 0035](adr/0035-agent-control-abandoned-pending-supersede.md)）。
+控制结果与 Session snapshot 被拒绝时记录 warning（`agent_control:result_rejected`、
+`agent_session:snapshot_rejected`），reason 取自固定错误消息白名单，未知错误只记录
+错误类型，不记录原始消息或负载；写入端仍保持原有的 403 线路行为不变。
 Clear Session 是云端本地步骤，与下一步骤状态在同一 PostgreSQL 事务提交；Session 与
 控制写入先锁 Agent 行，再重新读取关联 Session，避免旧快照覆盖新的绑定或可恢复状态。
 执行结果未知时保留当前步骤，重发沿用原标识；明确失败停止推进。失败的 Full Reset

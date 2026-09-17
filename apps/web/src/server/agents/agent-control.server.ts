@@ -67,6 +67,11 @@ export type AgentControlState = AgentControlScope & {
   controlSequence: number;
   sessionSequence: number;
   errorCode?: string;
+  /** Wall-clock stamp of the last write `AgentControl` itself made to this state; absent on
+   * states persisted before this field existed. Drives abandonment detection only — never
+   * compared for CAS equality (see `operationFence`) and never a liveness signal for anything
+   * else. */
+  updatedAtMs?: number;
 };
 export type AgentControlAgent = {
   id: string;
@@ -142,10 +147,13 @@ function operationFence(state: AgentControlState | null) {
     sessionSequence: _sessionSequence,
     launchIdentityBound: _launchIdentityBound,
     recovered: _recovered,
+    updatedAtMs: _updatedAtMs,
     ...fence
   } = state;
   return fence;
 }
+
+const DEFAULT_ABANDON_AFTER_MS = 60_000;
 
 /** Shared authorization for control results and independent Session snapshots. */
 export async function requireCurrentAgentScope(
@@ -173,12 +181,51 @@ export class AgentControl {
     private readonly store: AgentControlStore,
     private readonly api: Pick<CentrifugoServerApi, "publish">,
     private readonly runtimeLock: AgentRuntimeLock,
-    private readonly timing: { timeoutMs: number; fallbackMs?: number } = { timeoutMs: 7_000 },
+    private readonly timing: {
+      timeoutMs: number;
+      fallbackMs?: number;
+      /** A non-terminal state older than this with no driver (waiter timed out, process
+       * restarted, Daemon never answered) counts as abandoned. Default 60s: well beyond
+       * `drive`'s 7s waiter, short enough to unwedge a stuck Agent without racing a Daemon
+       * that is still genuinely working the operation. */
+      abandonAfterMs?: number;
+      /** Injected so abandonment tests are deterministic; defaults to the real clock. */
+      now?: () => number;
+    } = { timeoutMs: 7_000 },
     private readonly sessions?: AgentSessions,
     private readonly signal: AgentControlSignal = new LocalAgentControlSignal(),
   ) {}
 
-  /** Ready recovery republishes the current fence; it never waits for buffered daemon ACKs. */
+  private clock(): number {
+    return (this.timing.now ?? Date.now)();
+  }
+
+  /** Milliseconds since the state's last `AgentControl` write, or `undefined` for a legacy
+   * state persisted before `updatedAtMs` existed. */
+  private operationAge(state: AgentControlState): number | undefined {
+    return state.updatedAtMs === undefined ? undefined : this.clock() - state.updatedAtMs;
+  }
+
+  /** A terminal state is never abandoned; a legacy state with no timestamp always is — that is
+   * what un-wedges rows persisted before this field existed. */
+  private isAbandoned(state: AgentControlState): boolean {
+    if (terminal(state)) return false;
+    const age = this.operationAge(state);
+    return age === undefined || age > (this.timing.abandonAfterMs ?? DEFAULT_ABANDON_AFTER_MS);
+  }
+
+  /**
+   * Ready recovery republishes the current fence; it never waits for buffered daemon ACKs.
+   *
+   * A non-terminal state that is also abandoned is deliberately still republished here, not
+   * superseded: `recover` only runs for an Agent the Daemon just reported as NOT running, so
+   * there is no risk of a duplicate live process, and the Daemon's own control record repair
+   * (ADR 0033) now answers a request it previously rejected outright instead of leaving it
+   * unanswered forever. Minting a fresh epoch on every reconnect would instead churn the
+   * request on every `ready()` without the Daemon ever getting a chance to answer the one it
+   * already has. `begin` (ADR 0035) still supersedes an abandoned pending operation, but only
+   * for an owner-initiated retry through `execute`/`publishStart`/`publishStop`.
+   */
   async recover(intent: AgentStartIntent, userId: string) {
     const agent = await this.authorized(userId, intent.workspaceId, intent.agentId);
     if (agent.state && !terminal(agent.state)) {
@@ -208,6 +255,7 @@ export class AgentControl {
             ...fields,
             phase: next ? commands[next].pending : "completed",
             sessionSequence: 0,
+            updatedAtMs: this.clock(),
             ...(!clearSession && identity ? { identity } : {}),
           },
           { clearSession },
@@ -215,6 +263,9 @@ export class AgentControl {
       )
         return;
     }
+    // Reaching this line without a store write above (phase already "starting"/"completed") is
+    // a pure republish of the same command; it must NOT stamp `updatedAtMs`, or a legacy/aged
+    // state would never age past `abandonAfterMs` while `recover` keeps calling this.
     await this.publishCurrent(agentId, requestId, recovery);
   }
   async execute(input: {
@@ -274,14 +325,32 @@ export class AgentControl {
       if (old.action !== action || !current(agent, old)) throw new Error("Operation scope changed");
       return old;
     }
-    if (old && !terminal(old)) throw new Error("Agent control operation is pending");
+    // A pending operation nobody is driving (waiter timed out, process restarted, Daemon never
+    // answered) must not wedge every future operation forever; only a genuinely fresh pending
+    // operation still blocks here. `abandoned` below is superseded exactly like a terminal
+    // `old`, epoch+1 and all, except the destructive full-reset chain right below it.
+    const abandoned = !!old && !terminal(old) && this.isAbandoned(old);
+    if (old && !terminal(old) && !abandoned) throw new Error("Agent control operation is pending");
     if (
-      old?.phase === "failed" &&
-      old.action === "full-reset" &&
-      (action === "start" ||
-        (old.errorCode === "workspace_clear_failed" && action !== "full-reset"))
+      old?.action === "full-reset" &&
+      ((old.phase === "failed" &&
+        (action === "start" ||
+          (old.errorCode === "workspace_clear_failed" && action !== "full-reset"))) ||
+        (abandoned && action !== "full-reset"))
     )
       throw new Error("Explicit Agent reset retry is required");
+    if (old && abandoned)
+      console.warn(
+        JSON.stringify({
+          event: "agent_control:pending_superseded",
+          agent_id: agent.id,
+          previous_action: old.action,
+          previous_phase: old.phase,
+          previous_epoch: old.epoch,
+          age_ms: this.operationAge(old) ?? "unknown",
+          new_action: action,
+        }),
+      );
     const retain =
       old && old.computerId === agent.computerId && old.provider === agent.runtimeConfig.runtime;
     const identity = retain ? old.identity : !old ? agent.identity : undefined;
@@ -299,6 +368,7 @@ export class AgentControl {
       configRevision: agentControlRevision(agent.runtimeConfig),
       controlSequence: 0,
       sessionSequence: 0,
+      updatedAtMs: this.clock(),
       ...(identity ? { identity } : {}),
     };
     if (await this.store.replace(agent, state)) return state;
@@ -328,8 +398,13 @@ export class AgentControl {
     const agent = await this.authorized(userId, intent.workspaceId, intent.agentId);
     let state = agent.state;
     if (state && !terminal(state)) {
-      // Recovery must never bypass a reset. Owner retry continues the same operation.
-      if (state.action !== "start") throw new Error("Agent control operation is pending");
+      // Recovery must never bypass a reset. Owner retry continues the same operation, unless
+      // nobody is driving it any more (see `begin`'s abandonment supersede — still refuses to
+      // bypass a stuck full-reset without an explicit new confirmation).
+      if (state.action !== "start") {
+        if (!this.isAbandoned(state)) throw new Error("Agent control operation is pending");
+        state = await this.begin(agent, "start", intent.requestId);
+      }
     } else if (!state || state.phase === "failed" || state.action === "stop") {
       state = await this.begin(agent, "start", intent.requestId);
     }
@@ -459,7 +534,13 @@ export class AgentControl {
       (state.launchId && state.launchId !== input.launchId)
     )
       throw new Error("Stale Agent launch");
-    if (!(await this.store.replace(agent, { ...state, launchId: input.launchId })))
+    if (
+      !(await this.store.replace(agent, {
+        ...state,
+        launchId: input.launchId,
+        updatedAtMs: this.clock(),
+      }))
+    )
       throw new Error("Agent launch lost its fence");
   }
   /** RPC ACK follows conditional persistence; never acquires the control waiter's lock. */
@@ -490,6 +571,7 @@ export class AgentControl {
       ...fields,
       controlSequence: result.sequence,
       phase: command?.completed ?? "failed",
+      updatedAtMs: this.clock(),
       ...(result.phase === "started" && result.identity ? { launchIdentityBound: true } : {}),
       ...(state.recovered || (identityChanged && oldIdentity?.state !== "empty")
         ? { recovered: true }
