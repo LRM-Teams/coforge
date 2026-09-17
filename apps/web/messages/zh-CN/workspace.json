@@ -10,6 +10,7 @@
   "project_name": "名称",
   "project_slug": "项目标识",
   "project_slug_invalid": "只能包含小写字母、数字和连字符。",
+  "project_slug_taken": "该项目标识在此工作区已被占用。",
   "project_repository": "GitHub 仓库",
   "project_no_repository": "尚未关联仓库。",
   "project_repository_optional": "可以选择为此工作区关联一个 GitHub 仓库。",

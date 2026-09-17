@@ -10,6 +10,7 @@
   "project_name": "Name",
   "project_slug": "Slug",
   "project_slug_invalid": "Only lowercase letters, numbers, and hyphens.",
+  "project_slug_taken": "That project slug is already used in this workspace.",
   "project_repository": "GitHub repository",
   "project_no_repository": "No repository connected.",
   "project_repository_optional": "Optionally connect a GitHub repository to this Workspace.",

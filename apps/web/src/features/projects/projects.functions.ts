@@ -136,16 +136,23 @@ export const createProject = createServerFn({ method: "POST" })
       if (!repository || repository.installationId !== data.installationId)
         throw new AppError("ACCESS_DENIED");
     }
-    return db.project.create({
-      data: {
-        workspaceId,
-        name: data.name,
-        slug: data.slug,
-        githubInstallationId: data.installationId,
-        githubRepositoryId: data.repositoryId,
-        githubFullName: data.fullName,
-        githubHtmlUrl: repository ? `https://github.com/${repository.fullName}` : null,
-      },
-      select: { id: true, name: true, slug: true },
-    });
+    try {
+      return await db.project.create({
+        data: {
+          workspaceId,
+          name: data.name,
+          slug: data.slug,
+          githubInstallationId: data.installationId,
+          githubRepositoryId: data.repositoryId,
+          githubFullName: data.fullName,
+          githubHtmlUrl: repository ? `https://github.com/${repository.fullName}` : null,
+        },
+        select: { id: true, name: true, slug: true },
+      });
+    } catch (error) {
+      // The slug is unique per Workspace; surface a taken slug as CONFLICT like workspace creation.
+      if (error instanceof Error && "code" in error && error.code === "P2002")
+        throw new AppError("CONFLICT");
+      throw error;
+    }
   });

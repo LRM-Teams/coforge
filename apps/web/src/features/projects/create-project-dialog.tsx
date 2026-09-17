@@ -9,6 +9,7 @@ import {
   getGitHubConnection,
   listAccessibleGitHubRepositories,
 } from "@/features/integrations/github.functions";
+import { isAppError } from "@/lib/app-error";
 import { nameToSlug } from "@/lib/slug";
 import { m } from "@/paraglide/messages";
 import { createProject } from "./projects.functions";
@@ -119,8 +120,12 @@ export function CreateProjectDialog({
       });
       await onCreated();
       onOpenChange(false);
-    } catch {
-      setError(m.project_create_error());
+    } catch (cause) {
+      setError(
+        isAppError(cause) && cause.code === "CONFLICT"
+          ? m.project_slug_taken()
+          : m.project_create_error(),
+      );
     } finally {
       setBusy(false);
     }
