@@ -485,6 +485,7 @@ function DirectoryBody({
           <li className="px-4 py-16 text-center text-sm text-tertiary">{m.project_tree_empty()}</li>
         ) : (
           entries.map((entry) => {
+            const lastCommit = commits[entry.path] ?? null;
             const content = (
               <>
                 {entry.type === "dir" ? (
@@ -508,13 +509,20 @@ function DirectoryBody({
                     />
                   )}
                 </span>
-                <span className="hidden truncate text-xs text-tertiary sm:block">
-                  {commits[entry.path]?.message.split("\n")[0]}
-                </span>
+                {lastCommit ? (
+                  <a
+                    href={`https://github.com/${fullName}/commit/${lastCommit.sha}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hidden min-w-0 truncate text-xs text-tertiary outline-focus-ring hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 sm:block"
+                  >
+                    {lastCommit.message.split("\n")[0]}
+                  </a>
+                ) : (
+                  <span className="hidden min-w-0 sm:block" />
+                )}
                 <span className="text-right text-xs text-tertiary">
-                  {commits[entry.path]?.date && (
-                    <RelativeTime value={commits[entry.path]!.date} plain />
-                  )}
+                  {lastCommit?.date && <RelativeTime value={lastCommit.date} plain />}
                 </span>
               </>
             );

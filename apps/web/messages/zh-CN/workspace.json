@@ -26,6 +26,8 @@
   "project_commits": "最近提交",
   "project_commits_to": "{branch} 的提交",
   "project_commit_verified": "已验证",
+  "project_commit_role_author": "作者",
+  "project_commit_role_coauthored": "共同作者",
   "project_checks_success": "检查通过",
   "project_checks_failure": "检查失败",
   "project_checks_pending": "检查进行中",
