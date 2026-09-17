@@ -342,6 +342,12 @@ PublicChannel，不是 Message Thread。创建 Project 不再自动创建首个�
 `Conversation.projectId` 使用普通索引，不再使用一对一唯一约束；迁移不重建或删除既有讨论。
 此修复由 Frank 在本线程确认按项目详情实现范围执行。
 
+Agent 端 `coforge channel info <target>` 在该讨论组绑定了 Project、且该 Project 属于 Agent
+自身 Workspace 时，响应中附带 `project: { id, name, slug, githubFullName?, githubHtmlUrl? }`；
+字段名与来源同 `coforge workspace info --projects`（`WorkspaceInfoProject`），使 Agent 能把
+"这个项目"对应到具体 Project。频道未绑定 Project，或绑定的 Project 属于其他 Workspace（数据不
+应出现但服务端仍按当前 Agent 的 Workspace 过滤）时，`project` 字段整体缺省。
+
 Project 独立设置页允许 Workspace 成员修改名称、描述、上传项目图片和 GitHub 仓库关联，保留 slug 和讨论组
 身份。描述默认为空；项目图片在列表和详情共用，无图片时显示名称首字，不提供内置 Emoji。
 更换仓库必须校验当前 User 的仓库访问权，未提交仓库变更时保留原关联。

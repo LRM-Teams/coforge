@@ -294,6 +294,12 @@ test("project code is discovered through workspace info and cloned with the owne
   expect(instructions).toContain("do not run `gh auth login`");
 });
 
+test('"this project" resolves through the current channel\'s info before falling back to the workspace project list', () => {
+  expect(instructions).toContain(
+    'When someone says "this project", first run `coforge channel info <target>` for the conversation you were asked in and use its `Project:` line, falling back to `coforge workspace info --projects` (and asking which Project is meant) only when that channel has no Project.',
+  );
+});
+
 test("the prompt is its named sections, in order, each opening with its own heading", () => {
   const sections = buildCoforgeCliGuideSections();
   const headings: Record<keyof typeof sections, string> = {

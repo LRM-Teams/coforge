@@ -146,6 +146,43 @@ test("GET /channels/:channel returns the info envelope", async () => {
   });
 });
 
+test("GET /channels/:channel forwards a bound Project through unchanged", async () => {
+  const result = await handleAgentChannelGet(
+    get("/api/agent/v1/channels/%23launch-eng?requestId=r-3"),
+    "#launch-eng",
+    principal,
+    fakeRepository({
+      info: async () => ({
+        id: "id-1",
+        name: "#launch-eng",
+        description: "",
+        archived: false,
+        joined: true,
+        muted: false,
+        memberCounts: { agents: 1, humans: 0 },
+        channelCapabilities: {
+          post: true,
+          leave: true,
+          add_member: true,
+          update: false,
+          archive: false,
+          unarchive: false,
+          remove_member: false,
+          manage_roles: false,
+        },
+        project: { id: "project-1", name: "Launch", slug: "launch", githubFullName: "acme/launch" },
+      }),
+    }),
+  );
+  expect(result.status).toBe(200);
+  expect((await result.json()).channel.project).toEqual({
+    id: "project-1",
+    name: "Launch",
+    slug: "launch",
+    githubFullName: "acme/launch",
+  });
+});
+
 test("GET /channels/:channel maps a not-found channel to its declared 404 status and text", async () => {
   const result = await handleAgentChannelGet(
     get("/api/agent/v1/channels/%23missing"),

@@ -38,6 +38,16 @@ export type AgentChannelInfo = {
   channelAdminBasis?: ChannelAdminBasis;
   /** Every capability name; only the ones this Agent may currently invoke are `true`. */
   channelCapabilities: ChannelCapabilities;
+  /** Present only when this channel is a Project discussion group (ADR 0026) for a Project the
+   * Agent's own Workspace owns. Field names and source match `workspace info --projects`
+   * (`WorkspaceInfoProject` in `@lrm/coforge-sdk`), so an Agent can match the two surfaces up. */
+  project?: {
+    id: string;
+    name: string;
+    slug: string;
+    githubFullName?: string;
+    githubHtmlUrl?: string;
+  };
 };
 
 export type AgentChannelRoster = {
@@ -381,16 +391,17 @@ export class AgentChannelManagement {
 
   private async channelInfo(
     workspaceId: string,
-    channel: Pick<Conversation, "id" | "channelName" | "description" | "archivedAt">,
+    channel: Pick<Conversation, "id" | "channelName" | "description" | "archivedAt" | "projectId">,
     agentId: string,
   ): Promise<AgentChannelInfo> {
-    const [member, memberCounts, authority] = await Promise.all([
+    const [member, memberCounts, authority, project] = await Promise.all([
       this.db.conversationMember.findFirst({
         where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
         select: { channelMuted: true },
       }),
       this.memberCounts(channel.id),
       resolveChannelAuthority(this.db, workspaceId, { agentId }, channel),
+      this.channelProject(workspaceId, channel.projectId),
     ]);
     return {
       id: channel.id,
@@ -403,6 +414,30 @@ export class AgentChannelManagement {
       channelRole: authority.channelRole,
       channelAdminBasis: authority.adminBasis,
       channelCapabilities: authority.capabilities,
+      ...(project ? { project } : {}),
+    };
+  }
+
+  /** Resolves a channel's bound Project, scoped to the caller's own Workspace so a `projectId`
+   * that somehow points outside it (never a case reachable through `PublicChannels.create`'s own
+   * Workspace check, but not otherwise enforced at the database level) can never leak another
+   * Workspace's Project name, slug, or GitHub binding. */
+  private async channelProject(
+    workspaceId: string,
+    projectId: string | null,
+  ): Promise<AgentChannelInfo["project"]> {
+    if (!projectId) return undefined;
+    const project = await this.db.project.findFirst({
+      where: { id: projectId, workspaceId },
+      select: { id: true, name: true, slug: true, githubFullName: true, githubHtmlUrl: true },
+    });
+    if (!project) return undefined;
+    return {
+      id: project.id,
+      name: project.name,
+      slug: project.slug,
+      ...(project.githubFullName ? { githubFullName: project.githubFullName } : {}),
+      ...(project.githubHtmlUrl ? { githubHtmlUrl: project.githubHtmlUrl } : {}),
     };
   }
 
