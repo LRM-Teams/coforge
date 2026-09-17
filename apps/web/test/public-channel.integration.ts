@@ -587,6 +587,110 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
   }
 });
 
+test("a channel @mention persists as a token and wakes only the mentioned Agent, including Agent-to-Agent", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const user = await db.user.create({
+    data: { username: `u${crypto.randomUUID().slice(0, 8)}` },
+  });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Mention delivery",
+      members: { create: { userId: user.id } },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: user.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: user.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const scout = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: user.id,
+        computerId: computer.id,
+        name: "scout",
+        displayName: "Scout",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+    });
+    const general = (await channels.list(workspace.id, user.id))[0]!;
+    const repo = new PrismaDirectConversationRepository(db);
+    const agentSender = new SendDirectMessage(repo, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+    });
+
+    const humanMention = await channels.send({
+      workspaceId: workspace.id,
+      userId: user.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "@helper please triage this.",
+    });
+    expect(humanMention.body).toBe(`<@agent:${helper.id}> please triage this.`);
+    expect(
+      (await db.messageMention.findMany({ where: { messageId: humanMention.id } })).map((row) => [
+        row.kind,
+        row.handle,
+        row.actorId,
+        row.conversationId,
+      ]),
+    ).toEqual([["agent", "helper", helper.id, general.id]]);
+    expect(
+      (await db.agentMessageDelivery.findMany({ where: { messageId: humanMention.id } })).map(
+        (row) => row.agentId,
+      ),
+    ).toEqual([helper.id]);
+    expect(
+      (await repo.readMessages(workspace.id, helper.id, "#general")).find(
+        (message) => message.id === humanMention.id,
+      )?.body,
+    ).toBe("@helper please triage this.");
+
+    const handoff = await agentSender.executeFromAgent({
+      requestId: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      agentId: helper.id,
+      target: "#general",
+      body: "@scout please take the follow-up.",
+    });
+    expect(handoff.body).toBe(`<@agent:${scout.id}> please take the follow-up.`);
+    expect(
+      (await db.agentMessageDelivery.findMany({ where: { messageId: handoff.id } })).map(
+        (row) => row.agentId,
+      ),
+    ).toEqual([scout.id]);
+    expect(
+      (await repo.readMessages(workspace.id, scout.id, "#general")).find(
+        (message) => message.id === handoff.id,
+      )?.body,
+    ).toBe("@scout please take the follow-up.");
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
 test("channel threads enforce channel scope and isolate reads, recovery, notifications, and attachments", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");

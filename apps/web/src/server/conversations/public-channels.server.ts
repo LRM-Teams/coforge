@@ -986,7 +986,6 @@ export class PublicChannels {
                     create: resolution.mentions.map((mention) => ({
                       memberId: mention.key,
                       workspaceId,
-                      conversationId: channelId,
                       kind: mention.type,
                       actorId: mention.id,
                       handle: mention.handle,
