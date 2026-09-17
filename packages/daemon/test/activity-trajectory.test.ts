@@ -414,3 +414,25 @@ test("dispose flushes pending text but never emits thinking_end", () => {
   expect(kinds(output)).toEqual(["thinking_started", "thinking_started"]);
   expect(kinds(output)).not.toContain("thinking_end");
 });
+
+test("a tool call counts as announced, so the response after it announces itself again", () => {
+  jest.useFakeTimers();
+  const output: AgentRuntimeEvent[] = [];
+  const trajectory = new ActivityTrajectory((event) => output.push(event));
+  trajectory.accept({ type: "text-delta", text: "Let me check" });
+  jest.advanceTimersByTime(350);
+  trajectory.accept({ type: "tool-start", id: "1", name: "Bash", input: { command: "ls" } });
+  trajectory.accept({ type: "text-delta", text: "Done" });
+  expect(
+    output.map((event) => (event.type === "activity" ? event.activity.detailKind : event.type)),
+  ).toEqual([
+    "model_response_started",
+    "model_response_started",
+    "tool-start",
+    "model_response_started",
+  ]);
+  expect(
+    (output[3] as Extract<AgentRuntimeEvent, { type: "activity" }>).activity.entries,
+  ).toBeUndefined();
+  trajectory.dispose();
+});
