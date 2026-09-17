@@ -485,7 +485,9 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     !v.provider
   )
     throw new Error("invalid agent start intent");
-  if (!["coforge", "pi", "codex", "claude-code"].includes(v.provider))
+  // The provider vocabulary has one owner. A second literal list here went stale when Kiro was
+  // added: every start intent for a Kiro Agent was rejected at this boundary, so it never started.
+  if (!parseRuntimeProvider(v.provider))
     throw new Error(`unsupported runtime provider: ${v.provider}`);
   if (v.controlEpoch !== undefined)
     assertPositiveControlCounter(v.controlEpoch, "Agent control epoch");

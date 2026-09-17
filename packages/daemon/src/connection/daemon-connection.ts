@@ -1616,6 +1616,9 @@ export class DaemonConnection implements DaemonConnectionClient {
       computer_id: computerId,
       payload_bytes: data.byteLength,
       error_code: diagnosticErrorCode(rejection),
+      // The decoders' own message, never the payload: without it a rejected start intent looks
+      // identical to noise, and an Agent that never starts leaves no reason behind.
+      error_message: rejection instanceof Error ? rejection.message : String(rejection),
       outcome: "rejected",
     });
   }
