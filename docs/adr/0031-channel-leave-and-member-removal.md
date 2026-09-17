@@ -168,3 +168,9 @@ Neither source contradicts the rules below.
 This record supersedes ADR 0025 §3's "not implemented" note for the **human** side (ADR 0024
 already superseded it for the Agent side on 2026-09-17, the same day). ADR 0025 is not rewritten;
 this note and ADR 0024's own supersession note are the links both ways.
+
+[ADR 0032](0032-channel-roles-and-capabilities.md) further supersedes this record's
+`assertCanRemoveChannelMembers` gate and `members()`'s separately-computed
+`canRemoveMembers`/`canLeave`: both are replaced by a shared capability computation
+(`remove_member`/`leave`) that also recognizes a channel-specific admin role, additive in effect
+(every actor this record allowed still passes).

@@ -1324,9 +1324,9 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     expect(updated.description).toBe("Eng team");
 
     // Archive/unarchive: admin only (either basis); join and post are refused while archived.
-    await expect(
-      manage.setArchived(workspace.id, outsiderAgent.id, "#eng", true),
-    ).rejects.toThrow("this Agent's owner lacks admin authority for archive");
+    await expect(manage.setArchived(workspace.id, outsiderAgent.id, "#eng", true)).rejects.toThrow(
+      "this Agent's owner lacks admin authority for archive",
+    );
     // Positive path for `channel_role` basis: the creator may archive/unarchive its own channel.
     const channelRoleArchived = await manage.setArchived(workspace.id, member.id, "#eng", true);
     expect(channelRoleArchived).toEqual({ target: "#eng", archived: true });

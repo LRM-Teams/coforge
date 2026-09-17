@@ -327,3 +327,10 @@ Rollback is reverting the CR before merge. Post-merge, the safest rollback is a 
 removes the new routes/CLI surface and stops writing `leftAt`/`archivedAt`/`role`; the columns
 themselves are additive and default-backed, so no migration needs to run in reverse for existing
 rows to keep working under the old code.
+
+## Supersession
+
+[ADR 0032](0032-channel-roles-and-capabilities.md) supersedes this record's authority table for
+the Agent CLI's `update`/`archive`/`unarchive`/`remove-member` operations: the channel-blind
+`agentHasAdminAuthority` (`Agent.role` owner/admin only) is replaced by a channel-aware admin
+basis that also recognizes a channel-specific `channelRole`, additive in effect.

@@ -1070,25 +1070,44 @@ member：创建者成为不可转让的 owner；owner/admin 可通过用户名�
 加入；owner 不可离开或被移除。频道成员（不论 Workspace 角色）均可将 Workspace 真人或 Agent 添加
 为该频道的成员（`PublicChannels.members`/`addMembers`，ADR 0025，对齐 Slack
 ["All members ... can add people to channels"](https://slack.com/help/articles/201980108-Add-people-to-a-channel)）；
-频道层复用 Workspace 角色，不另建独立角色体系；私有频道已规划但本次未引入。
+频道层现有自己的频道级角色（`channelRole`，ADR 0032，见下），与 Workspace 角色是两个独立但
+可叠加的授权来源；私有频道已规划但本次未引入。
 
 任意活跃频道成员可随时主动离开公开频道（`PublicChannels.leave`），但不能离开 `#general`（对齐
 Slack ["No one can leave the general channel."](https://slack.com/help/articles/201375146-Leave-a-channel)，
-返回 `CONFLICT`）；Workspace owner/admin 可将真人或 Agent 移出公开频道（`PublicChannels
-.removeMember`，`assertCanRemoveChannelMembers`），同样不能移出 `#general`（对齐 Slack
+返回 `CONFLICT`）；频道管理员（见下方 ADR 0032 的频道角色模型）可将真人或 Agent 移出公开频道
+（`PublicChannels.removeMember`），同样不能移出 `#general`（对齐 Slack
 ["By default, Workspace Owners and Admins can remove people from public channels … It's not
 possible to remove people from the #general … channel."](https://slack.com/help/articles/201898668-Remove-someone-from-a-channel)，
-返回 `CONFLICT`），普通 `member` 尝试移除他人会被 `ACCESS_DENIED` 拒绝。两者都复用 ADR 0024 为
-Agent CLI 引入的软离开表示：`ConversationMember.leftAt` 与 `ACTIVE_MEMBER_WHERE`，而不是另建一套
-真人专用状态（`Message.sender`/`Task.owner` 的 `onDelete: Restrict` 使硬删除对已发言成员不可行，
-这也是 ADR 0024 选择软离开的原因）。移除或离开只设置 `leftAt`，保留该成员的历史消息、Task 与同一
-`ConversationMember` 行；真人可随时通过既有 `join` 重新加入并清除 `leftAt`（读边界与静音偏好留在
-同一行，随重新加入恢复）；Agent 需要频道内成员通过 `addMembers` 重新加入。离开或被移除后不再收到
-该频道的投递或通知，也不能发送消息，直到重新加入（ADR 0031，`docs/adr/0031-channel-leave-and-
-member-removal.md`，实现 ADR 0025 §3 记录但推迟的规则，人侧对应 ADR 0024 已实现的 Agent 侧）。
-`PublicChannels.members` 额外返回 `canRemoveMembers`（owner/admin 且频道非 `#general`）与
-`canLeave`（当前活跃成员且频道非 `#general`），供 Web 端 Members 对话框决定是否显示“移除”与“离开
-频道”入口；服务端仍独立执行同样的授权检查。
+返回 `CONFLICT`），不具备频道管理员资格的普通成员尝试移除他人会被 `ACCESS_DENIED` 拒绝。两者都复用
+ADR 0024 为 Agent CLI 引入的软离开表示：`ConversationMember.leftAt` 与 `ACTIVE_MEMBER_WHERE`，
+而不是另建一套真人专用状态（`Message.sender`/`Task.owner` 的 `onDelete: Restrict` 使硬删除对已
+发言成员不可行，这也是 ADR 0024 选择软离开的原因）。移除或离开只设置 `leftAt`，保留该成员的历史
+消息、Task 与同一 `ConversationMember` 行；真人可随时通过既有 `join` 重新加入并清除 `leftAt`
+（读边界与静音偏好留在同一行，随重新加入恢复）；Agent 需要频道内成员通过 `addMembers` 重新加入。
+离开或被移除后不再收到该频道的投递或通知，也不能发送消息，直到重新加入（ADR 0031，
+`docs/adr/0031-channel-leave-and-member-removal.md`，实现 ADR 0025 §3 记录但推迟的规则，人侧
+对应 ADR 0024 已实现的 Agent 侧）。`PublicChannels.members` 额外返回 `canRemoveMembers`/
+`canLeave`，供 Web 端 Members 对话框决定是否显示"移除"与"离开频道"入口；服务端仍独立执行同样的
+授权检查。
+
+**频道级角色与能力（ADR 0032，`docs/adr/0032-channel-roles-and-capabilities.md`）**：
+`ConversationMember.channelRole`（`admin | member`，默认 `member`）是存储在成员行上的频道级角色；
+创建者（真人或 Agent）在自己的成员行上自动获得 `channelRole: "admin"`，`#general` 成员始终保持
+`member`（`#general` 的规则固定，任何人都不能成为其频道管理员）。"频道管理员资格"（admin basis）
+是计算得出、从不持久化的：当事者的 Workspace 角色（真人）或 Agent 自身 `Agent.role`
+为 owner/admin 时为 `server_role`；否则当其 `channelRole` 为 `admin` 时为 `channel_role`；
+两者都满足时报告 `server_role`。由此派生出恰好八个能力名：`post`、`leave`、`add_member`
+（活跃成员即可，`leave`/`add_member` 在 `#general` 上例外或不受影响，见下）、`update`、
+`archive`、`unarchive`、`remove_member`（需任一 admin basis，且从不适用于 `#general`，与是否
+为活跃成员无关——未加入频道的服务器管理员仍可归档该频道）、`manage_roles`（仅真人；Raft 没有
+Agent 命令可以更改频道角色，CoForge 也没有对应的 Agent CLI/API 路由）。ADR 0024 中 Agent CLI 的
+`update`/`archive`/`unarchive`/`remove-member` 授权，以及 ADR 0031 中真人 `removeMember` 的
+`assertCanRemoveChannelMembers` 授权与 `canRemoveMembers`/`canLeave` 的计算方式，均由 ADR 0032
+的这一共享能力计算取代（两者都是纯粹的能力扩展，不收窄任何既有权限）。真人 Members 对话框在具备
+`manage_roles` 能力时展示"设为管理员/取消管理员"操作（`PublicChannels.setChannelRole`）；Agent
+CLI 的 `channel info`/`channel members` 按 Raft 原始格式展示 `channelRole`/`channelAdminBasis`/
+`channelCapabilities`。
 
 每个 Workspace 有一个保留名称 `#general`，所有真人成员与 Agent 自动加入；迁移回填旧数据，
 Workspace 创建事务写入默认频道，Agent 创建事务同步加入，频道发现和打开时补齐现有成员。
