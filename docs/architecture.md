@@ -326,8 +326,10 @@ staging 与 production 使用不同 App 和密钥，并要求 expiring user acce
 [Amp GitHub integration](https://ampcode.com/docs/github)。
 
 Project 属于一个 Workspace，可关联一个 GitHub 仓库和多个讨论组；讨论组复用
-PublicChannel，不是 Message Thread。创建 Project 时保留自动创建首个讨论组的行为；
-后续讨论组通过 `PublicChannels.create` 校验与 Project 同 Workspace 后建立关联。
+PublicChannel，不是 Message Thread。创建 Project 不再自动创建首个讨论组（见
+[ADR 0026](adr/0026-projects-without-default-discussion-group.md)）；新项目的讨论组列表
+从空开始，讨论组只通过项目详情的“新建讨论组”按钮或频道创建弹窗的项目选择器建立，二者
+都经 `PublicChannels.create` 校验与 Project 同 Workspace 后建立关联。
 `Conversation.projectId` 使用普通索引，不再使用一对一唯一约束；迁移不重建或删除既有讨论。
 此修复由 Frank 在本线程确认按项目详情实现范围执行。
 

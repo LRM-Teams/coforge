@@ -1,5 +1,27 @@
 import { z } from "zod";
 
+export const PROJECT_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const PROJECT_SLUG_MAX_LENGTH = 100;
+
+export function isValidProjectSlug(slug: string): boolean {
+  return PROJECT_SLUG_PATTERN.test(slug) && slug.length <= PROJECT_SLUG_MAX_LENGTH;
+}
+
+const projectSlug = z.string().trim().refine(isValidProjectSlug);
+
+export const createProjectInput = z.object({
+  name: z.string().trim().min(1).max(100),
+  slug: projectSlug,
+  installationId: z.number().int().positive().safe().optional(),
+  repositoryId: z.number().int().positive().safe().optional(),
+  fullName: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
+    .max(300)
+    .optional(),
+});
+
 export const projectIconUploadInput = z
   .instanceof(FormData)
   .transform((form) => ({ id: form.get("id"), file: form.get("file") }))
