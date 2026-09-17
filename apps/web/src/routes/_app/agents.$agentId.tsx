@@ -162,6 +162,7 @@ function AgentDetailPage() {
       availableComputers={computers.map((computer) => ({
         id: computer.id,
         displayName: computer.displayName,
+        kind: computer.kind,
         online: computer.online,
       }))}
     />

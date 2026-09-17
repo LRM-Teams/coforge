@@ -6,6 +6,13 @@ import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 type DetailActivity = ActivityEntry & { computerId: string };
 
+type DetailComputer = {
+  id: string;
+  name: string;
+  displayName: string;
+  kind: string;
+};
+
 type DetailAgent = {
   id: string;
   workspaceId: string;
@@ -15,6 +22,7 @@ type DetailAgent = {
   role: string;
   createdAt: Date;
   computerId?: string | null;
+  computer?: DetailComputer | null;
   owner: { id: string; username: string };
   runtimeConfig: Prisma.JsonValue;
   weeklyReportAssistant?: { id: string } | null;
@@ -29,9 +37,14 @@ export type AgentDetailSource = {
   listActivity(workspaceId: string, agentId: string): Promise<DetailActivity[]>;
 };
 
-function computerLabel(id: string) {
-  if (id.length <= 12) return id;
-  return `${id.slice(0, 8)}…${id.slice(-4)}`;
+function assignedComputer(agent: DetailAgent) {
+  const computer = agent.computer;
+  if (!agent.computerId || !computer) return undefined;
+  return {
+    id: computer.id,
+    label: computer.displayName.trim() || computer.name.trim(),
+    kind: computer.kind,
+  };
 }
 
 export class AgentDetailQuery {
@@ -70,11 +83,19 @@ export class AgentDetailQuery {
         // Display is an optional read model; unavailable is not equivalent to offline.
       }
     }
-    const latest = activity[0];
-    const { weeklyReportAssistant: assistantRelation, ...agentView } = agent;
+    const assigned = assignedComputer(agent);
     return {
-      ...agentView,
-      isWeeklyReportAssistant: Boolean(assistantRelation),
+      id: agent.id,
+      workspaceId: agent.workspaceId,
+      name: agent.name,
+      displayName: agent.displayName,
+      description: agent.description,
+      role: agent.role,
+      createdAt: agent.createdAt,
+      computerId: agent.computerId,
+      owner: agent.owner,
+      runtimeConfig: agent.runtimeConfig,
+      isWeeklyReportAssistant: Boolean(agent.weeklyReportAssistant),
       ...(display ? { display } : {}),
       status: {
         value: statusReadFailed ? ("unknown" as const) : (status?.status ?? ("inactive" as const)),
@@ -87,9 +108,7 @@ export class AgentDetailQuery {
             }
           : null,
       },
-      computer: latest
-        ? { id: latest.computerId, label: computerLabel(latest.computerId) }
-        : undefined,
+      computer: assigned,
       latestError: latestActivityError(activity),
       activity,
     };

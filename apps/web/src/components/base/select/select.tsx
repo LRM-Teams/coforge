@@ -20,6 +20,8 @@ export interface SelectProps extends Omit<AriaSelectProps<SelectItemType>, "chil
     popoverClassName?: string;
     icon?: FC | ReactNode;
     children: ReactNode | ((item: SelectItemType) => ReactNode);
+    /** Let the selected label wrap instead of truncating with an ellipsis. */
+    wrapValue?: boolean;
 }
 
 interface SelectValueProps {
@@ -30,9 +32,10 @@ interface SelectValueProps {
     placeholder?: string;
     ref?: Ref<HTMLButtonElement>;
     icon?: FC | ReactNode;
+    wrapValue?: boolean;
 }
 
-const SelectValue = ({ isOpen, isFocused, isDisabled, size, placeholder, icon, ref }: SelectValueProps) => {
+const SelectValue = ({ isOpen, isFocused, isDisabled, size, placeholder, icon, wrapValue, ref }: SelectValueProps) => {
     return (
         <AriaButton
             ref={ref}
@@ -45,7 +48,8 @@ const SelectValue = ({ isOpen, isFocused, isDisabled, size, placeholder, icon, r
             <AriaSelectValue<SelectItemType>
                 className={(state) =>
                     cx(
-                        "flex h-max w-full items-center justify-start truncate text-left align-middle",
+                        "flex h-max w-full min-w-0 items-center justify-start text-left align-middle",
+                        !wrapValue && "truncate",
 
                         sizes[size].root,
 
@@ -72,8 +76,8 @@ const SelectValue = ({ isOpen, isFocused, isDisabled, size, placeholder, icon, r
                             ) : null}
 
                             {selectedItem ? (
-                                <section className={cx("flex w-full truncate", sizes[size].textContainer)}>
-                                    <p className={cx("truncate font-medium text-primary", sizes[size].text)}>{selectedItem?.label}</p>
+                                <section className={cx("flex min-w-0 flex-1", !wrapValue && "w-full truncate", sizes[size].textContainer)}>
+                                    <p className={cx("font-medium text-primary", wrapValue ? "min-w-0 wrap-break-word whitespace-normal" : "truncate", sizes[size].text)}>{selectedItem?.label}</p>
                                     {selectedItem?.supportingText && <p className={cx("text-tertiary", sizes[size].text)}>{selectedItem?.supportingText}</p>}
                                 </section>
                             ) : (
@@ -92,7 +96,7 @@ const SelectValue = ({ isOpen, isFocused, isDisabled, size, placeholder, icon, r
     );
 };
 
-const Select = ({ placeholder = "Select", icon, size = "md", children, items, label, hint, tooltip, hideRequiredIndicator, className, ...rest }: SelectProps) => {
+const Select = ({ placeholder = "Select", icon, size = "md", children, items, label, hint, tooltip, hideRequiredIndicator, className, wrapValue, ...rest }: SelectProps) => {
     return (
         <SelectContext.Provider value={{ size }}>
             <AriaSelect {...rest} className={(state) => cx("flex flex-col gap-1.5", typeof className === "function" ? className(state) : className)}>
@@ -104,7 +108,7 @@ const Select = ({ placeholder = "Select", icon, size = "md", children, items, la
                             </Label>
                         )}
 
-                        <SelectValue {...state} {...{ size, placeholder }} icon={icon} />
+                        <SelectValue {...state} {...{ size, placeholder, wrapValue }} icon={icon} />
 
                         <Popover size={size} className={rest.popoverClassName}>
                             <AriaListBox items={items} className="size-full outline-hidden">

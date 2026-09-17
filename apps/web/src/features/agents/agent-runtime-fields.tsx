@@ -111,7 +111,7 @@ export function AgentRuntimeFields({
     initial?.model && provider === initial.provider && modelKey === initialModelKey,
   );
   const configuredModelLabel = configuredModelSelected
-    ? [initial?.modelProvider, initial?.model].filter(Boolean).join(" / ")
+    ? selectedModel?.displayName || initial?.model
     : undefined;
   const submittedModelProvider =
     provider === "coforge"
@@ -198,6 +198,7 @@ export function AgentRuntimeFields({
           isRequired
           maxLength={200}
           defaultValue={initial?.model}
+          className="min-w-0 sm:col-span-2"
         />
       ) : (
         <>
@@ -209,7 +210,9 @@ export function AgentRuntimeFields({
           <Select
             label={m.agent_form_model()}
             size="sm"
-            className="min-w-0"
+            wrapValue
+            className="min-w-0 sm:col-span-2"
+            popoverClassName="min-w-(--trigger-width) w-max max-w-[min(36rem,calc(100vw-3rem))]"
             isDisabled={!options}
             selectedKey={modelKey}
             onSelectionChange={(key) => {
@@ -230,8 +233,9 @@ export function AgentRuntimeFields({
               <Select.Item
                 key={modelOptionValue(model)}
                 id={modelOptionValue(model)}
+                className="[&_[slot=label]]:whitespace-normal [&_[slot=label]]:wrap-break-word"
                 label={
-                  model.modelProvider
+                  provider === "pi" && !modelProvider && model.modelProvider
                     ? `${model.modelProvider} / ${model.displayName}`
                     : model.displayName
                 }

@@ -607,7 +607,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     expect(profile.status).toBe(200);
     const profileHtml = await profile.text();
     expect(profileHtml).toContain("e2e-agent-updated");
-    expect(profileHtml).toContain(registration.computerId.slice(0, 8));
+    expect(profileHtml).toContain("E2E Computer");
     expect(profileHtml).toContain("e2e-model-updated");
     expect(profileHtml).toContain("high");
     expect(profileHtml).toContain(errorMessage);
