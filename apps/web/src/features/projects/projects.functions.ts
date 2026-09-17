@@ -28,8 +28,9 @@ export const getProjectRepository = createServerFn({ method: "GET" })
       select: { githubInstallationId: true, githubRepositoryId: true, githubFullName: true },
     });
     if (!project) throw new AppError("NOT_FOUND");
-    if (!project.githubFullName || !project.githubInstallationId || !project.githubRepositoryId)
-      return { status: "unlinked" as const };
+    if (!project.githubFullName) return { status: "unlinked" as const };
+    if (!project.githubInstallationId || !project.githubRepositoryId)
+      return { status: "denied" as const };
     try {
       const github = await configuredGitHub();
       if (!github) return { status: "unavailable" as const };
@@ -249,17 +250,28 @@ export const createProject = createServerFn({ method: "POST" })
   .validator(createProjectInput)
   .handler(async ({ data, context }) => {
     const { db, workspaceId } = context;
-    let repository: { id: number; fullName: string; installationId: number } | undefined;
-    if (data.installationId || data.repositoryId || data.fullName) {
-      if (!data.installationId || !data.repositoryId || !data.fullName)
-        throw new AppError("ACCESS_DENIED");
+    let repository:
+      | { id: number; fullName: string; htmlUrl: string; installationId: number | null }
+      | undefined;
+    if (data.fullName) {
       const github = await configuredGitHub();
       if (!github) throw new AppError("TEMPORARILY_UNAVAILABLE");
-      repository = (await github.connection.accessibleRepositories(context.user.id)).find(
-        (item) => item.id === data.repositoryId && item.fullName === data.fullName,
-      );
-      if (!repository || repository.installationId !== data.installationId)
-        throw new AppError("ACCESS_DENIED");
+      if (data.installationId && data.repositoryId) {
+        const accessible = (await github.connection.accessibleRepositories(context.user.id)).find(
+          (item) => item.id === data.repositoryId && item.fullName === data.fullName,
+        );
+        if (!accessible || accessible.installationId !== data.installationId)
+          throw new AppError("ACCESS_DENIED");
+        repository = {
+          id: accessible.id,
+          fullName: accessible.fullName,
+          htmlUrl: `https://github.com/${accessible.fullName}`,
+          installationId: accessible.installationId,
+        };
+      } else {
+        const publicRepository = await github.connection.lookupPublicRepository(data.fullName);
+        repository = { ...publicRepository, installationId: null };
+      }
     }
     try {
       return await db.project.create({
@@ -267,10 +279,10 @@ export const createProject = createServerFn({ method: "POST" })
           workspaceId,
           name: data.name,
           slug: data.slug,
-          githubInstallationId: data.installationId,
-          githubRepositoryId: data.repositoryId,
-          githubFullName: data.fullName,
-          githubHtmlUrl: repository ? `https://github.com/${repository.fullName}` : null,
+          githubInstallationId: repository?.installationId ?? null,
+          githubRepositoryId: repository?.id ?? null,
+          githubFullName: repository?.fullName ?? null,
+          githubHtmlUrl: repository?.htmlUrl ?? null,
         },
         select: { id: true, name: true, slug: true },
       });

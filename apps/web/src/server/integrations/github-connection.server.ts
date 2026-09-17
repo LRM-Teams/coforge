@@ -77,6 +77,18 @@ const repositoryMetadataSchema = z.object({
   full_name: z.string().min(3).max(300),
   default_branch: z.string().min(1).max(255),
 });
+const publicRepositorySchema = z.object({
+  id: idSchema,
+  full_name: z
+    .string()
+    .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
+    .max(300),
+  private: z.boolean(),
+  html_url: z
+    .string()
+    .url()
+    .refine((value) => new URL(value).hostname === "github.com"),
+});
 /** GraphQL `avatarUrl` values are validated against the CDN host GitHub actually serves from. */
 const avatarUrlSchema = z
   .string()
@@ -760,6 +772,38 @@ export class GitHubConnection {
         pagesPerInstallation.flat().map((repository) => [repository.id, repository]),
       ).values(),
     ].sort((left, right) => left.fullName.localeCompare(right.fullName));
+  }
+
+  /**
+   * Unauthenticated GitHub REST lookup for a public github.com repository.
+   * Private or missing names never become a Project repository without a connection.
+   */
+  async lookupPublicRepository(fullName: string) {
+    const name = z
+      .string()
+      .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
+      .max(300)
+      .parse(fullName);
+    try {
+      const metadata = publicRepositorySchema.parse(
+        await this.request(`https://api.github.com/repos/${name}`, {
+          headers: {
+            accept: "application/vnd.github+json",
+            "x-github-api-version": "2026-03-10",
+            "user-agent": "CoForge",
+          },
+        }),
+      );
+      if (metadata.private || metadata.full_name !== name) throw new AppError("ACCESS_DENIED");
+      return {
+        id: metadata.id,
+        fullName: metadata.full_name,
+        htmlUrl: metadata.html_url,
+      };
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError("TEMPORARILY_UNAVAILABLE");
+    }
   }
 
   async repositoryOverview(userId: string, repository: RepositorySelection) {
