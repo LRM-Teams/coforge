@@ -9,6 +9,8 @@ import {
   decodeAgentSessionReport,
   encodeAgentStartIntent,
   decodeAgentStartIntent,
+  AGENT_START_MESSAGE_TYPE,
+  RUNTIME_PROVIDER,
 } from "./index";
 
 test("session reports round-trip with launch identity and reject missing scope", () => {
@@ -126,4 +128,31 @@ test("rejects invalid report snapshot extensions and missing correlation", () =>
       }),
     ).toThrow();
   expect(() => decodeAgentSessionReport(new Uint8Array(32_769))).toThrow("too large");
+});
+
+test("a start intent decodes for every runtime provider and rejects an unknown one", () => {
+  const intent = {
+    protocolMajor: 1,
+    requestId: "start",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    model: "model",
+    reasoning: "reasoning",
+  };
+  // Derived from the vocabulary, not listed: the decoder once carried its own literal list, which
+  // went stale when Kiro was added and rejected every Kiro Agent's start.
+  for (const provider of Object.values(RUNTIME_PROVIDER))
+    expect(decodeAgentStartIntent(encodeAgentStartIntent({ ...intent, provider })).provider).toBe(
+      provider,
+    );
+  const unknown = toBinary(
+    AgentStartIntentSchema,
+    create(AgentStartIntentSchema, {
+      ...intent,
+      messageType: AGENT_START_MESSAGE_TYPE,
+      provider: "nope",
+    }),
+  );
+  expect(() => decodeAgentStartIntent(unknown)).toThrow("unsupported runtime provider: nope");
 });
