@@ -50,37 +50,48 @@ export function ComputerDetailPending() {
 function ComputerDetailSkeleton({ announce }: { announce: boolean }) {
   return (
     <div aria-busy={announce ? "true" : undefined} className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
         <BackToComputers />
         {announce && (
           <p role="status" className="sr-only">
             {m.computer_loading()}
           </p>
         )}
-        <Skeleton className="size-8 shrink-0 rounded-lg" />
-        <Skeleton className="h-4 w-36" />
       </header>
       <div
         aria-hidden="true"
-        className="@container space-y-8 overflow-y-auto p-4 motion-safe:animate-pulse sm:p-6 lg:p-8"
+        className="@container min-h-0 flex-1 overflow-y-auto p-4 motion-safe:animate-pulse sm:p-6 lg:p-8"
       >
-        <div className="space-y-3">
-          <Skeleton className="h-4 w-20" />
-          <div className="divide-y divide-secondary border-y border-secondary">
-            {["w-32", "w-40", "w-28", "w-20", "w-36", "w-24"].map((width) => (
-              <div key={width} className="grid gap-2 py-4 @lg:grid-cols-[minmax(8rem,1fr)_2fr]">
-                <Skeleton className="h-3 w-24" />
-                <Skeleton className={`h-4 ${width}`} />
-              </div>
-            ))}
+        <div className="mx-auto flex w-full max-w-[40rem] flex-col gap-8">
+          <div className="flex flex-col items-center gap-3">
+            <Skeleton className="size-20 shrink-0 rounded-[20px]" />
+            <Skeleton className="h-7 w-40" />
           </div>
-        </div>
-        <div className="space-y-3">
-          <Skeleton className="h-4 w-24" />
-          <div className="rounded-xl border border-secondary p-4">
-            <Skeleton className="h-4 w-36" />
-            <Skeleton className="mt-2 h-3 w-24" />
-            <Skeleton className="mt-5 h-8 w-full" />
+          <div className="rounded-xl bg-secondary px-4">
+            <div className="divide-y divide-secondary">
+              {["w-32", "w-40", "w-24", "w-36"].map((width) => (
+                <div key={width} className="flex min-h-11 items-center justify-between gap-4 py-3">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className={`h-4 ${width}`} />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <Skeleton className="mb-2 ml-4 h-4 w-32" />
+            <div className="rounded-xl bg-secondary px-4">
+              <div className="divide-y divide-secondary">
+                {["w-36", "w-28"].map((width) => (
+                  <div
+                    key={width}
+                    className="flex min-h-11 items-center justify-between gap-4 py-3"
+                  >
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className={`h-8 ${width}`} />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -94,7 +105,7 @@ export function ComputerDetailLoadError({ error }: { error: unknown }) {
   void error;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
         <BackToComputers />
         <h1 className="text-base font-medium">{m.computer_page_title()}</h1>
       </header>

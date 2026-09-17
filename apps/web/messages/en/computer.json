@@ -1,7 +1,8 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
   "computer_page_title": "Computers",
-  "computer_version": "Computer Version",
+  "computer_version": "CoForge version",
+  "computer_system": "System",
   "computer_os": "OS",
   "computer_creator": "Creator",
   "computer_metadata_unknown": "Unknown",
@@ -120,7 +121,6 @@
   "computer_new_version": "New version {version}",
   "computer_upgrade_action": "Upgrade to {version}",
   "computer_upgrade_succeeded_toast": "Upgraded to {version}",
-  "computer_upgrade_retry": "Retry upgrade",
   "computer_upgrade_offline": "This Computer is offline; it cannot be upgraded right now",
   "computer_upgrade_identity_unknown": "This Computer hasn't reported its running version yet; restart it, then retry the upgrade",
   "computer_upgrade_feed_unavailable": "The release feed is unavailable",
