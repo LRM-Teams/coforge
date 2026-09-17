@@ -180,14 +180,51 @@ test("Kiro replaces busy input, suppresses late completion, and normalizes ACP e
     await session.notify!("busy-old");
     await session.notify!("events");
     expect(events.filter((event) => event.type === "completed")).toEqual([]);
-    expect(events).toContainEqual({ type: "tool-start", id: "tool-1", name: "Bash" });
+    // Kiro's tool_call frames never carry a programmatic name, only a title
+    // and an ACP kind; the provider must derive the canonical tool name from
+    // kind, not echo the title back as the name.
+    expect(events).toContainEqual({ type: "tool-start", id: "tool-1", name: "bash" });
     expect(events).toContainEqual({ type: "tool-output", id: "tool-1", text: "tests passed" });
     expect(events).toContainEqual({ type: "tool-end", id: "tool-1", isError: false });
-    expect(
-      events.some(
-        (event) => event.type === "activity" && event.activity.detailKind === "running_command",
-      ),
-    ).toBe(true);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        activity: expect.objectContaining({
+          detailKind: "running_command",
+          detail: "bun test",
+          entries: [{ kind: "tool_start", toolName: "bash" }],
+        }),
+      }),
+    );
+
+    // kind: "read" maps to the canonical "read_file" tool and reports the
+    // path, not the "Read File" title.
+    expect(events).toContainEqual({ type: "tool-start", id: "tool-2", name: "read_file" });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        activity: expect.objectContaining({
+          detailKind: "tool_started",
+          detail: "/abs/probe.py",
+          entries: [{ kind: "tool_start", toolName: "read_file" }],
+        }),
+      }),
+    );
+
+    // A kind with no canonical CoForge tool (e.g. "other") falls back to the
+    // human-readable title instead of losing the tool name entirely.
+    expect(events).toContainEqual({ type: "tool-start", id: "tool-3", name: "Task List" });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        activity: expect.objectContaining({
+          detailKind: "tool_started",
+          detail: "Task List",
+          entries: [{ kind: "tool_start", toolName: "Task List" }],
+        }),
+      }),
+    );
+
     expect(
       events.some(
         (event) =>
