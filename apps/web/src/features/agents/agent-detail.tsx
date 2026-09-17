@@ -39,6 +39,7 @@ import {
   AgentEnvironmentEditor,
   type AgentEnvironmentEditorProps,
 } from "./agent-environment-editor";
+import { computerIcon } from "@/features/computers/computer-identity";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
 type AgentTab = "profile" | "activity" | "reminders";
@@ -84,7 +85,12 @@ export function AgentDetail({
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
   onLoadReminders?: Parameters<typeof AgentReminders>[0]["onLoad"];
   environment?: AgentEnvironmentEditorProps;
-  availableComputers?: ReadonlyArray<{ id: string; displayName: string; online?: boolean }>;
+  availableComputers?: ReadonlyArray<{
+    id: string;
+    displayName: string;
+    kind?: string;
+    online?: boolean;
+  }>;
   initialEditOpen?: boolean;
 }) {
   const view = agentDisplay(display);
@@ -211,7 +217,12 @@ const Profile = memo(function Profile({
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
   environment?: AgentEnvironmentEditorProps;
-  availableComputers: ReadonlyArray<{ id: string; displayName: string; online?: boolean }>;
+  availableComputers: ReadonlyArray<{
+    id: string;
+    displayName: string;
+    kind?: string;
+    online?: boolean;
+  }>;
   initialEditOpen: boolean;
 }) {
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
@@ -233,6 +244,16 @@ const Profile = memo(function Profile({
     { label: m.agent_form_reasoning(), value: reasoning || m.agent_form_provider_default() },
   ];
   const nameMatchesDisplayName = detail.name === detail.displayName;
+  const listedComputer = availableComputers.find((computer) => computer.id === detail.computerId);
+  const assignedComputerLabel = detail.computer?.label || listedComputer?.displayName || "";
+  const assignedComputerKind = detail.computer?.kind || listedComputer?.kind;
+  const AssignedComputerIcon = assignedComputerKind
+    ? computerIcon({
+        kind: assignedComputerKind,
+        name: assignedComputerLabel,
+        displayName: assignedComputerLabel,
+      })
+    : undefined;
   const fields = [
     { label: m.agent_profile_id(), value: detail.id, breakAll: true },
     { label: m.agent_form_username(), value: `@${detail.name}` },
@@ -366,7 +387,8 @@ const Profile = memo(function Profile({
                   <Input
                     label={m.agent_form_computer()}
                     isReadOnly
-                    value={detail.computer?.label ?? detail.computerId}
+                    icon={AssignedComputerIcon}
+                    value={assignedComputerLabel || m.agent_computer_unnamed()}
                     className="min-w-0 sm:col-span-2"
                   />
                 ) : (
@@ -441,11 +463,14 @@ const Profile = memo(function Profile({
           {m.agent_profile_computer()}
         </h2>
         <div className="mt-5 min-w-0">
-          <p className="text-sm font-medium break-words text-primary">
-            {detail.computer?.label ?? m.agent_computer_unnamed()}
+          <p className="flex items-center gap-2 text-sm font-medium break-words text-primary">
+            {AssignedComputerIcon && (
+              <AssignedComputerIcon className="size-4 shrink-0 text-tertiary" aria-hidden="true" />
+            )}
+            {assignedComputerLabel || m.agent_computer_unnamed()}
           </p>
           <p className="mt-1 text-sm text-tertiary">
-            {detail.computer ? m.agent_computer_observed() : m.agent_computer_not_observed()}
+            {detail.computerId ? m.agent_computer_observed() : m.agent_computer_not_observed()}
           </p>
         </div>
       </section>

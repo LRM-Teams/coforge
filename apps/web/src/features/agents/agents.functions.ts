@@ -320,6 +320,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
                 role: true,
                 createdAt: true,
                 computerId: true,
+                computer: { select: { id: true, name: true, displayName: true, kind: true } },
                 runtimeConfig: true,
                 weeklyReportAssistant: { select: { id: true } },
                 owner: { select: { id: true, username: true } },
