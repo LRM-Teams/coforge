@@ -2,6 +2,14 @@ import { lockConversation } from "./conversation-lock.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
+import {
+  channelActorMemberWhere,
+  deriveChannelAdminBasis,
+  deriveChannelCapabilities,
+  isChannelRole,
+  resolveActorServerRole,
+  resolveChannelAuthority,
+} from "./channel-authority.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
 import {
@@ -323,11 +331,6 @@ export class PublicChannels {
     if (!agent) throw new AppError("ACCESS_DENIED");
   }
 
-  /** A `ConversationMember` `where` clause identifying `actor`'s own row in a channel. */
-  private actorMemberWhere(actor: ChannelActor) {
-    return "userId" in actor ? { userId: actor.userId } : { agentId: actor.agentId };
-  }
-
   async list(workspaceId: string, userId: string) {
     await this.authorize(workspaceId, userId);
     const channels = await this.db.conversation.findMany({
@@ -368,7 +371,8 @@ export class PublicChannels {
           workspaceId,
           channelName: name,
           ...(projectId ? { projectId } : {}),
-          members: { create: { userId } },
+          // The creator becomes the channel's first admin (ADR 0030).
+          members: { create: { userId, channelRole: "admin" } },
         },
         select: { id: true },
       });
@@ -377,6 +381,42 @@ export class PublicChannels {
         throw new AppError("CONFLICT");
       throw error;
     }
+  }
+
+  /**
+   * Promotes/demotes a channel member's stored `channelRole` (ADR 0030). Human-only: there is
+   * no Agent command for changing channel roles (Raft's rule, matched verbatim in
+   * `agent-instructions.ts`). The actor needs `manage_roles` — Workspace owner/admin, or channel
+   * admin of this specific channel — and `#general`'s roles are fixed (nobody can be its
+   * channel admin), so any role change there is rejected outright.
+   */
+  async setChannelRole(
+    workspaceId: string,
+    actorUserId: string,
+    channelId: string,
+    member: ChannelActor,
+    role: string,
+  ) {
+    const channel = await this.channel(workspaceId, actorUserId, channelId);
+    if (channel.channelName === "general") throw new AppError("CONFLICT");
+    if (!isChannelRole(role)) throw new AppError("INVALID_INPUT");
+    const authority = await resolveChannelAuthority(
+      this.db,
+      workspaceId,
+      { userId: actorUserId },
+      channel,
+    );
+    if (!authority.capabilities.manage_roles) throw new AppError("ACCESS_DENIED");
+    const updated = await this.db.conversationMember.updateMany({
+      where: {
+        conversationId: channelId,
+        ...channelActorMemberWhere(member),
+        ...ACTIVE_MEMBER_WHERE,
+      },
+      data: { channelRole: role },
+    });
+    if (updated.count !== 1) throw new AppError("NOT_FOUND");
+    return { channelId, channelRole: role };
   }
 
   private async channel(workspaceId: string, userId: string, channelId: string) {
@@ -417,14 +457,15 @@ export class PublicChannels {
     await this.authorizeActor(workspaceId, actor);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
-      select: { id: true },
+      select: { id: true, channelName: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
 
-    const [memberRows, workspaceUsers, workspaceAgents] = await Promise.all([
+    const [memberRows, workspaceUsers, workspaceAgents, actorServerRole] = await Promise.all([
       this.db.conversationMember.findMany({
         where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
         select: {
+          channelRole: true,
           user: {
             select: { id: true, username: true, displayName: true, avatarObjectKey: true },
           },
@@ -450,6 +491,7 @@ export class PublicChannels {
         select: { id: true, name: true, displayName: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
+      resolveActorServerRole(this.db, workspaceId, actor),
     ]);
 
     const memberUserIds = new Set(memberRows.flatMap((row) => (row.user ? [row.user.id] : [])));
@@ -462,18 +504,39 @@ export class PublicChannels {
       : [];
     const roleByUserId = new Map(humanRoles.map((row) => [row.userId, row.role]));
 
+    const actorRow = memberRows.find((row) =>
+      "userId" in actor ? row.user?.id === actor.userId : row.agent?.id === actor.agentId,
+    );
+    const isActiveMember = Boolean(actorRow);
+    const isGeneral = channel.channelName === "general";
+    const actorAdminBasis = deriveChannelAdminBasis(actorServerRole, actorRow?.channelRole);
+    const capabilities = deriveChannelCapabilities({
+      isHuman: "userId" in actor,
+      isActiveMember,
+      isGeneral,
+      adminBasis: actorAdminBasis,
+    });
+
     return {
-      canAddMembers:
-        "userId" in actor ? memberUserIds.has(actor.userId) : memberAgentIds.has(actor.agentId),
+      canAddMembers: isActiveMember,
+      // The actor's own channel role/admin basis/capabilities on this channel (ADR 0030).
+      channelRole: actorRow?.channelRole,
+      channelAdminBasis: actorAdminBasis,
+      channelCapabilities: capabilities,
       humans: memberRows
         .filter((row) => row.user)
-        .map((row) => ({
-          id: row.user!.id,
-          username: row.user!.username,
-          displayName: row.user!.displayName?.trim() || row.user!.username,
-          avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user!.id, row.user!.avatarObjectKey),
-          role: roleByUserId.get(row.user!.id) ?? "member",
-        })),
+        .map((row) => {
+          const serverRole = roleByUserId.get(row.user!.id) ?? "member";
+          return {
+            id: row.user!.id,
+            username: row.user!.username,
+            displayName: row.user!.displayName?.trim() || row.user!.username,
+            avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user!.id, row.user!.avatarObjectKey),
+            serverRole,
+            channelRole: row.channelRole,
+            channelAdminBasis: deriveChannelAdminBasis(serverRole, row.channelRole),
+          };
+        }),
       agents: memberRows
         .filter((row) => row.agent)
         .map((row) => ({
@@ -481,7 +544,9 @@ export class PublicChannels {
           name: row.agent!.name,
           displayName: row.agent!.displayName?.trim() || row.agent!.name,
           description: row.agent!.description,
-          role: row.agent!.role,
+          serverRole: row.agent!.role,
+          channelRole: row.channelRole,
+          channelAdminBasis: deriveChannelAdminBasis(row.agent!.role, row.channelRole),
           computerId: row.agent!.computerId,
         })),
       candidates: {
@@ -526,7 +591,11 @@ export class PublicChannels {
     if (!channel) throw new AppError("NOT_FOUND");
 
     const actorMembership = await this.db.conversationMember.findFirst({
-      where: { conversationId: channelId, ...this.actorMemberWhere(actor), ...ACTIVE_MEMBER_WHERE },
+      where: {
+        conversationId: channelId,
+        ...channelActorMemberWhere(actor),
+        ...ACTIVE_MEMBER_WHERE,
+      },
       select: { id: true },
     });
     if (!actorMembership) throw new AppError("ACCESS_DENIED");
