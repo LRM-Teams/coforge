@@ -225,6 +225,43 @@ test("rejects a repeated clientRequestId with different parameters as UPLOAD_IDE
   ).rejects.toMatchObject({ code: "UPLOAD_IDEMPOTENCY_CONFLICT", status: 409 });
 });
 
+test("rejects a repeated clientRequestId once the existing session has completed, rather than re-signing a stale URL", async () => {
+  const { db, sessions } = fakeDb();
+  const { storage } = fakeStorage();
+  const created = await createAttachmentUploadSession(db as never, storage, input);
+  const row = sessions.get(created.uploadId)!;
+  row.state = "completed";
+  await expect(createAttachmentUploadSession(db as never, storage, input)).rejects.toMatchObject({
+    code: "UPLOAD_IDEMPOTENCY_CONFLICT",
+    status: 409,
+    message:
+      "clientRequestId was already used by a session that is now completed; start a new upload",
+  });
+});
+
+test("rejects a repeated clientRequestId once the existing session is canceled/expired/failed, never fabricating a pending reply", async () => {
+  const { db, sessions } = fakeDb();
+  const { storage } = fakeStorage();
+  for (const state of ["canceled", "expired", "failed", "verifying"]) {
+    const created = await createAttachmentUploadSession(db as never, storage, {
+      ...input,
+      clientRequestId: crypto.randomUUID(),
+    });
+    const row = sessions.get(created.uploadId)!;
+    row.state = state;
+    await expect(
+      createAttachmentUploadSession(db as never, storage, {
+        ...input,
+        clientRequestId: row.clientRequestId,
+      }),
+    ).rejects.toMatchObject({
+      code: "UPLOAD_IDEMPOTENCY_CONFLICT",
+      status: 409,
+      message: `clientRequestId was already used by a session that is now ${state}; start a new upload`,
+    });
+  }
+});
+
 test("complete: an unknown uploadId is UPLOAD_SESSION_NOT_FOUND", async () => {
   const { db } = fakeDb();
   const { storage } = fakeStorage();

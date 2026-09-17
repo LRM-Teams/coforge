@@ -252,16 +252,22 @@ async function replaySession(
       "UPLOAD_IDEMPOTENCY_CONFLICT",
       "clientRequestId was already used with different upload parameters",
     );
-  if (existing.state !== "pending" || !storage.presignPut)
-    return {
-      uploadId: existing.id,
-      attachmentId: existing.attachmentId,
-      state: "pending",
-      expiresAt: existing.expiresAt.toISOString(),
-      // A replay of a session that has moved on (or a backend that has since lost direct-upload
-      // support) still reports the reservation; there is nothing left to (re-)sign.
-      upload: { method: "PUT", url: "", headers: {} },
-    };
+  // A session that has moved past `pending` (including mid-verification) has nothing left to
+  // (re-)sign; fabricating a fresh "pending" reply with an empty upload URL would be a lie the
+  // CLI would PUT to. Refuse instead — the caller must start a new upload with a new
+  // `clientRequestId`.
+  if (existing.state !== "pending")
+    throw new AttachmentUploadSessionError(
+      "UPLOAD_IDEMPOTENCY_CONFLICT",
+      `clientRequestId was already used by a session that is now ${existing.state}; start a new upload`,
+    );
+  // `createAttachmentUploadSession` already refused to reach here without a presigning
+  // backend; this only guards against a caller that bypasses that check.
+  if (!storage.presignPut)
+    throw new AttachmentUploadSessionError(
+      "UPLOAD_FORBIDDEN",
+      "direct upload is not enabled for this workspace",
+    );
   const upload = await storage.presignPut(existing.objectKey, {
     contentType: existing.contentType,
     expiresInSeconds: sessionExpiresInSeconds,

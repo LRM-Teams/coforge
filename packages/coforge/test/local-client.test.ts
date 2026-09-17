@@ -534,6 +534,11 @@ test("direct upload: succeeds on the first PUT and completes on the first try", 
   expect(puts).toHaveLength(1);
   expect(puts[0]?.headers.get("x-oss-forbid-overwrite")).toBe("true");
   expect(puts[0]?.body).toBe("hello");
+  // A `Blob` body (`Bun.file(path)`) has a known size, so `fetch` sends a real `Content-Length`
+  // and never falls back to chunked transfer encoding; OSS's PutObject needs the former and
+  // rejects the latter in its place.
+  expect(puts[0]?.headers.get("content-length")).toBe("5");
+  expect(puts[0]?.headers.get("transfer-encoding")).toBeNull();
 });
 
 test("direct upload: OSS's 409 (already exists) is not retried and still completes", async () => {

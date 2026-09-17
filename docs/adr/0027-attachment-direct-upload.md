@@ -87,9 +87,15 @@ directly against `origin/main` as it stood after
    current state rather than a new failure mode).
 5. **`create`/`complete` implement Raft's state machine exactly, adapted to this schema's
    idempotency mechanics.** `create` looks up `(agentId, clientRequestId)`; an exact match on the
-   other fields re-signs and returns the same session (Raft's "same key + same body → same
-   session"); a mismatch is `UPLOAD_IDEMPOTENCY_CONFLICT`; a `create` race on the same key is
-   caught as a Prisma `P2002` unique-constraint violation and folded into the same replay path.
+   other fields while the existing session is still `pending` re-signs and returns the same
+   session (Raft's "same key + same body → same session"); a parameter mismatch is
+   `UPLOAD_IDEMPOTENCY_CONFLICT`; and — since a session past `pending` (verifying, completed,
+   canceled, expired, failed) has nothing left to (re-)sign — replaying a matching key against one
+   of those is *also* `UPLOAD_IDEMPOTENCY_CONFLICT` (`clientRequestId was already used by a
+   session that is now <state>; start a new upload`) rather than fabricating a fresh `pending`
+   reply with an empty upload URL, which the CLI would otherwise PUT to. A `create` race on the
+   same key is caught as a Prisma `P2002` unique-constraint violation and folded into the same
+   replay path.
    `complete` claims verification with a conditional `UPDATE ... WHERE state = 'pending'` (not a
    separate lock), so a concurrent `complete` call loses the race and gets
    `UPLOAD_VERIFICATION_IN_PROGRESS`; it then `head`s the object, and on a match creates the
@@ -122,9 +128,13 @@ directly against `origin/main` as it stood after
    `directUploadThresholdBytes` from `COFORGE_ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_BYTES`, default
    1 MiB, read regardless of whether direct upload is enabled — the server always knows its own
    threshold even when this backend cannot act on it), a file at or above the threshold on a
-   direct-upload-capable server runs the session flow: create → PUT the bytes with
-   `Bun.file(path).stream()` and `duplex: "half"` (one retry on a thrown network error or a
-   `408`/`429`/`5xx` response; any other non-2xx is a definite failure that cancels the session
+   direct-upload-capable server runs the session flow: create → PUT the bytes with `Bun.file(path)`
+   as the body (a `Blob`, so `fetch` sets a real `Content-Length` from its known size and streams
+   it from disk itself, with no `Transfer-Encoding: chunked`; a `ReadableStream` body has no known
+   length and would be sent chunked instead, which OSS's PutObject does not accept in place of a
+   real `Content-Length` — verified with a `Bun.serve` fake asserting the header Bun's `fetch`
+   actually sends) — one retry on a thrown network error or a `408`/`429`/`5xx` response; any
+   other non-2xx is a definite failure that cancels the session
    before reporting `UPLOAD_OBJECT_PUT_FAILED`; a `409` or an ambiguous network failure after the
    one retry falls through to `complete` without canceling, exactly as Raft's own client does for
    its `412`/unknown-outcome cases) → `complete` (retried up to 3× with `250ms × attempt` backoff

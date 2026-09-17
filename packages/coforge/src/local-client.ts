@@ -545,12 +545,7 @@ export function connectLocal(
       upload: { url: string; headers: Record<string, string> };
     };
 
-    const put = await putFileToPresignedUrl(
-      input.path,
-      input.sizeBytes,
-      created.upload.url,
-      created.upload.headers,
-    );
+    const put = await putFileToPresignedUrl(input.path, created.upload.url, created.upload.headers);
     if (put.outcome === "failed" && put.definite) {
       await callAttachmentUploadSessionCancel(created.uploadId).catch(() => undefined);
       throw new CliError({
@@ -637,7 +632,6 @@ export function connectLocal(
    */
   async function putFileToPresignedUrl(
     path: string,
-    sizeBytes: number,
     url: string,
     headers: Record<string, string>,
   ): Promise<
@@ -647,13 +641,19 @@ export function connectLocal(
     for (let attempt = 0; attempt < 2; attempt += 1) {
       let response: Response;
       try {
+        // `Bun.file(path)` is a `Blob`; Bun knows its size up front, so `fetch` sets a real
+        // `Content-Length` from it and streams the bytes from disk itself, with no
+        // `Transfer-Encoding: chunked`. A `ReadableStream` body (`Bun.file(path).stream()`) has
+        // no known length, so `fetch` sends it chunked instead — OSS's PutObject needs a real
+        // `Content-Length`, and a manually-set one on a streamed body can be dropped or conflict
+        // with the chunked encoding `fetch` chooses on its own (verified with a `Bun.serve`
+        // fake in `local-client.test.ts`).
         response = await fetch(url, {
           method: "PUT",
-          headers: { ...headers, "Content-Length": String(sizeBytes) },
-          body: Bun.file(path).stream(),
+          headers,
+          body: Bun.file(path),
           redirect: "error",
-          duplex: "half",
-        } as RequestInit & { duplex: "half" });
+        });
       } catch {
         if (attempt === 0) continue;
         return { outcome: "failed", definite: false };
