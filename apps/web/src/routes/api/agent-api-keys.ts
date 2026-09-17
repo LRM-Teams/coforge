@@ -22,6 +22,10 @@ import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server
 import { ComputerRuntimeVisibility } from "#/server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "#/server/db/repositories/computer-runtime.repositories.server";
 import { decryptAgentEnvironment } from "#/server/agents/agent-environment.server";
+import {
+  buildAgentRuntimeContext,
+  type AgentRuntimeContextComputer,
+} from "#/server/agents/agent-runtime-context.server";
 
 const createAgentApiKeyInputSchema = z.object({
   agentId: z.string().min(1),
@@ -67,24 +71,7 @@ async function parseBody<T>(request: Request, schema: z.ZodType<T>) {
   return input.success ? input.data : Response.json({ error: "bad request" }, { status: 400 });
 }
 
-type LaunchIdentityComputer = {
-  name: string;
-  displayName: string;
-  platform: string | null;
-  osVersion: string | null;
-  computerVersion: string | null;
-} | null;
-
-/** Same fallback as `WorkspaceMembers.list`'s `computerName`: the human-facing Computer Name,
- * falling back to the OS hostname, so the two surfaces never disagree. */
-function computerIdentityName(computer: LaunchIdentityComputer): string | undefined {
-  return computer?.displayName.trim() || computer?.name.trim() || undefined;
-}
-
-function computerIdentityOs(computer: LaunchIdentityComputer): string | undefined {
-  const parts = [computer?.platform?.trim(), computer?.osVersion?.trim()].filter(Boolean);
-  return parts.length > 0 ? parts.join(" ") : undefined;
-}
+type LaunchIdentityComputer = AgentRuntimeContextComputer;
 
 /**
  * The Agent's server-authored identity for the Daemon's standing prompt (`agent-instructions.ts`
@@ -103,22 +90,7 @@ function buildAgentLaunchIdentity(agent: {
   computerId: string;
   computer: LaunchIdentityComputer;
 }) {
-  const computerName = computerIdentityName(agent.computer);
-  const computerOs = computerIdentityOs(agent.computer);
-  const runtimeContext = {
-    ...(agent.workspaceId ? { workspaceId: agent.workspaceId } : {}),
-    ...(agent.workspace?.slug ? { workspaceSlug: agent.workspace.slug } : {}),
-    ...(agent.workspace?.name ? { workspaceName: agent.workspace.name } : {}),
-    ...(agent.computerId ? { computerId: agent.computerId } : {}),
-    ...(computerName ? { computerName } : {}),
-    ...(computerOs ? { computerOs } : {}),
-    ...(agent.computer?.computerVersion?.trim()
-      ? { computerVersion: agent.computer.computerVersion.trim() }
-      : {}),
-    // `Computer.name` is the OS hostname: registration sets and refreshes it on every setup, and
-    // it has no rename control (`displayName` is the editable one), so it needs no column of its own.
-    ...(agent.computer?.name.trim() ? { computerHostname: agent.computer.name.trim() } : {}),
-  };
+  const runtimeContext = buildAgentRuntimeContext(agent);
   const identity = {
     ...(agent.name ? { name: agent.name } : {}),
     ...(agent.displayName ? { displayName: agent.displayName } : {}),
