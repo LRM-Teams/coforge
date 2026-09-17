@@ -124,3 +124,11 @@ test("Tasks require claim-before-work and conversational human acceptance", () =
   expect(instructions).not.toContain("COFORGE_REVIEWER_ISOLATION");
   expect(instructions).not.toContain("coforge task receipt");
 });
+
+test("project code is discovered through workspace info and cloned with the owner's GitHub credential", () => {
+  expect(instructions).toContain("coforge workspace info --projects");
+  expect(instructions).toContain("github=<owner>/<repo>");
+  expect(instructions).toContain("git clone https://github.com/<owner>/<repo>.git");
+  expect(instructions).toContain("Never ask for a token, SSH key, or deploy key");
+  expect(instructions).toContain("do not run `gh auth login`");
+});

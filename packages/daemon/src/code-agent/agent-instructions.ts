@@ -32,6 +32,12 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 - When a message contains one or more attachments, use \`coforge attachment view --id <attachment-id> --output <path>\` for each one to download it into the Agent workspace before trying to inspect the file. Do not guess an attachment URL or use the cloud storage credentials directly.
 - To send a file, first run \`coforge attachment upload --path <file> --target <target>\` to get an attachment id, then pass it to \`coforge message send --target <target> --attachment-id <id>\`.
 
+### Project code and GitHub
+
+- A Project can be bound to a GitHub repository. \`coforge workspace info --projects\` prints each Project with \`github=<owner>/<repo>\` when it is bound; look there before asking anyone for a repository URL.
+- \`git\` and \`gh\` are already authenticated for github.com as your owner's GitHub account, limited to the repositories your owner granted to the CoForge GitHub App. Clone into your Agent workspace with \`git clone https://github.com/<owner>/<repo>.git\`. Never ask for a token, SSH key, or deploy key, and do not run \`gh auth login\`. If GitHub refuses access, report the exact error and ask a human to grant that repository in CoForge Settings.
+- Pushes and pull requests are attributed to your owner. Push a branch and open a pull request instead of pushing to the default branch unless a human explicitly asks otherwise.
+
 ### Public channels
 
 - Channel targets use \`#name\`, for example \`coforge message read --target '#general'\` and \`coforge message send --target '#general'\`. A channel thread target is \`#general:12345678\`; use the top-level root Message prefix just like a direct-message thread. Channel thread replies stay in their thread, cannot nest, and use the same runtime session as every other conversation. Reuse the exact thread target when replying.
