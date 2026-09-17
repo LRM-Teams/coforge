@@ -312,6 +312,80 @@ test('"this project" resolves through the current channel\'s info before falling
   );
 });
 
+test("splitting tasks groups subtasks for parallel work and names the true task-listing command", () => {
+  const section = buildCoforgeCliGuideSections().splittingTasks;
+  expect(section).toContain("### Splitting tasks for parallel execution");
+  expect(section).toContain("**Group by phase** if tasks have dependencies.");
+  expect(section).toContain("**Prefer independent subtasks** that don't block each other.");
+  expect(section).toContain("**Avoid creating sequential chains**");
+  // Tasks are listed per conversation and no new-task notification exists, so the section must
+  // not promise a task board or a notification.
+  expect(section).not.toContain("notification about new tasks");
+  expect(section).not.toContain("task board");
+  expect(section).toContain(
+    "run `coforge task list --target <channel-or-dm> [--status <status>]` in the relevant conversation and claim tasks relevant to your skills",
+  );
+  const tasksIndex = instructions.indexOf("### Tasks");
+  const splittingIndex = instructions.indexOf("### Splitting tasks for parallel execution");
+  expect(tasksIndex).toBeGreaterThan(-1);
+  expect(splittingIndex).toBeGreaterThan(tasksIndex);
+});
+
+test("communication style keeps agents concise and agrees with the startup-sequence acknowledgment step", () => {
+  const section = buildCoforgeCliGuideSections().communicationStyle;
+  expect(section).toContain("## Communication style");
+  expect(section).toContain(
+    "When you receive a task, acknowledge it and briefly outline your plan before starting.",
+  );
+  expect(section).toContain("Keep updates concise — one or two sentences. Don't flood the chat.");
+  expect(section).toContain("Do not paste execution logs into chat.");
+  expect(section).toContain(
+    "A completion message should lead with the outcome, then any material caveat and the next owner/action.",
+  );
+  expect(section).toContain("lead with the answer and write in plain, complete sentences");
+  expect(instructions).toContain(
+    "1. If this turn already includes a concrete incoming message, first decide whether that message needs a visible acknowledgment",
+  );
+});
+
+test("conversation etiquette agrees with, and does not replace, the public-channels reply rule", () => {
+  const section = buildCoforgeCliGuideSections().conversationEtiquette;
+  expect(section).toContain("### Conversation etiquette");
+  expect(section).toContain("**Respect ongoing conversations.**");
+  expect(section).toContain("**Only the person doing the work should report on it.**");
+  expect(section).toContain("**Before stopping, check for concrete blockers you own.**");
+  expect(section).toContain("**Skip idle narration.**");
+  expect(instructions).toContain("Do not reply to every ordinary channel message.");
+  expect(instructions).toContain("avoid repetitive acknowledgements and Agent reply loops");
+});
+
+test("live constraints require four live seats and never treat memory as hold evidence", () => {
+  const section = buildCoforgeCliGuideSections().liveConstraints;
+  expect(section).toContain("## Live constraints");
+  expect(section).toContain("1. **Declaration:**");
+  expect(section).toContain("2. **Propagation:**");
+  expect(section).toContain("Updating only your own memory is not enough.");
+  expect(section).toContain("3. **Reception:**");
+  expect(section).toContain("Memory, an old announcement, a task description");
+  expect(section).toContain("4. **Action:**");
+  expect(section).toContain(
+    "Being granted one permission never implies permission for subsequent actions such as deployment, release, migration, or production writes.",
+  );
+});
+
+test("the new conduct sections sit after action cards and before the closing sentence", () => {
+  const actionCardsIndex = instructions.indexOf("### Action cards");
+  const communicationStyleIndex = instructions.indexOf("## Communication style");
+  const conversationEtiquetteIndex = instructions.indexOf("### Conversation etiquette");
+  const liveConstraintsIndex = instructions.indexOf("## Live constraints");
+  const closingIndex = instructions.indexOf("Complete the requested work");
+  expect(actionCardsIndex).toBeGreaterThan(-1);
+  expect(communicationStyleIndex).toBeGreaterThan(actionCardsIndex);
+  expect(conversationEtiquetteIndex).toBeGreaterThan(communicationStyleIndex);
+  expect(liveConstraintsIndex).toBeGreaterThan(conversationEtiquetteIndex);
+  expect(closingIndex).toBeGreaterThan(liveConstraintsIndex);
+});
+
 test("the prompt is its named sections, in order, each opening with its own heading", () => {
   const sections = buildCoforgeCliGuideSections();
   const headings: Record<keyof typeof sections, string> = {
@@ -326,7 +400,11 @@ test("the prompt is its named sections, in order, each opening with its own head
     appInbox: "### App Inbox",
     reminders: "### Reminders",
     tasks: "### Tasks",
+    splittingTasks: "### Splitting tasks for parallel execution",
     actionCards: "### Action cards",
+    communicationStyle: "## Communication style",
+    conversationEtiquette: "### Conversation etiquette",
+    liveConstraints: "## Live constraints",
     closing: "Complete the requested work",
   };
   expect(Object.keys(sections)).toEqual(Object.keys(headings));
