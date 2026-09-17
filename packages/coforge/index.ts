@@ -4,6 +4,7 @@ import {
   isValidReactionEmoji,
   type AgentMessageRecord,
   type AgentReminderOperationResponse,
+  type ChannelCommand,
   type LocalReminderRequest,
   type TaskCommand,
   type TaskResult,
@@ -25,6 +26,17 @@ import {
   formatSearchResults,
   formatSendSuccess,
 } from "./src/message-format";
+import {
+  formatChannelAddMember,
+  formatChannelArchive,
+  formatChannelCreate,
+  formatChannelInfo,
+  formatChannelJoin,
+  formatChannelLeave,
+  formatChannelMembers,
+  formatChannelRemoveMember,
+  formatChannelUpdate,
+} from "./src/channel-format";
 import { CliError, unknownDeliveryNextAction, withOutputMode } from "./src/cli-error";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
@@ -68,6 +80,13 @@ export type AttachmentInvocation = {
 };
 export type InboxInvocation = { command: "inbox-check" };
 export type ChannelInvocation = { command: "mute" | "unmute"; target: string };
+/** `channel info|members|join|leave|create|update|lifecycle|add-member|remove-member`, disjoint
+ * from `ChannelInvocation` above (`mute`/`unmute`, unchanged). */
+export type ChannelManagementInvocation = {
+  command: "channel-manage";
+  channel: Omit<ChannelCommand, "requestId">;
+  json?: boolean;
+};
 export type ReminderInvocation = Omit<LocalReminderRequest, "context" | "requestId"> & {
   command: "reminder";
 };
@@ -121,6 +140,7 @@ export type MessageTransport = {
     request: ReminderTransportRequest,
   ): Promise<AgentReminderOperationResponse | LocalReminderReceiptResponse>;
   setThreadFollowed?(target: string, followed: boolean): Promise<unknown>;
+  channel?(command: Omit<ChannelCommand, "requestId">): Promise<unknown>;
   task?(command: TaskCommand): Promise<TaskResult>;
   workspaceInfo?(): Promise<WorkspaceInfoResult>;
   weeklyReport?(command: WeeklyReportCommand): Promise<WeeklyReportResponse>;
@@ -138,6 +158,7 @@ export function parseArgs(
   | AttachmentInvocation
   | InboxInvocation
   | ChannelInvocation
+  | ChannelManagementInvocation
   | ReminderInvocation
   | ThreadInvocation
   | TaskInvocation
@@ -155,6 +176,8 @@ export function parseArgs(
     /^#[a-z0-9][a-z0-9_-]{0,31}$/.test(args[3] ?? "")
   )
     return { command: args[1], target: args[3]! };
+  if (args[0] === "channel" && args[1] !== undefined && args[1] !== "mute" && args[1] !== "unmute")
+    return parseChannelManagementArgs(args.slice(1));
   if (
     args[0] === "thread" &&
     args[1] === "unfollow" &&
@@ -304,7 +327,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path> | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path> | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
   );
 }
 
@@ -357,6 +380,123 @@ function parseWorkspaceInfoArgs(args: readonly string[]): WorkspaceInfoInvocatio
   return { command: "workspace.info", ...result };
 }
 
+const CHANNEL_MANAGEMENT_BOOLEAN_FLAGS = new Set(["--private", "--public", "--json"]);
+
+/** Rejects `--private`/`--public`, which Raft accepts but CoForge does not; every channel is
+ * public and there is no private/visibility column (see ADR 0024). */
+function privateChannelsUnsupportedError(): CliError {
+  return new CliError({
+    code: "UNSUPPORTED",
+    message: "private channels are not supported in CoForge; every channel is public.",
+    retryable: false,
+  });
+}
+
+/** Generic `--flag value` / `--boolean-flag` parser shared by the `channel` subcommands below. */
+function parseChannelFlags(
+  args: readonly string[],
+  allowed: readonly string[],
+): Map<string, string> {
+  const values = new Map<string, string>();
+  for (let index = 0; index < args.length; index++) {
+    const name = args[index];
+    if (!name || !allowed.includes(name) || values.has(name)) throw new Error("Usage:");
+    if (CHANNEL_MANAGEMENT_BOOLEAN_FLAGS.has(name)) {
+      values.set(name, "true");
+      continue;
+    }
+    const value = args[++index];
+    if (!value) throw new Error("Usage:");
+    values.set(name, value);
+  }
+  return values;
+}
+
+/**
+ * `channel info|members|join|leave|create|update|lifecycle archive|unarchive|add-member|
+ * remove-member`. `mute`/`unmute` are parsed separately, above, and unchanged.
+ */
+function parseChannelManagementArgs(args: readonly string[]): ChannelManagementInvocation {
+  const sub = args[0];
+  if (sub === "info" || sub === "members") {
+    const target = args[1];
+    if (!target || args.length !== 2) throw new Error("Usage:");
+    return { command: "channel-manage", channel: { operation: sub, target } };
+  }
+  if (sub === "lifecycle") {
+    const action = args[1];
+    if (action !== "archive" && action !== "unarchive") throw new Error("Usage:");
+    const values = parseChannelFlags(args.slice(2), ["--target", "--json"]);
+    const target = values.get("--target");
+    if (!target) throw new Error("Usage:");
+    return {
+      command: "channel-manage",
+      channel: { operation: action, target },
+      json: values.has("--json"),
+    };
+  }
+  if (sub === "join" || sub === "leave") {
+    const values = parseChannelFlags(args.slice(1), ["--target", "--json"]);
+    const target = values.get("--target");
+    if (!target) throw new Error("Usage:");
+    return {
+      command: "channel-manage",
+      channel: { operation: sub, target },
+      json: values.has("--json"),
+    };
+  }
+  if (sub === "create") {
+    const values = parseChannelFlags(args.slice(1), [
+      "--name",
+      "--description",
+      "--private",
+      "--json",
+    ]);
+    if (values.has("--private")) throw privateChannelsUnsupportedError();
+    const name = values.get("--name");
+    if (!name) throw new Error("Usage:");
+    return {
+      command: "channel-manage",
+      channel: { operation: "create", name, description: values.get("--description") },
+      json: values.has("--json"),
+    };
+  }
+  if (sub === "update") {
+    const values = parseChannelFlags(args.slice(1), [
+      "--target",
+      "--name",
+      "--description",
+      "--public",
+      "--private",
+      "--json",
+    ]);
+    if (values.has("--private") || values.has("--public")) throw privateChannelsUnsupportedError();
+    const target = values.get("--target");
+    if (!target) throw new Error("Usage:");
+    const name = values.get("--name");
+    const description = values.get("--description");
+    if (name === undefined && description === undefined) throw new Error("Usage:");
+    return {
+      command: "channel-manage",
+      channel: { operation: "update", target, name, description },
+      json: values.has("--json"),
+    };
+  }
+  if (sub === "add-member" || sub === "remove-member") {
+    const values = parseChannelFlags(args.slice(1), ["--target", "--user", "--agent", "--json"]);
+    const target = values.get("--target");
+    const user = values.get("--user");
+    const agent = values.get("--agent");
+    if (!target || (user === undefined) === (agent === undefined)) throw new Error("Usage:");
+    return {
+      command: "channel-manage",
+      channel: { operation: sub, target, user, agent },
+      json: values.has("--json"),
+    };
+  }
+  throw new Error("Usage:");
+}
+
 export async function run(args: readonly string[], transport: MessageTransport): Promise<unknown> {
   const invocation = parseArgs(args);
   if (invocation.command === "workspace.info") {
@@ -407,6 +547,33 @@ export async function run(args: readonly string[], transport: MessageTransport):
   if (invocation.command === "mute" || invocation.command === "unmute") {
     if (!transport.setChannelMuted) throw new Error("Channel settings transport is unavailable");
     return transport.setChannelMuted(invocation.target, invocation.command === "mute");
+  }
+  if (invocation.command === "channel-manage") {
+    if (!transport.channel) throw new Error("Channel management transport is unavailable");
+    const { channel } = invocation;
+    const response = (await transport.channel(channel)) as Record<string, unknown>;
+    if (invocation.json) return response;
+    switch (channel.operation) {
+      case "info":
+        return formatChannelInfo(response as Parameters<typeof formatChannelInfo>[0]);
+      case "members":
+        return formatChannelMembers(response as Parameters<typeof formatChannelMembers>[0]);
+      case "join":
+        return formatChannelJoin(response as Parameters<typeof formatChannelJoin>[0]);
+      case "leave":
+        return formatChannelLeave(response as Parameters<typeof formatChannelLeave>[0]);
+      case "create":
+        return formatChannelCreate(response as Parameters<typeof formatChannelCreate>[0]);
+      case "update":
+        return formatChannelUpdate(response as Parameters<typeof formatChannelUpdate>[0]);
+      case "archive":
+      case "unarchive":
+        return formatChannelArchive(response as Parameters<typeof formatChannelArchive>[0]);
+      case "add-member":
+        return formatChannelAddMember(response as Parameters<typeof formatChannelAddMember>[0]);
+      case "remove-member":
+        return formatChannelRemoveMember(channel.target!, (channel.user ?? channel.agent)!);
+    }
   }
   if (invocation.command === "thread-unfollow") {
     if (!transport.setThreadFollowed) throw new Error("Thread settings transport is unavailable");

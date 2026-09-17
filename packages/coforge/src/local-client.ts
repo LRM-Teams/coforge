@@ -6,6 +6,7 @@ import {
   encodeAgentReminderOperationResponse,
   encodeLocalReminderRequest,
   type AgentReminderOperationResponse,
+  type ChannelCommand,
   type LocalReminderRequest,
   type TaskCommand,
   type TaskResult,
@@ -262,6 +263,7 @@ export function connectLocal(
     react: (messageId: string, emoji: string, remove?: boolean) =>
       call(remove ? "unreact" : "react", undefined, undefined, { messageId, emoji }),
     task: (command: TaskCommand) => callTask(command),
+    channel: (command: Omit<ChannelCommand, "requestId">) => callChannel(command),
     workspaceInfo: async (): Promise<WorkspaceInfoResponse> => {
       if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
         throw new Error("coforge agent context is invalid");
@@ -372,6 +374,24 @@ export function connectLocal(
       throw new Error(`agent Task request failed (${response.status}): ${await response.text()}`);
     }
     return (await response.json()) as TaskResult;
+  }
+
+  async function callChannel(command: Omit<ChannelCommand, "requestId">) {
+    if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    const requestId = crypto.randomUUID();
+    const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.channels.path), {
+      method: agentApiRoutes.local.channels.method,
+      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+      body: JSON.stringify({ ...command, requestId }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok)
+      throw new Error(
+        `agent channel ${command.operation} request failed (${response.status}): ${await response.text()}`,
+      );
+    return response.json();
   }
 
   async function callWeeklyReport(command: WeeklyReportCommand) {

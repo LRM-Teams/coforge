@@ -466,6 +466,144 @@ test("Agent channel mute and unmute change its own setting without sending a mes
   expect(() => parseArgs(["channel", "mute", "--target", "#general:12345678"])).toThrow("Usage:");
 });
 
+test("channel management commands parse into a channel operation and dispatch through the transport", async () => {
+  expect(parseArgs(["channel", "info", "#engineering"])).toEqual({
+    command: "channel-manage",
+    channel: { operation: "info", target: "#engineering" },
+  });
+  expect(parseArgs(["channel", "members", "#engineering"])).toEqual({
+    command: "channel-manage",
+    channel: { operation: "members", target: "#engineering" },
+  });
+  expect(parseArgs(["channel", "join", "--target", "#engineering"])).toEqual({
+    command: "channel-manage",
+    channel: { operation: "join", target: "#engineering" },
+    json: false,
+  });
+  expect(parseArgs(["channel", "leave", "--target", "#engineering", "--json"])).toEqual({
+    command: "channel-manage",
+    channel: { operation: "leave", target: "#engineering" },
+    json: true,
+  });
+  expect(parseArgs(["channel", "create", "--name", "engineering"])).toEqual({
+    command: "channel-manage",
+    channel: { operation: "create", name: "engineering", description: undefined },
+    json: false,
+  });
+  expect(
+    parseArgs(["channel", "create", "--name", "engineering", "--description", "Eng team"]),
+  ).toEqual({
+    command: "channel-manage",
+    channel: { operation: "create", name: "engineering", description: "Eng team" },
+    json: false,
+  });
+  expect(
+    parseArgs(["channel", "update", "--target", "#engineering", "--description", "Eng team"]),
+  ).toEqual({
+    command: "channel-manage",
+    channel: {
+      operation: "update",
+      target: "#engineering",
+      name: undefined,
+      description: "Eng team",
+    },
+    json: false,
+  });
+  expect(parseArgs(["channel", "lifecycle", "archive", "--target", "#engineering"])).toEqual({
+    command: "channel-manage",
+    channel: { operation: "archive", target: "#engineering" },
+    json: false,
+  });
+  expect(parseArgs(["channel", "lifecycle", "unarchive", "--target", "#engineering"])).toEqual({
+    command: "channel-manage",
+    channel: { operation: "unarchive", target: "#engineering" },
+    json: false,
+  });
+  expect(
+    parseArgs(["channel", "add-member", "--target", "#engineering", "--user", "@alice"]),
+  ).toEqual({
+    command: "channel-manage",
+    channel: { operation: "add-member", target: "#engineering", user: "@alice", agent: undefined },
+    json: false,
+  });
+  expect(
+    parseArgs(["channel", "remove-member", "--target", "#engineering", "--agent", "@reviewer"]),
+  ).toEqual({
+    command: "channel-manage",
+    channel: {
+      operation: "remove-member",
+      target: "#engineering",
+      user: undefined,
+      agent: "@reviewer",
+    },
+    json: false,
+  });
+
+  const calls: unknown[] = [];
+  const result = await run(["channel", "join", "--target", "#engineering"], {
+    check: async () => {
+      throw new Error("unexpected check");
+    },
+    read: async () => {
+      throw new Error("unexpected read");
+    },
+    send: async () => {
+      throw new Error("unexpected send");
+    },
+    view: async () => {
+      throw new Error("unexpected view");
+    },
+    channel: async (command) => {
+      calls.push(command);
+      return { protocolMajor: 1, requestId: "r-1", target: "#engineering", joined: true };
+    },
+  });
+  expect(calls).toEqual([{ operation: "join", target: "#engineering" }]);
+  expect(result).toBe("Joined #engineering.");
+});
+
+test("channel management commands reject malformed arguments and require exactly one of --user/--agent", () => {
+  expect(() => parseArgs(["channel", "info"])).toThrow("Usage:");
+  expect(() => parseArgs(["channel", "info", "#a", "extra"])).toThrow("Usage:");
+  expect(() => parseArgs(["channel", "join"])).toThrow("Usage:");
+  expect(() => parseArgs(["channel", "create"])).toThrow("Usage:");
+  expect(() => parseArgs(["channel", "update", "--target", "#a"])).toThrow("Usage:");
+  expect(() => parseArgs(["channel", "lifecycle", "delete", "--target", "#a"])).toThrow("Usage:");
+  expect(() => parseArgs(["channel", "add-member", "--target", "#a"])).toThrow("Usage:");
+  expect(() =>
+    parseArgs(["channel", "add-member", "--target", "#a", "--user", "@x", "--agent", "@y"]),
+  ).toThrow("Usage:");
+  expect(() => parseArgs(["channel", "bogus-operation", "--target", "#a"])).toThrow("Usage:");
+});
+
+test("--private and --public are rejected as unsupported, not silently ignored", () => {
+  expect(() => parseArgs(["channel", "create", "--name", "eng", "--private"])).toThrow(
+    "private channels are not supported in CoForge",
+  );
+  try {
+    parseArgs(["channel", "create", "--name", "eng", "--private"]);
+    throw new Error("expected a CliError");
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("UNSUPPORTED");
+  }
+  expect(() => parseArgs(["channel", "update", "--target", "#eng", "--public"])).toThrow(
+    "private channels are not supported in CoForge",
+  );
+});
+
+test("channel management --json prints the raw response for every subcommand", async () => {
+  const rawResponse = { protocolMajor: 1, requestId: "r-2", target: "#eng", archived: true };
+  const result = await run(["channel", "lifecycle", "archive", "--target", "#eng", "--json"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+    channel: async () => rawResponse,
+  });
+  expect(result).toBe(rawResponse);
+});
+
 test("Agent thread unfollow changes only the exact channel thread", async () => {
   const calls: unknown[] = [];
   expect(parseArgs(["thread", "unfollow", "--target", "#general:12345678"])).toEqual({

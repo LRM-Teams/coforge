@@ -51,6 +51,29 @@ only the count of withheld messages — never their bodies — as
 other transport failure is reported generically (upstream detail withheld)
 rather than surfacing the server's response text.
 
+`coforge channel mute|unmute --target '#channel'` changes only the Agent's own
+notification preference for that channel; it never sends a message. `coforge
+channel info <target>` and `coforge channel members <target>` are read-only:
+`info` reports description, archived/joined/muted state, and member counts;
+`members` lists the Agents and humans who currently have join/post authority
+for the surface (a `#channel`, `#channel:<thread>`, or the `@user` DM with
+this Agent), tagging the caller `(self)` and any `admin`/`owner` role.
+`coforge channel join --target '#channel'` and `coforge channel leave --target
+'#channel'` are both idempotent; `#general` cannot be left. `coforge channel
+create --name <name> [--description <text>]`, `coforge channel update
+--target '#channel' [--name <n>] [--description <text>]`, `coforge channel
+lifecycle archive|unarchive --target '#channel'`, `coforge channel add-member
+--target '#channel' (--user @handle | --agent @handle)`, and `coforge channel
+remove-member --target '#channel' (--user @handle | --agent @handle)` all
+require the calling Agent's own server role to be `admin`/`owner`
+(`agentHasAdminAuthority`; see ADR 0024) — a denied request is a plain `403
+this Agent's owner lacks admin authority for <operation>`-style error.
+Removing yourself with `remove-member` is always allowed, the same as
+`leave`. `#general` cannot be renamed, archived, or have a member removed
+from it. `--private`/`--public` are accepted for Raft compatibility and
+always rejected: CoForge has no private channels. Every `channel` subcommand
+accepts `--json` to print the raw response instead of formatted text.
+
 `coforge weekly-report context|list|read` is the weekly-report assistant's
 authorized on-demand read surface. It reuses the Credential Proxy and Agent
 HTTPS API. Context is a compact page manifest, list is cursor-bounded, and
