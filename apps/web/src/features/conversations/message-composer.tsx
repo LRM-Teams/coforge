@@ -41,7 +41,14 @@ export type SentMessage = {
   attachmentFileName?: string;
 };
 
+/** At most 10 attachments per send, mirroring the server-side `attachmentIds` bound
+ * (`conversation.schemas.ts`'s `attachmentIdsSchema`, the Agent API's `AgentMessagesSendRequest`). */
+const MAX_ATTACHMENTS = 10;
+
 type PendingAttachment = {
+  /** Stable key across renders and across the file's own upload lifecycle; independent of
+   * `file` identity so two same-named files can coexist. */
+  localId: string;
   file: File;
   /** Set once the server has accepted the upload. */
   id?: string;
@@ -196,8 +203,9 @@ function AttachmentChip({
 
 /**
  * The message form at the foot of a conversation or thread. Owns the draft, the pending
- * attachment (uploaded as soon as it is chosen, so its progress is visible), the "as task"
- * toggle and the retry request id, so typing never re-renders the history above it.
+ * attachments (each uploaded sequentially as soon as it is chosen, so its progress is
+ * visible), the "as task" toggle and the retry request id, so typing never re-renders the
+ * history above it.
  */
 export function MessageComposer({
   conversationId,
@@ -209,7 +217,11 @@ export function MessageComposer({
   conversationId: string;
   /** Thread composers cannot create Tasks. */
   inThread: boolean;
-  onSend: (body: string, requestId: string, attachmentId?: string) => Promise<SentMessage | void>;
+  onSend: (
+    body: string,
+    requestId: string,
+    attachmentIds?: string[],
+  ) => Promise<SentMessage | void>;
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   /** A message of the current user's was accepted by the server. */
   onSent?: (message: SentMessage) => void;
@@ -220,7 +232,7 @@ export function MessageComposer({
   const [body, setBody] = useState("");
   const [sending, guard] = useSubmitGuard();
   const [error, setError] = useState("");
-  const [attachment, setAttachment] = useState<PendingAttachment>();
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [asTask, setAsTask] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // A failed send keeps its request id so a retry of the same text is idempotent.
@@ -234,28 +246,56 @@ export function MessageComposer({
   // affordance does not flicker as the pointer crosses child element boundaries.
   const dragDepthRef = useRef(0);
   const [draggingFile, setDraggingFile] = useState(false);
-  const uploading = Boolean(attachment && !attachment.id && !attachment.failed);
+  const uploading = attachments.some((item) => !item.id && !item.failed);
+  const anyFailed = attachments.some((item) => item.failed);
   const composerDisabled = !hydrated || sending;
   const dropDisabled = composerDisabled || uploading;
 
-  async function upload(file: File) {
-    setAttachment({ file, progress: 0, failed: false });
+  /** Uploads one already-added pending attachment, tracking it by `localId` regardless of
+   * later reordering or removal of the others in `attachments`. */
+  async function uploadOne(pending: PendingAttachment) {
     try {
-      const id = await uploadAttachment(conversationId, file, (progress) =>
-        setAttachment((current) => (current?.file === file ? { ...current, progress } : current)),
+      const id = await uploadAttachment(conversationId, pending.file, (progress) =>
+        setAttachments((current) =>
+          current.map((item) => (item.localId === pending.localId ? { ...item, progress } : item)),
+        ),
       );
-      setAttachment((current) =>
-        current?.file === file ? { ...current, id, progress: 100 } : current,
+      setAttachments((current) =>
+        current.map((item) =>
+          item.localId === pending.localId ? { ...item, id, progress: 100 } : item,
+        ),
       );
     } catch {
-      setAttachment((current) => (current?.file === file ? { ...current, failed: true } : current));
+      setAttachments((current) =>
+        current.map((item) =>
+          item.localId === pending.localId ? { ...item, failed: true } : item,
+        ),
+      );
+    }
+  }
+
+  /** Adds and uploads one or more files, sequentially (one `/api/attachments` request at a
+   * time, never in parallel), stopping at `MAX_ATTACHMENTS`. */
+  async function addFiles(files: File[]) {
+    const room = Math.max(0, MAX_ATTACHMENTS - attachments.length);
+    const accepted = files.slice(0, room);
+    if (accepted.length === 0) return;
+    const pendingItems: PendingAttachment[] = accepted.map((file) => ({
+      localId: crypto.randomUUID(),
+      file,
+      progress: 0,
+      failed: false,
+    }));
+    setAttachments((current) => [...current, ...pendingItems]);
+    for (const pending of pendingItems) {
+      await uploadOne(pending);
     }
   }
 
   async function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    const text = body.trim() || attachment?.file.name || "";
-    if (!text || uploading || attachment?.failed) return;
+    const text = body.trim() || attachments[0]?.file.name || "";
+    if (!text || uploading || anyFailed) return;
     await guard(async () => {
       setError("");
       try {
@@ -264,15 +304,17 @@ export function MessageComposer({
             ? retryRef.current
             : { body: text, requestId: crypto.randomUUID(), asTask };
         retryRef.current = request;
-        const attachmentId = attachment?.id;
+        // Only the ids of files that finished uploading and were not removed.
+        const attachmentIds = attachments.flatMap((item) => (item.id ? [item.id] : []));
         const sentMessage =
           asTask && !inThread && onCreateTask
-            ? (await onCreateTask(text, request.requestId, attachmentId), undefined)
-            : await onSend(text, request.requestId, attachmentId);
+            ? // Task creation stays single-attachment; the first upload (send order) is used.
+              (await onCreateTask(text, request.requestId, attachmentIds[0]), undefined)
+            : await onSend(text, request.requestId, attachmentIds);
         if (sentMessage) onSent?.(sentMessage);
         retryRef.current = undefined;
         setBody("");
-        setAttachment(undefined);
+        setAttachments([]);
         setAsTask(false);
       } catch (cause) {
         const message = m.conversation_send_error();
@@ -307,12 +349,13 @@ export function MessageComposer({
     lastCompositionEndAtRef.current = Date.now();
   }
 
-  /** Paste a file (e.g. copied in Finder, or a clipboard screenshot) through the same upload path as the paperclip button. Text-only pastes are left to the browser. */
+  /** Paste one or more files (e.g. copied in Finder, or a clipboard screenshot) through the
+   * same upload path as the paperclip button. Text-only pastes are left to the browser. */
   function paste(event: ClipboardEvent<HTMLTextAreaElement>) {
     const files = filesFromPaste(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();
-    void upload(files[0]);
+    void addFiles(files);
   }
 
   /**
@@ -349,8 +392,10 @@ export function MessageComposer({
     dragDepthRef.current = 0;
     setDraggingFile(false);
     if (dropDisabled) return;
+    // Drag-and-drop stays one file per drop event, matching `fileFromDropItems`; the paperclip
+    // picker and paste both accept several at once.
     const file = fileFromDropItems(event.dataTransfer);
-    if (file) void upload(file);
+    if (file) void addFiles([file]);
   }
 
   const taskMode = !inThread && Boolean(onCreateTask);
@@ -433,22 +478,26 @@ export function MessageComposer({
             onClick={() => fileInputRef.current?.click()}
           />
         )}
-        {attachment && (
+        {attachments.map((item) => (
           <AttachmentChip
-            attachment={attachment}
-            uploading={uploading}
-            onRemove={() => setAttachment(undefined)}
-            onRetry={() => void upload(attachment.file)}
+            key={item.localId}
+            attachment={item}
+            uploading={!item.id && !item.failed}
+            onRemove={() =>
+              setAttachments((current) => current.filter((other) => other.localId !== item.localId))
+            }
+            onRetry={() => void uploadOne(item)}
           />
-        )}
+        ))}
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           disabled={composerDisabled}
           onChange={(event) => {
-            const file = event.target.files?.[0];
+            const files = Array.from(event.target.files ?? []);
             event.target.value = "";
-            if (file) void upload(file);
+            if (files.length > 0) void addFiles(files);
           }}
           className="sr-only"
         />
@@ -470,7 +519,7 @@ export function MessageComposer({
           size="sm"
           color="tertiary"
           isDisabled={
-            composerDisabled || uploading || attachment?.failed || (!body.trim() && !attachment)
+            composerDisabled || uploading || anyFailed || (!body.trim() && attachments.length === 0)
           }
           tooltip={sending ? m.conversation_sending() : m.conversation_send()}
           className="ml-auto rounded-full bg-brand-solid text-white hover:bg-brand-solid_hover hover:text-white"

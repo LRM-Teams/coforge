@@ -30,12 +30,12 @@ missed ---` section (or, with `--json`, a `recentUnread` array) listing the
 pending messages the bypass just skipped past; every other successful send
 reports none.
 
-`message send` accepts `--attachment-id <uuid>` to attach one attachment
+`message send` accepts `--attachment-id <uuid>` (repeatable, up to ten per
+message; duplicate values collapse to one) to attach one or more attachments
 already uploaded to the target conversation and left unlinked to any
-message — Agents have no upload route today, so this only ever succeeds for
-an attachment a human uploaded first. It must be a full UUID and cannot be
-combined with `--send-draft`; send a normal message to replace the draft
-instead. `--mention human:<actor-uuid>:<handle>` or `--mention
+message. Each value must be a full UUID; the flag cannot be combined with
+`--send-draft` — send a normal message to replace the draft instead.
+`--mention human:<actor-uuid>:<handle>` or `--mention
 agent:<actor-uuid>:<handle>` (repeatable) binds an `@handle` in the body to a
 specific actor id rather than relying on name matching alone; each bound
 handle must also literally appear as `@handle` in the message body outside
@@ -48,7 +48,7 @@ saved mentions.
 A top-level send can be refused when the Agent's most recently read context
 in that conversation was actually a thread rooted under it — a likely
 reply-to-the-wrong-place mistake the guard catches once. The refusal saves
-the message (body, attachment, and mentions) as the local draft for that
+the message (body, attachments, and mentions) as the local draft for that
 target, the same way a freshness hold does, and names two ways to proceed:
 send to the named thread target instead, or confirm the saved top-level
 draft unchanged with `message send --send-draft --target "<target>"`.
@@ -159,6 +159,17 @@ a fixed `Attachment is unavailable.` message on a 404 rather than relaying
 upstream detail. An Agent may download its own upload before sending it,
 but not another Agent's not-yet-sent upload.
 
+**Direct (presigned) upload (ADR 0028).** `attachment upload`'s command line and success output
+above never change; above a server-advertised size threshold (and only when the active storage
+backend supports it — Alibaba Cloud OSS does, local dev storage does not), the CLI instead PUTs
+the file straight to storage using a short-lived presigned URL, mirroring Raft 1.0.32's own direct
+upload: create an upload session, PUT the bytes (one retry on a network error or `408`/`429`/`5xx`
+response), then complete the session (retried up to 3× on `UPLOAD_OBJECT_NOT_FOUND` or
+`UPLOAD_VERIFICATION_IN_PROGRESS`). One deviation from Raft: this repo's storage has no
+`If-None-Match` precondition, so "the object already exists" is Alibaba Cloud OSS's own
+`x-oss-forbid-overwrite` conflict status, `409`, not Raft's `412`. Below the threshold, or when
+direct upload is unavailable, the existing multipart path above runs unchanged.
+
 `coforge weekly-report context|list|read` is the weekly-report assistant's
 authorized on-demand read surface. It reuses the Credential Proxy and Agent
 HTTPS API. Context is a compact page manifest, list is cursor-bounded, and
@@ -213,8 +224,21 @@ is reported with the server's error text. On success the CLI prints:
 Action card posted to <target> as message <uuid> (short <first 8>). The human can click the action verb to commit.
 ```
 
-This PR only posts and persists the card as an ordinary Agent message; the
-card UI and the human's commit action are a follow-up (see ADR 0027).
+Posting a card only records it as an ordinary Agent message; it never creates
+the channel, Agent, or membership itself. A human commits the card from the
+CoForge Web UI, not from any CLI command: they click the card's action
+button, review a form prefilled (and editable) from the card's values, and
+submit it under their own identity. To check whether that happened, read the
+card message again — its body carries a suffix the Agent-facing message read
+appends, `[action card: pending]`, `[action card: executed]`, or
+`[action card: cancelled]`:
+
+```
+coforge message read --target "#design" --around <message-id>
+```
+
+Only `executed` means the resource now exists. See ADR 0027's "Commit and
+cancel" section for the full commit/cancel model.
 
 ## Output
 
@@ -222,7 +246,10 @@ The CLI renders five plain-text formats:
 
 - **Message line** (`message check`, `message resolve`, held-send context):
   `[target=<target> msg=<shortId> time=<utc>] <sender>: <body>`, plus an
-  attachment suffix and/or a task suffix when present.
+  attachment suffix (naming every attachment on the message, e.g.
+  `[2 attachments: a.txt (id:...), b.png (id:...) — use ... to download]`)
+  and/or a task suffix when present. `--json` output always carries an
+  `attachments` array (possibly empty) on every message.
 - **Read window** (`message read`): a header reporting how many messages
   were returned and whether older/newer messages exist, with the exact
   `--before`/`--after` cursor command to paste; numbered lines each carry a

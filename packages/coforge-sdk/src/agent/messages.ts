@@ -27,8 +27,9 @@ export type AgentMessagesSendRequest = {
   sendDraft?: boolean;
   continueAnyway?: boolean;
   freshnessContextMode?: "inline" | "withheld";
-  /** A single attachment already uploaded to this conversation, unlinked to any message. */
-  attachmentId?: string;
+  /** Attachments already uploaded to this conversation, unlinked to any message, in send order.
+   * Max 10, unique, each a UUID; enforced server-side. */
+  attachmentIds?: string[];
   /** Structured @mention bindings; each bound handle must also appear as `@handle` in `body`. */
   mentions?: AgentMentionSelector[];
 };
@@ -53,12 +54,13 @@ export type AgentMessage = {
   target: string;
   body: string;
   createdAt: string;
-  attachment?: {
+  /** Always present, possibly empty; order matches send/upload order. */
+  attachments: {
     id: string;
     fileName: string;
     contentType: string;
     sizeBytes: number;
-  };
+  }[];
   task?: MessageTaskMetadata;
 };
 

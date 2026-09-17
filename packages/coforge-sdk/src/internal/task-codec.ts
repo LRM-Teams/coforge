@@ -13,7 +13,7 @@ import {
   TaskResponseSchema,
   TaskViewSchema,
 } from "./gen/coforge/rpc/v1/task_pb";
-import { decodeLocalAttachment, decodeMessageTask, encodeLocalAttachment } from "./local-daemon";
+import { decodeLocalAttachments, decodeMessageTask, encodeLocalAttachments } from "./local-daemon";
 import {
   TASK_STATUSES,
   type TaskClaimConflict,
@@ -452,7 +452,7 @@ export function encodeTaskResponse(input: TaskResponse): Uint8Array {
         create(AgentMessageRecordSchema, {
           ...message,
           sequence: BigInt(message.sequence),
-          attachment: message.attachment ? encodeLocalAttachment(message.attachment) : undefined,
+          attachments: encodeLocalAttachments(message.attachments),
           task: message.task,
         }),
       ),
@@ -560,7 +560,7 @@ export function decodeTaskResponse(bytes: Uint8Array): TaskResponse {
       target: message.target,
       body: message.body,
       createdAt: message.createdAt,
-      ...decodeLocalAttachment(message.attachment),
+      attachments: decodeLocalAttachments(message.attachments),
       ...(message.task ? { task: decodeMessageTask(message.task) } : {}),
     };
   });

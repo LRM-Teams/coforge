@@ -734,10 +734,6 @@ export class TaskBoard {
             senderMemberId: member.id,
             body: title,
             sequence,
-            attachment:
-              index === 0 && command.attachmentId
-                ? { connect: { id: command.attachmentId } }
-                : undefined,
             deliveries: {
               create: recipients.map(({ agentId }) => ({
                 workspaceId: scope.workspaceId,
@@ -761,8 +757,15 @@ export class TaskBoard {
               },
             },
           },
-          select: { task: { select: taskSelection } },
+          select: { id: true, task: { select: taskSelection } },
         });
+        // Task creation stays single-attachment (out of scope for the multi-attachment change);
+        // only the first created message (when titles.length > 1) may carry the one attachment.
+        if (index === 0 && command.attachmentId)
+          await tx.attachment.update({
+            where: { id: command.attachmentId },
+            data: { messageId: message.id, position: 0 },
+          });
         tasks.push(message.task!);
         sequences.push(sequence);
       }

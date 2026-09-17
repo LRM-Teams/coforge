@@ -23,6 +23,7 @@ test("resolve returns one canonical message record", async () => {
           target: "#general",
           body: "hello",
           createdAt: new Date("2026-09-15T00:00:00.000Z"),
+          attachments: [],
         };
       },
     },
@@ -39,6 +40,7 @@ test("resolve returns one canonical message record", async () => {
       target: "#general",
       body: "hello",
       createdAt: "2026-09-15T00:00:00.000Z",
+      attachments: [],
     },
   });
 });
@@ -58,6 +60,7 @@ test("resolve generates a request id when the daemon omits one", async () => {
         target: "#general",
         body: "hello",
         createdAt: new Date("2026-09-15T00:00:00.000Z"),
+        attachments: [],
       }),
     },
   );

@@ -32,6 +32,7 @@ describe("PrismaDirectConversationRepository", () => {
               createdAt: new Date("2026-09-07T10:00:00Z"),
               threadRootId: null,
               sender: { agentId: null, agent: null, user: { username: "ada" } },
+              attachments: [],
               conversation: {
                 channelName: "general",
                 members: [{ user: { username: "ada" } }],
@@ -80,6 +81,7 @@ describe("PrismaDirectConversationRepository", () => {
         target: "#general",
         body: "Release plan",
         createdAt: new Date("2026-09-07T10:00:00Z"),
+        attachments: [],
       },
     ]);
     await new PrismaDirectConversationRepository(db).searchMessages("workspace-1", "agent-1", {
@@ -186,7 +188,7 @@ describe("PrismaDirectConversationRepository", () => {
       threadRootId: null,
       body: id,
       createdAt: new Date(sequence),
-      attachment: null,
+      attachments: [],
       sender: { userId: "user-1", user: { username: "alice" }, agent: null },
       replies,
     });
@@ -270,7 +272,7 @@ describe("PrismaDirectConversationRepository", () => {
               threadRootId: "old-root",
               body: "new reply",
               createdAt: new Date(12),
-              attachment: null,
+              attachments: [],
               sender: {
                 userId: null,
                 user: null,
@@ -321,7 +323,7 @@ describe("PrismaDirectConversationRepository", () => {
         sequence === 2
           ? { agentId: "agent-1", agent: { name: "helper" } }
           : { agentId: null, agent: null, user: { username: "alice" } },
-      attachment: null,
+      attachments: [],
     }));
     const db = {
       user: { findUnique: async () => ({ id: "user-1" }) },
@@ -419,7 +421,7 @@ describe("PrismaDirectConversationRepository", () => {
               body: "Ship the release",
               createdAt: new Date(0),
               sender: { agentId: null, agent: null, user: { username: "frank" } },
-              attachment: null,
+              attachments: [],
               task: read === 3 ? null : taskStates[Math.min(read++, 2)],
             },
           ];
@@ -471,7 +473,7 @@ describe("PrismaDirectConversationRepository", () => {
             body: "pending",
             createdAt: new Date(0),
             sender: { agentId: null, agent: null },
-            attachment: null,
+            attachments: [],
           },
         ],
       },
@@ -789,6 +791,189 @@ describe("PrismaDirectConversationRepository", () => {
         latestSender: "@alice",
         body: "pending body",
       },
+    ]);
+  });
+
+  test("sendAgentMessage links two attachments in send order and rejects one the Agent did not upload", async () => {
+    const updates: { where: unknown; data: unknown }[] = [];
+    const attachmentsById: Record<
+      string,
+      {
+        id: string;
+        fileName: string;
+        contentType: string;
+        sizeBytes: number;
+        uploaderAgentId: string;
+      }
+    > = {
+      "attach-b": {
+        id: "attach-b",
+        fileName: "b.txt",
+        contentType: "text/plain",
+        sizeBytes: 2,
+        uploaderAgentId: "agent-1",
+      },
+      "attach-a": {
+        id: "attach-a",
+        fileName: "a.txt",
+        contentType: "text/plain",
+        sizeBytes: 1,
+        uploaderAgentId: "agent-1",
+      },
+      "attach-foreign": {
+        id: "attach-foreign",
+        fileName: "f.txt",
+        contentType: "text/plain",
+        sizeBytes: 3,
+        uploaderAgentId: "agent-2",
+      },
+    };
+    const tx = {
+      $queryRaw: async () => [],
+      message: {
+        findFirst: async () => null,
+        create: async ({ data }: { data: { body: string } }) => ({
+          id: "message-new",
+          body: data.body,
+          createdAt: new Date("2026-09-17T00:00:00Z"),
+          sequence: 1,
+          deliveries: [],
+        }),
+      },
+      attachment: {
+        findFirst: async ({
+          where,
+        }: {
+          where: { id: string; uploaderAgentId: string; messageId: null };
+        }) => {
+          const row = attachmentsById[where.id];
+          if (!row || row.uploaderAgentId !== where.uploaderAgentId) return null;
+          return {
+            id: row.id,
+            fileName: row.fileName,
+            contentType: row.contentType,
+            sizeBytes: row.sizeBytes,
+          };
+        },
+        update: async ({ where, data }: { where: unknown; data: unknown }) => {
+          updates.push({ where, data });
+          return {};
+        },
+      },
+      conversationMember: { findMany: async () => [] },
+      threadFollow: { createMany: async () => {} },
+    };
+    const db = {
+      conversation: {
+        findUnique: async () => ({
+          id: "conversation-1",
+          workspaceId: "workspace-1",
+          channelName: null,
+          members: [
+            { id: "member-agent", agentId: "agent-1", userId: null },
+            { id: "member-user", agentId: null, userId: "user-1" },
+          ],
+        }),
+      },
+      $transaction: async (fn: (tx: unknown) => unknown) => fn(tx),
+    } as unknown as PrismaClient;
+    const repository = new PrismaDirectConversationRepository(db);
+
+    const result = await repository.sendAgentMessage("conversation-1", "agent-1", "two files", [
+      "attach-b",
+      "attach-a",
+    ]);
+
+    // Order matches send order (B, then A), not any other reordering.
+    expect(result.attachments.map((a) => a.id)).toEqual(["attach-b", "attach-a"]);
+    expect(updates).toEqual([
+      { where: { id: "attach-b" }, data: { messageId: "message-new", position: 0 } },
+      { where: { id: "attach-a" }, data: { messageId: "message-new", position: 1 } },
+    ]);
+
+    // The uploaderAgentId gap ADR 0022 named: a different Agent's unlinked attachment is
+    // rejected, closing the gap ADR 0023's upload route opened it up to fix.
+    await expect(
+      repository.sendAgentMessage("conversation-1", "agent-1", "not mine", ["attach-foreign"]),
+    ).rejects.toThrow("attachment is not available for this message");
+  });
+
+  test("sendMessage links two human-uploaded attachments in send order", async () => {
+    const updates: { where: unknown; data: unknown }[] = [];
+    const attachmentsById: Record<
+      string,
+      { id: string; fileName: string; contentType: string; sizeBytes: number; objectKey: string }
+    > = {
+      "attach-b": {
+        id: "attach-b",
+        fileName: "b.txt",
+        contentType: "text/plain",
+        sizeBytes: 2,
+        objectKey: "key-b",
+      },
+      "attach-a": {
+        id: "attach-a",
+        fileName: "a.txt",
+        contentType: "text/plain",
+        sizeBytes: 1,
+        objectKey: "key-a",
+      },
+    };
+    const tx = {
+      $queryRaw: async () => [],
+      message: {
+        findFirst: async () => null,
+        create: async ({ data }: { data: { body: string } }) => ({
+          id: "message-new",
+          body: data.body,
+          createdAt: new Date("2026-09-17T00:00:00Z"),
+          sequence: 1,
+          deliveries: [{ deliveryId: "delivery-1" }],
+        }),
+      },
+      attachment: {
+        findFirst: async ({ where }: { where: { id: string; uploaderId: string } }) => {
+          const row = attachmentsById[where.id];
+          if (!row || where.uploaderId !== "user-1") return null;
+          return row;
+        },
+        update: async ({ where, data }: { where: unknown; data: unknown }) => {
+          updates.push({ where, data });
+          return {};
+        },
+      },
+    };
+    const db = {
+      conversation: {
+        findUnique: async () => ({
+          workspaceId: "workspace-1",
+          members: [
+            { id: "member-user", userId: "user-1", agentId: null, user: { username: "alice" } },
+            {
+              id: "member-agent",
+              userId: null,
+              agentId: "agent-1",
+              agent: { name: "helper", computerId: null },
+            },
+          ],
+        }),
+      },
+      $transaction: async (fn: (tx: unknown) => unknown) => fn(tx),
+    } as unknown as PrismaClient;
+    const repository = new PrismaDirectConversationRepository(db);
+
+    const result = await repository.sendMessage(
+      "conversation-1",
+      "member-user",
+      "user-1",
+      "two files",
+      ["attach-b", "attach-a"],
+    );
+
+    expect(result.attachments.map((a) => a.id)).toEqual(["attach-b", "attach-a"]);
+    expect(updates).toEqual([
+      { where: { id: "attach-b" }, data: { messageId: "message-new", position: 0 } },
+      { where: { id: "attach-a" }, data: { messageId: "message-new", position: 1 } },
     ]);
   });
 

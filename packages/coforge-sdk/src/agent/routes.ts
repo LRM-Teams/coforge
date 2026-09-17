@@ -26,6 +26,24 @@ export const agentApiRoutes = {
         `/api/agent/v1/attachments/${encodeURIComponent(attachmentId)}`,
       upload: { method: "POST", path: "/api/agent/v1/attachments" },
     },
+    attachmentUploadSessions: {
+      create: { method: "POST", path: "/api/agent/v1/attachment-upload-sessions" },
+      complete: {
+        method: "POST",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}/complete`,
+      },
+      cancel: {
+        method: "DELETE",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
+      },
+      get: {
+        method: "GET",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
+      },
+    },
   },
   cloud: {
     workspace: { info: { method: "GET", path: "/api/agent/v1/workspace" } },
@@ -118,6 +136,24 @@ export const agentApiRoutes = {
       path: (attachmentId: string) =>
         `/api/agent/v1/attachments/${encodeURIComponent(attachmentId)}`,
       upload: { method: "POST", path: "/api/agent/v1/attachments" },
+    },
+    attachmentUploadSessions: {
+      create: { method: "POST", path: "/api/agent/v1/attachment-upload-sessions" },
+      complete: {
+        method: "POST",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}/complete`,
+      },
+      cancel: {
+        method: "DELETE",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
+      },
+      get: {
+        method: "GET",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
+      },
     },
   },
   workspace: {

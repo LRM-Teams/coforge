@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   attachmentCapabilities,
+  ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_DEFAULT_BYTES,
   ATTACHMENT_MAX_BYTES,
   readAuthorizedAttachment,
   storeAgentAttachment,
@@ -16,6 +17,7 @@ function fakeStorage(
   return async () => ({
     put: async () => {},
     remove: async () => {},
+    head: async () => null,
     open:
       open ??
       (async () => {
@@ -24,11 +26,22 @@ function fakeStorage(
   });
 }
 
-test("attachment upload capabilities are server authoritative", () => {
-  expect(attachmentCapabilities()).toEqual({
+test("attachment upload capabilities report the threshold regardless of direct upload support, but only enable it when the storage backend can presign", () => {
+  expect(attachmentCapabilities({ presignPut: undefined }, {})).toEqual({
     maxBytes: ATTACHMENT_MAX_BYTES,
     directUploadEnabled: false,
-    directUploadThresholdBytes: 0,
+    directUploadThresholdBytes: ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_DEFAULT_BYTES,
+    sessionExpiresInSeconds: 900,
+  });
+  expect(
+    attachmentCapabilities(
+      { presignPut: async () => ({ url: "https://example.test", headers: {} }) },
+      { COFORGE_ATTACHMENT_DIRECT_UPLOAD_THRESHOLD_BYTES: "2048" },
+    ),
+  ).toEqual({
+    maxBytes: ATTACHMENT_MAX_BYTES,
+    directUploadEnabled: true,
+    directUploadThresholdBytes: 2048,
     sessionExpiresInSeconds: 900,
   });
 });

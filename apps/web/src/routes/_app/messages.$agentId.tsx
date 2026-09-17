@@ -112,9 +112,9 @@ function DirectConversationPage() {
         await taskView.command({ operation: "create", title, requestId, attachmentId });
         await page.invalidate();
       }}
-      onSend={async (body, requestId, attachmentId, threadRootId) => {
+      onSend={async (body, requestId, attachmentIds, threadRootId) => {
         const message = await send({
-          data: { agentId, requestId, body, attachmentId, threadRootId },
+          data: { agentId, requestId, body, attachmentIds, threadRootId },
         });
         page.mergeUpdates([message]);
         void page.reconciliation.reconcile().catch(() => {});

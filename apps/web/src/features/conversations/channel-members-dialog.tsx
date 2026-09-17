@@ -18,27 +18,46 @@ type LoadState =
   | { status: "error" }
   | { status: "ready"; data: ChannelMembersView };
 
-/** Channel member roster and add-members action, opened from the channel header. */
+/** Channel member roster and add-members action, opened from the channel header, or (with
+ * `preselected`/`commit`) from an Agent-prepared `channel:add_member` action card's commit
+ * button (ADR 0027 "Commit and cancel"). */
 export function ChannelMembersDialog({
   channelId,
   open,
   onOpenChange,
+  preselected,
+  commit,
 }: {
   channelId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** An action card's proposed humans/Agents: preselected, individually deselectable. */
+  preselected?: { userIds: string[]; agentIds: string[] };
+  /** When set, submitting commits the action card (marking it `executed`) instead of calling the
+   * ordinary `addPublicChannelMembers` Server Function. */
+  commit?: {
+    messageId: string;
+    submit: (input: { userIds: string[]; agentIds: string[] }) => Promise<unknown>;
+    onCommitted: () => void;
+  };
 }) {
   const load = useServerFn(loadPublicChannelMembers);
   const addMembers = useServerFn(addPublicChannelMembers);
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
-  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
+    () => new Set(preselected?.userIds),
+  );
+  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(
+    () => new Set(preselected?.agentIds),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     setState({ status: "loading" });
+    setSelectedUserIds(new Set(preselected?.userIds));
+    setSelectedAgentIds(new Set(preselected?.agentIds));
     load({ data: { channelId } })
       .then((data) => {
         if (!cancelled) setState({ status: "ready", data });
@@ -49,6 +68,8 @@ export function ChannelMembersDialog({
     return () => {
       cancelled = true;
     };
+    // `preselected` only seeds the initial selection for this channel; it must not fight the
+    // human's own (de)selections on later renders while the dialog stays open.
   }, [channelId, load]);
 
   function close() {
@@ -64,13 +85,15 @@ export function ChannelMembersDialog({
     setSubmitting(true);
     setError("");
     try {
-      const data = await addMembers({
-        data: {
-          channelId,
-          userIds: [...selectedUserIds],
-          agentIds: [...selectedAgentIds],
-        },
-      });
+      const userIds = [...selectedUserIds];
+      const agentIds = [...selectedAgentIds];
+      if (commit) {
+        await commit.submit({ userIds, agentIds });
+        commit.onCommitted();
+        onOpenChange(false);
+        return;
+      }
+      const data = await addMembers({ data: { channelId, userIds, agentIds } });
       setState({ status: "ready", data });
       setSelectedUserIds(new Set());
       setSelectedAgentIds(new Set());

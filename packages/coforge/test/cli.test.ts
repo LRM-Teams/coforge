@@ -1729,6 +1729,7 @@ test("message check hides server ordering fields", async () => {
           target: "@ada",
           body: "Can you investigate?",
           createdAt: "2026-09-03T10:00:00Z",
+          attachments: [],
         },
       ],
     }),
@@ -1755,6 +1756,7 @@ test("message check tells the Agent to run check again when the server reports m
           target: "@ada",
           body: "Can you investigate?",
           createdAt: "2026-09-03T10:00:00Z",
+          attachments: [],
         },
       ],
     }),
@@ -1944,6 +1946,7 @@ test("reviewer-isolation held Task output suppresses secret context", async () =
             target: "#secret",
             body: "SECRET_SENTINEL",
             createdAt: "now",
+            attachments: [],
           },
         ],
       }),
@@ -1986,6 +1989,7 @@ test("requested reviewer isolation suppresses held Task context even when the re
             target: "#secret",
             body: "SECRET_SENTINEL",
             createdAt: "now",
+            attachments: [],
           },
         ],
       }),
@@ -2025,6 +2029,7 @@ test("non-reviewer-isolation Task holds still surface the held messages", async 
             target: "#general",
             body: "VISIBLE_CONTEXT",
             createdAt: "now",
+            attachments: [],
           },
         ],
       }),
@@ -2320,26 +2325,52 @@ test("message send parses --attachment-id, --mention, and --target-confirmed", (
   expect(invocation).toMatchObject({
     command: "send",
     target: "@ada",
-    attachmentId: "11111111-1111-4111-8111-111111111111",
+    attachmentIds: ["11111111-1111-4111-8111-111111111111"],
     mentions: [{ type: "user", id: "22222222-2222-4222-8222-222222222222", name: "ada" }],
     targetConfirmed: true,
   });
 });
 
-test("message send rejects a second --attachment-id occurrence", () => {
-  expect(() =>
-    parseArgs([
-      "message",
-      "send",
-      "--target",
-      "@ada",
-      "--send-draft",
-      "--attachment-id",
+test("message send accepts repeated --attachment-id occurrences, in order, uncapped", () => {
+  const invocation = parseArgs([
+    "message",
+    "send",
+    "--target",
+    "@ada",
+    "--attachment-id",
+    "11111111-1111-4111-8111-111111111111",
+    "--attachment-id",
+    "22222222-2222-4222-8222-222222222222",
+    "--attachment-id",
+    "33333333-3333-4333-8333-333333333333",
+  ]);
+  expect(invocation).toMatchObject({
+    command: "send",
+    target: "@ada",
+    attachmentIds: [
       "11111111-1111-4111-8111-111111111111",
-      "--attachment-id",
       "22222222-2222-4222-8222-222222222222",
-    ]),
-  ).toThrow("Usage:");
+      "33333333-3333-4333-8333-333333333333",
+    ],
+  });
+});
+
+test("message send collapses a duplicate --attachment-id value to one occurrence", () => {
+  const invocation = parseArgs([
+    "message",
+    "send",
+    "--target",
+    "@ada",
+    "--attachment-id",
+    "11111111-1111-4111-8111-111111111111",
+    "--attachment-id",
+    "11111111-1111-4111-8111-111111111111",
+  ]);
+  expect(invocation).toMatchObject({
+    command: "send",
+    target: "@ada",
+    attachmentIds: ["11111111-1111-4111-8111-111111111111"],
+  });
 });
 
 test("message send rejects a non-uuid --attachment-id with a typed usage error", () => {
@@ -2458,7 +2489,7 @@ test("message send forwards mentions and targetConfirmed to the transport on --s
         sendDraft: true,
         continueAnyway: undefined,
         freshnessContextMode: undefined,
-        attachmentId: undefined,
+        attachmentIds: undefined,
         mentions: undefined,
         targetConfirmed: true,
       },

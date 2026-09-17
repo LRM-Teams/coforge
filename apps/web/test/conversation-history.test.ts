@@ -25,21 +25,23 @@ describe("ConversationHistory", () => {
               sequence: 9,
               body: "Newest prompt",
               createdAt: new Date(9),
-              attachment: null,
+              attachments: [],
             },
             {
               id: "message-7",
               sequence: 7,
               body: "Older prompt",
               createdAt: new Date(7),
-              attachment: { fileName: "brief.pdf" },
+              // Two attachments: the derived index field names the first (send order) and
+              // counts the rest, rather than picking one arbitrarily or dropping the count.
+              attachments: [{ fileName: "brief.pdf" }, { fileName: "appendix.pdf" }],
             },
             {
               id: "message-5",
               sequence: 5,
               body: "Previous page",
               createdAt: new Date(5),
-              attachment: null,
+              attachments: [],
             },
           ];
         },
@@ -71,7 +73,7 @@ describe("ConversationHistory", () => {
           sequence: 7,
           body: "Older prompt",
           createdAt: new Date(7),
-          attachmentFileName: "brief.pdf",
+          attachmentFileName: "brief.pdf (+1 more)",
         },
         {
           id: "message-9",
@@ -155,7 +157,7 @@ describe("ConversationHistory", () => {
       senderMemberId: "user-member-1",
       body: id,
       createdAt: new Date(sequence),
-      attachment: null,
+      attachments: [],
       sender:
         sequence === 11
           ? { userId: null, user: null, agent: { name: "builder", displayName: "Build Assistant" } }

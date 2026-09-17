@@ -151,7 +151,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       channelId: engineering.id,
       requestId,
       body: "Hello Bob",
-      attachmentId: attachment.id,
+      attachmentIds: [attachment.id],
     });
     expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([]);
     expect(realtimeEvents).toContainEqual({
@@ -760,7 +760,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       channelId: general.id,
       requestId: crypto.randomUUID(),
       body: "thread attachment",
-      attachmentId: attachment.id,
+      attachmentIds: [attachment.id],
       threadRootId: root.id,
     });
     expect((await repo.readMessages(workspace.id, agent.id, "#threads")).map((m) => m.id)).toEqual([
@@ -768,7 +768,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
     ]);
     expect(
       (await repo.readMessages(workspace.id, agent.id, `#threads:${root.id.slice(0, 8)}`)).map(
-        (message) => [message.id, message.target, message.attachment?.id],
+        (message) => [message.id, message.target, message.attachments.at(0)?.id],
       ),
     ).toEqual([
       [quietReply.id, target, undefined],

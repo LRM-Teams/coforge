@@ -61,7 +61,13 @@ function validateRuntimeKey(
 }
 
 export const createAgentInputSchema = z
-  .object({ ...agentInputShape, computerId: z.string().min(1) })
+  .object({
+    ...agentInputShape,
+    computerId: z.string().min(1),
+    /** Present when this create submits an Agent-prepared `agent:create` action card
+     * (ADR 0027 "Commit and cancel"); marks the card `executed` after the Agent is created. */
+    actionCardMessageId: z.uuid().optional(),
+  })
   .superRefine(validateRuntimeKey);
 
 export type CreateAgentInput = z.infer<typeof createAgentInputSchema>;

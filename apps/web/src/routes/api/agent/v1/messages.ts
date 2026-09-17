@@ -113,6 +113,15 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult & { mes
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ATTACHMENT_IDS_MAX_LENGTH = 10;
+
+/** Shape-only validation for `attachmentIds`: an array of at most 10 unique UUIDs. Deeper
+ * per-id ownership/existence checks happen in the repository's own send transaction. */
+function isValidAttachmentIdsArray(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length > ATTACHMENT_IDS_MAX_LENGTH) return false;
+  if (!value.every((id) => typeof id === "string" && UUID_PATTERN.test(id))) return false;
+  return new Set(value).size === value.length;
+}
 
 export type AgentMessagesPostPrincipal = { workspaceId: string; agentId: string };
 
@@ -137,11 +146,8 @@ export async function handleAgentMessagesPost(
     freshnessContextMode !== "withheld"
   )
     return Response.json({ error: "invalid freshnessContextMode" }, { status: 400 });
-  if (
-    body.attachmentId !== undefined &&
-    (typeof body.attachmentId !== "string" || !UUID_PATTERN.test(body.attachmentId))
-  )
-    return Response.json({ error: "invalid attachmentId" }, { status: 400 });
+  if (body.attachmentIds !== undefined && !isValidAttachmentIdsArray(body.attachmentIds))
+    return Response.json({ error: "invalid attachmentIds" }, { status: 400 });
   if (body.mentions !== undefined && !isValidMentionSelectorArray(body.mentions))
     return Response.json({ error: "invalid mentions" }, { status: 400 });
   const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
@@ -157,7 +163,9 @@ export async function handleAgentMessagesPost(
       seenUpToSequence:
         typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
       freshnessContextMode,
-      attachmentId: typeof body.attachmentId === "string" ? body.attachmentId : undefined,
+      attachmentIds: Array.isArray(body.attachmentIds)
+        ? (body.attachmentIds as string[])
+        : undefined,
       mentions: body.mentions as AgentMentionSelector[] | undefined,
     });
     return Response.json(mapSendResult(requestId, result));

@@ -23,6 +23,8 @@ import { getAgentControlSignal } from "../../server/agents/agent-control-signal.
 import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { authMiddleware, workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { ActionCards } from "../../server/conversations/action-cards.server";
+import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
@@ -235,7 +237,32 @@ export const createAgent = createServerFn({ method: "POST" })
       getRequest().headers.get("accept-language") ?? "",
     );
     const role = await workspaceMemberRole(db, workspaceId, user.id);
-    return manageAgents(db).create({ userId: user.id, workspaceId, role }, data);
+    // An `agent:create` action card (ADR 0027 "Commit and cancel"): guard it is still committable
+    // *before* creating the Agent, then mark it `executed` *after* — `ManageAgents.create` below
+    // enforces `assertCanCreateAgents` itself, so a plain member fails there and the card stays
+    // `pending`; see `ActionCards`'s ordering comment in `action-cards.server.ts`.
+    const centrifugo = createCentrifugoServerApi();
+    const actionCards = new ActionCards(
+      db,
+      undefined,
+      new CentrifugoConversationRealtime(centrifugo),
+    );
+    if (data.actionCardMessageId)
+      await actionCards.assertAgentCreateCommittable(
+        workspaceId,
+        user.id,
+        data.actionCardMessageId,
+        data.computerId,
+      );
+    const created = await manageAgents(db).create({ userId: user.id, workspaceId, role }, data);
+    if (data.actionCardMessageId)
+      await actionCards.completeAgentCreate(
+        workspaceId,
+        user.id,
+        data.actionCardMessageId,
+        created.agent.id,
+      );
+    return created;
   });
 
 export const updateAgent = createServerFn({ method: "POST" })

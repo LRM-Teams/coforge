@@ -416,8 +416,8 @@ export type AgentMessageRequest = {
   freshnessContextMode?: "inline" | "withheld";
   messageId?: string;
   emoji?: string;
-  /** `send` only: a single attachment already uploaded to this conversation. */
-  attachmentId?: string;
+  /** `send` only: attachments already uploaded to this conversation, in send order. */
+  attachmentIds?: string[];
   /** `send` only: structured @mention bindings; see `LocalMentionSelector`. */
   mentions?: import("./local-daemon").LocalMentionSelector[];
 };
@@ -479,7 +479,8 @@ export {
   encodeInboxResponse,
   decodeInboxResponse,
   encodeLocalAttachment,
-  decodeLocalAttachment,
+  encodeLocalAttachments,
+  decodeLocalAttachments,
   encodeUsageScanRequest,
   decodeUsageScanRequest,
   encodeUsageScanResponse,
@@ -489,7 +490,12 @@ export {
   encodeDaemonHoldResponse,
   decodeDaemonHoldResponse,
 } from "./local-daemon";
-export type { AgentMessageRecord, MessageTaskMetadata, LocalMentionSelector } from "./local-daemon";
+export type {
+  AgentMessageRecord,
+  MessageTaskMetadata,
+  LocalMentionSelector,
+  LocalAttachment,
+} from "./local-daemon";
 export type {
   DaemonHandshakeRequest,
   DaemonHandshakeResponse,

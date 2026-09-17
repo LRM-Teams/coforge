@@ -93,7 +93,7 @@ export type AgentSendMessageInput = {
   continueAnyway?: boolean;
   seenUpToSequence?: number;
   freshnessContextMode?: "inline" | "withheld";
-  attachmentId?: string;
+  attachmentIds?: string[];
   mentions?: AgentMentionSelector[];
 };
 
@@ -118,7 +118,7 @@ export async function executeAgentSendMessage(
       agentId: string;
       target: string;
       body: string;
-      attachmentId?: string;
+      attachmentIds?: string[];
       mentions?: AgentMentionSelector[];
     }): Promise<{ id: string }>;
   },
@@ -300,7 +300,8 @@ export type AgentMessageRecord = {
   target: string;
   body: string;
   createdAt: Date;
-  attachment?: { id: string; fileName: string; contentType: string; sizeBytes: number };
+  /** Always present, possibly empty; order matches send/upload order. */
+  attachments: { id: string; fileName: string; contentType: string; sizeBytes: number }[];
 };
 
 export async function drainAgentEvents(

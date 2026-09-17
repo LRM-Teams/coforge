@@ -998,6 +998,7 @@ test("Agent resolve HTTP GET request carries the request id", async () => {
         sender: "@ada",
         body: "hi",
         createdAt: "now",
+        attachments: [],
         target: "@ada",
       },
     });
@@ -1345,6 +1346,7 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
       target: "@ada",
       body: "hi",
       createdAt: "2026-09-16T00:00:00.000Z",
+      attachments: [],
     },
   };
   const reactionResponse = {
@@ -1433,6 +1435,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
             target: "@ada",
             body: "hello",
             createdAt: "2026-09-16T00:00:00.000Z",
+            attachments: [],
           },
         ],
         hasMore: true,
@@ -1537,6 +1540,7 @@ test("adapts the read route's AgentHistoryResponse into the transport shape", as
           target: "@ada",
           body: "hi",
           createdAt: "2026-09-16T00:00:00.000Z",
+          attachments: [],
         },
       ],
       hasOlder: true,
@@ -1582,6 +1586,7 @@ test("adapts the dedicated search route's AgentSearchResponse (results -> messag
           target: "@ada",
           body: "hi",
           createdAt: "2026-09-16T00:00:00.000Z",
+          attachments: [],
         },
       ],
     }),
@@ -1617,6 +1622,7 @@ test("adapts the resolve route's AgentResolveResponse (message -> messages: [mes
         target: "@ada",
         body: "hi",
         createdAt: "2026-09-16T00:00:00.000Z",
+        attachments: [],
       },
     }),
   });
@@ -1681,6 +1687,7 @@ const sendAdapterCases: Array<{
           target: "@ada",
           body: "hi",
           createdAt: "2026-09-16T00:00:00.000Z",
+          attachments: [],
         },
       ],
     },
@@ -1980,6 +1987,81 @@ test("forwards a multipart attachment upload with its original content-type and 
       authorization: "Bearer daemon-token",
       agentApiKey: `Bearer sk_agent_${"a".repeat(43)}`,
       body: "multipart body",
+    },
+  ]);
+});
+
+test("forwards each direct-upload session route to its cloud JSON route with Agent auth headers", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{
+    url: string;
+    method: string | undefined;
+    contentType: string | null;
+    authorization: string | null;
+    agentApiKey: string | null;
+    body: string;
+  }> = [];
+  globalThis.fetch = Object.assign(
+    async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const headers = new Headers(init?.headers);
+      requests.push({
+        url: String(input),
+        method: init?.method,
+        contentType: headers.get("content-type"),
+        authorization: headers.get("authorization"),
+        agentApiKey: headers.get("x-coforge-agent-api-key"),
+        body: typeof init?.body === "string" ? init.body : "",
+      });
+      return Response.json({ uploadId: "upload-1" });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  try {
+    const transport = new DaemonConnection("wss://cloud.example", () => fakeClient().client);
+    await transport.start("daemon-token", {
+      ...config,
+      serverHttpUrl: "https://server.example/api/internal/centrifugo",
+    });
+    const apiKey = `sk_agent_${"a".repeat(43)}`;
+    await transport.agentAttachmentUploadSessionCreate({ target: "#general" }, apiKey);
+    await transport.agentAttachmentUploadSessionComplete("upload-1", apiKey);
+    await transport.agentAttachmentUploadSessionCancel("upload-1", apiKey);
+    await transport.agentAttachmentUploadSessionGet("upload-1", apiKey);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const authHeaders = {
+    authorization: "Bearer daemon-token",
+    agentApiKey: `Bearer sk_agent_${"a".repeat(43)}`,
+  };
+  expect(requests).toEqual([
+    {
+      url: "https://server.example/api/agent/v1/attachment-upload-sessions",
+      method: "POST",
+      contentType: "application/json",
+      body: JSON.stringify({ target: "#general" }),
+      ...authHeaders,
+    },
+    {
+      url: "https://server.example/api/agent/v1/attachment-upload-sessions/upload-1/complete",
+      method: "POST",
+      contentType: null,
+      body: "",
+      ...authHeaders,
+    },
+    {
+      url: "https://server.example/api/agent/v1/attachment-upload-sessions/upload-1",
+      method: "DELETE",
+      contentType: null,
+      body: "",
+      ...authHeaders,
+    },
+    {
+      url: "https://server.example/api/agent/v1/attachment-upload-sessions/upload-1",
+      method: undefined,
+      contentType: null,
+      body: "",
+      ...authHeaders,
     },
   ]);
 });

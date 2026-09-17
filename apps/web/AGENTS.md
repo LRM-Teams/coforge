@@ -159,9 +159,38 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   resolves every handle in a `channel:create`/`agent:create`/
   `channel:add_member` action to a UUID, reuses the Agent `message send`
   target resolver and membership rule, and creates the posted Message and
-  the `ActionCard` row in the same conversation-locked transaction. It owns
-  no commit/execute path yet — that is a follow-up PR; today the card is
-  only persisted and rendered as an ordinary Agent message.
+  the `ActionCard` row in the same conversation-locked transaction.
+  `ActionCards.viewsFor(workspaceId, viewerUserId, messageIds)` is the one
+  batched (never per-message) lookup that produces the `actionCard` field on
+  `channelMessageView`/`toBrowserMessage`/`mapBrowserMessage`; the shared
+  `attachActionCardViews` helper merges it into the channel and
+  direct-conversation message-page Server Functions in
+  `channels.functions.ts`/`conversations.functions.ts`. A human commits a
+  card from `features/conversations/action-card.tsx` (rendered by
+  `message-row.tsx` in place of the plain draft-hint line), reusing the
+  existing `CreateChannelDialog`/`AgentCreateDialog`
+  (`features/agents/agent-create-dialog.tsx`, extracted from the Members
+  page's create form so an action card can open it prefilled and
+  Computer-locked)/`ChannelMembersDialog` with new optional
+  preselect/commit props. `channel:create` and `channel:add_member` commit
+  through `action-cards.functions.ts` (`ActionCards.commitChannelCreate`/
+  `commitChannelAddMember`, which call `PublicChannels.create`/
+  `addMembers` under the committing human's identity, then mark the card);
+  `agent:create` commits through the existing `createAgent` Server Function
+  (`agents.functions.ts`), which already enforces `assertCanCreateAgents`,
+  guarded before by `ActionCards.assertAgentCreateCommittable` and marked
+  after by `ActionCards.completeAgentCreate` — every commit path executes
+  the real operation first and marks the card `executed` after with a
+  conditional `updateMany`, so a double click fails on the operation's own
+  uniqueness rule or a harmless `addMembers` no-op (see ADR 0027 "Commit and
+  cancel"). `ActionCards.cancel` allows the preparing Agent's owner or a
+  Workspace owner/admin, `pending → cancelled`. Both publish the existing
+  `ConversationRealtime.messageAvailable`; the browser refreshes just the
+  pending cards it is showing via `loadActionCardStates` on that signal and
+  on window focus (`conversation-queries.ts`). Agent-facing message reads
+  (`toAgentMessage`) append ` [action card: pending|executed|cancelled]`
+  to a card message's body so an Agent never claims a resource exists ahead
+  of a human's commit.
 
 - Message threads belong to `features/conversations/` (selection, drafts,
   discussion UI, follow controls and authenticated functions),

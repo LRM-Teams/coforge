@@ -46,6 +46,56 @@ export type AgentAttachmentUploadResponse = {
   sizeBytes: number;
 };
 
+/**
+ * Presigned direct-upload sessions (ADR 0028), mirroring Raft 1.0.32's
+ * `attachment-upload-sessions` state machine. `create`'s request field is `target` (this
+ * repo's `#channel`/`@user` grammar), not Raft's resolved `channelId`.
+ */
+export type AgentAttachmentUploadSessionState =
+  | "pending"
+  | "verifying"
+  | "completed"
+  | "canceled"
+  | "expired"
+  | "failed";
+
+export type AgentAttachmentUploadSessionAttachment = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+};
+
+export type AgentAttachmentUploadSessionCreateRequest = {
+  target: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  clientRequestId: string;
+};
+
+export type AgentAttachmentUploadSessionCreateResponse = {
+  uploadId: string;
+  attachmentId: string;
+  state: "pending";
+  expiresAt: string;
+  upload: { method: "PUT"; url: string; headers: Record<string, string> };
+};
+
+export type AgentAttachmentUploadSessionCompleteResponse = {
+  uploadId: string;
+  state: "completed";
+  attachment: AgentAttachmentUploadSessionAttachment;
+};
+
+export type AgentAttachmentUploadSessionView = {
+  uploadId: string;
+  state: AgentAttachmentUploadSessionState;
+  expiresAt: string;
+  attachment: AgentAttachmentUploadSessionAttachment | null;
+  terminalReason: string | null;
+};
+
 export type GitHubCredentialRequest = Record<string, never>;
 export type GitHubCredentialResponse = {
   username: "x-access-token";
@@ -170,6 +220,14 @@ export type AgentApiClient = {
   attachments: {
     download(attachmentId: string): Promise<AgentAttachmentDownload>;
     upload(form: FormData): Promise<AgentAttachmentUploadResponse>;
+    uploadSessions: {
+      create(
+        request: AgentAttachmentUploadSessionCreateRequest,
+      ): Promise<AgentAttachmentUploadSessionCreateResponse>;
+      complete(uploadId: string): Promise<AgentAttachmentUploadSessionCompleteResponse>;
+      cancel(uploadId: string): Promise<AgentAttachmentUploadSessionView>;
+      get(uploadId: string): Promise<AgentAttachmentUploadSessionView>;
+    };
   };
 };
 
@@ -245,6 +303,16 @@ export type RawAgentApiClient = {
   attachments: {
     download(attachmentId: string): Promise<AgentApiResult<AgentAttachmentDownload>>;
     upload(form: FormData): Promise<AgentApiResult<AgentAttachmentUploadResponse>>;
+    uploadSessions: {
+      create(
+        request: AgentAttachmentUploadSessionCreateRequest,
+      ): Promise<AgentApiResult<AgentAttachmentUploadSessionCreateResponse>>;
+      complete(
+        uploadId: string,
+      ): Promise<AgentApiResult<AgentAttachmentUploadSessionCompleteResponse>>;
+      cancel(uploadId: string): Promise<AgentApiResult<AgentAttachmentUploadSessionView>>;
+      get(uploadId: string): Promise<AgentApiResult<AgentAttachmentUploadSessionView>>;
+    };
   };
 };
 
@@ -326,6 +394,25 @@ export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentA
         transport.request(agentApiRoutes.cloud.attachments.upload, form) as Promise<
           AgentApiResult<AgentAttachmentUploadResponse>
         >,
+      uploadSessions: {
+        create: (request) =>
+          transport.request(
+            agentApiRoutes.cloud.attachmentUploadSessions.create,
+            request,
+          ) as Promise<AgentApiResult<AgentAttachmentUploadSessionCreateResponse>>,
+        complete: (uploadId) =>
+          transport.request(
+            agentApiRoutes.cloud.attachmentUploadSessions.complete.path(uploadId),
+          ) as Promise<AgentApiResult<AgentAttachmentUploadSessionCompleteResponse>>,
+        cancel: (uploadId) =>
+          transport.request(
+            agentApiRoutes.cloud.attachmentUploadSessions.cancel.path(uploadId),
+          ) as Promise<AgentApiResult<AgentAttachmentUploadSessionView>>,
+        get: (uploadId) =>
+          transport.request(
+            agentApiRoutes.cloud.attachmentUploadSessions.get.path(uploadId),
+          ) as Promise<AgentApiResult<AgentAttachmentUploadSessionView>>,
+      },
     },
   };
 }
@@ -393,6 +480,15 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
     attachments: {
       download: async (attachmentId) => unwrap(await rawClient.attachments.download(attachmentId)),
       upload: async (form) => unwrap(await rawClient.attachments.upload(form)),
+      uploadSessions: {
+        create: async (request) =>
+          unwrap(await rawClient.attachments.uploadSessions.create(request)),
+        complete: async (uploadId) =>
+          unwrap(await rawClient.attachments.uploadSessions.complete(uploadId)),
+        cancel: async (uploadId) =>
+          unwrap(await rawClient.attachments.uploadSessions.cancel(uploadId)),
+        get: async (uploadId) => unwrap(await rawClient.attachments.uploadSessions.get(uploadId)),
+      },
     },
   };
 }
