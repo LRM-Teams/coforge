@@ -47,6 +47,9 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
       agent = { ...agent, state: structuredClone(state) };
       return true;
     },
+    async memberRole() {
+      return "owner";
+    },
   };
   let runtime: DaemonRuntime;
   const deliveries = new Set<Promise<unknown>>();

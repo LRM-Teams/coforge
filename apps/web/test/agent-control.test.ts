@@ -15,6 +15,8 @@ import {
   decodeAgentStopIntent,
   decodeAgentWorkspaceResetRequest,
 } from "@lrm/coforge-sdk/internal";
+import { isAppError } from "../src/lib/app-error";
+import type { WorkspaceMemberRole } from "../src/server/workspaces/member-role.server";
 
 function observationRace() {
   const runtimeConfig = {
@@ -72,6 +74,7 @@ function observationRace() {
     beforeReplace: async () => {},
   };
   const store: AgentControlStore = {
+    memberRole: async () => "owner",
     get: async () => (fixture.authorized ? structuredClone(fixture.agent) : undefined),
     replace: async (before, state) => {
       if (state.requestId === "config-stop" && state.phase === "stopping") {
@@ -288,6 +291,7 @@ test("reset is one confirmed-stop then fresh-start operation and retains no old 
     state: null,
   };
   const store: AgentControlStore = {
+    memberRole: async () => "owner",
     async get() {
       return structuredClone(agent);
     },
@@ -372,6 +376,7 @@ test.each([undefined, "pi", "codex", "claude-code", "coforge"] as const)(
       state: null,
     };
     const store: AgentControlStore = {
+      memberRole: async () => "owner",
       async get() {
         return structuredClone(agent);
       },
@@ -461,6 +466,7 @@ test("a Session snapshot cannot complete control, and recovered identity binds o
     },
   };
   const store: AgentControlStore = {
+    memberRole: async () => "owner",
     async get() {
       return structuredClone(agent);
     },
@@ -554,6 +560,7 @@ test("start wakes retain the completed launch fence while ready recovery creates
         agent = { ...agent, state };
         return true;
       },
+      memberRole: async () => "owner",
     },
     {
       publish: async (_channel, bytes) => {
@@ -597,6 +604,7 @@ test("Full Reset halts on failed clearing and automatic starts cannot bypass the
   };
   const sent: Uint8Array[] = [];
   const store: AgentControlStore = {
+    memberRole: async () => "owner",
     get: async () => structuredClone(agent),
     replace: async (before, state) => {
       if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
@@ -678,6 +686,7 @@ test("Clear Session and advancement commit together; recovery retries that step,
   let allowClear = false;
   const sent: Uint8Array[] = [];
   const store: AgentControlStore = {
+    memberRole: async () => "owner",
     get: async () => structuredClone(agent),
     replace: async (before, state, options) => {
       if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
@@ -738,6 +747,7 @@ test("a signal-driven wakeup trusts the ACK path and never republishes the comma
     state: null,
   };
   const store: AgentControlStore = {
+    memberRole: async () => "owner",
     async get() {
       return structuredClone(agent);
     },
@@ -807,4 +817,170 @@ test("a signal-driven wakeup trusts the ACK path and never republishes the comma
   expect(events).toEqual(["stop", "start"]);
   // Completion came from the signal, well inside the 2s fallback re-read.
   expect(Date.now() - started).toBeLessThan(1_000);
+});
+
+/**
+ * execute()'s Raft capability authorization (`controlAgentRuntime` for Restart/Reset session,
+ * held by any current Workspace member; `resetAgentWorkspace` for Full Reset, owner/admin only).
+ * Unlike the fixtures above, the actor here is never the Agent's own owner.
+ */
+function executeAuthorizationFixture(options: {
+  ownerId: string;
+  role: WorkspaceMemberRole | undefined;
+}) {
+  let agent: AgentControlAgent = {
+    id: "a",
+    ownerId: options.ownerId,
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: {
+      runtime: "pi",
+      provider: { kind: "default" },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    },
+    state: null,
+  };
+  const sent: Uint8Array[] = [];
+  const store: AgentControlStore = {
+    memberRole: async () => options.role,
+    get: async () => structuredClone(agent),
+    replace: async (before, state) => {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state: structuredClone(state) };
+      return true;
+    },
+  };
+  const control = new AgentControl(
+    store,
+    {
+      publish: async (_channel, bytes) => {
+        sent.push(bytes);
+      },
+    },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 0, fallbackMs: 0 },
+  );
+  return { control, sent };
+}
+
+test("a Workspace member who does not own the Agent can Restart and Reset session", async () => {
+  const restart = executeAuthorizationFixture({ ownerId: "owner-user", role: "member" });
+  await expect(
+    restart.control.execute({
+      userId: "member-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "restart-req",
+      action: "restart",
+    }),
+  ).resolves.toMatchObject({ phase: "pending" });
+
+  const reset = executeAuthorizationFixture({ ownerId: "owner-user", role: "member" });
+  await expect(
+    reset.control.execute({
+      userId: "member-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "reset-req",
+      action: "reset-session",
+    }),
+  ).resolves.toMatchObject({ phase: "pending" });
+});
+
+test("a Workspace member who does not own the Agent cannot Full Reset it", async () => {
+  const { control } = executeAuthorizationFixture({ ownerId: "owner-user", role: "member" });
+  const error = await control
+    .execute({
+      userId: "member-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "full-reset-req",
+      action: "full-reset",
+      confirmed: true,
+    })
+    .catch((cause: unknown) => cause);
+  expect(isAppError(error) && error.code).toBe("ACCESS_DENIED");
+});
+
+test("the Agent's own owner cannot Full Reset it while only a plain Workspace member (deliberate Raft alignment)", async () => {
+  const { control } = executeAuthorizationFixture({ ownerId: "owner-user", role: "member" });
+  const error = await control
+    .execute({
+      userId: "owner-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "full-reset-req",
+      action: "full-reset",
+      confirmed: true,
+    })
+    .catch((cause: unknown) => cause);
+  expect(isAppError(error) && error.code).toBe("ACCESS_DENIED");
+});
+
+test("a Workspace admin who does not own the Agent can Full Reset it", async () => {
+  const { control, sent } = executeAuthorizationFixture({ ownerId: "owner-user", role: "admin" });
+  await expect(
+    control.execute({
+      userId: "admin-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "full-reset-req",
+      action: "full-reset",
+      confirmed: true,
+    }),
+  ).resolves.toMatchObject({ phase: "pending" });
+  expect(decodeAgentStopIntent(sent[0]!)).toMatchObject({ requestId: "full-reset-req" });
+});
+
+test("a user with no current Workspace membership is rejected", async () => {
+  const { control } = executeAuthorizationFixture({ ownerId: "owner-user", role: undefined });
+  await expect(
+    control.execute({
+      userId: "outsider",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "req",
+      action: "restart",
+    }),
+  ).rejects.toThrow("Agent is not authorized or assigned");
+});
+
+test("recover/publishStart/publishStop stay owner-authorized and ignore Workspace capability", async () => {
+  // The store reports no Workspace membership at all; execute() would reject this actor, but
+  // the internal/system paths key off Agent ownership, never memberRole().
+  const { control, sent } = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: undefined,
+  });
+  await control.publishStart(
+    {
+      protocolMajor: 1,
+      requestId: "start-req",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      model: "",
+      reasoning: "",
+    },
+    "owner-user",
+  );
+  expect(sent).toHaveLength(1);
+  await expect(
+    control.publishStart(
+      {
+        protocolMajor: 1,
+        requestId: "start-req-2",
+        workspaceId: "w",
+        computerId: "c",
+        agentId: "a",
+        provider: "pi",
+        model: "",
+        reasoning: "",
+      },
+      "someone-else",
+    ),
+  ).rejects.toThrow("Agent is not authorized or assigned");
 });

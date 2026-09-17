@@ -23,6 +23,29 @@ export function assertCanCreateAgents(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
+/**
+ * Raft capability table (`shared/src/serverPermissions.ts`): `controlAgentRuntime` is held by
+ * the server owner, admin, and every plain member; `resetAgentWorkspace` is owner/admin only.
+ * Named seam for `AgentControl.execute()`'s user-initiated Restart/Reset session/Full reset
+ * authorization — not a general capability framework.
+ */
+export const AGENT_CONTROL_CAPABILITIES = ["controlAgentRuntime", "resetAgentWorkspace"] as const;
+export type AgentControlCapability = (typeof AGENT_CONTROL_CAPABILITIES)[number];
+
+export function hasAgentControlCapability(
+  actorRole: WorkspaceMemberRole,
+  capability: AgentControlCapability,
+): boolean {
+  return capability === "controlAgentRuntime" ? true : isAdminLike(actorRole);
+}
+
+export function assertHasAgentControlCapability(
+  actorRole: WorkspaceMemberRole,
+  capability: AgentControlCapability,
+): void {
+  if (!hasAgentControlCapability(actorRole, capability)) throw new AppError("ACCESS_DENIED");
+}
+
 export function normalizeInvitableRole(role: string): InvitableWorkspaceRole {
   if (role === "admin" || role === "member") return role;
   throw new AppError("INVALID_INPUT");

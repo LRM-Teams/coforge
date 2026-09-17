@@ -488,16 +488,24 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   own the owner-only, Workspace-scoped browser read model for bounded Reminder lists and
   expose scheduled Reminders only. Reminder lifecycle and history persistence remain in
   `server/reminders/` and its repository.
-- `server/agents/agent-control.server.ts` owns owner-authorized control operations:
-  fixed command chains for Restart, Reset Session and Full Reset, receipt-driven
-  state transitions, and request/epoch fences. It clears the Session binding at
-  the local chain step; Session observations remain independently owned below.
-  `features/agents/agent-control.functions.ts` is the browser seam; transport
-  receivers under `server/centrifugo/` authenticate claims before applying
-  conditional Session/control updates. Current operation progress is not a new
-  Agent status or a generic durable command mailbox. Profile buttons submit
-  without waiting UI or control-state queries; runtime observations stay in
-  Activity. Full Reset still requires destructive confirmation.
+- `server/agents/agent-control.server.ts` owns Agent control operations: fixed
+  command chains for Restart, Reset Session and Full Reset, receipt-driven state
+  transitions, and request/epoch fences. `execute()` — the user-initiated path
+  behind `features/agents/agent-control.functions.ts` — authorizes by the
+  actor's current Workspace membership and Raft capability (ADR 0034):
+  `controlAgentRuntime` (Restart, Reset Session) is held by any current member;
+  `resetAgentWorkspace` (Full Reset) is owner/admin only, even for the Agent's
+  own owner. The internal/system paths — `recover`, `publishStart`, `publishStop`
+  (called with the Agent owner's id or the editing user's id, still checked
+  against Agent ownership) and `authorizeLaunch` (Workspace/Computer scope
+  only, no actor identity at all) — are untouched by ADR 0034. It
+  clears the Session binding at the local chain step; Session observations
+  remain independently owned below. Transport receivers under
+  `server/centrifugo/` authenticate claims before applying conditional
+  Session/control updates. Current operation progress is not a new Agent status
+  or a generic durable command mailbox. Profile buttons submit without waiting
+  UI or control-state queries; runtime observations stay in Activity. Full
+  Reset still requires destructive confirmation.
 - `server/agents/agent-session.server.ts` owns Session snapshot acceptance and
   launch-scoped identity updates. It shares the current control authorization
   guard, but never advances control operations. Unified RPC callbacks route Session

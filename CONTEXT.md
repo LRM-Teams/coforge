@@ -156,18 +156,22 @@ Stop the Agent runtime and start it again, preferring the same Agent session and
 preserving the Agent workspace. An empty session starts fresh silently; a known
 missing or safely non-replayable session may start a new session with a new identity
 to restore availability. Authentication, network, ambiguous, permission, corruption,
-and other I/O failures do not become fresh sessions.
+and other I/O failures do not become fresh sessions. Raft `controlAgentRuntime`
+capability: any current Workspace member (owner, admin, or member) may perform it,
+regardless of who owns the Agent (ADR 0034).
 
 **Reset Session**:
 Stop the Agent runtime, discard its current session association, and start a new
 Agent session in one user operation. Preserve the Agent workspace and old native
-session files.
+session files. Raft `controlAgentRuntime` capability: any current Workspace member
+may perform it (ADR 0034).
 
 **Full Reset**:
 Stop the Agent runtime, delete all contents of only its Agent workspace, discard
 its current session association, and start a new Agent session in one confirmed
 user operation. It does not delete cloud Messages, provider home directories,
-Global Skills, or another Agent's files.
+Global Skills, or another Agent's files. Raft `resetAgentWorkspace` capability:
+Workspace owner or admin only, even when the actor owns the Agent (ADR 0034).
 
 **Agent runtime**:
 A short-lived execution and audit identity for one Agent in one Workspace runtime session. Its configuration selects a provider, model, and reasoning behavior; provider-specific adapters translate that configuration into the native runtime settings. It never inherits User or Computer authority.

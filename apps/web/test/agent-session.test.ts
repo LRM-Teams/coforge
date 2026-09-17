@@ -71,6 +71,7 @@ test("Session RPC preserves control state and rejects stale scope, revoked acces
         agent = { ...agent, state };
         return true;
       },
+      memberRole: async () => "owner",
     }),
   );
   const principal = { userId: "owner", workspaceId: "workspace", computerId: "computer" };
