@@ -1,5 +1,5 @@
 import type { ActivityEntry } from "./agent-activity";
-import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import type { AgentDisplaySnapshot, ActivityTrajectoryEntry } from "@lrm/coforge-sdk/internal";
 import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 
 export type ActivityObservation = Pick<
@@ -81,8 +81,64 @@ const toolAliases: Readonly<Record<string, string>> = {
   settodolist: "todo_write",
 };
 
-/** Display-only projection: never derive Agent availability from these tones. */
-export function presentActivity(observation: ActivityObservation): ActivityRow[] {
+/** One atom of a presented activity frame: 0 or 1 visible row, plus (for text/thinking
+ * atoms only) a `mergeGroup` naming the contiguous statement it belongs to. A hidden
+ * `send_message` tool call has no row and no `mergeGroup` — it still occupies a slot in
+ * the atom sequence, so `presentActivityRows` sees it as a real boundary between two
+ * separate statements even though nothing renders for it. */
+type ActivityAtom = { row?: ActivityRow; mergeGroup?: string };
+
+function presentEntryItem(
+  item: ActivityTrajectoryEntry,
+  kind: string,
+  detail: string,
+): ActivityAtom {
+  if (item.kind === "tool_start") {
+    const name = item.toolName.replace(/^mcp__[^_]+__|^mcp_chat_/, "");
+    const canonical = toolAliases[name.toLowerCase()] ?? name;
+    if (canonical === "send_message") return {};
+    const label = toolLabels[canonical] ?? name;
+    return {
+      row: {
+        label,
+        detail,
+        recentLabel: label,
+        currentLabel: toolLabels[canonical]
+          ? `${label}…`
+          : `Using ${name.length > 20 ? name.slice(0, 20) + "…" : name}…`,
+        tone: "working",
+        recentTone: "working",
+        pulse: false,
+        monospace: true,
+        expandable: false,
+        subagent: item.subagent,
+      },
+    };
+  }
+  const thinking = item.kind === "thinking";
+  return {
+    row: {
+      label: thinking ? "Thinking" : "Output",
+      detail: item.text,
+      recentLabel: item.text || (thinking ? "Thinking" : "Output"),
+      currentLabel: thinking
+        ? "Thinking…"
+        : kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING ||
+            kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_UNAVAILABLE
+          ? detail || "Working…"
+          : "Working…",
+      tone: thinking ? "thinking" : "output",
+      recentTone: thinking ? "thinking" : "working",
+      pulse: thinking,
+      monospace: true,
+      expandable: true,
+      subagent: item.subagent,
+    },
+    mergeGroup: `${thinking ? "thinking" : "text"}:${item.subagent?.parentToolUseId ?? ""}`,
+  };
+}
+
+function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
   const { detailKind: kind, level, detail } = observation;
   // ADR 0021: any activity reclassified as subagent_activity (a trajectory
   // entry carrying a subagent scope) shows one unified label, regardless of
@@ -90,65 +146,23 @@ export function presentActivity(observation: ActivityObservation): ActivityRow[]
   if (kind === AGENT_ACTIVITY_DETAIL_KIND.SUBAGENT_ACTIVITY && level !== "error") {
     return [
       {
-        label: "Subagent working",
-        detail: "",
-        recentLabel: "Subagent working…",
-        currentLabel: "Subagent working…",
-        tone: "working",
-        recentTone: "working",
-        pulse: true,
-        monospace: false,
-        expandable: false,
+        row: {
+          label: "Subagent working",
+          detail: "",
+          recentLabel: "Subagent working…",
+          currentLabel: "Subagent working…",
+          tone: "working",
+          recentTone: "working",
+          pulse: true,
+          monospace: false,
+          expandable: false,
+        },
       },
     ];
   }
   if (level !== "error") {
     const entries = observation.entries ?? [];
-    if (entries.length)
-      return entries.flatMap((entry): ActivityRow[] => {
-        if (entry.kind === "tool_start") {
-          const name = entry.toolName.replace(/^mcp__[^_]+__|^mcp_chat_/, "");
-          const canonical = toolAliases[name.toLowerCase()] ?? name;
-          if (canonical === "send_message") return [];
-          const label = toolLabels[canonical] ?? name;
-          return [
-            {
-              label,
-              detail,
-              recentLabel: label,
-              currentLabel: toolLabels[canonical]
-                ? `${label}…`
-                : `Using ${name.length > 20 ? name.slice(0, 20) + "…" : name}…`,
-              tone: "working",
-              recentTone: "working",
-              pulse: false,
-              monospace: true,
-              expandable: false,
-              subagent: entry.subagent,
-            },
-          ];
-        }
-        const thinking = entry.kind === "thinking";
-        return [
-          {
-            label: thinking ? "Thinking" : "Output",
-            detail: entry.text,
-            recentLabel: entry.text || (thinking ? "Thinking" : "Output"),
-            currentLabel: thinking
-              ? "Thinking…"
-              : kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING ||
-                  kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_UNAVAILABLE
-                ? detail || "Working…"
-                : "Working…",
-            tone: thinking ? "thinking" : "output",
-            recentTone: thinking ? "thinking" : "working",
-            pulse: thinking,
-            monospace: true,
-            expandable: true,
-            subagent: entry.subagent,
-          },
-        ];
-      });
+    if (entries.length) return entries.map((entry) => presentEntryItem(entry, kind, detail));
   }
   const tone: Tone =
     level === "error"
@@ -194,17 +208,65 @@ export function presentActivity(observation: ActivityObservation): ActivityRow[]
               : detail || label;
   return [
     {
-      label,
-      detail: starting || (tone === "offline" && detail === "Stopped") ? "" : detail,
-      recentLabel,
-      currentLabel: tone === "working" || tone === "thinking" ? recentLabel : null,
-      tone,
-      recentTone: tone,
-      pulse: tone === "working" || tone === "thinking",
-      monospace: false,
-      expandable: false,
+      row: {
+        label,
+        detail: starting || (tone === "offline" && detail === "Stopped") ? "" : detail,
+        recentLabel,
+        currentLabel: tone === "working" || tone === "thinking" ? recentLabel : null,
+        tone,
+        recentTone: tone,
+        pulse: tone === "working" || tone === "thinking",
+        monospace: false,
+        expandable: false,
+      },
     },
   ];
+}
+
+/** Display-only projection: never derive Agent availability from these tones. */
+export function presentActivity(observation: ActivityObservation): ActivityRow[] {
+  return activityAtoms(observation).flatMap((atom) => (atom.row ? [atom.row] : []));
+}
+
+export type PresentedActivityRow = ActivityRow & { observedAtMs: number; key: string };
+
+/**
+ * `presentActivity` per activity frame, plus one merge: consecutive text (or thinking)
+ * atoms of the same launch and subagent lineage, with nothing else between them in the
+ * true entry sequence (not just the visible rows — a hidden `send_message` tool call
+ * still separates them), render as one row. Its text is every fragment concatenated
+ * oldest-to-newest with no separator (they are contiguous slices of one stream), its
+ * timestamp and key come from the oldest fragment (stable identity while later
+ * fragments stream in and extend it), and `currentLabel` reflects the newest fragment.
+ * `activity` is newest-first (`orderActivity`); the merged output stays newest-first.
+ */
+export function presentActivityRows(activity: readonly ActivityEntry[]): PresentedActivityRow[] {
+  const chronological = [...activity].reverse().flatMap((entry) =>
+    activityAtoms(entry).map((atom, itemIndex) => ({
+      row: atom.row,
+      mergeGroup: atom.mergeGroup ? `${entry.launchId}:${atom.mergeGroup}` : undefined,
+      observedAtMs: entry.observedAtMs,
+      key: `${entry.launchId}:${entry.clientSeq}:${itemIndex}`,
+    })),
+  );
+  const merged: PresentedActivityRow[] = [];
+  let openGroup: string | undefined;
+  for (const atom of chronological) {
+    if (atom.mergeGroup && atom.mergeGroup === openGroup) {
+      const last = merged[merged.length - 1];
+      const detail = last.detail + (atom.row?.detail ?? "");
+      merged[merged.length - 1] = {
+        ...last,
+        detail,
+        recentLabel: detail || last.label,
+        currentLabel: atom.row?.currentLabel ?? last.currentLabel,
+      };
+    } else if (atom.row) {
+      merged.push({ ...atom.row, observedAtMs: atom.observedAtMs, key: atom.key });
+    }
+    openGroup = atom.mergeGroup;
+  }
+  return merged.reverse();
 }
 
 export function activityToneClass(tone: Tone) {

@@ -11,17 +11,11 @@ import { getLocale } from "@/paraglide/runtime";
 import {
   activityToneClass,
   agentDisplay,
-  presentActivity,
-  type ActivityObservation,
+  presentActivityRows,
 } from "./agent-activity-presentation";
-import { RECENT_ACTIVITY_LIMIT } from "./agent-activity";
+import { RECENT_ACTIVITY_LIMIT, type ActivityEntry } from "./agent-activity";
 
 export type AvatarSize = NonNullable<AvatarProps["size"]>;
-
-type AvatarActivity = ActivityObservation & {
-  id?: string;
-  observedAtMs: number;
-};
 
 export function AgentDisplayAvatar({
   name,
@@ -73,7 +67,7 @@ export function AgentActivityAvatar({
 }: {
   agent: { name: string; displayName: string; description?: string };
   display?: AgentDisplaySnapshot;
-  activity: readonly AvatarActivity[];
+  activity: readonly ActivityEntry[];
   loading?: boolean;
   error?: boolean;
   size?: AvatarSize;
@@ -83,11 +77,11 @@ export function AgentActivityAvatar({
   onPress?: () => void;
 }) {
   const view = agentDisplay(display);
-  const recent = activity
-    .flatMap((entry) =>
-      presentActivity(entry).map((row) => ({ ...row, observedAtMs: entry.observedAtMs })),
-    )
-    .slice(0, RECENT_ACTIVITY_LIMIT);
+  // Same cap point as before (top N of the row list); merging first means the cap
+  // now lands on whole statements instead of possibly splitting one mid-fragment.
+  // `activity` itself may already be windowed upstream (RECENT_ACTIVITY_LIMIT or the
+  // 100-row history cap) — a statement cut at that boundary just shows what loaded.
+  const recent = presentActivityRows(activity).slice(0, RECENT_ACTIVITY_LIMIT);
   const time = new Intl.DateTimeFormat(getLocale(), {
     hour: "2-digit",
     minute: "2-digit",
@@ -150,9 +144,9 @@ export function AgentActivityAvatar({
           <p className="pb-3 text-xs text-tertiary">{m.agent_activity_empty()}</p>
         ) : (
           <ol className="space-y-3 pb-2">
-            {recent.map((entry, index) => {
+            {recent.map((entry) => {
               return (
-                <li key={index} className="flex items-start gap-3 text-xs">
+                <li key={entry.key} className="flex items-start gap-3 text-xs">
                   <time
                     dateTime={new Date(entry.observedAtMs).toISOString()}
                     aria-label={new Date(entry.observedAtMs).toLocaleString(getLocale(), {

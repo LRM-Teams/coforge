@@ -7,7 +7,7 @@ import { m } from "@/paraglide/messages";
 import type { ActivityEntry } from "./agent-activity";
 import {
   activityToneClass,
-  presentActivity,
+  presentActivityRows,
   type ActivityRow,
 } from "./agent-activity-presentation";
 
@@ -25,13 +25,7 @@ export function AgentActivityTimeline({
   timeZone: string | null;
   compact?: boolean;
 }) {
-  const rows = activity.flatMap((entry) =>
-    presentActivity(entry).map((row, index) => ({
-      row,
-      observedAtMs: entry.observedAtMs,
-      key: `${entry.launchId}:${entry.clientSeq}:${index}`,
-    })),
-  );
+  const rows = presentActivityRows(activity);
   if (!rows.length)
     return compact ? (
       <div className="px-6 py-10 text-center">
@@ -59,11 +53,11 @@ export function AgentActivityTimeline({
         compact ? "px-4" : "mt-6 rounded-xl border border-secondary px-4 md:px-6",
       )}
     >
-      {rows.map(({ row, observedAtMs, key }) => (
+      {rows.map((row) => (
         <ActivityTimelineRow
-          key={key}
+          key={row.key}
           row={row}
-          observedAtMs={observedAtMs}
+          observedAtMs={row.observedAtMs}
           timeZone={timeZone}
           compact={compact}
         />
