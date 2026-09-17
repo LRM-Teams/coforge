@@ -68,6 +68,21 @@ The Manual is an alignment surface, not a one-off (Frank, 2026-09-17). Two thing
   same PR, the way it already must update the standing prompt. `AgentManualEvent` rows with
   `outcome = not_found` are the backlog of topics Agents looked for and did not find.
 
+## Prompt versus Manual placement
+
+What stays in the standing prompt and what moves to the Manual is decided one section at a time,
+each step following what Raft does with the same section and each verified on staging before the
+next (Frank, 2026-09-17). Raft 1.0.32 builds its prompt from named section builders
+(`buildRaftCliGuideSections`); the daemon always uses the `managed-runner` audience, and the
+`self-hosted-runner` audience of the same builders generates the Manual topics. Only Tasks differs
+by audience; messages, threads, channels, reminders and the rest stay in the prompt in full.
+
+| Step | Section | Raft 1.0.32                                                                                                                                                                    | CoForge                                                                                                                                                        |
+| ---- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Tasks   | managed-runner keeps four paragraphs (claim rule, top-level only, failed claim is a lock, `in_review` → `done`) and points at the Manual; the long variant is the Manual topic | same split; topic `tasks` holds the previous prompt text verbatim; the short variant keeps CoForge's two extra sentences about parent targets and thread roots |
+
+A section Raft keeps in the prompt is not moved without a recorded decision here.
+
 ## Alternatives rejected
 
 - **Provider-native skills** (Claude Code / Codex / Kiro / Pi each have some notion of

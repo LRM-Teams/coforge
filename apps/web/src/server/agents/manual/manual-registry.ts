@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 // loader or a generated TS module.
 import githubBody from "./topics/github.md?raw";
 import manualBody from "./topics/manual.md?raw";
+import tasksBody from "./topics/tasks.md?raw";
 
 /** One Agent Manual topic (ADR 0036). `slug`/`title`/`summary` are a small typed registry here
  * rather than markdown frontmatter, to avoid a frontmatter parser for two fields. */
@@ -30,6 +31,13 @@ export const MANUAL_TOPICS: readonly AgentManualTopic[] = [
     summary:
       "How to read a Manual topic or the topic index, search by keyword, and what --intent/--reason mean and must never contain.",
     body: manualBody,
+  },
+  {
+    slug: "tasks",
+    title: "Tasks: claiming, status flow, amendments, and creating tasks",
+    summary:
+      "Full task reference: how tasks appear in messages, statuses and the claim/unclaim rules, auditable amendments, the claim-to-done workflow, and when coforge task create is and is not appropriate.",
+    body: tasksBody,
   },
 ];
 
