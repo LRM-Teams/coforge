@@ -639,13 +639,18 @@ export class AgentControl {
     }
     // ADR 0042: a daemon-initiated wake resends the same requestId/controlEpoch/launchId this
     // Agent's last managed operation completed under, instead of a fresh managed scope. Accepted
-    // only when that operation finished a start-ending chain (phase "completed" is reached only
-    // by the `start` command's `completed` value — restart/reset-session/full-reset all end their
-    // chain with a `start` step too, so this already implies the right chain shape without a
-    // separate `action` check) under the exact same scope, and the Agent is not user-stopped
-    // (ADR 0038) — never for a superseded, failed, or stopped operation, and never for an Agent a
-    // user explicitly stopped, even if its last completed operation looks otherwise current.
-    if (state.phase === "completed" && sameScope && !agent.stoppedAt) return;
+    // only when that operation finished a chain that ends in `start` under the exact same scope,
+    // and the Agent is not user-stopped (ADR 0038) — never for a superseded, failed, or stopped
+    // operation. A completed `stop` chain also ends in phase "completed" (`advance()` has no next
+    // step); it carries no `launchId`, so `sameScope` already excludes it, but the action is
+    // checked explicitly so this never depends on that.
+    if (
+      state.phase === "completed" &&
+      state.action !== "stop" &&
+      sameScope &&
+      !agent.stoppedAt
+    )
+      return;
     throw new Error("Stale Agent launch");
   }
   /** RPC ACK follows conditional persistence; never acquires the control waiter's lock. */

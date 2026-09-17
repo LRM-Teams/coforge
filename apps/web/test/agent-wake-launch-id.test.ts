@@ -161,3 +161,12 @@ test("authorizeLaunch's starting-phase branch is unchanged by the new wake branc
     }),
   ).resolves.toBeUndefined();
 });
+
+test("authorizeLaunch refuses a wake against a completed stop chain even if it somehow carried the launchId", async () => {
+  // A `stop` chain also ends in phase "completed"; the explicit action check must hold on its
+  // own, not only because a stop operation normally has no launchId.
+  const agent = completedManagedAgent({ action: "stop" });
+  await expect(controlFor(agent).authorizeLaunch(reusedWakeInput)).rejects.toThrow(
+    "Stale Agent launch",
+  );
+});
