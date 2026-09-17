@@ -128,16 +128,17 @@ test("resolve and react are scoped to proving/reading an id and deliberate ackno
   expect(instructions).toContain("never react automatically on routine updates");
 });
 
-test("Tasks require claim-before-work and conversational human acceptance", () => {
-  expect(instructions).toContain("**Decision rule:**");
+test("Tasks keep Raft's managed-runner summary and defer the full reference to the Manual", () => {
+  expect(instructions).toContain("**Claim rule:**");
   expect(instructions).toContain("Task commands use the parent target");
   expect(instructions).toContain("claim its root Message, not the reply Message");
-  expect(instructions).toContain("If the claim fails, do not start conflicting execution");
-  expect(instructions).toContain("When done, set status to `in_review`");
-  expect(instructions).toContain("After approval, set status to `done`");
-  expect(instructions).toContain("**Claim** is rejected on both terminal statuses");
-  expect(instructions).toContain("**What `coforge task create` really means:**");
-  expect(instructions).toContain("Before calling `coforge task create`");
+  expect(instructions).toContain("If a claim fails, do not start conflicting execution");
+  expect(instructions).toContain("set the task to `in_review` so a human can validate it");
+  expect(instructions).toContain("then to `done` after approval");
+  expect(instructions).toContain("`coforge manual get tasks`");
+  // The long reference lives in the `tasks` Manual topic (ADR 0036), not in the standing prompt.
+  expect(instructions).not.toContain("**What `coforge task create` really means:**");
+  expect(instructions).not.toContain("**Amendments are auditable:**");
   expect(instructions).not.toContain("Task updates use revisions");
   expect(instructions).not.toContain("COFORGE_REVIEWER_ISOLATION");
   expect(instructions).not.toContain("coforge task receipt");

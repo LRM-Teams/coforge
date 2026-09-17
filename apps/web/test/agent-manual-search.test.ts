@@ -136,3 +136,14 @@ test("findManualTopic and manualDocVersion are stable and content-derived", () =
   expect(manualDocVersion("a")).toBe(manualDocVersion("a"));
   expect(manualDocVersion("a")).not.toBe(manualDocVersion("b"));
 });
+
+test("the tasks topic carries the full task reference removed from the standing prompt", () => {
+  const body = findManualTopic("tasks")?.body ?? "";
+  expect(body).toContain("**Decision rule:**");
+  expect(body).toContain("**Claim** is rejected on both terminal statuses");
+  expect(body).toContain("**Amendments are auditable:**");
+  expect(body).toContain("If the claim fails, do not start conflicting execution");
+  expect(body).toContain("**What `coforge task create` really means:**");
+  expect(body).toContain("Before calling `coforge task create`");
+  expect(searchManualTopics("task claim status").map((r) => r.slug)[0]).toBe("tasks");
+});
