@@ -383,6 +383,10 @@ export class RecordCatalog {
         year: number;
         week: number;
         title: string;
+        cycleId: string;
+        overviewReportId: string;
+        highlightId: string | null;
+        highlightGenerating: boolean;
         submissions: Array<{
           id: string;
           title: string;
@@ -403,6 +407,12 @@ export class RecordCatalog {
           year: cycle.year,
           week: cycle.week,
           title: memberWeekTitle(cycle.year, cycle.week),
+          cycleId: cycle.id,
+          overviewReportId: report.id,
+          highlightId: cycle.highlight?.id ?? null,
+          highlightGenerating: cycle.highlight
+            ? isHighlightGenerating(asHighlightContent(cycle.highlight.content))
+            : false,
           submissions: [],
         };
         memberWeeksMap.set(key, week);

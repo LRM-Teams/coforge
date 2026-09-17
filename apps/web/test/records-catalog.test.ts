@@ -986,6 +986,10 @@ test("loadCatalog hides other leaders' template parents under 成员周报", asy
       year: 2026,
       week: 38,
       title: "2026 W38 工作周报",
+      cycleId: "cycle-1",
+      overviewReportId: "leader-b-overview",
+      highlightId: null,
+      highlightGenerating: false,
       submissions: [
         expect.objectContaining({
           id: "submission-under-b",
@@ -1486,6 +1490,78 @@ test("sendWeeklyAssignments rejects sending another leader's format", async () =
       sourceReportId: "leader-a-format",
     }),
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("loadCatalog attaches highlight metadata on member weeks", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReportCycle: {
+      findMany: async () => [
+        {
+          id: "cycle-38",
+          year: 2026,
+          week: 38,
+          title: "2026 W38 工作周报",
+          highlight: {
+            id: "hl-38",
+            title: "2026 W38 周报要点",
+            completedAt: null,
+            content: { generating: true, blocks: [] },
+          },
+          reports: [
+            {
+              id: "leader-overview",
+              kind: "template",
+              authorId: "leader-b",
+              title: "2026 W38 工作周报",
+              status: "draft",
+              content: { tabs: { Summary: { markdown: "" } } },
+              sourceTemplateId: null,
+              createdAt: new Date("2026-09-14T01:00:00.000Z"),
+              author: { id: "leader-b", username: "b", displayName: "B" },
+            },
+            {
+              id: "submission-1",
+              kind: "member",
+              authorId: "member-a",
+              title: "Alice 2026 W38 工作周报",
+              status: "submitted",
+              content: { tabs: { Summary: { markdown: "Done" } } },
+              sourceTemplateId: "leader-overview",
+              createdAt: new Date("2026-09-14T04:00:00.000Z"),
+              author: { id: "member-a", username: "alice", displayName: "Alice" },
+            },
+          ],
+        },
+      ],
+    },
+    weeklyReportFavorite: { findMany: async () => [] },
+    recordNote: { findMany: async () => [] },
+    user: {
+      findUnique: async () => ({ id: "leader-b", username: "b", displayName: "B" }),
+    },
+    weeklyReportTemplate: {
+      findMany: async () => [],
+    },
+  } as unknown as PrismaClient;
+
+  const catalog = await new RecordCatalog(db).loadCatalog({
+    workspaceId: "workspace-1",
+    userId: "leader-b",
+  });
+
+  expect(catalog.memberWeeks).toEqual([
+    expect.objectContaining({
+      year: 2026,
+      week: 38,
+      cycleId: "cycle-38",
+      overviewReportId: "leader-overview",
+      highlightId: "hl-38",
+      highlightGenerating: true,
+    }),
+  ]);
 });
 
 test("loadCatalog lists weekly highlights newest week first with year", async () => {
