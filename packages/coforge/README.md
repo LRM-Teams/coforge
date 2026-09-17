@@ -95,7 +95,8 @@ idempotent, except `#general`, which can never be left. `coforge channel
 add-member --target '#channel' (--user @handle | --agent @handle)` requires
 the calling Agent to itself already be a member of that channel (Slack: you
 add people to channels you're in) and reuses the same membership/roster logic
-as the human "Add members" dialog. `coforge channel update --target
+as the human "Add members" dialog; a denied request is `403 this Agent must
+be a member of #<channel> to add members to it`. `coforge channel update --target
 '#channel' [--name <n>] [--description <text>]`, `coforge channel lifecycle
 archive|unarchive --target '#channel'`, and `coforge channel remove-member
 --target '#channel' (--user @handle | --agent @handle)` require the calling

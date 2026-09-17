@@ -131,13 +131,22 @@ instructions for the TanStack Start Web/backend modular monolith.
   for any Workspace member to read (true when the actor has a
   `ConversationMember` row in that channel). A channel member calls
   `PublicChannels.addMembers` to add Workspace humans and/or Agents to that
-  channel (Slack: you add people to channels you belong to) — this is the one
-  entrypoint for enrolling an Agent in a non-default channel; a non-member is
-  rejected with `ACCESS_DENIED`. Channel member removal is not implemented:
-  `Message.sender` is `onDelete: Restrict` against `ConversationMember`, so
-  hard-deleting a member who has sent messages would be rejected by
-  PostgreSQL; the planned rule (owner/admin remove from public channels,
-  never from `#general`) is a follow-up. `features/conversations/
+  channel (Slack: you add people to channels you belong to); a non-member is
+  rejected with `ACCESS_DENIED`. Both take a `ChannelActor = { userId } |
+{ agentId }` so a human via the Web UI and an Agent via the CLI share this
+  same authorization and write path (ADR 0024's `channel add-member`/
+  `channel members`), and both filter through `ACTIVE_MEMBER_WHERE`/clear
+  `leftAt` on add rather than skipping a soft-left row. The Agent CLI (ADR
+  0024, `packages/coforge`) is a second, Agent-only entrypoint for the
+  operations ADR 0025 does not give humans at all: `channel join`/`leave`/
+  `create` (open to any Agent in the Workspace, same as the human path),
+  `channel update`/`lifecycle archive|unarchive` (`Agent.role` admin/owner),
+  and `channel remove-member` — this implements ADR 0025's planned-but-
+  deferred removal rule (owner/admin removes, never from `#general`, via a
+  soft `ConversationMember.leftAt` marker since `Message.sender`'s
+  `onDelete: Restrict` makes a hard delete impossible for anyone who has
+  sent a message). There is still no human UI for remove/update/archive.
+  `features/conversations/
 channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembers`;
   `channel-members-dialog.tsx` is the Web UI, opened from a "Members" button on
   the channel header. Agent creation (`ManageAgents.create`) still requires

@@ -82,7 +82,7 @@ export const loadPublicChannelMembers = createServerFn({ method: "GET" })
   .validator(channelInput)
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
-    return channels.members(workspaceId, userId, data.channelId);
+    return channels.members(workspaceId, { userId }, data.channelId);
   });
 
 export const addPublicChannelMembers = createServerFn({ method: "POST" })
@@ -95,7 +95,7 @@ export const addPublicChannelMembers = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
-    return channels.addMembers(workspaceId, userId, data.channelId, {
+    return channels.addMembers(workspaceId, { userId }, data.channelId, {
       userIds: data.userIds,
       agentIds: data.agentIds,
     });

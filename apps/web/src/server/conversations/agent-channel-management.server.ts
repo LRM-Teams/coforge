@@ -1,9 +1,11 @@
 import type { Conversation, PrismaClient } from "../../../generated/client";
+import { isAppError } from "../../lib/app-error";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import {
   AgentChannelManagementError,
   channelAuthorityDeniedError,
 } from "./agent-channel-management-error.server";
+import { PublicChannels } from "./public-channels.server";
 import { agentHasAdminAuthority } from "../agents/agent-channel-authority.server";
 import { resolveAgentChannelStatus } from "../agents/agent-channel-status.server";
 import { getAgentDisplay, type AgentDisplay } from "../agents/agent-display.server";
@@ -61,10 +63,17 @@ export type AgentChannelManagementRepository = Pick<
  * `ACTIVE_MEMBER_WHERE` so a soft-left member never counts as present, joined, or listed.
  */
 export class AgentChannelManagement {
+  private readonly channels: PublicChannels;
+
   constructor(
     private readonly db: PrismaClient,
     private readonly display?: Pick<AgentDisplay, "snapshot">,
-  ) {}
+    channels?: PublicChannels,
+  ) {
+    // Reused (not reimplemented) so the human "Members" dialog and the Agent CLI's
+    // `channel members`/`add-member` cannot drift (ADR 0024/0025).
+    this.channels = channels ?? new PublicChannels(db);
+  }
 
   async info(workspaceId: string, agentId: string, target: string): Promise<AgentChannelInfo> {
     const channelName = this.parseChannelTarget(target);
@@ -77,7 +86,8 @@ export class AgentChannelManagement {
     if (parentTarget.startsWith("#")) {
       const channelName = this.parseChannelTarget(parentTarget);
       const channel = await this.findChannel(workspaceId, channelName);
-      return this.roster(workspaceId, channel.id, agentId, `#${channel.channelName}`);
+      const raw = await this.channels.members(workspaceId, { agentId }, channel.id);
+      return this.shapeAgentRoster(workspaceId, agentId, `#${channel.channelName}`, raw);
     }
     if (!USER_TARGET.test(parentTarget))
       throw new AgentChannelManagementError(400, "target must be a #channel or @user");
@@ -122,8 +132,14 @@ export class AgentChannelManagement {
     rawName: string,
     description: string | undefined,
   ) {
-    if (!(await agentHasAdminAuthority(this.db, workspaceId, agentId)))
-      throw channelAuthorityDeniedError("create");
+    // Slack's default (ADR 0025): any Agent that belongs to the Workspace may create a
+    // channel, the same as `PublicChannels.create` for humans — no admin gate.
+    const agent = await this.db.agent.findFirst({
+      where: { id: agentId, workspaceId },
+      select: { id: true },
+    });
+    if (!agent)
+      throw new AgentChannelManagementError(403, "this Agent does not belong to the Workspace");
     const name = this.normalizeChannelName(rawName);
     if (name === "general")
       throw new AgentChannelManagementError(409, "general is reserved for automatic enrollment");
@@ -202,6 +218,13 @@ export class AgentChannelManagement {
     return { target: `#${channel.channelName}`, archived };
   }
 
+  /**
+   * Slack rule (ADR 0025): the acting Agent must itself be an active member of the target
+   * channel — enforced inside `PublicChannels.addMembers`, not re-implemented here. This method
+   * only resolves the `@handle` to an id (so a genuinely unknown handle is a 404, distinct from
+   * a real Workspace member/Agent the actor isn't allowed to add-through) and reshapes the
+   * response for the CLI.
+   */
   async addMember(
     workspaceId: string,
     callingAgentId: string,
@@ -211,33 +234,37 @@ export class AgentChannelManagement {
     const channelName = this.parseChannelTarget(target);
     const { kind, handle } = this.parseMemberInput(input);
     const channel = await this.findChannel(workspaceId, channelName);
-    if (!(await agentHasAdminAuthority(this.db, workspaceId, callingAgentId)))
-      throw channelAuthorityDeniedError("add-member");
+    let userId: string | undefined;
+    let resolvedAgentId: string | undefined;
     if (kind === "user") {
-      const user = await this.db.user.findUnique({ where: { username: handle } });
-      const membership = user
-        ? await this.db.workspaceMembership.findUnique({
-            where: { workspaceId_userId: { workspaceId, userId: user.id } },
-          })
-        : null;
-      if (!user || !membership)
-        throw new AgentChannelManagementError(404, `member not found: @${handle}`);
-      await this.db.conversationMember.upsert({
-        where: { conversationId_userId: { conversationId: channel.id, userId: user.id } },
-        create: { conversationId: channel.id, workspaceId, userId: user.id },
-        update: { leftAt: null },
+      const user = await this.db.user.findUnique({
+        where: { username: handle },
+        select: { id: true },
       });
+      if (!user) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
+      userId = user.id;
     } else {
       const agentRow = await this.db.agent.findFirst({
         where: { workspaceId, name: handle },
         select: { id: true },
       });
       if (!agentRow) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
-      await this.db.conversationMember.upsert({
-        where: { conversationId_agentId: { conversationId: channel.id, agentId: agentRow.id } },
-        create: { conversationId: channel.id, workspaceId, agentId: agentRow.id },
-        update: { leftAt: null },
+      resolvedAgentId = agentRow.id;
+    }
+    try {
+      await this.channels.addMembers(workspaceId, { agentId: callingAgentId }, channel.id, {
+        userIds: userId ? [userId] : [],
+        agentIds: resolvedAgentId ? [resolvedAgentId] : [],
       });
+    } catch (error) {
+      if (isAppError(error) && error.code === "ACCESS_DENIED")
+        throw new AgentChannelManagementError(
+          403,
+          `this Agent must be a member of #${channel.channelName} to add members to it`,
+        );
+      if (isAppError(error) && (error.code === "INVALID_INPUT" || error.code === "NOT_FOUND"))
+        throw new AgentChannelManagementError(404, `member not found: @${handle}`);
+      throw error;
     }
     return {
       target: `#${channel.channelName}`,
@@ -325,6 +352,8 @@ export class AgentChannelManagement {
     return { agents, humans };
   }
 
+  /** The `@user` DM roster: not a named channel, so `PublicChannels.members` (which requires
+   * `channelName` set) does not apply; queried directly, then shaped the same way. */
   private async roster(
     workspaceId: string,
     conversationId: string,
@@ -338,6 +367,7 @@ export class AgentChannelManagement {
         userId: true,
         agent: {
           select: {
+            id: true,
             name: true,
             displayName: true,
             description: true,
@@ -348,51 +378,76 @@ export class AgentChannelManagement {
         user: { select: { id: true, username: true } },
       },
     });
-    const agentRows = rows.filter(
-      (row): row is typeof row & { agentId: string; agent: NonNullable<typeof row.agent> } =>
-        Boolean(row.agentId && row.agent),
-    );
-    const humanRows = rows.filter(
-      (row): row is typeof row & { userId: string; user: NonNullable<typeof row.user> } =>
-        Boolean(row.userId && row.user),
-    );
+    const agentRows = rows.flatMap((row) => (row.agent ? [row.agent] : []));
+    const humanRows = rows.flatMap((row) => (row.user ? [row.user] : []));
     const roles = humanRows.length
       ? await this.db.workspaceMembership.findMany({
-          where: { workspaceId, userId: { in: humanRows.map((row) => row.userId) } },
+          where: { workspaceId, userId: { in: humanRows.map((row) => row.id) } },
           select: { userId: true, role: true },
         })
       : [];
     const roleByUserId = new Map(roles.map((role) => [role.userId, role.role]));
-    // Deferred: constructing the real AgentDisplay throws when REDIS_URL is unset, and that
-    // failure must be caught per-Agent (as "unknown") by resolveAgentChannelStatus, not thrown
-    // out of the whole roster read.
-    const display: Pick<AgentDisplay, "snapshot"> = this.display ?? {
-      snapshot: (scope) => getAgentDisplay().snapshot(scope),
-    };
+    return this.shapeAgentRoster(workspaceId, callingAgentId, target, {
+      agents: agentRows,
+      humans: humanRows.map((row) => ({
+        id: row.id,
+        username: row.username,
+        role: roleByUserId.get(row.id) ?? "member",
+      })),
+    });
+  }
+
+  /**
+   * Reshapes `PublicChannels.members`' (or the DM roster's) raw membership facts into the
+   * Agent-facing response: role/self tags plus each Agent's live status
+   * (`resolveAgentChannelStatus`). The only Agent-specific glue here is `self` and `status`/
+   * `activity`/`activityDetail` — membership, roles, and authority all come from the shared data.
+   */
+  private async shapeAgentRoster(
+    workspaceId: string,
+    callingAgentId: string,
+    target: string,
+    raw: {
+      agents: Array<{
+        id: string;
+        name: string;
+        displayName: string;
+        description: string;
+        role: string;
+        computerId: string | null;
+      }>;
+      humans: Array<{ id: string; username: string; role: string }>;
+    },
+  ): Promise<AgentChannelRoster> {
+    const display = this.resolvedDisplay();
     const agents = await Promise.all(
-      agentRows.map(async (row) => ({
-        name: row.agent.name,
-        displayName: row.agent.displayName,
-        description: row.agent.description,
-        role: row.agent.role,
-        self: row.agentId === callingAgentId,
+      raw.agents.map(async (agent) => ({
+        name: agent.name,
+        displayName: agent.displayName,
+        description: agent.description,
+        role: agent.role,
+        self: agent.id === callingAgentId,
         ...(await resolveAgentChannelStatus(display, {
           workspaceId,
-          computerId: row.agent.computerId,
-          agentId: row.agentId,
+          computerId: agent.computerId,
+          agentId: agent.id,
         })),
       })),
     );
     return {
       target,
       agents: agents.sort((left, right) => left.name.localeCompare(right.name)),
-      humans: humanRows
-        .map((row) => ({
-          username: row.user.username,
-          role: roleByUserId.get(row.userId) ?? "member",
-        }))
+      humans: raw.humans
+        .map((human) => ({ username: human.username, role: human.role }))
         .sort((left, right) => left.username.localeCompare(right.username)),
     };
+  }
+
+  /** Deferred: constructing the real `AgentDisplay` throws when `REDIS_URL` is unset, and that
+   * failure must be caught per-Agent (as "unknown") by `resolveAgentChannelStatus`, not thrown
+   * out of the whole roster read. */
+  private resolvedDisplay(): Pick<AgentDisplay, "snapshot"> {
+    return this.display ?? { snapshot: (scope) => getAgentDisplay().snapshot(scope) };
   }
 
   private parseChannelTarget(target: string): string {

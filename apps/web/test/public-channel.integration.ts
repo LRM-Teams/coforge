@@ -1034,7 +1034,11 @@ test("channel members add humans and Agents; a Workspace member outside the chan
     await channels.join(workspace.id, owner.id, channel.id);
 
     // A Workspace member who is NOT in the channel may still read it, but cannot add members.
-    const outsideView = await channels.members(workspace.id, outsideMember.id, channel.id);
+    const outsideView = await channels.members(
+      workspace.id,
+      { userId: outsideMember.id },
+      channel.id,
+    );
     expect(outsideView.canAddMembers).toBe(false);
     expect(outsideView.humans.map((human) => human.id).sort()).toEqual(
       [channelMember.id, owner.id].sort(),
@@ -1046,33 +1050,42 @@ test("channel members add humans and Agents; a Workspace member outside the chan
     expect(outsideView.candidates.agents.map((candidate) => candidate.id)).toEqual([agent.id]);
 
     await expect(
-      channels.addMembers(workspace.id, outsideMember.id, channel.id, {
+      channels.addMembers(workspace.id, { userId: outsideMember.id }, channel.id, {
         userIds: [newcomer.id],
         agentIds: [],
       }),
     ).rejects.toThrow("ACCESS_DENIED");
 
     // A channel member with a plain `member` Workspace role may read and add members.
-    const memberView = await channels.members(workspace.id, channelMember.id, channel.id);
+    const memberView = await channels.members(
+      workspace.id,
+      { userId: channelMember.id },
+      channel.id,
+    );
     expect(memberView.canAddMembers).toBe(true);
 
     await expect(
-      channels.addMembers(workspace.id, channelMember.id, channel.id, {
+      channels.addMembers(workspace.id, { userId: channelMember.id }, channel.id, {
         userIds: [crypto.randomUUID()],
         agentIds: [],
       }),
     ).rejects.toThrow("INVALID_INPUT");
     await expect(
-      channels.addMembers(workspace.id, channelMember.id, channel.id, {
+      channels.addMembers(workspace.id, { userId: channelMember.id }, channel.id, {
         userIds: [],
         agentIds: [crypto.randomUUID()],
       }),
     ).rejects.toThrow("INVALID_INPUT");
 
-    const afterAdd = await channels.addMembers(workspace.id, channelMember.id, channel.id, {
-      userIds: [newcomer.id],
-      agentIds: [agent.id],
-    });
+    const afterAdd = await channels.addMembers(
+      workspace.id,
+      { userId: channelMember.id },
+      channel.id,
+      {
+        userIds: [newcomer.id],
+        agentIds: [agent.id],
+      },
+    );
     expect(afterAdd.canAddMembers).toBe(true);
     expect(afterAdd.humans.map((human) => human.id).sort()).toEqual(
       [newcomer.id, owner.id, channelMember.id].sort(),
@@ -1105,10 +1118,15 @@ test("channel members add humans and Agents; a Workspace member outside the chan
     ).not.toBeNull();
 
     // Re-adding an existing member is a no-op (skipDuplicates), not a conflict.
-    const reAdded = await channels.addMembers(workspace.id, channelMember.id, channel.id, {
-      userIds: [newcomer.id],
-      agentIds: [],
-    });
+    const reAdded = await channels.addMembers(
+      workspace.id,
+      { userId: channelMember.id },
+      channel.id,
+      {
+        userIds: [newcomer.id],
+        agentIds: [],
+      },
+    );
     expect(reAdded.humans.map((human) => human.id).sort()).toEqual(
       [newcomer.id, owner.id, channelMember.id].sort(),
     );
@@ -1120,10 +1138,6 @@ test("channel members add humans and Agents; a Workspace member outside the chan
     });
     await db.$disconnect();
     redis.close();
-  }
-});
-
-    await db.$disconnect();
   }
 });
 
@@ -1169,6 +1183,18 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
         runtimeConfig: {},
       },
     });
+    // Never joins #eng: used to show add-member's Slack-style "must be a member" denial.
+    const outsiderAgent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: owner.id,
+        computerId: computer.id,
+        name: `outsideragent${suffix}`,
+        displayName: "Outsider Agent",
+        role: "member",
+        runtimeConfig: {},
+      },
+    });
     await enrollGeneral(db, workspace.id);
     const manage = new AgentChannelManagement(db, {
       snapshot: async () => {
@@ -1176,17 +1202,18 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       },
     });
 
-    // Authority: only an admin-role Agent may create.
-    await expect(manage.create(workspace.id, member.id, "eng", undefined)).rejects.toThrow(
-      "this Agent's owner lacks admin authority for create",
-    );
-    const created = await manage.create(workspace.id, admin.id, "#eng", "Engineering");
+    // Authority (Slack's default, ADR 0025): any Agent that belongs to the Workspace may
+    // create a channel — including a plain, non-admin Agent — the same as `PublicChannels
+    // .create` for humans. The creator becomes a member.
+    const created = await manage.create(workspace.id, member.id, "#eng", "Engineering");
     expect(created).toEqual({
       target: "#eng",
       channel: { id: expect.any(String), name: "#eng", description: "Engineering" },
     });
 
-    // Any Agent may join a non-archived channel; idempotent.
+    // Any Agent may join a non-archived channel; idempotent. `member` already joined by
+    // creating the channel; `admin` joins separately.
+    await manage.join(workspace.id, admin.id, "#eng");
     await manage.join(workspace.id, member.id, "#eng");
     await manage.join(workspace.id, member.id, "#eng");
     const info = await manage.info(workspace.id, member.id, "#eng");
@@ -1275,14 +1302,17 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     await manage.setArchived(workspace.id, admin.id, "#eng", false);
     expect((await manage.info(workspace.id, admin.id, "#eng")).archived).toBe(false);
 
-    // add-member: admin only; unknown handle 404s; a human must already be a Workspace member.
+    // add-member (Slack's default, ADR 0025): the acting Agent must itself already be an
+    // active member of the channel — not gated by Agent.role admin authority, reused from
+    // `PublicChannels.addMembers`. Unknown handle 404s; a human must already be a Workspace
+    // member (also enforced by the shared method, surfaced as the same 404).
     await expect(
-      manage.addMember(workspace.id, member.id, "#eng", { user: `@${outsider.username}` }),
-    ).rejects.toThrow("this Agent's owner lacks admin authority for add-member");
+      manage.addMember(workspace.id, outsiderAgent.id, "#eng", { user: `@${outsider.username}` }),
+    ).rejects.toThrow("this Agent must be a member of #eng to add members to it");
     await expect(
-      manage.addMember(workspace.id, admin.id, "#eng", { user: "@nobody" }),
+      manage.addMember(workspace.id, member.id, "#eng", { user: "@nobody" }),
     ).rejects.toThrow("member not found: @nobody");
-    const addedHuman = await manage.addMember(workspace.id, admin.id, "#eng", {
+    const addedHuman = await manage.addMember(workspace.id, member.id, "#eng", {
       user: `@${outsider.username}`,
     });
     expect(addedHuman).toEqual({

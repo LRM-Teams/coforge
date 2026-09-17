@@ -79,21 +79,18 @@ test("POST /channels requires name and returns a plain-text 400", async () => {
   expect(await result.text()).toBe("name is required");
 });
 
-test("POST /channels maps a denied authority to its declared 403 status and message", async () => {
+test("POST /channels maps a declared AgentChannelManagementError to its status and message", async () => {
   const result = await handleAgentChannelsPost(
     post("/api/agent/v1/channels", { name: "eng" }),
     principal,
     fakeRepository({
       create: async () => {
-        throw new AgentChannelManagementError(
-          403,
-          "this Agent's owner lacks admin authority for create",
-        );
+        throw new AgentChannelManagementError(403, "this Agent does not belong to the Workspace");
       },
     }),
   );
   expect(result.status).toBe(403);
-  expect(await result.text()).toBe("this Agent's owner lacks admin authority for create");
+  expect(await result.text()).toBe("this Agent does not belong to the Workspace");
 });
 
 test("POST /channels hides an unexpected repository failure behind a generic message", async () => {

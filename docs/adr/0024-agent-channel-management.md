@@ -62,14 +62,44 @@ filter there is a no-op that costs nothing and stays correct if that ever change
 
 ### Authority model
 
-An Agent's admin authority for channel management is `isAdminLike(agent.role)` — the Agent's own
-role, never the human owner's. `create`, `update`, `archive`, `unarchive`, `add-member`, and
-`remove-member` require it; `info`, `members`, `join` (non-archived channel), and `leave` (any
-channel except `#general`) do not. `remove-member` is the one exception inside an admin-gated
-operation: an Agent removing **itself** (`--agent @<its own name>`) needs no admin authority,
-identical to `leave`. A denied request is `403` plain text
-`this Agent's owner lacks admin authority for <operation>` — the wording is Raft's; the authority
-source underneath it is CoForge's own (`Agent.role`, not a delegated owner role).
+This record's first draft mirrored Raft's own gate: server-admin authority for every write
+operation (`create`/`update`/`archive`/`unarchive`/`add-member`/`remove-member`). Frank then
+decided in ADR 0025 (`docs/adr/0025-channel-membership-and-agent-creation-authority.md`, PR #289,
+merged to `main` while this branch was in flight) that CoForge channels follow **Slack's**
+defaults, not Raft's, and that the Agent CLI must apply the identical rules the human Web UI
+already applies rather than a stricter, Agent-only gate. This record now defers to ADR 0025 for
+every operation it actually covers, and only keeps `Agent.role` admin authority for the two write
+operations ADR 0025 does not cover (`update`, `archive`/`unarchive`) plus the one it explicitly
+deferred (`remove-member`):
+
+- **`create`**: any Agent that belongs to the Workspace — membership only, no role gate — the
+  same check `PublicChannels.create` runs for a human (ADR 0025 §1). The creating Agent becomes a
+  member, same as a human creator.
+- **`join`**: any Agent; unchanged from this record's original draft, and consistent with ADR
+  0025 §1's "joining a channel stays open to any Workspace member."
+- **`leave`**: any Agent, never `#general`; unchanged from this record's original draft.
+- **`add-member`**: the acting Agent must itself already be an **active member** of the target
+  channel — Slack's "you add people to channels you're in" (ADR 0025 §2) — not gated by
+  `Agent.role`. `AgentChannelManagement.addMember` no longer implements this check itself: it
+  resolves the `@handle` to an id (a genuinely unknown handle is its own 404, independent of the
+  actor's membership) and calls the shared `PublicChannels.addMembers`, which enforces the active-
+  membership rule and does the write, for both the human dialog and the Agent CLI. A denied
+  request is `403` plain text `this Agent must be a member of #<channel> to add members to it`.
+- **`update`** (rename/description) and **`archive`/`unarchive`**: `Agent.role` admin authority
+  (`isAdminLike(agent.role)`) — Raft's gate, kept because ADR 0025 is silent on these two
+  operations (they do not exist on the human side at all). A denied request is `403` plain text
+  `this Agent's owner lacks admin authority for <operation>`.
+- **`remove-member`**: `Agent.role` admin authority, and never `#general` — this is ADR 0025's
+  own **planned, not-implemented** rule (§3: "by default Workspace owner/admin may remove someone
+  from a public channel, and it is never possible to remove someone from `#general`"), implemented
+  here via the soft `leftAt` marker ADR 0025 anticipated needing. Removing **yourself**
+  (`--agent @<its own name>`) needs no admin authority, identical to `leave`. A denied request is
+  the same `403 this Agent's owner lacks admin authority for remove-member` text as `update`/
+  `archive`.
+
+`agentHasAdminAuthority` (`Agent.role`, not a delegated owner role) remains the single switch for
+every operation that still needs it (`update`, `archive`, `unarchive`, and `remove-member` except
+self-removal); it is simply no longer called from `create` or `add-member`.
 
 ### Archive semantics
 
@@ -96,6 +126,20 @@ human-facing change is hiding archived channels from the sidebar channel list
   business logic and throws `AgentChannelManagementError(status, message)` — a per-error HTTP
   status paired with the exact plain-text body, since these operations need `400`/`403`/`404`/
   `409` rather than mute/unmute's fixed `400`.
+- **Reused, not reimplemented**: `AgentChannelManagement` takes a `PublicChannels` instance
+  (defaulting to `new PublicChannels(db)`) and calls its `members`/`addMembers` methods for the
+  `#channel` form of `channel members` and for `add-member`, instead of querying membership rows
+  itself. `PublicChannels.members`/`addMembers` were generalized from a human-only `actorUserId:
+  string` parameter to a `ChannelActor = { userId: string } | { agentId: string }` (`public-
+  channels.server.ts`), and both now: (a) filter every membership query through
+  `ACTIVE_MEMBER_WHERE`, and (b) use an upsert that clears `leftAt` instead of `createMany`/
+  `skipDuplicates`, so adding back a soft-left member reactivates their row rather than silently
+  no-op'ing. The Agent module's own code is limited to target grammar (`#channel`/`#channel:
+  <thread>`/`@user`), resolving an `@handle` to an id, response shaping (role/self/live-status
+  tags), and the two operations ADR 0025 does not cover (`update`, `archive`/`unarchive`) plus
+  the one it deferred (`remove-member`, kept entirely in the Agent module — no human UI exists
+  for it). The `@user` DM roster form has no `PublicChannels` equivalent (DMs are not named
+  channels) and is queried directly, then shaped through the same `shapeAgentRoster` helper.
 - `packages/coforge-sdk`: `agentApiRoutes.cloud.channels.{create,info,update,members,addMember,
   removeMember,join,leave,archive,unarchive}`, response types in the new `agent/channels.ts`
   (re-exported from `agent/index.ts`), and matching `AgentApiClient`/`RawAgentApiClient` methods.
@@ -155,6 +199,12 @@ human-facing change is hiding archived channels from the sidebar channel list
   `PublicChannels.list`/the sidebar hide archived channels; `PublicChannels.send`/`sendAgentMessage`
   refuse archived-channel posts; a new `AgentChannelManagement` service, error type, authority
   helper, and nine route files; a new `updateAgentRole` server function and Agent-settings Select.
+  **Not purely additive**: `PublicChannels.members`/`addMembers` (added by ADR 0025/#289) changed
+  their second parameter from a bare human `actorUserId: string` to `ChannelActor = { userId:
+  string } | { agentId: string }`; their two existing call sites in `channels.functions.ts` were
+  updated to pass `{ userId }`. Their return shape gained fields (`role` on humans;
+  `description`/`role`/`computerId` on Agents) that the human "Members" dialog does not read —
+  additive from that dialog's point of view.
 - `packages/coforge-sdk`: additive route/type/client surface; no existing route, type, or method
   changed shape.
 - `packages/daemon`: additive `agentChannel` on `DaemonConnectionClient`/`DaemonRuntime`, a new
@@ -176,6 +226,11 @@ scenario in `apps/web/test/public-channel.integration.ts` (authority, join/leave
 add/remove-member, against local PostgreSQL); `packages/daemon/test/agent-proxy.test.ts`'s new
 validation/dispatch/404 cases; `packages/coforge/test/cli.test.ts` and the new
 `channel-format.test.ts`.
+
+This branch was reconciled with ADR 0025/#289 by merging `origin/main`, generalizing
+`PublicChannels.members`/`addMembers` as described above, and rewriting the affected assertions
+in `public-channel.integration.ts` (both this record's own scenario and #289's "channel members
+add humans and Agents" scenario now pass together, in the same file, against local PostgreSQL).
 
 Rollback is reverting the CR before merge. Post-merge, the safest rollback is a follow-up CR that
 removes the new routes/CLI surface and stops writing `leftAt`/`archivedAt`/`role`; the columns
