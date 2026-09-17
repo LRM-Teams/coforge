@@ -140,6 +140,7 @@ export function ProjectDetail({
         <CreateChannelDialog
           open
           onOpenChange={setCreating}
+          defaultName={project.slug}
           onCreate={async (name) => {
             await create({ data: { name, projectId: project.id } });
             await router.invalidate({ sync: true });

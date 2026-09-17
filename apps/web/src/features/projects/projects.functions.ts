@@ -4,7 +4,7 @@ import { configuredGitHub } from "../../server/integrations/github-config.server
 import { AppError, isAppError } from "../../lib/app-error";
 import { ProjectSettings } from "../../server/projects/project-settings.server";
 import { z } from "zod";
-import { projectIconUploadInput, updateProjectInput } from "./projects.schemas";
+import { createProjectInput, projectIconUploadInput, updateProjectInput } from "./projects.schemas";
 import { ProjectImages, projectIconUrl } from "../../server/projects/project-images.server";
 
 export const uploadProjectIcon = createServerFn({ method: "POST" })
@@ -121,24 +121,7 @@ export const listProjects = createServerFn({ method: "GET" })
 
 export const createProject = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator(
-    z.object({
-      name: z.string().trim().min(1).max(100),
-      slug: z
-        .string()
-        .trim()
-        .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-        .max(100),
-      installationId: z.number().int().positive().safe().optional(),
-      repositoryId: z.number().int().positive().safe().optional(),
-      fullName: z
-        .string()
-        .trim()
-        .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
-        .max(300)
-        .optional(),
-    }),
-  )
+  .validator(createProjectInput)
   .handler(async ({ data, context }) => {
     const { db, workspaceId } = context;
     let repository: { id: number; fullName: string; installationId: number } | undefined;
@@ -162,22 +145,7 @@ export const createProject = createServerFn({ method: "POST" })
         githubRepositoryId: data.repositoryId,
         githubFullName: data.fullName,
         githubHtmlUrl: repository ? `https://github.com/${repository.fullName}` : null,
-        conversations: {
-          create: {
-            workspaceId,
-            channelName: data.slug,
-            members: { create: { userId: context.user.id } },
-          },
-        },
       },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        conversations: {
-          select: { id: true },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        },
-      },
+      select: { id: true, name: true, slug: true },
     });
   });

@@ -80,6 +80,13 @@ instructions for the TanStack Start Web/backend modular monolith.
   not in either sidebar. `GitHubConnection` owns user-authorized repository
   overview reads; project functions enforce Workspace scope before invoking it.
   Discussion groups reuse `PublicChannels.create` and the existing channel route.
+  Project creation no longer creates a first discussion group; discussion groups
+  are created on demand through the project page's "New discussion group" button
+  or the "Create channel" dialog's project selector, both through the same
+  `PublicChannels.create(..., projectId)` seam. A project's discussion-group list
+  starts empty, and `create-project-dialog.tsx` derives the project slug from the
+  name (see `lib/slug.ts`), the same pattern `workspace-switcher.tsx` uses for
+  Workspace creation.
 
   `server/projects/project-settings.server.ts` owns Workspace-member-authorized
   project settings and name-confirmed deletion. `projects.functions.ts` validates
