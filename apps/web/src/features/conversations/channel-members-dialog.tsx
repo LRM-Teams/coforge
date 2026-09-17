@@ -85,6 +85,7 @@ export function ChannelMembersDialog({
   preselected,
   commit,
   onLeft,
+  onOpenAgentProfile,
 }: {
   channelId: string;
   /** Bare channel name (no leading `#`), used only for the leave-confirmation copy. */
@@ -102,6 +103,9 @@ export function ChannelMembersDialog({
   };
   /** Called after the current user successfully leaves the channel, before the dialog closes. */
   onLeft?: () => Promise<void>;
+  /** Opens the Agent profile panel for an Agent row; absent where the caller does not own that
+   * slot. The caller is responsible for closing this dialog (see `channel-conversation.tsx`). */
+  onOpenAgentProfile?: (agentId: string) => void;
 }) {
   const load = useServerFn(loadPublicChannelMembers);
   const addMembers = useServerFn(addPublicChannelMembers);
@@ -333,15 +337,37 @@ export function ChannelMembersDialog({
                       {state.data.agents.map((agent) => (
                         <li key={agent.id} className="flex flex-col gap-2 py-2">
                           <div className="flex items-center gap-3">
-                            <Avatar
-                              size="sm"
-                              alt={agent.displayName}
-                              initials={avatarInitial(agent.displayName)}
-                              contentClassName={avatarToneClassName(agent.displayName)}
-                            />
-                            <span className="min-w-0 flex-1 truncate text-sm text-primary">
-                              {agent.displayName}
-                            </span>
+                            {onOpenAgentProfile ? (
+                              <Button
+                                color="tertiary"
+                                noTextPadding
+                                aria-label={m.agent_open_profile({ name: agent.displayName })}
+                                onPress={() => onOpenAgentProfile(agent.id)}
+                                className="h-auto min-w-0 flex-1 justify-start gap-3 rounded p-0 hover:bg-transparent"
+                              >
+                                <Avatar
+                                  size="sm"
+                                  alt=""
+                                  initials={avatarInitial(agent.displayName)}
+                                  contentClassName={avatarToneClassName(agent.displayName)}
+                                />
+                                <span className="min-w-0 flex-1 truncate text-sm text-primary hover:underline">
+                                  {agent.displayName}
+                                </span>
+                              </Button>
+                            ) : (
+                              <>
+                                <Avatar
+                                  size="sm"
+                                  alt={agent.displayName}
+                                  initials={avatarInitial(agent.displayName)}
+                                  contentClassName={avatarToneClassName(agent.displayName)}
+                                />
+                                <span className="min-w-0 flex-1 truncate text-sm text-primary">
+                                  {agent.displayName}
+                                </span>
+                              </>
+                            )}
                             <ChannelRoleControl
                               channelRole={agent.channelRole}
                               canManageRoles={state.data.channelCapabilities.manage_roles}

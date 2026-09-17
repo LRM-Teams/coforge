@@ -101,6 +101,7 @@ const BROWSER_MESSAGE_SELECT = {
   sender: {
     select: {
       userId: true,
+      agentId: true,
       user: { select: { username: true, avatarObjectKey: true } },
       agent: { select: { name: true, displayName: true } },
     },
@@ -215,6 +216,9 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
       : message.sender.userId
         ? `@${message.sender.user?.username}`
         : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
+    /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
+     * panel from a message row (`features/agents/profile-panel/`). */
+    senderAgentId: message.sender?.agentId ?? undefined,
     senderAvatarUrl: message.sender?.userId
       ? workspaceUserAvatarUrl(
           workspaceId,

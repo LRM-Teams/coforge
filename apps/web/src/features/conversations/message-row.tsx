@@ -21,6 +21,9 @@ export type MessageView = {
   senderKind: "user" | "agent" | "system";
   senderMemberId?: string | null;
   senderName: string;
+  /** The sender's Agent id, present only when `senderKind === "agent"`; opens the Agent profile
+   * panel (`features/agents/profile-panel/`) from the avatar or the sender name. */
+  senderAgentId?: string;
   senderAvatarUrl?: string | null;
   body: string;
   createdAt: Date | string;
@@ -287,6 +290,7 @@ export function MessageRow({
   threadEntry,
   threadPreview,
   messageFooter,
+  onOpenAgentProfile,
 }: {
   message: MessageView;
   index: number;
@@ -300,8 +304,15 @@ export function MessageRow({
   threadEntry?: (message: MessageView) => ReactNode;
   threadPreview?: (message: MessageView) => ReactNode;
   messageFooter?: (message: MessageView) => ReactNode;
+  /** Opens the Agent profile panel; present only where the conversation owns that slot
+   * (`features/agents/profile-panel/`'s `openAgentProfile`). Absent, the avatar/name render inert. */
+  onOpenAgentProfile?: (agentId: string) => void;
 }) {
   const displayName = own ? m.conversation_you() : message.senderName;
+  const openableAgentId =
+    !own && message.senderKind === "agent" && message.senderAgentId && onOpenAgentProfile
+      ? message.senderAgentId
+      : undefined;
   return (
     <li
       data-message-id={message.id}
@@ -335,6 +346,22 @@ export function MessageRow({
             >
               {clockLabel(message.createdAt, dateLocale)}
             </time>
+          ) : openableAgentId ? (
+            <Button
+              color="tertiary"
+              noTextPadding
+              aria-label={m.agent_open_profile({ name: message.senderName })}
+              onPress={() => onOpenAgentProfile?.(openableAgentId)}
+              className="h-auto w-auto min-w-0 rounded-full p-0 hover:bg-transparent"
+            >
+              <Avatar
+                size="sm"
+                alt=""
+                src={message.senderAvatarUrl}
+                initials={avatarInitial(message.senderName)}
+                contentClassName={avatarToneClassName(message.senderName)}
+              />
+            </Button>
           ) : (
             <Avatar
               size="sm"
@@ -348,9 +375,20 @@ export function MessageRow({
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           {!grouped && (
             <p className="flex min-h-5 items-baseline gap-2 pr-8">
-              <span className="min-w-0 truncate text-sm font-semibold text-primary">
-                {displayName}
-              </span>
+              {openableAgentId ? (
+                <Button
+                  color="tertiary"
+                  noTextPadding
+                  onPress={() => onOpenAgentProfile?.(openableAgentId)}
+                  className="h-auto min-w-0 truncate rounded p-0 text-sm font-semibold text-primary hover:bg-transparent hover:text-primary hover:underline"
+                >
+                  {displayName}
+                </Button>
+              ) : (
+                <span className="min-w-0 truncate text-sm font-semibold text-primary">
+                  {displayName}
+                </span>
+              )}
               <time
                 dateTime={new Date(message.createdAt).toISOString()}
                 className="shrink-0 text-xs text-tertiary tabular-nums"

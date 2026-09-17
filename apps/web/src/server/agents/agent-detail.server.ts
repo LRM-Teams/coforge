@@ -11,6 +11,10 @@ type DetailComputer = {
   name: string;
   displayName: string;
   kind: string;
+  /** Last-observed Computer executable version (`server/computers/computer-metadata.server.ts`).
+   * Surfaced only in the Agent profile panel's Computer meta line; the full detail page does not
+   * render it today. */
+  computerVersion?: string | null;
 };
 
 type DetailAgent = {
@@ -23,7 +27,7 @@ type DetailAgent = {
   createdAt: Date;
   computerId?: string | null;
   computer?: DetailComputer | null;
-  owner: { id: string; username: string };
+  owner: { id: string; username: string; displayName?: string | null };
   runtimeConfig: Prisma.JsonValue;
   weeklyReportAssistant?: { id: string } | null;
   /** Set when a user stopped this Agent (ADR 0038). */
@@ -46,6 +50,7 @@ function assignedComputer(agent: DetailAgent) {
     id: computer.id,
     label: computer.displayName.trim() || computer.name.trim(),
     kind: computer.kind,
+    computerVersion: computer.computerVersion ?? null,
   };
 }
 

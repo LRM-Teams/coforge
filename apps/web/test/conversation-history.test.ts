@@ -160,9 +160,15 @@ describe("ConversationHistory", () => {
       attachments: [],
       sender:
         sequence === 11
-          ? { userId: null, user: null, agent: { name: "builder", displayName: "Build Assistant" } }
+          ? {
+              userId: null,
+              agentId: "agent-builder",
+              user: null,
+              agent: { name: "builder", displayName: "Build Assistant" },
+            }
           : {
               userId: "user-1",
+              agentId: null,
               user: {
                 username: "alice",
                 avatarObjectKey: "users/user-1/avatars/avatar-1/original",
@@ -221,6 +227,13 @@ describe("ConversationHistory", () => {
       ["message-9", 9, "user-member-1"],
       ["message-10", 10, "user-member-1"],
       ["message-11", 11, "user-member-1"],
+    ]);
+    // Only the Agent-sent message (sequence 11) carries a senderAgentId; the panel opener
+    // (message-row.tsx) uses this to know which senders it may open a profile for.
+    expect(page.messages.map(({ senderAgentId }) => senderAgentId)).toEqual([
+      undefined,
+      undefined,
+      "agent-builder",
     ]);
     expect(page.messages.map(({ senderName }) => senderName)).toEqual([
       "@alice",

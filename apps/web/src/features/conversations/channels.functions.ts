@@ -236,6 +236,8 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       senderMemberId: message.senderMemberId,
       senderKind: "user" as const,
       senderName: `@${username}`,
+      // A human-sent echo never carries an Agent id.
+      senderAgentId: undefined,
       senderAvatarUrl: workspaceUserAvatarUrl(
         workspaceId,
         userId,

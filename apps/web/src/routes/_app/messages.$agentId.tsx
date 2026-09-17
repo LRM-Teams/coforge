@@ -26,6 +26,12 @@ import {
   markDirectThreadRead,
   sendDirectConversationMessage,
 } from "@/features/conversations/conversations.functions";
+import {
+  agentIdFromProfileParam,
+  agentProfileParamSchema,
+  agentProfileTabParamSchema,
+} from "@/features/agents/profile-panel/profile-panel-search";
+import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
@@ -33,6 +39,8 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
     layout: z.enum(["board", "list"]).optional().catch(undefined),
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
+    profile: agentProfileParamSchema,
+    agentTab: agentProfileTabParamSchema,
   }),
   remountDeps: ({ params }) => params.agentId,
   loader: ({ context, params }) =>
@@ -47,8 +55,10 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
 function DirectConversationPage() {
   const { agentId } = Route.useParams();
   const agentStatus = useLiveAgent(agentId)?.status.value;
-  const { view, layout } = Route.useSearch();
+  const { view, layout, profile, agentTab } = Route.useSearch();
   const taskLayout = useTaskLayout(layout);
+  const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
+  const profileAgentId = agentIdFromProfileParam(profile);
   const send = useServerFn(sendDirectConversationMessage);
   const markRead = useServerFn(markDirectThreadRead);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
@@ -71,6 +81,7 @@ function DirectConversationPage() {
             tasks={taskView.tasks}
             active="tasks"
             onShowChat={showChat}
+            onOpenAgentProfile={openAgentProfile}
           />
         }
         layout={taskLayout}
@@ -131,6 +142,10 @@ function DirectConversationPage() {
       onLoadMessageAround={page.loadMessageAround}
       onShowLatest={page.showLatest}
       onLoadOlder={page.loadOlder}
+      onOpenAgentProfile={openAgentProfile}
+      agentProfile={{ agentId: profileAgentId, tab: agentTab }}
+      onAgentProfileTabChange={setAgentProfileTab}
+      onCloseAgentProfile={closeAgentProfile}
     />
   );
 }
