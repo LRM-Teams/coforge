@@ -216,6 +216,8 @@ request instead and returns that request's view. No epoch is minted, nothing is 
 no supersede is logged. Every other action still supersedes a `starting` operation (a Stop must
 win over a launch), and `publishStart()` already behaved this way for internal callers.
 
+> Amended 2026-09-17: closed by [ADR 0040](0040-server-supplied-launch-id-and-start-rebind.md) — the server now supplies `launchId` and the Daemon rebinds.
+
 What remains for a Daemon follow-up, out of scope here: a Start that reaches the Daemon while the
 Agent is ALREADY RUNNING under an older, completed operation (a user Start racing a Daemon-ready
 `recover()` Start, or Start clicked on an Agent the UI wrongly shows offline) is still rejected

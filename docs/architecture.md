@@ -979,6 +979,16 @@ sidechain 或无可提取摘要；已发布实现还吞掉 stat 失败。因此�
 [Codex error codes](https://github.com/openai/codex/blob/main/codex-rs/app-server/src/error_code.rs)、
 [Claude SDK published package](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk/v/0.3.263)。
 
+2026-09-17（ADR 0040）`launchId` 改由服务端下发：操作进入 `starting` 的同一次 CAS 写入里由
+`AgentControl` 生成并存入 `controlState.launchId`，随 `agent:start` 的 `launch_id` 下发；同一操作的
+重发（`recover`、`drive` 重试）使用同一个值。带 `controlEpoch` 的受管 Start 必须携带 `launchId`，
+SDK 编解码会拒绝缺失的情况。`authorizeLaunch` 只校验、不写库。Daemon 以下发的 `launchId` 启动；
+当 Start 到达时进程已在更早的、已完成的操作下运行，Daemon 不再以 `agent_already_running` 拒绝，
+而是 rebind：保留进程、会话和凭证，采用新的 scope 与 `launchId`，重新上报 Session 与
+`agent:status`，投递 wake message，并回 `started` 结果（与 Raft 的 `rebindRunningStart` 一致）。
+不兼容旧 Daemon：旧版本会自行生成 `launchId`，其 `authorizeLaunch` 会被拒绝，需先升级 Computer。
+Daemon 自行发起的启动（空闲 Agent 被消息唤醒）仍自行生成 `launchId`，是与 Raft 尚存的差异。
+
 Codex 用官方 `thread/resume(threadId)` 并验证返回 ID；Pi 用 `--session` 并验证 `get_state.sessionId`；CoForge SDK 在 Agent 独立目录中 list/open；Claude 用 `--resume`。Codex/Pi/CoForge 的早期 identity callback 完成 ACK 后才返回 session 创建成功。Claude control initialize 与会话 ID 不同步：首条云端输入不等待 ID，官方 `system/init` 和顶层 `result`（turn-end）分别排队上报已观察的同一 ID，重复 init 不抑制 turn-end 确认。上报串行但不阻塞事件读取；失败显示 runtime error，不声称云端已保存。新 Claude session 的后续 notify 等待真实首个 result；已知 resume ID 验证后可以在原有完整 tool boundary 接受 notify。退出/dispose 拒绝等待通知，不伪造 prompt 或改变 Message ACK 的 accepted-notify 边界。
 
 RPC ACK 只证明 Web 接受会话引用，不证明 provider transcript 已 flush，也不证明存活进程可 attach。ID 观察、引用 ACK、首 turn 边界、provider 磁盘持久化是不同事实；在首次身份上报前崩溃没有已保存引用保证。Workspace daemon 重启会重建其 Agent runtime，再由云端选择 ID 恢复可用历史；其他 Workspace instance 不受影响。官方依据：[Claude sessions](https://code.claude.com/docs/en/sessions)、[Claude CLI](https://code.claude.com/docs/en/cli-reference)、[Codex app-server](https://github.com/openai/codex/tree/main/codex-rs/app-server)、[Pi RPC](https://github.com/badlogic/pi-mono/blob/v0.84.3/packages/coding-agent/docs/rpc.md)、[Pi SessionManager](https://github.com/badlogic/pi-mono/blob/v0.84.3/packages/coding-agent/src/core/session-manager.ts)。Workspace restart receipt/phase 的独立批准及所有权见上方 lifecycle 状态机。

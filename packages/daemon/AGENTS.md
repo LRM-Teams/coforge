@@ -152,7 +152,12 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   boundary flushing, bounded retention and assembled-text redaction; adapters
   supply only official display events and explicit lineage, never raw reasoning.
 - `agent-runtime/agent-control.ts` owns request/epoch-fenced stop/reset-workspace/start
-  and control completion, not Session delivery. Its `start()` catch branch (ADR 0040) reports
+  and control completion, not Session delivery. A managed Start launches under the
+  server-supplied `launchId` (ADR 0041), never a locally minted one; a Start that meets an
+  already-running process under an older, terminal operation rebinds it through the single
+  injected `Runtime.rebind(intent, launchId)` hook instead of rejecting — no second process, no
+  new launch config — and a running process without a matching `running` record answers with a
+  `failed` result (`agent_already_running`) so the server operation terminates. Its `start()` catch branch (ADR 0040) reports
   a stored native Session it could not resume — `AgentSessionRecoveryError`'s `session_missing`/
   `provider_replay_rejected` codes only, never `session_in_use` (a retry signal, not evidence
   the session is gone) — via the injected `Runtime.invalidateSession` before the fresh retry

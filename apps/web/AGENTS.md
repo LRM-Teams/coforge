@@ -490,7 +490,9 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   `server/reminders/` and its repository.
 - `server/agents/agent-control.server.ts` owns Agent control operations: fixed
   command chains for Start, Stop, Restart, Reset Session and Full Reset,
-  receipt-driven state transitions, and request/epoch fences. `execute()` — the
+  receipt-driven state transitions, and request/epoch fences. It mints one `launchId`
+  per operation the moment the operation enters `starting` and supplies it in the
+  Start intent (ADR 0040); `authorizeLaunch` only verifies that id and never writes. `execute()` — the
   user-initiated path behind `features/agents/agent-control.functions.ts` —
   authorizes by the actor's current Workspace membership and Raft capability
   (ADR 0034): `controlAgentRuntime` (Start, Stop, Restart, Reset Session) is
