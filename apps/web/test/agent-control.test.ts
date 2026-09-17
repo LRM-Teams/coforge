@@ -2128,3 +2128,104 @@ test("an abandoned pending operation is superseded by a user-initiated Start (AD
     controlEpoch: 5,
   });
 });
+
+test("authorizeLaunch re-reads and retries when a concurrent Session write wins the conditional write", async () => {
+  const runtimeConfig = {
+    runtime: "pi" as const,
+    provider: { kind: "default" as const },
+    model: "m",
+    reasoning: "default" as const,
+  };
+  let agent: AgentControlAgent = {
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig,
+    currentSessionId: "session-row",
+    identity: { sessionId: "stale-native", state: "resumable" },
+    state: {
+      version: 1,
+      protocolMajor: 1,
+      requestId: "start-1",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      epoch: 2,
+      action: "start",
+      phase: "starting",
+      configRevision: agentControlRevision(runtimeConfig),
+      controlSequence: 0,
+      sessionSequence: 0,
+      launchId: "launch-a",
+      identity: { sessionId: "stale-native", state: "resumable" },
+    },
+  };
+  let reads = 0;
+  let writes = 0;
+  const store: AgentControlStore = {
+    get: async () => {
+      reads++;
+      return structuredClone(agent);
+    },
+    memberRole: async () => "owner",
+    replace: async (before, state) => {
+      writes++;
+      // First write: an `agent:session:invalidate` cleared the Session association after the
+      // read, exactly what the Prisma store's currentSessionId comparison rejects.
+      if (writes === 1) {
+        const { identity: _identity, ...cleared } = agent.state!;
+        agent = { ...agent, currentSessionId: null, identity: undefined, state: cleared };
+        return false;
+      }
+      if ((before.currentSessionId ?? null) !== (agent.currentSessionId ?? null)) return false;
+      agent = { ...agent, state };
+      return true;
+    },
+  };
+  const control = new AgentControl(
+    store,
+    { publish: async () => {} },
+    { run: async (_id, work) => work() },
+  );
+  await control.authorizeLaunch({
+    agentId: "a",
+    workspaceId: "w",
+    computerId: "c",
+    controlEpoch: 2,
+    requestId: "start-1",
+    launchId: "launch-a",
+  });
+  expect(reads).toBe(2);
+  expect(writes).toBe(2);
+  expect(agent.state?.launchId).toBe("launch-a");
+  expect(agent.currentSessionId).toBeNull();
+
+  // A launch that is no longer current after the re-read is still refused, never retried blind.
+  writes = 0;
+  const stale: AgentControlStore = {
+    ...store,
+    replace: async () => {
+      writes++;
+      agent = { ...agent, state: { ...agent.state!, epoch: 3, requestId: "start-2" } };
+      return false;
+    },
+  };
+  const second = new AgentControl(
+    stale,
+    { publish: async () => {} },
+    { run: async (_id, work) => work() },
+  );
+  await expect(
+    second.authorizeLaunch({
+      agentId: "a",
+      workspaceId: "w",
+      computerId: "c",
+      controlEpoch: 2,
+      requestId: "start-1",
+      launchId: "launch-a",
+    }),
+  ).rejects.toThrow("Stale Agent launch");
+  expect(writes).toBe(1);
+});
