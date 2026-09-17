@@ -170,8 +170,21 @@ is reported with the server's error text. On success the CLI prints:
 Action card posted to <target> as message <uuid> (short <first 8>). The human can click the action verb to commit.
 ```
 
-This PR only posts and persists the card as an ordinary Agent message; the
-card UI and the human's commit action are a follow-up (see ADR 0027).
+Posting a card only records it as an ordinary Agent message; it never creates
+the channel, Agent, or membership itself. A human commits the card from the
+CoForge Web UI, not from any CLI command: they click the card's action
+button, review a form prefilled (and editable) from the card's values, and
+submit it under their own identity. To check whether that happened, read the
+card message again — its body carries a suffix the Agent-facing message read
+appends, `[action card: pending]`, `[action card: executed]`, or
+`[action card: cancelled]`:
+
+```
+coforge message read --target "#design" --around <message-id>
+```
+
+Only `executed` means the resource now exists. See ADR 0027's "Commit and
+cancel" section for the full commit/cancel model.
 
 ## Output
 
