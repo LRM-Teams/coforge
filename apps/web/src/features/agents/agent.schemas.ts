@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  RUNTIME_PROVIDER,
+  RUNTIME_PROVIDER_USES_EXTERNAL_CLI,
+  RUNTIME_PROVIDER_VALUES,
+  type RuntimeProvider,
+} from "@lrm/coforge-sdk/internal";
 
 export const KEYED_MODEL_PROVIDERS = new Set([
   "deepseek",
@@ -43,7 +49,7 @@ const displayNameSchema = z.preprocess(
 
 const agentInputShape = {
   description: z.string().trim().max(500).default(""),
-  provider: z.enum(["coforge", "pi", "codex", "claude-code", "kiro"]),
+  provider: z.enum(RUNTIME_PROVIDER_VALUES),
   model: z.string().trim().max(200).optional(),
   modelProvider: z.string().trim().max(100).optional(),
   reasoning: z.string().trim().max(50).optional(),
@@ -51,17 +57,20 @@ const agentInputShape = {
 };
 
 function validateRuntimeKey(
-  value: { provider: string; modelProvider?: string; apiKey?: string },
+  value: { provider: RuntimeProvider; modelProvider?: string; apiKey?: string },
   context: z.RefinementCtx,
 ) {
   if (!value.apiKey) return;
-  if (value.provider !== "pi" && value.provider !== "coforge") {
+  if (RUNTIME_PROVIDER_USES_EXTERNAL_CLI[value.provider]) {
     context.addIssue({ code: "custom", path: ["apiKey"], message: "Unsupported runtime key" });
   }
   if (!value.modelProvider) {
     context.addIssue({ code: "custom", path: ["modelProvider"], message: "Required for API key" });
   }
-  if (value.provider === "pi" && !KEYED_MODEL_PROVIDERS.has(value.modelProvider ?? "")) {
+  if (
+    value.provider === RUNTIME_PROVIDER.PI &&
+    !KEYED_MODEL_PROVIDERS.has(value.modelProvider ?? "")
+  ) {
     context.addIssue({
       code: "custom",
       path: ["modelProvider"],

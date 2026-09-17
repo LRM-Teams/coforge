@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RUNTIME_PROVIDER_VALUES } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { parseAgentRuntimeConfig } from "../../agents/agent-runtime-config.server";
 import type {
@@ -16,7 +17,7 @@ export const stateSchema = z
     workspaceId: z.string().min(1),
     computerId: z.string().min(1),
     agentId: z.string().min(1),
-    provider: z.enum(["pi", "coforge", "codex", "claude-code", "kiro"]),
+    provider: z.enum(RUNTIME_PROVIDER_VALUES),
     epoch: z
       .number()
       .int()

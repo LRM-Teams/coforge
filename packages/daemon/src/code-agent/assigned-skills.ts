@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER, type RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import { WEEKLY_REPORT_SKILL_FILES } from "./skills/weekly-report";
 
 export type AssignedSkillPack = "weekly-report";
@@ -17,15 +17,19 @@ export function assignedSkillsDirectory(
 ): string {
   const cwd = resolve(agentWorkspaceDirectory);
   switch (provider) {
-    case "claude-code":
+    case RUNTIME_PROVIDER.CLAUDE_CODE:
       return join(cwd, ".claude", "skills");
-    case "codex":
+    case RUNTIME_PROVIDER.CODEX:
       return join(cwd, ".agents", "skills");
-    case "kiro":
+    case RUNTIME_PROVIDER.KIRO:
       return join(cwd, ".kiro", "skills");
-    case "pi":
-    case "coforge":
+    case RUNTIME_PROVIDER.PI:
+    case RUNTIME_PROVIDER.COFORGE:
       return join(cwd, ".pi", "skills");
+    default: {
+      const unreachable: never = provider;
+      throw new Error(`Unhandled runtime provider: ${unreachable}`);
+    }
   }
 }
 

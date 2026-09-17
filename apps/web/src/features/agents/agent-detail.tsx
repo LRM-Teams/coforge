@@ -22,10 +22,10 @@ import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/mod
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { m } from "@/paraglide/messages";
 import { localizeHref } from "@/paraglide/runtime";
-import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "@/lib/app-error";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
+import { runtimeProviderLabel } from "./runtime-provider-display";
 import { updateAgentInputFromForm } from "./agent-form";
 import { AGENT_DISPLAY_NAME_MAX_LENGTH, type UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
@@ -237,8 +237,7 @@ const Profile = memo(function Profile({
   const { runtime, provider, model, reasoning } = detail.runtimeConfig;
   const providerId = provider.kind === "coforge" ? provider.providerId : "";
   const canConfigureCredential = detail.ownedByCurrentUser && Boolean(providerId);
-  const runtimeLabel =
-    runtime === RUNTIME_PROVIDER.COFORGE ? m.agent_provider_pi_builtin() : providerLabel(runtime);
+  const runtimeLabel = runtimeProviderLabel(runtime);
   const modelFields = [
     { label: m.agent_form_model(), value: model || m.agent_form_provider_default() },
     { label: m.agent_form_reasoning(), value: reasoning || m.agent_form_provider_default() },
@@ -642,14 +641,6 @@ const Profile = memo(function Profile({
     </div>
   );
 });
-
-function providerLabel(provider: string) {
-  if (provider === "pi") return "Pi";
-  if (provider === "codex") return "Codex";
-  if (provider === "claude-code") return "Claude Code";
-  if (provider === "kiro") return "Kiro";
-  return provider;
-}
 
 function RuntimeField({ label, value }: { label: string; value: string }) {
   return (

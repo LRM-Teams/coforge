@@ -1,11 +1,4 @@
-import { RUNTIME_PROVIDER, type RuntimeProvider } from "@lrm/coforge-sdk/internal";
-
-function parseRuntimeProvider(value: unknown): RuntimeProvider | undefined {
-  return typeof value === "string" &&
-    Object.values(RUNTIME_PROVIDER).includes(value as RuntimeProvider)
-    ? (value as RuntimeProvider)
-    : undefined;
-}
+import { parseRuntimeProvider, type RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 export type EncryptedRuntimeApiKey = {
   keyId: string;

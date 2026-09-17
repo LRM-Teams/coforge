@@ -1,15 +1,19 @@
 import { RefreshCw01 as RefreshCw } from "@untitledui/icons";
 import { useEffect, useRef, useState } from "react";
-import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
-import codexMark from "@lobehub/icons-static-svg/icons/codex-color.svg";
-import kiroMark from "@lobehub/icons-static-svg/icons/kiro-color.svg";
-import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 
-import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
+import {
+  RUNTIME_PROVIDER,
+  RUNTIME_PROVIDER_USES_EXTERNAL_CLI,
+  type RuntimeProvider,
+} from "@lrm/coforge-sdk/internal";
 import { Button } from "@/components/base/buttons/button";
 import { HoverPopover } from "@/components/ui/hover-popover";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { m } from "@/paraglide/messages";
+import {
+  RUNTIME_PROVIDER_MARK,
+  RUNTIME_PROVIDER_MARK_IS_COLOR_ICON,
+} from "@/features/agents/runtime-provider-display";
 
 export type UsageView = {
   status: "available" | "unavailable" | "reauth" | "error" | "unsupported";
@@ -36,29 +40,19 @@ export type Runtime = {
   displayName: string;
 };
 
-const runtimeMarks = {
-  "claude-code": claudeCodeMark,
-  codex: codexMark,
-  kiro: kiroMark,
-  pi: piMark,
-  coforge: "/logo.svg",
-} satisfies Partial<Record<RuntimeProvider, string>>;
-
 export function RuntimeIdentity({ runtime }: { runtime: Runtime }) {
+  const mark = RUNTIME_PROVIDER_MARK[runtime.provider];
   return (
     <span className="flex min-w-0 items-center gap-3">
-      {runtime.provider === "claude-code" ||
-      runtime.provider === "codex" ||
-      runtime.provider === "kiro" ||
-      runtime.provider === "coforge" ? (
-        <img src={runtimeMarks[runtime.provider]} alt="" className="size-6 shrink-0" />
+      {RUNTIME_PROVIDER_MARK_IS_COLOR_ICON[runtime.provider] ? (
+        <img src={mark} alt="" className="size-6 shrink-0" />
       ) : (
         <span
           aria-hidden="true"
           className="size-6 shrink-0 bg-fg-primary mask-contain mask-center mask-no-repeat"
           style={{
-            maskImage: `url("${runtimeMarks[runtime.provider]}")`,
-            WebkitMaskImage: `url("${runtimeMarks[runtime.provider]}")`,
+            maskImage: `url("${mark}")`,
+            WebkitMaskImage: `url("${mark}")`,
           }}
         />
       )}
@@ -89,7 +83,7 @@ export function RuntimeUsage({
     if (openCount > 0) scanButtonWrapRef.current?.querySelector("button")?.focus();
   }, [openCount]);
   const unsupported =
-    runtime.provider === "pi" || runtime.provider === "coforge" || usage?.status === "unsupported";
+    !RUNTIME_PROVIDER_USES_EXTERNAL_CLI[runtime.provider] || usage?.status === "unsupported";
   const scan = async () => {
     setScanning(true);
     try {
@@ -161,7 +155,7 @@ export function RuntimeUsage({
                   key={key}
                   label={
                     key === "primary"
-                      ? runtime.provider === "kiro"
+                      ? runtime.provider === RUNTIME_PROVIDER.KIRO
                         ? m.computer_usage_monthly_credits()
                         : m.computer_usage_session()
                       : m.computer_usage_weekly()

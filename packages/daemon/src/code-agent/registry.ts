@@ -18,5 +18,9 @@ export function createCodeAgentProvider(provider: RuntimeProvider): CodeAgentPro
       return new ClaudeCodeProvider();
     case RUNTIME_PROVIDER.KIRO:
       return new KiroProvider();
+    default: {
+      const unreachable: never = provider;
+      throw new Error(`Unhandled runtime provider: ${unreachable}`);
+    }
   }
 }

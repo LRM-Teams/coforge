@@ -67,9 +67,17 @@ const externalCodeAgents = [
   { provider: RUNTIME_PROVIDER.KIRO, executable: "kiro-cli" },
 ] as const;
 
+/** The subset of RuntimeProvider backed by an external executable this module probes. */
+type ExternalCodeAgentProvider = (typeof externalCodeAgents)[number]["provider"];
+
+/** `externalCodeAgents`, keyed by provider, for callers that already know which one they want. */
+const externalCodeAgentExecutable: Record<ExternalCodeAgentProvider, string> = Object.fromEntries(
+  externalCodeAgents.map(({ provider, executable }) => [provider, executable]),
+) as Record<ExternalCodeAgentProvider, string>;
+
 /** The three probe strategies external providers use to turn a resolved executable into a version. */
 async function probeRuntimeVersion(
-  provider: RuntimeMetadata["provider"],
+  provider: ExternalCodeAgentProvider,
   name: string,
   executable: string,
   probe: ExternalCodeAgentProbe,
@@ -219,7 +227,7 @@ async function catalogCacheKeyPaths(
   environment: Readonly<Record<string, string | undefined>>,
 ): Promise<string[] | undefined> {
   if (provider === RUNTIME_PROVIDER.PI) return piCacheKeyPaths(environment);
-  const name = provider === RUNTIME_PROVIDER.CODEX ? "codex" : "kiro-cli";
+  const name = externalCodeAgentExecutable[provider];
   const executable = probe.which(name, searchPath);
   return executable ? [executable] : undefined;
 }
@@ -313,7 +321,7 @@ export async function discoverCodeAgentCatalogs(
     })),
   );
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CODEX)) {
-    const executable = probe.which("codex", searchPath);
+    const executable = probe.which(externalCodeAgentExecutable[RUNTIME_PROVIDER.CODEX], searchPath);
     if (executable)
       discoveries.push(
         discoverCodexCatalog(commands.codex ?? [executable, "app-server"], cwd, environment).then(
@@ -325,7 +333,7 @@ export async function discoverCodeAgentCatalogs(
     discoveries.push(Promise.resolve({ catalog: claudeStaticCatalog() }));
   }
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.KIRO)) {
-    const executable = probe.which("kiro-cli", searchPath);
+    const executable = probe.which(externalCodeAgentExecutable[RUNTIME_PROVIDER.KIRO], searchPath);
     if (executable)
       discoveries.push(
         discoverKiroCatalog(
@@ -675,7 +683,7 @@ async function readVersionWithBun(executable: string): Promise<string | undefine
   }
 }
 
-function externalRuntimeDisplayName(provider: RuntimeMetadata["provider"]): string {
+function externalRuntimeDisplayName(provider: ExternalCodeAgentProvider): string {
   switch (provider) {
     case RUNTIME_PROVIDER.CODEX:
       return "Codex";
@@ -683,8 +691,10 @@ function externalRuntimeDisplayName(provider: RuntimeMetadata["provider"]): stri
       return "Claude Code";
     case RUNTIME_PROVIDER.KIRO:
       return "Kiro";
-    default:
-      return provider;
+    default: {
+      const unreachable: never = provider;
+      throw new Error(`Unhandled external Code Agent provider: ${unreachable}`);
+    }
   }
 }
 
