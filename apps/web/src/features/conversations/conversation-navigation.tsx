@@ -10,7 +10,7 @@ import { ConversationDirectory } from "./conversation-directory";
 import { m } from "@/paraglide/messages";
 import { cx } from "@/utils/cx";
 import { createPublicChannel } from "./channels.functions";
-import { useLiveAgents } from "./conversation-layout";
+import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { CreateChannelDialog } from "./create-channel-dialog";
 
 const messagesRoute = getRouteApi("/_app/messages");

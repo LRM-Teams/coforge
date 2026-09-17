@@ -2,7 +2,7 @@ import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panel
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { measureElement, observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
-import { ClientOnly } from "@tanstack/react-router";
+import { ClientOnly, getRouteApi } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowLeft,
@@ -12,10 +12,7 @@ import {
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
-import {
-  useConversationActivity,
-  useConversationDisplay,
-} from "@/features/conversations/conversation-layout";
+import { useAgentRecentActivity, useLiveAgent } from "@/features/agents/workspace-agents-realtime";
 import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
 import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
@@ -47,6 +44,8 @@ import { cn } from "@/lib/utils";
 import { TaskBadge } from "@/features/tasks/task-board";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
+
+const appRoute = getRouteApi("/_app");
 
 const observeConversationRect: typeof observeElementRect = (instance, callback) =>
   observeElementRect(instance, (rect) =>
@@ -130,14 +129,21 @@ export function DirectConversationHeader({
   onShowChat?: () => void;
   onShowTasks?: () => void;
 }) {
-  const activity = useConversationActivity(conversation.agent.id);
-  const display = useConversationDisplay(conversation.agent.id);
+  const activity = useAgentRecentActivity(conversation.agent.id);
+  const display = useLiveAgent(conversation.agent.id)?.display;
+  const timeZone = appRoute.useLoaderData().timeZone;
   const displayLabel = agentDisplay(display).label;
   return (
     <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
       <div className="-mx-3 flex h-12 items-center gap-2 border-b border-secondary px-3 sm:-mx-5 sm:gap-3 sm:px-5">
         <ConversationListButton />
-        <AgentActivityAvatar agent={conversation.agent} size="sm" display={display} {...activity} />
+        <AgentActivityAvatar
+          agent={conversation.agent}
+          size="sm"
+          display={display}
+          timeZone={timeZone}
+          {...activity}
+        />
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
           <p role="status" className="truncate text-xs text-tertiary">

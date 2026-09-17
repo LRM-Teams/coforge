@@ -13,15 +13,8 @@ import { loadRecordsNavAttention } from "@/features/records/records.functions";
 import { BrowserRealtimeProvider } from "@/features/realtime/browser-realtime";
 import { getBrowserRealtimeConnectionToken } from "@/features/realtime/realtime.functions";
 import { getBrowserNotificationSettings } from "@/features/notifications/notifications.functions";
-import {
-  listAgents,
-  getAgentActivitySubscriptionToken,
-  getAgentStatusSubscriptionToken,
-} from "@/features/agents/agents.functions";
-import { getWorkspaceActivity } from "@/features/agents/agent-activity.functions";
-import { useWorkspaceActivity } from "@/features/agents/workspace-activity-realtime";
-import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
-import { ConversationRealtimeProvider } from "@/features/conversations/conversation-layout";
+import { listAgents } from "@/features/agents/agents.functions";
+import { WorkspaceAgentsProvider } from "@/features/agents/workspace-agents-realtime";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 
 export const Route = createFileRoute("/_app")({
@@ -49,38 +42,18 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
-  const { user, workspaces, currentWorkspace, agents, timeZone, recordsPreview } =
-    Route.useLoaderData();
+  const { user, workspaces, currentWorkspace, agents, recordsPreview } = Route.useLoaderData();
+  const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
+  const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
   const router = useRouter();
   const select = useServerFn(selectWorkspace);
   const create = useServerFn(createWorkspace);
-  const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
-  const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
-  const refreshAgents = useServerFn(listAgents);
-  const refreshActivity = useServerFn(getWorkspaceActivity);
-  const getActivityToken = useServerFn(getAgentActivitySubscriptionToken);
-  const getStatusToken = useServerFn(getAgentStatusSubscriptionToken);
-  const activityView = useWorkspaceActivity({
-    workspaceId: currentWorkspace?.id,
-    refresh: refreshActivity,
-    getConnectionToken: getActivityToken,
-  });
-  const visibleAgents = useAgentStatuses({
-    agents,
-    workspaceId: currentWorkspace?.id,
-    refresh: refreshAgents,
-    getConnectionToken: getStatusToken,
-  });
   return (
     <BrowserRealtimeProvider
       workspaceId={currentWorkspace?.id}
       getConnectionToken={getConnectionToken}
     >
-      <ConversationRealtimeProvider
-        agents={visibleAgents}
-        activityView={activityView}
-        timeZone={timeZone ?? undefined}
-      >
+      <WorkspaceAgentsProvider workspaceId={currentWorkspace?.id} agents={agents}>
         <AppShell
           user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
           workspaces={workspaces}
@@ -97,7 +70,7 @@ function AppLayout() {
         >
           <Outlet />
         </AppShell>
-      </ConversationRealtimeProvider>
+      </WorkspaceAgentsProvider>
     </BrowserRealtimeProvider>
   );
 }

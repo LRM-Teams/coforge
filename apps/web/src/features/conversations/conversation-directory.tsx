@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
 import { Avatar } from "@/components/base/avatar/avatar";
-import type { ConversationAgent } from "@/features/conversations/conversation-layout";
+import type { LiveAgent } from "@/features/agents/workspace-agents-realtime";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
@@ -62,7 +62,7 @@ export function ConversationDirectory({
   selectedAgentId,
 }: {
   channels: DirectoryChannel[];
-  agents: ConversationAgent[];
+  agents: LiveAgent[];
   selectedChannelId?: string;
   selectedAgentId?: string;
 }) {
