@@ -20,6 +20,14 @@ export type AgentRuntimeRecord = {
     | "failed";
   daemonInstanceId: string;
   sequence: number;
+  /**
+   * Set only when a Stop or a launch-failure cleanup could not confirm the local process
+   * actually exited (see `AgentProcessCleanupError`). Optional so existing on-disk version-1
+   * records without it keep parsing; absent/false means the process's exit status is trustworthy,
+   * so a live-phase record left behind by a gone daemon instance is safe to repair rather than
+   * fence forever (docs/adr/0033).
+   */
+  exitUnconfirmed?: boolean;
   identity?: SessionIdentity;
   launchId?: string;
   stopResult?: AgentControlResult;

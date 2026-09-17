@@ -22,7 +22,33 @@ import {
 } from "../src/connection/daemon-connection";
 import { startAgentProxy, type AgentProxy } from "../src/agent-proxy";
 import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
-import type { AgentMessageRequest, TaskRequest, TaskResponse } from "@lrm/coforge-sdk/internal";
+import {
+  AGENT_ACTIVITY_DETAIL_KIND,
+  type AgentMessageRequest,
+  type TaskRequest,
+  type TaskResponse,
+} from "@lrm/coforge-sdk/internal";
+import { configure, reset, type LogRecord } from "@logtape/logtape";
+
+/** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
+ * previous (unconfigured) logging state. Mirrors the pattern in runtime-inventory-diagnostics.test.ts. */
+async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; records: LogRecord[] }> {
+  const records: LogRecord[] = [];
+  await configure({
+    reset: true,
+    sinks: { capture: (record) => records.push(record) },
+    loggers: [
+      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
+      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
+    ],
+  });
+  try {
+    const result = await run();
+    return { result, records };
+  } finally {
+    await reset();
+  }
+}
 
 function sessionSpy() {
   return {
@@ -3940,7 +3966,9 @@ describe("DaemonRuntime", () => {
       await Promise.resolve();
       await expect(runtime.startAgent("agent-a", config)).rejects.toThrow("stopping");
       releaseOldDispose();
-      await expect(stopping).rejects.toThrow("remote revoke failed");
+      // Stop's outcome depends only on the local process exiting (docs/adr/0033): the process
+      // exited fine, so the revoke failure above never rejects the Stop itself.
+      await expect(stopping).resolves.toBeUndefined();
 
       await runtime.startAgent("agent-a", config);
       const replacementToken = proxyTokens[1]!;
@@ -4489,7 +4517,9 @@ describe("DaemonRuntime", () => {
       }),
     ).rejects.toThrow("not running");
     releaseStop();
-    await expect(stopping).rejects.toThrow("offline");
+    // Revoke stays best-effort at shutdown too (docs/adr/0033): the failed revoke above never
+    // fails the overall Stop; the key just stays pending for the retry below.
+    await expect(stopping).resolves.toBeUndefined();
     await runtime.stop();
     expect(attempts).toBe(2);
   });
@@ -4531,7 +4561,10 @@ describe("DaemonRuntime", () => {
     try {
       await runtime.start(configuredConnection);
       await runtime.startAgent("agent-a", config);
-      await expect(runtime.stop()).rejects.toThrow("503");
+      // Revoke stays best-effort at shutdown too (docs/adr/0033): the 503 above never fails the
+      // Stop; the key just stays pending, and the transport is kept (not recreated) so the
+      // retry below can reuse its authenticated token.
+      await expect(runtime.stop()).resolves.toBeUndefined();
       await runtime.stop();
     } finally {
       globalThis.fetch = originalFetch;
@@ -4876,6 +4909,161 @@ describe("DaemonRuntime", () => {
         ),
       ).json()) as { receipts: Array<{ job: { title: string } }> };
       expect(receipts.receipts[0]?.job.title).toBe(fullTitle);
+    } finally {
+      await runtime.stop();
+      await rm(stateDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("a revoke failure at Stop keeps the key pending and it is retried and cleared on reconnect", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let reconnect: (() => void) | undefined;
+    let revokeAttempts = 0;
+    const revokedKeys: string[] = [];
+    const statuses: Array<{ agentId: string; status: string }> = [];
+    const activities: Array<{ agentId: string; detailKind: string }> = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          onReconnect(callback) {
+            reconnect = callback;
+            return () => {
+              reconnect = undefined;
+            };
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey(agentApiKey) {
+            revokeAttempts++;
+            // The server is mid-deploy on the first attempt, same as the s144 incident.
+            if (revokeAttempts === 1) throw new Error("remote revoke failed");
+            revokedKeys.push(agentApiKey);
+          },
+          sendAgentStatus({ agentId, status }) {
+            statuses.push({ agentId, status });
+          },
+          async sendAgentActivity(activity) {
+            activities.push({ agentId: activity.agentId, detailKind: activity.detailKind });
+          },
+        }),
+      },
+      undefined,
+      emptyCodeAgentDiscovery,
+    );
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      statuses.length = 0;
+      activities.length = 0;
+
+      // Stop's outcome depends only on the local process exiting (docs/adr/0033): the process
+      // stops cleanly even though the remote revoke above rejects, so stopAgent resolves.
+      await expect(runtime.stopAgent("agent-a")).resolves.toBeUndefined();
+      expect(revokeAttempts).toBe(1);
+      expect(revokedKeys).toEqual([]);
+      expect(statuses.at(-1)).toEqual({ agentId: "agent-a", status: "inactive" });
+      expect(
+        activities.some((activity) => activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.STOPPED),
+      ).toBe(true);
+
+      // The key stayed pending; the next reconnect's best-effort pass retries it and this time
+      // it succeeds.
+      reconnect?.();
+      await Bun.sleep(0);
+      expect(revokeAttempts).toBe(2);
+      expect(revokedKeys).toHaveLength(1);
+
+      // Once revoked, the key is no longer pending, so a later reconnect does not retry it again.
+      reconnect?.();
+      await Bun.sleep(0);
+      expect(revokeAttempts).toBe(2);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  test("a fenced Start failure logs AgentControl's fixed rejection as a control_code", async () => {
+    // A dedicated stateDirectory keeps this fenced-control record isolated from every other
+    // test's agent-control store, matching the pattern other controlEpoch tests use.
+    const stateDirectory = join(
+      tempRoot,
+      `coforge-start-failure-control-code-${crypto.randomUUID()}`,
+    );
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let listener: ((intent: Parameters<DaemonRuntime["handleAgentStart"]>[0]) => void) | undefined;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          onAgentStart(callback) {
+            listener = callback;
+            return () => {
+              listener = undefined;
+            };
+          },
+          async ready() {
+            const base = {
+              protocolMajor: 1,
+              workspaceId: connection.workspaceId,
+              computerId: connection.computerId,
+              agentId: "control-code-agent",
+              provider: "pi" as const,
+              model: "default",
+              reasoning: "balanced",
+              controlEpoch: 1,
+            };
+            // Same agent, same epoch, different requestId: AgentControl rejects the second one
+            // with the fixed "control_request_mismatch" message once the first has a startResult.
+            listener?.({ ...base, requestId: "start-1" });
+            listener?.({ ...base, requestId: "start-2" });
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async sendAgentActivity() {},
+          sendAgentStatus() {},
+          async sendAgentControlResult() {},
+          async stop() {},
+        }),
+      },
+      undefined,
+      emptyCodeAgentDiscovery,
+      stateDirectory,
+    );
+    try {
+      const { records } = await captureLogs(() => runtime.start(connection));
+      const failure = records.find(
+        (record) => record.properties.event === "agent_runtime:start_failed",
+      );
+      expect(failure?.properties).toMatchObject({
+        agent_id: "control-code-agent",
+        control_code: "control_request_mismatch",
+      });
+      // diagnosticErrorCode alone only ever produces the generic "Error" for this rejection;
+      // control_code above is what makes it diagnosable.
+      expect(failure?.properties.error_code).toBe("Error");
     } finally {
       await runtime.stop();
       await rm(stateDirectory, { recursive: true, force: true });

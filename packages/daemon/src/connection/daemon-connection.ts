@@ -1445,6 +1445,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       method,
       headers: { authorization: `Bearer ${this.#token}`, "content-type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`${what} request failed (${response.status})`);
     return response;

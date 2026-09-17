@@ -734,10 +734,17 @@ fence，再交给独立 snapshot receiver。Session 路径与控制结果 receiv
 
 Daemon 在 workspace 外原子持久化每 Agent 控制防护记录；Full Reset 清空后先落盘再
 启动，重复 request 只重放结果，不能再次删除新文件。根/祖先 symlink 拒绝，目录内部
-symlink 只删除链接。缺失/损坏防护记录、未确认清理或硬崩溃遗留 starting/running/stopping
-状态 fail closed；更高云端 epoch 不能证明旧进程已退出。目前没有自动孤儿进程协调或
-已有停止 workspace 的无记录收养流程，这些情况可能保持 pending，需要人工诊断，
-不能把删除防护记录当作修复。启动后才发生的 provider replay 错误尚不自动 fresh fallback。
+symlink 只删除链接。缺失/损坏防护记录或清理未确认（`exitUnconfirmed`，仅当本地进程
+未能确认退出时才置位）仍 fail closed；更高云端 epoch 本身不能证明旧进程已退出。
+ADR 0033（2026-09-17）之后，一条记录若停在 running/starting/stopping 阶段、本地已
+确认其进程未运行、且未置位 `exitUnconfirmed`——即来自已消失的 Daemon 实例，或停在
+带失败回执的 stopping 阶段——会在下一次 stop/start/reset-workspace 处理前原地改写为
+stopped 并以 error 级别记录修复事件（修复即上一次写入方留下的 bug，绝不能成为默默
+生效的常态路径），随后照常处理该次请求；这只依赖本机对进程存活的判定，不建立孤儿
+进程协调，也不收养其他 Daemon 已停止 workspace 的无记录场景——launchd/systemd 已经
+保证前一个 Daemon 实例拥有的 Agent 进程不会存活进新实例（见 ADR 0033）。仍标记
+`exitUnconfirmed` 的记录继续 fail closed，需要人工诊断，删除防护记录仍不能当作修复。
+启动后才发生的 provider replay 错误尚不自动 fresh fallback。
 
 部署需要兼容 Web receiver 和加法数据库迁移，再配套升级 Daemon；旧 Daemon 没有完整
 控制能力时不能以 publish 成功冒充完成。未实现协议能力协商，混合版本部署应关闭操作

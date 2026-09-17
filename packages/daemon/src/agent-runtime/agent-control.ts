@@ -1,3 +1,4 @@
+import { getLogger } from "@logtape/logtape";
 import type {
   AgentControlResult,
   AgentControlScope,
@@ -6,8 +7,14 @@ import type {
   SessionIdentity,
 } from "@lrm/coforge-sdk/internal";
 import { AgentSessionRecoveryError } from "../code-agent/contract";
+import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
 import type { AgentRuntimeRecord, AgentRuntimeState } from "./agent-runtime-state";
 import type { AgentSessions } from "./agent-session";
+
+const logger = getLogger(["coforge", "daemon", "agent-control"]);
+
+/** Live phases a repair may rewrite: the record still claims the process is up or mid-transition. */
+const LIVE_PHASES = new Set<AgentRuntimeRecord["phase"]>(["running", "starting", "stopping"]);
 
 type Runtime = {
   running(agentId: string): boolean;
@@ -19,6 +26,9 @@ type Runtime = {
   ): Promise<SessionIdentity | undefined>;
   wake?(intent: AgentStartIntent): Promise<void>;
   result(result: AgentControlResult): Promise<void>;
+  /** True when `error` (from `stop`/`launch`'s cleanup) means the local process's exit could not
+   * be confirmed — the one case a stale-looking record must keep fencing rather than repair. */
+  cleanupUnconfirmed(agentId: string, error: unknown): boolean;
 };
 
 /** Owns separate stop, workspace reset, and start primitives. */
@@ -32,6 +42,45 @@ export class AgentControl {
   ) {}
   private get store() {
     return this.state.store;
+  }
+  /**
+   * A stale lifecycle fact is a bug in the writer that left it behind (a gone daemon instance, or
+   * a Stop whose failure receipt was never retried), so every repair is logged at error level —
+   * it must never become the silent normal path. Repairs only a record whose phase still claims
+   * the process is up or mid-transition, only when the process is confirmed not running, only
+   * when the last writer never flagged the exit itself as unconfirmed, and only when that phase
+   * is explained by a gone writer (a different daemon instance) or a stuck failed Stop receipt.
+   * Leaves everything else (notably "clearing", mid reset-workspace) untouched. Preserves scope,
+   * sequence, identity and every prior receipt so idempotency/monotonicity are unaffected; only
+   * `phase` moves to "stopped".
+   */
+  private async repairStaleRecord(
+    agentId: string,
+    record: AgentRuntimeRecord | undefined,
+  ): Promise<AgentRuntimeRecord | undefined> {
+    if (
+      !record ||
+      !LIVE_PHASES.has(record.phase) ||
+      record.exitUnconfirmed ||
+      this.runtime.running(agentId)
+    )
+      return record;
+    const staleWriter = record.daemonInstanceId !== this.instanceId;
+    const stuckStopping = record.phase === "stopping" && record.stopResult?.phase === "failed";
+    if (!staleWriter && !stuckStopping) return record;
+    const previousPhase = record.phase;
+    const previousDaemonInstanceId = record.daemonInstanceId;
+    const repaired: AgentRuntimeRecord = { ...record, phase: "stopped" };
+    await this.store.write(agentId, repaired);
+    logger.error("Stale Agent control record repaired", {
+      event: "agent_control:stale_record_repaired",
+      agent_id: agentId,
+      previous_phase: previousPhase,
+      previous_daemon_instance_id: previousDaemonInstanceId,
+      daemon_instance_id: this.instanceId,
+      epoch: record.scope.epoch,
+    });
+    return repaired;
   }
   private fence(record: AgentRuntimeRecord | undefined, scope: AgentControlScope) {
     if (!record) return;
@@ -76,6 +125,7 @@ export class AgentControl {
     return this.state.run(scope.agentId, async () => {
       let record = await this.store.read(scope.agentId);
       await this.requireRecord(record, scope.agentId, known);
+      record = await this.repairStaleRecord(scope.agentId, record);
       this.fence(record, scope);
       if (record?.scope.epoch === scope.epoch && record.stopResult) {
         if (record.stopResult.requestId !== scope.requestId)
@@ -109,7 +159,7 @@ export class AgentControl {
           ...(record.identity ? { identity: record.identity } : {}),
         };
         record.lastResult = record.stopResult;
-      } catch {
+      } catch (error) {
         // The failed receipt is terminal for this request, not proof of process exit.
         record.phase = "stopping";
         record.stopResult = {
@@ -119,6 +169,14 @@ export class AgentControl {
           errorCode: "stop_failed",
         };
         record.lastResult = record.stopResult;
+        const unconfirmed = this.runtime.cleanupUnconfirmed(scope.agentId, error);
+        if (unconfirmed) record.exitUnconfirmed = true;
+        logger.warning("Agent Stop did not confirm process exit", {
+          event: "agent_control:stop_failed",
+          agent_id: scope.agentId,
+          exit_unconfirmed: unconfirmed,
+          error_code: diagnosticErrorCode(error),
+        });
       }
       await this.store.write(scope.agentId, record);
       await this.runtime.result(record.lastResult).catch(() => {});
@@ -126,7 +184,8 @@ export class AgentControl {
   }
   resetWorkspace(scope: AgentWorkspaceResetRequest): Promise<void> {
     return this.state.run(scope.agentId, async () => {
-      const record = await this.store.read(scope.agentId);
+      let record = await this.store.read(scope.agentId);
+      record = await this.repairStaleRecord(scope.agentId, record);
       this.fence(record, scope);
       if (!record || record.scope.epoch !== scope.epoch || record.stopResult?.phase !== "stopped")
         throw new Error("confirmed_stop_required");
@@ -186,6 +245,7 @@ export class AgentControl {
       };
       let record = await this.store.read(intent.agentId);
       await this.requireRecord(record, intent.agentId, known);
+      record = await this.repairStaleRecord(intent.agentId, record);
       this.fence(record, scope);
       if (record?.scope.epoch === scope.epoch && record.startResult) {
         if (record.startResult.requestId !== scope.requestId)
@@ -244,8 +304,22 @@ export class AgentControl {
         record.lastResult = record.startResult;
         this.sessions.capture(record, identity);
         await this.store.write(intent.agentId, record);
-      } catch {
-        await this.runtime.stop(intent.agentId);
+      } catch (launchError) {
+        try {
+          await this.runtime.stop(intent.agentId);
+        } catch (stopError) {
+          // Cleanup after a failed launch could not confirm the process exited: the record
+          // must keep fencing (phase stays "starting", already written above), not be repaired.
+          record.exitUnconfirmed = this.runtime.cleanupUnconfirmed(intent.agentId, stopError);
+          await this.store.write(intent.agentId, record).catch(() => {});
+          logger.error("Agent launch cleanup did not confirm process exit; record stays fenced", {
+            event: "agent_control:launch_cleanup_unconfirmed",
+            agent_id: intent.agentId,
+            exit_unconfirmed: record.exitUnconfirmed,
+            error_code: diagnosticErrorCode(stopError),
+          });
+          throw stopError;
+        }
         record.phase = "failed";
         record.lastResult = {
           ...scope,
@@ -254,6 +328,11 @@ export class AgentControl {
           sequence: ++record.sequence,
           errorCode: "launch_failed",
         };
+        logger.warning("Agent launch failed", {
+          event: "agent_control:launch_failed",
+          agent_id: intent.agentId,
+          error_code: diagnosticErrorCode(launchError),
+        });
         await this.store.write(intent.agentId, record);
       }
       await this.runtime.result(record.lastResult).catch(() => {});
