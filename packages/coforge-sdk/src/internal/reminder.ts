@@ -31,8 +31,10 @@ const CANONICAL_TARGET = new RegExp(
 const RECURRENCE =
   /^(?:every:[1-9]\d*[mhd]|daily@(?:[01]\d|2[0-3]):[0-5]\d|weekly:(?:mon|tue|wed|thu|fri|sat|sun)(?:,(?:mon|tue|wed|thu|fri|sat|sun))*@(?:[01]\d|2[0-3]):[0-5]\d)$/;
 const OPERATIONS = ["schedule", "list", "update", "snooze", "cancel", "log"] as const;
+const REMINDER_STATUSES = ["scheduled", "fired", "canceled"] as const;
 
 export type ReminderOperation = (typeof OPERATIONS)[number];
+export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
 export type ReminderScope = {
   protocolMajor: number;
   requestId: string;
@@ -49,7 +51,12 @@ export type ReminderOperationFields = {
   delaySeconds?: number;
   repeat?: string;
   timezone?: string;
-  status?: "scheduled" | "fired" | "canceled";
+  /**
+   * `list` only: a comma-separated, duplicate-free subset of `scheduled,fired,canceled`. Omitting
+   * both `status` and `all` on `list` defaults to `scheduled,fired`; `all` requests every status,
+   * including `canceled`. Every other operation ignores this field.
+   */
+  status?: string;
   all?: boolean;
 };
 export type AgentReminderOperationRequest = ReminderScope &
@@ -62,7 +69,7 @@ export type ReminderSummaryRecord = {
   target: string;
   messageId: string;
   fireAt: string;
-  status: "scheduled" | "fired" | "canceled";
+  status: ReminderStatus;
   repeat?: string;
   timezone?: string;
   createdAt: string;
@@ -116,6 +123,12 @@ export type LocalReminderRequest = ReminderOperationFields & {
 export const isReminderId = (value: string): boolean => UUID.test(value);
 export const isReminderMessageAnchor = (value: string): boolean =>
   UUID.test(value) || PREFIX.test(value);
+/** A `list` status filter: a duplicate-free, comma-separated subset of the three statuses. */
+export function isValidReminderStatusFilter(value: string): boolean {
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.some((part) => !REMINDER_STATUSES.includes(part as ReminderStatus))) return false;
+  return new Set(parts).size === parts.length;
+}
 
 function bounded(bytes: Uint8Array) {
   if (bytes.length > MAX_BYTES) throw new Error("Reminder payload too large");
@@ -171,7 +184,7 @@ function fields<T extends ReminderOperationFields>(value: T, canonicalTarget = f
   }
   if (value.timezone !== undefined && (!value.timezone || value.timezone.length > 100))
     throw new Error("invalid reminder timezone");
-  if (value.status !== undefined && !["scheduled", "fired", "canceled"].includes(value.status))
+  if (value.status !== undefined && !isValidReminderStatusFilter(value.status))
     throw new Error("invalid reminder status");
   return value;
 }
