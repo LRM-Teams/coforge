@@ -50,6 +50,8 @@ export function describeUpgradeRequestError(error: unknown): UpgradeRequestError
   if (isAppError(error)) {
     if (error.code === "COMPUTER_OFFLINE")
       return { headline: m.computer_upgrade_offline(), errorId: error.errorId };
+    if (error.code === "COMPUTER_IDENTITY_UNKNOWN")
+      return { headline: m.computer_upgrade_identity_unknown(), errorId: error.errorId };
     if (error.code === "RELEASE_FEED_UNAVAILABLE")
       return { headline: m.computer_upgrade_feed_unavailable(), errorId: error.errorId };
     return { headline: m.computer_upgrade_request_failed(), errorId: error.errorId };

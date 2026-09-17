@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { RedisComputerUpgradeStore } from "../src/server/computers/computer-upgrade-store.server";
 
-function memoryRedis() {
-  const values = new Map<string, string>();
+function memoryRedis(seed?: Record<string, string>) {
+  const values = new Map<string, string>(Object.entries(seed ?? {}));
+  const sends: string[][] = [];
   return {
     get: async (key: string) => values.get(key) ?? null,
     set: async (...args: string[]) => {
@@ -12,7 +13,8 @@ function memoryRedis() {
       return "OK";
     },
     send: async (_command: "EVAL", args: string[]) => {
-      if (args.length === 5) {
+      sends.push(args);
+      if (args.length === 4) {
         const [, , key, candidate] = args;
         const current = values.get(key!);
         if (!current || JSON.parse(current).startedAt <= JSON.parse(candidate!).startedAt)
@@ -32,6 +34,7 @@ function memoryRedis() {
       return 1;
     },
     values,
+    sends,
   };
 }
 
@@ -165,63 +168,70 @@ test("a reported result cannot overwrite a settled request", async () => {
   expect((await store.status(scope, "request"))?.status).toBe("completed");
 });
 
-test("an offline Computer (no identity on record) fails an upgrade request with a typed error", async () => {
+test("a Computer with no identity on record fails an upgrade request with its own typed error, not offline", async () => {
   const store = new RedisComputerUpgradeStore(memoryRedis(), () => 1000);
   const scope = { workspaceId: "w", computerId: "c" };
 
   await expect(store.begin(scope, "request", "2.0.0")).rejects.toMatchObject({
     name: "AppError",
-    code: "COMPUTER_OFFLINE",
+    code: "COMPUTER_IDENTITY_UNKNOWN",
   });
 });
 
-test("renewing a Computer that has no identity on record is a no-op, not a fabricated identity", async () => {
+test("touchIdentity on a Computer that has no identity on record is a no-op, not a fabricated identity", async () => {
   const store = new RedisComputerUpgradeStore(memoryRedis(), () => 1000);
   const scope = { workspaceId: "w", computerId: "c" };
 
   await store.touchIdentity(scope);
 
   await expect(store.begin(scope, "request", "2.0.0")).rejects.toMatchObject({
-    code: "COMPUTER_OFFLINE",
+    code: "COMPUTER_IDENTITY_UNKNOWN",
   });
 });
 
-test("the periodic status renewal refreshes the 90s presence lease, not the old 10-minute request TTL", async () => {
+test("identity written by ready() is stored without an expiry", async () => {
   const scope = { workspaceId: "w", computerId: "c" };
   const identityKey = "coforge:workspace:w:computer:c:upgrade:v1:identity";
-  const values = new Map<string, string>([
-    [identityKey, JSON.stringify(identity("worker-1", "1.0.0", 1))],
-  ]);
-  const sends: string[][] = [];
-  const redis = {
-    get: async (key: string) => values.get(key) ?? null,
-    set: async (...args: string[]) => {
-      values.set(args[0]!, args[1]!);
-      return "OK";
-    },
-    send: async (_command: "EVAL", args: string[]) => {
-      sends.push(args);
-      const [, , key, candidate] = args;
-      values.set(key!, candidate!);
-      return 1;
-    },
-  };
+  const redis = memoryRedis();
+  const store = new RedisComputerUpgradeStore(redis, () => 1000);
+
+  await store.ready(scope, identity("worker-1", "1.0.0", 1), []);
+
+  // storeNewerIdentity's EVAL call: [script, numkeys, identityKey, identityJson] - no EX/TTL arg.
+  expect(redis.sends).toHaveLength(1);
+  expect(redis.sends[0]).toEqual([expect.any(String), "1", identityKey, expect.any(String)]);
+  await expect(store.identity(scope)).resolves.toMatchObject({ workerInstanceId: "worker-1" });
+});
+
+test("touchIdentity re-persists a stored identity without an expiry, and does nothing for a missing key", async () => {
+  const scope = { workspaceId: "w", computerId: "c" };
+  const identityKey = "coforge:workspace:w:computer:c:upgrade:v1:identity";
+  const redis = memoryRedis({ [identityKey]: JSON.stringify(identity("worker-1", "1.0.0", 1)) });
   const store = new RedisComputerUpgradeStore(redis, () => 1000);
 
   await store.touchIdentity(scope);
 
-  expect(sends).toHaveLength(1);
-  // The renewed TTL is the 90s Computer presence lease (3x the Daemon's 30s status interval),
-  // never the unrelated 10-minute (600s) request TTL that used to expire a still-connected
-  // Computer's identity and fail its next upgrade with an opaque internal error.
-  expect(sends[0]?.at(-1)).toBe("90");
+  // No EX/TTL argument: [script, numkeys, identityKey, storedIdentityJson].
+  expect(redis.sends).toHaveLength(1);
+  expect(redis.sends[0]).toEqual([
+    expect.any(String),
+    "1",
+    identityKey,
+    JSON.stringify(identity("worker-1", "1.0.0", 1)),
+  ]);
   await expect(store.identity(scope)).resolves.toMatchObject({ workerInstanceId: "worker-1" });
+
+  // A missing identity key is a no-op, not a fabricated identity.
+  redis.values.delete(identityKey);
+  redis.sends.length = 0;
+  await store.touchIdentity(scope);
+  expect(redis.sends).toHaveLength(0);
 });
 
-test("a stale renewal never clobbers a newer identity a concurrent ready() already wrote", async () => {
+test("a stale touchIdentity never clobbers a newer identity a concurrent ready() already wrote", async () => {
   const scope = { workspaceId: "w", computerId: "c" };
   const identityKey = "coforge:workspace:w:computer:c:upgrade:v1:identity";
-  // The renewal's own read returns what it saw a moment ago; a fresher `ready()` has since
+  // touchIdentity's own read returns what it saw a moment ago; a fresher `ready()` has since
   // landed in the store underneath it.
   const staleRaw = JSON.stringify(identity("old-worker", "1.0.0", 1));
   const values = new Map<string, string>([

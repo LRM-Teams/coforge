@@ -1,6 +1,8 @@
 # ADR 0017: Computer upgrade as an explicit operation with a durable receipt
 
-Status: accepted
+Status: accepted (partially superseded by [ADR 0030](0030-upgrade-identity-durable-snapshot.md) for
+the upgrade identity key's expiry and the liveness check `begin()`/`upgradeComputer` perform before a
+new request)
 Date: 2026-09-16
 
 ## Context
@@ -215,3 +217,6 @@ identity-only path. A reverted machine carrying an unacknowledged terminal
 operation simply stops reporting it. Re-upgrading such a machine after a
 rollback should be done once the Coordinator has restarted, so the in-memory
 dedupe set is the only thing in play.
+
+The upgrade identity key's expiry and the liveness check performed before a new upgrade request
+begins are superseded by [ADR 0030](0030-upgrade-identity-durable-snapshot.md).
