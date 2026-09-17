@@ -12,6 +12,7 @@ import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/applica
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import { ActionCard, type ActionCardView } from "./action-card";
 
 export type MessageView = {
   id: string;
@@ -23,7 +24,8 @@ export type MessageView = {
   senderAvatarUrl?: string | null;
   body: string;
   createdAt: Date | string;
-  attachment?: {
+  /** Always present, possibly empty; order matches send/upload order. */
+  attachments: {
     id: string;
     fileName: string;
     contentType: string;
@@ -31,8 +33,12 @@ export type MessageView = {
     /** Short-lived signed CDN URL for an inline image; see `attachmentView` on the server.
      * Preferred over `attachmentUrl` when present so `<img>` never round-trips the backend. */
     previewUrl?: string;
-  };
+  }[];
   reactions?: { emoji: string; count: number; reactors: string[] }[];
+  /** Present when this message is the summary posted for an Agent-prepared action card
+   * (ADR 0027). Replaces the plain-text draft hint line with the interactive card; the
+   * underlying `body` stays available to assistive technology. */
+  actionCard?: ActionCardView;
 };
 
 const GROUPING_WINDOW_MS = 5 * 60 * 1000;
@@ -157,11 +163,7 @@ export function attachmentUrl(attachment: { id: string }) {
 }
 
 /** An uploaded file on a message: images preview inline, other files show as a file card. */
-export function AttachmentCard({
-  attachment,
-}: {
-  attachment: NonNullable<MessageView["attachment"]>;
-}) {
+export function AttachmentCard({ attachment }: { attachment: MessageView["attachments"][number] }) {
   const href = attachmentUrl(attachment);
   // Prefer the signed CDN preview URL so the image never round-trips the backend; fall back to
   // the authenticated proxy once (it expires after a fixed TTL, or may not be configured).
@@ -336,15 +338,25 @@ export function MessageRow({
               </time>
             </p>
           )}
-          <div
-            className={cn(
-              "min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]",
-              grouped && threadEntry && "pr-8",
-            )}
-          >
-            {message.body}
-          </div>
-          {message.attachment && <AttachmentCard attachment={message.attachment} />}
+          {message.actionCard ? (
+            <>
+              {/* The raw summary (and draft hint) stay accessible; the card renders them. */}
+              <span className="sr-only">{message.body}</span>
+              <ActionCard card={message.actionCard} />
+            </>
+          ) : (
+            <div
+              className={cn(
+                "min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]",
+                grouped && threadEntry && "pr-8",
+              )}
+            >
+              {message.body}
+            </div>
+          )}
+          {message.attachments.map((attachment) => (
+            <AttachmentCard key={attachment.id} attachment={attachment} />
+          ))}
           {message.reactions && message.reactions.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5">
               {message.reactions.map((reaction) => (

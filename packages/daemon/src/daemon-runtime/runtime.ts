@@ -85,7 +85,12 @@ import { COFORGE_DAEMON_VERSION } from "../version";
 import { ReminderScheduler, reminderAppInboxPreview } from "../agent-reminder/reminder-scheduler";
 import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
-import type { GitHubCredentialRequest, GitHubCredentialResponse } from "@lrm/coforge-sdk/agent";
+import type {
+  AgentActionPrepareRequest,
+  AgentActionPrepareResponse,
+  GitHubCredentialRequest,
+  GitHubCredentialResponse,
+} from "@lrm/coforge-sdk/agent";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
 
@@ -1906,9 +1911,9 @@ export class DaemonRuntime {
         "Agent message body is required",
         "AGENT_MESSAGE_BODY_REQUIRED",
       );
-    // `--send-draft` re-sends the saved draft's attachment/mentions unless the Agent explicitly
+    // `--send-draft` re-sends the saved draft's attachments/mentions unless the Agent explicitly
     // supplies new `--mention` values, which replace them (Feature 2's documented override).
-    const attachmentId = request.sendDraft ? draft?.attachmentId : request.attachmentId;
+    const attachmentIds = request.sendDraft ? draft?.attachmentIds : request.attachmentIds;
     const mentions = request.sendDraft
       ? request.mentions?.length
         ? request.mentions
@@ -1942,7 +1947,7 @@ export class DaemonRuntime {
         if (parentOrder === undefined || parentOrder < latestThread.order) {
           // Raft-aligned: the outgoing content is saved as the local draft (no holdToken) before
           // refusing, so the documented recovery is resending that exact draft, not retyping it.
-          await inbox.save(target, body, attachmentId, mentions);
+          await inbox.save(target, body, attachmentIds, mentions);
           throw new AgentPreflightError(
             targetConfirmationRequiredMessage(target, latestThread.target),
             "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
@@ -1954,7 +1959,7 @@ export class DaemonRuntime {
     // `inbox.save` persists the draft locally BEFORE the request is issued to the transport below;
     // any failure past this point leaves delivery state unknown, never "not sent" (see
     // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
-    if (!request.sendDraft) await inbox.save(target, body, attachmentId, mentions);
+    if (!request.sendDraft) await inbox.save(target, body, attachmentIds, mentions);
     // A tokenless draft (saved by the guard above, or by a failed transport before ever reaching a
     // hold) resends as a plain send: no holdToken to send, and nothing for `--anyway` to bypass.
     if (request.sendDraft && !draft?.holdToken && request.continueAnyway)
@@ -1975,14 +1980,14 @@ export class DaemonRuntime {
         continueAnyway: request.continueAnyway,
         seenUpToSequence: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
         freshnessContextMode: request.freshnessContextMode,
-        attachmentId,
+        attachmentIds: attachmentIds ? [...attachmentIds] : undefined,
         mentions: mentions ? [...mentions] : undefined,
       },
       agentApiKey,
     );
     const held = result.sideEffectDecision === "hold";
     if (held && result.holdToken)
-      await inbox.replace(target, body, result.holdToken, attachmentId, mentions);
+      await inbox.replace(target, body, result.holdToken, attachmentIds, mentions);
     else if (result.accepted) await inbox.clear(target);
     const withheld = request.freshnessContextMode === "withheld";
     const targetMessages = result.messages.filter((message) => message.target === target);
@@ -2163,6 +2168,23 @@ export class DaemonRuntime {
       },
       agentApiKey,
     );
+  }
+
+  /**
+   * Posts an Agent-prepared action card (`coforge action prepare`). Unlike `agentTask`, the wire
+   * request carries no `workspaceId`/`agentId` — the HTTPS route derives the principal from the
+   * authenticated Agent/daemon API key pair, exactly like an ordinary Agent message send.
+   */
+  async agentActionPrepare(
+    context: string,
+    request: AgentActionPrepareRequest,
+    agentApiKey?: string,
+  ): Promise<AgentActionPrepareResponse> {
+    this.#assertRunning();
+    this.#agentIdForContext(context);
+    if (!this.#transport.agentActionPrepare) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.agentActionPrepare(request, agentApiKey);
   }
 
   /** Applies the attention preflight to a Task claim/update; returns the held result, if any. */
@@ -2439,6 +2461,50 @@ export class DaemonRuntime {
     if (!this.#transport.agentAttachmentUpload)
       throw new Error("daemon connection is not connected");
     return this.#transport.agentAttachmentUpload(request, agentApiKey);
+  }
+
+  async agentAttachmentUploadSessionCreate(
+    context: string,
+    body: unknown,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUploadSessionCreate)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUploadSessionCreate(body, agentApiKey);
+  }
+
+  async agentAttachmentUploadSessionComplete(
+    context: string,
+    uploadId: string,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUploadSessionComplete)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUploadSessionComplete(uploadId, agentApiKey);
+  }
+
+  async agentAttachmentUploadSessionCancel(
+    context: string,
+    uploadId: string,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUploadSessionCancel)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUploadSessionCancel(uploadId, agentApiKey);
+  }
+
+  async agentAttachmentUploadSessionGet(
+    context: string,
+    uploadId: string,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentAttachmentUploadSessionGet)
+      throw new Error("daemon connection is not connected");
+    return this.#transport.agentAttachmentUploadSessionGet(uploadId, agentApiKey);
   }
 
   #contextFor(agentId: string): string {

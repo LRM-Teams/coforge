@@ -213,12 +213,19 @@ export type LocalAgentMessageRequest = {
   freshnessContextMode?: "inline" | "withheld";
   messageId?: string;
   emoji?: string;
-  /** `message send` only: a single attachment already uploaded to this conversation. */
-  attachmentId?: string;
+  /** `message send` only: attachments already uploaded to this conversation, in send order.
+   * Max 10, unique, each a UUID. */
+  attachmentIds?: string[];
   /** `message send` only: structured @mention bindings; replaces the draft's saved mentions on `--send-draft` when non-empty. */
   mentions?: LocalMentionSelector[];
   /** `message send` only: confirms a top-level send despite newer thread read context under the same parent. Never leaves the daemon. */
   targetConfirmed?: boolean;
+};
+export type LocalAttachment = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
 };
 export type AgentMessageRecord = {
   id: string;
@@ -227,12 +234,8 @@ export type AgentMessageRecord = {
   target: string;
   body: string;
   createdAt: string;
-  attachment?: {
-    id: string;
-    fileName: string;
-    contentType: string;
-    sizeBytes: number;
-  };
+  /** Always present, possibly empty; order matches send/upload order. */
+  attachments: LocalAttachment[];
   task?: MessageTaskMetadata;
 };
 export type MessageTaskMetadata = {
@@ -240,7 +243,6 @@ export type MessageTaskMetadata = {
   status: import("./tasks").TaskStatus;
   owner?: { displayName: string; handle: string };
 };
-type LocalAttachment = NonNullable<AgentMessageRecord["attachment"]>;
 
 export function decodeMessageTask(value: {
   number: number;
@@ -272,26 +274,22 @@ export function decodeMessageTask(value: {
 export function encodeLocalAttachment(value: LocalAttachment) {
   return { ...value, sizeBytes: BigInt(value.sizeBytes) };
 }
-export function decodeLocalAttachment(
-  value:
-    | {
-        id: string;
-        fileName: string;
-        contentType: string;
-        sizeBytes: bigint;
-      }
-    | undefined,
-): { attachment?: LocalAttachment } {
-  return value?.id
-    ? {
-        attachment: {
-          id: value.id,
-          fileName: value.fileName,
-          contentType: value.contentType,
-          sizeBytes: Number(value.sizeBytes),
-        },
-      }
-    : {};
+export function encodeLocalAttachments(values: readonly LocalAttachment[]) {
+  return values.map(encodeLocalAttachment);
+}
+type RawLocalAttachment = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: bigint;
+};
+export function decodeLocalAttachments(values: readonly RawLocalAttachment[]): LocalAttachment[] {
+  return values.map((value) => ({
+    id: value.id,
+    fileName: value.fileName,
+    contentType: value.contentType,
+    sizeBytes: Number(value.sizeBytes),
+  }));
 }
 export type AgentMessageResponse = {
   requestId: string;
@@ -370,7 +368,7 @@ export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMes
       | undefined,
     messageId: v.messageId || undefined,
     emoji: v.emoji || undefined,
-    attachmentId: v.attachmentId || undefined,
+    attachmentIds: v.attachmentIds.length ? [...v.attachmentIds] : undefined,
     mentions: v.mentions.length
       ? v.mentions.map((mention) => ({
           type: mention.type as LocalMentionSelector["type"],
@@ -386,7 +384,7 @@ function encodeAgentMessageRecords(records: readonly AgentMessageRecord[]) {
     ...m,
     sequence: BigInt(m.sequence),
     createdAt: m.createdAt,
-    attachment: m.attachment ? encodeLocalAttachment(m.attachment) : undefined,
+    attachments: encodeLocalAttachments(m.attachments),
     task: m.task,
   }));
 }
@@ -399,7 +397,7 @@ function decodeAgentMessageRecords(
     target: string;
     body: string;
     createdAt: string;
-    attachment?: Parameters<typeof decodeLocalAttachment>[0];
+    attachments: readonly RawLocalAttachment[];
     task?: Parameters<typeof decodeMessageTask>[0];
   }[],
 ): AgentMessageRecord[] {
@@ -410,7 +408,7 @@ function decodeAgentMessageRecords(
     target: m.target,
     body: m.body,
     createdAt: m.createdAt,
-    ...decodeLocalAttachment(m.attachment),
+    attachments: decodeLocalAttachments(m.attachments),
     ...(m.task ? { task: decodeMessageTask(m.task) } : {}),
   }));
 }

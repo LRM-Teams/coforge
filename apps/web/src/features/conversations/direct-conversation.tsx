@@ -72,13 +72,14 @@ export type DirectConversationView = {
     senderAvatarUrl?: string | null;
     body: string;
     createdAt: Date | string;
-    attachment?: {
+    /** Always present, possibly empty; order matches send/upload order. */
+    attachments: {
       id: string;
       fileName: string;
       contentType: string;
       sizeBytes: number;
       previewUrl?: string;
-    };
+    }[];
   }>;
 };
 
@@ -90,7 +91,7 @@ type ConversationProps = {
   onSend: (
     body: string,
     requestId: string,
-    attachmentId?: string,
+    attachmentIds?: string[],
     threadRootId?: string,
   ) => Promise<OwnMessageIndexEntry | void>;
   onLoadOlder?: () => Promise<void>;
@@ -428,8 +429,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
                       media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
                     }}
                     conversation={{ ...conversation, messages: repliesOf(rootId) }}
-                    onSend={(body, requestId, attachmentId) =>
-                      conversationProps.onSend(body, requestId, attachmentId, rootId)
+                    onSend={(body, requestId, attachmentIds) =>
+                      conversationProps.onSend(body, requestId, attachmentIds, rootId)
                     }
                     threadHeaderAction={threadHeaderAction?.(rootId)}
                   />
@@ -441,6 +442,19 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       )}
     </Group>
   );
+}
+
+/**
+ * The own-messages index shows one derived filename per message, not the full attachment list.
+ * With several attachments, this names the first (send order) and counts the rest, e.g.
+ * `photo.png (+2 more)`. Mirrors `attachmentFileNameSummary` in
+ * `conversation-history.server.ts` (duplicated rather than imported: that module is
+ * server-only and this component renders in the browser).
+ */
+function attachmentFileNameSummary(attachments: { fileName: string }[]): string | undefined {
+  const [first, ...rest] = attachments;
+  if (!first) return undefined;
+  return rest.length ? `${first.fileName} (+${rest.length} more)` : first.fileName;
 }
 
 function anchoredThreadRoot(messages: DirectConversationView["messages"]) {
@@ -518,7 +532,7 @@ export function ConversationPane({
               sequence: message.sequence,
               body: message.body,
               createdAt: message.createdAt,
-              attachmentFileName: message.attachment?.fileName,
+              attachmentFileName: attachmentFileNameSummary(message.attachments),
             })),
     [conversation.messages, conversation.senderMemberId, onLoadOwnMessages],
   );
@@ -798,7 +812,9 @@ export function ConversationPane({
                 <div className="min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]">
                   {root.body}
                 </div>
-                {root.attachment && <AttachmentCard attachment={root.attachment} />}
+                {root.attachments.map((attachment) => (
+                  <AttachmentCard key={attachment.id} attachment={attachment} />
+                ))}
               </div>
             </div>
           )}

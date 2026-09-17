@@ -144,7 +144,7 @@ export function ChannelConversation({
   onSend: (
     body: string,
     requestId: string,
-    attachmentId?: string,
+    attachmentIds?: string[],
     threadRootId?: string,
   ) => Promise<OwnMessageIndexEntry | void>;
   onJoin: () => Promise<void>;

@@ -26,9 +26,11 @@ export function formatUtcTimestamp(createdAt: string): string {
 }
 
 function attachmentSuffix(message: AgentMessageRecord): string {
-  if (!message.attachment) return "";
-  const { fileName, id } = message.attachment;
-  return ` [attachment: ${fileName} (id:${id}) — download with coforge attachment view --id ${id} --output <path>]`;
+  const attachments = message.attachments ?? [];
+  if (attachments.length === 0) return "";
+  const noun = attachments.length === 1 ? "attachment" : "attachments";
+  const list = attachments.map(({ fileName, id }) => `${fileName} (id:${id})`).join(", ");
+  return ` [${attachments.length} ${noun}: ${list} — use \`coforge attachment view --id <attachmentId> --output <path>\` to download]`;
 }
 
 function taskSuffix(message: AgentMessageRecord): string {

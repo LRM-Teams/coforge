@@ -6,6 +6,7 @@ export const agentApiRoutes = {
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
+    actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
   },
@@ -14,6 +15,7 @@ export const agentApiRoutes = {
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
+    actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     attachments: {
@@ -21,6 +23,24 @@ export const agentApiRoutes = {
       path: (attachmentId: string) =>
         `/api/agent/v1/attachments/${encodeURIComponent(attachmentId)}`,
       upload: { method: "POST", path: "/api/agent/v1/attachments" },
+    },
+    attachmentUploadSessions: {
+      create: { method: "POST", path: "/api/agent/v1/attachment-upload-sessions" },
+      complete: {
+        method: "POST",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}/complete`,
+      },
+      cancel: {
+        method: "DELETE",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
+      },
+      get: {
+        method: "GET",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
+      },
     },
   },
   cloud: {
@@ -62,6 +82,7 @@ export const agentApiRoutes = {
     },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
+    actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     attachments: {
@@ -70,6 +91,24 @@ export const agentApiRoutes = {
       path: (attachmentId: string) =>
         `/api/agent/v1/attachments/${encodeURIComponent(attachmentId)}`,
       upload: { method: "POST", path: "/api/agent/v1/attachments" },
+    },
+    attachmentUploadSessions: {
+      create: { method: "POST", path: "/api/agent/v1/attachment-upload-sessions" },
+      complete: {
+        method: "POST",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}/complete`,
+      },
+      cancel: {
+        method: "DELETE",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
+      },
+      get: {
+        method: "GET",
+        path: (uploadId: string) =>
+          `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
+      },
     },
   },
   workspace: {

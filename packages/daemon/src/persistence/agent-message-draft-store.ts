@@ -10,7 +10,7 @@ export type AgentMessageDraft = Readonly<{
   body: string;
   holdToken?: string;
   savedAt: number;
-  attachmentId?: string;
+  attachmentIds?: readonly string[];
   mentions?: readonly LocalMentionSelector[];
 }>;
 
@@ -48,7 +48,7 @@ export class AgentMessageDraftStore {
     target: string,
     body: string,
     holdToken?: string,
-    attachmentId?: string,
+    attachmentIds?: readonly string[],
     mentions?: readonly LocalMentionSelector[],
   ): Promise<void> {
     return this.#serialized(async () => {
@@ -56,7 +56,7 @@ export class AgentMessageDraftStore {
         target,
         body,
         ...(holdToken ? { holdToken } : {}),
-        ...(attachmentId ? { attachmentId } : {}),
+        ...(attachmentIds?.length ? { attachmentIds } : {}),
         ...(mentions?.length ? { mentions } : {}),
         savedAt: this.now(),
       };
@@ -146,7 +146,9 @@ function isDraft(value: unknown): value is AgentMessageDraft {
     typeof draft.savedAt === "number" &&
     Number.isFinite(draft.savedAt) &&
     // Older drafts predate these fields; their absence is a valid, backward-compatible draft.
-    (draft.attachmentId === undefined || typeof draft.attachmentId === "string") &&
+    (draft.attachmentIds === undefined ||
+      (Array.isArray(draft.attachmentIds) &&
+        draft.attachmentIds.every((id) => typeof id === "string"))) &&
     (draft.mentions === undefined ||
       (Array.isArray(draft.mentions) && draft.mentions.every(isMentionSelector)))
   );

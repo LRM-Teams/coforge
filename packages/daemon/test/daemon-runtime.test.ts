@@ -410,6 +410,7 @@ function messageRecord(
     target,
     body: `body-${sequence}`,
     createdAt: "2026-09-03T00:00:00Z",
+    attachments: [],
   };
 }
 
@@ -514,6 +515,12 @@ async function messageHarness(
   respond: (request: AgentMessageRequest) => Promise<AgentMessageTransportResponse>,
   respondTask?: (request: TaskRequest) => Promise<TaskResponse>,
   respondAttachmentUpload?: (request: Request, agentApiKey?: string) => Promise<Response>,
+  respondUploadSessions?: {
+    create?: (body: unknown, agentApiKey?: string) => Promise<Response>;
+    complete?: (uploadId: string, agentApiKey?: string) => Promise<Response>;
+    cancel?: (uploadId: string, agentApiKey?: string) => Promise<Response>;
+    get?: (uploadId: string, agentApiKey?: string) => Promise<Response>;
+  },
 ) {
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -537,6 +544,10 @@ async function messageHarness(
         agentMessage: respond,
         agentTask: respondTask,
         agentAttachmentUpload: respondAttachmentUpload,
+        agentAttachmentUploadSessionCreate: respondUploadSessions?.create,
+        agentAttachmentUploadSessionComplete: respondUploadSessions?.complete,
+        agentAttachmentUploadSessionCancel: respondUploadSessions?.cancel,
+        agentAttachmentUploadSessionGet: respondUploadSessions?.get,
       }),
     },
   );
@@ -943,6 +954,116 @@ describe("Agent attachment upload", () => {
   });
 });
 
+describe("Agent direct-upload sessions", () => {
+  test("authorizes the local context before delegating each session operation to the transport", async () => {
+    const calls: Array<{ op: string; arg: unknown; agentApiKey: string | undefined }> = [];
+    const createResponse = Response.json({ uploadId: "upload-1" }, { status: 201 });
+    const completeResponse = Response.json({ uploadId: "upload-1", state: "completed" });
+    const cancelResponse = Response.json({ uploadId: "upload-1", state: "canceled" });
+    const getResponse = Response.json({ uploadId: "upload-1", state: "pending" });
+    const harness = await messageHarness(
+      async (request) => ({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages: [],
+      }),
+      undefined,
+      undefined,
+      {
+        create: async (body, agentApiKey) => {
+          calls.push({ op: "create", arg: body, agentApiKey });
+          return createResponse;
+        },
+        complete: async (uploadId, agentApiKey) => {
+          calls.push({ op: "complete", arg: uploadId, agentApiKey });
+          return completeResponse;
+        },
+        cancel: async (uploadId, agentApiKey) => {
+          calls.push({ op: "cancel", arg: uploadId, agentApiKey });
+          return cancelResponse;
+        },
+        get: async (uploadId, agentApiKey) => {
+          calls.push({ op: "get", arg: uploadId, agentApiKey });
+          return getResponse;
+        },
+      },
+    );
+    try {
+      expect(
+        await harness.runtime.agentAttachmentUploadSessionCreate(
+          harness.context,
+          { target: "#general" },
+          harness.apiKey,
+        ),
+      ).toBe(createResponse);
+      expect(
+        await harness.runtime.agentAttachmentUploadSessionComplete(
+          harness.context,
+          "upload-1",
+          harness.apiKey,
+        ),
+      ).toBe(completeResponse);
+      expect(
+        await harness.runtime.agentAttachmentUploadSessionCancel(
+          harness.context,
+          "upload-1",
+          harness.apiKey,
+        ),
+      ).toBe(cancelResponse);
+      expect(
+        await harness.runtime.agentAttachmentUploadSessionGet(
+          harness.context,
+          "upload-1",
+          harness.apiKey,
+        ),
+      ).toBe(getResponse);
+      expect(calls).toEqual([
+        { op: "create", arg: { target: "#general" }, agentApiKey: harness.apiKey },
+        { op: "complete", arg: "upload-1", agentApiKey: harness.apiKey },
+        { op: "cancel", arg: "upload-1", agentApiKey: harness.apiKey },
+        { op: "get", arg: "upload-1", agentApiKey: harness.apiKey },
+      ]);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("rejects a session operation from an unrecognized local context before touching the transport", async () => {
+    let calls = 0;
+    const harness = await messageHarness(
+      async (request) => ({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages: [],
+      }),
+      undefined,
+      undefined,
+      {
+        create: async () => {
+          calls++;
+          throw new Error("must not forward an unauthorized create");
+        },
+      },
+    );
+    try {
+      await expect(
+        harness.runtime.agentAttachmentUploadSessionCreate(
+          "forged-context",
+          { target: "#general" },
+          harness.apiKey,
+        ),
+      ).rejects.toThrow();
+      expect(calls).toBe(0);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+});
+
 describe("DaemonRuntime", () => {
   test("orders stop completion before replacement start lifecycle", async () => {
     let releaseDispose!: () => void;
@@ -1074,6 +1195,7 @@ describe("DaemonRuntime", () => {
                           target: "@ada",
                           body: "old message",
                           createdAt: "2026-09-03T00:00:00Z",
+                          attachments: [],
                         },
                       ]
                     : round === 2
@@ -1085,6 +1207,7 @@ describe("DaemonRuntime", () => {
                             target: "@ada",
                             body: "new message",
                             createdAt: "2026-09-03T00:01:00Z",
+                            attachments: [],
                           },
                         ]
                       : [],
@@ -1194,6 +1317,7 @@ describe("DaemonRuntime", () => {
                       target: "@ada",
                       body: "root",
                       createdAt: "2026-09-03T00:00:00Z",
+                      attachments: [],
                     },
                   ],
                 };
@@ -1685,7 +1809,7 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("forwards attachmentId and mentions on send; --send-draft resend reuses them unless overridden", async () => {
+  test("forwards attachmentIds and mentions on send; --send-draft resend reuses them unless overridden", async () => {
     const sends: AgentMessageRequest[] = [];
     const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
     const harness = await messageHarness(async (request) => {
@@ -1719,12 +1843,15 @@ describe("DaemonRuntime", () => {
           operation: "send",
           target: "@ada",
           body: "first body @ada",
-          attachmentId: "attachment-1",
+          attachmentIds: ["attachment-1", "attachment-2"],
           mentions,
         },
         harness.apiKey,
       );
-      expect(sends[0]).toMatchObject({ attachmentId: "attachment-1", mentions });
+      expect(sends[0]).toMatchObject({
+        attachmentIds: ["attachment-1", "attachment-2"],
+        mentions,
+      });
 
       await harness.runtime.agentMessage(
         harness.context,
@@ -1737,7 +1864,10 @@ describe("DaemonRuntime", () => {
         },
         harness.apiKey,
       );
-      expect(sends[1]).toMatchObject({ attachmentId: "attachment-1", mentions });
+      expect(sends[1]).toMatchObject({
+        attachmentIds: ["attachment-1", "attachment-2"],
+        mentions,
+      });
     } finally {
       await harness.runtime.stop();
     }
@@ -2075,6 +2205,7 @@ describe("DaemonRuntime", () => {
                       target: "@agent",
                       body: "new context",
                       createdAt: "2026-09-03T00:00:00Z",
+                      attachments: [],
                     },
                   ],
                 }

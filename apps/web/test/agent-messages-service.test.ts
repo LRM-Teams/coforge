@@ -56,6 +56,7 @@ test("drain maps Date values and forwards the limit and hasMore flag", async () 
               target: "@ada",
               body: "hello",
               createdAt: new Date("2026-09-15T00:00:00.000Z"),
+              attachments: [],
             },
           ],
           hasMore: true,
@@ -87,6 +88,7 @@ test("search maps Date values at the application boundary", async () => {
           target: "#general",
           body: "hello",
           createdAt: new Date("2026-09-15T00:00:00.000Z"),
+          attachments: [],
         },
       ],
     }),
@@ -154,6 +156,39 @@ test("send policy forwards a clean message to the sender", async () => {
   });
 });
 
+test("send policy forwards multiple attachmentIds to the sender in order", async () => {
+  const calls: unknown[] = [];
+  const attachmentIds = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+  ];
+  const result = await executeAgentSendMessageWithPolicy(
+    {
+      repository: repository(),
+      sender: {
+        executeFromAgent: async (input) => {
+          calls.push(input);
+          return { id: "message-1" };
+        },
+      },
+    },
+    {
+      requestId: "request-1",
+      workspaceId: "workspace-1",
+      agentId: "agent-1",
+      target: "#general",
+      body: "hello",
+      attachmentIds,
+    },
+  );
+  expect((calls[0] as { attachmentIds?: string[] }).attachmentIds).toEqual(attachmentIds);
+  expect(result).toMatchObject({
+    accepted: true,
+    messageId: "message-1",
+    sideEffectDecision: "forward",
+  });
+});
+
 test("resolve maps Date values at the application boundary", async () => {
   const calls: unknown[] = [];
   const result = await resolveAgentMessage(
@@ -167,6 +202,7 @@ test("resolve maps Date values at the application boundary", async () => {
           target: "#general",
           body: "hello",
           createdAt: new Date("2026-09-15T00:00:00.000Z"),
+          attachments: [],
         };
       },
     }),
@@ -320,6 +356,7 @@ test("send policy re-holds new pending context on retry, then forwards once the 
               target: "@user",
               body: `pending review ${latestSequence}`,
               createdAt: new Date("2026-09-10T00:00:00Z"),
+              attachments: [],
             },
           ]
         : [];
@@ -386,6 +423,7 @@ test("send policy in withheld mode hides bodies, counts all pending, and ignores
     target: "@user",
     body: `pending review ${index + 1}`,
     createdAt: new Date("2026-09-10T00:00:00Z"),
+    attachments: [],
   }));
   let sent = 0;
   const repo = repository({
@@ -464,6 +502,7 @@ test("send policy in withheld mode prefers the repository's true pending count o
           target: "@user",
           body: "pending review 5",
           createdAt: new Date("2026-09-10T00:00:00Z"),
+          attachments: [],
         },
         {
           id: "message-6",
@@ -472,6 +511,7 @@ test("send policy in withheld mode prefers the repository's true pending count o
           target: "@user",
           body: "pending review 6",
           createdAt: new Date("2026-09-10T00:00:00Z"),
+          attachments: [],
         },
         {
           id: "message-7",
@@ -480,6 +520,7 @@ test("send policy in withheld mode prefers the repository's true pending count o
           target: "@user",
           body: "pending review 7",
           createdAt: new Date("2026-09-10T00:00:00Z"),
+          attachments: [],
         },
       ];
     },
@@ -586,6 +627,7 @@ test("a bypassed hold's sent result carries up to three bypassed messages as rec
     target: "@user",
     body: `pending ${index + 1}`,
     createdAt: new Date("2026-09-10T00:00:00Z"),
+    attachments: [],
   }));
   const repo = repository({ readPendingAgentContext: async () => pendingRows });
   const sender = { executeFromAgent: async () => ({ id: "sent-message" }) };

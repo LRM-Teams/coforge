@@ -15,6 +15,7 @@ import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.se
 import { SendDirectMessage } from "../../server/conversations/direct-message.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { ConversationHistory } from "../../server/conversations/conversation-history.server";
+import { attachActionCardViews } from "../../server/conversations/action-cards.server";
 import { getMessageRequestIdempotency } from "../../server/conversations/redis-message-request-idempotency.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
 import { withMessageSendTrace } from "../../server/observability/tracing.server";
@@ -37,20 +38,30 @@ export const loadDirectConversation = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentConversationPageInputSchema)
   .handler(async ({ context, data }) => {
-    const { user, workspaceId } = context;
+    const { user, db, workspaceId } = context;
     const conversations = await ownedConversations(context, data.agentId);
-    return conversations.openForUser(workspaceId, user.id, data.agentId, {
+    const page = await conversations.openForUser(workspaceId, user.id, data.agentId, {
       beforeSequence: data.beforeSequence,
     });
+    return {
+      ...page,
+      messages: await attachActionCardViews(db, workspaceId, user.id, page.messages),
+    };
   });
 
 export const loadDirectConversationUpdates = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentConversationUpdatesInputSchema)
   .handler(async ({ context, data }) => {
-    const { user, workspaceId } = context;
+    const { user, db, workspaceId } = context;
     const conversations = await ownedConversations(context, data.agentId);
-    return conversations.updatesForUser(workspaceId, user.id, data.agentId, data.afterSequence);
+    const messages = await conversations.updatesForUser(
+      workspaceId,
+      user.id,
+      data.agentId,
+      data.afterSequence,
+    );
+    return attachActionCardViews(db, workspaceId, user.id, messages);
   });
 
 export const loadOwnConversationMessages = createServerFn({ method: "GET" })
@@ -66,12 +77,16 @@ export const loadConversationAround = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(conversationAroundInputSchema)
   .handler(async ({ context: { user, db, workspaceId }, data }) => {
-    return new ConversationHistory(db).loadAround(
+    const page = await new ConversationHistory(db).loadAround(
       workspaceId,
       user.id,
       data.conversationId,
       data.messageId,
     );
+    return {
+      ...page,
+      messages: await attachActionCardViews(db, workspaceId, user.id, page.messages),
+    };
   });
 
 export const markDirectThreadRead = createServerFn({ method: "POST" })
@@ -116,7 +131,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
             senderMemberId: opened.senderMemberId,
             senderUserId: user.id,
             body: data.body,
-            attachmentId: data.attachmentId,
+            attachmentIds: data.attachmentIds,
             threadRootId: data.threadRootId,
           });
         });
@@ -138,8 +153,10 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           ),
           body: message.body,
           createdAt: message.createdAt,
-          attachment: message.attachment,
+          attachments: message.attachments,
           reactions: undefined,
+          // A human-sent message never carries an action card (those are Agent-authored only).
+          actionCard: undefined,
         };
       },
     );

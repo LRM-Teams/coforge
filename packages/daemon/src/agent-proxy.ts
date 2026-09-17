@@ -15,7 +15,11 @@ import {
   type WeeklyReportCommand,
 } from "@lrm/coforge-sdk/internal";
 import {
+  actionCardActionSchema,
   agentApiRoutes,
+  validateActionCardAction,
+  type AgentActionPrepareRequest,
+  type AgentActionPrepareResponse,
   type GitHubCredentialRequest,
   type GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
@@ -39,13 +43,26 @@ const LOCAL_ATTACHMENT_UPLOAD_PATH = agentApiRoutes.local.attachments.upload.pat
 // Mirrors `apps/web`'s `ATTACHMENT_MAX_BYTES` (10 MiB) plus slack for multipart framing
 // overhead (boundary markers, field headers); the daemon package cannot import from `apps/web`.
 const ATTACHMENT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024 + 64 * 1024;
+// The four presigned-direct-upload session routes (ADR 0028) are plain JSON, so they reuse the
+// JSON body path below rather than the multipart forwarding above. `create` is a fixed path;
+// `complete`/`cancel`/`get` share a `/:uploadId[/complete]` prefix.
+const LOCAL_UPLOAD_SESSION_CREATE_PATH = agentApiRoutes.local.attachmentUploadSessions.create.path;
+const LOCAL_UPLOAD_SESSION_ROUTE_PREFIX =
+  agentApiRoutes.local.attachmentUploadSessions.get.path("");
+const UPLOAD_SESSION_COMPLETE_SUFFIX = "/complete";
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
+
+/** Forwards a cloud `Response` back through the local proxy unchanged. */
+function forwardResponse(response: Response): Response {
+  return new Response(response.body, { status: response.status, headers: response.headers });
+}
 
 /** The `route_family` tag on a classified failure: which local proxy route it came from. */
 function routeFamilyFor(pathname: string, payload: Record<string, unknown> | undefined): string {
   if (pathname === LOCAL_PROXY_ROUTES.reminders.path) return "agent-api/reminder";
   if (pathname === LOCAL_PROXY_ROUTES.tasks.path) return "agent-api/task";
+  if (pathname === LOCAL_PROXY_ROUTES.actionPrepare.path) return "agent-api/action-prepare";
   if (pathname === LOCAL_PROXY_ROUTES.weeklyReports.path) return "agent-api/weekly-report";
   if (pathname === LOCAL_PROXY_ROUTES.inbox.path) return "agent-api/inbox";
   if (pathname === LOCAL_PROXY_ROUTES.messages.path) {
@@ -89,6 +106,26 @@ export function startAgentProxy(input: {
       request: Request,
       agentApiKey: string,
     ): Promise<Response>;
+    agentAttachmentUploadSessionCreate?(
+      context: string,
+      body: unknown,
+      agentApiKey: string,
+    ): Promise<Response>;
+    agentAttachmentUploadSessionComplete?(
+      context: string,
+      uploadId: string,
+      agentApiKey: string,
+    ): Promise<Response>;
+    agentAttachmentUploadSessionCancel?(
+      context: string,
+      uploadId: string,
+      agentApiKey: string,
+    ): Promise<Response>;
+    agentAttachmentUploadSessionGet?(
+      context: string,
+      uploadId: string,
+      agentApiKey: string,
+    ): Promise<Response>;
     inbox?(context: string, request: LocalInboxRequest): Promise<unknown>;
     reminder?(
       context: string,
@@ -96,6 +133,11 @@ export function startAgentProxy(input: {
       agentApiKey: string,
     ): Promise<unknown>;
     agentTask?(context: string, request: TaskCommand, agentApiKey: string): Promise<unknown>;
+    agentActionPrepare?(
+      context: string,
+      request: AgentActionPrepareRequest,
+      agentApiKey: string,
+    ): Promise<AgentActionPrepareResponse>;
     workspaceInfo?(
       context: string,
       request: WorkspaceInfoRequest,
@@ -144,13 +186,17 @@ export function startAgentProxy(input: {
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.reminders.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.tasks.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.tasks.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.actionPrepare.method ||
+          requestUrl.pathname !== LOCAL_PROXY_ROUTES.actionPrepare.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.weeklyReports.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.weeklyReports.path) &&
         (request.method !== LOCAL_PROXY_ROUTES.githubCredentials.method ||
           requestUrl.pathname !== LOCAL_PROXY_ROUTES.githubCredentials.path) &&
         (request.method !== "GET" ||
           !requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX)) &&
-        (request.method !== "POST" || requestUrl.pathname !== LOCAL_ATTACHMENT_UPLOAD_PATH)
+        (request.method !== "POST" || requestUrl.pathname !== LOCAL_ATTACHMENT_UPLOAD_PATH) &&
+        (request.method !== "POST" || requestUrl.pathname !== LOCAL_UPLOAD_SESSION_CREATE_PATH) &&
+        !requestUrl.pathname.startsWith(LOCAL_UPLOAD_SESSION_ROUTE_PREFIX)
       )
         return new Response("not found", { status: 404 });
       const authorization = request.headers.get("authorization");
@@ -234,6 +280,115 @@ export function startAgentProxy(input: {
           });
         }
       }
+      if (request.method === "POST" && requestUrl.pathname === LOCAL_UPLOAD_SESSION_CREATE_PATH) {
+        if (!input.runtime.agentAttachmentUploadSessionCreate)
+          return new Response("not found", { status: 404 });
+        let body: unknown;
+        try {
+          const contentLength = request.headers.get("content-length");
+          if (
+            contentLength &&
+            (!/^\d+$/.test(contentLength) || Number(contentLength) > maxBodyBytes)
+          )
+            return new Response("payload too large", { status: 413 });
+          const raw = await request.text();
+          if (new TextEncoder().encode(raw).byteLength > maxBodyBytes)
+            return new Response("payload too large", { status: 413 });
+          body = JSON.parse(raw);
+        } catch {
+          return new Response("bad request", { status: 400 });
+        }
+        try {
+          return forwardResponse(
+            await input.runtime.agentAttachmentUploadSessionCreate(
+              binding.context,
+              body,
+              binding.agentApiKey,
+            ),
+          );
+        } catch (error) {
+          return proxyFailureResponse(error, {
+            method: request.method,
+            path: requestUrl.pathname,
+            routeFamily: "agent-api/attachment-upload-session-create",
+            agentId: binding.agentId,
+          });
+        }
+      }
+      if (requestUrl.pathname.startsWith(LOCAL_UPLOAD_SESSION_ROUTE_PREFIX)) {
+        const remainder = requestUrl.pathname.slice(LOCAL_UPLOAD_SESSION_ROUTE_PREFIX.length);
+        const isComplete = remainder.endsWith(UPLOAD_SESSION_COMPLETE_SUFFIX);
+        let uploadId: string;
+        try {
+          uploadId = decodeURIComponent(
+            isComplete ? remainder.slice(0, -UPLOAD_SESSION_COMPLETE_SUFFIX.length) : remainder,
+          );
+        } catch {
+          return new Response("bad request", { status: 400 });
+        }
+        if (!uploadId) return new Response("bad request", { status: 400 });
+        if (isComplete && request.method === "POST") {
+          if (!input.runtime.agentAttachmentUploadSessionComplete)
+            return new Response("not found", { status: 404 });
+          try {
+            return forwardResponse(
+              await input.runtime.agentAttachmentUploadSessionComplete(
+                binding.context,
+                uploadId,
+                binding.agentApiKey,
+              ),
+            );
+          } catch (error) {
+            return proxyFailureResponse(error, {
+              method: request.method,
+              path: requestUrl.pathname,
+              routeFamily: "agent-api/attachment-upload-session-complete",
+              agentId: binding.agentId,
+            });
+          }
+        }
+        if (!isComplete && request.method === "GET") {
+          if (!input.runtime.agentAttachmentUploadSessionGet)
+            return new Response("not found", { status: 404 });
+          try {
+            return forwardResponse(
+              await input.runtime.agentAttachmentUploadSessionGet(
+                binding.context,
+                uploadId,
+                binding.agentApiKey,
+              ),
+            );
+          } catch (error) {
+            return proxyFailureResponse(error, {
+              method: request.method,
+              path: requestUrl.pathname,
+              routeFamily: "agent-api/attachment-upload-session-get",
+              agentId: binding.agentId,
+            });
+          }
+        }
+        if (!isComplete && request.method === "DELETE") {
+          if (!input.runtime.agentAttachmentUploadSessionCancel)
+            return new Response("not found", { status: 404 });
+          try {
+            return forwardResponse(
+              await input.runtime.agentAttachmentUploadSessionCancel(
+                binding.context,
+                uploadId,
+                binding.agentApiKey,
+              ),
+            );
+          } catch (error) {
+            return proxyFailureResponse(error, {
+              method: request.method,
+              path: requestUrl.pathname,
+              routeFamily: "agent-api/attachment-upload-session-cancel",
+              agentId: binding.agentId,
+            });
+          }
+        }
+        return new Response("not found", { status: 404 });
+      }
       if (request.headers.get("content-type")?.toLowerCase() !== "application/json")
         return new Response("unsupported media type", { status: 415 });
       let payload: Record<string, unknown> | undefined;
@@ -269,6 +424,25 @@ export function startAgentProxy(input: {
           const result = await input.runtime.agentTask(
             binding.context,
             command,
+            binding.agentApiKey,
+          );
+          return Response.json(result);
+        }
+        if (requestUrl.pathname === LOCAL_PROXY_ROUTES.actionPrepare.path) {
+          if (!input.runtime.agentActionPrepare) return new Response("not found", { status: 404 });
+          if (typeof payload.target !== "string" || !payload.target)
+            return new Response("bad request", { status: 400 });
+          const parsedAction = actionCardActionSchema.safeParse(payload.action);
+          if (!parsedAction.success) return new Response("bad request", { status: 400 });
+          if (validateActionCardAction(parsedAction.data))
+            return new Response("bad request", { status: 400 });
+          const request: AgentActionPrepareRequest = {
+            target: payload.target,
+            action: parsedAction.data,
+          };
+          const result = await input.runtime.agentActionPrepare(
+            binding.context,
+            request,
             binding.agentApiKey,
           );
           return Response.json(result);
@@ -366,8 +540,9 @@ export function startAgentProxy(input: {
               !MESSAGE_ID_ANCHOR.test(payload.messageId))) ||
           (["react", "unreact"].includes(payload.operation as string) &&
             (typeof payload.emoji !== "string" || !isValidReactionEmoji(payload.emoji))) ||
-          (payload.attachmentId !== undefined &&
-            (typeof payload.attachmentId !== "string" || !UUID.test(payload.attachmentId))) ||
+          (payload.attachmentIds !== undefined &&
+            (!Array.isArray(payload.attachmentIds) ||
+              payload.attachmentIds.some((id) => typeof id !== "string" || !UUID.test(id)))) ||
           (payload.targetConfirmed !== undefined && typeof payload.targetConfirmed !== "boolean") ||
           (payload.mentions !== undefined && !isValidMentionSelectorArray(payload.mentions))
         )
@@ -397,8 +572,9 @@ export function startAgentProxy(input: {
                 : undefined,
             messageId: typeof payload.messageId === "string" ? payload.messageId : undefined,
             emoji: typeof payload.emoji === "string" ? payload.emoji : undefined,
-            attachmentId:
-              typeof payload.attachmentId === "string" ? payload.attachmentId : undefined,
+            attachmentIds: Array.isArray(payload.attachmentIds)
+              ? (payload.attachmentIds as string[])
+              : undefined,
             mentions: Array.isArray(payload.mentions)
               ? (payload.mentions as LocalAgentMessageRequest["mentions"])
               : undefined,

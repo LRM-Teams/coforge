@@ -3,12 +3,16 @@ export type PersistedDirectMessage = {
   body: string;
   createdAt: Date;
   sequence: number;
-  attachment?: {
+  /** Always present, possibly empty; order matches send/upload order. Not itself compared for
+   * equality anywhere: a retried `requestId` returns this same persisted result verbatim
+   * rather than recomputing or hashing it, so the array's order is preserved automatically by
+   * round-tripping through storage. */
+  attachments: {
     id: string;
     fileName: string;
     contentType: string;
     sizeBytes: number;
-  };
+  }[];
   deliveryId?: string;
   workspaceId: string;
   agentId?: string;

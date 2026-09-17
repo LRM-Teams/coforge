@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CoforgeDriver, PiDriver } from "../../packages/daemon/src/code-agent/pi/driver";
+import { CoforgeProvider, PiProvider } from "../../packages/daemon/src/code-agent/pi/driver";
 
 const names = [
   "HTTPS_PROXY",
@@ -62,7 +62,7 @@ try {
       Bun.env.HTTPS_PROXY = inherited.url;
       const workspace = join(root, `${provider}-${overridden ? "override" : "inherited"}`);
       await mkdir(workspace);
-      const driver = provider === "coforge" ? new CoforgeDriver() : new PiDriver();
+      const driver = provider === "coforge" ? new CoforgeProvider() : new PiProvider();
       let session: Awaited<ReturnType<typeof driver.createAgentSession>> | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let sendError: unknown;

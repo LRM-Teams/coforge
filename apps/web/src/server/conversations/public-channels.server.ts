@@ -24,6 +24,7 @@ import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { attachmentView } from "../attachments/attachment-view.server";
+import type { ActionCardView } from "./action-cards.server";
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
@@ -48,8 +49,9 @@ const CHANNEL_MESSAGE_SELECT = {
       user: { select: { id: true, username: true, avatarObjectKey: true } },
     },
   },
-  attachment: {
+  attachments: {
     select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
+    orderBy: { position: "asc" },
   },
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
@@ -66,17 +68,20 @@ type ChannelMessageRow = {
     agent: { name: string } | null;
     user: { id: string; username: string; avatarObjectKey: string | null } | null;
   } | null;
-  attachment: {
+  attachments: {
     id: string;
     fileName: string;
     contentType: string;
     sizeBytes: number;
     objectKey: string;
-  } | null;
+  }[];
   reactions: MessageReactionRow[];
 };
 
-/** The browser-facing shape of one channel message, shared by page and update reads. */
+/** The browser-facing shape of one channel message, shared by page and update reads. The optional
+ * `actionCard` field is attached by the caller (see `channels.functions.ts`,
+ * `ActionCards.viewsFor`) in one batched lookup per page; this function never queries
+ * `ActionCard` rows itself, to keep Prisma access for action cards in one place. */
 function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
   return {
     id: message.id,
@@ -100,8 +105,9 @@ function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
       : null,
     body: message.body,
     createdAt: message.createdAt,
-    attachment: message.attachment ? attachmentView(message.attachment) : undefined,
+    attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
+    actionCard: undefined as ActionCardView | undefined,
   };
 }
 
@@ -161,6 +167,38 @@ export async function getAgentChannel(
   });
   if (!channel) throw new AppError("ACCESS_DENIED");
   return channel;
+}
+
+/**
+ * Resolves a thread anchor (an eight-hex prefix or a full UUID) to its top-level root Message in
+ * `conversationId`. Shared by `PublicChannels.threadRoot` and `ActionCards.prepare`
+ * (`action-cards.server.ts`) so a channel thread target resolves identically everywhere.
+ */
+export async function resolveChannelThreadRoot(
+  db: Pick<PrismaClient, "message">,
+  conversationId: string,
+  anchor: string,
+) {
+  const rows = await db.message.findMany({
+    where: {
+      conversationId,
+      threadRootId: null,
+      id:
+        anchor.length === 8
+          ? {
+              gte: `${anchor}-0000-0000-0000-000000000000`,
+              lte: `${anchor}-ffff-ffff-ffff-ffffffffffff`,
+            }
+          : anchor,
+    },
+    take: 2,
+    select: { id: true },
+  });
+  if (rows.length > 1)
+    throw new AgentMessageValidationError("ambiguous message prefix; use the full UUID");
+  if (!rows[0])
+    throw new AgentMessageValidationError("message anchor not found in this conversation");
+  return rows[0];
 }
 
 /** Workspace-visible history with per-Agent notification preferences. */
@@ -259,26 +297,7 @@ export class PublicChannels {
   }
 
   private async threadRoot(conversationId: string, anchor: string) {
-    const rows = await this.db.message.findMany({
-      where: {
-        conversationId,
-        threadRootId: null,
-        id:
-          anchor.length === 8
-            ? {
-                gte: `${anchor}-0000-0000-0000-000000000000`,
-                lte: `${anchor}-ffff-ffff-ffff-ffffffffffff`,
-              }
-            : anchor,
-      },
-      take: 2,
-      select: { id: true },
-    });
-    if (rows.length > 1)
-      throw new AgentMessageValidationError("ambiguous message prefix; use the full UUID");
-    if (!rows[0])
-      throw new AgentMessageValidationError("message anchor not found in this conversation");
-    return rows[0];
+    return resolveChannelThreadRoot(this.db, conversationId, anchor);
   }
 
   private async authorize(workspaceId: string, userId: string) {
@@ -554,10 +573,10 @@ export class PublicChannels {
     channelId: string;
     requestId: string;
     body: string;
-    attachmentId?: string;
+    attachmentIds?: string[];
     threadRootId?: string;
   }) {
-    const { workspaceId, userId, channelId, requestId, attachmentId, threadRootId } = input;
+    const { workspaceId, userId, channelId, requestId, attachmentIds, threadRootId } = input;
     const channel = await this.channel(workspaceId, userId, channelId);
     const member = await this.db.conversationMember.findUnique({
       where: { conversationId_userId: { conversationId: channelId, userId } },
@@ -585,7 +604,9 @@ export class PublicChannels {
             where: { conversationId: channelId },
             orderBy: { sequence: "desc" },
           });
-          if (attachmentId) {
+          // Validated before the message exists, then linked (messageId + position) once it does.
+          const attachmentRowIds: string[] = [];
+          for (const attachmentId of attachmentIds ?? []) {
             const attachment = await tx.attachment.findFirst({
               where: {
                 id: attachmentId,
@@ -594,8 +615,10 @@ export class PublicChannels {
                 uploaderId: userId,
                 messageId: null,
               },
+              select: { id: true },
             });
             if (!attachment) throw new AppError("ACCESS_DENIED");
+            attachmentRowIds.push(attachment.id);
           }
           const names = mentionedNames(body);
           if (root) {
@@ -638,7 +661,6 @@ export class PublicChannels {
               threadRootId: root?.id,
               body,
               sequence,
-              attachment: attachmentId ? { connect: { id: attachmentId } } : undefined,
               deliveries: {
                 create: recipients.map(({ agentId }) => ({
                   workspaceId,
@@ -649,10 +671,27 @@ export class PublicChannels {
               },
             },
           });
+          await Promise.all(
+            attachmentRowIds.map((id, position) =>
+              tx.attachment.update({
+                where: { id },
+                data: { messageId: message.id, position },
+              }),
+            ),
+          );
           created = true;
           return {
             ...message,
             target: `#${channel.channelName}${root ? `:${root.id}` : ""}`,
+            // Never read back: only `saved.id` is used below (the post-transaction reload via
+            // CHANNEL_MESSAGE_SELECT is the real attachments source). Present only to satisfy
+            // the shared idempotency-cache value's "always present" contract.
+            attachments: [] as {
+              id: string;
+              fileName: string;
+              contentType: string;
+              sizeBytes: number;
+            }[],
           };
         }),
     );

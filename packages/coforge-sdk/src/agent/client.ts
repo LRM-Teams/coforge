@@ -5,6 +5,7 @@ import type {
   AgentTaskRequest,
   AgentTaskResponse,
 } from "./types";
+import type { AgentActionPrepareRequest, AgentActionPrepareResponse } from "./action-cards";
 import type {
   AgentMessagesReadRequest,
   AgentMessagesSearchRequest,
@@ -33,6 +34,56 @@ export type AgentAttachmentUploadResponse = {
   fileName: string;
   contentType: string;
   sizeBytes: number;
+};
+
+/**
+ * Presigned direct-upload sessions (ADR 0028), mirroring Raft 1.0.32's
+ * `attachment-upload-sessions` state machine. `create`'s request field is `target` (this
+ * repo's `#channel`/`@user` grammar), not Raft's resolved `channelId`.
+ */
+export type AgentAttachmentUploadSessionState =
+  | "pending"
+  | "verifying"
+  | "completed"
+  | "canceled"
+  | "expired"
+  | "failed";
+
+export type AgentAttachmentUploadSessionAttachment = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+};
+
+export type AgentAttachmentUploadSessionCreateRequest = {
+  target: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  clientRequestId: string;
+};
+
+export type AgentAttachmentUploadSessionCreateResponse = {
+  uploadId: string;
+  attachmentId: string;
+  state: "pending";
+  expiresAt: string;
+  upload: { method: "PUT"; url: string; headers: Record<string, string> };
+};
+
+export type AgentAttachmentUploadSessionCompleteResponse = {
+  uploadId: string;
+  state: "completed";
+  attachment: AgentAttachmentUploadSessionAttachment;
+};
+
+export type AgentAttachmentUploadSessionView = {
+  uploadId: string;
+  state: AgentAttachmentUploadSessionState;
+  expiresAt: string;
+  attachment: AgentAttachmentUploadSessionAttachment | null;
+  terminalReason: string | null;
 };
 
 export type GitHubCredentialRequest = Record<string, never>;
@@ -120,6 +171,9 @@ export type AgentApiClient = {
     cancel(request: AgentReminderInput): Promise<AgentReminderResponse>;
     log(request: AgentReminderInput): Promise<AgentReminderResponse>;
   };
+  actions: {
+    prepare(request: AgentActionPrepareRequest): Promise<AgentActionPrepareResponse>;
+  };
   messages: {
     read(request: AgentMessagesReadRequest): Promise<AgentHistoryResponse>;
     search(request: AgentMessagesSearchRequest): Promise<AgentSearchResponse>;
@@ -137,6 +191,14 @@ export type AgentApiClient = {
   attachments: {
     download(attachmentId: string): Promise<AgentAttachmentDownload>;
     upload(form: FormData): Promise<AgentAttachmentUploadResponse>;
+    uploadSessions: {
+      create(
+        request: AgentAttachmentUploadSessionCreateRequest,
+      ): Promise<AgentAttachmentUploadSessionCreateResponse>;
+      complete(uploadId: string): Promise<AgentAttachmentUploadSessionCompleteResponse>;
+      cancel(uploadId: string): Promise<AgentAttachmentUploadSessionView>;
+      get(uploadId: string): Promise<AgentAttachmentUploadSessionView>;
+    };
   };
 };
 
@@ -164,6 +226,11 @@ export type RawAgentApiClient = {
     cancel(request: AgentReminderInput): Promise<AgentApiResult<AgentReminderResponse>>;
     log(request: AgentReminderInput): Promise<AgentApiResult<AgentReminderResponse>>;
   };
+  actions: {
+    prepare(
+      request: AgentActionPrepareRequest,
+    ): Promise<AgentApiResult<AgentActionPrepareResponse>>;
+  };
   messages: {
     read(request: AgentMessagesReadRequest): Promise<AgentApiResult<AgentHistoryResponse>>;
     search(request: AgentMessagesSearchRequest): Promise<AgentApiResult<AgentSearchResponse>>;
@@ -185,6 +252,16 @@ export type RawAgentApiClient = {
   attachments: {
     download(attachmentId: string): Promise<AgentApiResult<AgentAttachmentDownload>>;
     upload(form: FormData): Promise<AgentApiResult<AgentAttachmentUploadResponse>>;
+    uploadSessions: {
+      create(
+        request: AgentAttachmentUploadSessionCreateRequest,
+      ): Promise<AgentApiResult<AgentAttachmentUploadSessionCreateResponse>>;
+      complete(
+        uploadId: string,
+      ): Promise<AgentApiResult<AgentAttachmentUploadSessionCompleteResponse>>;
+      cancel(uploadId: string): Promise<AgentApiResult<AgentAttachmentUploadSessionView>>;
+      get(uploadId: string): Promise<AgentApiResult<AgentAttachmentUploadSessionView>>;
+    };
   };
 };
 
@@ -196,6 +273,7 @@ export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentA
     },
     tasks: taskResources(transport),
     reminders: reminderResources(transport),
+    actions: actionResources(transport),
     messages: messageResources(transport),
     events: eventsResources(transport),
     channels: {
@@ -223,6 +301,25 @@ export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentA
         transport.request(agentApiRoutes.cloud.attachments.upload, form) as Promise<
           AgentApiResult<AgentAttachmentUploadResponse>
         >,
+      uploadSessions: {
+        create: (request) =>
+          transport.request(
+            agentApiRoutes.cloud.attachmentUploadSessions.create,
+            request,
+          ) as Promise<AgentApiResult<AgentAttachmentUploadSessionCreateResponse>>,
+        complete: (uploadId) =>
+          transport.request(
+            agentApiRoutes.cloud.attachmentUploadSessions.complete.path(uploadId),
+          ) as Promise<AgentApiResult<AgentAttachmentUploadSessionCompleteResponse>>,
+        cancel: (uploadId) =>
+          transport.request(
+            agentApiRoutes.cloud.attachmentUploadSessions.cancel.path(uploadId),
+          ) as Promise<AgentApiResult<AgentAttachmentUploadSessionView>>,
+        get: (uploadId) =>
+          transport.request(
+            agentApiRoutes.cloud.attachmentUploadSessions.get.path(uploadId),
+          ) as Promise<AgentApiResult<AgentAttachmentUploadSessionView>>,
+      },
     },
   };
 }
@@ -253,6 +350,9 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
       cancel: async (request) => unwrap(await rawClient.reminders.cancel(request)),
       log: async (request) => unwrap(await rawClient.reminders.log(request)),
     },
+    actions: {
+      prepare: async (request) => unwrap(await rawClient.actions.prepare(request)),
+    },
     messages: {
       read: async (request) => unwrap(await rawClient.messages.read(request)),
       search: async (request) => unwrap(await rawClient.messages.search(request)),
@@ -274,6 +374,15 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
     attachments: {
       download: async (attachmentId) => unwrap(await rawClient.attachments.download(attachmentId)),
       upload: async (form) => unwrap(await rawClient.attachments.upload(form)),
+      uploadSessions: {
+        create: async (request) =>
+          unwrap(await rawClient.attachments.uploadSessions.create(request)),
+        complete: async (uploadId) =>
+          unwrap(await rawClient.attachments.uploadSessions.complete(uploadId)),
+        cancel: async (uploadId) =>
+          unwrap(await rawClient.attachments.uploadSessions.cancel(uploadId)),
+        get: async (uploadId) => unwrap(await rawClient.attachments.uploadSessions.get(uploadId)),
+      },
     },
   };
 }
@@ -314,6 +423,15 @@ function reminderResources(transport: AgentApiTransport): RawAgentApiClient["rem
     snooze: execute("snooze"),
     cancel: execute("cancel"),
     log: execute("log"),
+  };
+}
+
+function actionResources(transport: AgentApiTransport): RawAgentApiClient["actions"] {
+  return {
+    prepare: (request) =>
+      transport.request(agentApiRoutes.cloud.actionPrepare, request) as Promise<
+        AgentApiResult<AgentActionPrepareResponse>
+      >,
   };
 }
 

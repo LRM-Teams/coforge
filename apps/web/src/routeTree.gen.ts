@@ -69,11 +69,15 @@ import { Route as ApiIntegrationsGithubWebhookRouteImport } from './routes/api/i
 import { Route as ApiProjectsProjectIdIconRouteImport } from './routes/api/projects.$projectId.icon'
 import { Route as AppProjectsProjectSlugTreeSplatRouteImport } from './routes/_app/projects.$projectSlug_.tree.$'
 import { Route as AppRecordsWeeksYearWeekRouteImport } from './routes/_app/records.weeks.$year.$week'
+import { Route as ApiAgentV1ActionsPrepareRouteImport } from './routes/api/agent/v1/actions/prepare'
+import { Route as ApiAgentV1AttachmentUploadSessionsIndexRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/index'
+import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/$uploadId'
 import { Route as ApiAgentV1AttachmentsIndexRouteImport } from './routes/api/agent/v1/attachments/index'
 import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/api/agent/v1/attachments/$attachmentId'
 import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
 import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent/v1/messages_.search'
 import { Route as ApiProjectsProjectIdRawSplatRouteImport } from './routes/api/projects.$projectId.raw.$'
+import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/$uploadId.complete'
 import { Route as ApiAgentV1ChannelsChannelMuteRouteImport } from './routes/api/agent/v1/channels_.$channel.mute'
 import { Route as ApiAgentV1ChannelsChannelUnmuteRouteImport } from './routes/api/agent/v1/channels_.$channel.unmute'
 import { Route as ApiAgentV1MessagesMessageIdReactionsRouteImport } from './routes/api/agent/v1/messages_.$messageId.reactions'
@@ -393,6 +397,24 @@ const AppRecordsWeeksYearWeekRoute = AppRecordsWeeksYearWeekRouteImport.update({
   path: '/weeks/$year/$week',
   getParentRoute: () => AppRecordsRoute,
 } as any)
+const ApiAgentV1ActionsPrepareRoute =
+  ApiAgentV1ActionsPrepareRouteImport.update({
+    id: '/api/agent/v1/actions/prepare',
+    path: '/api/agent/v1/actions/prepare',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1AttachmentUploadSessionsIndexRoute =
+  ApiAgentV1AttachmentUploadSessionsIndexRouteImport.update({
+    id: '/api/agent/v1/attachment-upload-sessions/',
+    path: '/api/agent/v1/attachment-upload-sessions/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1AttachmentUploadSessionsUploadIdRoute =
+  ApiAgentV1AttachmentUploadSessionsUploadIdRouteImport.update({
+    id: '/api/agent/v1/attachment-upload-sessions/$uploadId',
+    path: '/api/agent/v1/attachment-upload-sessions/$uploadId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1AttachmentsIndexRoute =
   ApiAgentV1AttachmentsIndexRouteImport.update({
     id: '/api/agent/v1/attachments/',
@@ -422,6 +444,12 @@ const ApiProjectsProjectIdRawSplatRoute =
     id: '/api/projects/$projectId/raw/$',
     path: '/api/projects/$projectId/raw/$',
     getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute =
+  ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport.update({
+    id: '/complete',
+    path: '/complete',
+    getParentRoute: () => ApiAgentV1AttachmentUploadSessionsUploadIdRoute,
   } as any)
 const ApiAgentV1ChannelsChannelMuteRoute =
   ApiAgentV1ChannelsChannelMuteRouteImport.update({
@@ -520,11 +548,15 @@ export interface FileRoutesByFullPath {
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
   '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
+  '/api/agent/v1/actions/prepare': typeof ApiAgentV1ActionsPrepareRoute
+  '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
+  '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
+  '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
   '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
   '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
@@ -589,11 +621,15 @@ export interface FileRoutesByTo {
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
   '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
+  '/api/agent/v1/actions/prepare': typeof ApiAgentV1ActionsPrepareRoute
+  '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
+  '/api/agent/v1/attachment-upload-sessions': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments': typeof ApiAgentV1AttachmentsIndexRoute
+  '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
   '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
   '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
@@ -663,11 +699,15 @@ export interface FileRoutesById {
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
   '/_app/projects/$projectSlug_/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/_app/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
+  '/api/agent/v1/actions/prepare': typeof ApiAgentV1ActionsPrepareRoute
+  '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
   '/api/agent/v1/messages_/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
+  '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
+  '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
   '/api/agent/v1/channels_/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
   '/api/agent/v1/channels_/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages_/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
@@ -737,11 +777,15 @@ export interface FileRouteTypes {
     | '/api/projects/$projectId/icon'
     | '/projects/$projectSlug/tree/$'
     | '/records/weeks/$year/$week'
+    | '/api/agent/v1/actions/prepare'
+    | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages/search'
     | '/api/projects/$projectId/raw/$'
+    | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
+    | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
     | '/api/agent/v1/channels/$channel/mute'
     | '/api/agent/v1/channels/$channel/unmute'
     | '/api/agent/v1/messages/$messageId/reactions'
@@ -806,11 +850,15 @@ export interface FileRouteTypes {
     | '/api/projects/$projectId/icon'
     | '/projects/$projectSlug/tree/$'
     | '/records/weeks/$year/$week'
+    | '/api/agent/v1/actions/prepare'
+    | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages/search'
     | '/api/projects/$projectId/raw/$'
+    | '/api/agent/v1/attachment-upload-sessions'
     | '/api/agent/v1/attachments'
+    | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
     | '/api/agent/v1/channels/$channel/mute'
     | '/api/agent/v1/channels/$channel/unmute'
     | '/api/agent/v1/messages/$messageId/reactions'
@@ -879,11 +927,15 @@ export interface FileRouteTypes {
     | '/api/projects/$projectId/icon'
     | '/_app/projects/$projectSlug_/tree/$'
     | '/_app/records/weeks/$year/$week'
+    | '/api/agent/v1/actions/prepare'
+    | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
     | '/api/agent/v1/messages_/search'
     | '/api/projects/$projectId/raw/$'
+    | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
+    | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
     | '/api/agent/v1/channels_/$channel/mute'
     | '/api/agent/v1/channels_/$channel/unmute'
     | '/api/agent/v1/messages_/$messageId/reactions'
@@ -930,10 +982,13 @@ export interface RootRouteChildren {
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubWebhookRoute: typeof ApiIntegrationsGithubWebhookRoute
   ApiProjectsProjectIdIconRoute: typeof ApiProjectsProjectIdIconRoute
+  ApiAgentV1ActionsPrepareRoute: typeof ApiAgentV1ActionsPrepareRoute
+  ApiAgentV1AttachmentUploadSessionsUploadIdRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
   ApiAgentV1MessagesSearchRoute: typeof ApiAgentV1MessagesSearchRoute
   ApiProjectsProjectIdRawSplatRoute: typeof ApiProjectsProjectIdRawSplatRoute
+  ApiAgentV1AttachmentUploadSessionsIndexRoute: typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   ApiAgentV1AttachmentsIndexRoute: typeof ApiAgentV1AttachmentsIndexRoute
   ApiAgentV1ChannelsChannelMuteRoute: typeof ApiAgentV1ChannelsChannelMuteRoute
   ApiAgentV1ChannelsChannelUnmuteRoute: typeof ApiAgentV1ChannelsChannelUnmuteRoute
@@ -1365,6 +1420,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRecordsWeeksYearWeekRouteImport
       parentRoute: typeof AppRecordsRoute
     }
+    '/api/agent/v1/actions/prepare': {
+      id: '/api/agent/v1/actions/prepare'
+      path: '/api/agent/v1/actions/prepare'
+      fullPath: '/api/agent/v1/actions/prepare'
+      preLoaderRoute: typeof ApiAgentV1ActionsPrepareRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/attachment-upload-sessions/': {
+      id: '/api/agent/v1/attachment-upload-sessions/'
+      path: '/api/agent/v1/attachment-upload-sessions'
+      fullPath: '/api/agent/v1/attachment-upload-sessions/'
+      preLoaderRoute: typeof ApiAgentV1AttachmentUploadSessionsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/attachment-upload-sessions/$uploadId': {
+      id: '/api/agent/v1/attachment-upload-sessions/$uploadId'
+      path: '/api/agent/v1/attachment-upload-sessions/$uploadId'
+      fullPath: '/api/agent/v1/attachment-upload-sessions/$uploadId'
+      preLoaderRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/attachments/': {
       id: '/api/agent/v1/attachments/'
       path: '/api/agent/v1/attachments'
@@ -1399,6 +1475,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/projects/$projectId/raw/$'
       preLoaderRoute: typeof ApiProjectsProjectIdRawSplatRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': {
+      id: '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
+      path: '/complete'
+      fullPath: '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
+      preLoaderRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport
+      parentRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdRoute
     }
     '/api/agent/v1/channels_/$channel/mute': {
       id: '/api/agent/v1/channels_/$channel/mute'
@@ -1547,6 +1630,21 @@ const ApiMeRouteChildren: ApiMeRouteChildren = {
 
 const ApiMeRouteWithChildren = ApiMeRoute._addFileChildren(ApiMeRouteChildren)
 
+interface ApiAgentV1AttachmentUploadSessionsUploadIdRouteChildren {
+  ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
+}
+
+const ApiAgentV1AttachmentUploadSessionsUploadIdRouteChildren: ApiAgentV1AttachmentUploadSessionsUploadIdRouteChildren =
+  {
+    ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute:
+      ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute,
+  }
+
+const ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren =
+  ApiAgentV1AttachmentUploadSessionsUploadIdRoute._addFileChildren(
+    ApiAgentV1AttachmentUploadSessionsUploadIdRouteChildren,
+  )
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
@@ -1588,12 +1686,17 @@ const rootRouteChildren: RootRouteChildren = {
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubWebhookRoute: ApiIntegrationsGithubWebhookRoute,
   ApiProjectsProjectIdIconRoute: ApiProjectsProjectIdIconRoute,
+  ApiAgentV1ActionsPrepareRoute: ApiAgentV1ActionsPrepareRoute,
+  ApiAgentV1AttachmentUploadSessionsUploadIdRoute:
+    ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren,
   ApiAgentV1AttachmentsAttachmentIdRoute:
     ApiAgentV1AttachmentsAttachmentIdRoute,
   ApiAgentV1AttachmentsCapabilitiesRoute:
     ApiAgentV1AttachmentsCapabilitiesRoute,
   ApiAgentV1MessagesSearchRoute: ApiAgentV1MessagesSearchRoute,
   ApiProjectsProjectIdRawSplatRoute: ApiProjectsProjectIdRawSplatRoute,
+  ApiAgentV1AttachmentUploadSessionsIndexRoute:
+    ApiAgentV1AttachmentUploadSessionsIndexRoute,
   ApiAgentV1AttachmentsIndexRoute: ApiAgentV1AttachmentsIndexRoute,
   ApiAgentV1ChannelsChannelMuteRoute: ApiAgentV1ChannelsChannelMuteRoute,
   ApiAgentV1ChannelsChannelUnmuteRoute: ApiAgentV1ChannelsChannelUnmuteRoute,

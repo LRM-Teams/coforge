@@ -19,6 +19,7 @@ function message(overrides: Partial<AgentMessageRecord> = {}): AgentMessageRecor
     target: "#general",
     body: "hello there",
     createdAt: "2026-09-07T10:00:00Z",
+    attachments: [],
     ...overrides,
   };
 }
@@ -33,12 +34,43 @@ test("formatMessageLine renders the shared bracket line with attachment and task
     "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z] @ada: hello there",
   );
 
-  const withAttachment = message({
-    attachment: { id: "att-1", fileName: "log.txt", contentType: "text/plain", sizeBytes: 10 },
+  const withOneAttachment = message({
+    attachments: [
+      {
+        id: "aaaa1111-0000-4000-8000-000000000001",
+        fileName: "log.txt",
+        contentType: "text/plain",
+        sizeBytes: 10,
+      },
+    ],
   });
-  expect(formatMessageLine(withAttachment)).toBe(
+  expect(formatMessageLine(withOneAttachment)).toBe(
     "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z] @ada: hello there" +
-      " [attachment: log.txt (id:att-1) — download with coforge attachment view --id att-1 --output <path>]",
+      " [1 attachment: log.txt (id:aaaa1111-0000-4000-8000-000000000001) —" +
+      " use `coforge attachment view --id <attachmentId> --output <path>` to download]",
+  );
+
+  const withTwoAttachments = message({
+    attachments: [
+      {
+        id: "aaaa1111-0000-4000-8000-000000000001",
+        fileName: "spec.md",
+        contentType: "text/markdown",
+        sizeBytes: 10,
+      },
+      {
+        id: "bbbb2222-0000-4000-8000-000000000002",
+        fileName: "diagram.png",
+        contentType: "image/png",
+        sizeBytes: 20,
+      },
+    ],
+  });
+  expect(formatMessageLine(withTwoAttachments)).toBe(
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z] @ada: hello there" +
+      " [2 attachments: spec.md (id:aaaa1111-0000-4000-8000-000000000001)," +
+      " diagram.png (id:bbbb2222-0000-4000-8000-000000000002) —" +
+      " use `coforge attachment view --id <attachmentId> --output <path>` to download]",
   );
 
   const withTask = message({
@@ -211,6 +243,7 @@ test("formatSendSuccess appends a recentUnread section only when non-empty", () 
       target: "@user:11111111",
       body: "missed while held",
       createdAt: "2026-09-17T10:00:00Z",
+      attachments: [],
     },
   ]);
   expect(rendered).toContain("Message sent to @user:11111111. Message ID: message-1");
