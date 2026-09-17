@@ -39,6 +39,15 @@ export const isChannelMessageTarget = (target: string): boolean =>
   /^#[a-z0-9][a-z0-9_-]{0,31}(?::(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/.test(
     target,
   );
+/**
+ * The parent of a thread target (everything before the first `:`), or `undefined` for a
+ * top-level target. `#general:12345678` → `#general`; `@frank:12345678` → `@frank`; `#general` →
+ * `undefined`.
+ */
+export const threadParentTarget = (target: string): string | undefined => {
+  const index = target.indexOf(":");
+  return index === -1 ? undefined : target.slice(0, index);
+};
 /** A reaction emoji: trimmed, one to sixteen characters, no whitespace. */
 export const isValidReactionEmoji = (value: string): boolean =>
   value.trim() === value && value.length >= 1 && value.length <= 16 && !/\s/.test(value);
@@ -407,6 +416,10 @@ export type AgentMessageRequest = {
   freshnessContextMode?: "inline" | "withheld";
   messageId?: string;
   emoji?: string;
+  /** `send` only: a single attachment already uploaded to this conversation. */
+  attachmentId?: string;
+  /** `send` only: structured @mention bindings; see `LocalMentionSelector`. */
+  mentions?: import("./local-daemon").LocalMentionSelector[];
 };
 export interface ComputerRegisterTransport {
   request(
@@ -476,7 +489,7 @@ export {
   encodeDaemonHoldResponse,
   decodeDaemonHoldResponse,
 } from "./local-daemon";
-export type { AgentMessageRecord, MessageTaskMetadata } from "./local-daemon";
+export type { AgentMessageRecord, MessageTaskMetadata, LocalMentionSelector } from "./local-daemon";
 export type {
   DaemonHandshakeRequest,
   DaemonHandshakeResponse,
