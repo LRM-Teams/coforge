@@ -6,6 +6,7 @@ import { ProjectSettings } from "../../server/projects/project-settings.server";
 import { z } from "zod";
 import { createProjectInput, projectIconUploadInput, updateProjectInput } from "./projects.schemas";
 import { ProjectImages, projectIconUrl } from "../../server/projects/project-images.server";
+import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
 
 export const uploadProjectIcon = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
@@ -40,6 +41,37 @@ export const getProjectRepository = createServerFn({ method: "GET" })
     }
   });
 
+export const getProjectPath = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ slug: z.string().min(1), path: z.string().max(4096) }))
+  .handler(async ({ data, context }) => {
+    const project = await context.db.project.findFirst({
+      where: { workspaceId: context.workspaceId, slug: data.slug },
+      select: { githubInstallationId: true, githubRepositoryId: true, githubFullName: true },
+    });
+    if (!project) throw new AppError("NOT_FOUND");
+    if (!project.githubFullName || !project.githubInstallationId || !project.githubRepositoryId)
+      return { status: "unlinked" as const };
+    try {
+      const github = await configuredGitHub();
+      if (!github) return { status: "unavailable" as const };
+      const result = await github.connection.repositoryPath(
+        context.user.id,
+        {
+          installationId: project.githubInstallationId,
+          repositoryId: project.githubRepositoryId,
+          fullName: project.githubFullName,
+        },
+        data.path,
+      );
+      return { status: "ready" as const, fullName: project.githubFullName, ...result };
+    } catch (error) {
+      if (isAppError(error) && error.code === "ACCESS_DENIED") return { status: "denied" as const };
+      if (isAppError(error) && error.code === "NOT_FOUND") return { status: "not_found" as const };
+      return { status: "unavailable" as const };
+    }
+  });
+
 export const getProject = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(z.object({ slug: z.string().min(1) }))
@@ -60,15 +92,66 @@ export const getProject = createServerFn({ method: "GET" })
             id: true,
             channelName: true,
             createdAt: true,
-            _count: { select: { members: true } },
+            _count: { select: { members: true, messages: true } },
+            messages: {
+              take: 1,
+              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+              select: {
+                createdAt: true,
+                sender: {
+                  select: {
+                    user: {
+                      select: {
+                        id: true,
+                        displayName: true,
+                        username: true,
+                        avatarObjectKey: true,
+                      },
+                    },
+                    agent: { select: { displayName: true } },
+                  },
+                },
+              },
+            },
           },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         },
       },
     });
     if (!project) return null;
-    const { iconObjectKey, ...view } = project;
-    return { ...view, iconUrl: projectIconUrl(project.id, iconObjectKey) };
+    const { iconObjectKey, conversations, ...view } = project;
+    const mappedConversations = conversations
+      .map(({ _count, messages, ...conversation }) => {
+        const lastMessage = messages[0];
+        const sender = lastMessage?.sender;
+        const lastSender = sender
+          ? sender.user
+            ? {
+                name: sender.user.displayName ?? sender.user.username,
+                avatarUrl: workspaceUserAvatarUrl(
+                  workspaceId,
+                  sender.user.id,
+                  sender.user.avatarObjectKey,
+                ),
+              }
+            : sender.agent
+              ? { name: sender.agent.displayName, avatarUrl: null }
+              : null
+          : null;
+        return {
+          ...conversation,
+          memberCount: _count.members,
+          messageCount: _count.messages,
+          lastActivityAt: (lastMessage?.createdAt ?? conversation.createdAt).toISOString(),
+          lastSender,
+        };
+      })
+      .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+    return {
+      ...view,
+      conversations: mappedConversations,
+      iconUrl: projectIconUrl(project.id, iconObjectKey),
+    };
   });
 
 export const updateProject = createServerFn({ method: "POST" })

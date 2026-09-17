@@ -29,6 +29,7 @@ model Workspace {
   reminderEvents         ReminderEvent[]
   attachments            Attachment[]
   tasks                  Task[]
+  actionCards            ActionCard[]
   weeklyReportCycles     WeeklyReportCycle[]
   weeklyReports          WeeklyReport[]
   weeklyHighlights       WeeklyReportHighlight[]
@@ -98,6 +99,7 @@ model User {
   weeklyTemplatesOwned        WeeklyReportTemplate[]          @relation("WeeklyReportTemplateOwner")
   recordNotesAuthored         RecordNote[]                    @relation("RecordNoteAuthor")
   recordCommentsAuthored      RecordComment[]                 @relation("RecordCommentAuthor")
+  committedActionCards        ActionCard[]
 
   @@map("users")
 }
@@ -199,6 +201,7 @@ model Agent {
   activity                  AgentActivity[]
   reminders                 Reminder[]
   reminderOperationReceipts ReminderOperationReceipt[]
+  preparedActionCards       ActionCard[]
   weeklyReportAssistant     WeeklyReportAssistant?
   attachments               Attachment[]
 
@@ -458,6 +461,7 @@ model Conversation {
   deliveries     AgentMessageDelivery[]
   attachments    Attachment[]
   tasks          Task[]
+  actionCards    ActionCard[]
   project        Project?               @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, directKey])
@@ -514,6 +518,7 @@ model Message {
   threadFollows  ThreadFollow[]
   reactions      MessageReaction[]
   task           Task?
+  actionCard     ActionCard?
 
   @@unique([id, conversationId])
   @@unique([conversationId, sequence])
@@ -573,6 +578,36 @@ model TaskHistoryEvent {
   @@unique([taskMessageId, sequence])
   @@index([taskMessageId, createdAt])
   @@map("task_history_events")
+}
+
+/// An Agent-prepared typed action card (`coforge action prepare`), message-anchored like Task.
+/// `payload` stores the resolved, UUID-only action (no handles); a human commits it under their
+/// own identity in a follow-up PR, which will set `state`/`committedByUserId`/`committedAt`/`result`.
+model ActionCard {
+  messageId         String       @id @db.Uuid
+  conversationId    String       @db.Uuid
+  workspaceId       String       @db.Uuid
+  /// channel:create | agent:create | channel:add_member
+  kind              String
+  payload           Json
+  draftHint         String?
+  preparedByAgentId String       @db.Uuid
+  /// pending | executed | cancelled
+  state             String       @default("pending")
+  committedByUserId String?      @db.Uuid
+  committedAt       DateTime?
+  result            Json?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  message           Message      @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+  conversation      Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace         Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  preparedByAgent   Agent        @relation(fields: [preparedByAgentId, workspaceId], references: [id, workspaceId], onDelete: Restrict)
+  committedByUser   User?        @relation(fields: [committedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([messageId, conversationId])
+  @@index([workspaceId, state])
+  @@map("action_cards")
 }
 
 model ThreadRead {

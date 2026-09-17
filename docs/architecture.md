@@ -342,14 +342,25 @@ Project 独立设置页允许 Workspace 成员修改名称、描述、上传项�
 
 项目详情的仓库概览由 `GitHubConnection.repositoryOverview` 使用当前查看者的个人
 user token 读取。先校验 installation、repository ID 和完整名称均仍可访问，再校验仓库
-metadata 身份；Workspace 内的 Project 可见性不授予 GitHub 内容访问权，不回退到公共
-匿名请求或 installation token。只读默认分支最近五条提交及根目录文件（GitHub Contents
-API 最多 1,000 项），不持久化代码或向浏览器传递 token；文件与提交链接跳转 GitHub。
-未关联、未授权、空仓库和服务暂不可用分别显示状态，不阻断项目讨论组的使用。
-需要 App 的 repository Contents: read 权限，但本次实现不修改任何现有 App 授权配置。
+metadata 身份（REST）；Workspace 内的 Project 可见性不授予 GitHub 内容访问权，不回退到
+公共匿名请求或 installation token。身份校验通过后改用 GitHub GraphQL 读取默认分支：
+一次查询取最近五条提交历史（含 signature 校验状态与 statusCheckRollup）及根目录 Tree，
+再按需分批（每批最多 50 个路径、最多覆盖前 100 个路径）用别名 `history(first:1, path:$p)`
+查询各路径最后一次改动的提交；空仓库（`defaultBranchRef` 为 null）视为无提交、无文件。
+不持久化代码或向浏览器传递 token；文件与提交链接跳转 GitHub。未关联、未授权、空仓库和
+服务暂不可用分别显示状态，不阻断项目讨论组的使用。需要 App 的 repository Contents: read
+权限，以及 Checks: read / Commit statuses: read 权限以获取 statusCheckRollup（均已按
+`infra/staging/README.md` 授予），本次实现不修改任何现有 App 授权配置。
+项目详情同时支持在 CoForge 内浏览默认分支任意路径（`/projects/$projectSlug/tree/$`，
+`GitHubConnection.repositoryPath`）：目录路径返回该目录的 Tree 及其每个祖先目录的 Tree
+（供右侧文件树仅展开当前路径），并复用同一按路径分批查询最后提交的逻辑；文本文件通过
+GraphQL `object(expression:"<branch>:<path>")` 读取正文，1 MB 以内、非二进制且未被截断的
+Markdown 以只读方式用 Records 编辑器渲染或显示高亮源码，其余文本文件仅显示高亮源码；二进制、
+超过 1 MB、被截断的文件以及图片（GraphQL 无法返回图片字节）均不在站内预览，链接跳转 GitHub。
+同样仅使用查看者个人 user token 读取，不做任何持久化。
 依据：[repository metadata](https://docs.github.com/en/rest/repos/repos#get-a-repository)、
-[commits](https://docs.github.com/en/rest/commits/commits#list-commits)、
-[contents](https://docs.github.com/en/rest/repos/contents#get-repository-content)。
+[GraphQL Commit object](https://docs.github.com/en/graphql/reference/objects#commit)、
+[GraphQL Blob/Tree objects](https://docs.github.com/en/graphql/reference/objects#blob)。
 
 PostgreSQL 的首要领域对象是：
 
@@ -1265,6 +1276,55 @@ reviewer isolation 或结构化子任务/依赖调度。子任务首版只是各
 小型任务状态与授权实现。迁移仅加法保留既有消息；回滚旧代码保留 Task 数据，不执行
 生产迁移或发布。验证 seam 为 TaskBoard 的真实 PostgreSQL 行为、Agent RPC/CLI 和
 浏览器交互，重点覆盖并发认领、越权、幂等、旧 revision 与消息/Thread 无回归。
+
+### 6.7 Agent Action Card
+
+用户批准"参考 raft 的就行"，对齐 Raft 1.0.32 的 `raft action prepare` /
+`POST /prepare-action`（见 `docs/agents/reference-cli-research.md` 与
+ADR 0027）：Agent 通过 `coforge action prepare --target <target>` 提交一张
+typed action card，人类之后在自己的身份下 commit；本次 PR 只落地 prepare 端，
+commit 与卡片 UI 留给下一个 PR。CoForge 首版仅支持三种 kind：
+`channel:create`、`agent:create`、`channel:add_member`，不引入 Raft 的
+`integration:*`（CoForge 尚无对应的 marketplace）。
+
+契约位于 `packages/coforge-sdk/src/agent/action-cards.ts`：zod schema 逐字段
+对齐 Raft `packages/shared/src/actionCards.ts`，改用 CoForge 频道/Agent 命名
+规则，`agent:create` 不含 runtime/model/reasoning（这些仍是人类挑选的技术字
+段）；`validateActionCardAction` 提供跨字段规则（`agent:create` 的
+`suggestedComputer`/`requiredComputer` 至多一个；`channel:add_member` 至少
+一个 human 或 agent）。Agent 用 handle（`@alice`/`alice`/`#general`/
+`general`）或 UUID 指代人类、Agent、频道、Computer，从不自己编造数据库
+id；`ActionCards.prepare`（`apps/web/src/server/conversations/
+action-cards.server.ts`）在 prepare 时把每个 handle 解析为 UUID，解析失败
+返回 422 `INVALID_HANDLE` 并指出具体字段；解析后的 UUID-only payload 才落库。
+
+target 解析与成员校验复用 Agent `message send` 的同一套语法与代码路径
+（`#channel[:thread]`、`@user[:thread]`、`getAgentChannel`/direct
+conversation 解析）：Agent 必须已是目标会话成员，与发普通消息完全一致，本次
+不新增频道成员管理的 Agent CLI 命令。`channel:create` 的 `visibility:
+"private"` 被 schema 接受但在 prepare 时以 422 `INVALID_ACTION` 拒绝（私有
+频道尚未实现）；channel/agent 命名冲突分别返回 409 `CHANNEL_EXISTS` /
+`AGENT_EXISTS`。
+
+prepare 在同一 conversation 行锁事务内创建两行：一条普通 Message（正文是
+`Action card: create channel #design` 这类单行摘要，Agent 提供 draftHint
+时另起一行附上）和以该 Message id 为主键的 `ActionCard` 记录，与 §6.6 Task
+相同的 message-anchored 模式。这是一条普通 Agent 消息：不唤醒其他 Agent，
+沿用既有 mute/mention/通知与 realtime 发布路径，不影响 Task 与公开频道的既
+有行为。`ActionCard` 保存 `kind`、解析后的 `payload`、`draftHint`、
+`preparedByAgentId`，`state` 默认 `pending`，本次不驱动到其他状态。
+
+Agent 创建仍受 ADR 0025 的 owner/admin 门槛约束：`agent:create` action card
+本身不创建 Agent，只是记录请求；下一个 PR 实现 commit 时，真正创建 Agent 的
+人类仍需满足 `assertCanCreateAgents`，本次不构成越权。standing instructions
+（`packages/daemon/src/code-agent/agent-instructions.ts`）新增一节：人类要
+求新建频道/Agent 或把某人加入频道时，Agent 用 `coforge action prepare`
+提交卡片，不得声称资源已创建，只如实说明卡片已记录、后续由人类处理。
+
+`apps/web/test/action-cards.integration.ts` 用显式本地 PostgreSQL/Redis 验
+证三种 kind 的 handle 解析（`@alice`/`alice`/`#general`/UUID）、未知 handle
+按字段报错、私有频道拒绝、频道/Agent 命名冲突、非成员 Agent 的 `ACCESS_DENIED`
+及 thread target 的正确落位。
 
 ## 7. 端到端链路
 
