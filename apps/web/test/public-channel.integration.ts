@@ -1613,3 +1613,202 @@ test("Channel roles (ADR 0030): creator is channel admin, a plain member cannot 
     redis.close();
   }
 });
+
+test("channel leave and member removal: owner/admin removes a human and an Agent, a plain member cannot, #general is exempt, and a removed/left member loses send/delivery access until rejoining", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const owner = await db.user.create({ data: { username: `lo${suffix}` } });
+  const admin = await db.user.create({ data: { username: `la${suffix}` } });
+  const plain = await db.user.create({ data: { username: `lp${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `leave-${suffix}`,
+      name: "Leave and removal",
+      members: {
+        create: [
+          { userId: owner.id, role: "owner" },
+          { userId: admin.id, role: "admin" },
+          { userId: plain.id },
+        ],
+      },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: owner.id, machineId: crypto.randomUUID() },
+    });
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: owner.id,
+        computerId: computer.id,
+        name: `helper${suffix}`,
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const general = await enrollGeneral(db, workspace.id);
+    const published: ReturnType<typeof decodeAgentMessageDelivery>[] = [];
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async (_channel, payload) => {
+        published.push(decodeAgentMessageDelivery(payload));
+      },
+      publishJson: async () => {},
+    });
+
+    const ops = await channels.create(workspace.id, owner.id, "ops");
+    await channels.join(workspace.id, admin.id, ops.id);
+    await channels.join(workspace.id, plain.id, ops.id);
+    await channels.addMembers(workspace.id, { userId: owner.id }, ops.id, {
+      userIds: [],
+      agentIds: [agent.id],
+    });
+
+    // Nobody may leave or be removed from #general, regardless of Workspace role.
+    await expect(channels.leave(workspace.id, plain.id, general.id)).rejects.toThrow("CONFLICT");
+    await expect(
+      channels.removeMember(workspace.id, owner.id, general.id, { userId: plain.id }),
+    ).rejects.toThrow("CONFLICT");
+    const generalMembers = await channels.members(workspace.id, { userId: owner.id }, general.id);
+    expect(generalMembers.canLeave).toBe(false);
+    expect(generalMembers.canRemoveMembers).toBe(false);
+
+    // A plain member cannot remove anyone.
+    await expect(
+      channels.removeMember(workspace.id, plain.id, ops.id, { userId: admin.id }),
+    ).rejects.toThrow("ACCESS_DENIED");
+    const opsMembersAsPlain = await channels.members(workspace.id, { userId: plain.id }, ops.id);
+    expect(opsMembersAsPlain.canRemoveMembers).toBe(false);
+    expect(opsMembersAsPlain.canLeave).toBe(true);
+    const opsMembersAsAdmin = await channels.members(workspace.id, { userId: admin.id }, ops.id);
+    expect(opsMembersAsAdmin.canRemoveMembers).toBe(true);
+
+    // `plain` mutes the channel before being removed; the preference and member row must survive.
+    await channels.setUserMuted(workspace.id, plain.id, ops.id, true);
+    const memberRowBefore = await db.conversationMember.findUniqueOrThrow({
+      where: { conversationId_userId: { conversationId: ops.id, userId: plain.id } },
+    });
+    expect(memberRowBefore.leftAt).toBeNull();
+    const plainMessage = await channels.send({
+      workspaceId: workspace.id,
+      userId: plain.id,
+      channelId: ops.id,
+      requestId: crypto.randomUUID(),
+      body: "before removal",
+    });
+
+    // Owner/admin removes the human: soft-left, message stays, roster excludes them, and they
+    // reappear as an add-candidate.
+    const removedHuman = await channels.removeMember(workspace.id, admin.id, ops.id, {
+      userId: plain.id,
+    });
+    expect(removedHuman).toEqual({ removed: true, wasMember: true });
+    const afterHumanRemoval = await channels.members(workspace.id, { userId: owner.id }, ops.id);
+    expect(afterHumanRemoval.humans.map((human) => human.id)).not.toContain(plain.id);
+    expect(afterHumanRemoval.candidates.humans.map((human) => human.id)).toContain(plain.id);
+    const memberRowAfter = await db.conversationMember.findUniqueOrThrow({
+      where: { conversationId_userId: { conversationId: ops.id, userId: plain.id } },
+    });
+    expect(memberRowAfter.id).toBe(memberRowBefore.id);
+    expect(memberRowAfter.leftAt).not.toBeNull();
+    expect(memberRowAfter.channelMuted).toBe(true);
+    expect(
+      await db.message.findUnique({ where: { id: plainMessage.id }, select: { id: true } }),
+    ).not.toBeNull();
+    // Removing an already-removed member reports wasMember: false.
+    const removedAgain = await channels.removeMember(workspace.id, admin.id, ops.id, {
+      userId: plain.id,
+    });
+    expect(removedAgain).toEqual({ removed: true, wasMember: false });
+
+    // A removed/left human can no longer post or follow threads, and the preview reflects it.
+    await expect(
+      channels.send({
+        workspaceId: workspace.id,
+        userId: plain.id,
+        channelId: ops.id,
+        requestId: crypto.randomUUID(),
+        body: "should be denied",
+      }),
+    ).rejects.toThrow("ACCESS_DENIED");
+    await expect(
+      channels.setUserThreadFollowed(workspace.id, plain.id, ops.id, plainMessage.id, true),
+    ).rejects.toThrow("ACCESS_DENIED");
+    const previewAfterRemoval = await channels.open(workspace.id, plain.id, ops.id);
+    expect(previewAfterRemoval.senderMemberId).toBe("");
+    await expect(channels.leave(workspace.id, plain.id, ops.id)).rejects.toThrow("ACCESS_DENIED");
+
+    // Rejoining (self-service) clears leftAt on the same row and restores send access; the mute
+    // preference survived the whole round trip.
+    await channels.join(workspace.id, plain.id, ops.id);
+    const memberRowRejoined = await db.conversationMember.findUniqueOrThrow({
+      where: { conversationId_userId: { conversationId: ops.id, userId: plain.id } },
+    });
+    expect(memberRowRejoined.id).toBe(memberRowBefore.id);
+    expect(memberRowRejoined.leftAt).toBeNull();
+    expect(memberRowRejoined.channelMuted).toBe(true);
+    const reopened = await channels.open(workspace.id, plain.id, ops.id);
+    expect(reopened.senderMemberId).toBe(memberRowBefore.id);
+    const resentMessage = await channels.send({
+      workspaceId: workspace.id,
+      userId: plain.id,
+      channelId: ops.id,
+      requestId: crypto.randomUUID(),
+      body: "after rejoining",
+    });
+    expect(resentMessage.senderMemberId).toBe(memberRowBefore.id);
+
+    // Owner/admin removes the Agent: it loses read access to the channel and receives no further
+    // deliveries until re-added, at which point `leftAt` clears the same way a human's does.
+    const removedAgent = await channels.removeMember(workspace.id, admin.id, ops.id, {
+      agentId: agent.id,
+    });
+    expect(removedAgent).toEqual({ removed: true, wasMember: true });
+    await expect(getAgentChannel(db, workspace.id, agent.id, "#ops")).rejects.toThrow(
+      "ACCESS_DENIED",
+    );
+    published.length = 0;
+    const afterAgentRemovalSend = await channels.send({
+      workspaceId: workspace.id,
+      userId: owner.id,
+      channelId: ops.id,
+      requestId: crypto.randomUUID(),
+      body: "agent should not see this",
+    });
+    expect(published.some((delivery) => delivery.agentId === agent.id)).toBe(false);
+    expect(
+      await db.agentMessageDelivery.findFirst({
+        where: { conversationId: ops.id, agentId: agent.id, messageId: afterAgentRemovalSend.id },
+      }),
+    ).toBeNull();
+
+    await channels.addMembers(workspace.id, { userId: owner.id }, ops.id, {
+      userIds: [],
+      agentIds: [agent.id],
+    });
+    await getAgentChannel(db, workspace.id, agent.id, "#ops");
+    published.length = 0;
+    const afterAgentReadd = await channels.send({
+      workspaceId: workspace.id,
+      userId: owner.id,
+      channelId: ops.id,
+      requestId: crypto.randomUUID(),
+      body: "agent is back",
+    });
+    expect(published.some((delivery) => delivery.agentId === agent.id)).toBe(true);
+    expect(
+      await db.agentMessageDelivery.findFirst({
+        where: { conversationId: ops.id, agentId: agent.id, messageId: afterAgentReadd.id },
+      }),
+    ).not.toBeNull();
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: owner.id } });
+    await db.user.deleteMany({ where: { id: { in: [owner.id, admin.id, plain.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});

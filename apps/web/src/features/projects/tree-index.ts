@@ -6,6 +6,11 @@ export type TreeIndex = {
   children: ReadonlyMap<string, readonly TreeEntry[]>;
 };
 
+/** Entries CoForge can show itself; symlinks and submodules only link out to GitHub. */
+export function isBrowsable(type: TreeEntryType) {
+  return type === "dir" || type === "file";
+}
+
 const NO_CHILDREN: readonly TreeEntry[] = [];
 
 /** Indexes GitHub's flat recursive tree once so expanding a folder is a map lookup. */

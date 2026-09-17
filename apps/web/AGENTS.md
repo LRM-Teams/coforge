@@ -78,7 +78,18 @@ instructions for the TanStack Start Web/backend modular monolith.
   `/projects/$projectSlug` owns project detail. AppShell exposes one Projects
   navigation item on desktop and mobile; project creation belongs on the page,
   not in either sidebar. `GitHubConnection` owns user-authorized repository
-  overview reads; project functions enforce Workspace scope before invoking it.
+  reads: `repositoryOverview` (project detail, full installation verification) and the browse
+  reads behind `/projects/$projectSlug/tree/$` — `repositoryTree`, `repositoryObject`,
+  `repositoryDirectoryCommits`, `repositoryRaw` — which rely on GitHub's user-token scope and
+  check repository identity per request (ADR 0030). Project functions enforce Workspace scope
+  before invoking it; `server/projects/project-files.server.ts` (`ProjectFiles`) does the same
+  for the download route `/api/projects/$projectId/raw/$`, which stays a thin adapter.
+  The file browser lives in `features/projects/`: `project-tree.tsx` is the page shell,
+  `project-tree-queries.ts` holds its React Query options (tree once per visit, file content
+  keyed by blob oid), `tree-index.ts` indexes GitHub's flat tree, `project-file-tree.tsx` is the
+  React Aria `NavigationTree` side tree, `project-file-view.tsx` the file viewer (with
+  `use-find-in-file.ts`, `find-in-text.ts`, `split-highlighted-lines.ts`), and
+  `project-file-urls.ts` builds its GitHub and download URLs.
   Discussion groups reuse `PublicChannels.create` and the existing channel route.
   Project creation no longer creates a first discussion group; discussion groups
   are created on demand through the project page's "New discussion group" button
@@ -145,11 +156,27 @@ instructions for the TanStack Start Web/backend modular monolith.
   deferred removal rule (owner/admin removes, never from `#general`, via a
   soft `ConversationMember.leftAt` marker since `Message.sender`'s
   `onDelete: Restrict` makes a hard delete impossible for anyone who has
-  sent a message). There is still no human UI for remove/update/archive.
+  sent a message). There is still no human UI for `update`/`archive`.
+
+  The human side of leave/remove is `PublicChannels.leave(workspaceId,
+userId, channelId)` (any active member leaves themselves, never
+  `#general`) and `PublicChannels.removeMember(workspaceId, actorUserId,
+channelId, target: ChannelActor)` (Workspace owner/admin only, via the new
+  `assertCanRemoveChannelMembers` in `member-role.server.ts`, never
+  `#general`) — ADR 0031, the human-side equivalent of ADR 0024's Agent
+  `channel leave`/`remove-member`, sharing the same `leftAt`/
+  `ACTIVE_MEMBER_WHERE` representation through one private helper
+  (`softLeaveMember`) rather than a second one. `PublicChannels.members`
+  additionally reports `canRemoveMembers`/`canLeave` per viewer.
   `features/conversations/
-channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembers`;
-  `channel-members-dialog.tsx` is the Web UI, opened from a "Members" button on
-  the channel header. Agent creation (`ManageAgents.create`) still requires
+channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembers`/
+  `leavePublicChannel`/`removePublicChannelMember`; `channel-members-dialog.tsx`
+  is the Web UI, opened from a "Members" button on the channel header, with a
+  per-row "Remove" action and a "Leave channel" footer action, both with an
+  inline confirm step (no toast, no browser `confirm()`). Leaving flips the
+  conversation to the existing not-joined read-only state and the channel
+  list to `joined: false`, the same paths a never-joined channel already
+  uses. Agent creation (`ManageAgents.create`) still requires
   Workspace owner/admin via `assertCanCreateAgents` (Raft: only a
   human-committed action card creates agents). Channels still have no role
   system of their own; private channels are planned but not introduced here.
@@ -251,7 +278,10 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   additional browser WebSocket connections. `browser-realtime.tsx` exposes
   `useRealtimeSubscription` for that one connection and owns its client type;
   a channel with a narrower server-issued grant supplies its own subscription
-  token to the hook.
+  token to the hook. Subscription hooks must run below `BrowserRealtimeProvider`;
+  `useBrowserRealtime` throws when no provider is above, so a hook called in the
+  component that renders the provider fails at first render instead of silently
+  never subscribing.
 
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
   providers, styles, `HeadContent`, and `Scripts`.
@@ -398,8 +428,11 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
 - `agent-environment-editor.tsx` edits only user-declared Agent environment overrides.
   `server/agents/agent-environment.server.ts` owns their authorized persistence and
   restart application. Local inherited environment is never collected or uploaded.
-- `workspace-activity-realtime.ts` owns one messages-page Workspace Activity
-  subscription and compact initial/reconnect history; avatars never open connections.
+- `workspace-agents-realtime.tsx` owns `WorkspaceAgentsProvider` — the app shell's
+  one Agent status subscription and one Activity subscription — plus the read
+  hooks (`useLiveAgents`, `useLiveAgent`, `useAgentRecentActivity`,
+  `useAgentActivityFeed`); avatars and pages never open connections or subscribe
+  themselves; the conversations feature does not own Agent state.
 - Workspace-scoped Code Agent installation inventory belongs to
   `server/db/repositories/computer-runtime.repositories.server.ts`. Runtime visibility and
   model catalogs are keyed and queried by the trusted `(workspaceId, computerId)` connection;
@@ -454,10 +487,13 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   with no prior value is unknown, not offline.
 - `src/features/agents/agent-activity.ts` owns the Activity channel, publication
   decoding/scope checks, timeline merging and unresolved-error selection.
-  `workspace-activity-realtime.ts` hydrates history and consumes the existing binary Activity
-  channel through the shared `features/realtime/` connection. History and live entries
-  deduplicate by launch ID/client sequence. Reconnect reloads best-effort history; timeline
-  history never independently changes the unified display snapshot.
+  `agent-activity-queries.ts` keeps Activity in the TanStack Query cache — a per-Agent
+  recent list (RECENT_ACTIVITY_LIMIT) for the popover and an up-to-100-row feed for the
+  Agent detail tab seeded by the route loader; publications patch both with `setQueryData`;
+  every (re)subscribe invalidates them, and they refetch when the tab becomes visible
+  again or the network returns. History and live entries deduplicate by launch ID/client
+  sequence. Reconnect reloads best-effort history; timeline history never independently
+  changes the unified display snapshot.
 
 - Keep Daemon process and Activity facts separate. `agent:status` contains only
   `active` or `inactive`, and Activity retains raw detail/entries. The browser displays only

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "../../../generated/client";
-import { AppError } from "../../lib/app-error";
+import { AppError, isAppError } from "../../lib/app-error";
+import { gitObjectIdSchema } from "../../lib/git-object-id";
 
 export type GitHubConfig = {
   appId: number;
@@ -69,6 +70,8 @@ const repositorySelectionSchema = z.object({
     .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
     .max(300),
 });
+/** The repository a Project links to, as selected through one App installation. */
+export type RepositorySelection = z.infer<typeof repositorySelectionSchema>;
 const repositoryMetadataSchema = z.object({
   id: idSchema,
   full_name: z.string().min(3).max(300),
@@ -97,7 +100,7 @@ const graphqlGitActorSchema = z.object({
   user: graphqlIdentitySchema,
 });
 const graphqlCommitNodeSchema = z.object({
-  oid: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  oid: gitObjectIdSchema,
   messageHeadline: z.string().max(100_000),
   committedDate: z.string().datetime().nullable(),
   author: graphqlGitActorSchema.nullable(),
@@ -135,7 +138,7 @@ const repositoryOverviewQuerySchema = z.object({
   errors: z.array(graphqlErrorSchema).optional(),
 });
 const graphqlPathCommitSchema = z.object({
-  oid: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  oid: gitObjectIdSchema,
   messageHeadline: z.string().max(100_000),
   committedDate: z.string().datetime().nullable(),
 });
@@ -163,10 +166,7 @@ const pathHistoryQuerySchema = z.object({
  */
 const graphqlPathObjectSchema = z
   .object({
-    oid: z
-      .string()
-      .regex(/^[a-f0-9]{40,64}$/i)
-      .optional(),
+    oid: gitObjectIdSchema.optional(),
     entries: z.array(graphqlTreeEntrySchema).optional(),
     byteSize: z.number().int().nonnegative().optional(),
     isBinary: z.boolean().nullable().optional(),
@@ -184,15 +184,49 @@ const repositoryObjectQuerySchema = z.object({
     .nullable(),
   errors: z.array(graphqlErrorSchema).optional(),
 });
+const graphqlPathLatestCommitSchema = z.object({
+  data: z
+    .object({
+      repository: z
+        .object({
+          databaseId: idSchema.nullable(),
+          defaultBranchRef: z
+            .object({
+              target: z
+                .object({
+                  history: z
+                    .object({
+                      nodes: z.array(
+                        z.object({
+                          oid: gitObjectIdSchema,
+                          messageHeadline: z.string().max(100_000),
+                          committedDate: z.string().datetime().nullable(),
+                          /** Git author plus `Co-authored-by` trailers; the git author is first. */
+                          authors: z.object({ nodes: z.array(graphqlGitActorSchema).max(5) }),
+                          committer: graphqlGitActorSchema.nullable(),
+                        }),
+                      ),
+                    })
+                    .optional(),
+                })
+                .nullable(),
+            })
+            .nullable(),
+        })
+        .nullable(),
+    })
+    .nullable(),
+  errors: z.array(graphqlErrorSchema).optional(),
+});
 const restTreeSchema = z.object({
-  sha: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  sha: gitObjectIdSchema,
   truncated: z.boolean(),
   tree: z.array(
     z.object({
       path: z.string().min(1).max(4096),
       mode: z.string(),
       type: z.enum(["blob", "tree", "commit"]),
-      sha: z.string().regex(/^[a-f0-9]{40,64}$/i),
+      sha: gitObjectIdSchema,
     }),
   ),
 });
@@ -305,6 +339,30 @@ function buildPathHistoryQuery(count: number): string {
   `;
 }
 
+/** The newest commit touching `$path`; a null path is the whole branch (the repository root). */
+const PATH_LATEST_COMMIT_QUERY = `
+  query($owner: String!, $name: String!, $path: String) {
+    repository(owner: $owner, name: $name) {
+      databaseId
+      defaultBranchRef {
+        target {
+          ... on Commit {
+            history(first: 1, path: $path) {
+              nodes {
+                oid
+                messageHeadline
+                committedDate
+                authors(first: 5) { nodes { name avatarUrl(size: 80) user { login } } }
+                committer { name avatarUrl(size: 80) user { login } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 const MAX_PATH_LENGTH = 4096;
 const MAX_BLOB_PREVIEW_BYTES = 1_048_576;
 
@@ -357,19 +415,42 @@ const MAX_PATHS_PER_QUERY = 50;
 // Module-level: configuredGitHub() builds a new GitHubConnection per request, so an
 // instance field would never throttle anything.
 const lastProactiveRefresh = new Map<string, number>();
-// Recursive trees keyed by repository id and revalidated with `If-None-Match` on every read.
-// GitHub answers 304 only to a token that may read the repository, so a cached body is
-// never served to a User GitHub would refuse. Module-level for the same reason as above.
-const MAX_CACHED_TREES = 50;
+// Recursive trees revalidated with `If-None-Match` on every read. GitHub derives an ETag from
+// the access token as well as the content (github/docs#34689), so an entry only ever
+// revalidates for the User it was stored for — hence the key — and a 304 proves that User may
+// still read the repository. Bounded by total entries, not tree count: one tree can be 100,000.
+// Module-level for the same reason as above.
+const MAX_CACHED_TREE_ENTRIES = 300_000;
 type RepositoryTree = {
   sha: string;
   truncated: boolean;
   entries: Array<{ path: string; type: "file" | "dir" | "symlink" | "submodule"; sha: string }>;
 };
 const repositoryTrees = new Map<
-  number,
+  string,
   { etag: string; defaultBranch: string; tree: RepositoryTree }
 >();
+
+function rememberRepositoryTree(
+  key: string,
+  value: { etag: string; defaultBranch: string; tree: RepositoryTree },
+) {
+  repositoryTrees.delete(key);
+  repositoryTrees.set(key, value);
+  let total = 0;
+  for (const cached of repositoryTrees.values()) total += cached.tree.entries.length;
+  // Oldest first; the entry just stored goes last and is dropped only if it alone is too big.
+  for (const [oldest, cached] of repositoryTrees) {
+    if (total <= MAX_CACHED_TREE_ENTRIES) break;
+    repositoryTrees.delete(oldest);
+    total -= cached.tree.entries.length;
+  }
+}
+
+/** `a/b c.ts` → `a/b%20c.ts`: each segment encoded, the separators kept. */
+export function encodeRepositoryPath(path: string) {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
 
 /** Personal GitHub integration. Only its HTTP adapter handles bearer credentials. */
 export class GitHubConnection {
@@ -681,10 +762,7 @@ export class GitHubConnection {
     ].sort((left, right) => left.fullName.localeCompare(right.fullName));
   }
 
-  async repositoryOverview(
-    userId: string,
-    repository: { installationId: number; repositoryId: number; fullName: string },
-  ) {
+  async repositoryOverview(userId: string, repository: RepositorySelection) {
     return this.withVerifiedRepository(
       userId,
       repository,
@@ -755,18 +833,11 @@ export class GitHubConnection {
    * the rate limit. `truncated` is GitHub's own flag (over 100,000 entries or 7 MB); the
    * caller then falls back to `repositoryObject()` per directory.
    */
-  async repositoryTree(
-    userId: string,
-    repository: { installationId: number; repositoryId: number; fullName: string },
-  ) {
+  async repositoryTree(userId: string, repository: RepositorySelection) {
     return this.withRepository(userId, repository, async (token, selected) => {
-      const metadata = repositoryMetadataSchema.parse(
-        await this.api(`/repos/${selected.fullName}`, token),
-      );
-      if (metadata.id !== selected.repositoryId || metadata.full_name !== selected.fullName)
-        throw new AppError("ACCESS_DENIED");
-      const defaultBranch = metadata.default_branch;
-      const cached = repositoryTrees.get(selected.repositoryId);
+      const { defaultBranch } = await this.verifiedMetadata(token, selected);
+      const cacheKey = `${selected.repositoryId}:${userId}`;
+      const cached = repositoryTrees.get(cacheKey);
       const reusable = cached?.defaultBranch === defaultBranch ? cached : undefined;
       const response = await this.send(
         `https://api.github.com/repos/${selected.fullName}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`,
@@ -776,7 +847,7 @@ export class GitHubConnection {
             ...(reusable ? { "if-none-match": reusable.etag } : {}),
           },
         },
-        reusable ? [304] : [],
+        { alsoAccept: reusable ? [304] : [] },
       );
       if (response.status === 304 && reusable) return { defaultBranch, ...reusable.tree };
       const parsed = restTreeSchema.parse(await response.json());
@@ -797,12 +868,7 @@ export class GitHubConnection {
         })),
       };
       const etag = response.headers.get("etag");
-      if (etag) {
-        repositoryTrees.delete(selected.repositoryId);
-        repositoryTrees.set(selected.repositoryId, { etag, defaultBranch, tree });
-        if (repositoryTrees.size > MAX_CACHED_TREES)
-          repositoryTrees.delete(repositoryTrees.keys().next().value as number);
-      }
+      if (etag) rememberRepositoryTree(cacheKey, { etag, defaultBranch, tree });
       return { defaultBranch, ...tree };
     });
   }
@@ -816,7 +882,7 @@ export class GitHubConnection {
    */
   async repositoryObject(
     userId: string,
-    repository: { installationId: number; repositoryId: number; fullName: string },
+    repository: RepositorySelection,
     target: { path: string; oid?: string },
   ) {
     const validPath = validateRepositoryPath(target.path);
@@ -860,48 +926,90 @@ export class GitHubConnection {
   }
 
   /**
-   * The last commit touching each entry of one directory, keyed by entry path. Loaded after
-   * the listing is already on screen, so its extra history request never delays navigation.
+   * What a directory listing shows beyond names: the newest commit touching the directory
+   * itself (`latest`, the listing's header) and the last commit per entry, keyed by entry path.
+   * Loaded after the listing is already on screen, so these requests never delay navigation.
    */
-  async repositoryDirectoryCommits(
-    userId: string,
-    repository: { installationId: number; repositoryId: number; fullName: string },
-    path: string,
-  ) {
+  async repositoryDirectoryCommits(userId: string, repository: RepositorySelection, path: string) {
     const directory = await this.repositoryObject(userId, repository, { path });
     if (directory.kind !== "tree") throw new AppError("NOT_FOUND");
     const paths = directory.entries.slice(0, MAX_LAST_COMMIT_PATHS).map((entry) => entry.path);
-    const result = await this.withToken(userId, (token) => {
-      const [owner, name] = repository.fullName.split("/");
-      return this.lastCommitsForPaths(owner, name, paths, token);
+    return this.withRepository(userId, repository, async (token, selected) => {
+      const [owner, name] = selected.fullName.split("/");
+      const [latest, commits] = await Promise.all([
+        this.latestCommitForPath(owner, name, directory.path, selected.repositoryId, token),
+        this.lastCommitsForPaths(owner, name, paths, token),
+      ]);
+      return {
+        latest,
+        commits: Object.fromEntries(paths.map((entryPath, index) => [entryPath, commits[index]])),
+      };
     });
-    if (!result.ok) throw new AppError("ACCESS_DENIED");
-    return Object.fromEntries(paths.map((entryPath, index) => [entryPath, result.data[index]]));
+  }
+
+  private async latestCommitForPath(
+    owner: string,
+    name: string,
+    path: string,
+    repositoryId: number,
+    token: string,
+  ) {
+    const response = assertGraphQLOk(
+      graphqlPathLatestCommitSchema.parse(
+        await this.graphql(PATH_LATEST_COMMIT_QUERY, { owner, name, path: path || null }, token),
+      ),
+    );
+    const repo = response.data?.repository;
+    if (repo && repo.databaseId !== repositoryId) throw new AppError("ACCESS_DENIED");
+    const node = repo?.defaultBranchRef?.target?.history?.nodes.at(0);
+    if (!node) return null;
+    // As GitHub lists them: the author and co-authors, then the committer when it is someone
+    // else (e.g. `web-flow` for commits made on github.com); nobody is shown twice.
+    const people = [...node.authors.nodes, node.committer]
+      .filter((person) => person !== null)
+      .map((person) => ({
+        name: person.user?.login ?? person.name ?? "Unknown",
+        avatarUrl: person.avatarUrl,
+      }));
+    return {
+      sha: node.oid,
+      message: node.messageHeadline,
+      date: node.committedDate,
+      people: people.filter(
+        (person, index) => people.findIndex((other) => other.name === person.name) === index,
+      ),
+    };
   }
 
   /** The file's bytes, streamed for Download/Raw. Up to GitHub's 100 MB contents limit. */
-  async repositoryRaw(
-    userId: string,
-    repository: { installationId: number; repositoryId: number; fullName: string },
-    path: string,
-  ) {
+  async repositoryRaw(userId: string, repository: RepositorySelection, path: string) {
     const validPath = validateRepositoryPath(path);
     if (validPath === "") throw new AppError("NOT_FOUND");
     return this.withRepository(userId, repository, async (token, selected) => {
-      const metadata = repositoryMetadataSchema.parse(
-        await this.api(`/repos/${selected.fullName}`, token),
-      );
-      if (metadata.id !== selected.repositoryId || metadata.full_name !== selected.fullName)
-        throw new AppError("ACCESS_DENIED");
-      const encodedPath = validPath.split("/").map(encodeURIComponent).join("/");
-      return this.send(
-        `https://api.github.com/repos/${selected.fullName}/contents/${encodedPath}`,
-        { headers: { ...this.restHeaders(token), accept: "application/vnd.github.raw+json" } },
-        [],
-        // The signal also bounds reading the body, and a download streams well past 8 s.
-        120_000,
-      );
+      await this.verifiedMetadata(token, selected);
+      try {
+        return await this.send(
+          `https://api.github.com/repos/${selected.fullName}/contents/${encodeRepositoryPath(validPath)}`,
+          { headers: { ...this.restHeaders(token), accept: "application/vnd.github.raw+json" } },
+          // The signal also bounds reading the body, and a download streams well past 8 s.
+          { timeoutMs: 120_000 },
+        );
+      } catch (error) {
+        // The repository itself was just read with this token, so a 404 here is the path.
+        if (isAppError(error) && error.code === "ACCESS_DENIED") throw new AppError("NOT_FOUND");
+        throw error;
+      }
     });
+  }
+
+  /** The REST half of the identity check: the full name still names the selected repository. */
+  private async verifiedMetadata(token: string, selected: RepositorySelection) {
+    const metadata = repositoryMetadataSchema.parse(
+      await this.api(`/repos/${selected.fullName}`, token),
+    );
+    if (metadata.id !== selected.repositoryId || metadata.full_name !== selected.fullName)
+      throw new AppError("ACCESS_DENIED");
+    return { defaultBranch: metadata.default_branch };
   }
 
   /**
@@ -912,8 +1020,8 @@ export class GitHubConnection {
    */
   private async withRepository<T>(
     userId: string,
-    repository: { installationId: number; repositoryId: number; fullName: string },
-    action: (token: string, selected: z.infer<typeof repositorySelectionSchema>) => Promise<T>,
+    repository: RepositorySelection,
+    action: (token: string, selected: RepositorySelection) => Promise<T>,
   ): Promise<T> {
     const selected = repositorySelectionSchema.parse(repository);
     const result = await this.withToken(userId, (token) => action(token, selected));
@@ -928,7 +1036,7 @@ export class GitHubConnection {
    */
   private async withVerifiedRepository<T>(
     userId: string,
-    repository: { installationId: number; repositoryId: number; fullName: string },
+    repository: RepositorySelection,
     action: (
       token: string,
       repo: { owner: string; name: string; defaultBranch: string },
@@ -947,12 +1055,9 @@ export class GitHubConnection {
       throw new AppError("ACCESS_DENIED");
 
     const result = await this.withToken(userId, async (token) => {
-      const path = `/repos/${selected.fullName}`;
-      const metadata = repositoryMetadataSchema.parse(await this.api(path, token));
-      if (metadata.id !== selected.repositoryId || metadata.full_name !== selected.fullName)
-        throw new AppError("ACCESS_DENIED");
+      const { defaultBranch } = await this.verifiedMetadata(token, selected);
       const [owner, name] = selected.fullName.split("/");
-      return action(token, { owner, name, defaultBranch: metadata.default_branch });
+      return action(token, { owner, name, defaultBranch });
     });
     if (!result.ok) throw new AppError("ACCESS_DENIED");
     return result.data;
@@ -1189,7 +1294,11 @@ export class GitHubConnection {
   }
 
   /** `request()` without the JSON read, for conditional (304) and streamed responses. */
-  private async send(url: string, init: RequestInit, alsoAccept: number[] = [], timeoutMs = 8000) {
+  private async send(
+    url: string,
+    init: RequestInit,
+    { alsoAccept = [], timeoutMs = 8000 }: { alsoAccept?: number[]; timeoutMs?: number } = {},
+  ) {
     try {
       const response = await this.http(url, {
         ...init,

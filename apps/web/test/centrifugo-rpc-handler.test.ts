@@ -116,7 +116,7 @@ describe("Daemon connection status method", () => {
   const statusPayload = (value: Record<string, unknown>) =>
     new TextEncoder().encode(JSON.stringify(value));
 
-  test("a periodic online status renews the Computer's upgrade identity lease", async () => {
+  test("a periodic online status persists a legacy leased identity without an expiry", async () => {
     const touched: unknown[] = [];
     const method = createDaemonConnectionStatusMethod(
       { put: async () => {}, get: async () => true },

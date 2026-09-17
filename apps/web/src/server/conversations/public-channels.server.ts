@@ -39,6 +39,25 @@ import type { ActionCardView } from "./action-cards.server";
  * human/Web UI and the Agent CLI share `PublicChannels.members`/`addMembers` through this. */
 export type ChannelActor = { userId: string } | { agentId: string };
 
+/**
+ * Soft-leaves one member's row (sets `leftAt`) if it is currently active; a no-op (returns
+ * `false`) if the row is missing or already left. This is the one write both `leave` and
+ * `removeMember` use, for both the human/Web UI (`PublicChannels.leave`/`removeMember`) and the
+ * Agent CLI (`AgentChannelManagement.leave`/`removeMember`, ADR 0024/0031) — the soft-leave write
+ * itself lives in exactly one place regardless of who is leaving/removing whom.
+ */
+export async function softLeaveMember(
+  db: Pick<PrismaClient, "conversationMember">,
+  conversationId: string,
+  actor: ChannelActor,
+): Promise<boolean> {
+  const result = await db.conversationMember.updateMany({
+    where: { conversationId, ...channelActorMemberWhere(actor), ...ACTIVE_MEMBER_WHERE },
+    data: { leftAt: new Date() },
+  });
+  return result.count > 0;
+}
+
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
   return {
@@ -278,8 +297,10 @@ export class PublicChannels {
     followed: boolean,
   ) {
     await this.channel(workspaceId, userId, channelId);
-    const member = await this.db.conversationMember.findUnique({
-      where: { conversationId_userId: { conversationId: channelId, userId } },
+    // A soft-left member (`leftAt` set) may no longer follow threads, matching `send`'s own
+    // ACTIVE_MEMBER_WHERE check: leaving stops all delivery, not just ordinary channel posts.
+    const member = await this.db.conversationMember.findFirst({
+      where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
       select: { id: true },
     });
     if (!member) throw new AppError("ACCESS_DENIED");
@@ -353,7 +374,13 @@ export class PublicChannels {
       .sort((a, b) => Number(b.name === "general") - Number(a.name === "general"));
   }
 
-  async create(workspaceId: string, userId: string, name: string, projectId?: string) {
+  async create(
+    workspaceId: string,
+    userId: string,
+    name: string,
+    projectId?: string,
+    description?: string,
+  ) {
     await this.authorize(workspaceId, userId);
     if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) throw new AppError("INVALID_INPUT");
     // general is reserved for automatic enrollment, including before the first list request.
@@ -371,6 +398,7 @@ export class PublicChannels {
           workspaceId,
           channelName: name,
           ...(projectId ? { projectId } : {}),
+          ...(description !== undefined ? { description } : {}),
           // The creator becomes the channel's first admin (ADR 0030).
           members: { create: { userId, channelRole: "admin" } },
         },
@@ -445,6 +473,55 @@ export class PublicChannels {
   }
 
   /**
+   * A human leaves a public channel they are an active member of themselves ("Leave a channel",
+   * Slack: any member may leave a channel they belong to). Never `#general` (`CONFLICT`, Slack:
+   * "It's not possible to leave the default #general channel"). Soft-left (`leftAt` set), not
+   * deleted: the same row's mute preference and read boundary survive a later `join`, which clears
+   * `leftAt` again. ADR 0031.
+   */
+  async leave(workspaceId: string, userId: string, channelId: string) {
+    const channel = await this.channel(workspaceId, userId, channelId);
+    if (channel.channelName === "general") throw new AppError("CONFLICT");
+    const wasMember = await softLeaveMember(this.db, channel.id, { userId });
+    if (!wasMember) throw new AppError("ACCESS_DENIED");
+    return { left: true };
+  }
+
+  /**
+   * A channel admin (either basis) removes a human or Agent from a public channel — originally
+   * Slack's "Workspace Owners and Admins can remove people from public channels" (ADR 0031), now
+   * generalized to the `remove_member` capability (ADR 0030) so a channel admin via stored
+   * `channelRole` may also remove members from a channel it administers, the same authority the
+   * Agent CLI's `remove-member` already has (ADR 0024). Never `#general` (`CONFLICT`, Slack:
+   * "It's not possible to remove people from the #general … channel"). A plain member without
+   * either admin basis is denied `ACCESS_DENIED` before any row is touched. Soft-left, same as
+   * `leave`: messages, tasks and thread history stay; the row (mute preference, read boundary)
+   * survives for a later re-add/rejoin.
+   */
+  async removeMember(
+    workspaceId: string,
+    actorUserId: string,
+    channelId: string,
+    target: ChannelActor,
+  ) {
+    const channel = await this.db.conversation.findFirst({
+      where: { id: channelId, workspaceId, channelName: { not: null } },
+      select: { id: true, channelName: true },
+    });
+    if (!channel) throw new AppError("NOT_FOUND");
+    if (channel.channelName === "general") throw new AppError("CONFLICT");
+    const authority = await resolveChannelAuthority(
+      this.db,
+      workspaceId,
+      { userId: actorUserId },
+      channel,
+    );
+    if (!authority.capabilities.remove_member) throw new AppError("ACCESS_DENIED");
+    const wasMember = await softLeaveMember(this.db, channel.id, target);
+    return { removed: true, wasMember };
+  }
+
+  /**
    * Current members split into humans and Agents, plus candidates (Workspace
    * humans and Agents not yet members) and whether the actor may add members
    * (has an active ConversationMember row in this channel). Any Workspace
@@ -460,6 +537,7 @@ export class PublicChannels {
       select: { id: true, channelName: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
+    const isGeneral = channel.channelName === "general";
 
     const [memberRows, workspaceUsers, workspaceAgents, actorServerRole] = await Promise.all([
       this.db.conversationMember.findMany({
@@ -491,6 +569,9 @@ export class PublicChannels {
         select: { id: true, name: true, displayName: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
+      // The actor's own server role (Workspace role for a human, Agent.role for an Agent),
+      // independent of whether they are a member of *this* channel: an owner/admin who has
+      // never joined a channel may still archive/remove-member/manage-roles on it.
       resolveActorServerRole(this.db, workspaceId, actor),
     ]);
 
@@ -508,7 +589,6 @@ export class PublicChannels {
       "userId" in actor ? row.user?.id === actor.userId : row.agent?.id === actor.agentId,
     );
     const isActiveMember = Boolean(actorRow);
-    const isGeneral = channel.channelName === "general";
     const actorAdminBasis = deriveChannelAdminBasis(actorServerRole, actorRow?.channelRole);
     const capabilities = deriveChannelCapabilities({
       isHuman: "userId" in actor,
@@ -523,6 +603,13 @@ export class PublicChannels {
       channelRole: actorRow?.channelRole,
       channelAdminBasis: actorAdminBasis,
       channelCapabilities: capabilities,
+      // Aliases of the capability matrix above, kept for the existing ADR 0031 human UI
+      // (`ChannelMembersDialog`'s Remove/Leave actions): `remove_member`/`leave` are now the
+      // single source of truth, a strict superset of ADR 0031's original owner/admin-only rule
+      // — a channel admin via `channelRole` (not just a Workspace owner/admin) may also remove
+      // members from a channel it administers.
+      canRemoveMembers: capabilities.remove_member,
+      canLeave: capabilities.leave,
       humans: memberRows
         .filter((row) => row.user)
         .map((row) => {
@@ -663,8 +750,11 @@ export class PublicChannels {
     const channel = await this.channel(workspaceId, userId, channelId);
     const limit = Math.min(page.limit ?? 50, 100);
     const [member, messages] = await Promise.all([
-      this.db.conversationMember.findUnique({
-        where: { conversationId_userId: { conversationId: channelId, userId } },
+      // Filtered through ACTIVE_MEMBER_WHERE (not findUnique on the raw row): a human who left or
+      // was removed must see the read-only preview (`senderMemberId` empty) like anyone who never
+      // joined, not their old member state. The row itself survives untouched for a later rejoin.
+      this.db.conversationMember.findFirst({
+        where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
         include: { threadReads: true, threadFollows: true },
       }),
       this.db.message.findMany({

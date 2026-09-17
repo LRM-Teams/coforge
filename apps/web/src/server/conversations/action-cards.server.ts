@@ -368,6 +368,7 @@ export class ActionCards {
         conversationId: true,
         workspaceId: true,
         kind: true,
+        payload: true,
         state: true,
         preparedByAgent: { select: { ownerId: true } },
       },
@@ -443,11 +444,16 @@ export class ActionCards {
       "channel:create",
     );
     const channels = new PublicChannels(this.db);
+    // The Agent-proposed description (`Conversation.description`, ADR 0024) rides along from the
+    // card's own resolved payload, not a new browser-supplied input: it is the Agent's context,
+    // not something the committing human retypes.
+    const payload = card.payload as ResolvedActionCardPayload & { type: "channel:create" };
     const created = await channels.create(
       principal.workspaceId,
       principal.actorUserId,
       input.name,
       input.projectId,
+      payload.description,
     );
     if (input.memberUserIds.length || input.memberAgentIds.length) {
       await channels.addMembers(

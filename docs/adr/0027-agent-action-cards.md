@@ -242,6 +242,13 @@ sees, commits, and cancels a pending card from the CoForge Web UI.
    `Conversation`. A future PR that adds a channel `description` column can
    wire this through without changing the card contract.
 
+   **Closed by ADR 0031** (`docs/adr/0031-channel-leave-and-member-removal.md`):
+   ADR 0024 added `Conversation.description`, so `PublicChannels.create`
+   gained an optional trailing `description` parameter and
+   `commitChannelCreate` now passes the card's already-resolved
+   `payload.description` through to it. No card-contract change was needed;
+   this closes exactly the gap this point described.
+
 ### Rejected alternatives (commit and cancel)
 
 - Giving `ActionCards` its own `channel:create`/`channel:add_member`

@@ -5,6 +5,7 @@ import {
   describeUpgradeRequestError,
 } from "../src/features/computers/upgrade-failure";
 import { AppError } from "../src/lib/app-error";
+import { m } from "@/paraglide/messages";
 
 test("a reported failure shows the Computer's own reason on one line", () => {
   const line = describeComputerUpgradeFailure({
@@ -35,6 +36,20 @@ test("an offline Computer reads as a human sentence, never the raw AppError wire
   expect(copy.headline).not.toContain("COMPUTER_OFFLINE");
   expect(copy.headline.length).toBeGreaterThan(0);
   expect(copy.errorId).toBe("abc");
+});
+
+test("a Computer with no reported identity reads as its own actionable sentence", () => {
+  const copy = describeUpgradeRequestError(
+    new AppError("COMPUTER_IDENTITY_UNKNOWN", { errorId: "def" }),
+  );
+
+  expect(copy.headline).toBe(m.computer_upgrade_identity_unknown());
+  expect(copy.headline).not.toContain("COFORGE_APP_ERROR");
+  expect(copy.headline).not.toContain("COMPUTER_IDENTITY_UNKNOWN");
+  expect(copy.headline).not.toBe(
+    describeUpgradeRequestError(new AppError("COMPUTER_OFFLINE")).headline,
+  );
+  expect(copy.errorId).toBe("def");
 });
 
 test("an unavailable release feed reads as its own sentence", () => {

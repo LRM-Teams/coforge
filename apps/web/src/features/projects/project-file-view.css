@@ -76,5 +76,7 @@
 
 ::highlight(pfv-find-active) {
   background-color: var(--color-bg-brand-solid);
-  color: white;
+  /* Matches the Button component's (intentionally non-themeable, see
+     coforge-theme.css) white text on `bg-brand-solid`. */
+  color: var(--color-text-white);
 }

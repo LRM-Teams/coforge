@@ -14,6 +14,7 @@ import {
   presentActivity,
   type ActivityObservation,
 } from "./agent-activity-presentation";
+import { RECENT_ACTIVITY_LIMIT } from "./agent-activity";
 
 export type AvatarSize = NonNullable<AvatarProps["size"]>;
 
@@ -65,7 +66,6 @@ export function AgentActivityAvatar({
   activity,
   loading = false,
   error = false,
-  stale = false,
   size = "sm",
   timeZone,
   onOpen,
@@ -75,8 +75,6 @@ export function AgentActivityAvatar({
   activity: readonly AvatarActivity[];
   loading?: boolean;
   error?: boolean;
-  /** The shared activity subscription dropped; the list below may be out of date. */
-  stale?: boolean;
   size?: AvatarSize;
   timeZone?: string | null;
   onOpen?: () => void;
@@ -86,7 +84,7 @@ export function AgentActivityAvatar({
     .flatMap((entry) =>
       presentActivity(entry).map((row) => ({ ...row, observedAtMs: entry.observedAtMs })),
     )
-    .slice(0, 5);
+    .slice(0, RECENT_ACTIVITY_LIMIT);
   const time = new Intl.DateTimeFormat(getLocale(), {
     hour: "2-digit",
     minute: "2-digit",
@@ -138,11 +136,6 @@ export function AgentActivityAvatar({
       )}
       <div className="mt-4 border-t border-secondary px-4 pt-3 pb-2">
         <h3 className="mb-3 text-xs font-medium text-tertiary">{m.agent_avatar_recent()}</h3>
-        {stale && !loading && !error && (
-          <p role="status" className="mb-3 text-xs text-tertiary">
-            {m.agent_avatar_stale()}
-          </p>
-        )}
         {loading ? (
           <p className="pb-3 text-xs text-tertiary">{m.agent_avatar_loading()}</p>
         ) : error ? (

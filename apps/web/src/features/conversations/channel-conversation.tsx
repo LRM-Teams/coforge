@@ -41,6 +41,7 @@ export function ChannelConversationHeader({
   onShowChat,
   onShowTasks,
   onMutedChange,
+  onLeft,
 }: {
   conversation: ChannelConversationView;
   tasks?: TaskView[];
@@ -48,6 +49,8 @@ export function ChannelConversationHeader({
   onShowChat?: () => void;
   onShowTasks?: () => void;
   onMutedChange: (muted: boolean) => Promise<void>;
+  /** Called after the current user successfully leaves the channel via the Members dialog. */
+  onLeft?: () => Promise<void>;
 }) {
   const [savingMute, setSavingMute] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -115,8 +118,10 @@ export function ChannelConversationHeader({
       {membersOpen && (
         <ChannelMembersDialog
           channelId={conversation.conversationId}
+          channelName={conversation.name}
           open={membersOpen}
           onOpenChange={setMembersOpen}
+          onLeft={onLeft}
         />
       )}
     </header>
@@ -128,6 +133,7 @@ export function ChannelConversation({
   onSend,
   onJoin,
   onMutedChange,
+  onLeft,
   onLoadOlder,
   onLoadOwnMessages,
   onLoadMessageAround,
@@ -149,6 +155,8 @@ export function ChannelConversation({
   ) => Promise<OwnMessageIndexEntry | void>;
   onJoin: () => Promise<void>;
   onMutedChange: (muted: boolean) => Promise<void>;
+  /** Called after the current user successfully leaves the channel via the Members dialog. */
+  onLeft?: () => Promise<void>;
   onLoadOlder?: () => Promise<void>;
   onLoadOwnMessages?: (beforeSequence?: number) => Promise<{
     messages: Array<{
@@ -221,6 +229,7 @@ export function ChannelConversation({
           active="chat"
           onShowTasks={onShowTasks}
           onMutedChange={onMutedChange}
+          onLeft={onLeft}
         />
       }
       readOnlyNotice={

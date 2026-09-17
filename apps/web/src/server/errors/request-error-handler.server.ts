@@ -26,6 +26,7 @@ export function handleRequestError(error: unknown): HandledRequestError {
       WORKSPACE_REQUIRED: 400,
       INTERNAL_ERROR: 500,
       COMPUTER_OFFLINE: 409,
+      COMPUTER_IDENTITY_UNKNOWN: 409,
       RELEASE_FEED_UNAVAILABLE: 503,
     }[error.code];
     return { code, message: error.message };

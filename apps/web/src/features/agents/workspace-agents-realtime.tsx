@@ -22,12 +22,10 @@ export type LiveAgent = {
   display?: AgentDisplaySnapshot;
 };
 
-type ActivityConnection = { workspaceId?: string; stale: boolean };
-
 // Both contexts are module-private: everything outside reads them through the
 // hooks below, so a consumer can never reach in and subscribe on its own.
 const LiveAgentsContext = createContext<LiveAgent[]>([]);
-const ActivityConnectionContext = createContext<ActivityConnection>({ stale: false });
+const WorkspaceIdContext = createContext<string | undefined>(undefined);
 
 /**
  * Owns the app shell's one Agent status subscription and one Activity
@@ -47,7 +45,7 @@ export function WorkspaceAgentsProvider({
 }) {
   const refreshAgents = useServerFn(listAgents);
   const getStatusToken = useServerFn(getAgentStatusSubscriptionToken);
-  const { stale } = useWorkspaceActivityRealtime(workspaceId);
+  useWorkspaceActivityRealtime(workspaceId);
   const visibleAgents = useAgentStatuses({
     agents,
     workspaceId,
@@ -56,9 +54,7 @@ export function WorkspaceAgentsProvider({
   });
   return (
     <LiveAgentsContext value={visibleAgents}>
-      <ActivityConnectionContext value={{ workspaceId, stale }}>
-        {children}
-      </ActivityConnectionContext>
+      <WorkspaceIdContext value={workspaceId}>{children}</WorkspaceIdContext>
     </LiveAgentsContext>
   );
 }
@@ -75,17 +71,18 @@ export function useLiveAgent(agentId: string): LiveAgent | undefined {
 
 /** One Agent's recent activity (≤5, newest first), for its avatar popover. */
 export function useAgentRecentActivity(agentId: string) {
-  const { workspaceId, stale } = useContext(ActivityConnectionContext);
+  const workspaceId = useContext(WorkspaceIdContext);
   const query = useQuery({
-    ...workspaceActivityQuery(workspaceId ?? "-"),
-    enabled: Boolean(workspaceId),
+    ...workspaceActivityQuery(workspaceId),
     select: (data) => data[agentId] ?? EMPTY_ACTIVITY,
   });
+  const activity = query.data ?? EMPTY_ACTIVITY;
   return {
-    activity: query.data ?? EMPTY_ACTIVITY,
+    activity,
+    // Without a workspaceId the query is disabled via skipToken, which also
+    // reads as isPending, so the caller needs the guard to tell them apart.
     loading: query.isPending && Boolean(workspaceId),
-    error: query.isError && !query.data,
-    stale,
+    error: query.isError && activity.length === 0,
   };
 }
 

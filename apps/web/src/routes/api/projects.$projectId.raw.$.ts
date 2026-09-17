@@ -3,7 +3,7 @@ import { z } from "zod";
 import { AppError, isAppError } from "../../lib/app-error";
 import { optionalBrowserUser } from "../../server/auth/require-user.server";
 import { requireDatabaseClient } from "../../server/db/client.server";
-import { configuredGitHub } from "../../server/integrations/github-config.server";
+import { ProjectFiles } from "../../server/projects/project-files.server";
 
 /** Streams one repository file as a download, read with the requesting User's GitHub token. */
 export const Route = createFileRoute("/api/projects/$projectId/raw/$")({
@@ -14,34 +14,16 @@ export const Route = createFileRoute("/api/projects/$projectId/raw/$")({
           const user = optionalBrowserUser(request.headers.get("cookie") ?? undefined);
           if (!user) throw new AppError("ACCESS_DENIED");
           if (!z.uuid().safeParse(params.projectId).success) throw new AppError("NOT_FOUND");
-          const path = params._splat ?? "";
-          const project = await requireDatabaseClient().project.findFirst({
-            where: { id: params.projectId, workspace: { members: { some: { userId: user.id } } } },
-            select: { githubInstallationId: true, githubRepositoryId: true, githubFullName: true },
-          });
-          if (
-            !project?.githubFullName ||
-            !project.githubInstallationId ||
-            !project.githubRepositoryId
-          )
-            throw new AppError("NOT_FOUND");
-          const github = await configuredGitHub();
-          if (!github) throw new AppError("TEMPORARILY_UNAVAILABLE");
-          const file = await github.connection.repositoryRaw(
+          const file = await new ProjectFiles(requireDatabaseClient()).download(
             user.id,
-            {
-              installationId: project.githubInstallationId,
-              repositoryId: project.githubRepositoryId,
-              fullName: project.githubFullName,
-            },
-            path,
+            params.projectId,
+            params._splat ?? "",
           );
-          const name = path.split("/").pop() || "file";
           return new Response(file.body, {
             headers: {
               // Repository content is untrusted: never let the browser render it on this origin.
               "Content-Type": "application/octet-stream",
-              "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+              "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
               "X-Content-Type-Options": "nosniff",
               "Cache-Control": "private, no-store",
               Vary: "Cookie",

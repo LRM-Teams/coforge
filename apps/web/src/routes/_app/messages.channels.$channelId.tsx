@@ -73,6 +73,12 @@ function ChannelPage() {
     await setMuted({ data: { channelId, muted } });
     await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
   };
+  // The Members dialog calls `leavePublicChannel` itself; this only refreshes the page (so
+  // `senderMemberId` empties and the read-only Join view appears) and the sidebar channel list
+  // (so it reflects `joined: false`).
+  const afterLeft = async () => {
+    await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
+  };
   const followThread = (threadRootId: string) =>
     page.patch((current) => ({
       ...current,
@@ -90,6 +96,7 @@ function ChannelPage() {
             active="tasks"
             onShowChat={showChat}
             onMutedChange={changeMuted}
+            onLeft={afterLeft}
           />
         }
         layout={taskLayout}
@@ -145,6 +152,7 @@ function ChannelPage() {
         await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
       }}
       onMutedChange={changeMuted}
+      onLeft={afterLeft}
       onReadThread={(threadRootId, throughSequence) =>
         markRead({ data: { channelId, threadRootId, throughSequence } })
       }

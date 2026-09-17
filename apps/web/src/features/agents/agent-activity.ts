@@ -22,6 +22,9 @@ export type ActivityEntry = {
 
 export const agentActivityChannel = (workspaceId: string) => `agent:activity:${workspaceId}`;
 
+/** The avatar popover's row count. */
+export const RECENT_ACTIVITY_LIMIT = 5;
+
 // ADR 0021: liveness-only fillers, same treatment as runtime_progress. Kept
 // local (rather than imported from the server display module) because this
 // file is shared with the browser bundle.

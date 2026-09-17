@@ -201,9 +201,16 @@ it never runs the upgrade in its own service cgroup. Linux uses a systemd user
 transient unit and macOS a per-user launchd job, both outside the managed
 service kill scope. The entrypoint reuses the Computer upgrade coordinator's
 download, checksum, snapshot, health and rollback transaction. Unsupported
-platforms fail closed. Accepted publication is not completion evidence.
-Completion is reported only after a fresh ready identity and the same request
-ID are observed; outcomes are accepted, completed, failed, or unknown.
+platforms fail closed. Web refuses to register a new request unless the
+Computer's presence cache (the same 90-second, self-healing lease as its
+online status) reports it online; a Computer with no ready identity on record
+yet fails distinctly as unknown-identity rather than offline. Accepted
+publication is not completion evidence. Completion is reported only after a
+fresh ready identity and the same request ID are observed; outcomes are
+accepted, completed, failed, or unknown. The stored identity itself is a
+durable snapshot with no expiry, overwritten monotonically on every ready -
+it is evidence of the last reported version, never a liveness signal (see
+[ADR 0030](adr/0030-upgrade-identity-durable-snapshot.md)).
 Each upgrade is one operation with an identity carried explicitly from the
 process boundary - never through an environment variable - and a durable
 request/result receipt pair under
@@ -354,15 +361,16 @@ metadata 身份（REST）；Workspace 内的 Project 可见性不授予 GitHub �
 项目详情同时支持在 CoForge 内浏览默认分支任意路径（`/projects/$projectSlug/tree/$`）。
 浏览是高频读路径，因此不重复关联仓库时的完整校验（不调 `sync`、不枚举 installation 下的
 仓库）：GitHub 保证 user access token 只能访问「用户有权限」且「App 已安装并有权限」的
-资源，越权由 GitHub 拒绝；仓库身份（改名后被同名仓库顶替）在各自的请求内校验。
+资源，越权由 GitHub 拒绝（决策记录见 ADR 0030）；仓库身份（改名后被同名仓库顶替）在各自的请求内校验。
 `repositoryTree` 先读 repository metadata（ID、完整名称、默认分支），再用 Git Trees
-`recursive=1` 一次取回整棵树，服务端按仓库 ID 缓存 ETag，以 `If-None-Match` 复验（304 不计入
-限额，且只会返回给 GitHub 认可的 token）；超过 100,000 条或 7 MB 时 GitHub 置 `truncated`，
+`recursive=1` 一次取回整棵树，服务端按「仓库 ID + 用户」缓存 ETag（GitHub 的 ETag 随 token 变化，见 github/docs#34689），
+以 `If-None-Match` 复验（304 不计入限额，且只会返回给 GitHub 认可的 token），缓存按总条目数设上限；超过 100,000 条或 7 MB 时 GitHub 置 `truncated`，
 此时未进入索引的路径退回按路径读取。浏览器端整树只取一次，目录展开不发请求。
 `repositoryObject` 用一次 GraphQL 读取单个 Blob/Tree，并在同一响应里用 `databaseId` 校验
 仓库身份；带树中 blob SHA 时按 `object(oid:)` 读取（内容不可变，浏览器端永久缓存，悬停即
 预取），否则按 `HEAD:<path>`。目录各条目的最后提交（`repositoryDirectoryCommits`，复用同一
-按路径分批逻辑）在列表显示之后再加载。1 MB 以内、非二进制且未被截断的 Markdown 以只读方式
+按路径分批逻辑）连同该目录自身的最近一次提交（列表表头：作者与不同于作者的提交者、短 SHA、时间）
+在列表显示之后再加载。1 MB 以内、非二进制且未被截断的 Markdown 以只读方式
 用 Records 编辑器渲染或显示高亮源码，其余文本文件显示带行号的高亮源码（全部行进入 DOM，以
 CSS `content-visibility` 跳过屏外渲染，保留浏览器查找与全选）；二进制、超过 1 MB、被截断的
 文件以及图片不在站内预览。下载经 `/api/projects/$projectId/raw/$`（`repositoryRaw`，REST
@@ -1062,12 +1070,26 @@ member：创建者成为不可转让的 owner；owner/admin 可通过用户名�
 加入；owner 不可离开或被移除。频道成员（不论 Workspace 角色）均可将 Workspace 真人或 Agent 添加
 为该频道的成员（`PublicChannels.members`/`addMembers`，ADR 0025，对齐 Slack
 ["All members ... can add people to channels"](https://slack.com/help/articles/201980108-Add-people-to-a-channel)）；
-频道层复用 Workspace 角色，不另建独立角色体系；私有频道已规划但本次未引入。当前未实现频道成员
-移除：`Message.sender` 外键对 `ConversationMember` 是 `onDelete: Restrict`，删除已发过消息的
-成员会被数据库拒绝；规划规则是 owner/admin 可将成员移出公开频道、但不能移出 `#general`（对齐
-Slack
-["By default, Workspace Owners and Admins can remove people from public channels"](https://slack.com/help/articles/201898668-Remove-someone-from-a-channel)），
-留待后续决策实现（ADR 0025）。
+频道层复用 Workspace 角色，不另建独立角色体系；私有频道已规划但本次未引入。
+
+任意活跃频道成员可随时主动离开公开频道（`PublicChannels.leave`），但不能离开 `#general`（对齐
+Slack ["No one can leave the general channel."](https://slack.com/help/articles/201375146-Leave-a-channel)，
+返回 `CONFLICT`）；Workspace owner/admin 可将真人或 Agent 移出公开频道（`PublicChannels
+.removeMember`，`assertCanRemoveChannelMembers`），同样不能移出 `#general`（对齐 Slack
+["By default, Workspace Owners and Admins can remove people from public channels … It's not
+possible to remove people from the #general … channel."](https://slack.com/help/articles/201898668-Remove-someone-from-a-channel)，
+返回 `CONFLICT`），普通 `member` 尝试移除他人会被 `ACCESS_DENIED` 拒绝。两者都复用 ADR 0024 为
+Agent CLI 引入的软离开表示：`ConversationMember.leftAt` 与 `ACTIVE_MEMBER_WHERE`，而不是另建一套
+真人专用状态（`Message.sender`/`Task.owner` 的 `onDelete: Restrict` 使硬删除对已发言成员不可行，
+这也是 ADR 0024 选择软离开的原因）。移除或离开只设置 `leftAt`，保留该成员的历史消息、Task 与同一
+`ConversationMember` 行；真人可随时通过既有 `join` 重新加入并清除 `leftAt`（读边界与静音偏好留在
+同一行，随重新加入恢复）；Agent 需要频道内成员通过 `addMembers` 重新加入。离开或被移除后不再收到
+该频道的投递或通知，也不能发送消息，直到重新加入（ADR 0031，`docs/adr/0031-channel-leave-and-
+member-removal.md`，实现 ADR 0025 §3 记录但推迟的规则，人侧对应 ADR 0024 已实现的 Agent 侧）。
+`PublicChannels.members` 额外返回 `canRemoveMembers`（owner/admin 且频道非 `#general`）与
+`canLeave`（当前活跃成员且频道非 `#general`），供 Web 端 Members 对话框决定是否显示“移除”与“离开
+频道”入口；服务端仍独立执行同样的授权检查。
+
 每个 Workspace 有一个保留名称 `#general`，所有真人成员与 Agent 自动加入；迁移回填旧数据，
 Workspace 创建事务写入默认频道，Agent 创建事务同步加入，频道发现和打开时补齐现有成员。
 
