@@ -258,6 +258,55 @@ test("update and snooze publish encodable upserts without operation-only fields"
   ]);
 });
 
+test("update accepts delaySeconds alone, and still rejects it together with fireAt", async () => {
+  const current = {
+    reminderId: "22222222-2222-4222-8222-222222222222",
+    ownerAgentId: "agent",
+    computerId: "computer",
+    version: 1,
+    title: "Before",
+    target: "@alice",
+    messageId: "11111111-1111-4111-8111-111111111111",
+    fireAt: "2026-01-02T01:00:00.000Z",
+    status: "scheduled" as const,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  const repository = {
+    authorize: async () => true,
+    get: async () => current,
+    update: async (_scope: unknown, _requestId: string, _fingerprint: string, _id: string) => ({
+      ...current,
+      version: 2,
+      fireAt: "2026-01-02T02:00:00.000Z",
+    }),
+  } as unknown as ReminderRepository;
+  const reminders = new Reminders(repository, { supports: async () => true }, async () => {});
+  const base = {
+    protocolMajor: 1 as const,
+    workspaceId: "workspace",
+    computerId: "computer",
+    agentId: "agent",
+    operation: "update" as const,
+    reminderId: current.reminderId,
+  };
+  const response = await reminders.execute(
+    { ...base, requestId: "update-delay-seconds", delaySeconds: 3600 },
+    "owner",
+  );
+  expect(response.reminders[0]).toMatchObject({ version: 2, fireAt: "2026-01-02T02:00:00.000Z" });
+  await expect(
+    reminders.execute(
+      {
+        ...base,
+        requestId: "update-delay-seconds-and-fire-at",
+        delaySeconds: 3600,
+        fireAt: "2026-01-02T03:00:00.000Z",
+      },
+      "owner",
+    ),
+  ).rejects.toThrow();
+});
+
 test("successful recurring fire best-effort publishes the canonical advanced job", async () => {
   const advanced = {
     reminderId: "22222222-2222-4222-8222-222222222222",

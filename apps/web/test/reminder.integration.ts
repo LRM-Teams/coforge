@@ -341,6 +341,61 @@ test("PostgreSQL preserves full multiline Unicode reminder titles through create
   }
 });
 
+test("update computes fireAt from delaySeconds exactly as snooze does", async () => {
+  const created = (
+    await reminders.execute(
+      schedule(`delay-update-create-${crypto.randomUUID()}`, {
+        fireAt: "2026-09-08T13:00:00.000Z",
+      }),
+      fixture.userId,
+    )
+  ).reminders[0]!;
+  try {
+    const updated = (
+      await reminders.execute(
+        {
+          ...schedule(`delay-update-${crypto.randomUUID()}`),
+          operation: "update",
+          reminderId: created.reminderId,
+          title: undefined,
+          target: undefined,
+          messageId: undefined,
+          fireAt: undefined,
+          delaySeconds: 3600,
+        },
+        fixture.userId,
+      )
+    ).reminders[0]!;
+    const expectedFireAt = new Date(now.getTime() + 3600 * 1000);
+    expect(updated.fireAt).toBe(expectedFireAt.toISOString());
+    expect(
+      await db.reminder.findUniqueOrThrow({
+        where: { id: created.reminderId },
+        select: { fireAt: true },
+      }),
+    ).toEqual({ fireAt: expectedFireAt });
+
+    const snoozed = (
+      await reminders.execute(
+        {
+          protocolMajor: 1,
+          requestId: `delay-update-snooze-${crypto.randomUUID()}`,
+          workspaceId: fixture.workspaceId,
+          computerId: fixture.computerId,
+          agentId: fixture.agentId,
+          operation: "snooze",
+          reminderId: created.reminderId,
+          delaySeconds: 3600,
+        },
+        fixture.userId,
+      )
+    ).reminders[0]!;
+    expect(snoozed.fireAt).toBe(updated.fireAt);
+  } finally {
+    await db.reminder.delete({ where: { id: created.reminderId } });
+  }
+});
+
 test("Daemon reminder RPC derives the assigned Agent owner and rejects another Computer's Agent", async () => {
   const row = await db.reminder.create({
     data: {
