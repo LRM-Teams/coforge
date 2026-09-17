@@ -179,6 +179,10 @@ model Agent {
   name                      String
   displayName               String
   description               String                     @default("")
+  /// Agent's own server role for management authority: owner | admin | member (never "owner" in
+  /// practice today, since only a human is ever created as a Workspace owner). Independent of
+  /// `Agent.ownerId`'s WorkspaceMembership role; see ADR 0024.
+  role                      String                     @default("member")
   createdAt                 DateTime                   @default(now())
   ownerId                   String                     @db.Uuid
   computerId                String?                    @db.Uuid
@@ -449,6 +453,8 @@ model Conversation {
   projectId      String?                @db.Uuid
   directKey      String?
   channelName    String?
+  description    String                 @default("")
+  archivedAt     DateTime?
   nextTaskNumber Int                    @default(1)
   createdAt      DateTime               @default(now())
   workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -475,6 +481,10 @@ model ConversationMember {
   agentId                  String?           @db.Uuid
   agentReadThroughSequence Int               @default(0)
   channelMuted             Boolean           @default(false)
+  /// Soft leave marker. Member rows can never be deleted once they own a Message/Task
+  /// (onDelete: Restrict), so "left" is represented here instead of by row absence.
+  /// Re-joining clears this and keeps the row, so read boundaries and mute preferences survive.
+  leftAt                   DateTime?
   conversation             Conversation      @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   workspace                Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user                     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
