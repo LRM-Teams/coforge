@@ -250,6 +250,9 @@ test("Full Reset completes with a warning, not a failure, when the workspace cle
     state: null,
   };
   const store: AgentControlStore = {
+    async memberRole() {
+      return "owner" as const;
+    },
     async get() {
       return structuredClone(agent);
     },

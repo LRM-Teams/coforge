@@ -724,6 +724,7 @@ test("a failed operation never latches: start, stop, restart, reset-session, and
     const sent: Uint8Array[] = [];
     const store: AgentControlStore = {
       get: async () => structuredClone(agent),
+      memberRole: async () => "owner",
       replace: async (before, state) => {
         if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
         agent = { ...agent, state: structuredClone(state) };
@@ -856,6 +857,7 @@ test("Full Reset completes with a warning when the workspace clear could not fin
   const sent: Uint8Array[] = [];
   const store: AgentControlStore = {
     get: async () => structuredClone(agent),
+    memberRole: async () => "owner",
     replace: async (before, state, options) => {
       if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
       if (options?.clearSession && !allowClear) throw new Error("transaction failed");

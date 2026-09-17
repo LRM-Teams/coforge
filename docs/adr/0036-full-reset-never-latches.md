@@ -1,4 +1,4 @@
-# ADR 0035: Full Reset never latches — a workspace clear failure is non-fatal
+# ADR 0036: Full Reset never latches — a workspace clear failure is non-fatal
 
 Status: accepted
 Date: 2026-09-17
@@ -77,7 +77,7 @@ set on the same result.
   `record.phase === "failed" && (record.scope.epoch === scope.epoch || record.action ===
   "reset-workspace")` to `record.phase === "failed" && record.scope.epoch === scope.epoch`. The
   ordinary same-epoch "this exact retry hasn't completed" rule is unchanged for every action; only
-  the reset-workspace-specific clause that ignored epoch entirely is gone. A record a pre-ADR-0035
+  the reset-workspace-specific clause that ignored epoch entirely is gone. A record a pre-ADR-0036
   daemon left in `"failed"` with `action: "reset-workspace"` no longer blocks a newer-epoch Start
   — see the "pre-existing failed reset-workspace record from an older daemon" test.
 - Server `begin()` drops its `old?.phase === "failed" && old.action === "full-reset" && (action
@@ -129,7 +129,7 @@ A) still sees a rejection and still turns it into the same warning.
   — never a toast, never a raw code (`docs/adr/0021`... — actually see the toast-vs-inline
   convention already in force across the product: a toast is an action confirmation only,
   anything the user must see or act on stays inline).
-- **A legacy on-disk record is not a permanent liability.** A daemon record left by a pre-ADR-0035
+- **A legacy on-disk record is not a permanent liability.** A daemon record left by a pre-ADR-0036
   build in `phase: "failed"`, `action: "reset-workspace"` is handled by the narrowed same-epoch
   check like any other failed action, not specially fenced forever; there is no data migration and
   no manual cleanup required — the very next Start at a newer epoch already succeeds.
@@ -160,3 +160,12 @@ bare-`"failed"` reset-workspace result — start, stop, restart, reset-session, 
 all begin immediately; the still-pending-operation rule is unchanged; a legacy `controlState` row
 without `warningCode` still parses). Rollback is by revert; every schema and wire change here is
 additive.
+
+## Relationship to ADR 0035
+
+ADR 0035 (#321) landed while this change was in review. It supersedes an *abandoned*,
+still non-terminal operation after 60 s, and keeps one exception: an abandoned full-reset
+yields only to a new full-reset, because its workspace deletion may be half done. That
+exception is kept unchanged here. This ADR removes only the latches that followed a
+*terminal* failure. Raft has no equivalent of either rule; whether the abandoned full-reset
+exception should also go is left open.
