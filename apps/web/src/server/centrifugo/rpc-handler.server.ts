@@ -51,7 +51,10 @@ import {
   computerObservationSchema,
   type ComputerObservation,
 } from "../computers/computer-metadata.server";
-export { createAgentSessionMethod } from "./agent-session-receiver.server";
+export {
+  createAgentSessionMethod,
+  createAgentSessionInvalidateMethod,
+} from "./agent-session-receiver.server";
 
 export const createAgentReminderMethod =
   (reminders: Reminders): CentrifugoRpcMethod =>

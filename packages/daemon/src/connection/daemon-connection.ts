@@ -21,11 +21,14 @@ import {
   decodeAgentWorkspaceResetRequest,
   encodeAgentControlResult,
   encodeAgentSessionReport,
+  encodeAgentSessionInvalidate,
   AGENT_CONTROL_RESULT_METHOD,
   AGENT_SESSION_METHOD,
+  AGENT_SESSION_INVALIDATE_METHOD,
   type AgentWorkspaceResetRequest,
   type AgentControlResult,
   type AgentSessionReport,
+  type AgentSessionInvalidate,
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentActivityProbe,
@@ -338,6 +341,9 @@ export interface DaemonConnectionClient {
   sendAgentActivity?(activity: AgentActivity): void;
   sendAgentStatus?(status: AgentStatus): void;
   reportAgentSession?(report: AgentSessionReport): Promise<void>;
+  /** Fire-and-forget: never blocks or fails a launch. Buffered latest-per-agent while
+   * disconnected and flushed on reconnect, like `sendAgentActivity`. */
+  sendSessionInvalidate?(message: AgentSessionInvalidate): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
   agentMessage?(
     request: AgentMessageRequest,
@@ -865,6 +871,8 @@ export class DaemonConnection implements DaemonConnectionClient {
   #readyRetryAttempts = 0;
   readonly #pendingActivity = new Map<string, AgentActivity>();
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
+  /** Latest-per-agent, like `#pendingActivity`; a newer launch's Activity drops a stale one. */
+  readonly #pendingSessionInvalidate = new Map<string, AgentSessionInvalidate>();
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
   readonly #upgradeRequestIds = new Set<string>();
@@ -925,6 +933,7 @@ export class DaemonConnection implements DaemonConnectionClient {
         });
         this.#reportOnline(client, config);
         this.#flushPendingActivity(client);
+        this.#flushPendingSessionInvalidate(client);
         for (const status of this.#latestStatuses.values()) this.#queueAgentStatus(client, status);
         this.#startStatusRefresh(config);
         if (reconnect && this.#readyRequestFactory) {
@@ -997,11 +1006,26 @@ export class DaemonConnection implements DaemonConnectionClient {
       superseded.add(pending.launchId);
       this.#supersededActivityLaunches.set(activity.agentId, superseded);
     }
+    // Any Activity for a different launch is proof a pending invalidate's launch is no
+    // longer current, whether or not an older Activity was already buffered.
+    const pendingInvalidate = this.#pendingSessionInvalidate.get(activity.agentId);
+    if (pendingInvalidate && pendingInvalidate.launchId !== activity.launchId)
+      this.#pendingSessionInvalidate.delete(activity.agentId);
     if (!this.#connected || !this.#client?.publish) {
       this.#pendingActivity.set(activity.agentId, activity);
       return;
     }
     this.#publishActivity(this.#client, activity);
+  }
+
+  /** Fire-and-forget; never awaited by a caller and never fails a launch. */
+  sendSessionInvalidate(message: AgentSessionInvalidate): void {
+    if (this.#supersededActivityLaunches.get(message.agentId)?.has(message.launchId)) return;
+    if (!this.#connected || !this.#client) {
+      this.#pendingSessionInvalidate.set(message.agentId, message);
+      return;
+    }
+    this.#publishSessionInvalidate(this.#client, message);
   }
 
   sendAgentStatus(status: AgentStatus): void {
@@ -1022,6 +1046,36 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#pendingActivity.clear();
     this.#supersededActivityLaunches.clear();
     for (const activity of pending) this.#publishActivity(client, activity);
+  }
+
+  #publishSessionInvalidate(
+    client: CentrifugeWorkspaceClient,
+    message: AgentSessionInvalidate,
+  ): void {
+    // An observation, not a command: a rejection (including an old server that does not
+    // recognize this RPC) is logged, never retried or surfaced to the caller.
+    void client
+      .rpc(AGENT_SESSION_INVALIDATE_METHOD, encodeAgentSessionInvalidate(message))
+      .catch((error) => {
+        logger.warning("Agent session invalidate was not accepted", {
+          event: "agent_session:invalidate_rejected",
+          workspace_id: message.workspaceId,
+          computer_id: message.computerId,
+          agent_id: message.agentId,
+          launch_id: message.launchId,
+          reason: message.reason,
+          error_code: diagnosticErrorCode(error),
+        });
+      });
+  }
+
+  #flushPendingSessionInvalidate(client: CentrifugeWorkspaceClient): void {
+    const pending = [...this.#pendingSessionInvalidate.values()];
+    this.#pendingSessionInvalidate.clear();
+    for (const message of pending) {
+      if (this.#supersededActivityLaunches.get(message.agentId)?.has(message.launchId)) continue;
+      this.#publishSessionInvalidate(client, message);
+    }
   }
 
   #queueAgentStatus(client: CentrifugeWorkspaceClient, status: AgentStatus): void {

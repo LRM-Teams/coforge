@@ -1,4 +1,8 @@
-import { decodeAgentSessionReport, type AgentSessionReport } from "@lrm/coforge-sdk/internal";
+import {
+  decodeAgentSessionInvalidate,
+  decodeAgentSessionReport,
+  type AgentSessionReport,
+} from "@lrm/coforge-sdk/internal";
 import type { AgentSessionReceiver } from "../agents/agent-session.server";
 import type { AgentSessions } from "../agents/agent-sessions.server";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
@@ -77,6 +81,39 @@ export function createAgentSessionMethod(
         }),
       );
       return { code: 403, message: "Agent Session snapshot is not authorized" };
+    }
+  };
+}
+
+/**
+ * Fire-and-forget from the daemon's side (the daemon never awaits or retries this RPC's
+ * result). A malformed payload or foreign scope is a 403, matching `createAgentSessionMethod`;
+ * a *recognized but no-longer-current* invalidate (stale launch, already-replaced Session,
+ * stale daemon instance) is `AgentSessionReceiver.invalidate`'s own idempotent no-op, not an
+ * error, since the daemon must never treat that as something to retry.
+ */
+export function createAgentSessionInvalidateMethod(
+  receiver: Pick<AgentSessionReceiver, "invalidate">,
+): CentrifugoRpcMethod {
+  return async (payload, metadata) => {
+    if (
+      !metadata.principal.userId ||
+      !metadata.principal.workspaceId ||
+      !metadata.principal.computerId
+    )
+      return { code: 401, message: "daemon authentication required" };
+    if (metadata.principal.agentId) return { code: 403, message: "daemon authentication required" };
+    try {
+      const message = decodeAgentSessionInvalidate(payload);
+      if (
+        metadata.principal.workspaceId !== message.workspaceId ||
+        metadata.principal.computerId !== message.computerId
+      )
+        return { code: 403, message: "Agent session scope is not authorized" };
+      await receiver.invalidate(metadata.principal, message);
+      return new Uint8Array();
+    } catch {
+      return { code: 403, message: "Agent Session invalidate is not authorized" };
     }
   };
 }

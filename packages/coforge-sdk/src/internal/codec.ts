@@ -29,6 +29,7 @@ import {
 } from "./gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   AgentSessionReportSchema,
+  AgentSessionInvalidateSchema,
   AgentStartIntentSchema,
   AgentStopIntentSchema,
   AgentActivityProbeSchema,
@@ -39,6 +40,7 @@ import {
 } from "./gen/coforge/rpc/v1/workspace_pb";
 import type {
   AgentSessionReport,
+  AgentSessionInvalidate,
   AgentStartIntent,
   AgentStopIntent,
   AgentActivityProbe,
@@ -125,6 +127,7 @@ const decodedModelCatalog = (catalog: {
 });
 
 const MAX_AGENT_SESSION_REPORT_BYTES = 32_768;
+const MAX_AGENT_SESSION_INVALIDATE_BYTES = 32_768;
 
 export function encodeDaemonRuntimeReadyRequest(value: DaemonRuntimeReadyRequest): Uint8Array {
   assertRunningAgentIds(value.runningAgentIds);
@@ -421,6 +424,62 @@ function validateAgentSessionReport(value: {
     (value.sessionId.length > 0 && !value.sessionId.trim())
   )
     throw new Error("invalid session report sessionId");
+}
+
+const AGENT_SESSION_INVALIDATE_REASONS = ["missing", "provider_replay_rejected"];
+
+export function encodeAgentSessionInvalidate(value: AgentSessionInvalidate): Uint8Array {
+  validateAgentSessionInvalidate(value);
+  const bytes = toBinary(AgentSessionInvalidateSchema, create(AgentSessionInvalidateSchema, value));
+  if (bytes.length > MAX_AGENT_SESSION_INVALIDATE_BYTES)
+    throw new Error("Agent Session invalidate payload too large");
+  return bytes;
+}
+
+export function decodeAgentSessionInvalidate(bytes: Uint8Array): AgentSessionInvalidate {
+  if (bytes.length > MAX_AGENT_SESSION_INVALIDATE_BYTES)
+    throw new Error("Agent Session invalidate payload too large");
+  const { $typeName: _, ...value } = fromBinary(AgentSessionInvalidateSchema, bytes);
+  validateAgentSessionInvalidate(value);
+  return value;
+}
+
+function validateAgentSessionInvalidate(value: {
+  protocolMajor: number;
+  provider: string;
+  controlEpoch: number;
+  reason: string;
+  [key: string]: unknown;
+}): asserts value is AgentSessionInvalidate {
+  if (
+    value.protocolMajor !== 1 ||
+    !Object.values(RUNTIME_PROVIDER).includes(value.provider as RuntimeProvider)
+  )
+    throw new Error("invalid session invalidate protocol/provider");
+  assertPositiveControlCounter(value.controlEpoch, "Agent control epoch");
+  if (!AGENT_SESSION_INVALIDATE_REASONS.includes(value.reason))
+    throw new Error("invalid session invalidate reason");
+  for (const field of [
+    "requestId",
+    "workspaceId",
+    "computerId",
+    "agentId",
+    "startRequestId",
+    "daemonInstanceId",
+    "launchId",
+  ])
+    if (
+      typeof value[field] !== "string" ||
+      !(value[field] as string).trim() ||
+      (value[field] as string).length > 512
+    )
+      throw new Error(`invalid session invalidate ${field}`);
+  if (
+    typeof value.sessionId !== "string" ||
+    !value.sessionId.trim() ||
+    value.sessionId.length > 512
+  )
+    throw new Error("invalid session invalidate sessionId");
 }
 
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {

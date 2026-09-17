@@ -94,6 +94,9 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   // Terminal detail kinds.
   RUNTIME_CRASHED: "runtime_crashed",
   RUNTIME_INTERRUPTED: "runtime_interrupted",
+  // A stored native Session could not be resumed (missing, or rejected on replay); the
+  // daemon reported it invalidated and is cold-starting without it.
+  RUNTIME_UNAVAILABLE: "runtime_unavailable",
   OTHER: "other",
 } as const;
 export type AgentActivityDetailKind =
@@ -115,6 +118,26 @@ export type AgentSessionReport = {
   controlEpoch?: number;
   sequence?: number;
   sessionState?: "empty" | "resumable" | "unknown";
+};
+export const AGENT_SESSION_INVALIDATE_METHOD = "agent:session:invalidate" as const;
+/** `missing`: the stored native Session no longer exists. `provider_replay_rejected`: the
+ * provider rejected replaying it. Mirrors `AgentSessionRecoveryCode`, minus `session_in_use`. */
+export type AgentSessionInvalidateReason = "missing" | "provider_replay_rejected";
+/** Fire-and-forget daemon-to-cloud notice that a stored native Session is gone or was
+ * rejected on replay; the daemon is cold-starting without it. Never delivered as Activity. */
+export type AgentSessionInvalidate = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  provider: RuntimeProvider;
+  sessionId: string;
+  startRequestId: string;
+  daemonInstanceId: string;
+  launchId: string;
+  controlEpoch: number;
+  reason: AgentSessionInvalidateReason;
 };
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;
 export type Workspace = { id: string; slug: string; name: string };
@@ -556,6 +579,8 @@ export {
 export {
   encodeAgentSessionReport,
   decodeAgentSessionReport,
+  encodeAgentSessionInvalidate,
+  decodeAgentSessionInvalidate,
   encodeAgentStartIntent,
   decodeAgentStartIntent,
   encodeAgentStopIntent,

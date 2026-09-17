@@ -1,9 +1,21 @@
-import type { AgentSessionReport, AgentSessionSnapshot } from "@lrm/coforge-sdk/internal";
+import type {
+  AgentSessionReport,
+  AgentSessionSnapshot,
+  AgentSessionInvalidate,
+} from "@lrm/coforge-sdk/internal";
 import { requireCurrentAgentScope, type AgentControlStore } from "./agent-control.server";
 
 /** Persists current Session identity; never advances or completes a control operation. */
 export class AgentSessionReceiver {
-  constructor(private readonly store: AgentControlStore) {}
+  constructor(
+    private readonly store: AgentControlStore,
+    /** Same daemon-freshness check `AgentSessions.verify` uses; optional so existing
+     * composition/tests that never call `invalidate` need not supply it. */
+    private readonly currentDaemon?: (
+      workspaceId: string,
+      computerId: string,
+    ) => Promise<string | undefined>,
+  ) {}
 
   async authorize(claim: { workspaceId: string; computerId: string }, report: AgentSessionReport) {
     const agent = await this.store.get(report.agentId);
@@ -43,5 +55,55 @@ export class AgentSessionReceiver {
       }))
     )
       throw new Error("Session snapshot lost its fence");
+  }
+
+  /**
+   * A daemon-initiated notice that a stored native Session is gone or was rejected on
+   * replay. Idempotent and best-effort: an unknown Agent, a scope mismatch, a stale daemon
+   * instance, or a Session/launch that no longer matches the current control state are all
+   * silently ignored (never an error) so a late or duplicate report can never clear a newer
+   * Session. Clears the current Session association the same way "Reset Session" does
+   * (`clearSession`), preserving the old native Session row, and marks the control state
+   * `recovered` when an operation is in flight so the UI's existing presentation is used.
+   */
+  async invalidate(
+    claim: { workspaceId: string; computerId: string },
+    message: AgentSessionInvalidate,
+  ): Promise<void> {
+    if (claim.workspaceId !== message.workspaceId || claim.computerId !== message.computerId)
+      return;
+    const agent = await this.store.get(message.agentId);
+    if (
+      !agent ||
+      agent.workspaceId !== message.workspaceId ||
+      agent.computerId !== message.computerId ||
+      agent.runtimeConfig.runtime !== message.provider
+    )
+      return;
+    if (
+      this.currentDaemon &&
+      (await this.currentDaemon(message.workspaceId, message.computerId)) !==
+        message.daemonInstanceId
+    )
+      return;
+    const state = agent.state;
+    if (
+      !state ||
+      state.launchId !== message.launchId ||
+      state.identity?.sessionId !== message.sessionId
+    )
+      return;
+    const { identity: _identity, ...fields } = state;
+    const inFlight = state.phase !== "completed" && state.phase !== "failed";
+    await this.store
+      .replace(
+        agent,
+        { ...fields, ...(inFlight || state.recovered ? { recovered: true } : {}) },
+        { clearSession: true },
+      )
+      .catch(() => {
+        // Lost a concurrent race (e.g. a newer result/snapshot already moved the Session
+        // association forward). Safe to drop: never retried, never surfaced as an error.
+      });
   }
 }

@@ -4286,8 +4286,14 @@ describe("DaemonRuntime", () => {
       expect(
         activities.some(
           (activity) =>
-            activity.detail ===
-            "Original session history was not found. A new session was started; previous context was not restored.",
+            activity.detailKind === "runtime_unavailable" &&
+            activity.detail === "Stored Pi session missing; cold-starting a new session…" &&
+            activity.entries?.some(
+              (entry) =>
+                entry.kind === "text" &&
+                entry.text ===
+                  "Stored Pi session old-session is unavailable locally. Falling back to a cold start; earlier runtime context may not be restored.",
+            ),
         ),
       ).toBe(true);
       fail = true;

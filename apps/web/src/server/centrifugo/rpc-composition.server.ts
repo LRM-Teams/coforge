@@ -1,5 +1,6 @@
 import {
   AGENT_SESSION_METHOD,
+  AGENT_SESSION_INVALIDATE_METHOD,
   WORKSPACE_LIST_METHOD,
   AGENT_SKILLS_LIST_RESULT_METHOD,
   AGENT_CONTROL_RESULT_METHOD,
@@ -19,6 +20,7 @@ import type { PrismaClient } from "../../../generated/client";
 import { PrismaWorkspaceAccess } from "../db/repositories/setup.repositories.server";
 import {
   createAgentSessionMethod,
+  createAgentSessionInvalidateMethod,
   createDaemonRuntimeCodeAgentsUpdateMethod,
   createWorkspaceListMethod,
   createDaemonRuntimeReadyMethod,
@@ -182,7 +184,11 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       getAgentControlSignal(),
       directConversations,
     );
-    const sessionReceiver = new AgentSessionReceiver(controlStore);
+    const sessionReceiver = new AgentSessionReceiver(
+      controlStore,
+      async (workspaceId, computerId) =>
+        (await getComputerRestartStore().identity?.({ workspaceId, computerId }))?.workerInstanceId,
+    );
     const reminderRepository = new PrismaReminderRepository(db);
     const reminderLease = getReminderCapabilityLease();
     const reminders = new Reminders(reminderRepository, reminderLease, (sync) =>
@@ -194,6 +200,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     return new CentrifugoRpcHandler({
       methods: {
         [AGENT_SESSION_METHOD]: createAgentSessionMethod(sessions, sessionReceiver),
+        [AGENT_SESSION_INVALIDATE_METHOD]: createAgentSessionInvalidateMethod(sessionReceiver),
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
         [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(
           new WorkspaceAgentRecovery(
@@ -282,6 +289,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [AGENT_SKILLS_LIST_RESULT_METHOD]: unavailableMethod,
       [AGENT_CONTROL_RESULT_METHOD]: unavailableMethod,
       [AGENT_SESSION_METHOD]: unavailableMethod,
+      [AGENT_SESSION_INVALIDATE_METHOD]: unavailableMethod,
       [AGENT_START_METHOD]: unavailableMethod,
       [AGENT_STATUS_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,

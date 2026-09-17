@@ -25,6 +25,13 @@ type Runtime = {
     replacedSessionId?: string,
   ): Promise<SessionIdentity | undefined>;
   wake?(intent: AgentStartIntent): Promise<void>;
+  /** Fire-and-forget; never blocks or fails the launch it is reported alongside. */
+  invalidateSession?(
+    intent: AgentStartIntent,
+    launchId: string,
+    sessionId: string,
+    reason: "missing" | "provider_replay_rejected",
+  ): void;
   result(result: AgentControlResult): Promise<void>;
   /** True when `error` (from `stop`/`launch`'s cleanup) means the local process's exit could not
    * be confirmed — the one case a stale-looking record must keep fencing rather than repair. */
@@ -296,6 +303,17 @@ export class AgentControl {
         } catch (error) {
           if (!intent.sessionId || !(error instanceof AgentSessionRecoveryError)) throw error;
           const { sessionId: replaced, sessionMode: _, ...fresh } = intent;
+          // Fire-and-forget: tell the server the stale session is gone BEFORE the fresh
+          // launch attempt, so a later Restart never tries it again — even if this launch
+          // then fails. Only the two invalidation reasons are reported; "session_in_use"
+          // is a retry signal, not evidence the session itself is gone.
+          if (error.code === "session_missing" || error.code === "provider_replay_rejected")
+            this.runtime.invalidateSession?.(
+              intent,
+              launchId,
+              replaced,
+              error.code === "session_missing" ? "missing" : "provider_replay_rejected",
+            );
           identity = await this.runtime.launch(fresh, launchId, replaced);
         }
         record.phase = "running";

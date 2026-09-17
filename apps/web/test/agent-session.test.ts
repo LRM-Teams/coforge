@@ -1,11 +1,20 @@
 import { expect, test } from "bun:test";
-import { encodeAgentSessionReport, type AgentSessionReport } from "@lrm/coforge-sdk/internal";
+import {
+  encodeAgentSessionReport,
+  encodeAgentSessionInvalidate,
+  type AgentSessionReport,
+  type AgentSessionInvalidate,
+} from "@lrm/coforge-sdk/internal";
 import { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
 import {
   agentControlRevision,
   type AgentControlAgent,
+  type AgentControlState,
 } from "../src/server/agents/agent-control.server";
-import { createAgentSessionMethod } from "../src/server/centrifugo/agent-session-receiver.server";
+import {
+  createAgentSessionMethod,
+  createAgentSessionInvalidateMethod,
+} from "../src/server/centrifugo/agent-session-receiver.server";
 
 test("Session RPC preserves control state and rejects stale scope, revoked access and lost writes", async () => {
   const snapshot: AgentSessionReport = {
@@ -113,4 +122,180 @@ test("Session RPC preserves control state and rejects stale scope, revoked acces
   });
   expect(await method(bytes, { principal })).toBeInstanceOf(Uint8Array);
   expect(writes).toBe(1);
+});
+
+function invalidateFixture() {
+  const config = {
+    runtime: "codex" as const,
+    provider: { kind: "default" as const },
+    model: "",
+    modelProvider: "",
+    reasoning: "",
+  };
+  const state: AgentControlState = {
+    version: 1,
+    protocolMajor: 1,
+    requestId: "request",
+    workspaceId: "workspace",
+    computerId: "computer",
+    agentId: "agent",
+    provider: "codex",
+    epoch: 1,
+    action: "start",
+    phase: "starting",
+    configRevision: agentControlRevision(config),
+    launchId: "launch-1",
+    identity: { sessionId: "stale-session", state: "resumable" },
+    controlSequence: 0,
+    sessionSequence: 1,
+  };
+  const agent: AgentControlAgent = {
+    id: "agent",
+    workspaceId: "workspace",
+    computerId: "computer",
+    ownerId: "owner",
+    runtimeConfig: config,
+    state,
+    identity: state.identity,
+  };
+  const message: AgentSessionInvalidate = {
+    protocolMajor: 1,
+    requestId: "invalidate-1",
+    workspaceId: "workspace",
+    computerId: "computer",
+    agentId: "agent",
+    provider: "codex",
+    sessionId: "stale-session",
+    startRequestId: "request",
+    daemonInstanceId: "daemon-current",
+    launchId: "launch-1",
+    controlEpoch: 1,
+    reason: "missing",
+  };
+  return { agent, message };
+}
+
+test("session invalidate clears a matching Session association and marks the state recovered", async () => {
+  const { agent, message } = invalidateFixture();
+  let stored = agent;
+  const calls: Array<{ clearSession?: boolean }> = [];
+  const receiver = new AgentSessionReceiver(
+    {
+      get: async (id) => (id === stored.id ? structuredClone(stored) : undefined),
+      replace: async (_before, next, options) => {
+        calls.push({ clearSession: options?.clearSession });
+        stored = { ...stored, state: next, identity: next.identity };
+        return true;
+      },
+    },
+    async () => "daemon-current",
+  );
+  const claim = { workspaceId: "workspace", computerId: "computer" };
+
+  await receiver.invalidate(claim, message);
+
+  expect(calls).toEqual([{ clearSession: true }]);
+  expect(stored.state?.identity).toBeUndefined();
+  expect(stored.state?.recovered).toBe(true);
+});
+
+test("session invalidate ignores a non-matching session id, launch id, or scope idempotently", async () => {
+  const { agent, message } = invalidateFixture();
+  let calls = 0;
+  const receiver = new AgentSessionReceiver(
+    {
+      get: async (id) => (id === agent.id ? structuredClone(agent) : undefined),
+      replace: async () => {
+        calls++;
+        return true;
+      },
+    },
+    async () => "daemon-current",
+  );
+  const claim = { workspaceId: "workspace", computerId: "computer" };
+
+  // Already replaced: the current identity no longer matches the invalidated one.
+  await receiver.invalidate(claim, { ...message, sessionId: "some-other-session" });
+  // Stale launch: a newer Start has since begun.
+  await receiver.invalidate(claim, { ...message, launchId: "an-older-launch" });
+  // Foreign Agent, workspace, computer, or provider scope.
+  await receiver.invalidate(claim, { ...message, agentId: "missing-agent" });
+  await receiver.invalidate(claim, { ...message, workspaceId: "other" });
+  await receiver.invalidate(claim, { ...message, computerId: "other" });
+  await receiver.invalidate(claim, { ...message, provider: "kiro" });
+  // Claim (trusted transport principal) does not match the message's own scope.
+  await receiver.invalidate({ workspaceId: "other", computerId: "computer" }, message);
+
+  expect(calls).toBe(0);
+});
+
+test("session invalidate rejects a stale daemon instance", async () => {
+  const { agent, message } = invalidateFixture();
+  let calls = 0;
+  const receiver = new AgentSessionReceiver(
+    {
+      get: async (id) => (id === agent.id ? structuredClone(agent) : undefined),
+      replace: async () => {
+        calls++;
+        return true;
+      },
+    },
+    async () => "a-different-daemon-instance",
+  );
+
+  await receiver.invalidate({ workspaceId: "workspace", computerId: "computer" }, message);
+
+  expect(calls).toBe(0);
+});
+
+test("session invalidate for an old launch can never clear a newer Session", async () => {
+  const { agent, message } = invalidateFixture();
+  // A newer Start has already bound a different Session under a newer launch, exactly what
+  // would exist by the time a late/stale invalidate for the OLD launch arrives.
+  const newer: AgentControlAgent = {
+    ...agent,
+    state: {
+      ...agent.state!,
+      launchId: "launch-2",
+      identity: { sessionId: "new-session", state: "resumable" },
+    },
+    identity: { sessionId: "new-session", state: "resumable" },
+  };
+  let calls = 0;
+  const receiver = new AgentSessionReceiver(
+    {
+      get: async () => structuredClone(newer),
+      replace: async () => {
+        calls++;
+        return true;
+      },
+    },
+    async () => "daemon-current",
+  );
+
+  await receiver.invalidate({ workspaceId: "workspace", computerId: "computer" }, message);
+
+  expect(calls).toBe(0);
+  expect(newer.state?.identity?.sessionId).toBe("new-session");
+});
+
+test("the agent:session:invalidate RPC method authorizes the daemon principal and always acknowledges", async () => {
+  const { message } = invalidateFixture();
+  const invalidations: AgentSessionInvalidate[] = [];
+  const method = createAgentSessionInvalidateMethod({
+    invalidate: async (_claim, msg) => {
+      invalidations.push(msg);
+    },
+  });
+  const principal = { userId: "owner", workspaceId: "workspace", computerId: "computer" };
+  const bytes = encodeAgentSessionInvalidate(message);
+
+  expect(await method(bytes, { principal: { ...principal, agentId: "agent" } })).toMatchObject({
+    code: 403,
+  });
+  expect(await method(bytes, { principal: { ...principal, workspaceId: "other" } })).toMatchObject({
+    code: 403,
+  });
+  expect(await method(bytes, { principal })).toBeInstanceOf(Uint8Array);
+  expect(invalidations).toEqual([message]);
 });

@@ -292,6 +292,37 @@ function recoveryOf(intent: AgentStartIntent): AgentRecoveryContext {
   };
 }
 
+/** Human runtime label for an invalidated-session Activity notice. */
+function runtimeDisplayName(provider: AgentStartIntent["provider"]): string {
+  switch (provider) {
+    case "codex":
+      return "Codex";
+    case "claude-code":
+      return "Claude Code";
+    case "kiro":
+      return "Kiro";
+    case "pi":
+      return "Pi";
+    case "coforge":
+      return "CoForge";
+    default:
+      return provider;
+  }
+}
+
+/** Raft-equivalent narration for a daemon-initiated cold start after a session invalidate. */
+function sessionInvalidateActivityText(
+  runtimeLabel: string,
+  staleSessionId: string,
+  reason: "missing" | "provider_replay_rejected",
+): { detail: string; entryText: string } {
+  const rejected = reason === "provider_replay_rejected";
+  return {
+    detail: `Stored ${runtimeLabel} session ${rejected ? "replay rejected" : "missing"}; cold-starting a new session…`,
+    entryText: `Stored ${runtimeLabel} session ${staleSessionId} ${rejected ? "was rejected by the provider during replay" : "is unavailable locally"}. Falling back to a cold start; earlier runtime context may not be restored.`,
+  };
+}
+
 /** A daemon-owned resident runtime for one supervised Workspace. */
 export class DaemonRuntime {
   readonly #connection: DaemonConfig;
@@ -331,6 +362,12 @@ export class DaemonRuntime {
     }
   >();
   readonly #agentInputQueues = new Map<string, AgentInputQueue>();
+  /** Set by `AgentControl`'s `invalidateSession` just before its fresh retry launch; consumed
+   * once by `#launchAgent` to narrate that retry's cold-start Activity with the right reason. */
+  readonly #pendingSessionInvalidateReason = new Map<
+    string,
+    "missing" | "provider_replay_rejected"
+  >();
   readonly #stoppingAgents = new Set<string>();
   readonly #agentStops = new Map<string, Promise<void>>();
   readonly #currentActivityLaunches = new Map<string, ActivityLaunch>();
@@ -468,6 +505,24 @@ export class DaemonRuntime {
           { wakeMessage: intent.wakeMessage },
           { requestId: intent.requestId },
         );
+      },
+      invalidateSession: (intent, launchId, sessionId, reason) => {
+        this.#pendingSessionInvalidateReason.set(intent.agentId, reason);
+        if (!intent.controlEpoch) return;
+        this.#transport.sendSessionInvalidate?.({
+          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+          requestId: crypto.randomUUID(),
+          workspaceId: this.#connection.workspaceId,
+          computerId: this.#connection.computerId,
+          agentId: intent.agentId,
+          provider: intent.provider,
+          sessionId,
+          startRequestId: intent.requestId,
+          daemonInstanceId: this.#runtimeInstanceId,
+          launchId,
+          controlEpoch: intent.controlEpoch,
+          reason,
+        });
       },
       result: async (result) => {
         await this.#transport.sendAgentControlResult?.(result);
@@ -1214,6 +1269,25 @@ export class DaemonRuntime {
     };
     this.#currentActivityLaunches.set(agentId, launch);
     this.#clearActivityHeartbeat(agentId);
+    // AgentControl's fresh retry after a kiro/pi AgentSessionRecoveryError: the invalidate was
+    // already reported before this launch (see `invalidateSession` above); narrate the cold
+    // start here, where the real launch's ActivityLaunch now exists.
+    const invalidatedReason = this.#pendingSessionInvalidateReason.get(agentId);
+    this.#pendingSessionInvalidateReason.delete(agentId);
+    if (request.replacedSessionId && invalidatedReason) {
+      const { detail, entryText } = sessionInvalidateActivityText(
+        runtimeDisplayName(config.provider),
+        request.replacedSessionId,
+        invalidatedReason,
+      );
+      this.#emitAgentActivity(
+        agentId,
+        launch,
+        this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_UNAVAILABLE, "info", detail, {
+          entries: [{ kind: "text", text: entryText }],
+        }),
+      );
+    }
     const current = () => this.#currentActivityLaunches.get(agentId) === launch && !launch.stopping;
     let agentApiKey: string | undefined;
     let stage: "credential" | "runtime" = "credential";
@@ -1271,17 +1345,44 @@ export class DaemonRuntime {
               reference.sessionId = reportedSessionId;
               reference.sessionMode = "resume";
               reference.launchId = launch.launchId;
-              if (replaced)
+              if (replaced) {
+                // Claude Code/Codex replace a missing native session inside the driver, with
+                // no separate "before the fresh launch" moment; this callback IS the point the
+                // daemon learns of it, so the invalidate is reported here.
+                if (control?.controlEpoch)
+                  this.#transport.sendSessionInvalidate?.({
+                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                    requestId: crypto.randomUUID(),
+                    workspaceId: this.#connection.workspaceId,
+                    computerId: this.#connection.computerId,
+                    agentId,
+                    provider: config.provider,
+                    sessionId: replaced,
+                    startRequestId: requestId,
+                    daemonInstanceId: this.#runtimeInstanceId,
+                    launchId: launch.launchId,
+                    controlEpoch: control.controlEpoch,
+                    reason: "missing",
+                  });
+                const { detail, entryText } = sessionInvalidateActivityText(
+                  runtimeDisplayName(config.provider),
+                  replaced,
+                  "missing",
+                );
                 this.#emitAgentActivity(
                   agentId,
                   launch,
                   this.#activity(
                     agentId,
-                    AGENT_ACTIVITY_DETAIL_KIND.OTHER,
+                    AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_UNAVAILABLE,
                     "info",
-                    "Original session history was not found. A new session was started; previous context was not restored.",
+                    detail,
+                    {
+                      entries: [{ kind: "text", text: entryText }],
+                    },
                   ),
                 );
+              }
             }
           : undefined,
         reference.sessionMode,

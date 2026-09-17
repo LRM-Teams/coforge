@@ -171,6 +171,107 @@ test("classified recovery retries once without restoring resume mode and reports
   expect(attempts[1]!.intent).not.toHaveProperty("sessionMode");
 });
 
+test.each([
+  ["session_missing", "missing"],
+  ["provider_replay_rejected", "provider_replay_rejected"],
+] as const)(
+  "reports the invalidated session before the fresh launch attempt (%s)",
+  async (code, reason) => {
+    let record: AgentRuntimeRecord | undefined;
+    const order: string[] = [];
+    const invalidations: Array<{
+      sessionId: string;
+      launchId: string;
+      reason: "missing" | "provider_replay_rejected";
+    }> = [];
+    const state = new AgentRuntimeState({
+      listAgentIds: async () => [],
+      workspaceExists: async () => false,
+      read: async () => record && structuredClone(record),
+      write: async (_id, value) => {
+        record = structuredClone(value);
+      },
+      clearWorkspace: async () => {},
+    });
+    const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+      running: () => false,
+      cleanupUnconfirmed,
+      stop: async () => undefined,
+      async launch(intent) {
+        order.push("launch");
+        if (intent.sessionId) throw new AgentSessionRecoveryError(code);
+        return { sessionId: "fresh", state: "empty" };
+      },
+      invalidateSession(_intent, launchId, sessionId, reportedReason) {
+        order.push("invalidate");
+        invalidations.push({ sessionId, launchId, reason: reportedReason });
+      },
+      result: async () => {},
+    });
+
+    await control.start({
+      protocolMajor: 1,
+      requestId: "r",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      model: "",
+      reasoning: "",
+      controlEpoch: 1,
+      sessionId: "old",
+    });
+
+    expect(invalidations).toEqual([
+      { sessionId: "old", launchId: invalidations[0]!.launchId, reason },
+    ]);
+    // Invalidate is reported before the retry launch it precedes.
+    expect(order).toEqual(["launch", "invalidate", "launch"]);
+  },
+);
+
+test("reports the invalidated session even when the fresh launch that follows it fails", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  const invalidations: string[] = [];
+  const state = new AgentRuntimeState({
+    listAgentIds: async () => [],
+    workspaceExists: async () => false,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  });
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => false,
+    cleanupUnconfirmed,
+    stop: async () => undefined,
+    async launch(intent) {
+      if (intent.sessionId) throw new AgentSessionRecoveryError("session_missing");
+      throw new Error("fresh launch also fails");
+    },
+    invalidateSession(_intent, _launchId, sessionId) {
+      invalidations.push(sessionId);
+    },
+    result: async () => {},
+  });
+
+  await control.start({
+    protocolMajor: 1,
+    requestId: "r",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi",
+    model: "",
+    reasoning: "",
+    controlEpoch: 1,
+    sessionId: "old",
+  });
+
+  expect(invalidations).toEqual(["old"]);
+});
+
 test("duplicate fenced start wakes an existing runtime without replacing it", async () => {
   let record: AgentRuntimeRecord | undefined;
   let running = false;
