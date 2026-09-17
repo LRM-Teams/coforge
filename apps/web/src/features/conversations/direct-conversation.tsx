@@ -16,6 +16,7 @@ import {
   useConversationActivity,
   useConversationDisplay,
 } from "@/features/conversations/conversation-layout";
+import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
 import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -228,6 +229,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     id: "coforge-conversation",
     panelIds: selected ? ["main", "thread"] : ["main"],
     onlySaveAfterUserInteractions: true,
+    storage: conversationLayoutStorage,
   });
   useEffect(() => {
     if (

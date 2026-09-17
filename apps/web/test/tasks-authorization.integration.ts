@@ -626,3 +626,149 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
     await db.$disconnect();
   }
 });
+
+test("TaskBoard unassign clears ownership for the owner or a manager and enforces revision and authority", async () => {
+  const connectionString = Bun.env.TASK_TEST_DATABASE_URL ?? Bun.env.DATABASE_URL;
+  if (!connectionString)
+    throw new Error("TASK_TEST_DATABASE_URL or DATABASE_URL must point to local PostgreSQL");
+
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const board = new TaskBoard(db);
+  const suffix = crypto.randomUUID();
+  const short = suffix.slice(0, 8);
+  const [alice, bob, carol] = await Promise.all(
+    ["alice", "bob", "carol"].map((name) =>
+      db.user.create({ data: { username: `tu-${name}-${short}` } }),
+    ),
+  );
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `task-unassign-${suffix}`,
+      name: "Task unassign",
+      members: {
+        create: [{ userId: alice!.id, role: "owner" }, { userId: bob!.id }, { userId: carol!.id }],
+      },
+    },
+  });
+  const channel = await db.conversation.create({
+    data: {
+      workspaceId: workspace.id,
+      channelName: `unassign-${short}`,
+      members: { create: [{ userId: alice!.id }, { userId: bob!.id }, { userId: carol!.id }] },
+    },
+  });
+
+  try {
+    const createdA = await board.execute(
+      { workspaceId: workspace.id, userId: alice!.id },
+      {
+        operation: "create",
+        requestId: crypto.randomUUID(),
+        conversationId: channel.id,
+        title: "Task A",
+      },
+    );
+    const taskANumber = createdA.tasks[0]!.number;
+    const bobAssigned = await board.execute(
+      { workspaceId: workspace.id, userId: bob!.id },
+      {
+        operation: "assign",
+        requestId: crypto.randomUUID(),
+        conversationId: channel.id,
+        number: taskANumber,
+        assignee: `@${bob!.username}`,
+      },
+    );
+    expect(bobAssigned.tasks[0]!.owner?.memberId).toBeDefined();
+
+    // A non-manager may not clear another member's assignment.
+    await expect(
+      board.execute(
+        { workspaceId: workspace.id, userId: carol!.id },
+        {
+          operation: "unassign",
+          requestId: crypto.randomUUID(),
+          conversationId: channel.id,
+          number: taskANumber,
+        },
+      ),
+    ).rejects.toThrow("ACCESS_DENIED");
+
+    // A stale expectedRevision is a CONFLICT even for the owner.
+    await expect(
+      board.execute(
+        { workspaceId: workspace.id, userId: bob!.id },
+        {
+          operation: "unassign",
+          requestId: crypto.randomUUID(),
+          conversationId: channel.id,
+          number: taskANumber,
+          expectedRevision: bobAssigned.tasks[0]!.revision + 1,
+        },
+      ),
+    ).rejects.toThrow("CONFLICT");
+
+    // The owner may unassign their own task.
+    const unassigned = await board.execute(
+      { workspaceId: workspace.id, userId: bob!.id },
+      {
+        operation: "unassign",
+        requestId: crypto.randomUUID(),
+        conversationId: channel.id,
+        number: taskANumber,
+        expectedRevision: bobAssigned.tasks[0]!.revision,
+      },
+    );
+    expect(unassigned.tasks[0]!.owner).toBeNull();
+
+    // Unassigning an already-unowned Task is a no-op, not an error, and does not
+    // require manager authority since there is no assignment left to clear.
+    const noop = await board.execute(
+      { workspaceId: workspace.id, userId: carol!.id },
+      {
+        operation: "unassign",
+        requestId: crypto.randomUUID(),
+        conversationId: channel.id,
+        number: taskANumber,
+      },
+    );
+    expect(noop.tasks[0]!.owner).toBeNull();
+    expect(noop.tasks[0]!.revision).toBe(unassigned.tasks[0]!.revision);
+
+    // A Workspace owner (manager) may clear someone else's assignment.
+    const createdB = await board.execute(
+      { workspaceId: workspace.id, userId: alice!.id },
+      {
+        operation: "create",
+        requestId: crypto.randomUUID(),
+        conversationId: channel.id,
+        title: "Task B",
+      },
+    );
+    const taskBNumber = createdB.tasks[0]!.number;
+    await board.execute(
+      { workspaceId: workspace.id, userId: carol!.id },
+      {
+        operation: "assign",
+        requestId: crypto.randomUUID(),
+        conversationId: channel.id,
+        number: taskBNumber,
+        assignee: `@${carol!.username}`,
+      },
+    );
+    const managerUnassigned = await board.execute(
+      { workspaceId: workspace.id, userId: alice!.id },
+      {
+        operation: "unassign",
+        requestId: crypto.randomUUID(),
+        conversationId: channel.id,
+        number: taskBNumber,
+      },
+    );
+    expect(managerUnassigned.tasks[0]!.owner).toBeNull();
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice!.id, bob!.id, carol!.id] } } });
+    await db.$disconnect();
+  }
+});

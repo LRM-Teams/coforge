@@ -360,7 +360,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>] [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path> | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>] [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view --id <id> --output <path> | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
   );
 }
 
@@ -998,6 +998,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
       "claim",
       "unclaim",
       "assign",
+      "unassign",
       "update",
       "amend",
       "history",
@@ -1026,6 +1027,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     claim: ["--target", "--number", "--message-id", "--reviewer-isolation"],
     unclaim: ["--target", "--number", "--expected-revision"],
     assign: ["--target", "--number", "--assignee", "--expected-revision"],
+    unassign: ["--target", "--number", "--expected-revision"],
     update: ["--target", "--number", "--status", "--expected-revision", "--reviewer-isolation"],
     amend: [
       "--target",
@@ -1112,6 +1114,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     (operation === "claim" && (number !== undefined) !== Boolean(task.messageId)) ||
     (operation === "unclaim" && number !== undefined) ||
     (operation === "assign" && number !== undefined && Boolean(task.assignee)) ||
+    (operation === "unassign" && number !== undefined) ||
     (operation === "update" && number !== undefined && Boolean(status)) ||
     (operation === "amend" &&
       number !== undefined &&

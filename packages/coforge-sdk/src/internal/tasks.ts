@@ -59,6 +59,7 @@ export type TaskCommand = {
     | "unclaim"
     | "update"
     | "assign"
+    | "unassign"
     | "amend"
     | "history"
     | "delete"
