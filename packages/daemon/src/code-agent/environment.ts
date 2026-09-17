@@ -3,6 +3,7 @@ import {
   codeAgentExecutableSearchPath,
   executablePathDelimiter,
 } from "../platform/code-agent-path";
+import type { CoforgeAgentPromptContext } from "./agent-instructions";
 
 const CLI_BIN_DIRECTORIES = [
   // Computer installs a version-local `coforge` launcher next to the daemon.
@@ -10,6 +11,73 @@ const CLI_BIN_DIRECTORIES = [
   dirname(process.execPath),
   new URL("../../node_modules/.bin/", import.meta.url).pathname,
 ] as const;
+
+/** Env var names the Daemon authors itself: the Agent process capability sockets the launch site
+ * (`runtime.ts`) sets directly, and the runtime-context variables `agentRuntimeContextEnvironment`
+ * below maps from the same server-authored identity the standing prompt's "Current Runtime
+ * Context" section renders. A same-named value from the host environment or an Agent's
+ * user-configured `envVars`/adapter `extraEnv` must never reach the Agent process: an Agent's own
+ * tools must not be able to spoof the Agent's identity to itself. Cleared here unconditionally, so
+ * a call site that omits one of these keys from `declared` (because the value is unknown) still
+ * cannot let a same-named inherited or user-supplied value through. */
+const PROTECTED_COFORGE_ENV_KEYS = [
+  "COFORGE_AGENT_CONTEXT",
+  "COFORGE_AGENT_PROXY_URL",
+  "COFORGE_DAEMON_SOCKET",
+  "COFORGE_SUPERVISOR_SOCKET",
+  "COFORGE_CURRENT_AGENT_ID",
+  "COFORGE_CURRENT_AGENT_NAME",
+  "COFORGE_CURRENT_WORKSPACE_ID",
+  "COFORGE_CURRENT_WORKSPACE_SLUG",
+  "COFORGE_CURRENT_WORKSPACE_NAME",
+  "COFORGE_CURRENT_COMPUTER_ID",
+  "COFORGE_CURRENT_COMPUTER_NAME",
+  "COFORGE_CURRENT_COMPUTER_OS",
+  "COFORGE_CURRENT_COMPUTER_VERSION",
+  "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
+] as const;
+
+/** Strips CR/LF/NUL so a value can never inject a second env line or terminate the assignment
+ * early; returns undefined when nothing usable remains. */
+function singleLineOrUndefined(value: string | undefined): string | undefined {
+  const sanitized = value?.replace(/[\r\n\0]/g, "");
+  return sanitized ? sanitized : undefined;
+}
+
+/**
+ * Maps the same server-authored Agent identity the standing prompt's "Current Runtime Context"
+ * section renders (`agent-instructions.ts#buildRuntimeContextSection`) to environment variables,
+ * so the Agent's own process and every tool it spawns (scripts, the `coforge` CLI) can read these
+ * facts directly instead of parsing them out of prose. Each variable is present only when its
+ * source value is a known, non-empty string after newline/NUL stripping; `displayName` and
+ * `description` are deliberately not exported here (free text written by users, not needed by
+ * tools — see `agent-instructions.ts`). The caller merges the result into `agentEnvironment`'s
+ * `declared` argument, which `PROTECTED_COFORGE_ENV_KEYS` above always favors over inherited host
+ * variables and the Agent's user-configured `envVars`/adapter `extraEnv`.
+ */
+export function agentRuntimeContextEnvironment(
+  context: CoforgeAgentPromptContext,
+): Record<string, string> {
+  const runtimeContext = context.identity?.runtimeContext;
+  const candidates: Record<string, string | undefined> = {
+    COFORGE_CURRENT_AGENT_ID: context.agentId,
+    COFORGE_CURRENT_AGENT_NAME: context.identity?.name,
+    COFORGE_CURRENT_WORKSPACE_ID: runtimeContext?.workspaceId,
+    COFORGE_CURRENT_WORKSPACE_SLUG: runtimeContext?.workspaceSlug,
+    COFORGE_CURRENT_WORKSPACE_NAME: runtimeContext?.workspaceName,
+    COFORGE_CURRENT_COMPUTER_ID: runtimeContext?.computerId,
+    COFORGE_CURRENT_COMPUTER_NAME: runtimeContext?.computerName,
+    COFORGE_CURRENT_COMPUTER_OS: runtimeContext?.computerOs,
+    COFORGE_CURRENT_COMPUTER_VERSION: runtimeContext?.computerVersion,
+    COFORGE_CURRENT_AGENT_WORKSPACE_PATH: context.agentWorkspaceDirectory,
+  };
+  const environment: Record<string, string> = {};
+  for (const [name, value] of Object.entries(candidates)) {
+    const sanitized = singleLineOrUndefined(value);
+    if (sanitized) environment[name] = sanitized;
+  }
+  return environment;
+}
 
 export function agentEnvironment(
   declared: Readonly<Record<string, string>> | undefined,
@@ -29,15 +97,10 @@ export function agentEnvironment(
   })) {
     if (value !== undefined) environment[name] = value;
   }
-  // Never reuse another Agent's local capability or the supervisor control socket.
-  // Ordinary host variables (including provider credentials and proxies) remain inherited.
-  for (const key of [
-    "COFORGE_AGENT_CONTEXT",
-    "COFORGE_AGENT_PROXY_URL",
-    "COFORGE_DAEMON_SOCKET",
-    "COFORGE_SUPERVISOR_SOCKET",
-  ])
-    delete environment[key];
+  // Never reuse another Agent's local capability, the supervisor control socket, or a spoofed
+  // runtime-identity value. Ordinary host variables (including provider credentials and proxies)
+  // remain inherited.
+  for (const key of PROTECTED_COFORGE_ENV_KEYS) delete environment[key];
   Object.assign(environment, declared);
   const seen = new Set<string>();
   const noProxy = [

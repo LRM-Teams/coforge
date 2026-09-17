@@ -16,6 +16,7 @@ import {
   type AgentRuntime,
 } from "../agent-runtime/agent-process-manager";
 import { parseAssignedSkillPacks } from "../code-agent/assigned-skills";
+import { agentRuntimeContextEnvironment } from "../code-agent/environment";
 export type DaemonConfig = {
   workspaceId: string;
   computerId: string;
@@ -1386,6 +1387,11 @@ export class DaemonRuntime {
       const proxyToken = this.#agentProxy?.issue(agentId, agentApiKey);
       if (proxyToken) this.#agentProxyTokens.set(agentId, proxyToken);
       const localContext = proxyToken ?? this.#contextFor(agentId);
+      const workspaceDirectory = agentWorkspaceDirectory(
+        this.#connection.workspaceRoot,
+        this.#connection.workspaceId,
+        agentId,
+      );
       stage = "runtime";
       const runtime = await this.#agentProcessManager.start(
         agentId,
@@ -1394,16 +1400,20 @@ export class DaemonRuntime {
           ...(launchConfig.providerConfig ? { providerConfig: launchConfig.providerConfig } : {}),
           envVars: launchConfig.envVars,
         },
-        agentWorkspaceDirectory(
-          this.#connection.workspaceRoot,
-          this.#connection.workspaceId,
-          agentId,
-        ),
+        workspaceDirectory,
         reference.sessionId,
         {
           COFORGE_DAEMON_SOCKET: "",
           COFORGE_AGENT_CONTEXT: localContext,
           COFORGE_AGENT_PROXY_URL: this.#agentProxy?.url ?? "",
+          // Same server-authored identity the standing prompt's "Current Runtime Context"
+          // section renders (ADR 0036); exported so the Agent process and every tool it spawns
+          // can read these facts directly instead of parsing them out of prose.
+          ...agentRuntimeContextEnvironment({
+            agentId,
+            agentWorkspaceDirectory: workspaceDirectory,
+            identity: launchConfig.identity,
+          }),
         },
         launch.launchId,
         this.#transport.reportAgentSession
