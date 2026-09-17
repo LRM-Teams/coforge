@@ -34,6 +34,8 @@ import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
 import { ReminderNotice, type ReminderNoticeView } from "./reminder-notice";
 import { MessageComposer } from "./message-composer";
+import { MessageBody } from "./message-body";
+import type { Mentionable } from "./mention-text";
 import { AttachmentCard, MessageRow, clockLabel, groupsWithPrevious } from "./message-row";
 import {
   OwnMessagesMenu,
@@ -64,6 +66,10 @@ export type DirectConversationView = {
   hasOlder?: boolean;
   hasNewer?: boolean;
   agent: { id: string; name: string; displayName: string };
+  /** The viewing user's `@handle`; powers the stronger "mentioned me" chip. Channels only. */
+  viewerHandle?: string;
+  /** The composer's @-completion source: every active member's public handle. Channels only. */
+  mentionables?: Mentionable[];
   messages: Array<{
     id: string;
     sequence: number;
@@ -75,6 +81,8 @@ export type DirectConversationView = {
     senderAvatarUrl?: string | null;
     body: string;
     createdAt: Date | string;
+    /** Resolved mention rows for the body's embedded `<@kind:uuid>` tokens (channels only). */
+    mentions?: { kind: "user" | "agent"; actorId: string; handle: string }[];
     /** Always present, possibly empty; order matches send/upload order. */
     attachments: {
       id: string;
@@ -894,7 +902,11 @@ export function ConversationPane({
                   </time>
                 </p>
                 <div className="min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]">
-                  {root.body}
+                  <MessageBody
+                    body={root.body}
+                    mentions={root.mentions}
+                    viewerHandle={conversation.viewerHandle}
+                  />
                 </div>
                 {root.attachments.map((attachment) => (
                   <AttachmentCard key={attachment.id} attachment={attachment} />
@@ -970,6 +982,7 @@ export function ConversationPane({
                     threadPreview={threadPreview}
                     messageFooter={messageFooter}
                     onOpenAgentProfile={onOpenAgentProfile}
+                    viewerHandle={conversation.viewerHandle}
                   />
                 );
               })}
@@ -1040,6 +1053,7 @@ export function ConversationPane({
         <MessageComposer
           conversationId={conversation.conversationId}
           inThread={Boolean(root)}
+          mentionables={conversation.mentionables}
           onSend={onSend}
           onCreateTask={onCreateTask}
           onSent={ownIndex.add}

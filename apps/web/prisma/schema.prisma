@@ -534,6 +534,7 @@ model ConversationMember {
   threadReads              ThreadRead[]
   threadFollows            ThreadFollow[]
   reactions                MessageReaction[]
+  mentions                 MessageMention[]
   ownedTasks               Task[]            @relation("TaskOwner")
   createdTasks             Task[]            @relation("TaskCreator")
 
@@ -563,6 +564,7 @@ model Message {
   threadReads    ThreadRead[]
   threadFollows  ThreadFollow[]
   reactions      MessageReaction[]
+  mentions       MessageMention[]
   task           Task?
   actionCard     ActionCard?
 
@@ -680,6 +682,32 @@ model ThreadFollow {
 
   @@id([memberId, rootMessageId])
   @@map("thread_follows")
+}
+
+/// A resolved @mention of one conversation member in one channel Message, persisted in the
+/// same transaction as the Message. Send-time resolution (grammar ∩ active membership) is the
+/// single source the stream highlight, directed Agent delivery, and Agent wake all read; the
+/// plain-text `@handle` in the body stays the canonical form for Agents and history. `handle`
+/// is denormalized from `agent.name`/`user.username`, both immutable, so reads never join the
+/// member directory and a later member departure keeps the record intact.
+model MessageMention {
+  messageId      String             @db.Uuid
+  memberId       String             @db.Uuid
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  /// Which side of the member row carried the handle: "user" | "agent".
+  kind           String
+  /// The mentioned actor's stable UUID (`user.id` or `agent.id`) — the value embedded in the
+  /// body's `<@human:uuid>`/`<@agent:uuid>` token, denormalized so renders never join.
+  actorId        String             @db.Uuid
+  /// The handle as written: `user.username` or `agent.name` (both immutable).
+  handle         String
+  createdAt      DateTime           @default(now())
+  member         ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+  message        Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+
+  @@id([messageId, memberId])
+  @@map("message_mentions")
 }
 
 model MessageReaction {

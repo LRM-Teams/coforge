@@ -70,3 +70,138 @@ export function mentionsInContent(body: string): Set<string> {
   const stripped = stripCodeSpans(body);
   return new Set([...stripped.matchAll(MENTION_PATTERN)].map((match) => match[1]!));
 }
+
+/**
+ * Embedded mention tokens — the stored-body form of a resolved mention, in the spirit of
+ * Slack's `<@U123>`: the actor UUID (not the display handle) is the stable anchor, so a later
+ * rename never orphans history. `human` names a Workspace User, `agent` an Agent; the words
+ * match the `--mention human:<uuid>:<handle>` selector kinds. Plain `@handle` text remains
+ * valid input at every send edge; only resolved mentions are rewritten to this form at
+ * persistence time, and every Agent-facing read path translates tokens back to `@handle`.
+ */
+export const MENTION_TOKEN_PATTERN =
+  /<@(human|agent):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>/gi;
+
+/** The stored-body token for one resolved mention: `<@human:uuid>` or `<@agent:uuid>`. */
+export function mentionToken(type: "user" | "agent", id: string): string {
+  return `<@${type === "user" ? "human" : "agent"}:${id.toLowerCase()}>`;
+}
+
+/**
+ * Rewrites every embedded mention token through `resolve` (typically to its `@handle` for an
+ * Agent-facing payload). A token `resolve` does not know is left byte-for-byte intact, so a
+ * caller that lacks the mention rows degrades to showing the raw token rather than dropping
+ * information.
+ */
+export function replaceMentionTokens(
+  body: string,
+  resolve: (type: "user" | "agent", id: string) => string | undefined,
+): string {
+  return body.replace(
+    MENTION_TOKEN_PATTERN,
+    (token, kind: string, id: string) =>
+      resolve(kind === "human" ? "user" : "agent", id.toLowerCase()) ?? token,
+  );
+}
+
+export type BodySegment = { text: string; code: boolean };
+
+/**
+ * Splits a body into code and non-code segments without dropping a byte
+ * (`segments.map((s) => s.text).join("") === body`), using exactly `stripCodeSpans`' two-pass
+ * semantics: fenced blocks first, then inline code within the remaining text. Mention grammar
+ * never applies inside code, and writers need the code text preserved.
+ */
+export function splitCodeSpans(body: string): BodySegment[] {
+  const fenced = new RegExp(FENCED_CODE.source, "g");
+  const inline = new RegExp(INLINE_CODE.source, "g");
+  const segments: BodySegment[] = [];
+  let offset = 0;
+  const pushText = (text: string) => {
+    let textOffset = 0;
+    for (const match of text.matchAll(inline)) {
+      if (match.index > textOffset)
+        segments.push({ text: text.slice(textOffset, match.index), code: false });
+      segments.push({ text: match[0], code: true });
+      textOffset = match.index + match[0].length;
+    }
+    if (textOffset < text.length) segments.push({ text: text.slice(textOffset), code: false });
+  };
+  for (const match of body.matchAll(fenced)) {
+    pushText(body.slice(offset, match.index));
+    segments.push({ text: match[0], code: true });
+    offset = match.index + match[0].length;
+  }
+  pushText(body.slice(offset));
+  return segments;
+}
+
+/** A conversation member a mention can resolve to, in the server's member-directory shape. */
+export type MentionTarget = {
+  /** The caller's stable dedupe key for the member (the conversation-member id). */
+  key: string;
+  type: "user" | "agent";
+  /** The actor UUID embedded in the stored token. */
+  id: string;
+  handle: string;
+};
+
+export type ResolvedMention = MentionTarget;
+
+/**
+ * Resolves a body being persisted against the conversation's mention targets and returns the
+ * stored form plus the resolved mention set, in one pass:
+ *
+ * - Resolution merges structured `bindings` (the CLI's `--mention` selectors; unmatched ones
+ *   are ignored — member validation is the repository's job) with plain `@handle` text matches
+ *   outside code spans.
+ * - A handle shared by a User and an Agent member is ambiguous; the Agent wins, because an
+ *   Agent mention is what steers delivery, and the binding form stays available to disambiguate.
+ * - Every occurrence of a resolved handle outside code is rewritten to its embedded-UUID token;
+ *   unresolved `@handle` text stays as written.
+ * - The result is deduped by member key; order is bindings first, then first text appearance.
+ */
+export function normalizeMentionBody(
+  body: string,
+  targets: readonly MentionTarget[],
+  bindings: readonly MentionSelectorInput[] = [],
+): { body: string; mentions: ResolvedMention[] } {
+  const byKey = new Map<string, ResolvedMention>();
+  for (const binding of bindings) {
+    const match = targets.find(
+      (target) =>
+        target.type === binding.type &&
+        target.id.toLowerCase() === binding.id.toLowerCase() &&
+        target.handle === binding.name,
+    );
+    if (match) byKey.set(match.key, match);
+  }
+  const agentByHandle = new Map<string, MentionTarget>();
+  const userByHandle = new Map<string, MentionTarget>();
+  for (const target of targets) {
+    const map = target.type === "agent" ? agentByHandle : userByHandle;
+    if (!map.has(target.handle)) map.set(target.handle, target);
+  }
+  for (const segment of splitCodeSpans(body)) {
+    if (segment.code) continue;
+    for (const match of segment.text.matchAll(new RegExp(MENTION_PATTERN.source, "g"))) {
+      const handle = match[1]!;
+      const target = agentByHandle.get(handle) ?? userByHandle.get(handle);
+      if (target && !byKey.has(target.key)) byKey.set(target.key, target);
+    }
+  }
+  const tokenByHandle = new Map<string, string>();
+  for (const mention of byKey.values())
+    tokenByHandle.set(mention.handle, mentionToken(mention.type, mention.id));
+  const normalized = splitCodeSpans(body)
+    .map((segment) =>
+      segment.code || tokenByHandle.size === 0
+        ? segment.text
+        : segment.text.replace(
+            new RegExp(MENTION_PATTERN.source, "g"),
+            (text, handle: string) => tokenByHandle.get(handle) ?? text,
+          ),
+    )
+    .join("");
+  return { body: normalized, mentions: [...byKey.values()] };
+}

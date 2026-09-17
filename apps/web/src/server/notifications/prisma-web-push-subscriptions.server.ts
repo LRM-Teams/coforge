@@ -1,5 +1,5 @@
 import type { PrismaClient } from "../../../generated/client";
-import { mentionedNames } from "../conversations/mentions";
+import { agentReadableBody, mentionedNames } from "../conversations/mentions";
 import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
 import type {
   WebPushSubscriptionInput,
@@ -18,6 +18,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
         sender: {
           select: { agent: { select: { name: true } }, user: { select: { username: true } } },
         },
+        mentions: { select: { kind: true, actorId: true, handle: true } },
         conversation: {
           include: {
             workspace: { select: { slug: true } },
@@ -32,7 +33,10 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
     });
     if (!message) return null;
     const channelName = message.conversation.channelName;
-    const names = channelName ? mentionedNames(message.body) : [];
+    // Stored bodies carry mentions as embedded-UUID tokens; mention-pierce and the preview
+    // both work on the plain `@handle` form.
+    const readableBody = agentReadableBody(message.body, message.mentions);
+    const names = channelName ? mentionedNames(readableBody) : [];
     const recipients = await this.db.conversationMember.findMany({
       where: {
         conversationId: message.conversationId,
@@ -68,9 +72,9 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
     const agentId = message.conversation.members[0]?.agentId;
     if (!channelName && !agentId) return null;
     const preview =
-      message.body.length > MESSAGE_PREVIEW_LENGTH
-        ? `${message.body.slice(0, MESSAGE_PREVIEW_LENGTH - 1)}…`
-        : message.body;
+      readableBody.length > MESSAGE_PREVIEW_LENGTH
+        ? `${readableBody.slice(0, MESSAGE_PREVIEW_LENGTH - 1)}…`
+        : readableBody;
     const target = channelName
       ? `/messages/channels/${message.conversationId}`
       : `/messages/${agentId}`;

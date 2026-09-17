@@ -13,6 +13,7 @@ import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
+import { MessageBody } from "./message-body";
 
 export type MessageView = {
   id: string;
@@ -37,6 +38,9 @@ export type MessageView = {
      * Preferred over `attachmentUrl` when present so `<img>` never round-trips the backend. */
     previewUrl?: string;
   }[];
+  /** Resolved mention rows for the body's embedded `<@kind:uuid>` tokens; absent/empty for
+   * DMs and pre-token history, which render as written (token-only highlight by design). */
+  mentions?: { kind: "user" | "agent"; actorId: string; handle: string }[];
   reactions?: { emoji: string; count: number; reactors: string[] }[];
   /** Present when this message is the summary posted for an Agent-prepared action card
    * (ADR 0027). Replaces the plain-text draft hint line with the interactive card; the
@@ -291,6 +295,7 @@ export function MessageRow({
   threadPreview,
   messageFooter,
   onOpenAgentProfile,
+  viewerHandle,
 }: {
   message: MessageView;
   index: number;
@@ -307,6 +312,8 @@ export function MessageRow({
   /** Opens the Agent profile panel; present only where the conversation owns that slot
    * (`features/agents/profile-panel/`'s `openAgentProfile`). Absent, the avatar/name render inert. */
   onOpenAgentProfile?: (agentId: string) => void;
+  /** The viewing user's handle; a mention of it renders with the stronger "me" chip. */
+  viewerHandle?: string;
 }) {
   const displayName = own ? m.conversation_you() : message.senderName;
   const openableAgentId =
@@ -410,7 +417,11 @@ export function MessageRow({
                 grouped && threadEntry && "pr-8",
               )}
             >
-              {message.body}
+              <MessageBody
+                body={message.body}
+                mentions={message.mentions}
+                viewerHandle={viewerHandle}
+              />
             </div>
           )}
           {message.attachments.map((attachment) => (

@@ -23,7 +23,8 @@ import {
   type CentrifugoServerApi,
 } from "../centrifugo/server-api.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
-import { mentionedNames } from "./mentions";
+import { normalizeMentionBody } from "@lrm/coforge-sdk/internal";
+import { agentReadableBody } from "./mentions";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
@@ -85,6 +86,7 @@ const CHANNEL_MESSAGE_SELECT = {
     select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
     orderBy: { position: "asc" },
   },
+  mentions: { select: { kind: true, actorId: true, handle: true } },
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
@@ -107,6 +109,8 @@ export type ChannelMessageRow = {
     sizeBytes: number;
     objectKey: string;
   }[];
+  /** Resolved mention rows: translates a body token (`<@kind:actorId>`) back to its `@handle`. */
+  mentions: { kind: string; actorId: string; handle: string }[];
   reactions: MessageReactionRow[];
 };
 
@@ -141,6 +145,11 @@ export function channelMessageView(message: ChannelMessageRow, workspaceId: stri
       : null,
     body: message.body,
     createdAt: message.createdAt,
+    mentions: message.mentions.map((mention) => ({
+      kind: mention.kind as "user" | "agent",
+      actorId: mention.actorId,
+      handle: mention.handle,
+    })),
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
     actionCard: undefined as ActionCardView | undefined,
@@ -753,13 +762,17 @@ export class PublicChannels {
   ) {
     const channel = await this.channel(workspaceId, userId, channelId);
     const limit = Math.min(page.limit ?? 50, 100);
-    const [member, messages] = await Promise.all([
+    const [member, messages, mentionRows] = await Promise.all([
       // Filtered through ACTIVE_MEMBER_WHERE (not findUnique on the raw row): a human who left or
       // was removed must see the read-only preview (`senderMemberId` empty) like anyone who never
       // joined, not their old member state. The row itself survives untouched for a later rejoin.
       this.db.conversationMember.findFirst({
         where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
-        include: { threadReads: true, threadFollows: true },
+        include: {
+          threadReads: true,
+          threadFollows: true,
+          user: { select: { username: true } },
+        },
       }),
       this.db.message.findMany({
         where: {
@@ -774,6 +787,14 @@ export class PublicChannels {
           replies: { orderBy: { sequence: "asc" }, select: CHANNEL_MESSAGE_SELECT },
         },
       }),
+      // The composer's @-completion source: every active member's public handle.
+      this.db.conversationMember.findMany({
+        where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
+        select: {
+          user: { select: { id: true, username: true, displayName: true } },
+          agent: { select: { id: true, name: true, displayName: true } },
+        },
+      }),
     ]);
     const hasOlder = messages.length > limit;
     const pageMessages = messages
@@ -786,11 +807,29 @@ export class PublicChannels {
       name: channel.channelName!,
       project: channel.project ?? undefined,
       senderMemberId: member?.id ?? "",
+      viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
       threadReadThrough: Object.fromEntries(
         (member?.threadReads ?? []).map((read) => [read.rootMessageId, read.readThroughSequence]),
       ),
       followedThreadRootIds: (member?.threadFollows ?? []).map((follow) => follow.rootMessageId),
+      mentionables: mentionRows
+        .map((row) =>
+          row.user
+            ? {
+                kind: "user" as const,
+                id: row.user.id,
+                handle: row.user.username,
+                label: row.user.displayName?.trim() || row.user.username,
+              }
+            : {
+                kind: "agent" as const,
+                id: row.agent!.id,
+                handle: row.agent!.name,
+                label: row.agent!.displayName?.trim() || row.agent!.name,
+              },
+        )
+        .sort((left, right) => left.handle.localeCompare(right.handle)),
       hasOlder,
       hasNewer: false,
       messages: pageMessages.map((message) => channelMessageView(message, workspaceId)),
@@ -865,40 +904,74 @@ export class PublicChannels {
             if (!attachment) throw new AppError("ACCESS_DENIED");
             attachmentRowIds.push(attachment.id);
           }
-          const names = mentionedNames(body);
+          // Resolve @mentions against the channel's active members once. The stored body keeps
+          // each resolved mention as an embedded-UUID token (`<@human:…>`/`<@agent:…>`,
+          // Slack-style) and every resolved mention becomes a MessageMention row in the same
+          // transaction, so renders and delivery never re-parse prose.
+          const activeMembers = await tx.conversationMember.findMany({
+            where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
+            select: {
+              id: true,
+              userId: true,
+              agentId: true,
+              user: { select: { username: true } },
+              agent: { select: { name: true } },
+            },
+          });
+          const resolution = normalizeMentionBody(
+            body,
+            activeMembers.map((channelMember) =>
+              channelMember.userId
+                ? {
+                    key: channelMember.id,
+                    type: "user" as const,
+                    id: channelMember.userId,
+                    handle: channelMember.user!.username,
+                  }
+                : {
+                    key: channelMember.id,
+                    type: "agent" as const,
+                    id: channelMember.agentId!,
+                    handle: channelMember.agent!.name,
+                  },
+            ),
+          );
           if (root) {
-            const mentioned = await tx.conversationMember.findMany({
-              where: {
-                conversationId: channelId,
-                OR: [{ user: { username: { in: names } } }, { agent: { name: { in: names } } }],
-                ...ACTIVE_MEMBER_WHERE,
-              },
-              select: { id: true },
-            });
             await tx.threadFollow.createMany({
-              data: [member.id, ...mentioned.map(({ id }) => id)].map((memberId) => ({
-                memberId,
-                rootMessageId: root.id,
-                conversationId: channelId,
-                workspaceId,
-              })),
+              data: [member.id, ...resolution.mentions.map((mention) => mention.key)].map(
+                (memberId) => ({
+                  memberId,
+                  rootMessageId: root.id,
+                  conversationId: channelId,
+                  workspaceId,
+                }),
+              ),
               skipDuplicates: true,
             });
           }
-          const recipients = await tx.conversationMember.findMany({
-            where: {
-              conversationId: channelId,
-              agentId: { not: null },
-              agent: { workspaceId },
-              ...ACTIVE_MEMBER_WHERE,
-              OR: [
-                { channelMuted: false },
-                { agent: { name: { in: names } } },
-                ...(root ? [{ threadFollows: { some: { rootMessageId: root.id } } }] : []),
-              ],
-            },
-            select: { agentId: true },
-          });
+          // Directed delivery: a message that @mentions at least one Agent wakes exactly those
+          // Agents (a mention pierces mute), and no others. Without an Agent mention, every
+          // unmuted Agent member (plus thread followers on a reply) receives it and each decides
+          // whether to reply. Mentioning only humans never narrows Agent delivery.
+          const mentionedAgentIds = resolution.mentions
+            .filter((mention) => mention.type === "agent")
+            .map((mention) => mention.id);
+          const recipients =
+            mentionedAgentIds.length > 0
+              ? mentionedAgentIds.map((agentId) => ({ agentId }))
+              : await tx.conversationMember.findMany({
+                  where: {
+                    conversationId: channelId,
+                    agentId: { not: null },
+                    agent: { workspaceId },
+                    ...ACTIVE_MEMBER_WHERE,
+                    OR: [
+                      { channelMuted: false },
+                      ...(root ? [{ threadFollows: { some: { rootMessageId: root.id } } }] : []),
+                    ],
+                  },
+                  select: { agentId: true },
+                });
           const sequence = (latest?.sequence ?? 0) + 1;
           const message = await tx.message.create({
             data: {
@@ -906,8 +979,20 @@ export class PublicChannels {
               conversationId: channelId,
               senderMemberId: member.id,
               threadRootId: root?.id,
-              body,
+              body: resolution.body,
               sequence,
+              mentions: resolution.mentions.length
+                ? {
+                    create: resolution.mentions.map((mention) => ({
+                      memberId: mention.key,
+                      workspaceId,
+                      conversationId: channelId,
+                      kind: mention.type,
+                      actorId: mention.id,
+                      handle: mention.handle,
+                    })),
+                  }
+                : undefined,
               deliveries: {
                 create: recipients.map(({ agentId }) => ({
                   workspaceId,
@@ -969,8 +1054,10 @@ export class PublicChannels {
         // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.
       }
     }
-    // Every Agent's push goes out at once; a failure still rejects the send.
+    // Every Agent's push goes out at once; a failure still rejects the send. Agents read plain
+    // `@handle` text — the stored body keeps mentions as embedded-UUID tokens, so translate.
     const publisher = this.publisher ?? createCentrifugoServerApi();
+    const agentBody = agentReadableBody(message.body, message.mentions);
     await Promise.all(
       message.deliveries
         .filter((delivery) => delivery.agent.computerId)
@@ -987,7 +1074,7 @@ export class PublicChannels {
               messageId: message.id,
               deliveryId: delivery.deliveryId,
               sequence: message.sequence,
-              body: message.body,
+              body: agentBody,
               target: `#${channel.channelName}${message.threadRootId ? `:${message.threadRootId}` : ""}`,
               latestSender: `@${message.sender!.user!.username}`,
             }),

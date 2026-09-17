@@ -149,5 +149,6 @@
   "action_card_cancelled": "已取消",
   "action_card_required_computer": "必须运行在 {name}",
   "action_card_suggested_computer": "建议的电脑：{name}",
-  "action_card_initial_members": "初始成员"
+  "action_card_initial_members": "初始成员",
+  "conversation_mention_suggestions": "提及建议"
 }

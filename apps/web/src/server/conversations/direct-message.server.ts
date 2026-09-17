@@ -9,6 +9,7 @@ import { daemonControlChannel } from "../centrifugo/server-api.server";
 import type { DirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
+import { agentReadableBody } from "./mentions";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
 
 export class ReadDirectMessages {
@@ -124,7 +125,59 @@ export class SendDirectMessage {
     );
     await this.publishBrowserEvent(message, conversation.id);
     await this.notifications?.notifyMessage(message.id);
+    await this.publishAgentMentionDeliveries(input.requestId, conversation.id, message);
     return message;
+  }
+
+  /**
+   * Push a committed channel Message to every other Agent it @mentions. Best effort: attention
+   * is volatile, the canonical Message/read boundary recovers a missed publication, and a
+   * publish failure must not reject a send the database already accepted.
+   */
+  private async publishAgentMentionDeliveries(
+    requestId: string,
+    conversationId: string,
+    message: {
+      id: string;
+      sequence: number;
+      body: string;
+      workspaceId: string;
+      target?: string;
+      latestSender?: string;
+      mentions?: { kind: string; actorId: string; handle: string }[];
+      deliveries?: { deliveryId: string; agentId: string; computerId: string | null }[];
+    },
+  ) {
+    if (!message.deliveries?.length) return;
+    // Agents read plain `@handle` text; the stored body keeps mentions as embedded-UUID tokens.
+    const body = agentReadableBody(message.body, message.mentions ?? []);
+    await Promise.allSettled(
+      message.deliveries.flatMap((delivery) =>
+        delivery.computerId
+          ? [
+              Promise.resolve().then(() =>
+                this.centrifugo.publish(
+                  daemonControlChannel(message.workspaceId, delivery.computerId!),
+                  encodeAgentMessageDelivery({
+                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                    method: AGENT_MESSAGE_METHOD,
+                    requestId,
+                    workspaceId: message.workspaceId,
+                    conversationId,
+                    agentId: delivery.agentId,
+                    messageId: message.id,
+                    deliveryId: delivery.deliveryId,
+                    sequence: message.sequence,
+                    body,
+                    target: message.target ?? "",
+                    latestSender: message.latestSender ?? "",
+                  }),
+                ),
+              ),
+            ]
+          : [],
+      ),
+    );
   }
 
   private async publishBrowserEvent(
