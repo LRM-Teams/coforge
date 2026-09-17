@@ -182,6 +182,21 @@ test("enforces operation-specific reminder fields", () => {
       target: "@frank",
     }),
   ).toThrow();
+  const updateByDelay = {
+    ...scope,
+    operation: "update" as const,
+    reminderId,
+    delaySeconds: 600,
+  };
+  expect(
+    decodeAgentReminderOperationRequest(encodeAgentReminderOperationRequest(updateByDelay)),
+  ).toEqual(updateByDelay);
+  expect(() =>
+    encodeAgentReminderOperationRequest({
+      ...updateByDelay,
+      fireAt: "2026-09-08T10:00:00Z",
+    }),
+  ).toThrow();
   expect(() =>
     encodeAgentReminderOperationRequest({ ...scope, operation: "cancel", reminderId, title: "No" }),
   ).toThrow();

@@ -222,7 +222,9 @@ function operation<T extends AgentReminderOperationRequest>(value: T): T {
     value.operation === "update" &&
     (!value.reminderId ||
       timed > 1 ||
-      ![value.title, value.fireAt, value.repeat, value.timezone].some((v) => v !== undefined))
+      ![value.title, value.fireAt, value.delaySeconds, value.repeat, value.timezone].some(
+        (v) => v !== undefined,
+      ))
   )
     throw new Error("invalid update reminder request");
   return value;
