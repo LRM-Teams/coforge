@@ -1,6 +1,7 @@
 import { lockConversation } from "./conversation-lock.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
+import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
 import {
@@ -25,6 +26,10 @@ import { AgentMessageValidationError } from "./agent-message-validation-error.se
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { attachmentView } from "../attachments/attachment-view.server";
 import type { ActionCardView } from "./action-cards.server";
+
+/** A channel actor is either a human (by Workspace `userId`) or an Agent (by `agentId`); the
+ * human/Web UI and the Agent CLI share `PublicChannels.members`/`addMembers` through this. */
+export type ChannelActor = { userId: string } | { agentId: string };
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
@@ -162,7 +167,7 @@ export async function getAgentChannel(
     where: {
       workspaceId,
       channelName: target.slice(1),
-      members: { some: { agentId, agent: { workspaceId } } },
+      members: { some: { agentId, agent: { workspaceId }, ...ACTIVE_MEMBER_WHERE } },
     },
   });
   if (!channel) throw new AppError("ACCESS_DENIED");
@@ -249,7 +254,7 @@ export class PublicChannels {
     await this.db.$transaction(async (tx) => {
       await lockConversation(tx, channel.id);
       const updated = await tx.conversationMember.updateMany({
-        where: { conversationId: channel.id, userId },
+        where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
         data: { channelMuted: muted },
       });
       if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
@@ -307,6 +312,22 @@ export class PublicChannels {
     if (!membership) throw new AppError("ACCESS_DENIED");
   }
 
+  /** The `ChannelActor` equivalent of `authorize`: a human must be a Workspace member, an Agent
+   * must belong to the Workspace. */
+  private async authorizeActor(workspaceId: string, actor: ChannelActor) {
+    if ("userId" in actor) return this.authorize(workspaceId, actor.userId);
+    const agent = await this.db.agent.findFirst({
+      where: { id: actor.agentId, workspaceId },
+      select: { id: true },
+    });
+    if (!agent) throw new AppError("ACCESS_DENIED");
+  }
+
+  /** A `ConversationMember` `where` clause identifying `actor`'s own row in a channel. */
+  private actorMemberWhere(actor: ChannelActor) {
+    return "userId" in actor ? { userId: actor.userId } : { agentId: actor.agentId };
+  }
+
   async list(workspaceId: string, userId: string) {
     await this.authorize(workspaceId, userId);
     const channels = await this.db.conversation.findMany({
@@ -315,7 +336,8 @@ export class PublicChannels {
       select: {
         id: true,
         channelName: true,
-        members: { where: { userId }, select: { id: true } },
+        archivedAt: true,
+        members: { where: { userId, ...ACTIVE_MEMBER_WHERE }, select: { id: true } },
       },
     });
     return channels
@@ -323,6 +345,7 @@ export class PublicChannels {
         id: channel.id,
         name: channel.channelName!,
         joined: channel.members.length > 0,
+        archived: channel.archivedAt !== null,
       }))
       .sort((a, b) => Number(b.name === "general") - Number(a.name === "general"));
   }
@@ -372,20 +395,26 @@ export class PublicChannels {
 
   async join(workspaceId: string, userId: string, channelId: string) {
     await this.channel(workspaceId, userId, channelId);
-    await this.db.conversationMember.createMany({
-      data: { workspaceId, userId, conversationId: channelId },
-      skipDuplicates: true,
+    // Upsert (not createMany/skipDuplicates): a human previously removed from this channel by
+    // an admin Agent has a row with `leftAt` set, which re-joining must clear rather than skip.
+    await this.db.conversationMember.upsert({
+      where: { conversationId_userId: { conversationId: channelId, userId } },
+      create: { workspaceId, userId, conversationId: channelId },
+      update: { leftAt: null },
     });
   }
 
   /**
    * Current members split into humans and Agents, plus candidates (Workspace
    * humans and Agents not yet members) and whether the actor may add members
-   * (has a ConversationMember row in this channel). Any Workspace member may
-   * read this; channels are public within the Workspace.
+   * (has an active ConversationMember row in this channel). Any Workspace
+   * member or Agent may read this; channels are public within the Workspace.
+   * Shared by the human "Members" dialog and the Agent CLI's `channel
+   * members`/`add-member` (see ADR 0024/0025); a soft-left row (`leftAt` set)
+   * never counts as a current member.
    */
-  async members(workspaceId: string, actorUserId: string, channelId: string) {
-    await this.authorize(workspaceId, actorUserId);
+  async members(workspaceId: string, actor: ChannelActor, channelId: string) {
+    await this.authorizeActor(workspaceId, actor);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
       select: { id: true },
@@ -394,12 +423,21 @@ export class PublicChannels {
 
     const [memberRows, workspaceUsers, workspaceAgents] = await Promise.all([
       this.db.conversationMember.findMany({
-        where: { conversationId: channelId },
+        where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
         select: {
           user: {
             select: { id: true, username: true, displayName: true, avatarObjectKey: true },
           },
-          agent: { select: { id: true, name: true, displayName: true } },
+          agent: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+              description: true,
+              role: true,
+              computerId: true,
+            },
+          },
         },
       }),
       this.db.user.findMany({
@@ -416,9 +454,17 @@ export class PublicChannels {
 
     const memberUserIds = new Set(memberRows.flatMap((row) => (row.user ? [row.user.id] : [])));
     const memberAgentIds = new Set(memberRows.flatMap((row) => (row.agent ? [row.agent.id] : [])));
+    const humanRoles = memberUserIds.size
+      ? await this.db.workspaceMembership.findMany({
+          where: { workspaceId, userId: { in: [...memberUserIds] } },
+          select: { userId: true, role: true },
+        })
+      : [];
+    const roleByUserId = new Map(humanRoles.map((row) => [row.userId, row.role]));
 
     return {
-      canAddMembers: memberUserIds.has(actorUserId),
+      canAddMembers:
+        "userId" in actor ? memberUserIds.has(actor.userId) : memberAgentIds.has(actor.agentId),
       humans: memberRows
         .filter((row) => row.user)
         .map((row) => ({
@@ -426,6 +472,7 @@ export class PublicChannels {
           username: row.user!.username,
           displayName: row.user!.displayName?.trim() || row.user!.username,
           avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user!.id, row.user!.avatarObjectKey),
+          role: roleByUserId.get(row.user!.id) ?? "member",
         })),
       agents: memberRows
         .filter((row) => row.agent)
@@ -433,6 +480,9 @@ export class PublicChannels {
           id: row.agent!.id,
           name: row.agent!.name,
           displayName: row.agent!.displayName?.trim() || row.agent!.name,
+          description: row.agent!.description,
+          role: row.agent!.role,
+          computerId: row.agent!.computerId,
         })),
       candidates: {
         humans: workspaceUsers
@@ -458,22 +508,25 @@ export class PublicChannels {
    * A channel member adds Workspace humans and/or Agents as channel members
    * (Slack: you add people to channels you belong to). Membership alone never
    * creates attention: delivery eligibility is computed at message time.
+   * Adding someone whose row exists but is soft-left (`leftAt` set) clears
+   * `leftAt` rather than being a no-op, and keeps their prior read boundary
+   * and mute preference (upsert, not `createMany`/`skipDuplicates`).
    */
   async addMembers(
     workspaceId: string,
-    actorUserId: string,
+    actor: ChannelActor,
     channelId: string,
     input: { userIds: string[]; agentIds: string[] },
   ) {
-    await this.authorize(workspaceId, actorUserId);
+    await this.authorizeActor(workspaceId, actor);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
       select: { id: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
 
-    const actorMembership = await this.db.conversationMember.findUnique({
-      where: { conversationId_userId: { conversationId: channelId, userId: actorUserId } },
+    const actorMembership = await this.db.conversationMember.findFirst({
+      where: { conversationId: channelId, ...this.actorMemberWhere(actor), ...ACTIVE_MEMBER_WHERE },
       select: { id: true },
     });
     if (!actorMembership) throw new AppError("ACCESS_DENIED");
@@ -493,15 +546,43 @@ export class PublicChannels {
       if (validAgents !== agentIds.length) throw new AppError("INVALID_INPUT");
     }
 
-    await this.db.conversationMember.createMany({
-      data: [
-        ...userIds.map((userId) => ({ workspaceId, conversationId: channelId, userId })),
-        ...agentIds.map((agentId) => ({ workspaceId, conversationId: channelId, agentId })),
-      ],
-      skipDuplicates: true,
+    // Read who was already an active member before writing, so a caller (the Agent CLI) can
+    // report "already in #channel" instead of a bare success for a no-op add.
+    const alreadyActive = await this.db.conversationMember.findMany({
+      where: {
+        conversationId: channelId,
+        ...ACTIVE_MEMBER_WHERE,
+        OR: [
+          ...(userIds.length ? [{ userId: { in: userIds } }] : []),
+          ...(agentIds.length ? [{ agentId: { in: agentIds } }] : []),
+        ],
+      },
+      select: { userId: true, agentId: true },
     });
+    const alreadyMemberUserIds = alreadyActive.flatMap((row) => (row.userId ? [row.userId] : []));
+    const alreadyMemberAgentIds = alreadyActive.flatMap((row) =>
+      row.agentId ? [row.agentId] : [],
+    );
 
-    return this.members(workspaceId, actorUserId, channelId);
+    await Promise.all([
+      ...userIds.map((userId) =>
+        this.db.conversationMember.upsert({
+          where: { conversationId_userId: { conversationId: channelId, userId } },
+          create: { workspaceId, conversationId: channelId, userId },
+          update: { leftAt: null },
+        }),
+      ),
+      ...agentIds.map((agentId) =>
+        this.db.conversationMember.upsert({
+          where: { conversationId_agentId: { conversationId: channelId, agentId } },
+          create: { workspaceId, conversationId: channelId, agentId },
+          update: { leftAt: null },
+        }),
+      ),
+    ]);
+
+    const result = await this.members(workspaceId, actor, channelId);
+    return { ...result, alreadyMemberUserIds, alreadyMemberAgentIds };
   }
 
   async open(
@@ -578,8 +659,9 @@ export class PublicChannels {
   }) {
     const { workspaceId, userId, channelId, requestId, attachmentIds, threadRootId } = input;
     const channel = await this.channel(workspaceId, userId, channelId);
-    const member = await this.db.conversationMember.findUnique({
-      where: { conversationId_userId: { conversationId: channelId, userId } },
+    if (channel.archivedAt) throw new AppError("CONFLICT");
+    const member = await this.db.conversationMember.findFirst({
+      where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
     });
     if (!member) throw new AppError("ACCESS_DENIED");
     const body = input.body.trim();
@@ -626,6 +708,7 @@ export class PublicChannels {
               where: {
                 conversationId: channelId,
                 OR: [{ user: { username: { in: names } } }, { agent: { name: { in: names } } }],
+                ...ACTIVE_MEMBER_WHERE,
               },
               select: { id: true },
             });
@@ -644,6 +727,7 @@ export class PublicChannels {
               conversationId: channelId,
               agentId: { not: null },
               agent: { workspaceId },
+              ...ACTIVE_MEMBER_WHERE,
               OR: [
                 { channelMuted: false },
                 { agent: { name: { in: names } } },

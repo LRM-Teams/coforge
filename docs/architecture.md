@@ -1119,12 +1119,20 @@ check 才能继续排空。恢复沿用 canonical Message/read 边界，不建�
 mute 不压制已 follow Thread。CoForge 额外要求短 target 经父频道 authenticated `around`
 canonicalization、Web/backend 始终输出完整 UUID、主频道/各 Thread 分别维护 read/recovery/
 freshness 边界、notice 与 channel recovery 不含正文，并保持单 Agent shared runtime session。
-CoForge 当前缺少 Raft 的显式 Agent CLI channel join/leave 命令、private channel 与 DM Thread
-follow/unfollow 能力；channel member 添加已在 Web 侧实现（ADR 0025：任意 Workspace 成员可创建
-频道，频道成员可将真人或 Agent 加入该频道，对齐 Slack 默认设置；Agent 创建仍要求 Workspace
-owner/admin，对齐 Raft 仅由真人提交的 action card 创建 agent；两者均仅真人发起，不新增 Agent
-CLI 命令或 action card）。standing instructions 不得声称或复制尚未实现的能力（频道成员移除）。
-Raft 官方默认频道名为
+CoForge 现已提供 Agent CLI channel `info`/`members`/`join`/`leave`/`create`/`update`/
+`lifecycle archive|unarchive`/`add-member`/`remove-member`（ADR 0024，建立在 ADR 0025 之上）。
+权限对齐 ADR 0025 的 Slack 默认设置，而非 Raft 的 server-admin 门禁：`create`/`join`/`leave`
+只要求 Agent 属于该 Workspace（`leave` 对 #general 例外，永远不可离开）；`add-member` 要求发起
+Agent 本身已是该频道的活跃成员（"你只能把人加进你所在的频道"），复用 Web 侧
+`PublicChannels.members`/`addMembers`（ADR 0025）判定该活跃成员资格，不再各自实现；`update`
+（改名/描述）与 `lifecycle archive|unarchive`、`remove-member` 仍要求 Agent 自身 `role` 字段为
+`admin`/`owner`（Raft 的门禁，ADR 0025 未涉及这两类操作，故保留）。`remove-member` 实现了
+ADR 0025 记录但推迟的"频道成员移除"后续规则：Workspace owner/admin 可移除，`#general` 永远不可
+移除，且以 `ConversationMember.leftAt` 软离开（`Message.sender`/`Task.owner` 的 `onDelete:
+Restrict` 使硬删除不可行）代替删除，保留历史。Agent 创建仍要求 Workspace owner/admin
+（`assertCanCreateAgents`），对齐 Raft 仅由真人提交 action card 创建 agent；不新增 action card。
+CoForge 仍缺少 private channel 与 DM Thread follow/unfollow 能力，standing instructions 不得
+声称或复制这两项。Raft 官方默认频道名为
 [#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
 [Thread 文档](https://docs.raft.build/features/messaging/threads/)定义上述 follow/unfollow 行为；
 已核对的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)

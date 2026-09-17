@@ -55,6 +55,7 @@ import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
 import { Route as ApiWorkspacesSlugRouteImport } from './routes/api/workspaces.$slug'
 import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
 import { Route as AppProjectsProjectSlugSettingsRouteImport } from './routes/_app/projects.$projectSlug_.settings'
+import { Route as ApiAgentV1ChannelsRouteImport } from './routes/api/agent/v1/channels'
 import { Route as ApiAgentV1EventsRouteImport } from './routes/api/agent/v1/events'
 import { Route as ApiAgentV1GithubCredentialsRouteImport } from './routes/api/agent/v1/github-credentials'
 import { Route as ApiAgentV1MessagesRouteImport } from './routes/api/agent/v1/messages'
@@ -75,10 +76,16 @@ import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdRouteImport } from '
 import { Route as ApiAgentV1AttachmentsIndexRouteImport } from './routes/api/agent/v1/attachments/index'
 import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/api/agent/v1/attachments/$attachmentId'
 import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
+import { Route as ApiAgentV1ChannelsChannelRouteImport } from './routes/api/agent/v1/channels_.$channel'
 import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent/v1/messages_.search'
 import { Route as ApiProjectsProjectIdRawSplatRouteImport } from './routes/api/projects.$projectId.raw.$'
 import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/$uploadId.complete'
+import { Route as ApiAgentV1ChannelsChannelArchiveRouteImport } from './routes/api/agent/v1/channels_.$channel.archive'
+import { Route as ApiAgentV1ChannelsChannelJoinRouteImport } from './routes/api/agent/v1/channels_.$channel.join'
+import { Route as ApiAgentV1ChannelsChannelLeaveRouteImport } from './routes/api/agent/v1/channels_.$channel.leave'
+import { Route as ApiAgentV1ChannelsChannelMembersRouteImport } from './routes/api/agent/v1/channels_.$channel.members'
 import { Route as ApiAgentV1ChannelsChannelMuteRouteImport } from './routes/api/agent/v1/channels_.$channel.mute'
+import { Route as ApiAgentV1ChannelsChannelUnarchiveRouteImport } from './routes/api/agent/v1/channels_.$channel.unarchive'
 import { Route as ApiAgentV1ChannelsChannelUnmuteRouteImport } from './routes/api/agent/v1/channels_.$channel.unmute'
 import { Route as ApiAgentV1MessagesMessageIdReactionsRouteImport } from './routes/api/agent/v1/messages_.$messageId.reactions'
 import { Route as ApiAgentV1MessagesMessageIdResolveRouteImport } from './routes/api/agent/v1/messages_.$messageId.resolve'
@@ -321,6 +328,11 @@ const AppProjectsProjectSlugSettingsRoute =
     path: '/projects/$projectSlug/settings',
     getParentRoute: () => AppRoute,
   } as any)
+const ApiAgentV1ChannelsRoute = ApiAgentV1ChannelsRouteImport.update({
+  id: '/api/agent/v1/channels',
+  path: '/api/agent/v1/channels',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAgentV1EventsRoute = ApiAgentV1EventsRouteImport.update({
   id: '/api/agent/v1/events',
   path: '/api/agent/v1/events',
@@ -433,6 +445,12 @@ const ApiAgentV1AttachmentsCapabilitiesRoute =
     path: '/api/agent/v1/attachments/capabilities',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAgentV1ChannelsChannelRoute =
+  ApiAgentV1ChannelsChannelRouteImport.update({
+    id: '/api/agent/v1/channels_/$channel',
+    path: '/api/agent/v1/channels/$channel',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1MessagesSearchRoute =
   ApiAgentV1MessagesSearchRouteImport.update({
     id: '/api/agent/v1/messages_/search',
@@ -451,17 +469,47 @@ const ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute =
     path: '/complete',
     getParentRoute: () => ApiAgentV1AttachmentUploadSessionsUploadIdRoute,
   } as any)
+const ApiAgentV1ChannelsChannelArchiveRoute =
+  ApiAgentV1ChannelsChannelArchiveRouteImport.update({
+    id: '/archive',
+    path: '/archive',
+    getParentRoute: () => ApiAgentV1ChannelsChannelRoute,
+  } as any)
+const ApiAgentV1ChannelsChannelJoinRoute =
+  ApiAgentV1ChannelsChannelJoinRouteImport.update({
+    id: '/join',
+    path: '/join',
+    getParentRoute: () => ApiAgentV1ChannelsChannelRoute,
+  } as any)
+const ApiAgentV1ChannelsChannelLeaveRoute =
+  ApiAgentV1ChannelsChannelLeaveRouteImport.update({
+    id: '/leave',
+    path: '/leave',
+    getParentRoute: () => ApiAgentV1ChannelsChannelRoute,
+  } as any)
+const ApiAgentV1ChannelsChannelMembersRoute =
+  ApiAgentV1ChannelsChannelMembersRouteImport.update({
+    id: '/members',
+    path: '/members',
+    getParentRoute: () => ApiAgentV1ChannelsChannelRoute,
+  } as any)
 const ApiAgentV1ChannelsChannelMuteRoute =
   ApiAgentV1ChannelsChannelMuteRouteImport.update({
-    id: '/api/agent/v1/channels_/$channel/mute',
-    path: '/api/agent/v1/channels/$channel/mute',
-    getParentRoute: () => rootRouteImport,
+    id: '/mute',
+    path: '/mute',
+    getParentRoute: () => ApiAgentV1ChannelsChannelRoute,
+  } as any)
+const ApiAgentV1ChannelsChannelUnarchiveRoute =
+  ApiAgentV1ChannelsChannelUnarchiveRouteImport.update({
+    id: '/unarchive',
+    path: '/unarchive',
+    getParentRoute: () => ApiAgentV1ChannelsChannelRoute,
   } as any)
 const ApiAgentV1ChannelsChannelUnmuteRoute =
   ApiAgentV1ChannelsChannelUnmuteRouteImport.update({
-    id: '/api/agent/v1/channels_/$channel/unmute',
-    path: '/api/agent/v1/channels/$channel/unmute',
-    getParentRoute: () => rootRouteImport,
+    id: '/unmute',
+    path: '/unmute',
+    getParentRoute: () => ApiAgentV1ChannelsChannelRoute,
   } as any)
 const ApiAgentV1MessagesMessageIdReactionsRoute =
   ApiAgentV1MessagesMessageIdReactionsRouteImport.update({
@@ -534,6 +582,7 @@ export interface FileRoutesByFullPath {
   '/records/': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
+  '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
@@ -552,12 +601,18 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  '/api/agent/v1/channels/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
+  '/api/agent/v1/channels/$channel/archive': typeof ApiAgentV1ChannelsChannelArchiveRoute
+  '/api/agent/v1/channels/$channel/join': typeof ApiAgentV1ChannelsChannelJoinRoute
+  '/api/agent/v1/channels/$channel/leave': typeof ApiAgentV1ChannelsChannelLeaveRoute
+  '/api/agent/v1/channels/$channel/members': typeof ApiAgentV1ChannelsChannelMembersRoute
   '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
+  '/api/agent/v1/channels/$channel/unarchive': typeof ApiAgentV1ChannelsChannelUnarchiveRoute
   '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
@@ -607,6 +662,7 @@ export interface FileRoutesByTo {
   '/records': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
+  '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
@@ -625,12 +681,18 @@ export interface FileRoutesByTo {
   '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  '/api/agent/v1/channels/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/api/agent/v1/attachment-upload-sessions': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
+  '/api/agent/v1/channels/$channel/archive': typeof ApiAgentV1ChannelsChannelArchiveRoute
+  '/api/agent/v1/channels/$channel/join': typeof ApiAgentV1ChannelsChannelJoinRoute
+  '/api/agent/v1/channels/$channel/leave': typeof ApiAgentV1ChannelsChannelLeaveRoute
+  '/api/agent/v1/channels/$channel/members': typeof ApiAgentV1ChannelsChannelMembersRoute
   '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
+  '/api/agent/v1/channels/$channel/unarchive': typeof ApiAgentV1ChannelsChannelUnarchiveRoute
   '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
@@ -685,6 +747,7 @@ export interface FileRoutesById {
   '/_app/records/': typeof AppRecordsIndexRoute
   '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/_app/projects/$projectSlug_/settings': typeof AppProjectsProjectSlugSettingsRoute
+  '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
@@ -703,12 +766,18 @@ export interface FileRoutesById {
   '/api/agent/v1/attachment-upload-sessions/$uploadId': typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  '/api/agent/v1/channels_/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/messages_/search': typeof ApiAgentV1MessagesSearchRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
   '/api/agent/v1/attachment-upload-sessions/$uploadId/complete': typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRoute
+  '/api/agent/v1/channels_/$channel/archive': typeof ApiAgentV1ChannelsChannelArchiveRoute
+  '/api/agent/v1/channels_/$channel/join': typeof ApiAgentV1ChannelsChannelJoinRoute
+  '/api/agent/v1/channels_/$channel/leave': typeof ApiAgentV1ChannelsChannelLeaveRoute
+  '/api/agent/v1/channels_/$channel/members': typeof ApiAgentV1ChannelsChannelMembersRoute
   '/api/agent/v1/channels_/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
+  '/api/agent/v1/channels_/$channel/unarchive': typeof ApiAgentV1ChannelsChannelUnarchiveRoute
   '/api/agent/v1/channels_/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages_/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages_/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
@@ -763,6 +832,7 @@ export interface FileRouteTypes {
     | '/records/'
     | '/messages/channels/$channelId'
     | '/projects/$projectSlug/settings'
+    | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/messages'
@@ -781,12 +851,18 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
+    | '/api/agent/v1/channels/$channel'
     | '/api/agent/v1/messages/search'
     | '/api/projects/$projectId/raw/$'
     | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
+    | '/api/agent/v1/channels/$channel/archive'
+    | '/api/agent/v1/channels/$channel/join'
+    | '/api/agent/v1/channels/$channel/leave'
+    | '/api/agent/v1/channels/$channel/members'
     | '/api/agent/v1/channels/$channel/mute'
+    | '/api/agent/v1/channels/$channel/unarchive'
     | '/api/agent/v1/channels/$channel/unmute'
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
@@ -836,6 +912,7 @@ export interface FileRouteTypes {
     | '/records'
     | '/messages/channels/$channelId'
     | '/projects/$projectSlug/settings'
+    | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/messages'
@@ -854,12 +931,18 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
+    | '/api/agent/v1/channels/$channel'
     | '/api/agent/v1/messages/search'
     | '/api/projects/$projectId/raw/$'
     | '/api/agent/v1/attachment-upload-sessions'
     | '/api/agent/v1/attachments'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
+    | '/api/agent/v1/channels/$channel/archive'
+    | '/api/agent/v1/channels/$channel/join'
+    | '/api/agent/v1/channels/$channel/leave'
+    | '/api/agent/v1/channels/$channel/members'
     | '/api/agent/v1/channels/$channel/mute'
+    | '/api/agent/v1/channels/$channel/unarchive'
     | '/api/agent/v1/channels/$channel/unmute'
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
@@ -913,6 +996,7 @@ export interface FileRouteTypes {
     | '/_app/records/'
     | '/_app/messages/channels/$channelId'
     | '/_app/projects/$projectSlug_/settings'
+    | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/messages'
@@ -931,12 +1015,18 @@ export interface FileRouteTypes {
     | '/api/agent/v1/attachment-upload-sessions/$uploadId'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
+    | '/api/agent/v1/channels_/$channel'
     | '/api/agent/v1/messages_/search'
     | '/api/projects/$projectId/raw/$'
     | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
     | '/api/agent/v1/attachment-upload-sessions/$uploadId/complete'
+    | '/api/agent/v1/channels_/$channel/archive'
+    | '/api/agent/v1/channels_/$channel/join'
+    | '/api/agent/v1/channels_/$channel/leave'
+    | '/api/agent/v1/channels_/$channel/members'
     | '/api/agent/v1/channels_/$channel/mute'
+    | '/api/agent/v1/channels_/$channel/unarchive'
     | '/api/agent/v1/channels_/$channel/unmute'
     | '/api/agent/v1/messages_/$messageId/reactions'
     | '/api/agent/v1/messages_/$messageId/resolve'
@@ -970,6 +1060,7 @@ export interface RootRouteChildren {
   ApiInternalCentrifugoConnectRoute: typeof ApiInternalCentrifugoConnectRoute
   ApiInternalWeeklyReportScheduleRoute: typeof ApiInternalWeeklyReportScheduleRoute
   ApiWorkspacesSlugRoute: typeof ApiWorkspacesSlugRoute
+  ApiAgentV1ChannelsRoute: typeof ApiAgentV1ChannelsRoute
   ApiAgentV1EventsRoute: typeof ApiAgentV1EventsRoute
   ApiAgentV1GithubCredentialsRoute: typeof ApiAgentV1GithubCredentialsRoute
   ApiAgentV1MessagesRoute: typeof ApiAgentV1MessagesRoute
@@ -986,12 +1077,11 @@ export interface RootRouteChildren {
   ApiAgentV1AttachmentUploadSessionsUploadIdRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
   ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  ApiAgentV1ChannelsChannelRoute: typeof ApiAgentV1ChannelsChannelRouteWithChildren
   ApiAgentV1MessagesSearchRoute: typeof ApiAgentV1MessagesSearchRoute
   ApiProjectsProjectIdRawSplatRoute: typeof ApiProjectsProjectIdRawSplatRoute
   ApiAgentV1AttachmentUploadSessionsIndexRoute: typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   ApiAgentV1AttachmentsIndexRoute: typeof ApiAgentV1AttachmentsIndexRoute
-  ApiAgentV1ChannelsChannelMuteRoute: typeof ApiAgentV1ChannelsChannelMuteRoute
-  ApiAgentV1ChannelsChannelUnmuteRoute: typeof ApiAgentV1ChannelsChannelUnmuteRoute
   ApiAgentV1MessagesMessageIdReactionsRoute: typeof ApiAgentV1MessagesMessageIdReactionsRoute
   ApiAgentV1MessagesMessageIdResolveRoute: typeof ApiAgentV1MessagesMessageIdResolveRoute
   ApiAgentV1ThreadsThreadUnfollowRoute: typeof ApiAgentV1ThreadsThreadUnfollowRoute
@@ -1322,6 +1412,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProjectsProjectSlugSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/agent/v1/channels': {
+      id: '/api/agent/v1/channels'
+      path: '/api/agent/v1/channels'
+      fullPath: '/api/agent/v1/channels'
+      preLoaderRoute: typeof ApiAgentV1ChannelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/events': {
       id: '/api/agent/v1/events'
       path: '/api/agent/v1/events'
@@ -1462,6 +1559,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1AttachmentsCapabilitiesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v1/channels_/$channel': {
+      id: '/api/agent/v1/channels_/$channel'
+      path: '/api/agent/v1/channels/$channel'
+      fullPath: '/api/agent/v1/channels/$channel'
+      preLoaderRoute: typeof ApiAgentV1ChannelsChannelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/messages_/search': {
       id: '/api/agent/v1/messages_/search'
       path: '/api/agent/v1/messages/search'
@@ -1483,19 +1587,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport
       parentRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdRoute
     }
+    '/api/agent/v1/channels_/$channel/archive': {
+      id: '/api/agent/v1/channels_/$channel/archive'
+      path: '/archive'
+      fullPath: '/api/agent/v1/channels/$channel/archive'
+      preLoaderRoute: typeof ApiAgentV1ChannelsChannelArchiveRouteImport
+      parentRoute: typeof ApiAgentV1ChannelsChannelRoute
+    }
+    '/api/agent/v1/channels_/$channel/join': {
+      id: '/api/agent/v1/channels_/$channel/join'
+      path: '/join'
+      fullPath: '/api/agent/v1/channels/$channel/join'
+      preLoaderRoute: typeof ApiAgentV1ChannelsChannelJoinRouteImport
+      parentRoute: typeof ApiAgentV1ChannelsChannelRoute
+    }
+    '/api/agent/v1/channels_/$channel/leave': {
+      id: '/api/agent/v1/channels_/$channel/leave'
+      path: '/leave'
+      fullPath: '/api/agent/v1/channels/$channel/leave'
+      preLoaderRoute: typeof ApiAgentV1ChannelsChannelLeaveRouteImport
+      parentRoute: typeof ApiAgentV1ChannelsChannelRoute
+    }
+    '/api/agent/v1/channels_/$channel/members': {
+      id: '/api/agent/v1/channels_/$channel/members'
+      path: '/members'
+      fullPath: '/api/agent/v1/channels/$channel/members'
+      preLoaderRoute: typeof ApiAgentV1ChannelsChannelMembersRouteImport
+      parentRoute: typeof ApiAgentV1ChannelsChannelRoute
+    }
     '/api/agent/v1/channels_/$channel/mute': {
       id: '/api/agent/v1/channels_/$channel/mute'
-      path: '/api/agent/v1/channels/$channel/mute'
+      path: '/mute'
       fullPath: '/api/agent/v1/channels/$channel/mute'
       preLoaderRoute: typeof ApiAgentV1ChannelsChannelMuteRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof ApiAgentV1ChannelsChannelRoute
+    }
+    '/api/agent/v1/channels_/$channel/unarchive': {
+      id: '/api/agent/v1/channels_/$channel/unarchive'
+      path: '/unarchive'
+      fullPath: '/api/agent/v1/channels/$channel/unarchive'
+      preLoaderRoute: typeof ApiAgentV1ChannelsChannelUnarchiveRouteImport
+      parentRoute: typeof ApiAgentV1ChannelsChannelRoute
     }
     '/api/agent/v1/channels_/$channel/unmute': {
       id: '/api/agent/v1/channels_/$channel/unmute'
-      path: '/api/agent/v1/channels/$channel/unmute'
+      path: '/unmute'
       fullPath: '/api/agent/v1/channels/$channel/unmute'
       preLoaderRoute: typeof ApiAgentV1ChannelsChannelUnmuteRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof ApiAgentV1ChannelsChannelRoute
     }
     '/api/agent/v1/messages_/$messageId/reactions': {
       id: '/api/agent/v1/messages_/$messageId/reactions'
@@ -1645,6 +1784,35 @@ const ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren =
     ApiAgentV1AttachmentUploadSessionsUploadIdRouteChildren,
   )
 
+interface ApiAgentV1ChannelsChannelRouteChildren {
+  ApiAgentV1ChannelsChannelArchiveRoute: typeof ApiAgentV1ChannelsChannelArchiveRoute
+  ApiAgentV1ChannelsChannelJoinRoute: typeof ApiAgentV1ChannelsChannelJoinRoute
+  ApiAgentV1ChannelsChannelLeaveRoute: typeof ApiAgentV1ChannelsChannelLeaveRoute
+  ApiAgentV1ChannelsChannelMembersRoute: typeof ApiAgentV1ChannelsChannelMembersRoute
+  ApiAgentV1ChannelsChannelMuteRoute: typeof ApiAgentV1ChannelsChannelMuteRoute
+  ApiAgentV1ChannelsChannelUnarchiveRoute: typeof ApiAgentV1ChannelsChannelUnarchiveRoute
+  ApiAgentV1ChannelsChannelUnmuteRoute: typeof ApiAgentV1ChannelsChannelUnmuteRoute
+}
+
+const ApiAgentV1ChannelsChannelRouteChildren: ApiAgentV1ChannelsChannelRouteChildren =
+  {
+    ApiAgentV1ChannelsChannelArchiveRoute:
+      ApiAgentV1ChannelsChannelArchiveRoute,
+    ApiAgentV1ChannelsChannelJoinRoute: ApiAgentV1ChannelsChannelJoinRoute,
+    ApiAgentV1ChannelsChannelLeaveRoute: ApiAgentV1ChannelsChannelLeaveRoute,
+    ApiAgentV1ChannelsChannelMembersRoute:
+      ApiAgentV1ChannelsChannelMembersRoute,
+    ApiAgentV1ChannelsChannelMuteRoute: ApiAgentV1ChannelsChannelMuteRoute,
+    ApiAgentV1ChannelsChannelUnarchiveRoute:
+      ApiAgentV1ChannelsChannelUnarchiveRoute,
+    ApiAgentV1ChannelsChannelUnmuteRoute: ApiAgentV1ChannelsChannelUnmuteRoute,
+  }
+
+const ApiAgentV1ChannelsChannelRouteWithChildren =
+  ApiAgentV1ChannelsChannelRoute._addFileChildren(
+    ApiAgentV1ChannelsChannelRouteChildren,
+  )
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
@@ -1673,6 +1841,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiInternalCentrifugoConnectRoute: ApiInternalCentrifugoConnectRoute,
   ApiInternalWeeklyReportScheduleRoute: ApiInternalWeeklyReportScheduleRoute,
   ApiWorkspacesSlugRoute: ApiWorkspacesSlugRoute,
+  ApiAgentV1ChannelsRoute: ApiAgentV1ChannelsRoute,
   ApiAgentV1EventsRoute: ApiAgentV1EventsRoute,
   ApiAgentV1GithubCredentialsRoute: ApiAgentV1GithubCredentialsRoute,
   ApiAgentV1MessagesRoute: ApiAgentV1MessagesRoute,
@@ -1693,13 +1862,12 @@ const rootRouteChildren: RootRouteChildren = {
     ApiAgentV1AttachmentsAttachmentIdRoute,
   ApiAgentV1AttachmentsCapabilitiesRoute:
     ApiAgentV1AttachmentsCapabilitiesRoute,
+  ApiAgentV1ChannelsChannelRoute: ApiAgentV1ChannelsChannelRouteWithChildren,
   ApiAgentV1MessagesSearchRoute: ApiAgentV1MessagesSearchRoute,
   ApiProjectsProjectIdRawSplatRoute: ApiProjectsProjectIdRawSplatRoute,
   ApiAgentV1AttachmentUploadSessionsIndexRoute:
     ApiAgentV1AttachmentUploadSessionsIndexRoute,
   ApiAgentV1AttachmentsIndexRoute: ApiAgentV1AttachmentsIndexRoute,
-  ApiAgentV1ChannelsChannelMuteRoute: ApiAgentV1ChannelsChannelMuteRoute,
-  ApiAgentV1ChannelsChannelUnmuteRoute: ApiAgentV1ChannelsChannelUnmuteRoute,
   ApiAgentV1MessagesMessageIdReactionsRoute:
     ApiAgentV1MessagesMessageIdReactionsRoute,
   ApiAgentV1MessagesMessageIdResolveRoute:

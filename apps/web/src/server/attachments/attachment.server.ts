@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { getFileStorage, type FileStorage, type StoredFile } from "../files/file-storage.server";
+import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_SESSION_SECONDS = 900;
@@ -53,7 +54,7 @@ export async function storeAttachment(
   const conversation = await db.conversation.findFirst({
     where: {
       id: input.conversationId,
-      members: { some: { userId: input.userId } },
+      members: { some: { userId: input.userId, ...ACTIVE_MEMBER_WHERE } },
       OR: [{ channelName: null }, { workspace: { members: { some: { userId: input.userId } } } }],
     },
     select: { id: true, workspaceId: true },
@@ -159,7 +160,7 @@ export async function readAuthorizedAttachment(
             OR: [
               {
                 channelName: null,
-                members: { some: { userId: input.userId } },
+                members: { some: { userId: input.userId, ...ACTIVE_MEMBER_WHERE } },
               },
               {
                 channelName: { not: null },
@@ -176,6 +177,7 @@ export async function readAuthorizedAttachment(
           where: {
             conversationId: attachment.conversationId,
             agentId: input.agentId,
+            ...ACTIVE_MEMBER_WHERE,
           },
         })),
       );

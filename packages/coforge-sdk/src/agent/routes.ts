@@ -9,6 +9,7 @@ export const agentApiRoutes = {
     actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
+    channels: { method: "POST", path: "/api/agent/v1/channels" },
   },
   local: {
     messages: { method: "POST", path: "/api/agent/v1/messages" },
@@ -18,6 +19,7 @@ export const agentApiRoutes = {
     actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
+    channels: { method: "POST", path: "/api/agent/v1/channels" },
     attachments: {
       method: "GET",
       path: (attachmentId: string) =>
@@ -71,6 +73,49 @@ export const agentApiRoutes = {
         method: "POST",
         path: (channelId: string) =>
           `/api/agent/v1/channels/${encodeURIComponent(channelId)}/unmute`,
+      },
+      create: { method: "POST", path: "/api/agent/v1/channels" },
+      info: {
+        method: "GET",
+        path: (channelId: string) => `/api/agent/v1/channels/${encodeURIComponent(channelId)}`,
+      },
+      update: {
+        method: "PATCH",
+        path: (channelId: string) => `/api/agent/v1/channels/${encodeURIComponent(channelId)}`,
+      },
+      members: {
+        method: "GET",
+        path: (channelId: string) =>
+          `/api/agent/v1/channels/${encodeURIComponent(channelId)}/members`,
+      },
+      addMember: {
+        method: "POST",
+        path: (channelId: string) =>
+          `/api/agent/v1/channels/${encodeURIComponent(channelId)}/members`,
+      },
+      removeMember: {
+        method: "DELETE",
+        path: (channelId: string) =>
+          `/api/agent/v1/channels/${encodeURIComponent(channelId)}/members`,
+      },
+      join: {
+        method: "POST",
+        path: (channelId: string) => `/api/agent/v1/channels/${encodeURIComponent(channelId)}/join`,
+      },
+      leave: {
+        method: "POST",
+        path: (channelId: string) =>
+          `/api/agent/v1/channels/${encodeURIComponent(channelId)}/leave`,
+      },
+      archive: {
+        method: "POST",
+        path: (channelId: string) =>
+          `/api/agent/v1/channels/${encodeURIComponent(channelId)}/archive`,
+      },
+      unarchive: {
+        method: "POST",
+        path: (channelId: string) =>
+          `/api/agent/v1/channels/${encodeURIComponent(channelId)}/unarchive`,
       },
     },
     threads: {

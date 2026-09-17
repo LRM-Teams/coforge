@@ -59,6 +59,7 @@ export function AgentDetail({
   onSaveRuntimeCredential,
   onDeleteRuntimeCredential,
   onUpdate,
+  onUpdateRole,
   onLoadRuntimeOptions,
   onLoadSkills,
   onExecuteControl,
@@ -76,6 +77,8 @@ export function AgentDetail({
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
   onDeleteRuntimeCredential: () => Promise<void>;
   onUpdate: (input: UpdateAgentInput) => Promise<void>;
+  /** Present only for a Workspace owner/admin viewer; changes the Agent's own management authority. */
+  onUpdateRole?: (input: { agentId: string; role: "admin" | "member" }) => Promise<void>;
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
@@ -162,6 +165,7 @@ export function AgentDetail({
             onSaveRuntimeCredential={onSaveRuntimeCredential}
             onDeleteRuntimeCredential={onDeleteRuntimeCredential}
             onUpdate={onUpdate}
+            onUpdateRole={onUpdateRole}
             onLoadRuntimeOptions={onLoadRuntimeOptions}
             onLoadSkills={onLoadSkills}
             onExecuteControl={onExecuteControl}
@@ -189,6 +193,7 @@ const Profile = memo(function Profile({
   onSaveRuntimeCredential,
   onDeleteRuntimeCredential,
   onUpdate,
+  onUpdateRole,
   onLoadRuntimeOptions,
   onLoadSkills,
   onExecuteControl,
@@ -200,6 +205,8 @@ const Profile = memo(function Profile({
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
   onDeleteRuntimeCredential: () => Promise<void>;
   onUpdate: (input: UpdateAgentInput) => Promise<void>;
+  /** Present only for a Workspace owner/admin viewer; changes the Agent's own management authority. */
+  onUpdateRole?: (input: { agentId: string; role: "admin" | "member" }) => Promise<void>;
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
@@ -210,6 +217,7 @@ const Profile = memo(function Profile({
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(initialEditOpen);
   const [saving, guard] = useSubmitGuard();
+  const [savingRole, guardRole] = useSubmitGuard();
   const [editError, setEditError] = useState("");
   const [runtimeError, setRuntimeError] = useState("");
   const [selectedComputerId, setSelectedComputerId] = useState(
@@ -271,6 +279,23 @@ const Profile = memo(function Profile({
             </div>
           ))}
         </dl>
+        {detail.canManageAgentRole && onUpdateRole && (
+          <div className="mt-5 max-w-xs">
+            <Select
+              aria-label="Agent role"
+              selectedKey={detail.role === "admin" ? "admin" : "member"}
+              isDisabled={savingRole}
+              onSelectionChange={(key) => {
+                const role = key === "admin" ? "admin" : "member";
+                if (role === detail.role) return;
+                void guardRole(() => onUpdateRole({ agentId: detail.id, role }));
+              }}
+            >
+              <Select.Item id="member" label="Member" />
+              <Select.Item id="admin" label="Admin" />
+            </Select>
+          </div>
+        )}
       </section>
 
       <ModalOverlay

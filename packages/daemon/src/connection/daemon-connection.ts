@@ -84,6 +84,8 @@ import {
   type TaskResponse,
   type WeeklyReportRequest,
   type WeeklyReportResponse,
+  type ChannelCommand,
+  type ChannelOperation,
 } from "@lrm/coforge-sdk/internal";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
@@ -281,6 +283,16 @@ function adaptAgentReactionResponse(
 export interface AgentTaskHttpClient {
   execute(input: AgentHttpInput<TaskRequest>): Promise<TaskResponse>;
 }
+export type AgentChannelRequest = ChannelCommand & {
+  protocolMajor: number;
+  workspaceId: string;
+  agentId: string;
+};
+export interface AgentChannelHttpClient {
+  execute(
+    input: AgentHttpInput<AgentChannelRequest> & { method: "GET" | "POST" | "PATCH" | "DELETE" },
+  ): Promise<Record<string, unknown>>;
+}
 export interface AgentActionPrepareHttpClient {
   execute(input: AgentHttpInput<AgentActionPrepareRequest>): Promise<AgentActionPrepareResponse>;
 }
@@ -332,6 +344,10 @@ export interface DaemonConnectionClient {
     agentApiKey?: string,
   ): Promise<AgentMessageTransportResponse>;
   agentTask?(request: TaskRequest, agentApiKey?: string): Promise<TaskResponse>;
+  agentChannel?(
+    request: AgentChannelRequest,
+    agentApiKey?: string,
+  ): Promise<Record<string, unknown>>;
   agentActionPrepare?(
     request: AgentActionPrepareRequest,
     agentApiKey?: string,
@@ -391,6 +407,37 @@ export const defaultCentrifugeWorkspaceClientFactory: CentrifugeWorkspaceClientF
     data,
     websocket: globalThis.WebSocket,
   }) as unknown as CentrifugeWorkspaceClient;
+
+/** Maps a channel operation onto its cloud HTTP method and path, given the local target
+ * (`create` carries no target: the channel does not exist yet). */
+function channelEndpointFor(
+  operation: ChannelOperation,
+  target: string | undefined,
+): { method: "GET" | "POST" | "PATCH" | "DELETE"; path: string } {
+  const routes = agentApiRoutes.cloud.channels;
+  switch (operation) {
+    case "create":
+      return { method: routes.create.method, path: routes.create.path };
+    case "info":
+      return { method: routes.info.method, path: routes.info.path(target ?? "") };
+    case "update":
+      return { method: routes.update.method, path: routes.update.path(target ?? "") };
+    case "members":
+      return { method: routes.members.method, path: routes.members.path(target ?? "") };
+    case "add-member":
+      return { method: routes.addMember.method, path: routes.addMember.path(target ?? "") };
+    case "remove-member":
+      return { method: routes.removeMember.method, path: routes.removeMember.path(target ?? "") };
+    case "join":
+      return { method: routes.join.method, path: routes.join.path(target ?? "") };
+    case "leave":
+      return { method: routes.leave.method, path: routes.leave.path(target ?? "") };
+    case "archive":
+      return { method: routes.archive.method, path: routes.archive.path(target ?? "") };
+    case "unarchive":
+      return { method: routes.unarchive.method, path: routes.unarchive.path(target ?? "") };
+  }
+}
 
 /** Authorization headers every Agent-scoped HTTP request carries. */
 function agentHeaders(keys: { agentApiKey: string; daemonApiKey: string }, json = false) {
@@ -718,6 +765,43 @@ export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
   },
 };
 
+/** Forwards the classified channel request to its mapped cloud route and returns the JSON
+ * response body unchanged. A non-2xx throws a typed `AgentTransportError` carrying the real
+ * upstream status (so, e.g., a 404 "channel not found" reaches the CLI as a 404, not a generic
+ * 502); a network failure is the same pre-response transport failure every other Agent HTTP
+ * client here reports. */
+export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
+  async execute({ url, method, request, ...keys }) {
+    let response: Response;
+    try {
+      if (method === "GET") {
+        const endpoint = new URL(url);
+        endpoint.searchParams.set("requestId", request.requestId);
+        response = await fetch(endpoint, {
+          method: "GET",
+          headers: agentHeaders(keys),
+          signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
+        });
+      } else {
+        response = await fetch(url, {
+          method: method as "POST" | "PATCH" | "DELETE",
+          signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
+          headers: agentHeaders(keys, true),
+          body: JSON.stringify(request),
+        });
+      }
+    } catch (cause) {
+      throw AgentTransportError.preResponseTransport("Agent Channel", cause);
+    }
+    // A typed error (not a bare Error) so the real upstream status (e.g. 404 "channel not
+    // found") survives classification instead of collapsing into a generic 502; the CLI
+    // (local-client.ts#callChannel) turns a preserved 404 into CliError code NOT_FOUND.
+    if (!response.ok)
+      throw AgentTransportError.upstreamHttpResponse("Agent Channel", response.status);
+    return (await response.json()) as Record<string, unknown>;
+  },
+};
+
 export const defaultAgentActionPrepareHttpClient: AgentActionPrepareHttpClient = {
   async execute({ url, request, ...keys }) {
     const response = await fetch(url, {
@@ -796,6 +880,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     private readonly timing: DaemonConnectionTiming = defaultDaemonConnectionTiming,
     private readonly agentTaskHttpClient: AgentTaskHttpClient = defaultAgentTaskHttpClient,
     private readonly agentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = defaultAgentWeeklyReportHttpClient,
+    private readonly agentChannelHttpClient: AgentChannelHttpClient = defaultAgentChannelHttpClient,
     private readonly agentActionPrepareHttpClient: AgentActionPrepareHttpClient = defaultAgentActionPrepareHttpClient,
   ) {
     if (!endpoint) throw new Error("cloud endpoint not configured");
@@ -1210,6 +1295,20 @@ export class DaemonConnection implements DaemonConnectionClient {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return this.agentTaskHttpClient.execute({
       url: this.#serverEndpoint("Agent Task HTTP", agentApiRoutes.cloud.tasks.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async agentChannel(
+    request: AgentChannelRequest,
+    agentApiKey?: string,
+  ): Promise<Record<string, unknown>> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    const endpoint = channelEndpointFor(request.operation, request.target);
+    return this.agentChannelHttpClient.execute({
+      method: endpoint.method,
+      url: this.#serverEndpoint("Agent channel", endpoint.path),
       ...this.#agentKeys(agentApiKey),
       request,
     });

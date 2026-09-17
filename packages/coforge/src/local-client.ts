@@ -6,6 +6,7 @@ import {
   encodeAgentReminderOperationResponse,
   encodeLocalReminderRequest,
   type AgentReminderOperationResponse,
+  type ChannelCommand,
   type LocalReminderRequest,
   type MentionSelectorInput as MentionSelector,
   type TaskCommand,
@@ -281,6 +282,7 @@ export function connectLocal(
     react: (messageId: string, emoji: string, remove?: boolean) =>
       call(remove ? "unreact" : "react", undefined, undefined, { messageId, emoji }),
     task: (command: TaskCommand) => callTask(command),
+    channel: (command: Omit<ChannelCommand, "requestId">) => callChannel(command),
     actionPrepare: (target: string, action: ActionCardAction) => callActionPrepare(target, action),
     workspaceInfo: async (): Promise<WorkspaceInfoResponse> => {
       if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
@@ -740,6 +742,43 @@ export function connectLocal(
       throw new Error(`agent Task request failed (${response.status}): ${await response.text()}`);
     }
     return (await response.json()) as TaskResult;
+  }
+
+  async function callChannel(command: Omit<ChannelCommand, "requestId">) {
+    if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    const requestId = crypto.randomUUID();
+    const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.channels.path), {
+      method: agentApiRoutes.local.channels.method,
+      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+      body: JSON.stringify({ ...command, requestId }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      // Raft parity: an unknown channel is CliError code NOT_FOUND with a fixed message, not a
+      // generic transport failure — for the operations that resolve a single #channel target
+      // the same way Raft's join/leave/update/lifecycle/add-member/remove-member do.
+      const targetOperations = new Set([
+        "join",
+        "leave",
+        "update",
+        "archive",
+        "unarchive",
+        "add-member",
+        "remove-member",
+      ]);
+      if (response.status === 404 && command.target && targetOperations.has(command.operation))
+        throw new CliError({
+          code: "NOT_FOUND",
+          message: `Channel not found: ${command.target}`,
+          retryable: false,
+        });
+      throw new Error(
+        `agent channel ${command.operation} request failed (${response.status}): ${await response.text()}`,
+      );
+    }
+    return response.json();
   }
 
   /** Server non-2xx maps to `PREPARE_FAILED` (4xx, server error text) or `SERVER_5XX`. */

@@ -7,6 +7,7 @@ import {
   issueConversationRealtimeToken,
 } from "../../server/auth/browser-realtime-token.server";
 import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { ACTIVE_MEMBER_WHERE } from "../../server/conversations/active-member.server";
 
 export const getBrowserRealtimeConnectionToken = createServerFn({
   method: "GET",
@@ -27,7 +28,7 @@ export const getConversationRealtimeToken = createServerFn({ method: "GET" })
         id: data.conversationId,
         workspaceId,
         OR: [
-          { channelName: null, members: { some: { userId: user.id } } },
+          { channelName: null, members: { some: { userId: user.id, ...ACTIVE_MEMBER_WHERE } } },
           {
             channelName: { not: null },
             workspace: { members: { some: { userId: user.id } } },

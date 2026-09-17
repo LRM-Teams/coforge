@@ -15,6 +15,7 @@ import { getMessageRequestIdempotency } from "#/server/conversations/redis-messa
 import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server";
 import { CentrifugoConversationRealtime } from "#/server/conversations/conversation-realtime.server";
 import { bestEffortMessageNotifier } from "#/server/notifications/web-push-composition.server";
+import { isAppError } from "#/lib/app-error";
 import { AgentSendRejectedError } from "#/server/conversations/agent-send-rejected-error.server";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
@@ -174,6 +175,11 @@ export async function handleAgentMessagesPost(
     // unchanged, exactly as it did before this class existed.
     if (error instanceof AgentSendRejectedError)
       return Response.json({ error: error.message }, { status: error.status });
+    // An archived channel refuses posting (AppError("CONFLICT") from PublicChannels.send /
+    // sendAgentMessage); reported the same way the rest of this route family reports a plain
+    // text failure.
+    if (isAppError(error) && error.code === "CONFLICT")
+      return new Response("channel is archived", { status: 409 });
     throw error;
   }
 }

@@ -59,7 +59,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
           />
           <div className="min-h-0 flex-1 overflow-y-auto py-4">
             <ConversationDirectory
-              channels={channels}
+              channels={channels.filter((channel) => !channel.archived)}
               agents={agents}
               selectedChannelId={channel?.channelId}
               selectedAgentId={agent?.agentId}

@@ -959,3 +959,49 @@ test("a reviewer-isolated send still learns a local precondition (no upstream de
   expect(cliError.code).toBe("NO_HELD_DRAFT");
   expect(cliError.draftSaved).toBe(false);
 });
+
+test("channel: a 404 from a target operation becomes CliError NOT_FOUND with a fixed message", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("channel not found", { status: 404 }));
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.channels),
+  )
+    .channel({ operation: "join", target: "#missing" })
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("NOT_FOUND");
+  expect(cliError.message).toBe("Channel not found: #missing");
+  expect(cliError.retryable).toBe(false);
+});
+
+test("channel: a 404 from info/members (no single-channel target operation) is not remapped to NOT_FOUND", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("channel not found", { status: 404 }));
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.channels),
+  )
+    .channel({ operation: "info", target: "#missing" })
+    .catch((caught: unknown) => caught);
+  expect(error).not.toBeInstanceOf(CliError);
+  expect(error).toBeInstanceOf(Error);
+});
+
+test("channel: a successful response is returned as parsed JSON", async () => {
+  const rawResponse = {
+    protocolMajor: 1,
+    requestId: "r-1",
+    target: "#eng",
+    joined: true,
+    alreadyJoined: false,
+  };
+  spyOn(globalThis, "fetch").mockResolvedValue(Response.json(rawResponse));
+  const result = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.channels),
+  ).channel({ operation: "join", target: "#eng" });
+  expect(result).toEqual(rawResponse);
+});

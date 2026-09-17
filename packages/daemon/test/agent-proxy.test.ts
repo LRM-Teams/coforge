@@ -96,6 +96,75 @@ test("proxy redacts known request errors in reviewer-isolated mode", async () =>
   expect(JSON.stringify(taskBody)).not.toContain("sensitive task failure");
 });
 
+test("proxy validates and forwards channel management commands, and 404s without a runtime handler", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      agentChannel: async (context, request) => {
+        calls.push({ context, request });
+        return { protocolMajor: 1, requestId: request.requestId, target: request.target };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const post = (body: Record<string, unknown>) =>
+    fetch(
+      proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.channels.path),
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  const ok = await post({ requestId: "r-1", operation: "info", target: "#general" });
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ protocolMajor: 1, requestId: "r-1", target: "#general" });
+  expect(calls).toEqual([
+    {
+      context: expect.any(String),
+      request: { requestId: "r-1", operation: "info", target: "#general" },
+    },
+  ]);
+
+  for (const badBody of [
+    { requestId: "r-2", operation: "not-a-real-operation", target: "#general" },
+    { requestId: "r-3", operation: "join" }, // missing target
+    { requestId: "r-4", operation: "create" }, // missing name
+    { requestId: "r-5", operation: "update", target: "#general" }, // missing name and description
+    { requestId: "r-6", operation: "add-member", target: "#general" }, // neither user nor agent
+    {
+      requestId: "r-7",
+      operation: "add-member",
+      target: "#general",
+      user: "@a",
+      agent: "@b",
+    }, // both user and agent
+    { operation: "info", target: "#general" }, // missing requestId
+  ]) {
+    const rejected = await post(badBody);
+    expect(rejected.status).toBe(400);
+    expect(await rejected.text()).toBe("bad request");
+  }
+});
+
+test("proxy 404s a channel management request when the runtime has no handler", async () => {
+  const proxy = startAgentProxy({ runtime: { agentMessage: async () => ({}) } });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.channels.path),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "r-1", operation: "info", target: "#general" }),
+    },
+  );
+  expect(response.status).toBe(404);
+  expect(await response.text()).toBe("not found");
+});
+
 test("one shared proxy maps opaque per-Agent tokens and fails closed", async () => {
   const calls: Array<{ context: string; agentId: string }> = [];
   const proxy = startAgentProxy({

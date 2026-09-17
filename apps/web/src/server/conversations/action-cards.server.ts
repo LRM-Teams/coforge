@@ -450,10 +450,15 @@ export class ActionCards {
       input.projectId,
     );
     if (input.memberUserIds.length || input.memberAgentIds.length) {
-      await channels.addMembers(principal.workspaceId, principal.actorUserId, created.id, {
-        userIds: input.memberUserIds,
-        agentIds: input.memberAgentIds,
-      });
+      await channels.addMembers(
+        principal.workspaceId,
+        { userId: principal.actorUserId },
+        created.id,
+        {
+          userIds: input.memberUserIds,
+          agentIds: input.memberAgentIds,
+        },
+      );
     }
     const result = { channelId: created.id };
     await this.markExecuted(input.messageId, card.conversationId, principal.actorUserId, result);
@@ -473,10 +478,15 @@ export class ActionCards {
       "channel:add_member",
     );
     const channels = new PublicChannels(this.db);
-    await channels.addMembers(principal.workspaceId, principal.actorUserId, input.channelId, {
-      userIds: input.userIds,
-      agentIds: input.agentIds,
-    });
+    await channels.addMembers(
+      principal.workspaceId,
+      { userId: principal.actorUserId },
+      input.channelId,
+      {
+        userIds: input.userIds,
+        agentIds: input.agentIds,
+      },
+    );
     const result = { channelId: input.channelId, userIds: input.userIds, agentIds: input.agentIds };
     await this.markExecuted(input.messageId, card.conversationId, principal.actorUserId, result);
     return result;

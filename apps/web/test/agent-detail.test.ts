@@ -294,6 +294,7 @@ describe("Agent detail", () => {
           workspaceId: "workspace-1",
           name: "builder",
           displayName: "Builder",
+          role: "member",
           createdAt: new Date("2026-08-29T00:00:00Z"),
           computerId: "computer-1",
           owner: { id: "owner-1", username: "alice" },
@@ -326,6 +327,7 @@ describe("Agent detail", () => {
         workspaceId: "workspace-1",
         name: "builder",
         displayName: "Builder",
+        role: "member",
         createdAt: new Date("2026-08-29T00:00:00Z"),
         owner: { id: "owner-1", username: "alice" },
         runtimeConfig: {
@@ -407,6 +409,7 @@ describe("Agent detail", () => {
         workspaceId: "workspace-1",
         name: "builder",
         displayName: "Builder",
+        role: "member",
         createdAt: new Date(0),
         owner: { id: "owner-1", username: "alice" },
         runtimeConfig: {},

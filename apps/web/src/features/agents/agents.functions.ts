@@ -7,7 +7,10 @@ import {
   saveAgentRuntimeCredentialInputSchema,
   saveAgentEnvironmentInputSchema,
   updateAgentInputSchema,
+  updateAgentRoleInputSchema,
 } from "./agent.schemas";
+import { setAgentRole } from "../../server/agents/agent-role.server";
+import { isAdminLike, type WorkspaceMemberRole } from "../../server/workspaces/member-role.server";
 import { requireDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaAgentRepository,
@@ -276,6 +279,20 @@ export const updateAgent = createServerFn({ method: "POST" })
     );
   });
 
+/** Lets a Workspace owner/admin grant or revoke an Agent's own management (channel admin)
+ * authority; never assigns `"owner"` (see `setAgentRole`). */
+export const updateAgentRole = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(updateAgentRoleInputSchema)
+  .handler(async ({ data, context: { user, db, workspaceId } }) =>
+    setAgentRole(db, {
+      workspaceId,
+      actorUserId: user.id,
+      agentId: data.agentId,
+      role: data.role,
+    }),
+  );
+
 export const getAgentDetail = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
@@ -298,6 +315,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
                 name: true,
                 displayName: true,
                 description: true,
+                role: true,
                 createdAt: true,
                 computerId: true,
                 runtimeConfig: true,
@@ -322,11 +340,19 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     const runtimeCredential = ownedByCurrentUser
       ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
       : null;
+    const viewerMembership = await db.workspaceMembership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: user.id } },
+      select: { role: true },
+    });
+    const canManageAgentRole = viewerMembership
+      ? isAdminLike(viewerMembership.role as WorkspaceMemberRole)
+      : false;
     return {
       ...result,
       runtimeConfig: publicAgentRuntimeConfig(parseAgentRuntimeConfig(result.runtimeConfig)),
       ownedByCurrentUser,
       runtimeCredential,
+      canManageAgentRole,
     };
   });
 
