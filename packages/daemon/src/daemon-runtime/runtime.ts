@@ -557,7 +557,8 @@ export class DaemonRuntime {
   #authorizedAgent(context: string, agentApiKey: string | undefined): string {
     this.#assertRunning();
     const agentId = this.#agentIdForContext(context);
-    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    if (!isAgentApiKey(agentApiKey))
+      throw new AgentPreflightError("Agent API key is missing", "AGENT_API_KEY_MISSING");
     return agentId;
   }
 
@@ -2019,7 +2020,7 @@ export class DaemonRuntime {
   async agentMessage(
     context: string,
     request: LocalAgentMessageRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentMessageResponse> {
     this.#assertRunning();
     const agentId = this.#agentIdForContext(context);
@@ -2344,7 +2345,7 @@ export class DaemonRuntime {
   async workspaceInfo(
     context: string,
     request: WorkspaceInfoRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<WorkspaceInfoResponse> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.workspaceInfo) throw new Error("daemon connection is not connected");
@@ -2354,7 +2355,7 @@ export class DaemonRuntime {
   async githubCredential(
     context: string,
     request: GitHubCredentialRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<GitHubCredentialResponse> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.githubCredential)
@@ -2365,7 +2366,7 @@ export class DaemonRuntime {
   async manualGet(
     context: string,
     request: AgentManualGetRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentManualGetResponse> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.manualGet) throw new Error("Agent Manual endpoint is not configured");
@@ -2375,18 +2376,14 @@ export class DaemonRuntime {
   async manualSearch(
     context: string,
     request: AgentManualSearchRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentManualSearchResponse> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.manualSearch) throw new Error("Agent Manual endpoint is not configured");
     return this.#transport.manualSearch(request, agentApiKey);
   }
 
-  async agentTask(
-    context: string,
-    command: TaskCommand,
-    agentApiKey?: string,
-  ): Promise<TaskResult> {
+  async agentTask(context: string, command: TaskCommand, agentApiKey: string): Promise<TaskResult> {
     this.#assertRunning();
     const agentId = this.#agentIdForContext(context);
     if (!this.#transport.agentTask) throw new Error("daemon connection is not connected");
@@ -2412,7 +2409,7 @@ export class DaemonRuntime {
   async agentChannel(
     context: string,
     command: ChannelCommand,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Record<string, unknown>> {
     this.#assertRunning();
     const agentId = this.#agentIdForContext(context);
@@ -2437,7 +2434,7 @@ export class DaemonRuntime {
   async agentActionPrepare(
     context: string,
     request: AgentActionPrepareRequest,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<AgentActionPrepareResponse> {
     this.#assertRunning();
     this.#agentIdForContext(context);
@@ -2513,7 +2510,7 @@ export class DaemonRuntime {
   async agentWeeklyReport(
     context: string,
     command: WeeklyReportCommand,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<WeeklyReportResponse> {
     if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
     const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
@@ -2704,7 +2701,7 @@ export class DaemonRuntime {
   async agentAttachment(
     context: string,
     attachmentId: string,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Response> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.agentAttachment) throw new Error("daemon connection is not connected");
@@ -2714,7 +2711,7 @@ export class DaemonRuntime {
   async agentAttachmentUpload(
     context: string,
     request: Request,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Response> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.agentAttachmentUpload)
@@ -2725,7 +2722,7 @@ export class DaemonRuntime {
   async agentAttachmentUploadSessionCreate(
     context: string,
     body: unknown,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Response> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.agentAttachmentUploadSessionCreate)
@@ -2736,7 +2733,7 @@ export class DaemonRuntime {
   async agentAttachmentUploadSessionComplete(
     context: string,
     uploadId: string,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Response> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.agentAttachmentUploadSessionComplete)
@@ -2747,7 +2744,7 @@ export class DaemonRuntime {
   async agentAttachmentUploadSessionCancel(
     context: string,
     uploadId: string,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Response> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.agentAttachmentUploadSessionCancel)
@@ -2758,7 +2755,7 @@ export class DaemonRuntime {
   async agentAttachmentUploadSessionGet(
     context: string,
     uploadId: string,
-    agentApiKey?: string,
+    agentApiKey: string,
   ): Promise<Response> {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.agentAttachmentUploadSessionGet)

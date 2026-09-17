@@ -153,22 +153,22 @@ export function startAgentProxy(input: {
     workspaceInfo?(
       context: string,
       request: WorkspaceInfoRequest,
-      agentApiKey?: string,
+      agentApiKey: string,
     ): Promise<WorkspaceInfoResponse>;
     githubCredential?(
       context: string,
       request: GitHubCredentialRequest,
-      agentApiKey?: string,
+      agentApiKey: string,
     ): Promise<GitHubCredentialResponse>;
     manualGet?(
       context: string,
       request: AgentManualGetRequest,
-      agentApiKey?: string,
+      agentApiKey: string,
     ): Promise<AgentManualGetResponse>;
     manualSearch?(
       context: string,
       request: AgentManualSearchRequest,
-      agentApiKey?: string,
+      agentApiKey: string,
     ): Promise<AgentManualSearchResponse>;
     agentWeeklyReport?(
       context: string,
@@ -236,10 +236,11 @@ export function startAgentProxy(input: {
         if (!input.runtime.workspaceInfo) return new Response("not found", { status: 404 });
         try {
           return Response.json(
-            await input.runtime.workspaceInfo(binding.context, {
-              requestId: crypto.randomUUID(),
-              protocolMajor: 1,
-            }),
+            await input.runtime.workspaceInfo(
+              binding.context,
+              { requestId: crypto.randomUUID(), protocolMajor: 1 },
+              binding.agentApiKey,
+            ),
           );
         } catch (error) {
           return proxyFailureResponse(error, {
@@ -258,11 +259,15 @@ export function startAgentProxy(input: {
         const params = requestUrl.searchParams;
         try {
           return Response.json(
-            await input.runtime.manualGet(binding.context, {
-              topic: params.get("topic") ?? "",
-              intent: params.get("intent") ?? "",
-              reason: params.get("reason") ?? "",
-            }),
+            await input.runtime.manualGet(
+              binding.context,
+              {
+                topic: params.get("topic") ?? "",
+                intent: params.get("intent") ?? "",
+                reason: params.get("reason") ?? "",
+              },
+              binding.agentApiKey,
+            ),
           );
         } catch (error) {
           if (error instanceof AgentManualRequestError)
@@ -283,11 +288,15 @@ export function startAgentProxy(input: {
         const params = requestUrl.searchParams;
         try {
           return Response.json(
-            await input.runtime.manualSearch(binding.context, {
-              query: params.get("query") ?? "",
-              intent: params.get("intent") ?? "",
-              reason: params.get("reason") ?? "",
-            }),
+            await input.runtime.manualSearch(
+              binding.context,
+              {
+                query: params.get("query") ?? "",
+                intent: params.get("intent") ?? "",
+                reason: params.get("reason") ?? "",
+              },
+              binding.agentApiKey,
+            ),
           );
         } catch (error) {
           if (error instanceof AgentManualRequestError)

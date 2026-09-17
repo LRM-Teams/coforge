@@ -4688,11 +4688,15 @@ describe("DaemonRuntime", () => {
     expect(proxyRevokes).toEqual(["proxy-token"]);
     await expect(runtime.startAgent("agent-b", config)).rejects.toThrow("not running");
     await expect(
-      runtime.agentMessage("proxy-token", {
-        requestId: "r",
-        operation: "check",
-        context: "proxy-token",
-      }),
+      runtime.agentMessage(
+        "proxy-token",
+        {
+          requestId: "r",
+          operation: "check",
+          context: "proxy-token",
+        },
+        `sk_agent_${"a".repeat(43)}`,
+      ),
     ).rejects.toThrow("not running");
     releaseStop();
     // Revoke stays best-effort at shutdown too (docs/adr/0033): the failed revoke above never

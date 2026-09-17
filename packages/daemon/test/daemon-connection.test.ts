@@ -51,6 +51,8 @@ async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; recor
   }
 }
 
+const TEST_AGENT_API_KEY = `sk_agent_${"a".repeat(43)}`;
+
 function fakeClient() {
   let connected = () => {};
   let failed = (_error: unknown) => {};
@@ -1168,18 +1170,21 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
     ...config,
     serverHttpUrl: "https://server.example/api/internal/centrifugo",
   });
-  await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-2",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "read",
-    target: "@ada",
-  });
+  await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-2",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "read",
+      target: "@ada",
+    },
+    TEST_AGENT_API_KEY,
+  );
   expect(requests).toHaveLength(1);
   expect(requests[0]).toMatchObject({
     url: `https://server.example${agentApiRoutes.cloud.messages.list.path}`,
-    agentApiKey: "daemon-token",
+    agentApiKey: TEST_AGENT_API_KEY,
     daemonApiKey: "daemon-token",
     request: { operation: "read", target: "@ada" },
   });
@@ -1187,14 +1192,17 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
   const noEndpoint = new DaemonConnection("wss://cloud.example", () => fake.client);
   await noEndpoint.start("daemon-token", config);
   await expect(
-    noEndpoint.agentMessage({
-      protocolMajor: 1,
-      requestId: "request-3",
-      workspaceId: config.workspaceId,
-      agentId: "agent-1",
-      operation: "read",
-      target: "@user",
-    }),
+    noEndpoint.agentMessage(
+      {
+        protocolMajor: 1,
+        requestId: "request-3",
+        workspaceId: config.workspaceId,
+        agentId: "agent-1",
+        operation: "read",
+        target: "@user",
+      },
+      TEST_AGENT_API_KEY,
+    ),
   ).rejects.toThrow("HTTP endpoint is not configured");
 });
 
@@ -1646,40 +1654,49 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
     ...config,
     serverHttpUrl: "https://server.example/api/internal/centrifugo",
   });
-  await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-resolve",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "resolve",
-    target: "",
-    messageId: "abcd1234",
-  });
+  await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-resolve",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "resolve",
+      target: "",
+      messageId: "abcd1234",
+    },
+    TEST_AGENT_API_KEY,
+  );
   expect(resolveCalls).toEqual([
     expect.objectContaining({
       url: `https://server.example${agentApiRoutes.cloud.messages.resolve.path("abcd1234")}`,
     }),
   ]);
-  await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-react",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "react",
-    target: "",
-    messageId: "abcd1234",
-    emoji: "👍",
-  });
-  await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-unreact",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "unreact",
-    target: "",
-    messageId: "abcd1234",
-    emoji: "👍",
-  });
+  await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-react",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "react",
+      target: "",
+      messageId: "abcd1234",
+      emoji: "👍",
+    },
+    TEST_AGENT_API_KEY,
+  );
+  await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-unreact",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "unreact",
+      target: "",
+      messageId: "abcd1234",
+      emoji: "👍",
+    },
+    TEST_AGENT_API_KEY,
+  );
   expect(reactionCalls).toEqual([
     expect.objectContaining({
       url: `https://server.example${agentApiRoutes.cloud.messages.reactions.path("abcd1234")}`,
@@ -1740,15 +1757,18 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
     ...config,
     serverHttpUrl: "https://server.example/api/internal/centrifugo",
   });
-  const checked = await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-check",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "check",
-    target: "",
-    limit: 10,
-  });
+  const checked = await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-check",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "check",
+      target: "",
+      limit: 10,
+    },
+    TEST_AGENT_API_KEY,
+  );
   expect(eventsCalls).toEqual([
     expect.objectContaining({
       url: `https://server.example${agentApiRoutes.cloud.events.path}`,
@@ -1758,22 +1778,28 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
   expect(checked.hasMore).toBe(true);
   expect(checked.attentionCount).toBe(1);
 
-  await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-mute",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "mute",
-    target: "#general",
-  });
-  await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-unmute",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "unmute",
-    target: "#general",
-  });
+  await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-mute",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "mute",
+      target: "#general",
+    },
+    TEST_AGENT_API_KEY,
+  );
+  await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-unmute",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "unmute",
+      target: "#general",
+    },
+    TEST_AGENT_API_KEY,
+  );
   expect(muteCalls).toEqual([
     expect.objectContaining({
       url: `https://server.example${agentApiRoutes.cloud.channels.mute.path("#general")}`,
@@ -1785,14 +1811,17 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
     }),
   ]);
 
-  const unfollowed = await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-unfollow",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "thread-unfollow",
-    target: "#general:12345678-0000-4000-8000-000000000001",
-  });
+  const unfollowed = await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-unfollow",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "thread-unfollow",
+      target: "#general:12345678-0000-4000-8000-000000000001",
+    },
+    TEST_AGENT_API_KEY,
+  );
   expect(unfollowCalls).toEqual([
     expect.objectContaining({
       url: `https://server.example${agentApiRoutes.cloud.threads.unfollow.path("#general:12345678-0000-4000-8000-000000000001")}`,
@@ -1829,14 +1858,17 @@ test("adapts the read route's AgentHistoryResponse into the transport shape", as
     ...config,
     serverHttpUrl: "https://server.example/api/internal/centrifugo",
   });
-  const result = await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-read",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "read",
-    target: "@ada",
-  });
+  const result = await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-read",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "read",
+      target: "@ada",
+    },
+    TEST_AGENT_API_KEY,
+  );
   expect(result).toMatchObject({
     accepted: true,
     attentionCount: 0,
@@ -1871,15 +1903,18 @@ test("adapts the dedicated search route's AgentSearchResponse (results -> messag
     ...config,
     serverHttpUrl: "https://server.example/api/internal/centrifugo",
   });
-  const result = await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-search",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "search",
-    target: "",
-    query: "hi",
-  });
+  const result = await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-search",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "search",
+      target: "",
+      query: "hi",
+    },
+    TEST_AGENT_API_KEY,
+  );
   expect(result.accepted).toBe(true);
   expect(result.messages).toHaveLength(1);
   expect(result.messages[0]?.id).toBe("message-1");
@@ -1906,15 +1941,18 @@ test("adapts the resolve route's AgentResolveResponse (message -> messages: [mes
     ...config,
     serverHttpUrl: "https://server.example/api/internal/centrifugo",
   });
-  const result = await transport.agentMessage({
-    protocolMajor: 1,
-    requestId: "request-resolve",
-    workspaceId: config.workspaceId,
-    agentId: "agent-1",
-    operation: "resolve",
-    target: "",
-    messageId: "message-1",
-  });
+  const result = await transport.agentMessage(
+    {
+      protocolMajor: 1,
+      requestId: "request-resolve",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      operation: "resolve",
+      target: "",
+      messageId: "message-1",
+    },
+    TEST_AGENT_API_KEY,
+  );
   expect(result.accepted).toBe(true);
   expect(result.messages).toEqual([expect.objectContaining({ id: "message-1", body: "hi" })]);
 });
@@ -1998,15 +2036,18 @@ test.each(sendAdapterCases)(
       ...config,
       serverHttpUrl: "https://server.example/api/internal/centrifugo",
     });
-    const result = await transport.agentMessage({
-      protocolMajor: 1,
-      requestId: "request-send",
-      workspaceId: config.workspaceId,
-      agentId: "agent-1",
-      operation: "send",
-      target: "@ada",
-      body: "hi",
-    });
+    const result = await transport.agentMessage(
+      {
+        protocolMajor: 1,
+        requestId: "request-send",
+        workspaceId: config.workspaceId,
+        agentId: "agent-1",
+        operation: "send",
+        target: "@ada",
+        body: "hi",
+      },
+      TEST_AGENT_API_KEY,
+    );
     expect(result).toMatchObject(expected);
     expect(result.messages).toEqual(response.context);
   },

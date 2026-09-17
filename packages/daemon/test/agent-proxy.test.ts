@@ -225,6 +225,33 @@ test("proxy registration rejects Local Proxy tokens as Agent API keys", () => {
   );
 });
 
+test("proxy forwards workspace info with the token-bound Agent API key", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      workspaceInfo: async (context, request, agentApiKey) => {
+        calls.push({ context, protocolMajor: request.protocolMajor, agentApiKey });
+        return { requestId: request.requestId, protocolMajor: 1 } as never;
+      },
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  const response = await fetch(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.workspace.path),
+    {
+      method: agentApiRoutes.proxy.workspace.method,
+      headers: { authorization: `Bearer ${token}` },
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(calls).toEqual([{ context: "agent-a", protocolMajor: 1, agentApiKey }]);
+});
+
 test("proxy forwards validated GitHub credential requests without caching", async () => {
   const calls: unknown[] = [];
   const proxy = startAgentProxy({

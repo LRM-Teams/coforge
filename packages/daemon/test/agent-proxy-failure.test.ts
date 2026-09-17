@@ -132,3 +132,15 @@ test("a bounded, whitespace-normalised detail never grows past 500 characters", 
   expect(classified.body.detail?.length).toBeLessThanOrEqual(501);
   expect(classified.body.detail).not.toContain("\n");
 });
+
+test("an unclassified failure logs its bounded detail, and a reviewer-isolated one does not", () => {
+  const classified = classifyAgentProxyFailure(new Error("Agent API key is  missing"), context);
+  expect(classified.body.proxy.cause_code).toBe("UNCLASSIFIED_PROXY_FAILURE");
+  expect(classified.logFields.detail).toBe("Agent API key is missing");
+
+  const redacted = classifyAgentProxyFailure(new Error("secret upstream text"), {
+    ...context,
+    redact: true,
+  });
+  expect(redacted.logFields.detail).toBeUndefined();
+});

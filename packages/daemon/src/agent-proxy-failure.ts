@@ -112,6 +112,7 @@ export function classifyAgentProxyFailure(
         correlation: correlationId,
         failure_class: body.proxy.failure_class,
         cause_code: body.proxy.cause_code,
+        ...(options.detail !== undefined ? { detail: options.detail } : {}),
         upstream_status: body.proxy.upstream_status,
         response_started: body.proxy.response_started,
         response_complete: body.proxy.response_complete,
