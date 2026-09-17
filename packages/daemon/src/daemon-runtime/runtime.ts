@@ -17,6 +17,7 @@ import {
 } from "../agent-runtime/agent-process-manager";
 import { parseAssignedSkillPacks } from "../code-agent/assigned-skills";
 import { agentRuntimeContextEnvironment } from "../code-agent/environment";
+import { toolActivity } from "../code-agent/tool-activity";
 export type DaemonConfig = {
   workspaceId: string;
   computerId: string;
@@ -1713,8 +1714,11 @@ export class DaemonRuntime {
       if (event.snapshot.provider === config.provider) this.#rememberUsage(event.snapshot);
       return;
     }
-    if (event.type === "activity") {
-      const { activity } = event;
+    if (event.type === "activity" || event.type === "tool-start") {
+      // Providers report only WHAT happened (tool-start: name + raw input); the
+      // daemon core alone decides what Activity that is, via the same
+      // `toolActivity` allowlist every provider used to call for itself.
+      const activity = event.type === "activity" ? event.activity : this.#toolStartActivity(event);
       if (activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS) {
         const now = Date.now();
         const last = this.#lastRuntimeProgressAt.get(agentId) ?? 0;
@@ -2034,6 +2038,18 @@ export class DaemonRuntime {
     if (proxyToken && this.#agentProxyTokens.get(agentId) === proxyToken)
       this.#agentProxyTokens.delete(agentId);
     if (proxyToken) this.#agentProxy?.revoke(proxyToken);
+  }
+
+  /** The single place a `tool-start` event becomes an Activity (ADR 0021): resolves the
+   * provider's raw name/input through the shared `toolActivity` allowlist, then reattaches
+   * subagent lineage the provider reported alongside the tool call. */
+  #toolStartActivity(event: Extract<AgentRuntimeEvent, { type: "tool-start" }>) {
+    const activity = toolActivity(event.name, event.input, event.occurredAt);
+    const { subagent } = event;
+    return {
+      ...activity,
+      entries: activity.entries.map((entry) => ({ ...entry, ...(subagent ? { subagent } : {}) })),
+    };
   }
 
   #activity(

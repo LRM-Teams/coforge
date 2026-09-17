@@ -63,7 +63,16 @@ export type AgentRuntimeEvent =
   | { type: "usage"; snapshot: UsageSnapshot }
   | { type: "text-delta" | "thinking-delta"; text: string; subagent?: ActivitySubagent }
   | { type: "session"; identity: AgentSessionIdentity }
-  | { type: "tool-start"; id: string; name: string }
+  | {
+      type: "tool-start";
+      id: string;
+      name: string;
+      /** The provider's raw tool arguments; the daemon core alone decides what Activity this is. */
+      input?: unknown;
+      subagent?: ActivitySubagent;
+      /** The provider-reported event time; falls back to observation time if omitted. */
+      occurredAt?: string;
+    }
   | { type: "tool-output"; id: string; text: string }
   | { type: "tool-end"; id: string; isError: boolean }
   | { type: "completed"; status: "completed" | "interrupted" | "failed" };
