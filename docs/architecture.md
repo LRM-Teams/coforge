@@ -1326,6 +1326,27 @@ Agent 创建仍受 ADR 0025 的 owner/admin 门槛约束：`agent:create` action
 按字段报错、私有频道拒绝、频道/Agent 命名冲突、非成员 Agent 的 `ACCESS_DENIED`
 及 thread target 的正确落位。
 
+**Commit 与 cancel（ADR 0027 追加决定）**：人类在会话消息流里直接看到卡片
+（`ActionCards.viewsFor(workspaceId, viewerUserId, messageIds)` 按页批量解
+析一次，而非逐条查询，产出 `channelMessageView`/`toBrowserMessage`/
+`mapBrowserMessage` 共享的可选 `actionCard` 字段），点击按钮打开对应对话框
+（`CreateChannelDialog`/`AgentCreateDialog`/`ChannelMembersDialog`，均以
+卡片值预填、可编辑），提交后在人类自己的身份下复用既有模块真正执行：
+`channel:create` → `PublicChannels.create` + `PublicChannels.addMembers`；
+`channel:add_member` → `PublicChannels.addMembers`（沿用其成员校验，非成员
+返回 `ACCESS_DENIED`）；`agent:create` → 复用既有 `createAgent`/
+`ManageAgents.create`（`assertCanCreateAgents` 门槛不变）。顺序是先执行操
+作、后用条件 `updateMany({ where: { messageId, state: "pending" } })` 标记
+`executed`；重复提交要么撞操作自身的唯一性约束（频道名/Agent 名），要么对
+`addMembers` 是无害的 `skipDuplicates` 空操作，随后在 `count === 0` 时报
+`CONFLICT`。Cancel 允许卡片所属 Agent 的 `ownerId` 或 Workspace owner/admin，
+同样是 `pending → cancelled` 的条件 `updateMany`。提交/取消后复用既有
+`ConversationRealtime.messageAvailable`；浏览器在该会话收到 realtime 信号
+或窗口重新获得焦点时，用一个轻量 `loadActionCardStates({ messageIds })`
+只刷新当前显示的 pending 卡片状态，不重新拉取整页。Agent 可读的消息正文
+（`toAgentMessage`）在卡片消息末尾追加 `[action card: pending|executed|
+cancelled]`，避免 Agent 在卡片仅是 `pending` 时就误认为资源已创建。
+
 ## 7. 端到端链路
 
 ```text

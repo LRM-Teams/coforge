@@ -5,6 +5,7 @@ import {
   type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
 import { PublicChannels } from "../../server/conversations/public-channels.server";
+import { attachActionCardViews } from "../../server/conversations/action-cards.server";
 import { attachmentView } from "../../server/attachments/attachment-view.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
@@ -63,18 +64,28 @@ export const loadPublicChannel = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(channelPageInput)
   .handler(async ({ data, context }) => {
-    const { channels, workspaceId, userId } = channelScope(context);
-    return channels.open(workspaceId, userId, data.channelId, {
+    const { channels, db, workspaceId, userId } = channelScope(context);
+    const page = await channels.open(workspaceId, userId, data.channelId, {
       beforeSequence: data.beforeSequence,
     });
+    return {
+      ...page,
+      messages: await attachActionCardViews(db, workspaceId, userId, page.messages),
+    };
   });
 
 export const loadPublicChannelUpdates = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(channelUpdatesInput)
   .handler(async ({ data, context }) => {
-    const { channels, workspaceId, userId } = channelScope(context);
-    return channels.updates(workspaceId, userId, data.channelId, data.afterSequence);
+    const { channels, db, workspaceId, userId } = channelScope(context);
+    const messages = await channels.updates(
+      workspaceId,
+      userId,
+      data.channelId,
+      data.afterSequence,
+    );
+    return attachActionCardViews(db, workspaceId, userId, messages);
   });
 
 export const loadPublicChannelMembers = createServerFn({ method: "GET" })
@@ -182,5 +193,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       createdAt: message.createdAt,
       attachment: message.attachment ? attachmentView(message.attachment) : undefined,
       reactions: undefined,
+      // A human-sent message never carries an action card (those are Agent-authored only).
+      actionCard: undefined,
     };
   });

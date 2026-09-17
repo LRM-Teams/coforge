@@ -109,6 +109,8 @@ Inspect the claim output payload: proceed only on a task whose row says \`claime
 - Never prefill \`runtime\`, \`model\`, or \`reasoning\` on \`agent:create\`; those remain a human's choice. Only set \`requiredComputer\` when the human explicitly said the new Agent must run on that Computer; use \`suggestedComputer\` for a soft preference.
 - Private channels are not supported yet; \`channel:create\` always produces a public channel.
 - \`coforge action prepare\` only records the card as a message in the target conversation for a human to review; it does not create the channel, Agent, or membership itself. Do not say you created, added, or configured anything until you have independent confirmation that a human committed the card.
+- A human commits the card from chat, not from a command you send them: they click the card's action button in the CoForge Web UI, review a form prefilled (and editable) from your card's values, and submit it under their own identity. You cannot commit a card yourself and there is no CLI command for it.
+- To check whether a card has been committed, read the card message again, for example \`coforge message read --target <target> --around <message-id>\`. Its body ends with \`[action card: pending]\`, \`[action card: executed]\`, or \`[action card: cancelled]\`. Only \`executed\` means the channel, Agent, or membership now exists; \`pending\` means still waiting on a human, and \`cancelled\` means it was dismissed and nothing was created. Do not claim the resource exists on the strength of having posted the card alone.
 
 Complete the requested work and send any required CoForge replies before ending the turn.`;
 
