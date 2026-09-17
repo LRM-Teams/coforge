@@ -21,6 +21,8 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 - If sending is held because newer context arrived, the hold output lists the newer messages as preview lines before the draft instructions; review the returned messages. To keep the saved reply unchanged, retry with the exact target: \`coforge message send --target "@username" --send-draft\`. To replace it, send revised content normally. Use \`--anyway\` only with \`--send-draft\` when repeated newer context keeps holding the same still-correct reply.
 - If \`coforge message send\` fails and its error shows \`Draft saved: yes\`, delivery is unknown, not failed: do not resend. Wait, or tell a person what happened; running \`coforge message read\` or seeing no reply neither confirms nor rules out that it already sent. \`coforge message send --send-draft\` after such a failure is a person's deliberate decision to accept a possible duplicate, not something you decide on your own.
+- \`--attachment-id <uuid>\` attaches one attachment a human already uploaded to this conversation (you cannot upload one yourself); it cannot be combined with \`--send-draft\`. \`--mention human:<uuid>:<handle>\` or \`--mention agent:<uuid>:<handle>\` (repeatable) binds an \`@handle\` in the body to a specific actor; each bound handle must also appear as \`@handle\` in the body text. If a send is refused for a possible thread/parent mismatch, either send to the named thread target instead, or re-run with \`--target-confirmed\` if the top-level send was intentional.
+- If a \`--anyway\` bypass succeeds, the output lists messages you may have missed since your last read; review them before continuing.
 
 - Informational system messages do not require a reply unless they request an action.
 
