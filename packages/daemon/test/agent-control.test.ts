@@ -96,6 +96,7 @@ test.each([true, false])(
     const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
       running: () => false,
       cleanupUnconfirmed,
+      rebind: async () => undefined,
       stop: async () => undefined,
       async launch(intent) {
         attempts.push(intent);
@@ -119,6 +120,7 @@ test.each([true, false])(
       model: "",
       reasoning: "",
       controlEpoch: 1,
+      launchId: "launch-1",
       sessionId: "old",
     });
     expect(attempts).toHaveLength(recoverable ? 2 : 1);
@@ -142,6 +144,7 @@ test("classified recovery retries once without restoring resume mode and reports
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => false,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     stop: async () => undefined,
     async launch(intent, _launchId, replacedSessionId) {
       attempts.push({ intent, replacedSessionId });
@@ -162,6 +165,7 @@ test("classified recovery retries once without restoring resume mode and reports
     model: "",
     reasoning: "",
     controlEpoch: 1,
+    launchId: "launch-2",
     sessionId: "old",
     sessionMode: "resume",
   });
@@ -196,6 +200,7 @@ test.each([
     const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
       running: () => false,
       cleanupUnconfirmed,
+      rebind: async () => undefined,
       stop: async () => undefined,
       async launch(intent) {
         order.push("launch");
@@ -219,6 +224,7 @@ test.each([
       model: "",
       reasoning: "",
       controlEpoch: 1,
+      launchId: "launch-3",
       sessionId: "old",
     });
 
@@ -245,6 +251,7 @@ test("reports the invalidated session even when the fresh launch that follows it
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => false,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     stop: async () => undefined,
     async launch(intent) {
       if (intent.sessionId) throw new AgentSessionRecoveryError("session_missing");
@@ -266,6 +273,7 @@ test("reports the invalidated session even when the fresh launch that follows it
     model: "",
     reasoning: "",
     controlEpoch: 1,
+    launchId: "launch-4",
     sessionId: "old",
   });
 
@@ -288,6 +296,7 @@ test("session_in_use retries without invoking invalidateSession or carrying a re
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => false,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     stop: async () => undefined,
     async launch(intent, _launchId, replacedSessionId, reason) {
       attempts.push({ replacedSessionId, reason });
@@ -310,6 +319,7 @@ test("session_in_use retries without invoking invalidateSession or carrying a re
     model: "",
     reasoning: "",
     controlEpoch: 1,
+    launchId: "launch-5",
     sessionId: "old",
   });
 
@@ -335,6 +345,7 @@ test("duplicate fenced start wakes an existing runtime without replacing it", as
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => running,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     stop: async () => undefined,
     launch: async () => {
       running = true;
@@ -355,6 +366,7 @@ test("duplicate fenced start wakes an existing runtime without replacing it", as
     model: "",
     reasoning: "",
     controlEpoch: 1,
+    launchId: "launch-6",
     wakeMessage: {
       messageId: "m",
       deliveryId: "d",
@@ -414,6 +426,7 @@ test("stop then workspace reset then start persists primitive receipts", async (
       return active;
     },
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     async result(result) {
       results.push(result);
     },
@@ -429,7 +442,7 @@ test("stop then workspace reset then start persists primitive receipts", async (
   };
   await control.stop(request);
   await control.resetWorkspace(request);
-  const start: AgentStartIntent = { ...request, controlEpoch: 1, model: "", reasoning: "" };
+  const start: AgentStartIntent = { ...request, controlEpoch: 1, launchId: "launch-7", model: "", reasoning: "" };
   await control.start(start);
   await control.stop(request);
   await control.resetWorkspace(request);
@@ -444,7 +457,12 @@ test("stop then workspace reset then start persists primitive receipts", async (
   expect(sentSessions).toBe(1);
   const next = { ...request, requestId: "restart-b", epoch: 2 };
   await control.stop(next);
-  await control.start({ ...start, requestId: next.requestId, controlEpoch: 2 });
+  await control.start({
+    ...start,
+    requestId: next.requestId,
+    controlEpoch: 2,
+    launchId: "launch-8",
+  });
   await expect(control.resetWorkspace(next)).rejects.toThrow("confirmed_stop_required");
   expect(effects.filter((effect) => effect === "clear")).toHaveLength(1);
   record = undefined;
@@ -470,6 +488,7 @@ test("workspace reset requires a successful stop and a failed stop blocks reset 
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => true,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     stop: async () => {
       throw new AgentProcessCleanupError();
     },
@@ -497,7 +516,7 @@ test("workspace reset requires a successful stop and a failed stop blocks reset 
     "confirmed_stop_required",
   );
   await expect(
-    control.start({ ...scope, requestId: "start", controlEpoch: 1, model: "", reasoning: "" }),
+    control.start({ ...scope, requestId: "start", controlEpoch: 1, launchId: "launch-9", model: "", reasoning: "" }),
   ).rejects.toThrow("previous_control_not_completed");
   expect(clears).toBe(0);
   expect(launches).toBe(0);
@@ -508,6 +527,7 @@ test("workspace reset requires a successful stop and a failed stop blocks reset 
     {
       running: () => false,
       cleanupUnconfirmed,
+      rebind: async () => undefined,
       stop: async () => undefined,
       launch: async () => {
         launches++;
@@ -538,6 +558,7 @@ test("unconfirmed launch cleanup remains fenced across daemon restart", async ()
   const runtime = {
     running: () => false,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     stop: async () => {
       throw new AgentProcessCleanupError();
     },
@@ -557,6 +578,7 @@ test("unconfirmed launch cleanup remains fenced across daemon restart", async ()
     model: "",
     reasoning: "",
     controlEpoch: 1,
+    launchId: "launch-10",
   };
   const oldState = new AgentRuntimeState(store);
   const oldControl = new AgentControl(
@@ -577,6 +599,7 @@ test("unconfirmed launch cleanup remains fenced across daemon restart", async ()
     newControl.start({
       ...start,
       controlEpoch: 2,
+      launchId: "launch-11",
       requestId: "new-r",
     }),
   ).rejects.toThrow("previous_process_stop_unconfirmed");
@@ -622,6 +645,7 @@ function replacedRecordFixture(options: {
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => false,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     stop: async () => undefined,
     async launch() {
       launches++;
@@ -641,6 +665,7 @@ test("a newer Start cannot bypass an in-progress (clearing) workspace deletion",
       ...scope,
       requestId: "automatic",
       controlEpoch: 2,
+      launchId: "launch-12",
       model: "",
       reasoning: "",
     }),
@@ -651,10 +676,10 @@ test("a newer Start cannot bypass an in-progress (clearing) workspace deletion",
   const retry = { ...scope, requestId: "explicit-retry", epoch: 2 };
   await control.stop(retry);
   await expect(
-    control.start({ ...retry, controlEpoch: 2, model: "", reasoning: "" }),
+    control.start({ ...retry, controlEpoch: 2, launchId: "launch-13", model: "", reasoning: "" }),
   ).rejects.toThrow("previous_control_not_completed");
   await control.resetWorkspace(retry);
-  await control.start({ ...retry, controlEpoch: 2, model: "", reasoning: "" });
+  await control.start({ ...retry, controlEpoch: 2, launchId: "launch-14", model: "", reasoning: "" });
   expect(launches()).toBe(1);
 });
 
@@ -676,6 +701,7 @@ test("a pre-existing failed reset-workspace record from an older daemon does not
     ...scope,
     requestId: "automatic",
     controlEpoch: 2,
+    launchId: "launch-15",
     model: "",
     reasoning: "",
   });
@@ -715,6 +741,7 @@ test("a delayed old exit cannot stop a replacement launch while waiting for the 
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => true,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     stop: async () => undefined,
     launch: async () => undefined,
     result: async () => {},
@@ -770,6 +797,7 @@ test("a stale stop-failed record from a gone daemon instance is repaired so a ne
     {
       running: () => false,
       cleanupUnconfirmed,
+      rebind: async () => undefined,
       stop: async () => undefined,
       async launch() {
         launches++;
@@ -793,6 +821,7 @@ test("a stale stop-failed record from a gone daemon instance is repaired so a ne
       model: "",
       reasoning: "",
       controlEpoch: 9,
+      launchId: "launch-16",
     }),
   );
 
@@ -835,6 +864,7 @@ test("a stale stop-failed record from a gone daemon instance is repaired so a ne
     {
       running: () => false,
       cleanupUnconfirmed,
+      rebind: async () => undefined,
       stop: async () => undefined,
       launch: async () => undefined,
       async result(result) {
@@ -906,6 +936,7 @@ test("a running record left by a crashed daemon instance is repaired so a newer 
     {
       running: () => false,
       cleanupUnconfirmed,
+      rebind: async () => undefined,
       stop: async () => undefined,
       async launch() {
         launches++;
@@ -920,6 +951,7 @@ test("a running record left by a crashed daemon instance is repaired so a newer 
     ...scope,
     requestId: "start-new",
     controlEpoch: 4,
+    launchId: "launch-17",
     model: "",
     reasoning: "",
   });
@@ -968,6 +1000,7 @@ test("a reset-workspace in progress is not repaired away by a concurrent daemon 
     {
       running: () => false,
       cleanupUnconfirmed,
+      rebind: async () => undefined,
       stop: async () => undefined,
       launch: async () => undefined,
       async result(result) {
@@ -1010,6 +1043,7 @@ test("a workspace clear failure is non-fatal: it reports workspace-reset with a 
   const control = new AgentControl("daemon", state, sessions, {
     running: () => active,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     async stop() {
       active = false;
       return { sessionId: "old", state: "resumable" };
@@ -1060,7 +1094,7 @@ test("a workspace clear failure is non-fatal: it reports workspace-reset with a 
   });
 
   // The chain still proceeds: Start is not blocked by the clear failure.
-  const start: AgentStartIntent = { ...scope, controlEpoch: 1, model: "", reasoning: "" };
+  const start: AgentStartIntent = { ...scope, controlEpoch: 1, launchId: "launch-18", model: "", reasoning: "" };
   await control.start(start);
   expect(launches).toBe(1);
   expect(results.at(-1)).toMatchObject({ phase: "started" });
@@ -1088,6 +1122,7 @@ test("a workspace clear failure does not weaken confirmed_stop_required: a later
   const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
     running: () => active,
     cleanupUnconfirmed,
+    rebind: async () => undefined,
     async stop() {
       active = false;
       return { sessionId: "old", state: "resumable" };
@@ -1114,7 +1149,7 @@ test("a workspace clear failure does not weaken confirmed_stop_required: a later
   await control.stop(scope);
   await control.resetWorkspace(scope);
   expect(record).toMatchObject({ phase: "workspace-reset" });
-  await control.start({ ...scope, controlEpoch: 1, model: "", reasoning: "" });
+  await control.start({ ...scope, controlEpoch: 1, launchId: "launch-19", model: "", reasoning: "" });
   expect(record).toMatchObject({ phase: "running" });
 
   // Second reset at a new epoch: no fresh Stop has been confirmed for this epoch, so the
@@ -1123,4 +1158,383 @@ test("a workspace clear failure does not weaken confirmed_stop_required: a later
   const next = { ...scope, requestId: "reset-c", epoch: 2 };
   await expect(control.resetWorkspace(next)).rejects.toThrow("confirmed_stop_required");
   expect(record).toMatchObject({ phase: "running" });
+});
+
+function rebindScope(overrides: Partial<AgentStartIntent> = {}): AgentStartIntent {
+  return {
+    protocolMajor: 1,
+    requestId: "start-1",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "codex",
+    model: "",
+    reasoning: "",
+    controlEpoch: 1,
+    launchId: "launch-old",
+    ...overrides,
+  };
+}
+
+test("a Start that meets an already-running process under an older, terminal operation rebinds (ADR 0040)", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  let active = false;
+  let launches = 0;
+  let rebinds = 0;
+  let wakes = 0;
+  const results: AgentControlResult[] = [];
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    workspaceExists: async () => false,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => active,
+    cleanupUnconfirmed,
+    async stop() {
+      active = false;
+      return undefined;
+    },
+    async launch() {
+      launches++;
+      active = true;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async wake() {
+      wakes++;
+    },
+    async rebind() {
+      rebinds++;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async result(result) {
+      results.push(result);
+    },
+  });
+
+  await control.start(rebindScope());
+  expect(launches).toBe(1);
+  expect(record).toMatchObject({ phase: "running", launchId: "launch-old" });
+
+  const { records: logs } = await captureLogs(() =>
+    control.start(
+      rebindScope({
+        requestId: "start-2",
+        controlEpoch: 2,
+        launchId: "launch-new",
+        wakeMessage: {
+          messageId: "m1",
+          deliveryId: "d1",
+          conversationId: "c1",
+          sequence: 1,
+          target: "@a",
+          latestSender: "@u",
+          body: "hi",
+        },
+      }),
+    ),
+  );
+
+  // No second process was ever launched; the running one was rebound instead.
+  expect(launches).toBe(1);
+  expect(rebinds).toBe(1);
+  expect(wakes).toBe(1);
+  expect(record).toMatchObject({
+    phase: "running",
+    launchId: "launch-new",
+    daemonInstanceId: "daemon",
+    identity: { sessionId: "native-1", state: "resumable" },
+    scope: { requestId: "start-2", epoch: 2, provider: "codex" },
+  });
+  // The previous epoch's own receipts never leak into this epoch's replay logic.
+  expect(record?.stopResult).toBeUndefined();
+  expect(record?.workspaceResetResult).toBeUndefined();
+
+  const started = results.filter((r) => r.phase === "started");
+  expect(started).toHaveLength(2);
+  expect(started[1]).toMatchObject({
+    requestId: "start-2",
+    epoch: 2,
+    launchId: "launch-new",
+    phase: "started",
+    identity: { sessionId: "native-1", state: "resumable" },
+  });
+
+  const rebound = logs.find((entry) => entry.properties.event === "agent_control:start_rebound");
+  expect(rebound?.level).toBe("info");
+  expect(rebound?.properties).toMatchObject({
+    agent_id: "a",
+    request_id: "start-2",
+    previous_epoch: 1,
+    epoch: 2,
+    launch_id: "launch-new",
+    outcome: "rebound",
+  });
+});
+
+test("an equal-epoch replay after a rebind re-sends the rebound result without rebinding again", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  let active = false;
+  let launches = 0;
+  let rebinds = 0;
+  const results: AgentControlResult[] = [];
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    workspaceExists: async () => false,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => active,
+    cleanupUnconfirmed,
+    async stop() {
+      active = false;
+      return undefined;
+    },
+    async launch() {
+      launches++;
+      active = true;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async rebind() {
+      rebinds++;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async result(result) {
+      results.push(result);
+    },
+  });
+
+  await control.start(rebindScope());
+  const rebound = rebindScope({ requestId: "start-2", controlEpoch: 2, launchId: "launch-new" });
+  await control.start(rebound);
+  expect(rebinds).toBe(1);
+
+  await control.start(rebound);
+  await control.start(rebound);
+
+  expect(launches).toBe(1);
+  expect(rebinds).toBe(1);
+  const started = results.filter((r) => r.phase === "started" && r.requestId === "start-2");
+  expect(started).toHaveLength(3);
+  expect(new Set(started.map((r) => r.launchId))).toEqual(new Set(["launch-new"]));
+});
+
+test("a lower epoch is still rejected as stale even while the process is running", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    workspaceExists: async () => false,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  let active = false;
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => active,
+    cleanupUnconfirmed,
+    stop: async () => undefined,
+    async launch() {
+      active = true;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async rebind() {
+      throw new Error("must not rebind a stale request");
+    },
+    async result() {},
+  });
+  await control.start(rebindScope({ controlEpoch: 5, launchId: "launch-5" }));
+  await expect(
+    control.start(rebindScope({ requestId: "start-old", controlEpoch: 3, launchId: "launch-3" })),
+  ).rejects.toThrow("stale_control_request");
+});
+
+test("a running record with a different provider is not rebound", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  const results: AgentControlResult[] = [];
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    workspaceExists: async () => false,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  let active = false;
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => active,
+    cleanupUnconfirmed,
+    stop: async () => undefined,
+    async launch() {
+      active = true;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async rebind() {
+      throw new Error("must not rebind across a provider mismatch");
+    },
+    async result(result) {
+      results.push(result);
+    },
+  });
+  await control.start(rebindScope({ provider: "codex", controlEpoch: 1, launchId: "launch-1" }));
+  await expect(
+    control.start(
+      rebindScope({
+        requestId: "start-2",
+        provider: "claude-code",
+        controlEpoch: 2,
+        launchId: "launch-2",
+      }),
+    ),
+  ).rejects.toThrow("agent_already_running");
+  expect(results.at(-1)).toMatchObject({
+    phase: "failed",
+    requestId: "start-2",
+    errorCode: "agent_already_running",
+  });
+});
+
+test("record phase starting still rejects with previous_control_not_completed even while running", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    workspaceExists: async () => false,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  const scope: AgentControlScope = {
+    protocolMajor: 1,
+    requestId: "start-1",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "codex",
+    epoch: 1,
+  };
+  record = {
+    version: 1,
+    scope,
+    action: "start",
+    phase: "starting",
+    daemonInstanceId: "daemon",
+    sequence: 0,
+    launchId: "launch-1",
+  };
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => true,
+    cleanupUnconfirmed,
+    stop: async () => undefined,
+    async launch() {
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async rebind() {
+      throw new Error("must not rebind a still-launching operation");
+    },
+    async result() {},
+  });
+  await expect(
+    control.start(rebindScope({ requestId: "start-2", controlEpoch: 2, launchId: "launch-2" })),
+  ).rejects.toThrow("previous_control_not_completed");
+});
+
+test("a running process with no matching running record sends a failed result instead of hanging", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  const results: AgentControlResult[] = [];
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    workspaceExists: async () => false,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => true,
+    cleanupUnconfirmed,
+    stop: async () => undefined,
+    async launch() {
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async rebind() {
+      throw new Error("must not rebind with no matching record");
+    },
+    async result(result) {
+      results.push(result);
+    },
+  });
+  await expect(control.start(rebindScope())).rejects.toThrow("agent_already_running");
+  expect(results).toHaveLength(1);
+  expect(results[0]).toMatchObject({
+    phase: "failed",
+    requestId: "start-1",
+    errorCode: "agent_already_running",
+  });
+});
+
+test("back-to-back Starts for the same Agent serialize through state.run: exactly one launch, the second rebinds", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  let active = false;
+  let launches = 0;
+  let rebinds = 0;
+  const results: AgentControlResult[] = [];
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    workspaceExists: async () => false,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => active,
+    cleanupUnconfirmed,
+    stop: async () => undefined,
+    async launch() {
+      launches++;
+      // Yield so a concurrently-issued second Start's `state.run` callback provably queues
+      // behind this one instead of interleaving.
+      await Promise.resolve();
+      active = true;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async rebind() {
+      rebinds++;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async result(result) {
+      results.push(result);
+    },
+  });
+
+  const first = rebindScope();
+  const second = rebindScope({ requestId: "start-2", controlEpoch: 2, launchId: "launch-new" });
+  await Promise.all([control.start(first), control.start(second)]);
+
+  expect(launches).toBe(1);
+  expect(rebinds).toBe(1);
+  expect(record).toMatchObject({ phase: "running", launchId: "launch-new" });
+  const started = results.filter((r) => r.phase === "started");
+  expect(started).toHaveLength(2);
 });

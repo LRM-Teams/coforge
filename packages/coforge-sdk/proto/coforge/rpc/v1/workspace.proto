@@ -115,6 +115,13 @@ message AgentStartIntent {
   optional string previous_launch_id = 16;
   optional string session_mode = 17;
   optional uint32 control_epoch = 18;
+  // ADR 0040: the server mints one launchId per control operation's start step
+  // (`AgentControlState.launchId`) and supplies it here; the daemon adopts it
+  // for the launch it makes (or, on a Start that meets an already-running
+  // process, for the rebind that keeps that process). Required whenever
+  // control_epoch is set (every managed start); absent only for an unmanaged
+  // start, which this wire message no longer expects from a current server.
+  optional string launch_id = 19;
 }
 
 // Versioned server-to-daemon stop intent. A replacement is expressed as a

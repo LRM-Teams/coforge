@@ -8,6 +8,10 @@ import {
   type AgentControlStore,
 } from "../src/server/agents/agent-control.server";
 import { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
+import {
+  AgentSessions,
+  type RuntimeSessionReference,
+} from "../src/server/agents/agent-sessions.server";
 import { DaemonRuntime } from "../../../packages/daemon/src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "../../../packages/daemon/src/credentials/credential-store";
 import { AgentSessionRecoveryError } from "../../../packages/daemon/src/code-agent/contract";
@@ -15,6 +19,7 @@ import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentWorkspaceResetRequest,
+  type AgentSessionReport,
   type AgentStartIntent,
 } from "@lrm/coforge-sdk/internal";
 import type { AgentSessionOptions } from "../../../packages/agent/src/contract";
@@ -223,6 +228,278 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
     expect(launches.at(-1)?.sessionId).toBeUndefined();
     expect(launches.at(-1)?.runtime?.provider).toBe("codex");
     expect(await Bun.file(marker).text()).toBe("new files");
+  } finally {
+    await Promise.allSettled(deliveries);
+    await runtime.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a Start that meets an already-running process rebinds it: one process, prepare/verify/accept intact, wake delivered (ADR 0040)", async () => {
+  // macOS resolves os.tmpdir() through the /var -> /private/var symlink, which the
+  // store's symlinked-ancestor guard rightly rejects; anchor the fixture on the real path.
+  const root = await mkdtemp(join(await realpath(tmpdir()), "control-rebind-"));
+  const connection = { workspaceId: "w", computerId: "c", workspaceRoot: join(root, "workspaces") };
+  let agent: AgentControlAgent = {
+    id: "a",
+    ownerId: "owner",
+    workspaceId: "w",
+    computerId: "c",
+    runtimeConfig: {
+      runtime: "pi",
+      provider: { kind: "default" },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    },
+    state: null,
+  };
+  const store: AgentControlStore = {
+    async get() {
+      return structuredClone(agent);
+    },
+    async replace(before, state) {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state: structuredClone(state) };
+      return true;
+    },
+    async memberRole() {
+      return "owner";
+    },
+  };
+  // The real `AgentSessions` (`agent-sessions.server.ts`) `prepare`/`verify`/`accept` seam, not
+  // just `AgentSessionReceiver` — this is what proves ADR 0040's `prepare()` fix (rule 6): the
+  // server-supplied launchId is carried into `RuntimeSessionReference` ahead of the Daemon's own
+  // report, so a rebind's later Session report is accepted by exact launchId match.
+  let sessionRef: RuntimeSessionReference | null = null;
+  let daemonInstanceId: string | undefined;
+  const sessions = new AgentSessions(
+    {
+      async read() {
+        return { workspaceId: "w", computerId: "c", provider: "pi", reference: sessionRef };
+      },
+      async replace(_agentId, previous, next) {
+        if (JSON.stringify(previous) !== JSON.stringify(sessionRef)) return false;
+        sessionRef = next;
+        return true;
+      },
+    },
+    async () => daemonInstanceId,
+  );
+  const sessionReceiver = new AgentSessionReceiver(store, async () => daemonInstanceId);
+  const reports: AgentSessionReport[] = [];
+  const reportAgentSession = async (report: AgentSessionReport) => {
+    reports.push(report);
+    await sessionReceiver.authorize(connection, report);
+    if (report.sequence !== undefined && report.controlEpoch !== undefined && report.sessionState) {
+      await sessions.verify(report);
+      await sessionReceiver.accept(connection, {
+        ...report,
+        requestId: report.startRequestId,
+        epoch: report.controlEpoch,
+        sequence: report.sequence,
+        identity: { sessionId: report.sessionId, state: report.sessionState },
+      });
+    } else {
+      await sessions.accept(report);
+    }
+  };
+  let runtime: DaemonRuntime;
+  const deliveries = new Set<Promise<unknown>>();
+  const sent: Uint8Array[] = [];
+  const control = new AgentControl(
+    store,
+    {
+      async publish(_channel, bytes) {
+        sent.push(bytes);
+        let delivery: Promise<unknown> | undefined;
+        try {
+          delivery = runtime.handleAgentStop(decodeAgentStopIntent(bytes));
+        } catch {}
+        if (!delivery) {
+          try {
+            delivery = runtime.handleAgentWorkspaceReset(decodeAgentWorkspaceResetRequest(bytes));
+          } catch {}
+        }
+        delivery ??= runtime.handleAgentStart(decodeAgentStartIntent(bytes));
+        deliveries.add(delivery);
+        const pending = delivery;
+        void pending.finally(() => deliveries.delete(pending)).catch(() => {});
+      },
+    },
+    { run: async (_id, work) => work() },
+    { timeoutMs: 5_000, fallbackMs: 200 },
+    sessions,
+    undefined,
+    // ADR 0038's recovery-context seam: a user-initiated Start's wake message.
+    {
+      async readAgentRecoveryContext() {
+        return {
+          wakeMessage: {
+            messageId: "wake-1",
+            deliveryId: "delivery-1",
+            conversationId: "conversation-1",
+            sequence: 1,
+            target: "@a",
+            latestSender: "@owner",
+            body: "hello again",
+          },
+        };
+      },
+    },
+  );
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save("w", "c", "daemon-token");
+  const launches: AgentSessionOptions[] = [];
+  const notices: string[] = [];
+  runtime = new DaemonRuntime(
+    connection,
+    (provider) => ({
+      provider,
+      async createAgentSession(options) {
+        launches.push(options);
+        const identity = {
+          sessionId: options.sessionId ?? `native-${launches.length}`,
+          state: "resumable" as const,
+        };
+        return {
+          readSessionIdentity: async () => identity,
+          sendMessage: async () => {},
+          notify: async (notice: string) => {
+            notices.push(notice);
+          },
+          subscribe: () => () => {},
+          onExit: () => () => {},
+          interrupt: async () => {},
+          dispose: async () => {},
+        };
+      },
+    }),
+    credentials,
+    {
+      create: () => ({
+        start: async () => {},
+        async ready(get) {
+          daemonInstanceId = get().workerInstanceId;
+        },
+        stop: async () => {},
+        async requestAgentLaunchConfig(input) {
+          await control.authorizeLaunch({ ...input, computerId: "c" });
+          return { agentApiKey: `sk_agent_${"x".repeat(43)}` };
+        },
+        revokeAgentApiKey: async () => {},
+        sendAgentControlResult: (result) => control.result(connection, result),
+        reportAgentSession,
+      }),
+    },
+    undefined,
+    {
+      runtimes: async () => [],
+      cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+      catalogs: async () => [],
+    },
+    join(root, "state"),
+  );
+  try {
+    await runtime.start(connection);
+    const first = await control.execute({
+      action: "start",
+      agentId: "a",
+      workspaceId: "w",
+      userId: "owner",
+      requestId: crypto.randomUUID(),
+    });
+    await Promise.all(deliveries);
+    expect(first.phase).toBe("completed");
+    expect(launches.length).toBe(1);
+    const firstEpoch = agent.state?.epoch;
+    const firstLaunchId = agent.state?.launchId;
+    expect(firstLaunchId).toBeTruthy();
+
+    // A second Start — a new requestId — reaches the Daemon while the first Start's process is
+    // still running. It must rebind that process, never launch a second one.
+    const second = await control.execute({
+      action: "start",
+      agentId: "a",
+      workspaceId: "w",
+      userId: "owner",
+      requestId: crypto.randomUUID(),
+    });
+    await Promise.all(deliveries);
+    expect(second.phase).toBe("completed");
+    expect(launches.length).toBe(1);
+    expect(agent.state?.epoch).toBe((firstEpoch ?? 0) + 1);
+    expect(agent.state?.launchId).toBeTruthy();
+    expect(agent.state?.launchId).not.toBe(firstLaunchId);
+
+    // The Start's wake message was delivered to the running process, exactly like the existing
+    // equal-epoch replay branch already delivers one.
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("hello again");
+
+    // A later sequenced Session snapshot from the SAME (rebound) process — the shape
+    // AgentSessions.capture/replay build on the Daemon side — is accepted, not rejected as
+    // stale, because `AgentSessions.prepare` already carried the server-supplied launchId into
+    // `RuntimeSessionReference` ahead of the Daemon's own report.
+    const rebound = agent.state!;
+    await reportAgentSession({
+      protocolMajor: 1,
+      requestId: crypto.randomUUID(),
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider: "pi",
+      sessionId: rebound.identity!.sessionId,
+      startRequestId: rebound.requestId,
+      daemonInstanceId: daemonInstanceId!,
+      launchId: rebound.launchId!,
+      controlEpoch: rebound.epoch,
+      sequence: 99,
+      sessionState: "resumable",
+    });
+    expect(agent.state?.sessionSequence).toBe(99);
+
+    // The fence stays tight, not vacuous: a snapshot claiming a launchId that is neither the
+    // current one nor the one it replaced is still rejected by both collaborators the RPC method
+    // consults (`AgentSessionReceiver.authorize` here; `AgentSessions.verify` would reject it
+    // too — proven separately below by calling it directly — proving `prepare()` recorded a real
+    // launchId for this request rather than leaving `RuntimeSessionReference.launchId` unset,
+    // which would make its comparison a no-op instead of an exact match).
+    await expect(
+      reportAgentSession({
+        protocolMajor: 1,
+        requestId: crypto.randomUUID(),
+        workspaceId: "w",
+        computerId: "c",
+        agentId: "a",
+        provider: "pi",
+        sessionId: rebound.identity!.sessionId,
+        startRequestId: rebound.requestId,
+        daemonInstanceId: daemonInstanceId!,
+        launchId: "unrelated-launch-id",
+        controlEpoch: rebound.epoch,
+        sequence: 100,
+        sessionState: "resumable",
+      }),
+    ).rejects.toThrow("Session launch is not current");
+    expect(agent.state?.sessionSequence).toBe(99);
+    await expect(
+      sessions.verify({
+        protocolMajor: 1,
+        requestId: crypto.randomUUID(),
+        workspaceId: "w",
+        computerId: "c",
+        agentId: "a",
+        provider: "pi",
+        sessionId: rebound.identity!.sessionId,
+        startRequestId: rebound.requestId,
+        daemonInstanceId: daemonInstanceId!,
+        launchId: "unrelated-launch-id",
+        controlEpoch: rebound.epoch,
+        sequence: 101,
+        sessionState: "resumable",
+      }),
+    ).rejects.toThrow("Agent session report is stale or unauthorized");
   } finally {
     await Promise.allSettled(deliveries);
     await runtime.stop();

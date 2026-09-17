@@ -483,6 +483,43 @@ test("drops a pending session invalidate once a newer launch is observed via the
   );
 });
 
+test("a rebind's immediate session re-report drops a pending invalidate for the launch it replaced (ADR 0040)", async () => {
+  // `AgentControl.start()`'s rebind path never touches this connection layer directly — it
+  // re-reports the Session through the SAME `reportAgentSession` seam a fresh launch already
+  // uses (`DaemonRuntime#rebindAgent`), so the existing `#observeLaunchIdentity` drop rule this
+  // file already proves generically above is what actually protects a rebind. This test names
+  // the rebind scenario explicitly: a pending invalidate queued for the launch that was running
+  // BEFORE the rebind must not survive the rebind's own re-report under the NEW launchId.
+  const fake = fakeClient();
+  const rpcCalls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    rpcCalls.push({ method, data });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  await transport.reportAgentSession(sessionReport("agent-1", "launch-before-rebind"));
+  fake.disconnect();
+
+  // A stale-session invalidate for the pre-rebind launch was queued (e.g. a kiro/pi driver
+  // detecting the old process's stored session is gone) but never flushed before the rebind.
+  transport.sendSessionInvalidate(sessionInvalidate("agent-1", "launch-before-rebind"));
+
+  // The rebind's own immediate re-report, under the new launchId the server supplied. The
+  // observation fires even though the send itself cannot reach a disconnected server — same as
+  // the generic "drops a pending session invalidate..." test above.
+  await transport
+    .reportAgentSession(sessionReport("agent-1", "launch-after-rebind"))
+    .catch(() => {});
+
+  fake.connect();
+  await Promise.resolve();
+
+  expect(rpcCalls.filter(({ method }) => method === AGENT_SESSION_INVALIDATE_METHOD)).toHaveLength(
+    0,
+  );
+});
+
 test("refuses to queue a new session invalidate for a launch older than the one last observed", async () => {
   const fake = fakeClient();
   const rpcCalls: { method: string; data: Uint8Array }[] = [];

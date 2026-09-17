@@ -42,6 +42,7 @@ import {
   type WorkspaceInfoResponse,
   type AgentStartIntent,
   type AgentStopIntent,
+  type SessionIdentity,
   type AgentActivityProbe,
   type AgentWorkspaceResetRequest,
   type AgentMessageDelivery,
@@ -154,6 +155,9 @@ const CONTROL_ERROR_CODES = new Set([
   "control_epoch_required",
   "agent_already_running",
   "confirmed_stop_required",
+  // ADR 0040: the server mints and supplies launchId for every managed start; a managed
+  // intent that somehow arrives without one is a protocol bug, not a normal race.
+  "agent_launch_id_required",
 ]);
 
 /** `{ control_code }` when `error` is one of AgentControl's fixed rejection messages, else `{}`. */
@@ -366,6 +370,11 @@ export class DaemonRuntime {
       sessionId?: string;
       sessionMode?: SessionMode;
       launchId?: string;
+      /** The control epoch of the request this reference was last launched/rebound under
+       * (docs/adr/0040); read live by `#launchAgent`'s `reportAgentSession` closure (via this
+       * same object, mutated in place by `#rebindAgent`, never replaced) so a session report
+       * sent after a rebind carries the new epoch instead of the one captured at launch time. */
+      controlEpoch?: number;
     }
   >();
   readonly #agentInputQueues = new Map<string, AgentInputQueue>();
@@ -518,6 +527,7 @@ export class DaemonRuntime {
           { requestId: intent.requestId },
         );
       },
+      rebind: (intent, launchId) => this.#rebindAgent(intent, launchId),
       // `launchId` is always present here (minted synchronously by `AgentControl.start()`
       // before this call); the wire message and the retry's cold-start Activity
       // (`#launchAgent`'s `request.invalidateReason` narration) both follow that same,
@@ -1278,6 +1288,7 @@ export class DaemonRuntime {
       sessionId: request.sessionId ?? (continuing ? previous.sessionId : undefined),
       sessionMode: request.sessionMode ?? (continuing ? previous.sessionMode : undefined),
       launchId: request.previousLaunchId ?? (continuing ? previous.launchId : undefined),
+      controlEpoch: request.control?.controlEpoch,
     };
     const previousLaunchId = reference.launchId;
     this.#sessionReferences.set(agentId, reference);
@@ -1380,10 +1391,14 @@ export class DaemonRuntime {
                 provider: config.provider,
                 sessionId: reportedSessionId,
                 ...(replaced ? { replacedSessionId: replaced } : {}),
-                startRequestId: requestId,
                 daemonInstanceId: this.#runtimeInstanceId,
                 launchId: launch.launchId,
-                ...(control?.controlEpoch ? { controlEpoch: control.controlEpoch } : {}),
+                // Read live off `reference` (the same object `#rebindAgent` mutates in place,
+                // docs/adr/0040), not the `requestId`/`control` consts this closure captured at
+                // launch time: a driver-side session replacement reported after a rebind must
+                // carry the NEW request/epoch, not the one this launch started under.
+                startRequestId: reference.requestId,
+                ...(reference.controlEpoch ? { controlEpoch: reference.controlEpoch } : {}),
                 ...(previousLaunchId ? { previousLaunchId } : {}),
               });
               if (!current()) return;
@@ -1480,6 +1495,82 @@ export class DaemonRuntime {
       }
       throw error;
     }
+  }
+
+  /**
+   * Rebinds the agent's already-running process to a newer control scope (docs/adr/0040):
+   * `AgentControl.start()`'s single seam for "a Start met a process that is already running
+   * under an older, terminal operation." Never spawns or stops anything, never requests a new
+   * launch config/credential (the running process's Agent API key and local proxy token are
+   * kept) — it only re-points every place the runtime remembers this launch's identity so a
+   * later daemon->server message about this process carries the new scope, then immediately
+   * re-reports the Session and `agent:status(active)` under it. Returns the running process's
+   * current Session identity, exactly like `#launchAgent` returns one for a fresh launch, so
+   * `AgentControl.start()` can report it in the rebind's `started` result.
+   *
+   * Every closure/map this mutates is mutated IN PLACE (`activityLaunch.launchId = launchId`,
+   * not a new `ActivityLaunch` object) rather than replaced, so the `#launchAgent` closures that
+   * already hold a reference to it — the process-exit handler's `#agentControl.stopped(agentId,
+   * launch.launchId, ...)`, `#emitAgentActivity`'s `launch.launchId`/`launch.clientSeq`,
+   * `#lastBusyActivity`'s `{ launch, ... }` identity comparisons — see the update for free,
+   * without restructuring each one individually or losing the exit handler's `#currentActivityLaunches.get(agentId)
+   * === launch` identity check (a *replacement* object there would silently turn that handler
+   * into a no-op for the rebound launch).
+   */
+  async #rebindAgent(
+    intent: AgentStartIntent,
+    launchId: string,
+  ): Promise<SessionIdentity | undefined> {
+    const agentId = intent.agentId;
+    const activityLaunch = this.#currentActivityLaunches.get(agentId);
+    const reference = this.#sessionReferences.get(agentId);
+    const previousLaunchId = activityLaunch?.launchId ?? reference?.launchId;
+    if (activityLaunch) {
+      activityLaunch.launchId = launchId;
+      // The server's Activity idempotency key is (agentId, launchId, clientSeq)
+      // (docs/observability.md); restarting it at the daemon's normal initial value under a NEW
+      // launchId is exactly what a fresh launch already does and stays disjoint from every
+      // clientSeq already sent under the previous launchId.
+      activityLaunch.clientSeq = 0;
+    }
+    if (reference) {
+      reference.requestId = intent.requestId;
+      reference.controlEpoch = intent.controlEpoch;
+      reference.launchId = launchId;
+    }
+    const session = this.#agentProcessManager.session(agentId);
+    const identity = await session?.readSessionIdentity?.();
+    // Raft sends `agent:session` on a rebind; mirrored here as a direct, fire-and-forget report
+    // (like `#launchAgent`'s own closure), not through `AgentSessions.capture`/`replay` (which
+    // would re-enter `state.run` for this agentId and deadlock: `AgentControl.start()` is
+    // already running inside that same per-agent mutex). `previousLaunchId` carries the launch
+    // being replaced so `AgentSessions.verify` on the server can accept the hand-over even if
+    // it does not yet trust the new `launchId` alone.
+    if (identity?.sessionId && this.#transport.reportAgentSession) {
+      try {
+        await this.#transport.reportAgentSession({
+          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+          requestId: crypto.randomUUID(),
+          workspaceId: this.#connection.workspaceId,
+          computerId: this.#connection.computerId,
+          agentId,
+          provider: intent.provider,
+          sessionId: identity.sessionId,
+          startRequestId: intent.requestId,
+          daemonInstanceId: this.#runtimeInstanceId,
+          launchId,
+          ...(previousLaunchId ? { previousLaunchId } : {}),
+          ...(intent.controlEpoch !== undefined ? { controlEpoch: intent.controlEpoch } : {}),
+        });
+      } catch {
+        // `reportAgentSession` already logs `agent_session:report_failed` at error level; a
+        // failed immediate re-report is not fatal here — the persisted `record.report`
+        // (`AgentSessions.capture`, in `AgentControl.start()`) is still replayed on the next
+        // ready/reconnect pass.
+      }
+    }
+    this.#sendAgentStatus(agentId, "active");
+    return identity;
   }
 
   /** Translates one coalesced provider event into cloud Activity, Session and usage updates. */

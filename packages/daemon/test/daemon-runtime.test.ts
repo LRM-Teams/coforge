@@ -174,6 +174,7 @@ test("a duplicate fenced start wakes the managed runtime without replaying recov
     agentId: "managed-agent",
     ...config,
     controlEpoch: 1,
+    launchId: "launch-managed-1",
   };
   try {
     await runtime.start(connection);
@@ -207,6 +208,132 @@ test("a duplicate fenced start wakes the managed runtime without replaying recov
     expect(notices[0]).toContain("wake only");
     expect(notices[0]).not.toContain("must be ignored");
     expect(notices[0]).not.toContain("@grace");
+  } finally {
+    await runtime.stop();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a Start that meets an already-running process rebinds it: exactly one launch, the next session report/status/activity carry the new scope (ADR 0040)", async () => {
+  const stateDirectory = join(tempRoot, `coforge-rebind-${crypto.randomUUID()}`);
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+  let sessions = 0;
+  const statuses: { status: string; agentId: string }[] = [];
+  const controlResults: { phase: string; requestId: string; launchId?: string; epoch: number }[] =
+    [];
+  const sessionReports: { startRequestId: string; controlEpoch?: number; launchId: string }[] = [];
+  const activities: { launchId: string; clientSeq: number }[] = [];
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({
+      provider: "pi",
+      async createAgentSession() {
+        sessions++;
+        return {
+          ...sessionSpy(),
+          readSessionIdentity: async () => ({ sessionId: "session-a", state: "resumable" }),
+        };
+      },
+    }),
+    credentials,
+    {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async stop() {},
+        async requestAgentLaunchConfig() {
+          return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+        },
+        async revokeAgentApiKey() {},
+        sendAgentStatus(status) {
+          statuses.push({ status: status.status, agentId: status.agentId });
+        },
+        sendAgentActivity(activity) {
+          activities.push({ launchId: activity.launchId, clientSeq: activity.clientSeq });
+        },
+        async sendAgentControlResult(result) {
+          controlResults.push({
+            phase: result.phase,
+            requestId: result.requestId,
+            launchId: result.launchId,
+            epoch: result.epoch,
+          });
+        },
+        async reportAgentSession(report) {
+          sessionReports.push({
+            startRequestId: report.startRequestId,
+            controlEpoch: report.controlEpoch,
+            launchId: report.launchId,
+          });
+        },
+      }),
+    },
+    undefined,
+    emptyCodeAgentDiscovery,
+    stateDirectory,
+  );
+  const intent = {
+    protocolMajor: 1,
+    requestId: "rebind-start-1",
+    workspaceId: connection.workspaceId,
+    computerId: connection.computerId,
+    agentId: "rebind-agent",
+    ...config,
+    controlEpoch: 1,
+    launchId: "launch-rebind-1",
+  };
+  try {
+    await runtime.start(connection);
+    await runtime.handleAgentStart(intent);
+    expect(sessions).toBe(1);
+    const startedBeforeRebind = controlResults.filter((r) => r.phase === "started");
+    expect(startedBeforeRebind).toHaveLength(1);
+    expect(startedBeforeRebind[0]).toMatchObject({ launchId: "launch-rebind-1", epoch: 1 });
+
+    // A new Start — different requestId, higher epoch, a different (server-supplied) launchId —
+    // meets the already-running process. It must rebind, not spawn a second one.
+    await runtime.handleAgentStart({
+      ...intent,
+      requestId: "rebind-start-2",
+      controlEpoch: 2,
+      launchId: "launch-rebind-2",
+    });
+
+    // No second process was launched.
+    expect(sessions).toBe(1);
+
+    const started = controlResults.filter((r) => r.phase === "started");
+    expect(started).toHaveLength(2);
+    expect(started[1]).toMatchObject({
+      requestId: "rebind-start-2",
+      epoch: 2,
+      launchId: "launch-rebind-2",
+    });
+
+    // The immediate re-report after the rebind carries the new scope.
+    const rebound = sessionReports.at(-1);
+    expect(rebound).toMatchObject({
+      startRequestId: "rebind-start-2",
+      controlEpoch: 2,
+      launchId: "launch-rebind-2",
+    });
+
+    // `agent:status(active)` was re-sent for the rebind.
+    expect(statuses.filter((s) => s.status === "active").length).toBeGreaterThanOrEqual(2);
+
+    // A later Activity for this agent (the "starting" activity from the original launch is
+    // already emitted; anything emitted from here on must carry the new launchId).
+    activities.length = 0;
+    await runtime.handleAgentActivityProbe({
+      protocolMajor: 1,
+      requestId: "probe-1",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "rebind-agent",
+      probeId: "probe-1",
+    });
+    for (const activity of activities) expect(activity.launchId).toBe("launch-rebind-2");
   } finally {
     await runtime.stop();
     await rm(stateDirectory, { recursive: true, force: true });
@@ -4422,6 +4549,7 @@ describe("DaemonRuntime", () => {
         modelProvider: "anthropic",
         reasoning: "balanced",
         controlEpoch: 1,
+        launchId: "launch-retry-stale",
         sessionId: "stale-session",
         sessionMode: "resume" as const,
       };
@@ -4496,6 +4624,7 @@ describe("DaemonRuntime", () => {
       modelProvider: "anthropic",
       reasoning: "balanced",
       controlEpoch: 1,
+      launchId: "launch-retry-busy",
       sessionId: "busy-session",
       sessionMode: "resume" as const,
     };
@@ -5253,6 +5382,7 @@ describe("DaemonRuntime", () => {
               model: "default",
               reasoning: "balanced",
               controlEpoch: 1,
+              launchId: "launch-control-code",
             };
             // Same agent, same epoch, different requestId: AgentControl rejects the second one
             // with the fixed "control_request_mismatch" message once the first has a startResult.

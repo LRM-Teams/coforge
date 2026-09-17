@@ -38,6 +38,21 @@ type Runtime = {
     sessionId: string,
     reason: AgentSessionInvalidateReason,
   ): void;
+  /**
+   * Rebinds an already-running process to a newer control scope without spawning a second one
+   * (docs/adr/0040): a Start that finds `running(agentId)` true under an older, TERMINAL
+   * operation adopts the new request instead of being rejected, mirroring Raft's
+   * `rebindRunningStart`. `launchId` is the identity the running process adopts for every later
+   * daemon->server message about it (today always `intent.launchId`, the server-supplied id for
+   * this new operation) — re-points every place that remembers the previous launch's identity
+   * (session reference, activity launch/clientSeq, status, pending Activity/invalidate
+   * bookkeeping) and sends the immediate Session re-report and `agent:status(active)` under the
+   * new scope. Returns the running process's current Session identity, exactly like `launch`
+   * does for a fresh start, so the caller can report it in the rebind's `started` result. Never
+   * requests a new launch config/credential — the running process's existing Agent API key and
+   * local proxy token are kept.
+   */
+  rebind(intent: AgentStartIntent, launchId: string): Promise<SessionIdentity | undefined>;
   result(result: AgentControlResult): Promise<void>;
   /** True when `error` (from `stop`/`launch`'s cleanup) means the local process's exit could not
    * be confirmed — the one case a stale-looking record must keep fencing rather than repair. */
@@ -284,7 +299,48 @@ export class AgentControl {
           (record.phase === "failed" && record.scope.epoch === scope.epoch))
       )
         throw new Error("previous_control_not_completed");
-      if (this.runtime.running(intent.agentId)) throw new Error("agent_already_running");
+      if (!intent.launchId) {
+        // ADR 0040: the server mints and supplies launchId for every managed start; the SDK
+        // decode step already rejects a controlEpoch-carrying intent with none, so this is a
+        // defensive, should-not-happen guard. Checked before the running-process branch below:
+        // a rebind needs a launchId to adopt just as much as a fresh launch needs one to use.
+        await this.runtime
+          .result({
+            ...scope,
+            phase: "failed",
+            sequence: (record?.scope.epoch === scope.epoch ? record.sequence : 0) + 1,
+            errorCode: "agent_launch_id_required",
+          })
+          .catch(() => {});
+        throw new Error("agent_launch_id_required");
+      }
+      if (this.runtime.running(intent.agentId)) {
+        // ADR 0040: a Start that reaches an already-running process under an older, TERMINAL
+        // operation (a user Start racing a Daemon-ready `recover()` Start, or Start clicked on
+        // an Agent the UI wrongly shows offline) rebinds the running process to the new scope
+        // instead of rejecting it — matching Raft's `rebindRunningStart`. Every precondition is
+        // checked explicitly: a genuinely different, higher epoch (the fence above already
+        // rejects a lower one; an equal epoch was already handled by the replay branch), the
+        // same provider, a live record actually claiming "running", and a `launchId` to adopt
+        // from. Anything else falls through to the "should not happen" branch below.
+        if (
+          record &&
+          record.phase === "running" &&
+          record.launchId &&
+          record.scope.provider === scope.provider &&
+          scope.epoch > record.scope.epoch
+        )
+          return this.#rebindRunning(record, scope, intent);
+        // The process is running but there is no matching running record to rebind to (the
+        // record is missing, or claims a different phase — should not happen). Send a failed
+        // result so the server's new operation terminates instead of hanging forever, then
+        // still throw so this stays diagnosable (ADR 0033's `control_code` logging).
+        const sequence = (record?.scope.epoch === scope.epoch ? record.sequence : 0) + 1;
+        await this.runtime
+          .result({ ...scope, phase: "failed", sequence, errorCode: "agent_already_running" })
+          .catch(() => {});
+        throw new Error("agent_already_running");
+      }
       if (!record || record.scope.epoch !== scope.epoch)
         record = {
           version: 1,
@@ -296,7 +352,7 @@ export class AgentControl {
         };
       record.scope = scope;
       record.action = "start";
-      const launchId = crypto.randomUUID();
+      const launchId = intent.launchId;
       record.phase = "starting";
       record.launchId = launchId;
       record.daemonInstanceId = this.instanceId;
@@ -366,6 +422,63 @@ export class AgentControl {
         await this.store.write(intent.agentId, record);
       }
       await this.runtime.result(record.lastResult).catch(() => {});
+    });
+  }
+  /**
+   * A Start met an already-running process under an older, terminal operation (docs/adr/0040).
+   * Keeps the process — never spawns, never stops it — and adopts the new scope: the record
+   * moves to the new epoch/requestId, keeps `identity`/`daemonInstanceId`, and takes the new
+   * `launchId` the server minted for this operation. Sequence restarts the way a fresh record's
+   * does; the previous epoch's stop/workspace-reset/start receipts are dropped so they cannot
+   * leak into this new epoch's equal-epoch replay branch (`record.startResult` below is this
+   * epoch's own, freshly built). Runs inside the same `state.run(agentId, ...)` mutex `start()`
+   * already holds — no separate lock, no second in-flight launch possible.
+   */
+  async #rebindRunning(
+    record: AgentRuntimeRecord,
+    scope: AgentControlScope,
+    intent: AgentStartIntent,
+  ): Promise<void> {
+    const launchId = intent.launchId as string; // checked by the caller before this is reached.
+    const previousEpoch = record.scope.epoch;
+    record.scope = scope;
+    record.action = "start";
+    record.launchId = launchId;
+    record.sequence = 0;
+    delete record.stopResult;
+    delete record.workspaceResetResult;
+    delete record.startResult;
+    // Never touches `daemonInstanceId` (this daemon instance already owns the running process,
+    // confirmed by `runtime.running()`) — "keeps identity, daemonInstanceId" per the brief.
+    await this.store.write(scope.agentId, record);
+    // Re-points every place the runtime remembers this launch's requestId/controlEpoch/launchId
+    // fence (session reference, activity launch, pending Activity/invalidate bookkeeping) and
+    // sends the immediate Session re-report + `agent:status(active)` under the new scope; returns
+    // the running process's current identity, exactly like a fresh `launch` would.
+    const identity = await this.runtime.rebind(intent, launchId);
+    record.identity = identity ?? record.identity;
+    record.startResult = {
+      ...scope,
+      phase: "started",
+      launchId,
+      sequence: ++record.sequence,
+      ...(record.identity ? { identity: record.identity } : {}),
+    };
+    record.lastResult = record.startResult;
+    this.sessions.capture(record, record.identity);
+    await this.store.write(scope.agentId, record);
+    // Reuses the same hook the equal-epoch replay branch already uses to deliver a Start's wake
+    // message to a running process — never spawns anything.
+    if (intent.wakeMessage) await this.runtime.wake?.(intent);
+    await this.runtime.result(record.lastResult).catch(() => {});
+    logger.info("Agent Start rebound to an already-running process", {
+      event: "agent_control:start_rebound",
+      agent_id: scope.agentId,
+      request_id: scope.requestId,
+      previous_epoch: previousEpoch,
+      epoch: scope.epoch,
+      launch_id: launchId,
+      outcome: "rebound",
     });
   }
   stopped(agentId: string, launchId: string, identity?: SessionIdentity) {
