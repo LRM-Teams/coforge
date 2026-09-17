@@ -207,17 +207,20 @@ export class AgentControl {
       await this.store.write(scope.agentId, record);
       // A clear failure is non-fatal (liveness over durable receipts): it never latches the
       // Agent into a terminal state only an explicit reset retry could leave. The session
-      // association is still cleared locally and the chain still proceeds to Start; the caller
-      // is told through a warning, not an error.
-      let clearWarningCode: string | undefined;
+      // association is still cleared locally and the chain still proceeds to Start. Matching
+      // Raft 1.0.32's resetWorkspace, this is logged only — there is no result field, state, or
+      // anything else that blocks a later agent:start.
       try {
         await this.store.clearWorkspace(scope.agentId);
       } catch (error) {
-        clearWarningCode = "workspace_clear_incomplete";
         logger.error("Agent workspace clear did not complete", {
           event: "agent_control:workspace_clear_failed",
+          request_id: scope.requestId,
+          workspace_id: scope.workspaceId,
+          computer_id: scope.computerId,
           agent_id: scope.agentId,
           error_code: diagnosticErrorCode(error),
+          outcome: "failed",
         });
       }
       this.sessions.clear(record);
@@ -226,7 +229,6 @@ export class AgentControl {
         ...scope,
         phase: "workspace-reset",
         sequence: ++record.sequence,
-        ...(clearWarningCode ? { warningCode: clearWarningCode } : {}),
       };
       record.lastResult = record.workspaceResetResult;
       await this.store.write(scope.agentId, record);

@@ -39,13 +39,6 @@ export type AgentControlResult = AgentControlScope & {
   sequence: number;
   identity?: SessionIdentity;
   errorCode?: string;
-  /**
-   * Set only on a non-fatal "workspace-reset" outcome (e.g. `workspace_clear_incomplete`): the
-   * operation still completed and the control chain still proceeds, but something the caller
-   * should be told about happened along the way. Never set alongside `errorCode`; an old server
-   * that does not know this field ignores it, same as any other unknown protobuf field.
-   */
-  warningCode?: string;
 };
 
 export type AgentSessionSnapshot = AgentControlScope & {
@@ -137,8 +130,6 @@ function checkedResult(value: AgentControlResult): AgentControlResult {
     throw new Error("Invalid Agent lifecycle launch ID");
   if (value.errorCode !== undefined && !ERROR_CODE.test(value.errorCode))
     throw new Error("Invalid Agent lifecycle error code");
-  if (value.warningCode !== undefined && !ERROR_CODE.test(value.warningCode))
-    throw new Error("Invalid Agent lifecycle warning code");
   return {
     ...checkedScope,
     phase: value.phase,
@@ -146,7 +137,6 @@ function checkedResult(value: AgentControlResult): AgentControlResult {
     ...(value.launchId !== undefined ? { launchId: value.launchId } : {}),
     ...(value.identity !== undefined ? { identity: identity(value.identity) } : {}),
     ...(value.errorCode !== undefined ? { errorCode: value.errorCode } : {}),
-    ...(value.warningCode !== undefined ? { warningCode: value.warningCode } : {}),
   };
 }
 
