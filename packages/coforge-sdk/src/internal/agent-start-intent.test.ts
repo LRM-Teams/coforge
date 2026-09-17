@@ -52,9 +52,9 @@ test("rejects decoding a managed start intent with no launchId", () => {
 
 test("rejects an oversized launchId on encode and decode", () => {
   const oversized = "x".repeat(513);
-  expect(() =>
-    encodeAgentStartIntent({ ...base, controlEpoch: 1, launchId: oversized }),
-  ).toThrow("invalid Agent start launchId");
+  expect(() => encodeAgentStartIntent({ ...base, controlEpoch: 1, launchId: oversized })).toThrow(
+    "invalid Agent start launchId",
+  );
   const encoded = toBinary(
     AgentStartIntentSchema,
     create(AgentStartIntentSchema, {

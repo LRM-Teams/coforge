@@ -442,7 +442,13 @@ test("stop then workspace reset then start persists primitive receipts", async (
   };
   await control.stop(request);
   await control.resetWorkspace(request);
-  const start: AgentStartIntent = { ...request, controlEpoch: 1, launchId: "launch-7", model: "", reasoning: "" };
+  const start: AgentStartIntent = {
+    ...request,
+    controlEpoch: 1,
+    launchId: "launch-7",
+    model: "",
+    reasoning: "",
+  };
   await control.start(start);
   await control.stop(request);
   await control.resetWorkspace(request);
@@ -516,7 +522,14 @@ test("workspace reset requires a successful stop and a failed stop blocks reset 
     "confirmed_stop_required",
   );
   await expect(
-    control.start({ ...scope, requestId: "start", controlEpoch: 1, launchId: "launch-9", model: "", reasoning: "" }),
+    control.start({
+      ...scope,
+      requestId: "start",
+      controlEpoch: 1,
+      launchId: "launch-9",
+      model: "",
+      reasoning: "",
+    }),
   ).rejects.toThrow("previous_control_not_completed");
   expect(clears).toBe(0);
   expect(launches).toBe(0);
@@ -679,7 +692,13 @@ test("a newer Start cannot bypass an in-progress (clearing) workspace deletion",
     control.start({ ...retry, controlEpoch: 2, launchId: "launch-13", model: "", reasoning: "" }),
   ).rejects.toThrow("previous_control_not_completed");
   await control.resetWorkspace(retry);
-  await control.start({ ...retry, controlEpoch: 2, launchId: "launch-14", model: "", reasoning: "" });
+  await control.start({
+    ...retry,
+    controlEpoch: 2,
+    launchId: "launch-14",
+    model: "",
+    reasoning: "",
+  });
   expect(launches()).toBe(1);
 });
 
@@ -1094,7 +1113,13 @@ test("a workspace clear failure is non-fatal: it reports workspace-reset with a 
   });
 
   // The chain still proceeds: Start is not blocked by the clear failure.
-  const start: AgentStartIntent = { ...scope, controlEpoch: 1, launchId: "launch-18", model: "", reasoning: "" };
+  const start: AgentStartIntent = {
+    ...scope,
+    controlEpoch: 1,
+    launchId: "launch-18",
+    model: "",
+    reasoning: "",
+  };
   await control.start(start);
   expect(launches).toBe(1);
   expect(results.at(-1)).toMatchObject({ phase: "started" });
@@ -1149,7 +1174,13 @@ test("a workspace clear failure does not weaken confirmed_stop_required: a later
   await control.stop(scope);
   await control.resetWorkspace(scope);
   expect(record).toMatchObject({ phase: "workspace-reset" });
-  await control.start({ ...scope, controlEpoch: 1, launchId: "launch-19", model: "", reasoning: "" });
+  await control.start({
+    ...scope,
+    controlEpoch: 1,
+    launchId: "launch-19",
+    model: "",
+    reasoning: "",
+  });
   expect(record).toMatchObject({ phase: "running" });
 
   // Second reset at a new epoch: no fresh Stop has been confirmed for this epoch, so the
@@ -1537,4 +1568,48 @@ test("back-to-back Starts for the same Agent serialize through state.run: exactl
   expect(record).toMatchObject({ phase: "running", launchId: "launch-new" });
   const started = results.filter((r) => r.phase === "started");
   expect(started).toHaveLength(2);
+});
+
+test("a managed Start intent with no launchId sends a failed result instead of minting one locally (ADR 0040)", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  const results: AgentControlResult[] = [];
+  let launches = 0;
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    workspaceExists: async () => false,
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => false,
+    cleanupUnconfirmed,
+    stop: async () => undefined,
+    async launch() {
+      launches++;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async rebind() {
+      throw new Error("must not rebind here");
+    },
+    async result(result) {
+      results.push(result);
+    },
+  });
+  // The server always supplies launchId for a managed (controlEpoch-carrying) start; the SDK
+  // decode step already rejects one with none, so this exercises the daemon's own defensive
+  // guard for a malformed intent that somehow still reaches AgentControl.
+  const intent = rebindScope();
+  delete intent.launchId;
+  await expect(control.start(intent)).rejects.toThrow("agent_launch_id_required");
+  expect(launches).toBe(0);
+  expect(results).toHaveLength(1);
+  expect(results[0]).toMatchObject({
+    phase: "failed",
+    requestId: "start-1",
+    errorCode: "agent_launch_id_required",
+  });
 });
