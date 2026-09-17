@@ -1195,6 +1195,19 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
         runtimeConfig: {},
       },
     });
+    // Never joins #eng either: `server_role` basis grants admin authority independent of
+    // membership (ADR 0030) — "a server admin without membership can still archive".
+    const nonMemberServerAdmin = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: owner.id,
+        computerId: computer.id,
+        name: `nonmemberadmin${suffix}`,
+        displayName: "Non-member Admin",
+        role: "admin",
+        runtimeConfig: {},
+      },
+    });
     await enrollGeneral(db, workspace.id);
     const manage = new AgentChannelManagement(db, {
       snapshot: async () => {
@@ -1228,14 +1241,18 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       memberCounts: { agents: 2, humans: 0 },
     });
 
-    // Roster reflects both Agents, tagging the caller "self" and the creator "admin".
+    // Roster reflects both Agents, tagging the caller "self" and the creator "admin". `admin`'s
+    // basis is its own server role (`Agent.role`); `member`'s is the `channelRole` it got as
+    // #eng's creator (ADR 0030) — neither is #general, so both bases are reported.
     const roster = await manage.members(workspace.id, member.id, "#eng");
     expect(roster.agents.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
       {
         name: admin.name,
         displayName: "Admin",
         description: "",
-        role: "admin",
+        serverRole: "admin",
+        channelRole: "member",
+        channelAdminBasis: "server_role",
         self: false,
         status: "unknown",
       },
@@ -1243,7 +1260,9 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
         name: member.name,
         displayName: "Member",
         description: "",
-        role: "member",
+        serverRole: "member",
+        channelRole: "admin",
+        channelAdminBasis: "channel_role",
         self: true,
         status: "unknown",
       },
@@ -1280,10 +1299,19 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       manage.removeMember(workspace.id, admin.id, "#general", { agent: `@${member.name}` }),
     ).rejects.toThrow("cannot remove a member from #general");
 
-    // Update requires admin authority and at least one field; general is reserved.
-    await expect(manage.update(workspace.id, member.id, "#eng", { name: "x" })).rejects.toThrow(
-      "this Agent's owner lacks admin authority for update",
-    );
+    // Update requires admin authority (channel-aware, ADR 0030) and at least one field; general
+    // is reserved. `member` is #eng's creator, so it is itself a channel admin now (channelRole
+    // "admin") — `outsiderAgent` (never a member, plain `Agent.role`) exercises the plain
+    // denial instead.
+    await expect(
+      manage.update(workspace.id, outsiderAgent.id, "#eng", { name: "x" }),
+    ).rejects.toThrow("this Agent's owner lacks admin authority for update");
+    // Positive path for the OTHER basis (`channel_role`, ADR 0030): #eng's creator may update
+    // its own channel with no server-role admin authority at all.
+    const channelRoleUpdate = await manage.update(workspace.id, member.id, "#eng", {
+      description: "Updated via channel_role admin",
+    });
+    expect(channelRoleUpdate.description).toBe("Updated via channel_role admin");
     await expect(manage.update(workspace.id, admin.id, "#eng", {})).rejects.toThrow(
       "update requires --name or --description",
     );
@@ -1295,10 +1323,14 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     });
     expect(updated.description).toBe("Eng team");
 
-    // Archive/unarchive: admin only; join and post are refused while archived.
-    await expect(manage.setArchived(workspace.id, member.id, "#eng", true)).rejects.toThrow(
+    // Archive/unarchive: admin only (either basis); join and post are refused while archived.
+    await expect(manage.setArchived(workspace.id, outsiderAgent.id, "#eng", true)).rejects.toThrow(
       "this Agent's owner lacks admin authority for archive",
     );
+    // Positive path for `channel_role` basis: the creator may archive/unarchive its own channel.
+    const channelRoleArchived = await manage.setArchived(workspace.id, member.id, "#eng", true);
+    expect(channelRoleArchived).toEqual({ target: "#eng", archived: true });
+    await manage.setArchived(workspace.id, member.id, "#eng", false);
     const archived = await manage.setArchived(workspace.id, admin.id, "#eng", true);
     expect(archived).toEqual({ target: "#eng", archived: true });
     expect((await manage.info(workspace.id, admin.id, "#eng")).archived).toBe(true);
@@ -1307,6 +1339,17 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     );
     await manage.setArchived(workspace.id, admin.id, "#eng", false);
     expect((await manage.info(workspace.id, admin.id, "#eng")).archived).toBe(false);
+
+    // `server_role` basis needs no membership at all: a server admin who never joined #eng can
+    // still archive/unarchive it (ADR 0030).
+    const nonMemberArchived = await manage.setArchived(
+      workspace.id,
+      nonMemberServerAdmin.id,
+      "#eng",
+      true,
+    );
+    expect(nonMemberArchived).toEqual({ target: "#eng", archived: true });
+    await manage.setArchived(workspace.id, nonMemberServerAdmin.id, "#eng", false);
 
     // add-member (Slack's default, ADR 0025): the acting Agent must itself already be an
     // active member of the channel — not gated by Agent.role admin authority, reused from
@@ -1339,11 +1382,20 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       alreadyMember: true,
     });
 
-    // remove-member: admin required for another member; self-removal (an Agent removing
-    // itself) is allowed without admin authority, the same as `leave`.
+    // remove-member: admin required for another member (`member` is #eng's own channel admin,
+    // so `outsiderAgent` exercises the plain denial); self-removal (an Agent removing itself)
+    // is allowed without admin authority, the same as `leave`.
     await expect(
-      manage.removeMember(workspace.id, member.id, "#eng", { user: `@${outsider.username}` }),
+      manage.removeMember(workspace.id, outsiderAgent.id, "#eng", {
+        user: `@${outsider.username}`,
+      }),
     ).rejects.toThrow("this Agent's owner lacks admin authority for remove-member");
+    // Positive path for `channel_role` basis: the authority check itself passes for the
+    // creator (`wasMember: false` only because `outsiderAgent` never joined #eng).
+    const channelRoleRemoval = await manage.removeMember(workspace.id, member.id, "#eng", {
+      agent: `@${outsiderAgent.name}`,
+    });
+    expect(channelRoleRemoval).toEqual({ target: "#eng", removed: true, wasMember: false });
     const removedAgent = await manage.removeMember(workspace.id, member.id, "#eng", {
       agent: `@${member.name}`,
     });
@@ -1380,6 +1432,8 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       owner.id,
       admin.id,
     );
+    // A DM is not a named channel, so it has no channel-role concept: `channelRole`/
+    // `channelAdminBasis` stay unset for every entry.
     const dmRoster = await manage.members(workspace.id, admin.id, `@${owner.username}`);
     expect(dmRoster).toEqual({
       target: `@${owner.username}`,
@@ -1388,18 +1442,175 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
           name: admin.name,
           displayName: "Admin",
           description: "",
-          role: "admin",
+          serverRole: "admin",
           self: true,
           status: "unknown",
         },
       ],
-      humans: [{ username: owner.username, role: "owner" }],
+      humans: [{ username: owner.username, serverRole: "owner" }],
     });
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: owner.id } });
     await db.user.deleteMany({ where: { id: { in: [owner.id, outsider.id] } } });
     await db.$disconnect();
+  }
+});
+
+test("Channel roles (ADR 0030): creator is channel admin, a plain member cannot archive, promote/demote via setChannelRole, server admin without membership, #general's roles are fixed", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const creator = await db.user.create({ data: { username: `rc${suffix}` } });
+  const plainMember = await db.user.create({ data: { username: `rp${suffix}` } });
+  const serverAdmin = await db.user.create({ data: { username: `ra${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `roles-${suffix}`,
+      name: "Channel roles",
+      members: {
+        create: [
+          { userId: creator.id },
+          { userId: plainMember.id },
+          // Never joins the channel: proves `server_role` basis needs no membership.
+          { userId: serverAdmin.id, role: "admin" },
+        ],
+      },
+    },
+  });
+  try {
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+    });
+    await enrollGeneral(db, workspace.id);
+
+    // The creator is the channel's own admin (ADR 0030): `channelRole` "admin", basis
+    // "channel_role", and every admin capability except on `#general`.
+    const channel = await channels.create(workspace.id, creator.id, "roles-eng");
+    await channels.join(workspace.id, plainMember.id, channel.id);
+    const creatorView = await channels.members(workspace.id, { userId: creator.id }, channel.id);
+    expect(creatorView.channelRole).toBe("admin");
+    expect(creatorView.channelAdminBasis).toBe("channel_role");
+    expect(creatorView.channelCapabilities).toMatchObject({
+      update: true,
+      archive: true,
+      unarchive: true,
+      remove_member: true,
+      manage_roles: true,
+    });
+    const creatorRow = creatorView.humans.find((human) => human.id === creator.id);
+    expect(creatorRow).toMatchObject({ channelRole: "admin", channelAdminBasis: "channel_role" });
+
+    // A plain member (no admin basis at all) sees no admin capabilities and cannot manage
+    // roles or archive.
+    const plainView = await channels.members(workspace.id, { userId: plainMember.id }, channel.id);
+    expect(plainView.channelRole).toBe("member");
+    expect(plainView.channelAdminBasis).toBeUndefined();
+    expect(plainView.channelCapabilities).toMatchObject({
+      update: false,
+      archive: false,
+      unarchive: false,
+      remove_member: false,
+      manage_roles: false,
+    });
+    await expect(
+      channels.setChannelRole(
+        workspace.id,
+        plainMember.id,
+        channel.id,
+        { userId: plainMember.id },
+        "admin",
+      ),
+    ).rejects.toThrow("ACCESS_DENIED");
+
+    // Promoting via `setChannelRole` grants channel-admin authority; demoting revokes it.
+    await channels.setChannelRole(
+      workspace.id,
+      creator.id,
+      channel.id,
+      { userId: plainMember.id },
+      "admin",
+    );
+    const promotedView = await channels.members(
+      workspace.id,
+      { userId: plainMember.id },
+      channel.id,
+    );
+    expect(promotedView.channelRole).toBe("admin");
+    expect(promotedView.channelAdminBasis).toBe("channel_role");
+    expect(promotedView.channelCapabilities.archive).toBe(true);
+
+    await channels.setChannelRole(
+      workspace.id,
+      creator.id,
+      channel.id,
+      { userId: plainMember.id },
+      "member",
+    );
+    const demotedView = await channels.members(
+      workspace.id,
+      { userId: plainMember.id },
+      channel.id,
+    );
+    expect(demotedView.channelRole).toBe("member");
+    expect(demotedView.channelAdminBasis).toBeUndefined();
+    expect(demotedView.channelCapabilities.archive).toBe(false);
+
+    // `server_role` basis needs no membership: `serverAdmin` never joined this channel but
+    // still reports full admin capabilities.
+    const serverAdminView = await channels.members(
+      workspace.id,
+      { userId: serverAdmin.id },
+      channel.id,
+    );
+    expect(serverAdminView.channelRole).toBeUndefined();
+    expect(serverAdminView.channelAdminBasis).toBe("server_role");
+    expect(serverAdminView.channelCapabilities).toMatchObject({
+      update: true,
+      archive: true,
+      unarchive: true,
+      remove_member: true,
+      manage_roles: true,
+    });
+
+    // `#general`'s roles are fixed: nobody can be its channel admin, `setChannelRole` always
+    // rejects, and even a server admin's admin capabilities are unavailable there.
+    const general = await db.conversation.findUniqueOrThrow({
+      where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
+    });
+    await expect(
+      channels.setChannelRole(
+        workspace.id,
+        serverAdmin.id,
+        general.id,
+        { userId: plainMember.id },
+        "admin",
+      ),
+    ).rejects.toThrow("CONFLICT");
+    const generalServerAdminView = await channels.members(
+      workspace.id,
+      { userId: serverAdmin.id },
+      general.id,
+    );
+    expect(generalServerAdminView.channelAdminBasis).toBe("server_role");
+    expect(generalServerAdminView.channelCapabilities).toMatchObject({
+      update: false,
+      archive: false,
+      unarchive: false,
+      remove_member: false,
+      manage_roles: false,
+      leave: false,
+    });
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.deleteMany({
+      where: { id: { in: [creator.id, plainMember.id, serverAdmin.id] } },
+    });
+    await db.$disconnect();
+    redis.close();
   }
 });
 

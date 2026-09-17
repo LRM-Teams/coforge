@@ -151,35 +151,62 @@ instructions for the TanStack Start Web/backend modular monolith.
   0024, `packages/coforge`) is a second, Agent-only entrypoint for the
   operations ADR 0025 does not give humans at all: `channel join`/`leave`/
   `create` (open to any Agent in the Workspace, same as the human path),
-  `channel update`/`lifecycle archive|unarchive` (`Agent.role` admin/owner),
-  and `channel remove-member` — this implements ADR 0025's planned-but-
-  deferred removal rule (owner/admin removes, never from `#general`, via a
-  soft `ConversationMember.leftAt` marker since `Message.sender`'s
-  `onDelete: Restrict` makes a hard delete impossible for anyone who has
-  sent a message). There is still no human UI for `update`/`archive`.
+  `channel update`/`lifecycle archive|unarchive` (channel-aware admin basis,
+  ADR 0032: the Agent's own server role or its stored `channelRole` on that
+  specific channel), and `channel remove-member` — this implements ADR 0025's
+  planned-but-
+  deferred removal rule via a soft `ConversationMember.leftAt` marker since
+  `Message.sender`'s `onDelete: Restrict` makes a hard delete impossible for
+  anyone who has sent a message. There is still no human UI for `update`/
+  `archive`.
+
+  **Channel-level roles and capabilities (ADR 0032)**:
+  `ConversationMember.channelRole` (`admin | member`, default `member`) is a
+  role stored on the membership itself; a channel's creator (human or Agent)
+  gets `channelRole: "admin"` on their own row, and `#general`'s members
+  always stay `member` (nobody can be its channel admin). Admin basis is
+  computed, never stored (`server-conversations/channel-authority.server.ts`'s
+  `deriveChannelAdminBasis`): `"server_role"` when the actor's own Workspace/
+  Agent server role is owner/admin, else `"channel_role"` when their stored
+  `channelRole` is `admin`, else neither. `deriveChannelCapabilities` derives
+  exactly eight capability names (`post`, `leave`, `add_member`, `update`,
+  `archive`, `unarchive`, `remove_member`, `manage_roles`) from active
+  membership and admin basis; `manage_roles` is human-only (there is no Agent
+  CLI/API route for it, matching Raft) and, like the other admin-derived
+  capabilities, never available on `#general`. This module — not
+  `Agent.role`-only or Workspace-role-only checks — is now the single
+  authority seam for both sides: `AgentChannelManagement`'s `update`/
+  `setArchived`/`removeMember` (superseding ADR 0024's channel-blind
+  `agentHasAdminAuthority`) and `PublicChannels.removeMember`/`members()`'s
+  `canRemoveMembers`/`canLeave` (superseding ADR 0031's
+  `assertCanRemoveChannelMembers`) all read it; both changes are additive
+  (every previously authorized actor stays authorized).
 
   The human side of leave/remove is `PublicChannels.leave(workspaceId,
 userId, channelId)` (any active member leaves themselves, never
   `#general`) and `PublicChannels.removeMember(workspaceId, actorUserId,
-channelId, target: ChannelActor)` (Workspace owner/admin only, via the new
-  `assertCanRemoveChannelMembers` in `member-role.server.ts`, never
-  `#general`) — ADR 0031, the human-side equivalent of ADR 0024's Agent
-  `channel leave`/`remove-member`, sharing the same `leftAt`/
-  `ACTIVE_MEMBER_WHERE` representation through one private helper
-  (`softLeaveMember`) rather than a second one. `PublicChannels.members`
-  additionally reports `canRemoveMembers`/`canLeave` per viewer.
+channelId, target: ChannelActor)` (any actor with the `remove_member`
+  capability — a channel admin via either basis — never `#general`) — ADR
+  0031, the human-side equivalent of ADR 0024's Agent `channel leave`/
+  `remove-member`, sharing the same `leftAt`/`ACTIVE_MEMBER_WHERE`
+  representation through one private helper (`softLeaveMember`) rather than
+  a second one. `PublicChannels.setChannelRole(workspaceId, actorUserId,
+channelId, member, role)` (ADR 0032) promotes/demotes a member's stored
+  `channelRole`, gated by `manage_roles`, and rejects `#general` outright.
   `features/conversations/
 channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembers`/
-  `leavePublicChannel`/`removePublicChannelMember`; `channel-members-dialog.tsx`
-  is the Web UI, opened from a "Members" button on the channel header, with a
-  per-row "Remove" action and a "Leave channel" footer action, both with an
-  inline confirm step (no toast, no browser `confirm()`). Leaving flips the
+  `leavePublicChannel`/`removePublicChannelMember`/`setPublicChannelMemberRole`;
+  `channel-members-dialog.tsx` is the Web UI, opened from a "Members" button
+  on the channel header, with a per-row "Remove" action, an "Admin"
+  `Badge`/Promote-Demote `Dropdown` (`manage_roles` viewers only), and a
+  "Leave channel" footer action, all with an inline confirm step where
+  destructive (no toast, no browser `confirm()`). Leaving flips the
   conversation to the existing not-joined read-only state and the channel
   list to `joined: false`, the same paths a never-joined channel already
   uses. Agent creation (`ManageAgents.create`) still requires
   Workspace owner/admin via `assertCanCreateAgents` (Raft: only a
-  human-committed action card creates agents). Channels still have no role
-  system of their own; private channels are planned but not introduced here.
+  human-committed action card creates agents). Private channels are planned
+  but not introduced here.
 
 - Agent-prepared action cards (ADR 0027) belong to
   `server/conversations/action-cards.server.ts`: `ActionCards.prepare`

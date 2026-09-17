@@ -114,6 +114,28 @@ export const addPublicChannelMembers = createServerFn({ method: "POST" })
     });
   });
 
+/** Promote/demote a channel member's stored `channelRole` (ADR 0030). Human-only: there is no
+ * Agent CLI/API route for this. `PublicChannels.setChannelRole` enforces `manage_roles`
+ * (Workspace owner/admin, or channel admin of this channel) and rejects `#general`. */
+export const setPublicChannelMemberRole = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    channelInput
+      .extend({
+        userId: z.uuid().optional(),
+        agentId: z.uuid().optional(),
+        role: z.enum(["admin", "member"]),
+      })
+      .refine((data) => (data.userId === undefined) !== (data.agentId === undefined), {
+        message: "exactly one of userId or agentId is required",
+      }),
+  )
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    const member = data.userId ? { userId: data.userId } : { agentId: data.agentId! };
+    return channels.setChannelRole(workspaceId, userId, data.channelId, member, data.role);
+  });
+
 export const joinPublicChannel = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput)

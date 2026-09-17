@@ -493,6 +493,12 @@ model ConversationMember {
   /// (onDelete: Restrict), so "left" is represented here instead of by row absence.
   /// Re-joining clears this and keeps the row, so read boundaries and mute preferences survive.
   leftAt                   DateTime?
+  /// Role stored on this membership: admin | member. Channel creators get "admin" on their own
+  /// membership row; #general members always stay "member" (nobody can be channel admin of
+  /// #general, its rules are fixed). Never the sole authority source — see
+  /// `channel-authority.server.ts`'s admin-basis computation, which also considers the actor's
+  /// Workspace/Agent server role. See ADR 0030.
+  channelRole              String            @default("member")
   conversation             Conversation      @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   workspace                Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user                     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -7,7 +7,6 @@ import {
   assertCanInvite,
   assertCanLeaveWorkspace,
   assertCanManageMembers,
-  assertCanRemoveChannelMembers,
   assertCanRemoveMember,
   isAdminLike,
   normalizeInvitableRole,
@@ -85,8 +84,9 @@ test("only owner and admin may create Agents", () => {
   expect(() => assertCanCreateAgents("member")).toThrow(AppError);
 });
 
-test("only owner and admin may remove channel members", () => {
-  expect(() => assertCanRemoveChannelMembers("owner")).not.toThrow();
-  expect(() => assertCanRemoveChannelMembers("admin")).not.toThrow();
-  expect(() => assertCanRemoveChannelMembers("member")).toThrow(AppError);
-});
+// `assertCanRemoveChannelMembers` (ADR 0031's original owner/admin-only gate) is removed: ADR
+// 0030 supersedes it with `PublicChannels.removeMember`'s capability-based `remove_member` check
+// (`resolveChannelAuthority`, covered by `channel-authority.test.ts` and
+// `public-channel.integration.ts`), which is a strict superset — every actor the old gate allowed
+// still passes (`server_role` basis), plus a channel admin via stored `channelRole` now also
+// qualifies.

@@ -2,10 +2,16 @@ import { lockConversation } from "./conversation-lock.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
+import {
+  channelActorMemberWhere,
+  deriveChannelAdminBasis,
+  deriveChannelCapabilities,
+  isChannelRole,
+  resolveActorServerRole,
+  resolveChannelAuthority,
+} from "./channel-authority.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
-import { isAdminLike, assertCanRemoveChannelMembers } from "../workspaces/member-role.server";
-import { workspaceMemberRole } from "../workspaces/members.server";
 import {
   AGENT_MESSAGE_METHOD,
   WORKSPACE_PROTOCOL_MAJOR,
@@ -33,11 +39,6 @@ import type { ActionCardView } from "./action-cards.server";
  * human/Web UI and the Agent CLI share `PublicChannels.members`/`addMembers` through this. */
 export type ChannelActor = { userId: string } | { agentId: string };
 
-/** A `ConversationMember` `where` clause identifying `actor`'s own row in a channel. */
-function memberWhereFor(actor: ChannelActor) {
-  return "userId" in actor ? { userId: actor.userId } : { agentId: actor.agentId };
-}
-
 /**
  * Soft-leaves one member's row (sets `leftAt`) if it is currently active; a no-op (returns
  * `false`) if the row is missing or already left. This is the one write both `leave` and
@@ -51,7 +52,7 @@ export async function softLeaveMember(
   actor: ChannelActor,
 ): Promise<boolean> {
   const result = await db.conversationMember.updateMany({
-    where: { conversationId, ...memberWhereFor(actor), ...ACTIVE_MEMBER_WHERE },
+    where: { conversationId, ...channelActorMemberWhere(actor), ...ACTIVE_MEMBER_WHERE },
     data: { leftAt: new Date() },
   });
   return result.count > 0;
@@ -398,7 +399,8 @@ export class PublicChannels {
           channelName: name,
           ...(projectId ? { projectId } : {}),
           ...(description !== undefined ? { description } : {}),
-          members: { create: { userId } },
+          // The creator becomes the channel's first admin (ADR 0030).
+          members: { create: { userId, channelRole: "admin" } },
         },
         select: { id: true },
       });
@@ -407,6 +409,42 @@ export class PublicChannels {
         throw new AppError("CONFLICT");
       throw error;
     }
+  }
+
+  /**
+   * Promotes/demotes a channel member's stored `channelRole` (ADR 0030). Human-only: there is
+   * no Agent command for changing channel roles (Raft's rule, matched verbatim in
+   * `agent-instructions.ts`). The actor needs `manage_roles` — Workspace owner/admin, or channel
+   * admin of this specific channel — and `#general`'s roles are fixed (nobody can be its
+   * channel admin), so any role change there is rejected outright.
+   */
+  async setChannelRole(
+    workspaceId: string,
+    actorUserId: string,
+    channelId: string,
+    member: ChannelActor,
+    role: string,
+  ) {
+    const channel = await this.channel(workspaceId, actorUserId, channelId);
+    if (channel.channelName === "general") throw new AppError("CONFLICT");
+    if (!isChannelRole(role)) throw new AppError("INVALID_INPUT");
+    const authority = await resolveChannelAuthority(
+      this.db,
+      workspaceId,
+      { userId: actorUserId },
+      channel,
+    );
+    if (!authority.capabilities.manage_roles) throw new AppError("ACCESS_DENIED");
+    const updated = await this.db.conversationMember.updateMany({
+      where: {
+        conversationId: channelId,
+        ...channelActorMemberWhere(member),
+        ...ACTIVE_MEMBER_WHERE,
+      },
+      data: { channelRole: role },
+    });
+    if (updated.count !== 1) throw new AppError("NOT_FOUND");
+    return { channelId, channelRole: role };
   }
 
   private async channel(workspaceId: string, userId: string, channelId: string) {
@@ -450,12 +488,15 @@ export class PublicChannels {
   }
 
   /**
-   * A Workspace owner/admin removes a human or Agent from a public channel (Slack's default: "By
-   * default, Workspace Owners and Admins can remove people from public channels"). Never
-   * `#general` (`CONFLICT`, Slack: "It's not possible to remove people from the #general …
-   * channel"). A plain `member` is denied `ACCESS_DENIED` before any row is touched. Soft-left,
-   * same as `leave`: messages, tasks and thread history stay; the row (mute preference, read
-   * boundary) survives for a later re-add/rejoin. ADR 0031.
+   * A channel admin (either basis) removes a human or Agent from a public channel — originally
+   * Slack's "Workspace Owners and Admins can remove people from public channels" (ADR 0031), now
+   * generalized to the `remove_member` capability (ADR 0030) so a channel admin via stored
+   * `channelRole` may also remove members from a channel it administers, the same authority the
+   * Agent CLI's `remove-member` already has (ADR 0024). Never `#general` (`CONFLICT`, Slack:
+   * "It's not possible to remove people from the #general … channel"). A plain member without
+   * either admin basis is denied `ACCESS_DENIED` before any row is touched. Soft-left, same as
+   * `leave`: messages, tasks and thread history stay; the row (mute preference, read boundary)
+   * survives for a later re-add/rejoin.
    */
   async removeMember(
     workspaceId: string,
@@ -463,14 +504,19 @@ export class PublicChannels {
     channelId: string,
     target: ChannelActor,
   ) {
-    const actorRole = await workspaceMemberRole(this.db, workspaceId, actorUserId);
-    assertCanRemoveChannelMembers(actorRole);
     const channel = await this.db.conversation.findFirst({
       where: { id: channelId, workspaceId, channelName: { not: null } },
       select: { id: true, channelName: true },
     });
     if (!channel) throw new AppError("NOT_FOUND");
     if (channel.channelName === "general") throw new AppError("CONFLICT");
+    const authority = await resolveChannelAuthority(
+      this.db,
+      workspaceId,
+      { userId: actorUserId },
+      channel,
+    );
+    if (!authority.capabilities.remove_member) throw new AppError("ACCESS_DENIED");
     const wasMember = await softLeaveMember(this.db, channel.id, target);
     return { removed: true, wasMember };
   }
@@ -493,10 +539,11 @@ export class PublicChannels {
     if (!channel) throw new AppError("NOT_FOUND");
     const isGeneral = channel.channelName === "general";
 
-    const [memberRows, workspaceUsers, workspaceAgents, actorRole] = await Promise.all([
+    const [memberRows, workspaceUsers, workspaceAgents, actorServerRole] = await Promise.all([
       this.db.conversationMember.findMany({
         where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
         select: {
+          channelRole: true,
           user: {
             select: { id: true, username: true, displayName: true, avatarObjectKey: true },
           },
@@ -522,9 +569,10 @@ export class PublicChannels {
         select: { id: true, name: true, displayName: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
-      // The actor's own Workspace role, independent of whether they are a member of *this*
-      // channel: an owner/admin who has never joined a channel may still remove someone from it.
-      "userId" in actor ? workspaceMemberRole(this.db, workspaceId, actor.userId) : undefined,
+      // The actor's own server role (Workspace role for a human, Agent.role for an Agent),
+      // independent of whether they are a member of *this* channel: an owner/admin who has
+      // never joined a channel may still archive/remove-member/manage-roles on it.
+      resolveActorServerRole(this.db, workspaceId, actor),
     ]);
 
     const memberUserIds = new Set(memberRows.flatMap((row) => (row.user ? [row.user.id] : [])));
@@ -537,24 +585,45 @@ export class PublicChannels {
       : [];
     const roleByUserId = new Map(humanRoles.map((row) => [row.userId, row.role]));
 
-    const isActiveMember =
-      "userId" in actor ? memberUserIds.has(actor.userId) : memberAgentIds.has(actor.agentId);
+    const actorRow = memberRows.find((row) =>
+      "userId" in actor ? row.user?.id === actor.userId : row.agent?.id === actor.agentId,
+    );
+    const isActiveMember = Boolean(actorRow);
+    const actorAdminBasis = deriveChannelAdminBasis(actorServerRole, actorRow?.channelRole);
+    const capabilities = deriveChannelCapabilities({
+      isHuman: "userId" in actor,
+      isActiveMember,
+      isGeneral,
+      adminBasis: actorAdminBasis,
+    });
+
     return {
       canAddMembers: isActiveMember,
-      // Owner/admin only, and never #general (Slack's default; ADR 0031). Agent actors never get
-      // this from here — the Agent CLI's own `remove-member` uses `Agent.role` (ADR 0024).
-      canRemoveMembers: !isGeneral && Boolean(actorRole && isAdminLike(actorRole)),
-      // Any active member (human or Agent) may leave, except #general.
-      canLeave: !isGeneral && isActiveMember,
+      // The actor's own channel role/admin basis/capabilities on this channel (ADR 0030).
+      channelRole: actorRow?.channelRole,
+      channelAdminBasis: actorAdminBasis,
+      channelCapabilities: capabilities,
+      // Aliases of the capability matrix above, kept for the existing ADR 0031 human UI
+      // (`ChannelMembersDialog`'s Remove/Leave actions): `remove_member`/`leave` are now the
+      // single source of truth, a strict superset of ADR 0031's original owner/admin-only rule
+      // — a channel admin via `channelRole` (not just a Workspace owner/admin) may also remove
+      // members from a channel it administers.
+      canRemoveMembers: capabilities.remove_member,
+      canLeave: capabilities.leave,
       humans: memberRows
         .filter((row) => row.user)
-        .map((row) => ({
-          id: row.user!.id,
-          username: row.user!.username,
-          displayName: row.user!.displayName?.trim() || row.user!.username,
-          avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user!.id, row.user!.avatarObjectKey),
-          role: roleByUserId.get(row.user!.id) ?? "member",
-        })),
+        .map((row) => {
+          const serverRole = roleByUserId.get(row.user!.id) ?? "member";
+          return {
+            id: row.user!.id,
+            username: row.user!.username,
+            displayName: row.user!.displayName?.trim() || row.user!.username,
+            avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user!.id, row.user!.avatarObjectKey),
+            serverRole,
+            channelRole: row.channelRole,
+            channelAdminBasis: deriveChannelAdminBasis(serverRole, row.channelRole),
+          };
+        }),
       agents: memberRows
         .filter((row) => row.agent)
         .map((row) => ({
@@ -562,7 +631,9 @@ export class PublicChannels {
           name: row.agent!.name,
           displayName: row.agent!.displayName?.trim() || row.agent!.name,
           description: row.agent!.description,
-          role: row.agent!.role,
+          serverRole: row.agent!.role,
+          channelRole: row.channelRole,
+          channelAdminBasis: deriveChannelAdminBasis(row.agent!.role, row.channelRole),
           computerId: row.agent!.computerId,
         })),
       candidates: {
@@ -607,7 +678,11 @@ export class PublicChannels {
     if (!channel) throw new AppError("NOT_FOUND");
 
     const actorMembership = await this.db.conversationMember.findFirst({
-      where: { conversationId: channelId, ...memberWhereFor(actor), ...ACTIVE_MEMBER_WHERE },
+      where: {
+        conversationId: channelId,
+        ...channelActorMemberWhere(actor),
+        ...ACTIVE_MEMBER_WHERE,
+      },
       select: { id: true },
     });
     if (!actorMembership) throw new AppError("ACCESS_DENIED");

@@ -11,6 +11,17 @@ import {
   formatChannelUpdate,
 } from "../src/channel-format";
 
+const NO_CAPABILITIES = {
+  post: false,
+  leave: false,
+  add_member: false,
+  update: false,
+  archive: false,
+  unarchive: false,
+  remove_member: false,
+  manage_roles: false,
+} as const;
+
 test("formatChannelInfo renders the full info block, including an empty description", () => {
   const text = formatChannelInfo({
     channel: {
@@ -21,6 +32,7 @@ test("formatChannelInfo renders the full info block, including an empty descript
       joined: true,
       muted: false,
       memberCounts: { agents: 2, humans: 3 },
+      channelCapabilities: NO_CAPABILITIES,
     },
   });
   expect(text).toBe(
@@ -51,6 +63,7 @@ test("formatChannelInfo prints a real description and always uses plural member 
       joined: false,
       muted: true,
       memberCounts: { agents: 1, humans: 1 },
+      channelCapabilities: NO_CAPABILITIES,
     },
   });
   expect(text).toContain("Description: One agent, one human.");
@@ -60,6 +73,67 @@ test("formatChannelInfo prints a real description and always uses plural member 
   // Never singularized, unlike the old brief's draft: Raft's formatChannelInfo always says
   // "agents"/"humans", even at a count of one.
   expect(text).toContain("Members: 2 (1 agents, 1 humans)");
+});
+
+test("formatChannelInfo renders channel role, admin basis, and only the callable capabilities, between Joined and Muted (Raft's order); hides the uninformative default channel role", () => {
+  const text = formatChannelInfo({
+    channel: {
+      id: "id",
+      name: "#eng",
+      description: "",
+      archived: false,
+      joined: true,
+      muted: false,
+      memberCounts: { agents: 1, humans: 0 },
+      channelRole: "admin",
+      channelAdminBasis: "channel_role",
+      channelCapabilities: {
+        ...NO_CAPABILITIES,
+        post: true,
+        leave: true,
+        add_member: true,
+        update: true,
+        archive: true,
+        unarchive: true,
+        remove_member: true,
+      },
+    },
+  });
+  expect(text.split("\n")).toEqual([
+    "## Channel",
+    "",
+    "Channel: #eng",
+    "ID: id",
+    "Visibility: public",
+    "Joined: yes",
+    "Channel role: admin",
+    "Channel admin basis: channel_role",
+    "Channel capabilities: post, leave, add_member, update, archive, unarchive, remove_member",
+    "Muted: no",
+    "Archived: no",
+    "Description: (none)",
+    "Members: 1 (1 agents, 0 humans)",
+    "",
+    'More: coforge channel members "#eng"',
+  ]);
+  // A plain "member" channel role is the uninformative default; the CLI hides it, the same
+  // convention `roleSuffix`/`(admin)` already uses for server roles.
+  const memberText = formatChannelInfo({
+    channel: {
+      id: "id",
+      name: "#eng",
+      description: "",
+      archived: false,
+      joined: true,
+      muted: false,
+      memberCounts: { agents: 1, humans: 0 },
+      channelRole: "member",
+      channelCapabilities: NO_CAPABILITIES,
+    },
+  });
+  expect(memberText).not.toContain("Channel role:");
+  expect(memberText).not.toContain("Channel admin basis:");
+  expect(memberText).not.toContain("Channel capabilities:");
 });
 
 test("formatChannelUpdate is its own renderer, distinct from formatChannelInfo, matching Raft's one-line update confirmation", () => {
@@ -77,7 +151,7 @@ test("formatChannelMembers renders admin/owner roles and live status on Agents, 
         name: "assistant",
         displayName: "Assistant",
         description: "helper",
-        role: "member",
+        serverRole: "member",
         status: "online",
         activity: "working",
         activityDetail: "running tests",
@@ -86,13 +160,13 @@ test("formatChannelMembers renders admin/owner roles and live status on Agents, 
         name: "reviewer",
         displayName: "Reviewer",
         description: "",
-        role: "admin",
+        serverRole: "admin",
         status: "offline",
       },
     ],
     humans: [
-      { username: "frank", role: "owner" },
-      { username: "alice", role: "member" },
+      { username: "frank", serverRole: "owner" },
+      { username: "alice", serverRole: "member" },
     ],
   });
   expect(text).toBe(
@@ -103,14 +177,59 @@ test("formatChannelMembers renders admin/owner roles and live status on Agents, 
       "Members means join/post authority for this surface.",
       "",
       "### Agents",
+      "Server and stored channel roles are shown separately when available.",
       "  - @assistant (online; working: running tests) — helper",
-      "  - @reviewer (offline) (admin)",
+      "  - @reviewer (offline) (admin) [server role=admin]",
       "",
       "### Humans",
-      "  - @frank (owner)",
+      "Server and stored channel roles are shown separately when available.",
+      "  - @frank (owner) [server role=owner]",
       "  - @alice",
     ].join("\n"),
   );
+});
+
+test("formatChannelMembers appends the bracketed server/channel role detail, in Raft's channelMemberRoleDetail order, only when informative", () => {
+  const text = formatChannelMembers({
+    target: "#engineering",
+    agents: [
+      {
+        name: "reviewer",
+        displayName: "Reviewer",
+        description: "",
+        serverRole: "admin",
+        channelRole: "member",
+        channelAdminBasis: "server_role",
+        status: "offline",
+      },
+      {
+        name: "helper",
+        displayName: "Helper",
+        description: "",
+        serverRole: "member",
+        channelRole: "admin",
+        channelAdminBasis: "channel_role",
+        status: "offline",
+      },
+      {
+        name: "plain",
+        displayName: "Plain",
+        description: "",
+        serverRole: "member",
+        channelRole: "member",
+        status: "offline",
+      },
+    ],
+    humans: [{ username: "frank", serverRole: "member", channelRole: "member" }],
+  });
+  const lines = text.split("\n");
+  expect(lines).toContain(
+    "  - @reviewer (offline) (admin) [server role=admin, admin via=server_role]",
+  );
+  expect(lines).toContain("  - @helper (offline) [channel role=admin, admin via=channel_role]");
+  // Both roles default ("member"): no bracket, and no `(role)` tag either.
+  expect(lines).toContain("  - @plain (offline)");
+  expect(lines).toContain("  - @frank");
 });
 
 test("agent status label composition: plain online, activity with and without detail, offline, unknown", () => {
@@ -118,7 +237,7 @@ test("agent status label composition: plain online, activity with and without de
     formatChannelMembers({ target: "#x", agents: [agent], humans: [] })
       .split("\n")
       .find((line) => line.startsWith("  - @"));
-  const base = { name: "a", displayName: "A", description: "", role: "member" } as const;
+  const base = { name: "a", displayName: "A", description: "", serverRole: "member" } as const;
   expect(label({ ...base, status: "online" })).toBe("  - @a (online)");
   expect(label({ ...base, status: "online", activity: "thinking" })).toBe(
     "  - @a (online; thinking)",
@@ -132,8 +251,12 @@ test("agent status label composition: plain online, activity with and without de
 
 test("formatChannelMembers prints (none) for an empty section", () => {
   const text = formatChannelMembers({ target: "#empty", agents: [], humans: [] });
-  expect(text).toContain("### Agents\n  (none)");
-  expect(text).toContain("### Humans\n  (none)");
+  expect(text).toContain(
+    "### Agents\nServer and stored channel roles are shown separately when available.\n  (none)",
+  );
+  expect(text).toContain(
+    "### Humans\nServer and stored channel roles are shown separately when available.\n  (none)",
+  );
 });
 
 test("formatChannelJoin matches Raft's join confirmation, including the still-arrives block, and its already-joined variant", () => {

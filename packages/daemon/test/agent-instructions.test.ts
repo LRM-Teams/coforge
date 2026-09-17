@@ -57,6 +57,19 @@ test("channels allow selective replies and self mute without hiding history", ()
   expect(instructions).toContain("Do not disclose private conversation contents");
 });
 
+test("channel management authority matches Raft's per-channel rule and disclaims Agent role changes", () => {
+  expect(instructions).toContain(
+    "Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`, `add-member`, `remove-member`) are authorized per channel",
+  );
+  expect(instructions).toContain(
+    "a channel-admin role never grants delete, visibility, federation, or server-profile actions",
+  );
+  expect(instructions).toContain("There is no Agent command for changing channel roles.");
+  expect(instructions).toContain(
+    "`channel info`/`channel members` show your server and stored channel roles separately when available.",
+  );
+});
+
 test("read, search, and send-held describe the CLI's printed output formats", () => {
   expect(instructions).toContain(
     'A read prints a window header with "Older exist"/"Newer exist" cursor commands you can paste to page further',

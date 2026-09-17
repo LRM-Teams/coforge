@@ -6,7 +6,12 @@ import {
   channelAuthorityDeniedError,
 } from "./agent-channel-management-error.server";
 import { PublicChannels } from "./public-channels.server";
-import { agentHasAdminAuthority } from "../agents/agent-channel-authority.server";
+import {
+  hasChannelAdminAuthority,
+  resolveChannelAuthority,
+  type ChannelAdminBasis,
+  type ChannelCapabilities,
+} from "./channel-authority.server";
 import { resolveAgentChannelStatus } from "../agents/agent-channel-status.server";
 import { getAgentDisplay, type AgentDisplay } from "../agents/agent-display.server";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
@@ -24,21 +29,40 @@ export type AgentChannelInfo = {
   joined: boolean;
   muted: boolean;
   memberCounts: { agents: number; humans: number };
+  /** Present only when the acting Agent is currently an active member (its stored
+   * `ConversationMember.channelRole`); absent for a non-member, matching Raft's
+   * "each part only when present". */
+  channelRole?: string;
+  /** Present only when the acting Agent has channel-admin authority on this channel — either
+   * basis (ADR 0030). */
+  channelAdminBasis?: ChannelAdminBasis;
+  /** Every capability name; only the ones this Agent may currently invoke are `true`. */
+  channelCapabilities: ChannelCapabilities;
 };
 
 export type AgentChannelRoster = {
   target: string;
+  // `channelRole`/`channelAdminBasis` are present for a `#channel` roster (every listed member
+  // is an active member there) and absent for the `@user` DM roster, which has no channel-role
+  // concept at all.
   agents: Array<{
     name: string;
     displayName: string;
     description: string;
-    role: string;
+    serverRole: string;
+    channelRole?: string;
+    channelAdminBasis?: ChannelAdminBasis;
     self: boolean;
     status: "online" | "offline" | "unknown";
     activity?: string;
     activityDetail?: string;
   }>;
-  humans: Array<{ username: string; role: string }>;
+  humans: Array<{
+    username: string;
+    serverRole: string;
+    channelRole?: string;
+    channelAdminBasis?: ChannelAdminBasis;
+  }>;
 };
 
 export type AgentChannelMemberInput = { user?: string; agent?: string };
@@ -78,7 +102,7 @@ export class AgentChannelManagement {
   async info(workspaceId: string, agentId: string, target: string): Promise<AgentChannelInfo> {
     const channelName = this.parseChannelTarget(target);
     const channel = await this.findChannel(workspaceId, channelName);
-    return this.channelInfo(channel, agentId);
+    return this.channelInfo(workspaceId, channel, agentId);
   }
 
   async members(workspaceId: string, agentId: string, target: string): Promise<AgentChannelRoster> {
@@ -154,7 +178,8 @@ export class AgentChannelManagement {
           workspaceId,
           channelName: name,
           description: description ?? "",
-          members: { create: { agentId } },
+          // The creator becomes the channel's first admin (ADR 0030), same as a human creator.
+          members: { create: { agentId, channelRole: "admin" } },
         },
       });
       return {
@@ -178,12 +203,15 @@ export class AgentChannelManagement {
     target: string,
     patch: { name?: string; description?: string },
   ): Promise<AgentChannelInfo> {
-    if (!(await agentHasAdminAuthority(this.db, workspaceId, agentId)))
-      throw channelAuthorityDeniedError("update");
     if (patch.name === undefined && patch.description === undefined)
       throw new AgentChannelManagementError(400, "update requires --name or --description");
     const channelName = this.parseChannelTarget(target);
     const channel = await this.findChannel(workspaceId, channelName);
+    // Channel-aware authority (ADR 0030): the acting Agent's own server role (owner/admin) or
+    // its `channelRole` on THIS channel (admin) — replaces ADR 0024's channel-blind
+    // `agentHasAdminAuthority`.
+    if (!(await hasChannelAdminAuthority(this.db, workspaceId, { agentId }, channel)))
+      throw channelAuthorityDeniedError("update");
     let nextName = channel.channelName!;
     if (patch.name !== undefined) {
       if (channelName === "general")
@@ -200,7 +228,7 @@ export class AgentChannelManagement {
           ...(patch.description !== undefined ? { description: patch.description } : {}),
         },
       });
-      return this.channelInfo(updated, agentId);
+      return this.channelInfo(workspaceId, updated, agentId);
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "P2002")
         throw new AgentChannelManagementError(409, "channel name is already in use");
@@ -210,12 +238,12 @@ export class AgentChannelManagement {
 
   async setArchived(workspaceId: string, agentId: string, target: string, archived: boolean) {
     const operation = archived ? "archive" : "unarchive";
-    if (!(await agentHasAdminAuthority(this.db, workspaceId, agentId)))
-      throw channelAuthorityDeniedError(operation);
     const channelName = this.parseChannelTarget(target);
     if (channelName === "general")
       throw new AgentChannelManagementError(400, `cannot ${operation} #general`);
     const channel = await this.findChannel(workspaceId, channelName);
+    if (!(await hasChannelAdminAuthority(this.db, workspaceId, { agentId }, channel)))
+      throw channelAuthorityDeniedError(operation);
     await this.db.conversation.update({
       where: { id: channel.id },
       data: { archivedAt: archived ? new Date() : null },
@@ -307,7 +335,15 @@ export class AgentChannelManagement {
       });
       if (!agentRow) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
       const isSelf = agentRow.id === callingAgentId;
-      if (!isSelf && !(await agentHasAdminAuthority(this.db, workspaceId, callingAgentId)))
+      if (
+        !isSelf &&
+        !(await hasChannelAdminAuthority(
+          this.db,
+          workspaceId,
+          { agentId: callingAgentId },
+          channel,
+        ))
+      )
         throw channelAuthorityDeniedError("remove-member");
       const result = await this.db.conversationMember.updateMany({
         where: { conversationId: channel.id, agentId: agentRow.id, ...ACTIVE_MEMBER_WHERE },
@@ -315,7 +351,14 @@ export class AgentChannelManagement {
       });
       wasMember = result.count > 0;
     } else {
-      if (!(await agentHasAdminAuthority(this.db, workspaceId, callingAgentId)))
+      if (
+        !(await hasChannelAdminAuthority(
+          this.db,
+          workspaceId,
+          { agentId: callingAgentId },
+          channel,
+        ))
+      )
         throw channelAuthorityDeniedError("remove-member");
       const user = await this.db.user.findUnique({ where: { username: handle } });
       if (!user) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
@@ -337,15 +380,17 @@ export class AgentChannelManagement {
   }
 
   private async channelInfo(
+    workspaceId: string,
     channel: Pick<Conversation, "id" | "channelName" | "description" | "archivedAt">,
     agentId: string,
   ): Promise<AgentChannelInfo> {
-    const [member, memberCounts] = await Promise.all([
+    const [member, memberCounts, authority] = await Promise.all([
       this.db.conversationMember.findFirst({
         where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
         select: { channelMuted: true },
       }),
       this.memberCounts(channel.id),
+      resolveChannelAuthority(this.db, workspaceId, { agentId }, channel),
     ]);
     return {
       id: channel.id,
@@ -355,6 +400,9 @@ export class AgentChannelManagement {
       joined: Boolean(member),
       muted: member?.channelMuted ?? false,
       memberCounts,
+      channelRole: authority.channelRole,
+      channelAdminBasis: authority.adminBasis,
+      channelCapabilities: authority.capabilities,
     };
   }
 
@@ -405,12 +453,14 @@ export class AgentChannelManagement {
         })
       : [];
     const roleByUserId = new Map(roles.map((role) => [role.userId, role.role]));
+    // A DM is not a named channel: there is no channel-role concept here, so `channelRole`/
+    // `channelAdminBasis` stay unset for every entry (see `AgentChannelRoster`).
     return this.shapeAgentRoster(workspaceId, callingAgentId, target, {
-      agents: agentRows,
+      agents: agentRows.map((agent) => ({ ...agent, serverRole: agent.role })),
       humans: humanRows.map((row) => ({
         id: row.id,
         username: row.username,
-        role: roleByUserId.get(row.id) ?? "member",
+        serverRole: roleByUserId.get(row.id) ?? "member",
       })),
     });
   }
@@ -431,10 +481,18 @@ export class AgentChannelManagement {
         name: string;
         displayName: string;
         description: string;
-        role: string;
+        serverRole: string;
+        channelRole?: string;
+        channelAdminBasis?: ChannelAdminBasis;
         computerId: string | null;
       }>;
-      humans: Array<{ id: string; username: string; role: string }>;
+      humans: Array<{
+        id: string;
+        username: string;
+        serverRole: string;
+        channelRole?: string;
+        channelAdminBasis?: ChannelAdminBasis;
+      }>;
     },
   ): Promise<AgentChannelRoster> {
     const display = this.resolvedDisplay();
@@ -443,7 +501,9 @@ export class AgentChannelManagement {
         name: agent.name,
         displayName: agent.displayName,
         description: agent.description,
-        role: agent.role,
+        serverRole: agent.serverRole,
+        channelRole: agent.channelRole,
+        channelAdminBasis: agent.channelAdminBasis,
         self: agent.id === callingAgentId,
         ...(await resolveAgentChannelStatus(display, {
           workspaceId,
@@ -456,7 +516,12 @@ export class AgentChannelManagement {
       target,
       agents: agents.sort((left, right) => left.name.localeCompare(right.name)),
       humans: raw.humans
-        .map((human) => ({ username: human.username, role: human.role }))
+        .map((human) => ({
+          username: human.username,
+          serverRole: human.serverRole,
+          channelRole: human.channelRole,
+          channelAdminBasis: human.channelAdminBasis,
+        }))
         .sort((left, right) => left.username.localeCompare(right.username)),
     };
   }
