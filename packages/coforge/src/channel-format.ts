@@ -3,10 +3,23 @@
  * (`raft` renamed to `coforge`, from the Raft 1.0.32 bundle's `formatJoinChannelResult`/
  * `formatLeaveChannelResult`/`formatCreateChannelResult`/`formatUpdateChannelResult`/
  * `formatArchiveChannelResult`/`formatUnarchiveChannelResult`/`formatAddMemberResult`/
- * `formatRemoveMemberResult`/`formatChannelMembers`/`formatChannelInfo`), minus the parts of
- * Raft's shape CoForge has no equivalent for (private channels, channel-level roles, the
- * `attention` block on leave/remove-member). Every subcommand's `--json` mode prints the
- * response object these functions render, unchanged; see `run()` in `../index.ts`. */
+ * `formatRemoveMemberResult`/`formatChannelMembers`/`formatChannelInfo`/
+ * `channelMemberRoleDetail`), minus the parts of Raft's shape CoForge has no equivalent for
+ * (private channels, the `attention` block on leave/remove-member). Every subcommand's `--json`
+ * mode prints the response object these functions render, unchanged; see `run()` in
+ * `../index.ts`. */
+
+export type ChannelAdminBasis = "server_role" | "channel_role";
+
+export type ChannelCapability =
+  | "post"
+  | "leave"
+  | "add_member"
+  | "update"
+  | "archive"
+  | "unarchive"
+  | "remove_member"
+  | "manage_roles";
 
 export type ChannelInfoLike = {
   id: string;
@@ -16,23 +29,52 @@ export type ChannelInfoLike = {
   joined: boolean;
   muted: boolean;
   memberCounts: { agents: number; humans: number };
+  channelRole?: string;
+  channelAdminBasis?: ChannelAdminBasis;
+  channelCapabilities: Record<ChannelCapability, boolean>;
 };
 
 export type ChannelRosterAgentLike = {
   name: string;
   displayName: string;
   description: string;
-  role: string;
+  serverRole: string;
+  channelRole?: string;
+  channelAdminBasis?: ChannelAdminBasis;
   status: "online" | "offline" | "unknown";
   activity?: string;
   activityDetail?: string;
 };
 
-export type ChannelRosterHumanLike = { username: string; role: string };
+export type ChannelRosterHumanLike = {
+  username: string;
+  serverRole: string;
+  channelRole?: string;
+  channelAdminBasis?: ChannelAdminBasis;
+};
 
 /** Raft's `roleLabel`: ` (admin)`/` (owner)`, or nothing for an ordinary member. */
 function roleSuffix(role: string): string {
   return role === "admin" || role === "owner" ? ` (${role})` : "";
+}
+
+/** Raft's `channelMemberRoleDetail`: ` [server role=<r>, channel role=<r>, admin via=<basis>]`,
+ * each part only when present. CoForge's server always populates `serverRole`/`channelRole` for
+ * a listed member, so this renderer — not the server — hides the uninformative default
+ * (`"member"`), the same convention `roleSuffix` already uses for the plain `(admin)`/`(owner)`
+ * tag. */
+function channelMemberRoleDetail(member: {
+  serverRole?: string;
+  channelRole?: string;
+  channelAdminBasis?: ChannelAdminBasis;
+}): string {
+  const details: string[] = [];
+  if (member.serverRole && member.serverRole !== "member")
+    details.push(`server role=${member.serverRole}`);
+  if (member.channelRole && member.channelRole !== "member")
+    details.push(`channel role=${member.channelRole}`);
+  if (member.channelAdminBasis) details.push(`admin via=${member.channelAdminBasis}`);
+  return details.length > 0 ? ` [${details.join(", ")}]` : "";
 }
 
 /** Raft's `agentStatusLabel`: the lifecycle alone, or `<lifecycle>; <activity>[: <detail>]`
@@ -52,13 +94,24 @@ function yesNo(value: boolean): string {
 export function formatChannelInfo(response: { channel: ChannelInfoLike }): string {
   const channel = response.channel;
   const total = channel.memberCounts.agents + channel.memberCounts.humans;
-  return [
+  const lines = [
     "## Channel",
     "",
     `Channel: ${channel.name}`,
     `ID: ${channel.id}`,
     "Visibility: public",
     `Joined: ${yesNo(channel.joined)}`,
+  ];
+  // Same "hide the uninformative default" convention as `channelMemberRoleDetail`.
+  if (channel.channelRole && channel.channelRole !== "member")
+    lines.push(`Channel role: ${channel.channelRole}`);
+  if (channel.channelAdminBasis) lines.push(`Channel admin basis: ${channel.channelAdminBasis}`);
+  const callableCapabilities = Object.entries(channel.channelCapabilities)
+    .filter(([, allowed]) => allowed)
+    .map(([capability]) => capability);
+  if (callableCapabilities.length > 0)
+    lines.push(`Channel capabilities: ${callableCapabilities.join(", ")}`);
+  lines.push(
     `Muted: ${yesNo(channel.muted)}`,
     `Archived: ${yesNo(channel.archived)}`,
     `Description: ${channel.description || "(none)"}`,
@@ -66,11 +119,13 @@ export function formatChannelInfo(response: { channel: ChannelInfoLike }): strin
     `Members: ${total} (${channel.memberCounts.agents} agents, ${channel.memberCounts.humans} humans)`,
     "",
     `More: coforge channel members "${channel.name}"`,
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
-/** Raft's `formatChannelMembers`: `  - @name (<status>)<role> — <description>` for an Agent
- * (no "self" tag; Raft has none), `  - @username<role>` for a human. */
+/** Raft's `formatChannelMembers`: `  - @name (<status>)<role><channel detail> — <description>`
+ * for an Agent (no "self" tag; Raft has none), `  - @username<role><channel detail>` for a
+ * human. */
 export function formatChannelMembers(response: {
   target: string;
   agents: ChannelRosterAgentLike[];
@@ -83,23 +138,31 @@ export function formatChannelMembers(response: {
     "Members means join/post authority for this surface.",
     "",
     "### Agents",
+    "Server and stored channel roles are shown separately when available.",
   ];
   if (response.agents.length === 0) lines.push("  (none)");
   else
     for (const agent of response.agents) {
       const status = `(${agentStatusLabel(agent)})`;
-      const role = roleSuffix(agent.role);
+      const role = roleSuffix(agent.serverRole);
+      const detail = channelMemberRoleDetail(agent);
       lines.push(
         agent.description
-          ? `  - @${agent.name} ${status}${role} — ${agent.description}`
-          : `  - @${agent.name} ${status}${role}`,
+          ? `  - @${agent.name} ${status}${role}${detail} — ${agent.description}`
+          : `  - @${agent.name} ${status}${role}${detail}`,
       );
     }
-  lines.push("", "### Humans");
+  lines.push(
+    "",
+    "### Humans",
+    "Server and stored channel roles are shown separately when available.",
+  );
   if (response.humans.length === 0) lines.push("  (none)");
   else
     for (const human of response.humans)
-      lines.push(`  - @${human.username}${roleSuffix(human.role)}`);
+      lines.push(
+        `  - @${human.username}${roleSuffix(human.serverRole)}${channelMemberRoleDetail(human)}`,
+      );
   return lines.join("\n");
 }
 

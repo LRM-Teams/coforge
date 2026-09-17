@@ -1,5 +1,23 @@
 /** Channel lifecycle/roster response shapes for `agentApiRoutes.cloud.channels`. */
 
+/** Computed, never stored: `server_role` when the actor's Workspace/Agent server role is
+ * owner/admin; otherwise `channel_role` when its own membership's stored `channelRole` is
+ * `admin`; otherwise absent. `server_role` wins when both apply (ADR 0030). */
+export type AgentChannelAdminBasis = "server_role" | "channel_role";
+
+export const AGENT_CHANNEL_CAPABILITIES = [
+  "post",
+  "leave",
+  "add_member",
+  "update",
+  "archive",
+  "unarchive",
+  "remove_member",
+  "manage_roles",
+] as const;
+export type AgentChannelCapability = (typeof AGENT_CHANNEL_CAPABILITIES)[number];
+export type AgentChannelCapabilities = Record<AgentChannelCapability, boolean>;
+
 export type AgentChannelInfo = {
   id: string;
   name: string;
@@ -8,6 +26,13 @@ export type AgentChannelInfo = {
   joined: boolean;
   muted: boolean;
   memberCounts: { agents: number; humans: number };
+  /** Present only while the acting Agent is an active member (its own stored
+   * `ConversationMember.channelRole`); absent for a non-member. */
+  channelRole?: string;
+  /** Present only when the acting Agent has channel-admin authority here, either basis. */
+  channelAdminBasis?: AgentChannelAdminBasis;
+  /** Every capability name; only the ones this Agent may currently invoke are `true`. */
+  channelCapabilities: AgentChannelCapabilities;
 };
 
 /** Response for `channel info` (GET /api/agent/v1/channels/:channel) and `channel update`
@@ -22,7 +47,13 @@ export type AgentChannelRosterAgent = {
   name: string;
   displayName: string;
   description: string;
-  role: string;
+  /** The member's own server role (a rename of this field's former `role` name, matching
+   * Raft's `serverRole`; see ADR 0030). */
+  serverRole: string;
+  /** Present for a `#channel` roster (every listed member is active there); absent for the
+   * `@user` DM roster, which has no channel-role concept. */
+  channelRole?: string;
+  channelAdminBasis?: AgentChannelAdminBasis;
   /** True for the calling Agent's own roster row. Kept in the response for callers that need
    * it, but not surfaced by the CLI's text renderer — Raft's `formatChannelMembers` has no
    * self tag. */
@@ -36,7 +67,12 @@ export type AgentChannelRosterAgent = {
   activityDetail?: string;
 };
 
-export type AgentChannelRosterHuman = { username: string; role: string };
+export type AgentChannelRosterHuman = {
+  username: string;
+  serverRole: string;
+  channelRole?: string;
+  channelAdminBasis?: AgentChannelAdminBasis;
+};
 
 /** Response for `channel members` (GET /api/agent/v1/channels/:channel/members). */
 export type AgentChannelMembersResponse = {
