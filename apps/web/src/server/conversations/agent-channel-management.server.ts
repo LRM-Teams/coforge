@@ -5,6 +5,8 @@ import {
   channelAuthorityDeniedError,
 } from "./agent-channel-management-error.server";
 import { agentHasAdminAuthority } from "../agents/agent-channel-authority.server";
+import { resolveAgentChannelStatus } from "../agents/agent-channel-status.server";
+import { getAgentDisplay, type AgentDisplay } from "../agents/agent-display.server";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 
 const CHANNEL_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -30,6 +32,9 @@ export type AgentChannelRoster = {
     description: string;
     role: string;
     self: boolean;
+    status: "online" | "offline" | "unknown";
+    activity?: string;
+    activityDetail?: string;
   }>;
   humans: Array<{ username: string; role: string }>;
 };
@@ -56,7 +61,10 @@ export type AgentChannelManagementRepository = Pick<
  * `ACTIVE_MEMBER_WHERE` so a soft-left member never counts as present, joined, or listed.
  */
 export class AgentChannelManagement {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly display?: Pick<AgentDisplay, "snapshot">,
+  ) {}
 
   async info(workspaceId: string, agentId: string, target: string): Promise<AgentChannelInfo> {
     const channelName = this.parseChannelTarget(target);
@@ -328,7 +336,15 @@ export class AgentChannelManagement {
       select: {
         agentId: true,
         userId: true,
-        agent: { select: { name: true, displayName: true, description: true, role: true } },
+        agent: {
+          select: {
+            name: true,
+            displayName: true,
+            description: true,
+            role: true,
+            computerId: true,
+          },
+        },
         user: { select: { id: true, username: true } },
       },
     });
@@ -347,17 +363,29 @@ export class AgentChannelManagement {
         })
       : [];
     const roleByUserId = new Map(roles.map((role) => [role.userId, role.role]));
+    // Deferred: constructing the real AgentDisplay throws when REDIS_URL is unset, and that
+    // failure must be caught per-Agent (as "unknown") by resolveAgentChannelStatus, not thrown
+    // out of the whole roster read.
+    const display: Pick<AgentDisplay, "snapshot"> = this.display ?? {
+      snapshot: (scope) => getAgentDisplay().snapshot(scope),
+    };
+    const agents = await Promise.all(
+      agentRows.map(async (row) => ({
+        name: row.agent.name,
+        displayName: row.agent.displayName,
+        description: row.agent.description,
+        role: row.agent.role,
+        self: row.agentId === callingAgentId,
+        ...(await resolveAgentChannelStatus(display, {
+          workspaceId,
+          computerId: row.agent.computerId,
+          agentId: row.agentId,
+        })),
+      })),
+    );
     return {
       target,
-      agents: agentRows
-        .map((row) => ({
-          name: row.agent.name,
-          displayName: row.agent.displayName,
-          description: row.agent.description,
-          role: row.agent.role,
-          self: row.agentId === callingAgentId,
-        }))
-        .sort((left, right) => left.name.localeCompare(right.name)),
+      agents: agents.sort((left, right) => left.name.localeCompare(right.name)),
       humans: humanRows
         .map((row) => ({
           username: row.user.username,

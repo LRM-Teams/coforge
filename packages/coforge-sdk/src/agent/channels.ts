@@ -24,6 +24,13 @@ export type AgentChannelRosterAgent = {
   description: string;
   role: string;
   self: boolean;
+  /** Live lifecycle; "unknown" only when the server has no data (no Computer, or the display
+   * snapshot itself could not be read). */
+  status: "online" | "offline" | "unknown";
+  /** Present only when `status` is "online" and the Agent is doing something more specific
+   * than merely being connected (Raft's `working`/`thinking`/`error`). */
+  activity?: string;
+  activityDetail?: string;
 };
 
 export type AgentChannelRosterHuman = { username: string; role: string };

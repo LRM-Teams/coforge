@@ -18,16 +18,36 @@ export type ChannelRosterAgentLike = {
   description: string;
   role: string;
   self: boolean;
+  status: "online" | "offline" | "unknown";
+  activity?: string;
+  activityDetail?: string;
 };
 
 export type ChannelRosterHumanLike = { username: string; role: string };
 
-/** `(self, admin)` / `(admin)` / `(self)` / nothing — `member` never prints a role marker. */
-function roleAndSelfSuffix(role: string, self: boolean): string {
+/** `(admin)` / nothing — `member` never prints a role marker for a human. */
+function roleSuffix(role: string): string {
+  return role === "admin" || role === "owner" ? ` (${role})` : "";
+}
+
+/** Raft's `agentStatusLabel`: the lifecycle alone, or `<lifecycle>; <activity>[: <detail>]`
+ * when the Agent is doing something more specific than merely being connected. */
+function agentStatusLabel(
+  agent: Pick<ChannelRosterAgentLike, "status" | "activity" | "activityDetail">,
+): string {
+  if (agent.status === "online" && agent.activity)
+    return `online; ${agent.activity}${agent.activityDetail ? `: ${agent.activityDetail}` : ""}`;
+  return agent.status;
+}
+
+/** `(self, admin, online; working: running tests)` — self/role tags plus the live status,
+ * always present for an Agent (status is never omitted). */
+function agentTagSuffix(agent: ChannelRosterAgentLike): string {
   const parts: string[] = [];
-  if (self) parts.push("self");
-  if (role === "admin" || role === "owner") parts.push(role);
-  return parts.length ? ` (${parts.join(", ")})` : "";
+  if (agent.self) parts.push("self");
+  if (agent.role === "admin" || agent.role === "owner") parts.push(agent.role);
+  parts.push(agentStatusLabel(agent));
+  return ` (${parts.join(", ")})`;
 }
 
 function yesNo(value: boolean): string {
@@ -75,7 +95,7 @@ export function formatChannelMembers(response: {
   else
     for (const agent of response.agents)
       lines.push(
-        `  - @${agent.name}${roleAndSelfSuffix(agent.role, agent.self)}${
+        `  - @${agent.name}${agentTagSuffix(agent)}${
           agent.description ? ` — ${agent.description}` : ""
         }`,
       );
@@ -83,7 +103,7 @@ export function formatChannelMembers(response: {
   if (response.humans.length === 0) lines.push("  (none)");
   else
     for (const human of response.humans)
-      lines.push(`  - @${human.username}${roleAndSelfSuffix(human.role, false)}`);
+      lines.push(`  - @${human.username}${roleSuffix(human.role)}`);
   return lines.join("\n");
 }
 

@@ -190,7 +190,14 @@ test("GET /channels/:channel/members returns the roster envelope", async () => {
       members: async () => ({
         target: "#eng",
         agents: [
-          { name: "helper", displayName: "Helper", description: "", role: "member", self: true },
+          {
+            name: "helper",
+            displayName: "Helper",
+            description: "",
+            role: "member",
+            self: true,
+            status: "online",
+          },
         ],
         humans: [],
       }),

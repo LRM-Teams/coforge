@@ -61,7 +61,7 @@ test("formatChannelInfo prints a real description, singular member nouns, and up
   expect(text).toContain("Members: 2 (1 agent, 1 human)");
 });
 
-test("formatChannelMembers tags self and admin/owner roles on both Agents and humans", () => {
+test("formatChannelMembers tags self, admin/owner roles, and live status on Agents; role only on humans", () => {
   const text = formatChannelMembers({
     target: "#engineering",
     agents: [
@@ -71,8 +71,18 @@ test("formatChannelMembers tags self and admin/owner roles on both Agents and hu
         description: "helper",
         role: "member",
         self: true,
+        status: "online",
+        activity: "working",
+        activityDetail: "running tests",
       },
-      { name: "reviewer", displayName: "Reviewer", description: "", role: "admin", self: false },
+      {
+        name: "reviewer",
+        displayName: "Reviewer",
+        description: "",
+        role: "admin",
+        self: false,
+        status: "offline",
+      },
     ],
     humans: [
       { username: "frank", role: "owner" },
@@ -87,14 +97,31 @@ test("formatChannelMembers tags self and admin/owner roles on both Agents and hu
       "Members means join/post authority for this surface.",
       "",
       "### Agents",
-      "  - @assistant (self) — helper",
-      "  - @reviewer (admin)",
+      "  - @assistant (self, online; working: running tests) — helper",
+      "  - @reviewer (admin, offline)",
       "",
       "### Humans",
       "  - @frank (owner)",
       "  - @alice",
     ].join("\n"),
   );
+});
+
+test("agent status label composition: plain online, activity with and without detail, offline, unknown", () => {
+  const label = (agent: Parameters<typeof formatChannelMembers>[0]["agents"][number]) =>
+    formatChannelMembers({ target: "#x", agents: [agent], humans: [] })
+      .split("\n")
+      .find((line) => line.startsWith("  - @"));
+  const base = { name: "a", displayName: "A", description: "", role: "member", self: false };
+  expect(label({ ...base, status: "online" })).toBe("  - @a (online)");
+  expect(label({ ...base, status: "online", activity: "thinking" })).toBe(
+    "  - @a (online; thinking)",
+  );
+  expect(
+    label({ ...base, status: "online", activity: "working", activityDetail: "running tests" }),
+  ).toBe("  - @a (online; working: running tests)");
+  expect(label({ ...base, status: "offline" })).toBe("  - @a (offline)");
+  expect(label({ ...base, status: "unknown" })).toBe("  - @a (unknown)");
 });
 
 test("formatChannelMembers prints (none) for an empty section", () => {

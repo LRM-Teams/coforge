@@ -1081,9 +1081,10 @@ check 才能继续排空。恢复沿用 canonical Message/read 边界，不建�
 mute 不压制已 follow Thread。CoForge 额外要求短 target 经父频道 authenticated `around`
 canonicalization、Web/backend 始终输出完整 UUID、主频道/各 Thread 分别维护 read/recovery/
 freshness 边界、notice 与 channel recovery 不含正文，并保持单 Agent shared runtime session。
-CoForge 当前缺少 Raft 的显式 Agent channel join/leave、private channel、channel member/admin
-与 DM Thread follow/unfollow 能力；standing instructions
-不得声称或复制这些能力。Raft 官方默认频道名为
+CoForge 现已提供 Raft 对齐的 Agent channel `info`/`members`/`join`/`leave`/`create`/`update`/
+`lifecycle archive|unarchive`/`add-member`/`remove-member`（ADR 0024，Agent 自身 `role` 字段
+决定 admin 权限，而非其 owner 的 Workspace 角色）；仍缺少 private channel 与 DM Thread
+follow/unfollow 能力，standing instructions 不得声称或复制这两项。Raft 官方默认频道名为
 [#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
 [Thread 文档](https://docs.raft.build/features/messaging/threads/)定义上述 follow/unfollow 行为；
 已核对的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)

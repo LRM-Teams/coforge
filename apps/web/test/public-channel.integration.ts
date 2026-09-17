@@ -1019,7 +1019,11 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       },
     });
     await enrollGeneral(db, workspace.id);
-    const manage = new AgentChannelManagement(db);
+    const manage = new AgentChannelManagement(db, {
+      snapshot: async () => {
+        throw new Error("no live display data in this test");
+      },
+    });
 
     // Authority: only an admin-role Agent may create.
     await expect(manage.create(workspace.id, member.id, "eng", undefined)).rejects.toThrow(
@@ -1047,8 +1051,22 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     // Roster reflects both Agents, tagging the caller "self" and the creator "admin".
     const roster = await manage.members(workspace.id, member.id, "#eng");
     expect(roster.agents.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
-      { name: admin.name, displayName: "Admin", description: "", role: "admin", self: false },
-      { name: member.name, displayName: "Member", description: "", role: "member", self: true },
+      {
+        name: admin.name,
+        displayName: "Admin",
+        description: "",
+        role: "admin",
+        self: false,
+        status: "unknown",
+      },
+      {
+        name: member.name,
+        displayName: "Member",
+        description: "",
+        role: "member",
+        self: true,
+        status: "unknown",
+      },
     ]);
 
     // Leave, then re-join: the row is soft-left and cleared, not deleted; membership count
@@ -1141,7 +1159,14 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     expect(dmRoster).toEqual({
       target: `@${owner.username}`,
       agents: [
-        { name: admin.name, displayName: "Admin", description: "", role: "admin", self: true },
+        {
+          name: admin.name,
+          displayName: "Admin",
+          description: "",
+          role: "admin",
+          self: true,
+          status: "unknown",
+        },
       ],
       humans: [{ username: owner.username, role: "owner" }],
     });
