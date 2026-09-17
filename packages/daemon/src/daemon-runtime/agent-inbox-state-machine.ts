@@ -7,7 +7,7 @@ import type {
 type InMemoryDraft = {
   body: string;
   holdToken?: string;
-  attachmentId?: string;
+  attachmentIds?: readonly string[];
   mentions?: readonly LocalMentionSelector[];
 };
 
@@ -20,22 +20,22 @@ export class AgentInboxStateMachine {
   async save(
     target: string,
     body: string,
-    attachmentId?: string,
+    attachmentIds?: readonly string[],
     mentions?: readonly LocalMentionSelector[],
   ) {
-    this.#drafts.set(target, { body, attachmentId, mentions });
-    await this.persistence?.save(target, body, undefined, attachmentId, mentions);
+    this.#drafts.set(target, { body, attachmentIds, mentions });
+    await this.persistence?.save(target, body, undefined, attachmentIds, mentions);
   }
 
   async replace(
     target: string,
     body: string,
     holdToken: string,
-    attachmentId?: string,
+    attachmentIds?: readonly string[],
     mentions?: readonly LocalMentionSelector[],
   ) {
-    this.#drafts.set(target, { body, holdToken, attachmentId, mentions });
-    await this.persistence?.save(target, body, holdToken, attachmentId, mentions);
+    this.#drafts.set(target, { body, holdToken, attachmentIds, mentions });
+    await this.persistence?.save(target, body, holdToken, attachmentIds, mentions);
   }
 
   async draft(target: string): Promise<AgentMessageDraft | InMemoryDraft | undefined> {

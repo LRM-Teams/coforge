@@ -72,7 +72,7 @@ export type MessageInvocation =
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
       json?: boolean;
-      attachmentId?: string;
+      attachmentIds?: string[];
       mentions?: MentionSelector[];
       targetConfirmed?: boolean;
     }
@@ -135,7 +135,7 @@ export type MessageTransport = {
       sendDraft?: boolean;
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
-      attachmentId?: string;
+      attachmentIds?: string[];
       mentions?: MentionSelector[];
       targetConfirmed?: boolean;
     },
@@ -388,8 +388,7 @@ export function parseArgs(
       let continueAnyway = false;
       let json = false;
       let reviewerIsolation = reviewerIsolationFromEnvironment();
-      let attachmentId: string | undefined;
-      let attachmentIdSeen = false;
+      const rawAttachmentIds: string[] = [];
       const rawMentions: string[] = [];
       let targetConfirmed = false;
       for (let index = 2; index < args.length; index++) {
@@ -399,15 +398,16 @@ export function parseArgs(
         else if (args[index] === "--reviewer-isolation") reviewerIsolation = true;
         else if (args[index] === "--json") json = true;
         else if (args[index] === "--target-confirmed") targetConfirmed = true;
-        else if (args[index] === "--attachment-id" && args[index + 1]) {
-          if (attachmentIdSeen) throw new Error("Usage:");
-          attachmentIdSeen = true;
-          attachmentId = args[++index];
-        } else if (args[index] === "--mention" && args[index + 1]) rawMentions.push(args[++index]!);
+        else if (args[index] === "--attachment-id" && args[index + 1])
+          rawAttachmentIds.push(args[++index]!);
+        else if (args[index] === "--mention" && args[index + 1]) rawMentions.push(args[++index]!);
         else throw new Error("Usage:");
       }
       const outputMode = json ? "json" : "text";
-      if (attachmentId !== undefined && !UUID_PATTERN.test(attachmentId))
+      // Repeatable; duplicate values collapse to one occurrence. No client-side count cap
+      // (Raft's send schema has none either); the server enforces the per-message limit.
+      const attachmentIds = rawAttachmentIds.length ? [...new Set(rawAttachmentIds)] : undefined;
+      if (attachmentIds?.some((id) => !UUID_PATTERN.test(id)))
         throw withOutputMode(
           new CliError({
             code: "INVALID_ARG",
@@ -418,7 +418,7 @@ export function parseArgs(
           }),
           outputMode,
         );
-      if (attachmentId !== undefined && sendDraft)
+      if (attachmentIds && sendDraft)
         throw withOutputMode(
           new CliError({
             code: "INVALID_ARG",
@@ -441,14 +441,14 @@ export function parseArgs(
           ...(continueAnyway ? { continueAnyway: true } : {}),
           ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
           ...(json ? { json: true as const } : {}),
-          ...(attachmentId !== undefined ? { attachmentId } : {}),
+          ...(attachmentIds ? { attachmentIds } : {}),
           ...(mentions ? { mentions } : {}),
           ...(targetConfirmed ? { targetConfirmed: true } : {}),
         };
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>] [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
   );
 }
 
@@ -648,7 +648,7 @@ export async function run(args: readonly string[], transport: MessageTransport):
         sendDraft: invocation.sendDraft,
         continueAnyway: invocation.continueAnyway,
         freshnessContextMode: invocation.freshnessContextMode,
-        attachmentId: invocation.attachmentId,
+        attachmentIds: invocation.attachmentIds,
         mentions: invocation.mentions,
         targetConfirmed: invocation.targetConfirmed,
       });

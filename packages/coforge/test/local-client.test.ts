@@ -33,7 +33,7 @@ test("accepts sfp_ daemon-local Proxy tokens", async () => {
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
-test("forwards attachmentId, mentions, and targetConfirmed on a send request", async () => {
+test("forwards attachmentIds, mentions, and targetConfirmed on a send request", async () => {
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
   );
@@ -42,12 +42,12 @@ test("forwards attachmentId, mentions, and targetConfirmed on a send request", a
   await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).send(
     "@ada",
     "hi @ada",
-    { attachmentId: "attachment-1", mentions, targetConfirmed: true },
+    { attachmentIds: ["attachment-1", "attachment-2"], mentions, targetConfirmed: true },
   );
 
   const [, init] = fetch.mock.calls[0]!;
   const body = JSON.parse(init!.body as string);
-  expect(body.attachmentId).toBe("attachment-1");
+  expect(body.attachmentIds).toEqual(["attachment-1", "attachment-2"]);
   expect(body.mentions).toEqual(mentions);
   expect(body.targetConfirmed).toBe(true);
 });

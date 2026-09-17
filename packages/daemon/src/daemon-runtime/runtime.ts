@@ -1906,9 +1906,9 @@ export class DaemonRuntime {
         "Agent message body is required",
         "AGENT_MESSAGE_BODY_REQUIRED",
       );
-    // `--send-draft` re-sends the saved draft's attachment/mentions unless the Agent explicitly
+    // `--send-draft` re-sends the saved draft's attachments/mentions unless the Agent explicitly
     // supplies new `--mention` values, which replace them (Feature 2's documented override).
-    const attachmentId = request.sendDraft ? draft?.attachmentId : request.attachmentId;
+    const attachmentIds = request.sendDraft ? draft?.attachmentIds : request.attachmentIds;
     const mentions = request.sendDraft
       ? request.mentions?.length
         ? request.mentions
@@ -1942,7 +1942,7 @@ export class DaemonRuntime {
         if (parentOrder === undefined || parentOrder < latestThread.order) {
           // Raft-aligned: the outgoing content is saved as the local draft (no holdToken) before
           // refusing, so the documented recovery is resending that exact draft, not retyping it.
-          await inbox.save(target, body, attachmentId, mentions);
+          await inbox.save(target, body, attachmentIds, mentions);
           throw new AgentPreflightError(
             targetConfirmationRequiredMessage(target, latestThread.target),
             "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
@@ -1954,7 +1954,7 @@ export class DaemonRuntime {
     // `inbox.save` persists the draft locally BEFORE the request is issued to the transport below;
     // any failure past this point leaves delivery state unknown, never "not sent" (see
     // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
-    if (!request.sendDraft) await inbox.save(target, body, attachmentId, mentions);
+    if (!request.sendDraft) await inbox.save(target, body, attachmentIds, mentions);
     // A tokenless draft (saved by the guard above, or by a failed transport before ever reaching a
     // hold) resends as a plain send: no holdToken to send, and nothing for `--anyway` to bypass.
     if (request.sendDraft && !draft?.holdToken && request.continueAnyway)
@@ -1975,14 +1975,14 @@ export class DaemonRuntime {
         continueAnyway: request.continueAnyway,
         seenUpToSequence: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
         freshnessContextMode: request.freshnessContextMode,
-        attachmentId,
+        attachmentIds: attachmentIds ? [...attachmentIds] : undefined,
         mentions: mentions ? [...mentions] : undefined,
       },
       agentApiKey,
     );
     const held = result.sideEffectDecision === "hold";
     if (held && result.holdToken)
-      await inbox.replace(target, body, result.holdToken, attachmentId, mentions);
+      await inbox.replace(target, body, result.holdToken, attachmentIds, mentions);
     else if (result.accepted) await inbox.clear(target);
     const withheld = request.freshnessContextMode === "withheld";
     const targetMessages = result.messages.filter((message) => message.target === target);
