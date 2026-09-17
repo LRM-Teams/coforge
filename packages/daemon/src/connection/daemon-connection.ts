@@ -10,6 +10,8 @@ import type {
   AgentResolveResponse,
   AgentReactionResponse,
   AgentMessage,
+  AgentActionPrepareRequest,
+  AgentActionPrepareResponse,
   GitHubCredentialRequest,
   GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
@@ -291,6 +293,9 @@ export interface AgentChannelHttpClient {
     input: AgentHttpInput<AgentChannelRequest> & { method: "GET" | "POST" | "PATCH" | "DELETE" },
   ): Promise<Record<string, unknown>>;
 }
+export interface AgentActionPrepareHttpClient {
+  execute(input: AgentHttpInput<AgentActionPrepareRequest>): Promise<AgentActionPrepareResponse>;
+}
 export interface AgentWeeklyReportHttpClient {
   request(input: AgentHttpInput<WeeklyReportRequest>): Promise<WeeklyReportResponse>;
 }
@@ -343,6 +348,10 @@ export interface DaemonConnectionClient {
     request: AgentChannelRequest,
     agentApiKey?: string,
   ): Promise<Record<string, unknown>>;
+  agentActionPrepare?(
+    request: AgentActionPrepareRequest,
+    agentApiKey?: string,
+  ): Promise<AgentActionPrepareResponse>;
   agentWeeklyReport?(
     request: WeeklyReportRequest,
     agentApiKey?: string,
@@ -789,6 +798,23 @@ export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
   },
 };
 
+export const defaultAgentActionPrepareHttpClient: AgentActionPrepareHttpClient = {
+  async execute({ url, request, ...keys }) {
+    const response = await fetch(url, {
+      method: "POST",
+      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
+      headers: agentHeaders(keys, true),
+      body: JSON.stringify(request),
+    });
+    if (!response.ok)
+      throw new Error(`server Agent action-prepare request failed (${response.status})`);
+    const result = (await response.json()) as AgentActionPrepareResponse;
+    if (!result || typeof result.messageId !== "string" || result.metadata?.kind !== "action-card")
+      throw new Error("action-prepare response is malformed");
+    return result;
+  },
+};
+
 /** One replaceable listener; unsubscribing only clears the listener it registered. */
 class ListenerSlot<Listener extends (value: never) => unknown> {
   #listener: Listener | undefined;
@@ -851,6 +877,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     private readonly agentTaskHttpClient: AgentTaskHttpClient = defaultAgentTaskHttpClient,
     private readonly agentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = defaultAgentWeeklyReportHttpClient,
     private readonly agentChannelHttpClient: AgentChannelHttpClient = defaultAgentChannelHttpClient,
+    private readonly agentActionPrepareHttpClient: AgentActionPrepareHttpClient = defaultAgentActionPrepareHttpClient,
   ) {
     if (!endpoint) throw new Error("cloud endpoint not configured");
   }
@@ -1278,6 +1305,21 @@ export class DaemonConnection implements DaemonConnectionClient {
     return this.agentChannelHttpClient.execute({
       method: endpoint.method,
       url: this.#serverEndpoint("Agent channel", endpoint.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async agentActionPrepare(
+    request: AgentActionPrepareRequest,
+    agentApiKey?: string,
+  ): Promise<AgentActionPrepareResponse> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    return this.agentActionPrepareHttpClient.execute({
+      url: this.#serverEndpoint(
+        "Agent action-prepare HTTP",
+        agentApiRoutes.cloud.actionPrepare.path,
+      ),
       ...this.#agentKeys(agentApiKey),
       request,
     });

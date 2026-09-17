@@ -6,6 +6,7 @@ export const agentApiRoutes = {
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
+    actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
@@ -15,6 +16,7 @@ export const agentApiRoutes = {
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
+    actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
@@ -107,6 +109,7 @@ export const agentApiRoutes = {
     },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
+    actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     attachments: {

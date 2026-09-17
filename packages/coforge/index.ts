@@ -23,8 +23,10 @@ import { parseDurationSeconds } from "./src/reminder-duration";
 import {
   createAgentApiClient,
   createMessageTransportAgentApiTransport,
+  type ActionCardAction,
   type GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
+import { parseActionCardInput, toActionCardAction } from "./src/action-prepare-input";
 import {
   formatAttachmentDownloadSuccess,
   formatAttachmentUploadSuccess,
@@ -139,6 +141,8 @@ export type WeeklyReportInvocation = {
   command: "weekly-report";
   weeklyReport: WeeklyReportCommand;
 };
+export type ActionPrepareInvocation = { command: "action-prepare"; target: string };
+export type ActionPrepareResult = { messageId?: string; metadata?: { kind: string } };
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[]; hasMore?: boolean }>;
@@ -178,6 +182,7 @@ export type MessageTransport = {
   workspaceInfo?(): Promise<WorkspaceInfoResult>;
   weeklyReport?(command: WeeklyReportCommand): Promise<WeeklyReportResponse>;
   githubCredential?(): Promise<GitHubCredentialResponse>;
+  actionPrepare?(target: string, action: ActionCardAction): Promise<ActionPrepareResult>;
 };
 
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
@@ -199,11 +204,13 @@ export function parseArgs(
   | ThreadInvocation
   | TaskInvocation
   | WorkspaceInfoInvocation
-  | WeeklyReportInvocation {
+  | WeeklyReportInvocation
+  | ActionPrepareInvocation {
   if (args[0] === "workspace" && args[1] === "info") return parseWorkspaceInfoArgs(args.slice(2));
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (args[0] === "task") return parseTaskArgs(args.slice(1));
   if (args[0] === "weekly-report") return parseWeeklyReportArgs(args.slice(1));
+  if (args[0] === "action" && args[1] === "prepare") return parseActionPrepareArgs(args.slice(2));
   if (
     args[0] === "channel" &&
     (args[1] === "mute" || args[1] === "unmute") &&
@@ -471,7 +478,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>] [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>] [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge action prepare --target <target>",
   );
 }
 
@@ -706,6 +713,22 @@ function parseChannelManagementArgs(args: readonly string[]): ChannelManagementI
   throw new Error("Usage:");
 }
 
+function parseActionPrepareArgs(args: readonly string[]): ActionPrepareInvocation {
+  let target: string | undefined;
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === "--target" && args[index + 1]) target = args[++index];
+    else
+      throw new CliError({
+        code: "INVALID_ARG",
+        message: "Usage: coforge action prepare --target <target>",
+        retryable: false,
+      });
+  }
+  if (!target?.trim())
+    throw new CliError({ code: "INVALID_ARG", message: "--target is required", retryable: false });
+  return { command: "action-prepare", target };
+}
+
 export async function run(args: readonly string[], transport: MessageTransport): Promise<unknown> {
   const invocation = parseArgs(args);
   if (invocation.command === "workspace.info") {
@@ -753,6 +776,20 @@ export async function run(args: readonly string[], transport: MessageTransport):
   if (invocation.command === "weekly-report") {
     if (!transport.weeklyReport) throw new Error("Weekly report transport is unavailable");
     return transport.weeklyReport(invocation.weeklyReport);
+  }
+  if (invocation.command === "action-prepare") {
+    if (!transport.actionPrepare) throw new Error("Action transport is unavailable");
+    const raw = await new Response(Bun.stdin.stream()).text();
+    const action = toActionCardAction(parseActionCardInput(raw));
+    const result = await transport.actionPrepare(invocation.target, action);
+    if (!result.messageId)
+      throw new CliError({
+        code: "INVALID_JSON_RESPONSE",
+        message: "Prepare action response did not include a message id",
+        retryable: false,
+      });
+    const shortId = result.messageId.slice(0, 8);
+    return `Action card posted to ${invocation.target} as message ${result.messageId} (short ${shortId}). The human can click the action verb to commit.`;
   }
   if (invocation.command === "mute" || invocation.command === "unmute") {
     if (!transport.setChannelMuted) throw new Error("Channel settings transport is unavailable");
