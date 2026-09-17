@@ -133,9 +133,6 @@ class ClaudeCodeAgentSession implements AgentSession {
   // A fresh Claude session becomes ready at its first result, as in Raft 1.0.17.
   #sessionReadyForNotices = false;
   #compacting = false;
-  // Tracks an open top-level thinking content block so its content_block_stop
-  // can report thinking_end instead of a generic content-free progress event.
-  #thinkingBlockOpen = false;
   #inputFailure: Error | undefined;
   #recoveryFailed = false;
   readonly #outstandingTools = new Set<string>();
@@ -566,30 +563,6 @@ class ClaudeCodeAgentSession implements AgentSession {
           type: "thinking-delta",
           text: delta.thinking,
           ...(subagent ? { subagent } : {}),
-        });
-      }
-      if (
-        record.parent_tool_use_id == null &&
-        event?.type === "content_block_start" &&
-        asRecord(event.content_block)?.type === "thinking"
-      ) {
-        this.#thinkingBlockOpen = true;
-      }
-      if (
-        record.parent_tool_use_id == null &&
-        event?.type === "content_block_stop" &&
-        this.#thinkingBlockOpen
-      ) {
-        this.#thinkingBlockOpen = false;
-        renderedText = true;
-        this.#emit({
-          type: "activity",
-          activity: createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
-            "info",
-            "",
-            eventTime(record),
-          ),
         });
       }
       // A partial stream event with no renderable text (message/content block

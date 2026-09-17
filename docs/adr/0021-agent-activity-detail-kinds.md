@@ -62,7 +62,7 @@ nothing will ever emit.
 | kind | daemon emits when | display kind | popover / history |
 | --- | --- | --- | --- |
 | `tool_end` | Claude: `tool_result` block; Codex: `item/completed` for a `commandExecution` item; Kiro: `tool_call_update` reaching `completed`/`failed`; Pi: `tool_execution_end` — all four providers already emitted the underlying `tool-end` `AgentRuntimeEvent`, unconsumed by `runtime.ts` until this change | working | liveness only: never stored in history, dropped from the popover, filler for the display lease like `runtime_progress` |
-| `thinking_end` | Claude: `content_block_stop` closing a top-level thinking content block (tracked via `content_block_start`); Codex: `item/completed` for a `reasoning` item. Kiro and Pi have no equivalent signal in this codebase's providers today and are skipped | working | same as `tool_end` |
+| `thinking_end` | **Amended, see below.** Derived by the daemon from the normalized event stream (`ActivityTrajectory`, `packages/daemon/src/agent-runtime/activity-trajectory.ts`) for every provider, not signaled by individual providers | working | same as `tool_end` |
 | `compacting_context` | Claude: the `system`/`status` "compacting" notification (previously misreported as `runtime_progress`); Kiro: ACP `CompactionUpdate.status === "in_progress"`. Codex has no compaction notification and is skipped | working | visible, label "Compacting context…", stored |
 | `compaction_finished` | Claude: `compact_boundary`; Kiro: `CompactionUpdate.status` transitioning away from `in_progress`. Both wired providers have an explicit end signal, so no generic "next non-compaction event" fallback was implemented in `runtime.ts` | working | liveness only, like `tool_end` |
 | `subagent_activity` | Any `activity` event whose entries carry a subagent scope (Claude `parent_tool_use_id`); only Claude ever sets that field, so this kind is Claude-only in practice even though the reclassification itself is provider-agnostic | working | visible, label "Subagent working…", stored |
@@ -156,9 +156,102 @@ sibling branch owns wiring it.
 - `bun run check` at the root, the touched package suites, and `bun run
   build` in `apps/web`.
 
+## Amendment (2026-09-18): `thinking_end` moves to the daemon, for every provider
+
+The original `thinking_end` row above ("only where providers signal") left
+Kiro and Pi's Activity log without a "Thinking finished" line, since neither
+provider's adapter had a matching native signal to translate. Plainly: this
+was a gap in Kiro and Pi's logs, not a deliberate limit — "thinking
+finished" is a fact about the model's own turn, not a provider-specific
+capability, so every provider should report it the same way.
+
+Decision: stop asking each provider to notice when its own thinking phase
+ends, and instead derive it once, centrally, from the already-normalized
+`AgentRuntimeEvent` stream that every provider already produces. Every
+provider's adapter emits `thinking-delta` events while the model is
+thinking (Claude, Codex, Kiro and Pi all already did, for their own
+`thinking_started` trajectory entries); `ActivityTrajectory`
+(`packages/daemon/src/agent-runtime/activity-trajectory.ts`, one instance
+per launch, already watching this exact stream to coalesce/flush
+`thinking_started`/`model_response_started` trajectory entries) is the one
+place that can tell, provider-agnostically, when a thinking run has ended.
+
+- **Trigger set.** A thinking run is open once its first `thinking-delta`
+  has been accepted (tracked via `#lastAnnounced === thinking_started`, the
+  detail kind of the last activity actually forwarded). It closes, emitting
+  exactly one `thinking_end`, the moment one of these arrives: a
+  `text-delta` (the model started talking), a `tool-start` or `tool-end`
+  (it's using a tool), a `compacting_context`/`compaction_finished` activity
+  (context compaction), `completed` (the turn ended), or an error-level
+  activity. `runtime_progress`, `session` and `usage` events never close it,
+  and neither does another `thinking-delta` — the 350ms idle flush can
+  empty the pending buffer without ending the run, so a thought split across
+  several idle flushes still gets exactly one `thinking_end`, emitted the
+  moment the triggering event arrives (not deferred to the next flush).
+- **Detail text.** `thinking_end` now carries `"Thinking finished"` (not
+  empty); the daemon's own `tool_end` (`runtime.ts`, on the raw `tool-end`
+  `AgentRuntimeEvent`) is amended the same way to carry `"Tool finished"`.
+  Both are stored and shown as one-line status rows in the Activity log,
+  which uses this text as the row's secondary text. `safeRuntimeActivityMessage`
+  (`runtime.ts`) is amended to pass `thinking_end`'s text through unscrubbed-
+  format the same way `tool_started`/`runtime_reconnecting` already do,
+  instead of falling through to its generic "Agent activity observed."
+- **Run-start announcement.** A second, related gap: because entries are
+  batched until a flush (debounced 350ms, or triggered by the next event),
+  an Agent that had just started thinking or responding could sit without
+  any Activity signal for that whole window. `ActivityTrajectory` now emits
+  one additional, content-free `thinking_started`/`model_response_started`
+  activity the instant a fresh run starts (no `entries`, empty detail), so
+  the Agent's status flips immediately; the existing debounced flush still
+  follows with the same detail kind, this time carrying the entries. It
+  only re-announces when the kind actually changed since the last thing the
+  launch announced — an idle-flush split continuing the same run announces
+  nothing twice, but a tool call (or any other intervening activity)
+  in between means the next thinking/text run announces again.
+  `safeRuntimeActivityMessage` is amended to return `""` for these two
+  kinds when the message is empty, instead of falling through to the
+  generic sentence (the web keeps this entry-less frame out of Activity history and the
+  popover; a daemon carrying this change needs a web deployment that
+  already does).
+- **Subagent scope.** A subagent-scoped thinking run (`event.subagent` set)
+  gets `thinking_end` exactly like a top-level one — no special case. The
+  emitted `thinking_end` itself carries no `entries`, so `runtime.ts`'s
+  subagent reclassification (`entries?.some(entry => entry.subagent !==
+  undefined)`, which turns a subagent-scoped activity into
+  `subagent_activity`) never applies to it; it always surfaces as a
+  top-level `thinking_end`, even when the thinking it closes happened
+  inside a subagent. This is a known, accepted imprecision, not a bug.
+- **Dispose.** `ActivityTrajectory.dispose()` still flushes any pending
+  text but does not emit `thinking_end`: the launch itself is ending (the
+  session exited), and `runtime.ts`'s own `onExit` handler reports
+  `stopped`/`runtime_crashed` right after — a trailing "Thinking finished"
+  for a run that never really finished would misstate what happened. This
+  matches the pre-existing choice for `flush()` on `dispose()`: report what
+  is known, not what would have to be inferred.
+- Removed: the claude-code provider's `#thinkingBlockOpen` tracking and its
+  `content_block_stop` → `thinking_end` emission, and the codex provider's
+  `item/completed` (`reasoning`) → `thinking_end` emission. In claude-code,
+  that branch also unconditionally set `renderedText = true`; without it, a
+  thinking block's `content_block_stop` now falls through to the same
+  content-free `runtime_progress` liveness ping any other partial stream
+  event gets. This is harmless: `runtime.ts` already rate-limits
+  `runtime_progress` to one per 10 seconds per Agent
+  (`RUNTIME_PROGRESS_RATE_LIMIT_MS`), and `thinking_end` renews the same
+  busy lease, so the net liveness behavior across the turn is unchanged.
+- `git grep -n THINKING_END packages/daemon/src` confirms
+  `packages/daemon/src/agent-runtime/activity-trajectory.ts` is the only
+  emitter left; the two remaining references in `runtime.ts` are the
+  `BUSY_ACTIVITY_DETAIL_KINDS` membership and the
+  `safeRuntimeActivityMessage` branch above, not emission sites.
+
 ## Rollback
 
 Revert the daemon provider/runtime changes and the web reducer/presentation
 changes together; the new `AGENT_ACTIVITY_DETAIL_KIND` values are additive
 strings with no protocol or schema migration, so removing them is a plain
-code revert with no data cleanup.
+code revert with no data cleanup. The 2026-09-18 amendment above rolls back
+independently: reverting `activity-trajectory.ts`,
+`daemon-runtime/runtime.ts`'s two `safeRuntimeActivityMessage` branches and
+`tool_end` detail text, and restoring the claude-code/codex providers'
+`thinking_end` emissions, returns to the original per-provider behavior
+with no data cleanup either.

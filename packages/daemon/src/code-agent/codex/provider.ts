@@ -452,18 +452,10 @@ class CodexAgentSession implements AgentSession {
     }
     if (record.method === "item/completed") {
       const item = asRecord(params?.item);
-      if (item?.type === "reasoning") {
-        this.#emit({
-          type: "activity",
-          activity: createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
-            "info",
-            "",
-            eventTime(record),
-          ),
-        });
-        return;
-      }
+      // A reasoning item's completion needs no provider-specific signal: the daemon
+      // derives "thinking finished" for every provider from the normalized event
+      // stream (ActivityTrajectory), so there is nothing to report here.
+      if (item?.type === "reasoning") return;
       if (item?.type === "commandExecution" && typeof item.id === "string") {
         logger.info("Codex command completed", {
           event: "codex.command.completed",

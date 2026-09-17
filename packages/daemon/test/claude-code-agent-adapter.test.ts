@@ -799,7 +799,11 @@ test("Claude Code does not report compaction_finished without an open compaction
   }
 });
 
-test("Claude Code reports thinking_end when a thinking content block closes", async () => {
+// "Thinking finished" is derived centrally by ActivityTrajectory from the normalized event
+// stream (packages/daemon/test/activity-trajectory.test.ts), not reported by this provider.
+// A closing thinking content block therefore just falls through to the same content-free
+// liveness ping any other partial stream event gets.
+test("Claude Code reports a liveness ping, not thinking_end, when a thinking content block closes", async () => {
   const fixture = await controlledClaude();
   const { session, emit } = fixture;
   const events: AgentRuntimeEvent[] = [];
@@ -813,7 +817,11 @@ test("Claude Code reports thinking_end when a thinking content block closes", as
       },
       { type: "stream_event", event: { type: "content_block_stop" } },
     );
-    await waitForDetailKind(events, "thinking_end");
+    await waitForDetailKind(events, "runtime_progress");
+    const kinds = events
+      .filter((event) => event.type === "activity")
+      .map((event) => event.activity.detailKind);
+    expect(kinds).not.toContain("thinking_end");
   } finally {
     await fixture.dispose();
   }

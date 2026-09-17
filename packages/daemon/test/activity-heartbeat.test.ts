@@ -338,7 +338,11 @@ test("tool-end AgentRuntimeEvent reports as tool_end", async () => {
     activities.length = 0;
     emitEvent({ type: "tool-end", id: "tool-1", isError: false });
     expect(activities).toHaveLength(1);
-    expect(activities[0]).toMatchObject({ detailKind: "tool_end", level: "info", detail: "" });
+    expect(activities[0]).toMatchObject({
+      detailKind: "tool_end",
+      level: "info",
+      detail: "Tool finished",
+    });
   } finally {
     await runtime.stop();
   }

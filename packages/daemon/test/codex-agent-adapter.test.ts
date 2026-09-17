@@ -423,7 +423,9 @@ test.each([
   },
 );
 
-test("Codex reports thinking_end when a reasoning item completes", async () => {
+// "Thinking finished" is derived centrally by ActivityTrajectory from the normalized event
+// stream (packages/daemon/test/activity-trajectory.test.ts), not reported by this provider.
+test("Codex reports no thinking_end when a reasoning item completes", async () => {
   const session = await fixtureAdapter().createAgentSession({
     agentWorkspaceDirectory: tmpdir(),
     instructions: TEST_AGENT_INSTRUCTIONS,
@@ -432,8 +434,11 @@ test("Codex reports thinking_end when a reasoning item completes", async () => {
   session.subscribe((event) => events.push(event));
   try {
     await session.sendMessage("reasoning-item");
-    await waitForDetailKind(events, "thinking_end");
     await waitForEvent(events, "completed");
+    const kinds = events
+      .filter((event) => event.type === "activity")
+      .map((event) => event.activity.detailKind);
+    expect(kinds).not.toContain("thinking_end");
   } finally {
     await session.dispose();
   }
