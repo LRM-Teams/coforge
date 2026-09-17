@@ -413,6 +413,30 @@ test.each([
   },
 );
 
+test("Codex reports progress for a raw (non-summary) reasoning text delta", async () => {
+  const session = await fixtureAdapter().createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("reasoning-progress");
+    await waitForEvent(events, "completed");
+    const progress = events.filter((event) => event.type === "progress");
+    expect(progress).toHaveLength(1);
+    expect(progress[0]).toMatchObject({ source: "codex_reasoning_text_delta" });
+    // Never a raw activity - the daemon core, not the provider, decides what this becomes.
+    expect(
+      events.some(
+        (event) => event.type === "activity" && event.activity.detailKind === "runtime_progress",
+      ),
+    ).toBe(false);
+  } finally {
+    await session.dispose();
+  }
+});
+
 // "Thinking finished" is derived centrally by ActivityTrajectory from the normalized event
 // stream (packages/daemon/test/activity-trajectory.test.ts), not reported by this provider.
 test("Codex reports no thinking_end when a reasoning item completes", async () => {

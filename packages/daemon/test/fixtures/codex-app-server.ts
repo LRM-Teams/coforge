@@ -296,6 +296,17 @@ function handle(request: Request): void {
       console.error(textInput(request.params)!.slice("reconnect-stderr:".length));
       return;
     }
+    if (textInput(request.params) === "reasoning-progress") {
+      write({
+        method: "item/reasoning/textDelta",
+        params: { turnId, itemId: "reasoning-progress-1", delta: "thinking about it" },
+      });
+      write({
+        method: "turn/completed",
+        params: { turn: { id: turnId, status: "completed" } },
+      });
+      return;
+    }
     if (textInput(request.params) === "reasoning-item") {
       write({
         method: "item/completed",

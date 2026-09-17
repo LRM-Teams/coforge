@@ -94,7 +94,16 @@ export class ActivityTrajectory {
       this.#timer = setTimeout(() => this.flush(), 350);
       return;
     }
-    if (event.type === "tool-start" || event.type === "activity" || event.type === "completed")
+    // Compaction boundaries flush pending text first, like a tool call or a turn ending.
+    // A bare "progress" ping never flushes.
+    if (
+      event.type === "tool-start" ||
+      event.type === "activity" ||
+      event.type === "completed" ||
+      event.type === "compaction-started" ||
+      event.type === "compaction-finished" ||
+      event.type === "compaction-interrupted"
+    )
       this.flush();
     this.#forward(event);
   }

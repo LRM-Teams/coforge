@@ -225,7 +225,10 @@ test("Kiro replaces busy input, suppresses late completion, and normalizes ACP e
   }
 });
 
-test("Kiro reports compacting_context once, then compaction_finished, from CompactionUpdate.status", async () => {
+test("Kiro reports a compaction-started event per in_progress update, and compaction-finished from CompactionUpdate.status=completed", async () => {
+  // The adapter relays the raw signal as-is; de-duping repeated "in_progress" updates into a
+  // single reported episode is the daemon core's job now (agent-runtime/compaction-tracker.ts,
+  // exercised in activity-heartbeat.test.ts), not the adapter's.
   const cwd = await mkdtemp(join(tempRoot, "kiro-compaction-"));
   const session = await new KiroProvider({ command }).createAgentSession({
     agentWorkspaceDirectory: cwd,
@@ -235,11 +238,48 @@ test("Kiro reports compacting_context once, then compaction_finished, from Compa
   session.subscribe((event) => events.push(event));
   try {
     await session.notify!("compaction");
-    const kinds = events
-      .filter((event) => event.type === "activity")
-      .map((event) => event.activity.detailKind);
-    expect(kinds.filter((kind) => kind === "compacting_context")).toHaveLength(1);
-    expect(kinds.filter((kind) => kind === "compaction_finished")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "compaction-started")).toHaveLength(2);
+    expect(events.filter((event) => event.type === "compaction-finished")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "compaction-interrupted")).toHaveLength(0);
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Kiro reports compaction-interrupted from CompactionUpdate.status=failed", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-compaction-failed-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.notify!("compaction-failed");
+    expect(events.filter((event) => event.type === "compaction-started")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "compaction-interrupted")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "compaction-finished")).toHaveLength(0);
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Kiro reports progress for content-free tool_call_update, plan, and usage updates", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-progress-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.notify!("progress-updates");
+    const sources = events
+      .filter((event) => event.type === "progress")
+      .map((event) => event.source);
+    expect(sources).toEqual(["kiro_tool_call_update", "kiro_plan_update", "kiro_usage_update"]);
   } finally {
     await session.dispose();
     await rm(cwd, { recursive: true, force: true });

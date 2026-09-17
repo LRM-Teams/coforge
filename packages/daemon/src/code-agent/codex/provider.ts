@@ -381,13 +381,9 @@ class CodexAgentSession implements AgentSession {
     }
     if (record.method === "item/reasoning/textDelta" && typeof params?.delta === "string") {
       this.#emit({
-        type: "activity",
-        activity: createAgentActivity(
-          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
-          "info",
-          "",
-          eventTime(record),
-        ),
+        type: "progress",
+        source: "codex_reasoning_text_delta",
+        occurredAt: eventTime(record),
       });
       return;
     }

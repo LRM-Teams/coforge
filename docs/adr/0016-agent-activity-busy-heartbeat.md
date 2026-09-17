@@ -62,8 +62,10 @@ invented for it:
   progress signal today.
 
 Because a chatty provider could turn this into a flood, the daemon runtime (not
-each provider) rate-limits `runtime_progress` to at most one emission every 10
-seconds per Agent, ahead of the busy-heartbeat logic.
+each provider) decides whether a progress ping is announced at all: only while
+the Agent does not already look busy for the current launch. Once anything has
+made it visibly working or thinking, further pings only refresh liveness
+bookkeeping (superseding the fixed 10-second rate limit this ADR first chose).
 
 **Protocol.** `AgentActivity` gains `bool is_heartbeat` and
 `AGENT_ACTIVITY_DETAIL_KIND` gains `RUNTIME_PROGRESS`. Both are additive;

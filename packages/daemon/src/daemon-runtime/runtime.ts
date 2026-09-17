@@ -10,6 +10,8 @@ import {
 import { mkdirSync } from "node:fs";
 import { readOperatingSystem } from "../platform/operating-system";
 import { ActivityTrajectory } from "../agent-runtime/activity-trajectory";
+import { CompactionTracker } from "../agent-runtime/compaction-tracker";
+import { RuntimeProgressTracker } from "../agent-runtime/runtime-progress";
 import {
   AgentProcessManager,
   type CodeAgentProviderFactory,
@@ -261,10 +263,6 @@ const TERMINAL_ACTIVITY_DETAIL_KINDS = new Set<string>([
   AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_INTERRUPTED,
 ]);
 
-/** Providers can emit runtime_progress once per coalesced provider event; cap it
- * here, centrally, so a chatty stream can never flood the transport or history. */
-const RUNTIME_PROGRESS_RATE_LIMIT_MS = 10_000;
-
 /** One Agent that is still mid-turn when the runner hold is polled. */
 export type BusyAgentReport = { agentId: string; detailKind: string; busySinceMs: number };
 
@@ -401,7 +399,21 @@ export class DaemonRuntime {
   /** Runner-hold reason while this runtime is refusing new turns; undefined when not held.
    * Deliberately in-memory only, so a restarted daemon is never born held (ADR 0020). */
   #runnerHold: string | undefined;
-  readonly #lastRuntimeProgressAt = new Map<string, number>();
+  /** Whether a compaction is in flight per Agent, and its 5-minute stale watchdog - see
+   * agent-runtime/compaction-tracker.ts. Providers only report the raw start/finish/interrupted
+   * signal; this decides what, if anything, that becomes on the wire. */
+  readonly #compactionTracker = new CompactionTracker((agentId) => {
+    // TODO(compaction_stale): the SDK's AgentActivityDetailKind does not yet carry a
+    // `compaction_stale` value (landing in a separate change). Once it does, broadcast it here:
+    //   const launch = this.#currentActivityLaunches.get(agentId);
+    //   if (launch) this.#emitAgentActivity(agentId, launch, this.#activity(agentId,
+    //     AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_STALE, "info",
+    //     "Compaction is still running; no finish signal was observed."));
+    void agentId;
+  });
+  /** Liveness bookkeeping for the content-free "progress" signal - see
+   * agent-runtime/runtime-progress.ts. */
+  readonly #runtimeProgress = new RuntimeProgressTracker();
   readonly #codeAgentDiscovery: CodeAgentDiscovery;
 
   constructor(
@@ -1288,6 +1300,8 @@ export class DaemonRuntime {
     if (activityLaunch) activityLaunch.stopping = true;
     this.#interruptIfBusy(agentId, activityLaunch);
     this.#clearActivityHeartbeat(agentId);
+    this.#compactionTracker.dispose(agentId);
+    this.#runtimeProgress.dispose(agentId);
     this.#revokeLocalLaunch(agentId);
     try {
       await this.#releaseAgentRuntime(agentId);
@@ -1383,6 +1397,8 @@ export class DaemonRuntime {
       });
     this.#currentActivityLaunches.set(agentId, launch);
     this.#clearActivityHeartbeat(agentId);
+    this.#compactionTracker.dispose(agentId);
+    this.#runtimeProgress.dispose(agentId);
     // AgentControl's fresh retry after a kiro/pi AgentSessionRecoveryError: the invalidate was
     // already reported before this launch (see `invalidateSession` above); narrate the cold
     // start here, where the real launch's ActivityLaunch now exists. `invalidateReason` is
@@ -1534,6 +1550,9 @@ export class DaemonRuntime {
       const unsubscribe = runtime.session.subscribe((event) => trajectory.accept(event));
       runtime.session.onExit(() => {
         trajectory.dispose();
+        // No leaked watchdog timer, and a later launch for this Agent starts clean.
+        this.#compactionTracker.dispose(agentId);
+        this.#runtimeProgress.dispose(agentId);
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#messageAttention.clearAgent(agentId);
         this.#revokeLocalLaunch(agentId, localContext, proxyToken);
@@ -1605,6 +1624,8 @@ export class DaemonRuntime {
       }
       if (this.#currentActivityLaunches.get(agentId) === launch) {
         this.#clearActivityHeartbeat(agentId);
+        this.#compactionTracker.dispose(agentId);
+        this.#runtimeProgress.dispose(agentId);
         this.#currentActivityLaunches.delete(agentId);
       }
       throw error;
@@ -1719,12 +1740,26 @@ export class DaemonRuntime {
       // daemon core alone decides what Activity that is, via the same
       // `toolActivity` allowlist every provider used to call for itself.
       const activity = event.type === "activity" ? event.activity : this.#toolStartActivity(event);
-      if (activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS) {
-        const now = Date.now();
-        const last = this.#lastRuntimeProgressAt.get(agentId) ?? 0;
-        if (now - last < RUNTIME_PROGRESS_RATE_LIMIT_MS) return;
-        this.#lastRuntimeProgressAt.set(agentId, now);
-      }
+      // Resumed output or a new tool call means a still-open compaction is done; report
+      // that first.
+      if (
+        (event.type === "tool-start" ||
+          activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.MODEL_RESPONSE_STARTED ||
+          activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.THINKING_STARTED) &&
+        this.#compactionTracker.finish(agentId) === "finished"
+      )
+        this.#emitAgentActivity(
+          agentId,
+          launch,
+          this.#activity(
+            agentId,
+            AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
+            "info",
+            event.type === "tool-start"
+              ? "Compaction finished (inferred from a new tool call)."
+              : "Compaction finished (inferred from resumed output).",
+          ),
+        );
       const carriesEntries =
         activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING &&
         activity.entries?.some((entry) => entry.kind !== "tool_start");
@@ -1764,7 +1799,56 @@ export class DaemonRuntime {
       );
       return;
     }
+    if (event.type === "compaction-started") {
+      if (this.#compactionTracker.start(agentId) === "started")
+        this.#emitAgentActivity(
+          agentId,
+          launch,
+          this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT, "info", ""),
+        );
+      return;
+    }
+    if (event.type === "compaction-finished") {
+      if (this.#compactionTracker.finish(agentId) === "finished")
+        this.#emitAgentActivity(
+          agentId,
+          launch,
+          this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED, "info", ""),
+        );
+      return;
+    }
+    if (event.type === "compaction-interrupted") {
+      // Silent: only the internal state clears.
+      this.#compactionTracker.interrupt(agentId);
+      return;
+    }
+    if (event.type === "progress") {
+      this.#runtimeProgress.observe(
+        agentId,
+        this.#lastBusyActivity.get(agentId)?.launch === launch,
+        () =>
+          this.#emitAgentActivity(
+            agentId,
+            launch,
+            this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS, "info", ""),
+          ),
+      );
+      return;
+    }
     if (event.type !== "completed") return;
+    // A turn ending means a still-open compaction is done; report that before the turn's own
+    // idle/failed/interrupted Activity.
+    if (this.#compactionTracker.finish(agentId) === "finished")
+      this.#emitAgentActivity(
+        agentId,
+        launch,
+        this.#activity(
+          agentId,
+          AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
+          "info",
+          "Compaction finished (inferred from turn end).",
+        ),
+      );
     if (controlled)
       void runtime.session
         .readSessionIdentity?.()
@@ -1969,6 +2053,8 @@ export class DaemonRuntime {
     if (activityLaunch) activityLaunch.stopping = true;
     this.#interruptIfBusy(agentId, activityLaunch);
     this.#clearActivityHeartbeat(agentId);
+    this.#compactionTracker.dispose(agentId);
+    this.#runtimeProgress.dispose(agentId);
     this.#revokeLocalLaunch(agentId);
     const stopping = this.#stopAgent(agentId)
       .catch((error) => {
@@ -3060,6 +3146,8 @@ export class DaemonRuntime {
     for (const timer of this.#activityHeartbeatTimers.values()) clearTimeout(timer);
     this.#activityHeartbeatTimers.clear();
     this.#lastBusyActivity.clear();
+    this.#compactionTracker.disposeAll();
+    this.#runtimeProgress.disposeAll();
     for (const agentId of this.#agentInputQueues.keys())
       this.#closeAgentInputQueue(agentId, new Error("daemon runtime is stopping"));
     this.#unsubscribeAll();

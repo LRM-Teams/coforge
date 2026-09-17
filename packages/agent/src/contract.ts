@@ -75,7 +75,18 @@ export type AgentRuntimeEvent =
     }
   | { type: "tool-output"; id: string; text: string }
   | { type: "tool-end"; id: string; isError: boolean }
-  | { type: "completed"; status: "completed" | "interrupted" | "failed" };
+  | { type: "completed"; status: "completed" | "interrupted" | "failed" }
+  // Normalized signals a provider reports; the daemon core (not the provider) decides what
+  // Activity, if any, each one becomes - see agent-runtime/compaction-tracker.ts and
+  // agent-runtime/runtime-progress.ts.
+  | { type: "compaction-started"; occurredAt?: string }
+  | { type: "compaction-finished"; occurredAt?: string }
+  // Only providers that can observe an aborted compaction report this (currently Pi/CoForge's
+  // `compaction_end` with `aborted: true`); a provider with no such signal never emits it.
+  | { type: "compaction-interrupted"; occurredAt?: string }
+  // Content-free "the provider is alive" signal (e.g. a partial stream frame with no
+  // renderable text, or a turn/message lifecycle notification that carries no content).
+  | { type: "progress"; source?: string; occurredAt?: string };
 export interface AgentSession {
   sendMessage(message: string): Promise<void>;
   readSessionIdentity?(): Promise<AgentSessionIdentity | undefined>;
