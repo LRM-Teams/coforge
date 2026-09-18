@@ -32,10 +32,7 @@ function UnreadBadge({ count }: { count: number }) {
 /** A muted channel de-emphasises its badge to a bare dot (Slack's muted treatment). */
 function UnreadDot() {
   return (
-    <span
-      aria-hidden="true"
-      className="inline-flex size-2 shrink-0 rounded-full bg-brand-solid"
-    />
+    <span aria-hidden="true" className="inline-flex size-2 shrink-0 rounded-full bg-brand-solid" />
   );
 }
 
@@ -63,9 +60,7 @@ function ConversationRow({
         ? { to: "/messages/channels/$channelId", params: target }
         : { to: "/messages/$agentId", params: target })}
       aria-current={current ? "page" : undefined}
-      aria-label={
-        unreadCount ? m.channel_unread_accessible({ count: unreadCount }) : undefined
-      }
+      aria-label={unreadCount ? m.channel_unread_accessible({ count: unreadCount }) : undefined}
       className={cx(
         "flex max-h-9 w-full cursor-pointer items-center gap-2 rounded-md p-2 outline-focus-ring transition duration-100 ease-linear select-none focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2",
         current ? "bg-sidebar-accent" : "hover:bg-primary_hover",
@@ -84,7 +79,7 @@ function ConversationRow({
       >
         {children}
       </span>
-      {unreadCount ? (muted ? <UnreadDot /> : <UnreadBadge count={unreadCount} />) : null}
+      {unreadCount ? muted ? <UnreadDot /> : <UnreadBadge count={unreadCount} /> : null}
     </Link>
   );
 }
