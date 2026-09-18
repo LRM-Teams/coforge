@@ -1,5 +1,5 @@
 import { RedisClient } from "bun";
-import type { AgentActivity, AgentStatus } from "@lrm/coforge-sdk/internal";
+import type { AgentActivity, AgentContextUsage, AgentStatus } from "@lrm/coforge-sdk/internal";
 import {
   AGENT_ACTIVITY_DETAIL_KIND,
   parseAgentDisplaySnapshot,
@@ -138,6 +138,7 @@ local function snapshot(state, workspace_id, computer_id, agent_id, now)
   local detail = ""
   local entries = {}
   local expires_at = cjson.null
+  local context_usage = cjson.null
   if active then
     kind = "online"
     expires_at = state.process.leaseUntil
@@ -150,11 +151,23 @@ local function snapshot(state, workspace_id, computer_id, agent_id, now)
         if state.activity.expiresAt < expires_at then expires_at = state.activity.expiresAt end
       end
     end
+    -- ADR 0050: AgentStatus carries no launch id, so the strongest fence available here is
+    -- "the same daemon instance the active process reports" plus "not a launch OBSERVE_ACTIVITY
+    -- has since retired" — the same bounded, best-effort fence retiredLaunchId already is, not a
+    -- database race fence. A dead/superseded launch's reading never paints the badge.
+    if state.contextUsage and state.contextUsage.daemonInstanceId == state.process.daemonInstanceId and
+        state.contextUsage.launchId ~= state.retiredLaunchId then
+      context_usage = {
+        usedTokens = state.contextUsage.usedTokens, windowTokens = state.contextUsage.windowTokens,
+        observedAtMs = state.contextUsage.observedAt
+      }
+    end
   end
   return cjson.encode({
     protocolMajor = 1, workspaceId = workspace_id, computerId = computer_id,
     agentId = agent_id, revision = state.revision, activityKind = kind,
-    detailKind = detail_kind, detail = detail, entries = entries, expiresAt = expires_at
+    detailKind = detail_kind, detail = detail, entries = entries, expiresAt = expires_at,
+    contextUsage = context_usage
   })
 end
 `;
@@ -185,6 +198,9 @@ local preserve_provisional = not current and state.activityVisible and state.act
   state.activity.daemonInstanceId == ARGV[6]
 local reset_activity = (current and (not same_instance or current.status == "inactive")) or ARGV[5] == "inactive"
 if reset_activity or (not preserve_provisional and not current) then state.activityVisible = false end
+-- ADR 0050: the process going inactive, or a different daemon instance taking over, makes any
+-- stored context-window reading stale.
+if reset_activity then state.contextUsage = nil end
 state.process = {
   status = ARGV[5], daemonInstanceId = ARGV[6], sequence = tonumber(ARGV[7]),
   observedAt = tonumber(ARGV[8]), leaseUntil = ARGV[5] == "active" and
@@ -226,6 +242,10 @@ if previous then
     -- Retain one retired launch only. Cross-launch observedAt ordering is a bounded
     -- best-effort fence, not permanent history or a database race fence.
     state.retiredLaunchId = previous.launchId
+    -- ADR 0050: a context-window reading from the launch just retired is stale.
+    if state.contextUsage and state.contextUsage.launchId == previous.launchId then
+      state.contextUsage = nil
+    end
   end
 end
 -- A busy heartbeat or a content-free runtime_progress frame (ARGV[15] == "1")
@@ -252,6 +272,45 @@ else
   redis.call("ZREM", KEYS[3], lease_member)
 end
 if not is_filler or visible_changed then revision(state) end
+save(state)
+return snapshot(state, ARGV[2], ARGV[3], ARGV[4], now)
+`;
+
+// ARGV: [1] now, [2] workspaceId, [3] computerId, [4] agentId, [5] launchId,
+// [6] daemonInstanceId, [7] clientSeq, [8] observedAtMs, [9] usedTokens, [10] windowTokens
+const PUT_CONTEXT_USAGE = `${LUA_COMMON}
+local state = decode_state(redis.call("GET", KEYS[1]))
+local now = tonumber(ARGV[1])
+local projected = project(state, now)
+local function reject()
+  if projected then save(state) end
+  return false
+end
+local launch_id = ARGV[5]
+local daemon_instance_id = ARGV[6]
+local client_seq = tonumber(ARGV[7])
+local observed_at = tonumber(ARGV[8])
+local used_tokens = tonumber(ARGV[9])
+local window_tokens = tonumber(ARGV[10])
+local current = state.contextUsage
+-- Same ordering shape OBSERVE_STATUS uses for state.process: a same-daemon-instance replay
+-- must advance clientSeq; a different daemon instance's own reading only advances by wall time.
+local same_instance = current and current.daemonInstanceId == daemon_instance_id
+local accepted = not current
+if current then
+  if same_instance then
+    accepted = client_seq > current.clientSeq
+  else
+    accepted = observed_at > current.observedAt
+  end
+end
+if not accepted then return reject() end
+local changed = not current or current.usedTokens ~= used_tokens or current.windowTokens ~= window_tokens
+state.contextUsage = {
+  launchId = launch_id, daemonInstanceId = daemon_instance_id, clientSeq = client_seq,
+  observedAt = observed_at, usedTokens = used_tokens, windowTokens = window_tokens
+}
+if changed then revision(state) end
 save(state)
 return snapshot(state, ARGV[2], ARGV[3], ARGV[4], now)
 `;
@@ -340,6 +399,9 @@ export interface AgentDisplay {
     activity: AgentActivity & { computerId: string },
     fence: { daemonInstanceId: string; launchId: string },
   ): Promise<AgentDisplaySnapshot | undefined>;
+  /** ADR 0050: sets the Agent's current context-window reading, guarded by the same
+   * daemonInstanceId/clientSeq ordering rule `observeStatus` uses. */
+  putContextUsage(message: AgentContextUsage): Promise<AgentDisplaySnapshot | undefined>;
   snapshot(scope: Scope): Promise<AgentDisplaySnapshot>;
   /** Up to `limit` scopes whose busy lease score is at or before `now`, oldest first. */
   staleLeases(now: number, limit: number): Promise<Scope[]>;
@@ -386,6 +448,17 @@ export class RedisAgentDisplay implements AgentDisplay {
       JSON.stringify(activity.entries ?? []),
       WORKING_LEASE_MS,
       isFiller ? "1" : "0",
+    ]);
+  }
+
+  async putContextUsage(message: AgentContextUsage) {
+    return this.execute(PUT_CONTEXT_USAGE, message, [
+      message.launchId,
+      message.daemonInstanceId,
+      message.clientSeq,
+      message.observedAtMs,
+      message.usedTokens,
+      message.windowTokens,
     ]);
   }
 

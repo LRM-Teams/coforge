@@ -12,8 +12,10 @@ import {
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_STATUS_METHOD,
   AGENT_SESSION_INVALIDATE_METHOD,
+  AGENT_CONTEXT_USAGE_METHOD,
   decodeAgentActivity,
   decodeAgentSessionInvalidate,
+  decodeAgentContextUsage,
   decodeAgentStatus,
   decodeAgentMessageDeliveryAck,
   decodeDaemonRuntimeReadyRequest,
@@ -615,6 +617,110 @@ test("logs an old server's unknown-method rejection at most once per connection 
   expect(
     records.filter((record) => record.properties.event === "agent_session:invalidate_rejected"),
   ).toHaveLength(1);
+});
+
+function contextUsage(
+  agentId: string,
+  launchId: string,
+): import("@lrm/coforge-sdk/internal").AgentContextUsage {
+  return {
+    protocolMajor: 1,
+    requestId: `${agentId}-context-usage`,
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId,
+    provider: "claude-code",
+    launchId,
+    sessionId: "current-native-session",
+    usedTokens: 27_908,
+    windowTokens: 200_000,
+    observedAtMs: Date.parse("2026-09-18T00:00:00.000Z"),
+    daemonInstanceId: "daemon-1",
+    clientSeq: 1,
+  };
+}
+
+test("sends the context usage RPC (not a publication) when connected", async () => {
+  const fake = fakeClient();
+  const calls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    calls.push({ method, data });
+    return new Uint8Array();
+  };
+  let published = false;
+  fake.client.publish = async () => {
+    published = true;
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  const message = contextUsage("agent-1", "launch-1");
+
+  expect(transport.sendAgentContextUsage(message)).toBeUndefined();
+  await Promise.resolve();
+
+  expect(published).toBe(false);
+  expect(calls.map(({ method }) => method)).toEqual([
+    "daemon:connection_status",
+    AGENT_CONTEXT_USAGE_METHOD,
+  ]);
+  expect(decodeAgentContextUsage(calls[1]!.data)).toEqual(message);
+});
+
+test("buffers the context usage while disconnected and flushes once on reconnect", async () => {
+  const fake = fakeClient();
+  const calls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    calls.push({ method, data });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  fake.disconnect();
+  const message = contextUsage("agent-1", "launch-1");
+
+  expect(transport.sendAgentContextUsage(message)).toBeUndefined();
+  expect(calls.filter(({ method }) => method === AGENT_CONTEXT_USAGE_METHOD)).toHaveLength(0);
+
+  fake.connect();
+  await Promise.resolve();
+
+  const flushed = calls.filter(({ method }) => method === AGENT_CONTEXT_USAGE_METHOD);
+  expect(flushed).toHaveLength(1);
+  expect(decodeAgentContextUsage(flushed[0]!.data)).toEqual(message);
+
+  // Flushing clears the buffer: reconnecting again sends nothing further for this agent.
+  fake.disconnect();
+  fake.connect();
+  await Promise.resolve();
+  expect(calls.filter(({ method }) => method === AGENT_CONTEXT_USAGE_METHOD)).toHaveLength(1);
+});
+
+test("logs an old server's unknown-method rejection of context usage at most once per connection", async () => {
+  const fake = fakeClient();
+  fake.client.rpc = async () => {
+    throw Object.assign(new Error("unknown RPC method"), { code: 404 });
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+
+  const { records } = await captureLogs(async () => {
+    transport.sendAgentContextUsage(contextUsage("agent-1", "launch-1"));
+    transport.sendAgentContextUsage(contextUsage("agent-1", "launch-2"));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const rejections = records.filter(
+    (record) => record.properties.event === "agent_context_usage:rejected",
+  );
+  expect(rejections).toHaveLength(1);
+  expect(rejections[0]?.properties).toMatchObject({
+    agent_id: "agent-1",
+    launch_id: "launch-1",
+    error_code: "404",
+    outcome: "failed",
+  });
 });
 
 const config = {

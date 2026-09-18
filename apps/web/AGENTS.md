@@ -614,6 +614,11 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   which logs it with the same allowlisted-reason convention #321 introduced for
   `agent_control:result_rejected`/`agent_session:snapshot_rejected`, while the wire response
   (always a 403 on any rejection, per the daemon's fire-and-forget contract) stays unchanged.
+  `createAgentContextUsageMethod` (`server/centrifugo/agent-context-usage-receiver.server.ts`,
+  ADR 0050) is a sibling fire-and-forget receiver, gated the same way on
+  `AgentControlState.launchId` matching the message's own — but it writes the reading into the
+  display read model (`agent-display.server.ts`'s `PUT_CONTEXT_USAGE`), not the control record,
+  a live, ephemeral, Claude-Code-only fact with no bearing on control state.
 - `features/agents/agent-skills.functions.ts` owns the authenticated Profile Skills
   query. `server/agents/agent-skills.server.ts` authorizes the Agent owner and
   correlates bounded requests; `server/centrifugo/agent-skills-cache.server.ts`

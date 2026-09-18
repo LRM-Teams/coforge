@@ -229,6 +229,53 @@ test("a runtime without usage support keeps the plain badge even for its owner",
   expect(markup).not.toContain('aria-label="Pi · Usage"');
 });
 
+test("hides the context-usage badge entirely when there is no reading", () => {
+  for (const contextUsage of [undefined, null]) {
+    const markup = render(
+      <AgentProfileTab
+        profile={profileFixture()}
+        timeZone="UTC"
+        canManage={false}
+        controls={controlsFixture(true)}
+        onGotoActivity={() => {}}
+        onSaveDisplayName={noop}
+        onSaveDescription={noop}
+        runtimeCredentialDialog={null}
+        contextUsage={contextUsage}
+      />,
+    );
+    expect(markup).not.toContain("Context");
+  }
+});
+
+test("shows the rounded, clamped percentage next to the Runtime badge when a reading is present", () => {
+  for (const [usedTokens, windowTokens, expected] of [
+    [27_908, 200_000, "Context 14%"],
+    [0, 200_000, "Context 0%"],
+    // Never guessed above 100% even if a stale window makes usedTokens exceed it.
+    [250_000, 200_000, "Context 100%"],
+  ] as const) {
+    const markup = render(
+      <AgentProfileTab
+        profile={profileFixture()}
+        timeZone="UTC"
+        canManage={false}
+        controls={controlsFixture(true)}
+        onGotoActivity={() => {}}
+        onSaveDisplayName={noop}
+        onSaveDescription={noop}
+        runtimeCredentialDialog={null}
+        contextUsage={{
+          usedTokens,
+          windowTokens,
+          observedAtMs: Date.parse("2026-09-18T12:00:00.000Z"),
+        }}
+      />,
+    );
+    expect(markup).toContain(expected);
+  }
+});
+
 test("a manager with a Computer sees the Runtime config pencil", () => {
   const markup = render(
     <AgentProfileTab

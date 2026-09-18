@@ -164,6 +164,28 @@ export type AgentSessionInvalidate = {
   launchId: string;
   reason: AgentSessionInvalidateReason;
 };
+export const AGENT_CONTEXT_USAGE_METHOD = "agent:context:usage" as const;
+/**
+ * Fire-and-forget daemon-to-cloud notice of the Agent's current context-window usage, observed
+ * at the top-level Claude Code `result` record (ADR 0050). Never delivered as Activity; a
+ * provider with no such signal never emits it (Claude Code only today). This message never
+ * shipped, so its fields are numbered contiguously.
+ */
+export type AgentContextUsage = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  provider: RuntimeProvider;
+  launchId: string;
+  sessionId: string;
+  usedTokens: number;
+  windowTokens: number;
+  observedAtMs: number;
+  daemonInstanceId: string;
+  clientSeq: number;
+};
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;
 export type Workspace = { id: string; slug: string; name: string };
 export type WorkspaceInfoRequest = { protocolMajor: number; requestId: string };
@@ -718,6 +740,8 @@ export {
   decodeAgentSessionReport,
   encodeAgentSessionInvalidate,
   decodeAgentSessionInvalidate,
+  encodeAgentContextUsage,
+  decodeAgentContextUsage,
   encodeAgentStartIntent,
   decodeAgentStartIntent,
   encodeAgentStopIntent,
