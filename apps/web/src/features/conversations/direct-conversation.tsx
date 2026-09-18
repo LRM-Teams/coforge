@@ -32,7 +32,6 @@ import {
 import { RelativeTime } from "@/components/ui/relative-time";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
-import { ReminderNotice, type ReminderNoticeView } from "./reminder-notice";
 import { MessageComposer } from "./message-composer";
 import { MessageBody } from "./message-body";
 import type { Mentionable } from "./mention-text";
@@ -113,8 +112,6 @@ type ConversationProps = {
   onLoadMessageAround?: (messageId: string) => Promise<void>;
   onShowLatest?: () => Promise<void>;
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
-  onLoadReminderNotices?: (threadRootId?: string) => Promise<ReminderNoticeView[]>;
-  reminderRefreshKey?: number;
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   onShowTasks?: () => void;
@@ -511,7 +508,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
                 >
                   <ConversationPane
                     {...conversationProps}
-                    active={threadPaneVisible(rootId)}
                     root={root}
                     onClose={() => setSelected(undefined)}
                     emptyState={{
@@ -571,15 +567,10 @@ export function ConversationPane({
   onLoadOwnMessages,
   onLoadMessageAround,
   onShowLatest,
-  onLoadReminderNotices,
-  reminderRefreshKey,
   onCreateTask,
   onOpenAgentProfile,
-  active = true,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
-  /** A hidden (visited but unselected) thread pane skips its background fetches. */
-  active?: boolean;
   header?: React.ReactNode;
   readOnlyNotice?: React.ReactNode;
   emptyState: { title: string; description: string; media: React.ReactNode };
@@ -596,15 +587,12 @@ export function ConversationPane({
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
-  const [reminderNotices, setReminderNotices] = useState<ReminderNoticeView[]>([]);
   const historyRef = useRef<HTMLDivElement>(null);
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
   const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
   const pendingLatestRef = useRef(false);
-  const loadReminderNoticesRef = useRef(onLoadReminderNotices);
-  loadReminderNoticesRef.current = onLoadReminderNotices;
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
   // Handles that recently sent a message here, most-recent first: the mention completion popup
@@ -785,20 +773,6 @@ export function ConversationPane({
     requestAnimationFrame(() => scrollToLatest("instant"));
     pendingLatestRef.current = false;
   }, [conversation.hasNewer, conversation.messages, messageVirtualizer]);
-
-  useEffect(() => {
-    if (!active || !loadReminderNoticesRef.current || document.visibilityState === "hidden") return;
-    let current = true;
-    void loadReminderNoticesRef
-      .current(root?.id)
-      .then((notices) => {
-        if (current) setReminderNotices(notices);
-      })
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [active, conversation.conversationId, reminderRefreshKey, root?.id]);
 
   function scrollToLatest(behavior: ScrollBehavior) {
     const history = historyRef.current;
@@ -1004,13 +978,6 @@ export function ConversationPane({
                   />
                 );
               })}
-            </ol>
-          )}
-          {reminderNotices.length > 0 && (
-            <ol aria-label="Reminder events" className="flex flex-col gap-2 px-4 pt-6 md:px-6">
-              {reminderNotices.map((notice) => (
-                <ReminderNotice key={notice.id} notice={notice} />
-              ))}
             </ol>
           )}
         </div>

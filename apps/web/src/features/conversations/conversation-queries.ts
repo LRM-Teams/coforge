@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 import {
   infiniteQueryOptions,
   useQueryClient,
@@ -93,7 +93,6 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
 }) {
   const queryClient = useQueryClient();
   const { data, hasPreviousPage, fetchPreviousPage, refetch } = useSuspenseInfiniteQuery(query);
-  const [reminderRefreshKey, setReminderRefreshKey] = useState(0);
   const latestPage = data.pages.at(-1)!;
   const conversationId = latestPage.conversationId;
 
@@ -166,7 +165,6 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
       onRealtimeRef.current?.(),
       refreshActionCards(),
     ]);
-    setReminderRefreshKey((value) => value + 1);
   });
 
   /** Replace the loaded history with a window around one message. */
@@ -181,7 +179,6 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
   return {
     conversation,
     reconciliation,
-    reminderRefreshKey,
     mergeUpdates,
     /** Adjust the conversation's own fields (membership flags, follows) without a refetch. */
     patch: (update: (page: T) => T) =>

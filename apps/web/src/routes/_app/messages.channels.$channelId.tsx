@@ -14,7 +14,6 @@ import {
   publicChannelUpdates,
   useConversationQuery,
 } from "@/features/conversations/conversation-queries";
-import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
 import { useConversationView } from "@/features/conversations/use-conversation-view";
 import { TaskBoard } from "@/features/tasks/task-board";
 import { useTaskLayout } from "@/features/tasks/task-workflow";
@@ -65,7 +64,6 @@ function ChannelPage() {
   const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
   const setMuted = useServerFn(setPublicChannelMuted);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
-  const loadNotices = useServerFn(loadReminderNotices);
   const page = useConversationQuery({
     query: publicChannelQuery(channelId),
     loadUpdates: publicChannelUpdates(channelId),
@@ -138,11 +136,6 @@ function ChannelPage() {
     <ChannelConversation
       key={channelId}
       conversation={conversation}
-      reminderRefreshKey={page.reminderRefreshKey}
-      onLoadReminderNotices={async (threadRootId) =>
-        (await loadNotices({ data: { conversationId: conversation.conversationId, threadRootId } }))
-          .notices
-      }
       tasks={taskView.tasks}
       onShowTasks={showTasks}
       onCreateTask={async (title, requestId, attachmentId) => {
