@@ -5,7 +5,7 @@ import type {
   AgentSessionOptions,
 } from "@coforge/agent";
 import { AgentSessionRecoveryError, type CodeAgentProvider } from "../contract";
-import { agentEnvironment } from "../environment";
+import { launchAgentEnvironment } from "../environment";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import {
@@ -40,9 +40,14 @@ export class PiProvider implements CodeAgentProvider {
       throw new Error("Pi runtime provider does not match the selected model");
     if (credential?.apiKey && !runtime?.modelProvider)
       throw new Error("Pi model provider is required for an Agent API key");
-    const environment = agentEnvironment(options.environment, Bun.env, process.platform, {
-      envVars: runtime?.envVars,
-    });
+    const environment = await launchAgentEnvironment(
+      options.environment,
+      Bun.env,
+      process.platform,
+      {
+        envVars: runtime?.envVars,
+      },
+    );
     const hostAgentDir = environment.PI_CODING_AGENT_DIR ?? getAgentDir();
     const created = await createSession({
       cwd: options.agentWorkspaceDirectory,
@@ -104,7 +109,7 @@ export class CoforgeProvider implements CodeAgentProvider {
       reasoning: runtime.reasoning,
       apiKey: runtime.providerConfig.apiKey,
       instructions: options.instructions,
-      environment: agentEnvironment(options.environment, Bun.env, process.platform, {
+      environment: await launchAgentEnvironment(options.environment, Bun.env, process.platform, {
         envVars: runtime.envVars,
       }),
     });

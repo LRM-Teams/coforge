@@ -231,6 +231,9 @@ export type MessageTransport = {
   weeklyReport?(command: WeeklyReportCommand): Promise<WeeklyReportResponse>;
   weeklyReportCollect?(command: WeeklyReportCollectCommand): Promise<WeeklyReportCollectResult>;
   githubCredential?(): Promise<GitHubCredentialResponse>;
+  /** Server-decided `Co-authored-by` trailers for `coforge git prepare-commit-msg`; never built by
+   * the CLI itself. */
+  githubCommitTrailers?(repository: string | null): Promise<string[]>;
   actionPrepare?(target: string, action: ActionCardAction): Promise<ActionPrepareResult>;
   manualGet?(topic: string, intent: string, reason: string): Promise<AgentManualGetResponse>;
   manualSearch?(query: string, intent: string, reason: string): Promise<AgentManualSearchResponse>;

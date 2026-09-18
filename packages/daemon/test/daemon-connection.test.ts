@@ -731,6 +731,50 @@ test("GitHub credential HTTP transport rejects malformed credentials", async () 
   ).rejects.toThrow("invalid GitHub credential response");
 });
 
+test("GitHub commit trailers HTTP transport authenticates the Agent request", async () => {
+  const calls: Array<{ url: string; headers: Headers; body: unknown }> = [];
+  const client = createAgentMessageHttpClient(async (input, init) => {
+    calls.push({
+      url: String(input),
+      headers: new Headers(init?.headers),
+      body: JSON.parse(String(init?.body)),
+    });
+    return Response.json({
+      trailers: ["Co-authored-by: coforge-staging[bot] <1+bot@users.noreply.github.com>"],
+    });
+  });
+  const result = await client.requestGitHubCommitTrailers!({
+    url: "https://server.example/api/agent/v1/github-commit-trailers",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: { repository: "acme/widgets" },
+  });
+
+  expect(result.trailers).toEqual([
+    "Co-authored-by: coforge-staging[bot] <1+bot@users.noreply.github.com>",
+  ]);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.url).toBe("https://server.example/api/agent/v1/github-commit-trailers");
+  expect(calls[0]?.headers.get("authorization")).toBe("Bearer daemon-token");
+  expect(calls[0]?.headers.get("x-coforge-agent-api-key")).toBe(
+    `Bearer sk_agent_${"a".repeat(43)}`,
+  );
+  expect(calls[0]?.body).toEqual({ repository: "acme/widgets" });
+});
+
+test("GitHub commit trailers HTTP transport rejects a malformed response", async () => {
+  const client = createAgentMessageHttpClient(async () => Response.json({ trailers: [1] }));
+
+  await expect(
+    client.requestGitHubCommitTrailers!({
+      url: "https://server.example/api/agent/v1/github-commit-trailers",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: { repository: null },
+    }),
+  ).rejects.toThrow("invalid GitHub commit trailers response");
+});
+
 test("waits for connected and does not send a business payload", async () => {
   const fake = fakeClient();
   let connected = false;

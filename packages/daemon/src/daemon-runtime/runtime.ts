@@ -117,6 +117,8 @@ import type {
   AgentActionPrepareResponse,
   GitHubCredentialRequest,
   GitHubCredentialResponse,
+  GitHubCommitTrailersRequest,
+  GitHubCommitTrailersResponse,
   AgentManualGetRequest,
   AgentManualGetResponse,
   AgentManualSearchRequest,
@@ -2892,6 +2894,17 @@ export class DaemonRuntime {
     if (!this.#transport.githubCredential)
       throw new Error("GitHub credential endpoint is not configured");
     return this.#transport.githubCredential(request, agentApiKey);
+  }
+
+  async githubCommitTrailers(
+    context: string,
+    request: GitHubCommitTrailersRequest,
+    agentApiKey: string,
+  ): Promise<GitHubCommitTrailersResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.githubCommitTrailers)
+      throw new Error("GitHub commit trailers endpoint is not configured");
+    return this.#transport.githubCommitTrailers(request, agentApiKey);
   }
 
   async manualGet(

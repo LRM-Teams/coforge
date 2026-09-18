@@ -14,7 +14,7 @@ import type {
   ToolKind,
 } from "@agentclientprotocol/sdk";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { agentEnvironment } from "../environment";
+import { launchAgentEnvironment } from "../environment";
 import { AgentSessionRecoveryError } from "../contract";
 import { bounded, KIRO_ACP_ARGS, KiroConnection, record } from "./connection";
 import { readKiroUsage } from "./usage";
@@ -70,7 +70,7 @@ export class KiroProvider implements CodeAgentProvider {
     // Runtime discovery already gates the Daemon's reported inventory; this re-check covers an
     // existing Agent whose CLI has since fallen below the baseline (or predates the gate).
     await assertKiroVersionSupported(this.options.command ?? ["kiro-cli"]);
-    const environment = agentEnvironment(options.environment, Bun.env, undefined, {
+    const environment = await launchAgentEnvironment(options.environment, Bun.env, undefined, {
       envVars: options.runtime?.envVars,
     });
     const directory = resolve(options.agentWorkspaceDirectory, ".kiro/agents");

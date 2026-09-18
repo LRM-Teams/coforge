@@ -182,6 +182,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
             requireRuntime().agentWeeklyReportCollect(...input),
           workspaceInfo: async (...input) => requireRuntime().workspaceInfo(...input),
           githubCredential: async (...input) => requireRuntime().githubCredential(...input),
+          githubCommitTrailers: async (...input) => requireRuntime().githubCommitTrailers(...input),
           manualGet: async (...input) => requireRuntime().manualGet(...input),
           manualSearch: async (...input) => requireRuntime().manualSearch(...input),
           version: async (...input) => requireRuntime().version(...input),

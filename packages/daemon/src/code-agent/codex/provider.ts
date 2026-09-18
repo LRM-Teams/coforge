@@ -7,7 +7,7 @@ import type {
 } from "@coforge/agent";
 import type { CodeAgentProvider } from "../contract";
 import { readCodexUsage } from "./usage";
-import { agentEnvironment } from "../environment";
+import { launchAgentEnvironment } from "../environment";
 import { JsonlProcess, JsonlRequestError } from "../jsonl-process";
 import { COFORGE_DAEMON_VERSION } from "../../version";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
@@ -61,7 +61,7 @@ export class CodexProvider implements CodeAgentProvider {
     const process = new JsonlProcess(
       this.#command,
       options.agentWorkspaceDirectory,
-      agentEnvironment(options.environment, Bun.env, undefined, {
+      await launchAgentEnvironment(options.environment, Bun.env, undefined, {
         envVars: options.runtime?.envVars,
         extraEnv: { NO_COLOR: "1" },
       }),

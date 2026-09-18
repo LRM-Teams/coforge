@@ -1,6 +1,27 @@
 import { expect, test } from "bun:test";
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentEnvironment, agentRuntimeContextEnvironment } from "../src/code-agent/environment";
+import {
+  agentEnvironment,
+  agentRuntimeContextEnvironment,
+  launchAgentEnvironment,
+  resolveLaunchGitHooks,
+} from "../src/code-agent/environment";
+import { resetGitHookShimDirectoryCacheForTests } from "../src/code-agent/git-hook-shims";
+import { resetGitHookVersionProbeCacheForTests } from "../src/code-agent/git-hooks";
+
+/** A fake `git` on its own temp PATH that only answers `--version`. */
+async function fakeGitPath(version: string): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-fake-git-"));
+  const path = join(directory, "git");
+  await writeFile(
+    path,
+    `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "git version ${version}"; exit 0; fi\nexit 1\n`,
+  );
+  await chmod(path, 0o755);
+  return directory;
+}
 
 test("inherits local host variables and overlays custom, adapter, then system values without mutating the host", () => {
   const inherited = {
@@ -200,4 +221,93 @@ test("source development resolves the CLI without a separately compiled daemon C
   });
   expect(result.exitCode).toBe(1);
   expect(result.stderr.toString()).toContain("coforge agent context is not configured");
+});
+
+test("a config-hook plan appends the CoForge commit trailer hook after the GitHub credential helper", () => {
+  const environment = agentEnvironment(undefined, {}, "linux", {
+    gitHooks: { kind: "config-hook" },
+  });
+
+  expect(environment.GIT_CONFIG_COUNT).toBe("7");
+  expect(environment.GIT_CONFIG_KEY_5).toBe("hook.coforge-commit-trailers.event");
+  expect(environment.GIT_CONFIG_VALUE_5).toBe("prepare-commit-msg");
+  expect(environment.GIT_CONFIG_KEY_6).toBe("hook.coforge-commit-trailers.command");
+  expect(environment.GIT_CONFIG_VALUE_6).toBe("coforge git prepare-commit-msg");
+  expect(environment.COFORGE_GIT_CONFIG_BASE_COUNT).toBeUndefined();
+});
+
+test("a hooks-path plan points core.hooksPath at the shim directory and carries the pre-injection GIT_CONFIG_COUNT", () => {
+  const environment = agentEnvironment(
+    undefined,
+    { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.directory", GIT_CONFIG_VALUE_0: "/workspace" },
+    "linux",
+    { gitHooks: { kind: "hooks-path", hooksDir: "/var/coforge/daemon/git-hook-shims/abc" } },
+  );
+
+  expect(environment.GIT_CONFIG_COUNT).toBe("7");
+  expect(environment.GIT_CONFIG_KEY_6).toBe("core.hooksPath");
+  expect(environment.GIT_CONFIG_VALUE_6).toBe("/var/coforge/daemon/git-hook-shims/abc");
+  // The base count is the inherited count before this function's own entries - the GitHub
+  // credential helper included - so the shim can strip them all and recover the real hooks path.
+  expect(environment.COFORGE_GIT_CONFIG_BASE_COUNT).toBe("1");
+});
+
+test("an Agent's own tools cannot spoof COFORGE_GIT_CONFIG_BASE_COUNT through inherited or user-configured values", () => {
+  const environment = agentEnvironment(undefined, { COFORGE_GIT_CONFIG_BASE_COUNT: "0" }, "linux", {
+    envVars: { COFORGE_GIT_CONFIG_BASE_COUNT: "0" },
+  });
+
+  expect(environment.COFORGE_GIT_CONFIG_BASE_COUNT).toBeUndefined();
+});
+
+test("launchAgentEnvironment injects nothing when git is missing from the Agent's PATH", async () => {
+  const environment = await launchAgentEnvironment(undefined, {}, "linux", {});
+  expect(environment.GIT_CONFIG_COUNT).toBe("5");
+  expect(environment).not.toHaveProperty("COFORGE_GIT_CONFIG_BASE_COUNT");
+});
+
+test("resolveLaunchGitHooks returns undefined when git is missing from the Agent's PATH", async () => {
+  expect(await resolveLaunchGitHooks(undefined, {}, "linux", {})).toBeUndefined();
+});
+
+test("launchAgentEnvironment picks the config-hook plan for a git >= 2.54", async () => {
+  resetGitHookVersionProbeCacheForTests();
+  const gitDirectory = await fakeGitPath("2.54.0");
+  const environment = await launchAgentEnvironment(
+    undefined,
+    { PATH: gitDirectory },
+    process.platform,
+    {},
+  );
+  expect(environment.GIT_CONFIG_KEY_5).toBe("hook.coforge-commit-trailers.event");
+});
+
+test("launchAgentEnvironment picks the hooks-path plan for a git < 2.54 and writes the shim directory", async () => {
+  resetGitHookVersionProbeCacheForTests();
+  resetGitHookShimDirectoryCacheForTests();
+  // Isolate the shim directory under a temp Daemon home so the test never touches the real one.
+  const daemonHome = await mkdtemp(join(tmpdir(), "coforge-daemon-home-"));
+  const previousDaemonHome = process.env.COFORGE_DAEMON_HOME;
+  process.env.COFORGE_DAEMON_HOME = daemonHome;
+  try {
+    const gitDirectory = await fakeGitPath("2.43.0");
+    const environment = await launchAgentEnvironment(
+      undefined,
+      { PATH: gitDirectory },
+      process.platform,
+      {},
+    );
+    expect(environment.GIT_CONFIG_KEY_5).toBe("core.hooksPath");
+    const hooksDir = environment.GIT_CONFIG_VALUE_5;
+    expect(hooksDir).toBeTruthy();
+    expect(hooksDir).toStartWith(join(daemonHome, "git-hook-shims"));
+    expect(await Bun.file(join(hooksDir!, "prepare-commit-msg")).exists()).toBe(true);
+    expect(await Bun.file(join(hooksDir!, "pre-push")).exists()).toBe(true);
+    expect(environment.COFORGE_GIT_CONFIG_BASE_COUNT).toBe("0");
+  } finally {
+    if (previousDaemonHome === undefined) delete process.env.COFORGE_DAEMON_HOME;
+    else process.env.COFORGE_DAEMON_HOME = previousDaemonHome;
+    resetGitHookVersionProbeCacheForTests();
+    resetGitHookShimDirectoryCacheForTests();
+  }
 });

@@ -17,6 +17,7 @@ export const agentApiRoutes = {
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     weeklyReportCollect: { method: "POST", path: "/api/agent/v1/weekly-report-collect" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
+    githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
     users: {
       method: "GET",
@@ -36,6 +37,7 @@ export const agentApiRoutes = {
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     weeklyReportCollect: { method: "POST", path: "/api/agent/v1/weekly-report-collect" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
+    githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
     attachments: {
       method: "GET",
@@ -160,6 +162,7 @@ export const agentApiRoutes = {
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     weeklyReportCollect: { method: "POST", path: "/api/agent/v1/weekly-report-collect" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
+    githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     attachments: {
       method: "GET",
       collectionPath: "/api/agent/v1/attachments",
