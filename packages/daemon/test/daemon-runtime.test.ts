@@ -4804,6 +4804,96 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
+  test("a failed turn that already reported its own runtime_error keeps that as the one visible reason", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+    let listener: Parameters<AgentSession["subscribe"]>[0] = () => undefined;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return {
+            ...sessionSpy(),
+            subscribe(next) {
+              listener = next;
+              return () => undefined;
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    listener({ type: "error", message: "turn failed: provider unavailable" });
+    listener({ type: "completed", status: "failed" });
+    // Exactly one error-level Activity for the one failed turn: the provider's own reason, not
+    // a second, generic "Agent runtime failed." layered on top of it.
+    expect(activities.map(({ detailKind }) => detailKind)).toEqual(["starting", "runtime_error"]);
+    expect(activities.filter((activity) => activity.level === "error")).toHaveLength(1);
+    expect(activities[1]).toMatchObject({ detail: "turn failed: provider unavailable" });
+    await runtime.stop();
+  });
+
+  test("a failed turn with no error event still reports the generic failure Activity", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+    let listener: Parameters<AgentSession["subscribe"]>[0] = () => undefined;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return {
+            ...sessionSpy(),
+            subscribe(next) {
+              listener = next;
+              return () => undefined;
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    listener({ type: "completed", status: "failed" });
+    expect(activities.map(({ detailKind }) => detailKind)).toEqual(["starting", "runtime_error"]);
+    expect(activities[1]).toMatchObject({ detail: "Agent runtime failed." });
+    await runtime.stop();
+  });
+
   test("reports runtime_crashed with Crashed(...) wording on an unintentional exit that follows an unresolved error", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
