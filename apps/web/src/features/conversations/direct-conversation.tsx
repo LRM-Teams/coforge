@@ -942,7 +942,7 @@ export function ConversationPane({
                     {clockLabel(root.createdAt, dateLocale)}
                   </time>
                 </p>
-                <div className="min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]">
+                <div className="min-w-0 text-md leading-6 text-primary [overflow-wrap:anywhere]">
                   <MessageBody
                     body={root.body}
                     mentions={root.mentions}

@@ -425,7 +425,9 @@ export function MessageRow({
           ) : (
             <div
               className={cn(
-                "min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]",
+                // No `whitespace-pre-wrap`: soft breaks are real `<br>` now (remark-breaks), so
+                // preserving literal newlines as well would double every line gap.
+                "min-w-0 text-md leading-6 text-primary [overflow-wrap:anywhere]",
                 grouped && threadEntry && "pr-8",
               )}
             >
