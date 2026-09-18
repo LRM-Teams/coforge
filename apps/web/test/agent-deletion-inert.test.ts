@@ -3,6 +3,8 @@ import { decodeAgentStartIntent } from "@lrm/coforge-sdk/internal";
 
 import { ManageAgents } from "../src/server/agents/manage-agents.server";
 import { AgentControl } from "../src/server/agents/agent-control.server";
+import { AgentEnvironment } from "../src/server/agents/agent-environment.server";
+import { ChangeAgentRuntimeCredential } from "../src/server/agents/change-agent-runtime-credential.server";
 import type {
   AgentControlAgent,
   AgentControlStore,
@@ -90,13 +92,17 @@ const startIntent = {
 describe("a deleted Agent is never started again (ADR 0044)", () => {
   test("publishStart refuses a deleted Agent and publishes nothing", async () => {
     const { instance, published } = control(controlAgent(new Date("2026-09-18T04:00:00Z")));
-    await expect(instance.publishStart(startIntent, "user-1")).rejects.toThrow("Agent is deleted");
+    await expect(instance.publishStart(startIntent, "user-1")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
     expect(published).toEqual([]);
   });
 
   test("recover refuses a deleted Agent and publishes nothing", async () => {
     const { instance, published } = control(controlAgent(new Date("2026-09-18T04:00:00Z")));
-    await expect(instance.recover(startIntent, "user-1")).rejects.toThrow("Agent is deleted");
+    await expect(instance.recover(startIntent, "user-1")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
     expect(published).toEqual([]);
   });
 
@@ -174,5 +180,86 @@ describe("ManageAgents.update on a deleted Agent", () => {
       ),
     ).rejects.toMatchObject({ name: "AppError", code: "NOT_FOUND" });
     expect(starts).toEqual([]);
+  });
+});
+
+/** The two remaining mutations that could rewrite (and restart) a deleted Agent. */
+function credentialFixture(deletedAt: Date | null) {
+  const events: string[] = [];
+  const record = agentRecord(deletedAt);
+  const credentialChange = new ChangeAgentRuntimeCredential(
+    { getById: async () => record },
+    { save: async () => ({ providerId: "anthropic", hint: "" }), delete: async () => {} },
+    {
+      start: async () => {
+        events.push("start");
+      },
+      stop: async () => {
+        events.push("stop");
+      },
+    },
+    { run: async (_id, callback) => callback() },
+  );
+  return { credentialChange, events };
+}
+
+function environmentFixture(deletedAt: Date | null) {
+  const events: string[] = [];
+  const record = agentRecord(deletedAt);
+  const environment = new AgentEnvironment(
+    {
+      findOwnedAgent: async () => ({ runtimeConfig: record.runtimeConfig }),
+      updateRuntimeConfig: async () => {
+        events.push("write");
+      },
+    },
+    { getById: async () => record },
+    {
+      start: async () => {
+        events.push("start");
+      },
+      stop: async () => {
+        events.push("stop");
+      },
+    },
+    { run: async (_id, callback) => callback() },
+    new Uint8Array(32),
+  );
+  return { environment, events };
+}
+
+describe("the remaining deleted-Agent mutations (ADR 0044)", () => {
+  test("a live Agent's runtime credential can still be changed (control)", async () => {
+    const { credentialChange, events } = credentialFixture(null);
+    await credentialChange.save({ userId: "user-1", workspaceId: "workspace-1" }, "agent-1", "k");
+    expect(events).toEqual(["stop", "start"]);
+  });
+
+  test("a deleted Agent's runtime credential is refused without a restart", async () => {
+    const { credentialChange, events } = credentialFixture(new Date("2026-09-18T04:00:00Z"));
+    await expect(
+      credentialChange.save({ userId: "user-1", workspaceId: "workspace-1" }, "agent-1", "k"),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(events).toEqual([]);
+  });
+
+  test("a live Agent's environment can still be saved (control)", async () => {
+    const { environment, events } = environmentFixture(null);
+    await environment.save({ userId: "user-1", workspaceId: "workspace-1" }, "agent-1", {
+      TOKEN: "value",
+    });
+    expect(events).toEqual(["stop", "write", "start"]);
+  });
+
+  test("a deleted Agent's environment is refused without a restart", async () => {
+    const { environment, events } = environmentFixture(new Date("2026-09-18T04:00:00Z"));
+    // A deleted Agent answers NOT_FOUND, not the authorization-shaped error the ownership check
+    // above it uses, so the refusal is the same one every other live-view lookup gives.
+    await expect(
+      environment.save({ userId: "user-1", workspaceId: "workspace-1" }, "agent-1", {
+        TOKEN: "value",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(events).toEqual([]);
   });
 });

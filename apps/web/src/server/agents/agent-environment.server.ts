@@ -2,6 +2,7 @@ import type { AgentStartIntent, AgentStopIntent } from "@lrm/coforge-sdk/interna
 import type { AgentRecord } from "../db/repositories/agent.repositories.server";
 import type { AgentRuntimeConfig, EncryptedAgentEnvironment } from "./agent-runtime-config.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
+import { assertAgentLive } from "./active-agent.server";
 import { agentStartIntent, agentStopIntent } from "./manage-agents.server";
 
 const MAX_VARIABLES = 64;
@@ -60,8 +61,9 @@ export class AgentEnvironment {
         agent.ownerId !== principal.userId
       )
         throw new Error("Agent is not authorized");
-      // ADR 0044: a deleted Agent has no environment to edit, and no restart either.
-      if (agent.deletedAt) throw new Error("Agent is not authorized");
+      // ADR 0044: a deleted Agent has no environment to edit, and no restart either. Answers the
+      // same NOT_FOUND a live-view lookup gives, not the authorization failure above it.
+      assertAgentLive(agent);
       const envVars = validateAgentEnvironment(input);
       const config = await this.#ownedConfig(principal, agentId);
       const { environment: _environment, ...withoutEnvironment } = config;

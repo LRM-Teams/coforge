@@ -10,6 +10,7 @@ import {
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
 import type { AgentRuntimeConfig } from "./agent-runtime-config.server";
 import { runtimeStartFields } from "./manage-agents.server";
+import { assertAgentLive } from "./active-agent.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentSessions } from "./agent-sessions.server";
 import { LocalAgentControlSignal, type AgentControlSignal } from "./agent-control-signal.server";
@@ -247,7 +248,7 @@ export class AgentControl {
     // ADR 0044: recovery never starts a deleted Agent. `WorkspaceAgentRecovery` already lists
     // deleted Agents separately and stops them instead, so this is the last line of defence for a
     // Daemon `ready` that races a delete.
-    if (agent.deletedAt) throw new Error("Agent is deleted");
+    assertAgentLive(agent);
     if (agent.state && !terminal(agent.state)) {
       await this.advance(agent.id, agent.state.requestId, intent);
       return;
@@ -362,7 +363,7 @@ export class AgentControl {
     // ADR 0044: a deleted Agent has no user-initiated control surface at all — not even Start.
     // Only the internal `recover`/`publishStop` paths may still touch one, to reconcile a process
     // the Daemon reports as running.
-    if (agent.deletedAt) throw new Error("Agent is deleted");
+    assertAgentLive(agent);
     const role = await this.store.memberRole(workspaceId, userId);
     if (!role) throw new Error("Agent is not authorized or assigned");
     assertHasAgentControlCapability(role, EXECUTE_CAPABILITY[action]);
@@ -461,7 +462,7 @@ export class AgentControl {
     // ADR 0044: a deleted Agent is never started again. Every configuration, credential and
     // environment mutation funnels its restart through here, so this is the one place that has to
     // hold; `execute()` refuses it earlier, with a user-facing message.
-    if (agent.deletedAt) throw new Error("Agent is deleted");
+    assertAgentLive(agent);
     let state = agent.state;
     if (state && !terminal(state)) {
       // A Start already in flight for the same purpose (recovery, another config-triggered

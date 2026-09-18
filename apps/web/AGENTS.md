@@ -529,12 +529,15 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   `deletedAt` write, and the best-effort Stop. `PrismaAgentDeletionStore`
   (`server/db/repositories/agent-deletion.repositories.server.ts`) is the one transaction that
   makes a deleted Agent inert cloud-side; `server/agents/active-agent.server.ts`'s
-  `ACTIVE_AGENT_WHERE` is the predicate every live-view Agent query applies. Messages, Tasks and
+  `ACTIVE_AGENT_WHERE` is the predicate every live-view Agent query applies, and its companion
+  `assertAgentLive` is the one guard every mutation and control path calls, so a deleted Agent
+  answers the same `NOT_FOUND` wherever it is reached. Messages, Tasks and
   Action cards are preserved, so a deleted sender still renders (greyed, with a `DELETED` badge)
   through `senderDeleted` on the message projections.
   `features/agents/deleted-agent.tsx` owns that rendering — the grey avatar class and the badge —
-  so message rows, the thread root, the thread reply preview, the DM header and the avatar popover
-  cannot drift apart.
+  so the message-history surfaces (message rows, the thread root, the thread reply preview, the DM
+  header and the avatar popover) cannot drift apart. A Task owner is not covered: `TaskView.owner`
+  on the shared Task contract carries no delete marker, and adding one is a wire-protocol change.
 - `features/agents/agent-reminders.functions.ts` and `server/agents/agent-reminders.server.ts`
   own the owner-only, Workspace-scoped browser read model for bounded Reminder lists and
   expose scheduled Reminders only. Reminder lifecycle and history persistence remain in
