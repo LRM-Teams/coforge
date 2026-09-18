@@ -29,6 +29,8 @@ import { startAgentProxy, type AgentProxy } from "../src/agent-proxy";
 import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
 import {
   AGENT_ACTIVITY_DETAIL_KIND,
+  AGENT_CONTEXT_SCAN_STATUS,
+  type AgentContextScanRequest,
   type AgentMessageRequest,
   type TaskRequest,
   type TaskResponse,
@@ -3454,6 +3456,150 @@ describe("DaemonRuntime", () => {
     expect(JSON.stringify(result)).not.toContain("secret");
     expect(JSON.stringify(result)).not.toContain("127.0.0.1");
     await runtime.stop();
+  });
+
+  test("scans a running Claude Code Agent's context composition against its own session", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const report = {
+      provider: "claude-code" as const,
+      usedTokens: 24_900,
+      windowTokens: 200_000,
+      observedAt: "2026-09-18T00:00:00.000Z",
+      categories: [
+        { name: "System prompt", tokens: 6_400 },
+        { name: "Free space", tokens: 175_100 },
+      ],
+    };
+    const scanned: Array<{ sessionId: string; workingDirectory: string }> = [];
+    const adapter: CodeAgentProvider = {
+      provider: "claude-code",
+      async readContextReport(options) {
+        scanned.push({ sessionId: options.sessionId, workingDirectory: options.workingDirectory });
+        return report;
+      },
+      async createAgentSession() {
+        return {
+          ...sessionSpy(),
+          async readSessionIdentity() {
+            return { sessionId: "native-session-1", state: "resumable" as const };
+          },
+        };
+      },
+    };
+    const runtime = new DaemonRuntime(connection, () => adapter, credentials, {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async requestAgentLaunchConfig() {
+          return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+        },
+        async stop() {},
+      }),
+    });
+    await runtime.start(connection);
+    try {
+      // The 3rd positional argument seeds the current native session reference, the same way the
+      // context-usage tests below seed theirs — in production the launch reports its session
+      // back through `reportAgentSession`.
+      await runtime.startAgent(
+        "agent-a",
+        {
+          provider: "claude-code",
+          model: "claude-sonnet-5",
+          reasoning: "high",
+        },
+        "native-session-1",
+      );
+      const request: AgentContextScanRequest = {
+        protocolMajor: 1,
+        requestId: "scan-1",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: "agent-a",
+        provider: "claude-code",
+        launchId: "",
+        sessionId: "",
+      };
+      const result = await runtime.scanAgentContext(request);
+      expect(result.status).toBe(AGENT_CONTEXT_SCAN_STATUS.AVAILABLE);
+      expect(result.accepted).toBe(true);
+      expect(result.launchId).not.toBe("");
+      expect(result.sessionId).toBe("native-session-1");
+      expect(JSON.parse(new TextDecoder().decode(result.reportJson!))).toEqual(report);
+      // The CLI runs inside the Agent's own workspace directory, against the Agent's own
+      // native session — never a fresh one.
+      expect(scanned).toEqual([
+        {
+          sessionId: "native-session-1",
+          workingDirectory: join(workspaceRoot, connection.workspaceId, "agents", "agent-a"),
+        },
+      ]);
+      // A stopped Agent has no launch to scan against, and the CLI never runs.
+      await runtime.stopAgent("agent-a");
+      const stopped = await runtime.scanAgentContext(request);
+      expect(stopped.status).toBe(AGENT_CONTEXT_SCAN_STATUS.NO_SESSION);
+      expect(stopped.accepted).toBe(false);
+      expect(scanned).toHaveLength(1);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  test("refuses a context scan naming a superseded launch without running the CLI", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let contextScans = 0;
+    const adapter: CodeAgentProvider = {
+      provider: "claude-code",
+      async readContextReport() {
+        contextScans++;
+        return undefined;
+      },
+      async createAgentSession() {
+        return {
+          ...sessionSpy(),
+          async readSessionIdentity() {
+            return { sessionId: "native-session-1", state: "resumable" as const };
+          },
+        };
+      },
+    };
+    const runtime = new DaemonRuntime(connection, () => adapter, credentials, {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async requestAgentLaunchConfig() {
+          return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+        },
+        async stop() {},
+      }),
+    });
+    await runtime.start(connection);
+    try {
+      await runtime.startAgent("agent-a", {
+        provider: "claude-code",
+        model: "claude-sonnet-5",
+        reasoning: "high",
+      });
+      const request: AgentContextScanRequest = {
+        protocolMajor: 1,
+        requestId: "scan-stale",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: "agent-a",
+        provider: "claude-code",
+        launchId: "launch-the-server-remembers",
+        sessionId: "whatever",
+      };
+      const result = await runtime.scanAgentContext(request);
+      expect(result.status).toBe(AGENT_CONTEXT_SCAN_STATUS.ERROR);
+      expect(result.message).toContain("superseded");
+      expect(result.accepted).toBe(false);
+      expect(contextScans).toBe(0);
+    } finally {
+      await runtime.stop();
+    }
   });
 
   test("passes the persisted server HTTP URL to the Agent API key client", async () => {

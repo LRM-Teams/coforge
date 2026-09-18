@@ -1,6 +1,6 @@
 import type { UsageSnapshot, UsageWindow } from "../contract";
-import { agentEnvironment } from "../environment";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { claudeCliEnvironment, runClaudeCli as run } from "./process";
 
 export async function readClaudeCodeUsage(
   workingDirectory: string,
@@ -12,14 +12,7 @@ export async function readClaudeCodeUsage(
 ): Promise<UsageSnapshot | null> {
   const baseCommand = options.command ?? ["claude"];
   const timeoutMs = options.timeoutMs ?? 5_000;
-  // Claude uses USER to locate the signed-in account in the macOS Keychain.
-  const username = Bun.env.USER;
-  // Normalize the CLI report without changing the parent or Agent environment.
-  const environment = {
-    ...(username ? { USER: username } : {}),
-    ...agentEnvironment(options.environment),
-    TZ: "UTC",
-  };
+  const environment = claudeCliEnvironment(options.environment);
   const auth = await run(
     [...baseCommand, "auth", "status", "--json"],
     workingDirectory,
@@ -144,33 +137,4 @@ function window(text: string, pattern: RegExp): UsageWindow | undefined {
     windowDurationMinutes: Math.max(0, Math.round((reset.getTime() - Date.now()) / 60_000)),
     resetsAt: reset.toISOString(),
   };
-}
-
-async function run(
-  cmd: readonly string[],
-  cwd: string,
-  env: Record<string, string>,
-  timeoutMs: number,
-) {
-  const child = Bun.spawn({ cmd: [...cmd], cwd, env, stdout: "pipe", stderr: "ignore" });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const result = await Promise.race([
-      Promise.all([new Response(child.stdout).text(), child.exited]).then(([stdout, exitCode]) => ({
-        stdout,
-        exitCode,
-        timedOut: false,
-      })),
-      new Promise<{ stdout: string; exitCode: number; timedOut: true }>((resolve) => {
-        timer = setTimeout(() => {
-          child.kill();
-          resolve({ stdout: "", exitCode: -1, timedOut: true });
-        }, timeoutMs);
-      }),
-    ]);
-    return result;
-  } finally {
-    if (timer) clearTimeout(timer);
-    child.kill();
-  }
 }

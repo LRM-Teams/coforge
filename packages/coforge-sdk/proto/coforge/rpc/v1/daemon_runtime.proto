@@ -113,6 +113,43 @@ message CodeAgentModelCatalog {
   repeated CodeAgentModelMetadata models = 2;
 }
 
+// Server -> daemon, on the daemon control channel (like DaemonRuntimeUsageScanRequest above), but
+// per-Agent rather than per-provider: it names the Agent whose context-window composition to
+// read, and the launch/session the server currently believes is live, so the daemon can refuse a
+// request naming a launch it has already superseded. Claude Code only today (ADR 0051); the
+// daemon replies `unsupported` for every other provider.
+message AgentContextScanRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string provider = 6;
+  string launch_id = 7;
+  string session_id = 8;
+  string message_type = 9;
+}
+
+// Daemon -> server RPC, method `agent:context_scan_result`. `report_json` decodes to the SDK's
+// `AgentContextReport` (see `parseClaudeContextReport`); absent whenever `status` is not
+// `available`. `status` is one of `available | unsupported | no_session | unparsed | timeout |
+// error`.
+message AgentContextScanResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string provider = 6;
+  string launch_id = 7;
+  string session_id = 8;
+  bool accepted = 9;
+  string status = 10;
+  string message = 11;
+  bytes report_json = 12;
+  string message_type = 13;
+}
+
 message CodeAgentModelMetadata {
   string id = 1;
   string display_name = 2;

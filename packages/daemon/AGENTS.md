@@ -231,6 +231,15 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   stable Agent directory and routes query/results; it does not parse skill files.
   A metadata query never launches a provider, reloads a session, copies global
   skills, or changes the established runtime environment composition.
+- `code-agent/claude-code/context-report.ts` owns the one-shot Claude Code
+  `/context` composition read (ADR 0051): an undocumented-headless invocation
+  run against the Agent's own live session inside its own workspace directory.
+  `DaemonRuntime.scanAgentContext` resolves the launch and native session from
+  daemon-tracked state — never from the request — answers `no_session`/
+  `unsupported`/`unparsed`/`timeout`/`error` in plain words, and refuses a
+  superseded launch without running the CLI. Only the parsed structure goes on
+  the wire; the raw Markdown never leaves the Computer, and format drift is a
+  visible `unparsed` state, never a crash.
 - Keep the standing CoForge Agent instructions in one provider-neutral source.
   `AgentProcessManager` builds them once per session and supplies them through
   the required `AgentSessionOptions.instructions` field. Every code-agent Provider

@@ -28,6 +28,7 @@ export function handleRequestError(error: unknown): HandledRequestError {
       COMPUTER_OFFLINE: 409,
       COMPUTER_IDENTITY_UNKNOWN: 409,
       RELEASE_FEED_UNAVAILABLE: 503,
+      AGENT_CONTEXT_UNAVAILABLE: 404,
     }[error.code];
     return { code, message: error.message };
   }

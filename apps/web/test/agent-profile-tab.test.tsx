@@ -7,6 +7,7 @@ import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { AgentProfileTab } from "@/features/agents/profile-panel/agent-profile-tab";
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "@/features/agents/agents.functions";
+import { formatDateForDisplay } from "@/lib/dates";
 import { m } from "@/paraglide/messages";
 
 type AgentProfile = NonNullable<Awaited<ReturnType<typeof getAgentProfile>>>;
@@ -341,4 +342,66 @@ test("the Runtime config pencil never renders when the container gives no onStar
     />,
   );
   expect(markup).not.toContain(m.agent_profile_edit_runtime_config());
+});
+
+test("a non-Claude-Code Agent's context badge stays a tooltip trigger, not a popover", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture()}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+      contextUsage={{
+        usedTokens: 24_900,
+        windowTokens: 200_000,
+        observedAtMs: Date.parse("2026-09-18T12:00:00.000Z"),
+      }}
+    />,
+  );
+  expect(markup).toContain("Context 12%");
+  // No popover trigger/label for a runtime without a composition to read.
+  expect(markup).not.toContain(m.agent_context_title());
+  expect(markup).not.toContain(`"${m.agent_context_usage_badge({ percent: 12 })}"`);
+});
+
+test("a Claude Code Agent's context badge becomes the breakdown popover trigger", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({
+        runtimeConfig: {
+          runtime: RUNTIME_PROVIDER.CLAUDE_CODE,
+          provider: { kind: "default" },
+          model: "claude-sonnet-5",
+          modelProvider: "",
+          reasoning: "high",
+        },
+      })}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+      contextUsage={{
+        usedTokens: 24_900,
+        windowTokens: 200_000,
+        observedAtMs: Date.parse("2026-09-18T12:00:00.000Z"),
+      }}
+    />,
+  );
+  expect(markup).toContain("Context 12%");
+  // The popover trigger's accessible label IS the badge's own tooltip line (used / window · time),
+  // which is also the popover's header line — the runtime-usage twin's pattern.
+  expect(markup).toContain(
+    `aria-label="${m.agent_context_usage_tooltip({
+      used: "24,900",
+      window: "200,000",
+      time: formatDateForDisplay(new Date("2026-09-18T12:00:00.000Z"), "UTC", "en"),
+    })}"`,
+  );
 });

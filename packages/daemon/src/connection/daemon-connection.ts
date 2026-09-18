@@ -75,6 +75,11 @@ import {
   type ComputerUpgradeResult,
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
+  decodeAgentContextScanRequest,
+  encodeAgentContextScanResponse,
+  AGENT_CONTEXT_SCAN_RESULT_METHOD,
+  type AgentContextScanRequest,
+  type AgentContextScanResponse,
   decodeAgentMessageDelivery,
   decodeComputerRestartIntent,
   decodeComputerUpgradeIntent,
@@ -413,6 +418,8 @@ export interface DaemonConnectionClient {
   sendWorkspaceFileReadResult?(result: AgentWorkspaceFileReadResult): Promise<void>;
   onUsageScan?(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void;
   sendUsageScanResult?(response: DaemonRuntimeUsageScanResponse): Promise<void>;
+  onAgentContextScan?(callback: (request: AgentContextScanRequest) => Promise<void>): () => void;
+  sendAgentContextScanResult?(response: AgentContextScanResponse): Promise<void>;
   sendUpgradeResult?(result: ComputerUpgradeResult): Promise<boolean>;
   stop(): Promise<void>;
   onReconnect?(callback: () => void): () => void;
@@ -1178,6 +1185,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #usageScan = new ListenerSlot<
     (request: DaemonRuntimeUsageScanRequest) => Promise<void>
   >();
+  readonly #agentContextScan = new ListenerSlot<
+    (request: AgentContextScanRequest) => Promise<void>
+  >();
   readonly #reconnect = new ListenerSlot<() => void>();
   /** Publications received between a ready request and its acknowledgement, in arrival order. */
   #readyPublications: Array<() => void> | undefined;
@@ -1206,6 +1216,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   /** Same one-per-connection-lifetime log suppression as
    * `#loggedUnknownSessionInvalidateMethod`, for `agent:context:usage`. */
   #loggedUnknownContextUsageMethod = false;
+  /** Same one-per-connection-lifetime log suppression as
+   * `#loggedUnknownSessionInvalidateMethod`, for `agent:context_scan_result` (ADR 0051). */
+  #loggedUnknownContextScanResultMethod = false;
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
   readonly #upgradeRequestIds = new Set<string>();
@@ -1337,6 +1350,10 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   onUsageScan(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void {
     return this.#usageScan.set(callback);
+  }
+
+  onAgentContextScan(callback: (request: AgentContextScanRequest) => Promise<void>): () => void {
+    return this.#agentContextScan.set(callback);
   }
 
   onReconnect(callback: () => void): () => void {
@@ -2177,6 +2194,12 @@ export class DaemonConnection implements DaemonConnectionClient {
         void this.#usageScan.current?.(usage);
         return true;
       }) ||
+      this.#route(data, decodeAgentContextScanRequest, (scan) => {
+        if (scan.protocolMajor !== 1 || scan.workspaceId !== workspaceId || !scan.computerId)
+          return false;
+        void this.#agentContextScan.current?.(scan);
+        return true;
+      }) ||
       this.#route(data, decodeAgentActivityProbe, (probe) => {
         if (probe.protocolMajor !== 1 || !ownsDaemon(probe)) return false;
         this.#deliver(this.#agentActivityProbe, probe);
@@ -2273,6 +2296,32 @@ export class DaemonConnection implements DaemonConnectionClient {
       DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
       encodeDaemonRuntimeUsageScanResponse(response),
     );
+  }
+
+  async sendAgentContextScanResult(response: AgentContextScanResponse): Promise<void> {
+    await this.#rpc(
+      AGENT_CONTEXT_SCAN_RESULT_METHOD,
+      encodeAgentContextScanResponse(response),
+    ).catch((error) => {
+      const errorCode = diagnosticErrorCode(error);
+      // An old server that has never heard of this RPC rejects every attempt the same way for
+      // as long as this process talks to it; logging that fact once per connection lifetime is
+      // enough (the same convention as `agent_session:invalidate_rejected`). The scan itself
+      // already completed on the Computer; only its delivery to the server failed.
+      const unknownMethod = errorCode === "404";
+      if (unknownMethod && this.#loggedUnknownContextScanResultMethod) return;
+      if (unknownMethod) this.#loggedUnknownContextScanResultMethod = true;
+      logger.warning("Agent context scan result was not accepted", {
+        event: "agent_context_scan_result:rejected",
+        request_id: response.requestId,
+        workspace_id: response.workspaceId,
+        computer_id: response.computerId,
+        agent_id: response.agentId,
+        status: response.status,
+        error_code: errorCode,
+        outcome: "failed",
+      });
+    });
   }
 
   async ready(createRequest: () => DaemonRuntimeReadyRequest): Promise<void> {

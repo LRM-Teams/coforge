@@ -2,6 +2,7 @@ import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
   UsageUnavailableError,
+  AgentContextReportTimeoutError,
   type AgentRuntimeConfig,
   type AgentRuntimeEvent,
   type CodeAgentProvider,
@@ -85,6 +86,9 @@ import {
   type AgentWorkspaceFilesListResult,
   type AgentWorkspaceFileReadRequest,
   type AgentWorkspaceFileReadResult,
+  type AgentContextScanRequest,
+  type AgentContextScanResponse,
+  AGENT_CONTEXT_SCAN_STATUS,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -714,6 +718,94 @@ export class DaemonRuntime {
     }
   }
 
+  /**
+   * Answers a server-requested breakdown of one Agent's current Claude Code context-window
+   * composition (ADR 0051). Unlike `scanUsage` (provider-wide), this is per-Agent: it resolves the
+   * Agent's own current launch and native session id from what this runtime already tracks
+   * (`#currentActivityLaunches`, `#sessionReferences` — the same references `#sendContextUsage`
+   * reads), never trusting `request.launchId`/`request.sessionId` to run anything; those fields are
+   * only echoed back for correlation, or used to detect a request naming a launch this runtime has
+   * already superseded (`error`, without running the CLI). Check order: not running ->
+   * `no_session`; a stale launch -> `error`; the provider has no `readContextReport` ->
+   * `unsupported`; no native session id yet -> `no_session`; otherwise the CLI runs.
+   */
+  async scanAgentContext(request: AgentContextScanRequest): Promise<AgentContextScanResponse> {
+    this.#assertRunning();
+    this.#assertOwnIntent(request);
+    const base = {
+      protocolMajor: request.protocolMajor,
+      requestId: request.requestId,
+      workspaceId: this.#connection.workspaceId,
+      computerId: this.#connection.computerId,
+      agentId: request.agentId,
+      provider: request.provider,
+    };
+    const result = (
+      launchId: string,
+      sessionId: string,
+      status: AgentContextScanResponse["status"],
+      reportJson?: Uint8Array,
+      message?: string,
+    ): AgentContextScanResponse => ({
+      ...base,
+      launchId,
+      sessionId,
+      accepted: Boolean(reportJson),
+      status,
+      ...(reportJson ? { reportJson } : {}),
+      ...(message ? { message } : {}),
+    });
+    const launch = this.#currentActivityLaunches.get(request.agentId);
+    if (!launch)
+      return result(request.launchId, request.sessionId, AGENT_CONTEXT_SCAN_STATUS.NO_SESSION);
+    if (request.launchId && launch.launchId !== request.launchId)
+      return result(
+        launch.launchId,
+        request.sessionId,
+        AGENT_CONTEXT_SCAN_STATUS.ERROR,
+        undefined,
+        "Agent context scan targets a superseded launch",
+      );
+    const config = this.#agentProcessManager.runtime(request.agentId)?.config;
+    if (!config)
+      return result(launch.launchId, request.sessionId, AGENT_CONTEXT_SCAN_STATUS.NO_SESSION);
+    const codeAgentProvider = this.#createProvider(config.provider);
+    if (!codeAgentProvider.readContextReport)
+      return result(launch.launchId, request.sessionId, AGENT_CONTEXT_SCAN_STATUS.UNSUPPORTED);
+    const sessionId = this.#sessionReferences.get(request.agentId)?.sessionId;
+    if (!sessionId)
+      return result(launch.launchId, request.sessionId, AGENT_CONTEXT_SCAN_STATUS.NO_SESSION);
+    try {
+      const report = await codeAgentProvider.readContextReport({
+        workingDirectory: agentWorkspaceDirectory(
+          this.#connection.workspaceRoot,
+          this.#connection.workspaceId,
+          request.agentId,
+        ),
+        sessionId,
+        timeoutMs: 20_000,
+      });
+      return report
+        ? result(
+            launch.launchId,
+            sessionId,
+            AGENT_CONTEXT_SCAN_STATUS.AVAILABLE,
+            new TextEncoder().encode(JSON.stringify(report)),
+          )
+        : result(launch.launchId, sessionId, AGENT_CONTEXT_SCAN_STATUS.UNPARSED);
+    } catch (error) {
+      return error instanceof AgentContextReportTimeoutError
+        ? result(launch.launchId, sessionId, AGENT_CONTEXT_SCAN_STATUS.TIMEOUT)
+        : result(
+            launch.launchId,
+            sessionId,
+            AGENT_CONTEXT_SCAN_STATUS.ERROR,
+            undefined,
+            "Context scan failed",
+          );
+    }
+  }
+
   start(connection: DaemonConfig): Promise<void> {
     if (
       connection.workspaceId !== this.#connection.workspaceId ||
@@ -852,6 +944,13 @@ export class DaemonRuntime {
             computerId: connection.computerId,
             provider: request.provider,
           });
+        }),
+      );
+      this.#subscribe(
+        this.#transport.onAgentContextScan?.(async (request) => {
+          if (request.computerId !== connection.computerId) return;
+          const result = await this.scanAgentContext(request);
+          await this.#transport.sendAgentContextScanResult?.(result);
         }),
       );
       // Register publication listeners before the ready RPC. The server may
