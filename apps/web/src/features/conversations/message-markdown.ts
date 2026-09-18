@@ -33,6 +33,9 @@ const URI_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 const CHIP_BASE = "message-markdown-mention rounded-sm px-0.5 font-medium";
 export const MENTION_CHIP_CLASS = `${CHIP_BASE} bg-brand-primary text-brand-secondary`;
 export const MENTION_CHIP_SELF_CLASS = `${CHIP_BASE} bg-brand-solid text-white`;
+/** Added to an Agent chip so the renderer can recognise the clickable variant and the
+ * stylesheet can give it a pointer/hover affordance. A human chip never gets this. */
+export const MENTION_CHIP_AGENT_CLASS = "message-markdown-mention-agent";
 
 /**
  * Escapes HTML-looking text outside code spans so Markdown renders it literally, matching the
@@ -61,14 +64,22 @@ export function escapeLiteralHtml(body: string): string {
     .join("");
 }
 
+/** A resolved mention as a chip needs it: the handle to show, plus the Agent id to open its
+ * profile panel on click (absent for a human mention — there is no human profile panel). */
+export type ChipMention = { handle: string; agentId?: string };
+
 /**
- * The resolved handle for every mention token in a body, keyed the way `MENTION_TOKEN_PATTERN`
+ * The resolved mention for every token in a body, keyed the way `MENTION_TOKEN_PATTERN`
  * spells the token (`user:<uuid>` / `agent:<uuid>`, lower-cased). A token with no row here
- * degrades to its raw text rather than a phantom chip.
+ * degrades to its raw text rather than a phantom chip. An `agent` mention carries its
+ * `actorId` as `agentId` so the chip can open that Agent's profile panel.
  */
-export function mentionHandlesByToken(mentions: readonly MentionRef[]): Map<string, string> {
+export function mentionHandlesByToken(mentions: readonly MentionRef[]): Map<string, ChipMention> {
   return new Map(
-    mentions.map((mention) => [`${mention.kind}:${mention.actorId.toLowerCase()}`, mention.handle]),
+    mentions.map((mention) => [
+      `${mention.kind}:${mention.actorId.toLowerCase()}`,
+      { handle: mention.handle, agentId: mention.kind === "agent" ? mention.actorId : undefined },
+    ]),
   );
 }
 
@@ -78,7 +89,7 @@ export function mentionHandlesByToken(mentions: readonly MentionRef[]): Map<stri
  * with no interaction — membership and wake rules live on the server.
  */
 export function rehypeMentionChips(options: {
-  handles: Map<string, string>;
+  handles: Map<string, ChipMention>;
   viewerHandle?: string;
 }) {
   const { handles, viewerHandle } = options;
@@ -113,7 +124,7 @@ export function rehypeMentionChips(options: {
 function chipParts(
   value: string,
   tokenPattern: RegExp,
-  handles: Map<string, string>,
+  handles: Map<string, ChipMention>,
   viewerHandle?: string,
 ): Array<Element | Text> | undefined {
   tokenPattern.lastIndex = 0;
@@ -124,20 +135,25 @@ function chipParts(
   for (const match of value.matchAll(tokenPattern)) {
     matched = true;
     const kind = match[1]!.toLowerCase() === "human" ? "user" : "agent";
-    const handle = handles.get(`${kind}:${match[2]!.toLowerCase()}`);
+    const mention = handles.get(`${kind}:${match[2]!.toLowerCase()}`);
     if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
-    if (handle === undefined) {
+    if (mention === undefined) {
       // An unresolvable token stays as written rather than becoming a phantom highlight.
       parts.push({ type: "text", value: match[0] });
     } else {
-      const self = Boolean(viewerHandle) && handle === viewerHandle;
+      const self = Boolean(viewerHandle) && mention.handle === viewerHandle;
+      const className = (self ? MENTION_CHIP_SELF_CLASS : MENTION_CHIP_CLASS).split(" ");
+      // An Agent chip is clickable: it carries its Agent id and the recognisable class the
+      // renderer turns into a button. A human chip stays a plain reference (no profile panel).
+      if (mention.agentId) className.push(MENTION_CHIP_AGENT_CLASS);
       parts.push({
         type: "element",
         tagName: "span",
         properties: {
-          className: (self ? MENTION_CHIP_SELF_CLASS : MENTION_CHIP_CLASS).split(" "),
+          className,
+          ...(mention.agentId ? { "data-mention-agent-id": mention.agentId } : {}),
         },
-        children: [{ type: "text", value: `@${handle}` }],
+        children: [{ type: "text", value: `@${mention.handle}` }],
       });
     }
     offset = match.index + match[0].length;

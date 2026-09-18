@@ -435,6 +435,7 @@ export function MessageRow({
                 body={message.body}
                 mentions={message.mentions}
                 viewerHandle={viewerHandle}
+                onOpenAgentProfile={onOpenAgentProfile}
               />
             </div>
           )}

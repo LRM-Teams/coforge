@@ -1,5 +1,5 @@
-import { useMemo, type ComponentPropsWithoutRef } from "react";
-import Markdown, { type ExtraProps, type Options } from "react-markdown";
+import { useMemo, type ComponentPropsWithoutRef, type KeyboardEvent } from "react";
+import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -34,10 +34,15 @@ export function MessageBody({
   body,
   mentions = [],
   viewerHandle,
+  onOpenAgentProfile,
 }: {
   body: string;
   mentions?: readonly MentionRef[];
   viewerHandle?: string;
+  /** Opens the Agent profile panel when an Agent mention chip is activated. Present only where
+   * the conversation owns that slot; absent, Agent chips render as inert highlights (the
+   * previous behavior), never dead controls. */
+  onOpenAgentProfile?: (agentId: string) => void;
 }) {
   const source = useMemo(() => escapeLiteralHtml(body), [body]);
   const handles = useMemo(() => mentionHandlesByToken(mentions), [mentions]);
@@ -47,13 +52,19 @@ export function MessageBody({
     () => [rehypeSanitize, [rehypeMentionChips, { handles, viewerHandle }]],
     [handles, viewerHandle],
   );
+  // The `span` override recognises the Agent mention chip (`data-mention-agent-id`, injected by
+  // `rehypeMentionChips`) and makes it an accessible button; every other span passes through.
+  const components = useMemo<Components>(
+    () => ({ ...MARKDOWN_COMPONENTS, span: mentionSpan(onOpenAgentProfile) }),
+    [onOpenAgentProfile],
+  );
 
   return (
     <div className="message-markdown">
       <Markdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={rehypePlugins}
-        components={MARKDOWN_COMPONENTS}
+        components={components}
       >
         {source}
       </Markdown>
@@ -75,6 +86,50 @@ const MARKDOWN_COMPONENTS = {
     </div>
   ),
 };
+
+/**
+ * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` (see
+ * `message-markdown.ts`); when a handler is provided it becomes a keyboard- and pointer-
+ * accessible control that opens that Agent's profile panel. All other spans — including human
+ * mention chips, which have no profile panel — render unchanged.
+ */
+function mentionSpan(onOpenAgentProfile?: (agentId: string) => void) {
+  return function MentionSpan({
+    node,
+    children,
+    className,
+    ...props
+  }: ComponentPropsWithoutRef<"span"> & ExtraProps) {
+    void node;
+    // `data-*` attributes arrive on props via react-markdown's hast → props mapping.
+    const agentId = (props as Record<string, unknown>)["data-mention-agent-id"];
+    if (typeof agentId === "string" && onOpenAgentProfile) {
+      const open = () => onOpenAgentProfile(agentId);
+      return (
+        <span
+          {...props}
+          className={className}
+          role="button"
+          tabIndex={0}
+          onClick={open}
+          onKeyDown={(event: KeyboardEvent<HTMLSpanElement>) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              open();
+            }
+          }}
+        >
+          {children}
+        </span>
+      );
+    }
+    return (
+      <span {...props} className={className}>
+        {children}
+      </span>
+    );
+  };
+}
 
 function CodeBlock({ node, children, ...props }: ComponentPropsWithoutRef<"pre"> & ExtraProps) {
   // `node` is react-markdown's hast node, not a DOM attribute; destructuring it out keeps it off
