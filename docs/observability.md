@@ -68,7 +68,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | --- | --- |
 | `activity` | 稳定类型，例如 `running_command`、`reading_file`、`using_tool`、`error` |
 | `level` | `info`、`warning` 或 `error` |
-| `message` | `running_command` 保留命令前 100 个 Unicode 字符；文件读写、编辑和工具 Activity 完整保留 provider 消息；错误和警告使用 provider 处理后的诊断文本 |
+| `message` | `running_command` 保留命令前 100 个 Unicode 字符；文件读写、编辑和工具 Activity 完整保留 provider 消息；错误和警告使用 Daemon 核心处理后的诊断文本（provider 只上报原始事实，见下文） |
 | `occurred_at` | daemon 记录的 UTC RFC 3339 时间 |
 | `launch_id` | 每次实际 OS process launch 的新身份；替换后不得复用 |
 | `client_seq` | 同一 `launch_id` 内从 1 开始严格递增的 daemon 序号 |
@@ -97,7 +97,7 @@ ADR 0021 在 `detailKind` 上新增了以下值，只在对应 provider 确有�
 | `compaction_finished` | 上述两个 provider 各自的结束信号（Claude 的 `compact_boundary`；Kiro 的 `compaction_update` 转为非 `in_progress`） | 同 `tool_end`，副标题“Compaction finished”（ADR 0021 amendment；此前仅续租、不写入历史） |
 | `subagent_activity` | 任意携带 subagent 归属（Claude `parent_tool_use_id`）的 trajectory entry；只有 Claude 产生这类归属 | 可见，写入历史，文案“Subagent working…” |
 | `message_received` | 消息投递/唤醒后既有的“Message received”上报，改用这个 kind 而不是通用的 `model_request_started` | 可见，写入历史 |
-| `runtime_crashed` | Claude、Codex 进程在非主动停止下意外退出（沿用既有的 `errorClass`/`errorReason`/`fingerprint`，只改 kind）；Kiro、Pi 目前没有等价的进程级信号，意外退出仍报 `stopped` | 可见，写入历史，视为错误 |
+| `runtime_crashed` | 四个 provider 一致：进程在非主动停止下意外退出，且退出前最近一次 `error` 事实还没有被 `completed` 事件解决（`errorClass`/`errorReason`/`fingerprint` 由 Daemon 核心统一分类，见下文「错误与重连的单一转换点」）；否则报 `idle` | 可见，写入历史，视为错误 |
 | `runtime_interrupted` | 主动 stop/restart 打断了一个正在忙碌（working/thinking）的 turn | 可见，写入历史，视为在线 |
 | `runtime_unavailable` | ADR 0040：Daemon 检测到已存的 native Session 无法恢复——缺失（kiro/pi 的 `session_missing`，或 Claude/Codex 驱动内部静默替换）或被 provider 拒绝 replay（`provider_replay_rejected`）；上报一次 `agent:session:invalidate` 后，以同一 `launchId` 冷启动新 session | 可见，写入历史，视为 working |
 
@@ -205,8 +205,11 @@ Activity envelope 包含 `request_id`、`workspace_id`、`agent_id` 和上述固
 stale rejection；当前保证来自 Daemon 的 current-launch gate。
 生命周期错误使用 `activity=launch_failed|stop_failed` 和 `level=error`，只发送稳定、
 脱敏且可操作的原因，不上传命令参数、绝对路径、凭据或 stderr。provider 错误/警告
-使用 `activity=error|warning` 和对应的 `level`；provider 必须先移除 token、prompt、命令、
-路径、完整响应和 stderr，再保留安全错误文本的原始语言与 wording。启动阶段如果进程未达到可接收工作状态，不能
+使用 `activity=error|warning` 和对应的 `level`；provider 只上报原始事实（消息文本，以及
+可选的 provider 原生错误代码/类别提示），从不自行分类；provider 的报错文案按上报原样
+显示，进程崩溃摘要的脱敏和长度上限，以及分类为下方的稳定类别，都是 Daemon 核心
+（`packages/daemon/src/agent-runtime/runtime-error-activity.ts`）唯一的职责，
+见下方「错误与重连的单一转换点」。启动阶段如果进程未达到可接收工作状态，不能
 发送 `agent:status(status=active)`，并通过 `agent:activity` 记录启动明细。如果启动失败，
 通过 `agent:activity` 记录启动错误。进程已经 active 后遇到错误、警告或意外退出时，通过
 `agent:activity` 上报；只要仍可由新消息重启就保持 `active`。只有人工停止、没有可重启配置，
@@ -231,9 +234,30 @@ PostgreSQL；`computer_id` 只取可信 connection metadata，不接受 payload 
 provider 初始化/认证失败、模型或 reasoning 配置不支持、Agent capacity 不足、进程
 异常退出、provider API 网络/认证/限流/额度错误、上下文或 token 限制、工具权限拒绝、
 协议解析或超时失败。警告至少覆盖 provider 返回的 warning、接近限流或额度阈值、可重试
-网络退避、上下文接近上限和可选能力不可用。具体 provider 错误必须在 provider 内归类
-为这些稳定类别，原始错误只作为本地诊断；stderr 不能直接作为发给服务端和前端的
-`message`。
+网络退避、上下文接近上限和可选能力不可用。归类到这些稳定类别是 Daemon 核心的职责（见下），
+原始错误只作为本地诊断；stderr 不能直接作为发给服务端和前端的 `message`。
+
+### 错误与重连的单一转换点
+
+`AgentRuntimeEvent`（`packages/agent/src/contract.ts`）的 `error` 成员
+（`message`、可选的 `retryable`/`providerErrorCode`/`providerErrorClass`/
+`providerErrorReason`/`occurredAt`）和 `reconnecting` 成员（`attempt`/
+`message`）是四个 provider（Claude Code、Codex、Kiro、Pi）唯一允许上报运行时失败
+和重连的方式，只携带原始事实，不带格式化或分类。`packages/daemon/src/agent-runtime/
+runtime-error-activity.ts` 是把这些事实变成可见 Activity 的唯一位置：provider 报错文案
+原样显示；崩溃摘要（`Crashed (...)`）脱敏并截断到 512 字符；附带的 `Error: …` trajectory
+entry，以及 `runtimeError`（`errorClass`/
+`errorReason`/`fingerprint`）结构化字段的分类，都只在这一个模块里发生；`error` 事件
+额外携带的 `providerErrorCode`/`providerErrorClass`/`providerErrorReason` 会被优先
+采用（例如 Codex 的 turn 失败带着原生错误码和 `turn_failed` 这个比通用分类更精确的
+reason），否则退回到通用的 `AgentRuntimeError`/`runtime_failure`。没有任何
+`code-agent/*/provider.ts` 文件再自行构造 `runtime_error`/`runtime_crashed`/
+`runtime_reconnecting` 的 Activity。
+
+`AgentSession.onExit` 本身不带退出码或信号，所以 Daemon 核心区分「进程崩溃」
+（`runtime_crashed`，文案 `Crashed (...)`) 和其他非主动退出（沿用 `stopped` 文案，
+因为 Agent 的控制状态此时同样是 stopped）时，唯一可用的事实是：这次退出之前最近一次
+`error` 事件是否已经被一个 `completed` 事件解决过。
 
 ### Web 展示契约
 

@@ -67,7 +67,7 @@ nothing will ever emit.
 | `compaction_finished` | Claude: `compact_boundary`; Kiro: `CompactionUpdate.status` transitioning away from `in_progress`. Both wired providers have an explicit end signal, so no generic "next non-compaction event" fallback was implemented in `runtime.ts` | working | liveness only, like `tool_end` |
 | `subagent_activity` | Any `activity` event whose entries carry a subagent scope (Claude `parent_tool_use_id`); only Claude ever sets that field, so this kind is Claude-only in practice even though the reclassification itself is provider-agnostic | working | visible, label "Subagent working…", stored |
 | `message_received` | The existing `AgentMessageAttentionIndex` observer that already reports "Message received" after a delivery/wake now uses this kind instead of the generic `model_request_started` it used before | working | visible, stored |
-| `runtime_crashed` | Claude and Codex: the process exits unexpectedly (the shared `JsonlProcess` wrapper's `"code agent process exited unexpectedly"` failure, observed outside the session's own `dispose()`) — same `errorClass`/`errorReason`/`fingerprint` fields as before, only the kind changes. Kiro and Pi have no provider-level crash signal distinct from an ordinary process exit and keep reporting `stopped`; they are skipped | error | visible, stored |
+| `runtime_crashed` | At the time of this record: Claude and Codex only, on an unexpected process exit (the shared `JsonlProcess` wrapper's `"code agent process exited unexpectedly"` failure). Kiro and Pi had no provider-level crash signal distinct from an ordinary process exit and kept reporting `stopped`. **Superseded** — see "Amendment" below: every provider now reports the same raw `error`/`completed` facts, and the daemon core alone decides `runtime_crashed` vs. `idle` for all four | error | visible, stored |
 | `runtime_interrupted` | A requested stop/restart (`stopAgent`/`#abandonLaunch`) cuts a turn that was busy (working/thinking) at the moment the stop was requested. Also mapped from a `completed` event's `interrupted` status for forward compatibility, though that path is unreachable today per the Context section | online | visible, stored |
 
 Added later, following this same discipline (ADR 0040, "An explicit `agent:session:invalidate` RPC replaces implicit-only session-loss reporting"):
@@ -304,6 +304,28 @@ place that can tell, provider-agnostically, when a thinking run has ended.
   emitter left; the two remaining references in `runtime.ts` are the
   `BUSY_ACTIVITY_DETAIL_KINDS` membership and the
   `safeRuntimeActivityMessage` branch above, not emission sites.
+
+## Amendment: providers stop classifying errors (`runtime-error-central`)
+
+The `runtime_crashed` row above, and the general principle it implied — that
+each provider decides whether its own failure is a crash, an ordinary error,
+or a reconnect — has been superseded. Providers now report only raw facts:
+`AgentRuntimeEvent`'s `error` (`message`, optional `providerErrorCode`/
+`providerErrorClass`/`providerErrorReason`/`occurredAt`) and `reconnecting`
+(`attempt`/`message`) members (`packages/agent/src/contract.ts`). A single
+module, `packages/daemon/src/agent-runtime/runtime-error-activity.ts`, turns
+those facts into the visible `runtime_error`/`runtime_crashed`/
+`runtime_reconnecting` Activity for every provider alike: the provider's
+message shown as reported, the crash summary redacted and capped at 512
+characters, the `Error: …` trajectory entry, and the structured `runtimeError`
+fields. No `code-agent/*/provider.ts` file
+constructs one of these three Activities anymore.
+
+This also closes the asymmetry the original table described: `runtime_crashed`
+is no longer Claude/Codex-only. `AgentSession.onExit` still carries no exit
+code or signal, so the daemon core decides crashed vs stopped at process exit
+from whether the most recent `error` event on that launch was left unresolved
+by a `completed` event, not from an OS-level signal/exit-code summary.
 
 ## Rollback
 

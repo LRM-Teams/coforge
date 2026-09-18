@@ -286,17 +286,11 @@ class KiroSession implements AgentSession {
         (error: unknown) => {
           if (this.#pending === admitted) admitted.reject(new Error("Kiro rejected input"));
           if (generation === this.#generation && !this.#disposed) {
-            this.#emit({
-              type: "activity",
-              activity: createAgentActivity(
-                AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-                "error",
-                "Kiro request failed",
-              ),
-            });
+            // Native errors may contain private provider data; never forward them as the
+            // fact (not even to the daemon core) — only this fixed, safe summary.
+            this.#emit({ type: "error", message: "Kiro request failed" });
             this.#emit({ type: "completed", status: "failed" });
           }
-          // Native errors may contain private provider data; do not send them to logs.
           void error;
         },
       );
@@ -382,14 +376,10 @@ class KiroSession implements AgentSession {
       meta?.kind === "error" &&
       typeof meta.message === "string"
     )
-      this.#emit({
-        type: "activity",
-        activity: createAgentActivity(
-          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-          "error",
-          "Kiro reported a runtime error",
-        ),
-      });
+      // meta.message may carry private provider data; never forward it as the fact —
+      // only this fixed, safe summary (kept stricter than CoForge's redaction elsewhere:
+      // no attempt to scrub-and-forward Kiro's native text, it is dropped outright).
+      this.#emit({ type: "error", message: "Kiro reported a runtime error" });
   }
 
   async interrupt() {
