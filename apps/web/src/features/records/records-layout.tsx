@@ -517,7 +517,7 @@ export function RecordsLayout({
                             navigate({
                               to: "/agents/$agentId",
                               params: { agentId: status.agentId },
-                              search: { tab: "profile", edit: true },
+                              search: { agentTab: "profile" },
                             }),
                           )
                           .catch(() => {

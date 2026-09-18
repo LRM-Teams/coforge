@@ -603,7 +603,9 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     expect(html).toContain("E2E User message");
     expect(html).toContain("E2E Agent reply");
 
-    const profile = await fetch(`http://127.0.0.1:8789/agents/${created.agent.id}?tab=profile`);
+    const profile = await fetch(
+      `http://127.0.0.1:8789/agents/${created.agent.id}?agentTab=profile`,
+    );
     expect(profile.status).toBe(200);
     const profileHtml = await profile.text();
     expect(profileHtml).toContain("e2e-agent-updated");

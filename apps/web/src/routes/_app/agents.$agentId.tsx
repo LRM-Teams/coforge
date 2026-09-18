@@ -1,154 +1,71 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useMemo } from "react";
+import { z } from "zod";
 
-import { AgentDetail } from "@/features/agents/agent-detail";
-import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
-import { AgentDetailPending } from "@/features/agents/agent-detail-pending";
-import { getAgentSkills } from "@/features/agents/agent-skills.functions";
-import { executeAgentControl } from "@/features/agents/agent-control.functions";
-import {
-  deleteAgentRuntimeCredential,
-  getAgentDetail,
-  saveAgentRuntimeCredential,
-  updateAgent,
-  updateAgentRole,
-  getAgentEnvironment,
-  saveAgentEnvironment,
-} from "@/features/agents/agents.functions";
-import { getUserPreferences } from "@/features/settings/settings.functions";
+import { MembersLayout } from "@/features/agents/members-layout";
+import { createAgent } from "@/features/agents/agents.functions";
+import { AgentsPending } from "@/features/agents/agents-pending";
+import { AgentProfilePanel } from "@/features/agents/profile-panel/agent-profile-panel";
+import { agentProfileQuery } from "@/features/agents/profile-panel/agent-profile-queries";
+import { agentProfileTabParamSchema } from "@/features/agents/profile-panel/profile-panel-search";
+import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { PageLoadError } from "@/features/errors/page-load-error";
-import { listComputers } from "@/features/computers/computers.functions";
-import { useAgentActivityFeed, useLiveAgent } from "@/features/agents/workspace-agents-realtime";
-import { useAgentRuntimeOptionsLoader } from "@/features/agents/agent-runtime-options";
-import { agentActivityFeedQuery } from "@/features/agents/agent-activity-queries";
-import { mergeAgentActivity } from "@/features/agents/agent-activity";
-
-function detailTab(value: unknown): "profile" | "activity" | "reminders" {
-  if (value === "activity") return "activity";
-  if (value === "reminders") return "reminders";
-  return "profile";
-}
+import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
+import { inviteWorkspaceMember } from "@/features/workspaces/members.functions";
+import { listWorkspaceMembers } from "@/features/workspaces/workspaces.functions";
+import { localizeHref } from "@/paraglide/runtime";
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
-  validateSearch: (search) => ({
-    tab: detailTab(search.tab),
-    edit: search.edit === true,
-  }),
+  validateSearch: z.object({ agentTab: agentProfileTabParamSchema }),
   loader: async ({ context, params }) => {
-    const [detail, preferences, computers] = await Promise.all([
-      getAgentDetail({ data: params.agentId }),
-      getUserPreferences(),
-      listComputers(),
-    ]);
-    // Seed the Activity tab's feed in the Query cache; the shared Activity
-    // subscription patches this entry from here on.
-    context.queryClient.setQueryData(agentActivityFeedQuery(params.agentId).queryKey, (current) =>
-      mergeAgentActivity(current ?? [], detail.activity),
-    );
-    return { detail, timeZone: preferences.timeZone, computers };
+    const [computers, directory] = await Promise.all([listComputers(), listWorkspaceMembers()]);
+    // Prefetches the panel's own query so the profile renders in the initial SSR HTML — the
+    // Members page no longer runs the old full-page `getAgentDetail` loader.
+    await context.queryClient.ensureQueryData(agentProfileQuery(params.agentId));
+    return { computers, directory };
   },
   pendingMs: 300,
   pendingMinMs: 0,
-  pendingComponent: AgentDetailPendingPage,
+  pendingComponent: AgentsPending,
   errorComponent: PageLoadError,
   component: AgentDetailPage,
 });
 
-function AgentDetailPendingPage() {
-  return <AgentDetailPending tab={Route.useSearch().tab} />;
-}
-
 function AgentDetailPage() {
-  const { detail, timeZone, computers } = Route.useLoaderData();
-  const { edit } = Route.useSearch();
+  const { computers, directory } = Route.useLoaderData();
+  const { agentId } = Route.useParams();
+  const { agentTab } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const router = useRouter();
-  const saveCredential = useServerFn(saveAgentRuntimeCredential);
-  const deleteCredential = useServerFn(deleteAgentRuntimeCredential);
-  const loadEnvironment = useServerFn(getAgentEnvironment);
-  const saveEnvironment = useServerFn(saveAgentEnvironment);
-  const update = useServerFn(updateAgent);
-  const updateRole = useServerFn(updateAgentRole);
-  const loadSkills = useServerFn(getAgentSkills);
-  const executeControl = useServerFn(executeAgentControl);
-  const loadReminders = useServerFn(listAgentReminders);
-  const liveAgent = useLiveAgent(detail.id);
-  const activity = useAgentActivityFeed(detail.id) ?? detail.activity;
-  const loadAgentSkills = useCallback(
-    () => loadSkills({ data: detail.id }),
-    [loadSkills, detail.id],
-  );
-  const loadAgentReminders = useCallback(
-    (cursor?: { id: string }) =>
-      loadReminders({ data: { agentId: detail.id, ...(cursor ? { cursor } : {}) } }),
-    [detail.id, loadReminders],
-  );
-  // Profile is memoized; keep everything it receives referentially stable so a
-  // status heartbeat only re-renders the header.
-  const environment = useMemo(
-    () => ({
-      onLoad: () => loadEnvironment({ data: detail.id }),
-      onSave: async (envVars: Parameters<typeof saveEnvironment>[0]["data"]["envVars"]) => {
-        const result = await saveEnvironment({ data: { agentId: detail.id, envVars } });
+  const create = useServerFn(createAgent);
+  const loadRuntimeCatalog = useServerFn(getComputerRuntimeCatalog);
+  const invite = useServerFn(inviteWorkspaceMember);
+  const visibleAgents = useLiveAgents();
+  return (
+    <MembersLayout
+      directory={directory}
+      agents={visibleAgents}
+      computers={computers}
+      selectedAgentId={agentId}
+      onLoadRuntimeCatalog={(computerId) => loadRuntimeCatalog({ data: { computerId } })}
+      onCreate={async (data) => {
+        const result = await create({ data });
         await router.invalidate({ sync: true });
         return result;
-      },
-    }),
-    [detail.id, loadEnvironment, saveEnvironment, router],
-  );
-  const onExecuteControl = useCallback(
-    (request: Parameters<typeof executeControl>[0]["data"]) => executeControl({ data: request }),
-    [executeControl],
-  );
-  const onLoadRuntimeOptions = useAgentRuntimeOptionsLoader();
-  const onSaveRuntimeCredential = useCallback(
-    async (apiKey: string) => {
-      await saveCredential({ data: { agentId: detail.id, apiKey } });
-      await router.invalidate({ sync: true });
-    },
-    [saveCredential, detail.id, router],
-  );
-  const onDeleteRuntimeCredential = useCallback(async () => {
-    await deleteCredential({ data: detail.id });
-    await router.invalidate({ sync: true });
-  }, [deleteCredential, detail.id, router]);
-  const onUpdate = useCallback(
-    async (input: Parameters<typeof update>[0]["data"]) => {
-      await update({ data: input });
-      await router.invalidate({ sync: true });
-    },
-    [update, router],
-  );
-  const onUpdateRole = useCallback(
-    async (input: Parameters<typeof updateRole>[0]["data"]) => {
-      await updateRole({ data: input });
-      await router.invalidate({ sync: true });
-    },
-    [updateRole, router],
-  );
-  return (
-    <AgentDetail
-      activity={activity}
-      detail={detail}
-      display={liveAgent?.display ?? detail.display}
-      timeZone={timeZone}
-      tab={Route.useSearch().tab}
-      initialEditOpen={edit}
-      environment={environment}
-      onLoadSkills={loadAgentSkills}
-      onExecuteControl={onExecuteControl}
-      onLoadReminders={loadAgentReminders}
-      onLoadRuntimeOptions={onLoadRuntimeOptions}
-      onSaveRuntimeCredential={onSaveRuntimeCredential}
-      onDeleteRuntimeCredential={onDeleteRuntimeCredential}
-      onUpdate={onUpdate}
-      onUpdateRole={onUpdateRole}
-      availableComputers={computers.map((computer) => ({
-        id: computer.id,
-        displayName: computer.displayName,
-        kind: computer.kind,
-        online: computer.online,
-      }))}
+      }}
+      onInviteMember={async (data) => {
+        await invite({ data });
+      }}
+      detail={
+        <AgentProfilePanel
+          agentId={agentId}
+          requestedTab={agentTab}
+          onTabChange={(tab) => void navigate({ search: { agentTab: tab }, replace: true })}
+          onClose={() => void navigate({ to: "/agents", search: {} })}
+          hideClose
+          backHref={localizeHref("/agents")}
+        />
+      }
     />
   );
 }

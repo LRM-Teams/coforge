@@ -7,7 +7,7 @@ import { m } from "@/paraglide/messages";
 export function AgentsPending() {
   return (
     <main className="flex h-svh min-w-0">
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
         <PageHeader
           heading={m.navigation_agents()}
           actions={
@@ -16,69 +16,59 @@ export function AgentsPending() {
             </Button>
           }
         />
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
-          <div className="mt-6 flex flex-wrap items-center gap-4">
-            <div
-              aria-hidden="true"
-              className="flex gap-0.5 rounded-lg bg-secondary p-1 ring-1 ring-secondary ring-inset"
-            >
-              {[m.filters_all(), m.member_person(), m.member_agent()].map((label) => (
-                <span
-                  key={label}
-                  className="flex h-11 items-center gap-2 px-3 text-sm font-semibold text-tertiary md:h-9"
-                >
-                  {label}
-                  <Skeleton className="h-5 w-6 rounded-full" />
-                </span>
-              ))}
-            </div>
-            <label className="flex h-11 w-full items-center gap-2 rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-secondary ring-inset sm:ml-auto sm:w-72">
-              <Search aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
-              <input
-                type="search"
-                disabled
-                aria-label={m.filters_search()}
-                placeholder={`${m.filters_search()}...`}
-                className="min-w-0 flex-1 bg-transparent placeholder:text-tertiary"
-              />
-            </label>
-          </div>
-          <p role="status" className="sr-only">
-            {m.agents_loading()}
-          </p>
-          <section
+        <div className="flex min-h-0 flex-1">
+          <aside
             aria-busy="true"
-            aria-label={m.navigation_agents()}
-            className="mt-6 grid gap-5 md:grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]"
+            className="flex w-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-secondary md:w-80"
           >
-            {[0, 1, 2, 3, 4, 5].map((index) => (
-              <div
-                key={index}
-                aria-hidden="true"
-                className="flex min-h-56 min-w-0 flex-col rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset"
-              >
-                <div className="flex flex-1 flex-col motion-safe:animate-pulse">
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="size-12 shrink-0 rounded-xl" />
-                    <div className="flex-1 space-y-2">
-                      <Skeleton className="h-4 w-3/5" />
-                      <Skeleton className="h-3 w-2/5" />
-                    </div>
-                  </div>
-                  <div className="mt-5 space-y-2">
-                    <Skeleton className="h-3.5 w-2/3" />
-                    <Skeleton className="h-3 w-1/3" />
-                  </div>
-                  <div className="mt-auto flex items-center gap-3 pt-5">
-                    <Skeleton className="h-5 w-12 rounded-md" />
-                    <Skeleton className="h-3 w-1/3" />
+            <p role="status" className="sr-only">
+              {m.agents_loading()}
+            </p>
+            <div className="shrink-0 border-b border-secondary p-3">
+              <label className="flex h-9 w-full items-center gap-2 rounded-lg bg-secondary px-3 text-sm ring-1 ring-secondary ring-inset">
+                <Search aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
+                <input
+                  type="search"
+                  disabled
+                  aria-label={m.filters_search()}
+                  placeholder={`${m.filters_search()}...`}
+                  className="min-w-0 flex-1 bg-transparent placeholder:text-tertiary"
+                />
+              </label>
+            </div>
+            <div aria-hidden="true" className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3">
+              {[0, 1, 2, 3, 4, 5].map((index) => (
+                <div
+                  key={index}
+                  className="flex items-center gap-2.5 py-1.5 motion-safe:animate-pulse"
+                >
+                  <Skeleton className="size-8 shrink-0 rounded-full" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-3/5" />
+                    <Skeleton className="h-3 w-2/5" />
                   </div>
                 </div>
+              ))}
+            </div>
+          </aside>
+          <section
+            aria-hidden="true"
+            className="hidden min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:flex"
+          >
+            <div className="motion-safe:animate-pulse space-y-4 p-6">
+              <div className="flex items-center gap-4">
+                <Skeleton className="size-16 shrink-0 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-5 w-32" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
               </div>
-            ))}
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
           </section>
         </div>
-      </section>
+      </div>
     </main>
   );
 }

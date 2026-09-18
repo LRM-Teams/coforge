@@ -369,7 +369,7 @@ export function RecordSidePanel({
               <Link
                 to="/agents/$agentId"
                 params={{ agentId: assistantStatus.agentId }}
-                search={{ tab: "profile", edit: true }}
+                search={{ agentTab: "profile" }}
                 className="text-sm font-semibold text-brand-secondary"
               >
                 {m.records_weekly_ai_setup_action()}

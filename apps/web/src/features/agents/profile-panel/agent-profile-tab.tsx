@@ -23,6 +23,11 @@ import { computerIcon } from "@/features/computers/computer-identity";
 import { RuntimeUsage, UsageHealthDot } from "@/features/computers/runtime-usage";
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "@/features/agents/agents.functions";
+import { AgentSkills, type AgentSkillsLoadResult } from "@/features/agents/agent-skills";
+import {
+  AgentEnvironmentEditor,
+  type AgentEnvironmentEditorProps,
+} from "@/features/agents/agent-environment-editor";
 import { InlineEditField, SECTION_CAPTION_CLASS, SUBFIELD_LABEL_CLASS } from "./inline-edit-field";
 
 type AgentProfile = Awaited<ReturnType<typeof getAgentProfile>>;
@@ -68,6 +73,8 @@ export function AgentProfileTab({
   onSaveRole,
   runtimeCredentialDialog,
   onStartRuntimeEdit,
+  onLoadSkills,
+  environment,
 }: {
   profile: NonNullable<AgentProfile>;
   display?: AgentDisplaySnapshot;
@@ -83,6 +90,11 @@ export function AgentProfileTab({
   /** Opens the container's `AgentRuntimeConfigDialog` (see `agent-profile-panel.tsx`). The
    * RUNTIME CONFIG badges below never change; only the pencil does anything. */
   onStartRuntimeEdit?: () => void;
+  /** Owner-only, same as the old Agent detail page's Skills section. Omitted for a viewer who
+   * does not own the Agent. */
+  onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
+  /** Owner-only, same as the old Agent detail page's Environment section. */
+  environment?: AgentEnvironmentEditorProps;
 }) {
   const view = agentDisplay(display, { stopped: profile.stopped });
   const { runtime, model, reasoning } = profile.runtimeConfig;
@@ -284,6 +296,21 @@ export function AgentProfileTab({
           </div>
         </div>
       </section>
+
+      {profile.ownedByCurrentUser && environment && (
+        <div className="border-b border-secondary px-6">
+          <AgentEnvironmentEditor key={`environment:${profile.id}`} {...environment} />
+        </div>
+      )}
+
+      {profile.ownedByCurrentUser && onLoadSkills && (
+        <div className="border-b border-secondary px-6">
+          <AgentSkills
+            resetKey={`${profile.id}:${profile.computerId ?? ""}:${JSON.stringify(profile.runtimeConfig)}`}
+            onLoad={onLoadSkills}
+          />
+        </div>
+      )}
 
       {canManage && (
         <section className="px-6 py-5">

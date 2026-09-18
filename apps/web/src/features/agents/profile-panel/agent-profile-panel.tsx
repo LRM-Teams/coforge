@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { getRouteApi } from "@tanstack/react-router";
 import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
@@ -19,6 +19,7 @@ import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { AgentActivityTimeline } from "@/features/agents/agent-activity-timeline";
 import { AgentReminders } from "@/features/agents/agent-reminders";
 import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
+import { getAgentSkills } from "@/features/agents/agent-skills.functions";
 import { useAgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
 import { executeAgentControl } from "@/features/agents/agent-control.functions";
@@ -32,6 +33,8 @@ import {
   updateAgentRole,
   saveAgentRuntimeCredential,
   deleteAgentRuntimeCredential,
+  getAgentEnvironment,
+  saveAgentEnvironment,
 } from "@/features/agents/agents.functions";
 import { AgentProfileHeader } from "./agent-profile-header";
 import { AgentProfileTabs } from "./agent-profile-tabs";
@@ -55,15 +58,24 @@ export function AgentProfilePanel({
   requestedTab,
   onTabChange,
   onClose,
+  hideClose = false,
+  backHref,
 }: {
   agentId: string;
   requestedTab: ProfileTabId | undefined;
   onTabChange: (tab: ProfileTabId) => void;
   onClose: () => void;
+  /** The Members page's detail pane (`features/agents/members-layout.tsx`) renders this same
+   * panel with nothing to close back to: no Close button, and Escape does nothing either. */
+  hideClose?: boolean;
+  /** Members page only, forwarded to `AgentProfileHeader` for its `md:hidden` back link. */
+  backHref?: string;
 }) {
   const timeZone = appRoute.useLoaderData().timeZone;
   // Escape closes the panel, like Thread's Close; an open overlay or a field being edited keeps it.
+  // Not registered at all when the panel has no Close to trigger (`hideClose`).
   useEffect(() => {
+    if (hideClose) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
@@ -74,7 +86,7 @@ export function AgentProfilePanel({
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [hideClose, onClose]);
   const liveAgent = useLiveAgent(agentId);
   const query = useAgentProfileData(agentId);
   const profile = query.data;
@@ -91,6 +103,23 @@ export function AgentProfilePanel({
     (cursor?: { id: string }) =>
       loadReminders({ data: { agentId, ...(cursor ? { cursor } : {}) } }),
     [agentId, loadReminders],
+  );
+
+  const loadSkills = useServerFn(getAgentSkills);
+  const onLoadSkills = useCallback(() => loadSkills({ data: agentId }), [agentId, loadSkills]);
+
+  const loadEnvironment = useServerFn(getAgentEnvironment);
+  const saveEnvironment = useServerFn(saveAgentEnvironment);
+  const environment = useMemo(
+    () => ({
+      onLoad: () => loadEnvironment({ data: agentId }),
+      onSave: async (envVars: Parameters<typeof saveEnvironment>[0]["data"]["envVars"]) => {
+        const result = await saveEnvironment({ data: { agentId, envVars } });
+        await invalidate();
+        return result;
+      },
+    }),
+    [agentId, loadEnvironment, saveEnvironment, invalidate],
   );
 
   const executeControl = useServerFn(executeAgentControl);
@@ -170,13 +199,15 @@ export function AgentProfilePanel({
     return (
       <div className="flex h-full min-h-0 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-end border-b border-secondary pr-2">
-          <ButtonUtility
-            icon={X}
-            size="sm"
-            color="tertiary"
-            tooltip={m.controls_close()}
-            onClick={onClose}
-          />
+          {!hideClose && (
+            <ButtonUtility
+              icon={X}
+              size="sm"
+              color="tertiary"
+              tooltip={m.controls_close()}
+              onClick={onClose}
+            />
+          )}
         </header>
         <Empty className="flex-1 items-center justify-center px-6 text-center">
           <EmptyHeader className="items-center gap-3">
@@ -205,6 +236,8 @@ export function AgentProfilePanel({
         timeZone={timeZone}
         controls={controls}
         onClose={onClose}
+        hideClose={hideClose}
+        backHref={backHref}
       />
       <div className="flex h-11 shrink-0 items-center border-b border-secondary px-3">
         <AgentProfileTabs active={tab} showManagerTabs={canManage} onSelect={onTabChange} />
@@ -258,6 +291,8 @@ export function AgentProfilePanel({
                 : undefined
             }
             onStartRuntimeEdit={onStartRuntimeEdit}
+            onLoadSkills={profile.ownedByCurrentUser ? onLoadSkills : undefined}
+            environment={profile.ownedByCurrentUser ? environment : undefined}
             runtimeCredentialDialog={
               <>
                 <ButtonUtility
