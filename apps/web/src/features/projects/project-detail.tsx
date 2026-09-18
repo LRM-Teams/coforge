@@ -363,7 +363,18 @@ function RepositoryContents({ data, projectSlug }: { data: Repository; projectSl
                             params={{ projectSlug, _splat: file.path }}
                             className={nameLinkClassName}
                           >
-                            <Folder aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
+                            {/* Both types open in the file browser, but only one is a folder. */}
+                            {file.type === "dir" ? (
+                              <Folder
+                                aria-hidden="true"
+                                className="size-5 shrink-0 text-tertiary"
+                              />
+                            ) : (
+                              <File02
+                                aria-hidden="true"
+                                className="size-5 shrink-0 text-tertiary"
+                              />
+                            )}
                             <span className="min-w-0 truncate text-sm text-primary">
                               {file.name}
                             </span>
