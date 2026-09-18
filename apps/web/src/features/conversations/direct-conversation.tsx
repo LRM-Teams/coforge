@@ -22,6 +22,7 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ConversationListButton, useConversationDetailVisible } from "./conversation-navigation";
 import { ConversationPending } from "./conversation-pending";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
 import {
   Empty,
   EmptyHeader,
@@ -307,6 +308,10 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     onlySaveAfterUserInteractions: true,
     storage: conversationLayoutStorage,
   });
+  // Panels are flex items sized by the library's inline styles, so a narrow viewport cannot
+  // collapse the split with CSS; unmount the resizable Group and stack full-width panes
+  // instead. Both panes stay mounted so drafts and scroll survive, matching the desktop slot.
+  const wideViewport = useBreakpoint("md");
   useEffect(() => {
     if (
       !detailVisible ||
@@ -358,6 +363,162 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     openAnchoredThread();
     return () => window.removeEventListener("hashchange", openAnchoredThread);
   }, [conversation.messages, selected]);
+  const conversationMainPane = (
+    <ConversationPane
+      {...conversationProps}
+      header={header}
+      conversation={{ ...conversation, messages: mainMessages }}
+      threadEntry={(message) => {
+        const replies = repliesOf(message.id);
+        const boundary = Math.max(
+          readThrough[message.id] ?? 0,
+          conversation.threadReadThrough?.[message.id] ?? 0,
+        );
+        const unread = replies.filter(
+          (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
+        ).length;
+        const label = m.conversation_thread_reply();
+        const accessibleLabel = unread
+          ? `${label} · ${m.conversation_thread_unread({ count: unread })}`
+          : label;
+        return (
+          <span className="relative inline-flex">
+            <Dropdown.Root>
+              <ButtonUtility
+                icon={DotsHorizontal}
+                size="sm"
+                color="tertiary"
+                aria-label={m.conversation_message_actions()}
+              />
+              <Dropdown.Popover placement="bottom end">
+                <Dropdown.Menu>
+                  <Dropdown.Item
+                    id="reply"
+                    label={accessibleLabel}
+                    icon={MessageSquare}
+                    onAction={() => openThread(message.id)}
+                  />
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown.Root>
+            {unread > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-brand-solid"
+              />
+            )}
+          </span>
+        );
+      }}
+      threadPreview={(message) => {
+        const threadReplies = repliesOf(message.id);
+        if (!threadReplies.length) return null;
+        const label =
+          threadReplies.length === 1
+            ? m.conversation_thread_one_reply()
+            : m.conversation_thread_replies({
+                count: threadReplies.length,
+              });
+        const lastReply = threadReplies.at(-1)!;
+        const repliers: string[] = [];
+        for (const reply of [...threadReplies].reverse()) {
+          if (repliers.includes(reply.senderName)) continue;
+          repliers.push(reply.senderName);
+          if (repliers.length === 3) break;
+        }
+        return (
+          <Button
+            color="tertiary"
+            size="sm"
+            onPress={() => openThread(message.id)}
+            noTextPadding
+            className="h-auto w-fit min-w-0 justify-start gap-2 rounded-md px-1 py-1 text-left font-normal hover:bg-secondary focus-visible:outline-2 focus-visible:outline-brand"
+          >
+            <span className="flex shrink-0 -space-x-2">
+              {repliers.map((name) => (
+                <Avatar
+                  key={name}
+                  size="xs"
+                  alt={name}
+                  initials={avatarInitial(name)}
+                  contentClassName={avatarToneClassName(name)}
+                  className="ring-2 ring-primary"
+                />
+              ))}
+            </span>
+            <span className="text-xs font-medium text-brand-secondary">{label}</span>
+            <RelativeTime
+              value={lastReply.createdAt}
+              plain
+              className="text-xs whitespace-nowrap text-tertiary"
+            />
+          </Button>
+        );
+      }}
+      messageFooter={(message) => {
+        const task = props.tasks?.find((candidate) => candidate.messageId === message.id);
+        return task ? <TaskBadge task={task} /> : null;
+      }}
+    />
+  );
+  const conversationSidePane = visibleSlot && (
+    <>
+      {visibleSlot === "profile" && profileAgentId && (
+        <AgentProfilePanel
+          agentId={profileAgentId}
+          requestedTab={agentProfile?.tab}
+          onTabChange={(tab) => onAgentProfileTabChange?.(tab)}
+          onClose={() => onCloseAgentProfile?.()}
+        />
+      )}
+      {/* Thread panes stay mounted under the profile so drafts and scroll survive. */}
+      {visited.map((rootId) => {
+        const root = mainMessages.find((message) => message.id === rootId);
+        if (!root) return null;
+        return (
+          <section
+            key={rootId}
+            aria-label={m.conversation_thread()}
+            hidden={!threadPaneVisible(rootId)}
+            className={cn(
+              "min-h-0 min-w-0 flex-1 flex-col",
+              threadPaneVisible(rootId) ? "flex" : "hidden",
+            )}
+          >
+            <ConversationPane
+              {...conversationProps}
+              root={root}
+              onClose={() => setSelected(undefined)}
+              emptyState={{
+                title: m.conversation_thread_empty_title(),
+                description: m.conversation_thread_empty(),
+                media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
+              }}
+              conversation={{ ...conversation, messages: repliesOf(rootId) }}
+              onSend={(body, requestId, attachmentIds) =>
+                conversationProps.onSend(body, requestId, attachmentIds, rootId)
+              }
+              threadHeaderAction={threadHeaderAction?.(rootId)}
+            />
+          </section>
+        );
+      })}
+    </>
+  );
+  if (!wideViewport) {
+    // Small screens have no room for a resizable split: the slot pane covers the main pane,
+    // which stays mounted (hidden) so returning keeps its scroll, drafts and read state.
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", visibleSlot && "hidden")}>
+          {conversationMainPane}
+        </div>
+        {conversationSidePane && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">{conversationSidePane}</div>
+        )}
+      </div>
+    );
+  }
   return (
     <Group
       id="conversation"
@@ -370,104 +531,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
         id="main"
         // Strings are percentages of the group; numbers would be pixels.
         minSize="40"
-        className={cn("flex min-h-0 min-w-0 flex-col", visibleSlot && "max-md:hidden!")}
+        className="flex min-h-0 min-w-0 flex-col"
       >
-        <ConversationPane
-          {...conversationProps}
-          header={header}
-          conversation={{ ...conversation, messages: mainMessages }}
-          threadEntry={(message) => {
-            const replies = repliesOf(message.id);
-            const boundary = Math.max(
-              readThrough[message.id] ?? 0,
-              conversation.threadReadThrough?.[message.id] ?? 0,
-            );
-            const unread = replies.filter(
-              (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
-            ).length;
-            const label = m.conversation_thread_reply();
-            const accessibleLabel = unread
-              ? `${label} · ${m.conversation_thread_unread({ count: unread })}`
-              : label;
-            return (
-              <span className="relative inline-flex">
-                <Dropdown.Root>
-                  <ButtonUtility
-                    icon={DotsHorizontal}
-                    size="sm"
-                    color="tertiary"
-                    aria-label={m.conversation_message_actions()}
-                  />
-                  <Dropdown.Popover placement="bottom end">
-                    <Dropdown.Menu>
-                      <Dropdown.Item
-                        id="reply"
-                        label={accessibleLabel}
-                        icon={MessageSquare}
-                        onAction={() => openThread(message.id)}
-                      />
-                    </Dropdown.Menu>
-                  </Dropdown.Popover>
-                </Dropdown.Root>
-                {unread > 0 && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-brand-solid"
-                  />
-                )}
-              </span>
-            );
-          }}
-          threadPreview={(message) => {
-            const threadReplies = repliesOf(message.id);
-            if (!threadReplies.length) return null;
-            const label =
-              threadReplies.length === 1
-                ? m.conversation_thread_one_reply()
-                : m.conversation_thread_replies({
-                    count: threadReplies.length,
-                  });
-            const lastReply = threadReplies.at(-1)!;
-            const repliers: string[] = [];
-            for (const reply of [...threadReplies].reverse()) {
-              if (repliers.includes(reply.senderName)) continue;
-              repliers.push(reply.senderName);
-              if (repliers.length === 3) break;
-            }
-            return (
-              <Button
-                color="tertiary"
-                size="sm"
-                onPress={() => openThread(message.id)}
-                noTextPadding
-                className="h-auto w-fit min-w-0 justify-start gap-2 rounded-md px-1 py-1 text-left font-normal hover:bg-secondary focus-visible:outline-2 focus-visible:outline-brand"
-              >
-                <span className="flex shrink-0 -space-x-2">
-                  {repliers.map((name) => (
-                    <Avatar
-                      key={name}
-                      size="xs"
-                      alt={name}
-                      initials={avatarInitial(name)}
-                      contentClassName={avatarToneClassName(name)}
-                      className="ring-2 ring-primary"
-                    />
-                  ))}
-                </span>
-                <span className="text-xs font-medium text-brand-secondary">{label}</span>
-                <RelativeTime
-                  value={lastReply.createdAt}
-                  plain
-                  className="text-xs whitespace-nowrap text-tertiary"
-                />
-              </Button>
-            );
-          }}
-          messageFooter={(message) => {
-            const task = props.tasks?.find((candidate) => candidate.messageId === message.id);
-            return task ? <TaskBadge task={task} /> : null;
-          }}
-        />
+        {conversationMainPane}
       </Panel>
       {visibleSlot && (
         <>
@@ -482,48 +548,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             defaultSize="35"
             minSize="25"
             maxSize="60"
-            className="flex min-h-0 min-w-0 flex-col max-md:w-full! max-md:flex-[1_1_100%]!"
+            className="flex min-h-0 min-w-0 flex-col"
           >
-            {visibleSlot === "profile" && profileAgentId && (
-              <AgentProfilePanel
-                agentId={profileAgentId}
-                requestedTab={agentProfile?.tab}
-                onTabChange={(tab) => onAgentProfileTabChange?.(tab)}
-                onClose={() => onCloseAgentProfile?.()}
-              />
-            )}
-            {/* Thread panes stay mounted under the profile so drafts and scroll survive. */}
-            {visited.map((rootId) => {
-              const root = mainMessages.find((message) => message.id === rootId);
-              if (!root) return null;
-              return (
-                <section
-                  key={rootId}
-                  aria-label={m.conversation_thread()}
-                  hidden={!threadPaneVisible(rootId)}
-                  className={cn(
-                    "min-h-0 min-w-0 flex-1 flex-col",
-                    threadPaneVisible(rootId) ? "flex" : "hidden",
-                  )}
-                >
-                  <ConversationPane
-                    {...conversationProps}
-                    root={root}
-                    onClose={() => setSelected(undefined)}
-                    emptyState={{
-                      title: m.conversation_thread_empty_title(),
-                      description: m.conversation_thread_empty(),
-                      media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
-                    }}
-                    conversation={{ ...conversation, messages: repliesOf(rootId) }}
-                    onSend={(body, requestId, attachmentIds) =>
-                      conversationProps.onSend(body, requestId, attachmentIds, rootId)
-                    }
-                    threadHeaderAction={threadHeaderAction?.(rootId)}
-                  />
-                </section>
-              );
-            })}
+            {conversationSidePane}
           </Panel>
         </>
       )}
