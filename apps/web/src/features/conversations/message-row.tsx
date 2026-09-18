@@ -14,6 +14,7 @@ import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
+import { AttachmentPreview, attachmentPreviewKind } from "./attachment-preview";
 import { MessageBody } from "./message-body";
 
 export type MessageView = {
@@ -278,17 +279,84 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
     );
   const extension = attachment.fileName.split(".").pop()?.toUpperCase();
   const iconType = fileIconType(attachment.fileName, attachment.contentType);
-  return (
-    <div className="group/attachment mt-1 flex w-fit max-w-full min-w-0 items-center gap-3 rounded-xl bg-primary p-3 pr-2 ring-1 ring-secondary ring-inset">
+  const previewKind = attachmentPreviewKind(attachment.fileName, attachment.contentType);
+  const card = (
+    <>
       <FileTypeIcon className="size-10 shrink-0 dark:hidden" type={iconType} theme="light" />
       <FileTypeIcon className="size-10 shrink-0 not-dark:hidden" type={iconType} theme="dark" />
-      <div className="min-w-0">
+      <div className="min-w-0 text-left">
         <p className="truncate text-sm font-medium text-secondary">{attachment.fileName}</p>
         <p className="text-sm text-tertiary">
           {extension && extension !== attachment.fileName.toUpperCase() ? `${extension} · ` : ""}
           {getReadableFileSize(attachment.sizeBytes)}
         </p>
       </div>
+    </>
+  );
+  // A file we can show reads in place instead of forcing a download: the card becomes the control
+  // that opens the preview, with the download still one click away inside it. The preview lives in
+  // a dialog rather than expanding inline so opening one never changes a message row's height.
+  if (previewKind)
+    return (
+      <div className="group/attachment mt-1 flex w-fit max-w-full min-w-0 items-center gap-1">
+        <DialogTrigger>
+          <Button
+            color="tertiary"
+            noTextPadding
+            aria-label={m.conversation_attachment_preview_open({ name: attachment.fileName })}
+            className="h-auto min-w-0 justify-start gap-3 rounded-xl bg-primary p-3 ring-1 ring-secondary ring-inset hover:bg-secondary"
+          >
+            {card}
+          </Button>
+          <ModalOverlay isDismissable>
+            {/* Full height on a phone (where the overlay already reserves its own padding), a
+                centered panel from `sm` up. The panel owns its scrolling so the preview pane
+                keeps its height instead of the whole dialog growing. */}
+            <Modal className="h-full max-h-full w-full max-sm:overflow-hidden sm:h-[85vh] sm:max-w-4xl">
+              <Dialog
+                aria-label={attachment.fileName}
+                className="flex h-full flex-col overflow-hidden"
+              >
+                {({ close }) => (
+                  <>
+                    <div className="flex shrink-0 items-center gap-2 border-b border-secondary p-3 pl-4 sm:pl-5">
+                      <p className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">
+                        {attachment.fileName}
+                      </p>
+                      <ButtonUtility
+                        icon={Download01}
+                        size="sm"
+                        color="tertiary"
+                        tooltip={m.conversation_attachment_download()}
+                        href={`${href}?download`}
+                      />
+                      <ButtonUtility
+                        icon={XClose}
+                        size="sm"
+                        color="tertiary"
+                        tooltip={m.controls_close()}
+                        onClick={close}
+                      />
+                    </div>
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <AttachmentPreview
+                        fileName={attachment.fileName}
+                        kind={previewKind}
+                        href={href}
+                      />
+                    </div>
+                  </>
+                )}
+              </Dialog>
+            </Modal>
+          </ModalOverlay>
+        </DialogTrigger>
+        {download}
+      </div>
+    );
+  return (
+    <div className="group/attachment mt-1 flex w-fit max-w-full min-w-0 items-center gap-3 rounded-xl bg-primary p-3 pr-2 ring-1 ring-secondary ring-inset">
+      {card}
       {download}
     </div>
   );
