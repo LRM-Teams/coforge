@@ -57,8 +57,22 @@ const observeConversationRect: typeof observeElementRect = (instance, callback) 
   observeElementRect(instance, (rect) =>
     callback(rect.height === 0 ? { ...rect, height: 800 } : rect),
   );
-const measureConversationElement: typeof measureElement = (element, entry, instance) =>
-  measureElement(element, entry, instance) || instance.options.estimateSize(0);
+/**
+ * A row can report a height of 0 while it is not laid out: the conversation sits in a hidden
+ * branch, or a ResizeObserver delivers the row mid-reflow. Feeding that 0 through would tell the
+ * virtualizer the row takes no space, so it falls back to a size. The estimate is only a safe
+ * fallback for a row that has never been measured; using it for a row we *have* measured
+ * replaces a true height (a wrapped Markdown body is easily 200px) with 160px, and the next
+ * row's absolute offset then lands on top of this row's last lines — visible as messages
+ * painting over each other, with the lower row's hover background clipping the text above it.
+ * So keep the size already measured for this row and let the next real observation update it.
+ */
+const measureConversationElement: typeof measureElement = (element, entry, instance) => {
+  const measured = measureElement(element, entry, instance);
+  if (measured > 0) return measured;
+  const key = instance.options.getItemKey(instance.indexFromElement(element));
+  return instance.itemSizeCache.get(key) ?? instance.options.estimateSize(0);
+};
 
 export type DirectConversationView = {
   conversationId: string;
@@ -716,7 +730,8 @@ export function ConversationPane({
     () => makeMentionBodyFormatter(conversation.mentionables ?? []),
     [conversation.mentionables],
   );
-  const listRef = useRef<HTMLOListElement>(null);
+  /** The full-height sizer the rows' window sits in; its top is where row offsets start. */
+  const listRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef(conversation.messages);
   messagesRef.current = conversation.messages;
   // Content above the list inside the scroll container (thread root, load-older control).
@@ -1022,43 +1037,60 @@ export function ConversationPane({
               </EmptyHeader>
             </Empty>
           ) : (
-            <ol
+            // The sizer holds the scrollbar at the full virtual height; the rows themselves
+            // live in one translated window below (see the `ol`).
+            <div
               ref={listRef}
-              className="relative pt-6"
+              className="relative"
               style={{ height: `${messageVirtualizer.getTotalSize() + 24}px` }}
             >
-              {messageVirtualizer.getVirtualItems().map(({ index, key, start }) => {
-                const message = conversation.messages[index];
-                if (!message) return null;
-                const previous = conversation.messages[index - 1];
-                const own = isOwn(message);
-                const { dayChanged, grouped } = groupsWithPrevious(
-                  message,
-                  previous,
-                  own,
-                  previous ? isOwn(previous) : false,
-                  dateLocale,
-                );
-                return (
-                  <MessageRow
-                    key={key}
-                    message={message}
-                    index={index}
-                    own={own}
-                    dayChanged={dayChanged}
-                    grouped={grouped}
-                    offset={start - scrollMargin + 24}
-                    dateLocale={dateLocale}
-                    measureRef={messageVirtualizer.measureElement}
-                    threadEntry={threadEntry}
-                    threadPreview={threadPreview}
-                    messageFooter={messageFooter}
-                    onOpenAgentProfile={onOpenAgentProfile}
-                    viewerHandle={conversation.viewerHandle}
-                  />
-                );
-              })}
-            </ol>
+              {/* One window, positioned at the first rendered row's offset, with the rows in
+                  normal flow inside it — rather than every row absolutely positioned at its own
+                  offset. A row is measured after it renders, so until then the virtualizer only
+                  has `estimateSize`; with per-row absolute offsets a row taller than the estimate
+                  (a wrapped Markdown body is easily 200px against a 160px estimate) is drawn
+                  straight over the row below it, which is the "messages cover each other" report.
+                  In flow, a stale size can only shift this whole block — which end-anchoring
+                  corrects on the next measurement — and never paints two rows on top of each
+                  other. */}
+              <ol
+                className="absolute top-0 left-0 w-full"
+                style={{
+                  transform: `translateY(${(messageVirtualizer.getVirtualItems()[0]?.start ?? 0) - scrollMargin + 24}px)`,
+                }}
+              >
+                {messageVirtualizer.getVirtualItems().map(({ index, key }) => {
+                  const message = conversation.messages[index];
+                  if (!message) return null;
+                  const previous = conversation.messages[index - 1];
+                  const own = isOwn(message);
+                  const { dayChanged, grouped } = groupsWithPrevious(
+                    message,
+                    previous,
+                    own,
+                    previous ? isOwn(previous) : false,
+                    dateLocale,
+                  );
+                  return (
+                    <MessageRow
+                      key={key}
+                      message={message}
+                      index={index}
+                      own={own}
+                      dayChanged={dayChanged}
+                      grouped={grouped}
+                      dateLocale={dateLocale}
+                      measureRef={messageVirtualizer.measureElement}
+                      threadEntry={threadEntry}
+                      threadPreview={threadPreview}
+                      messageFooter={messageFooter}
+                      onOpenAgentProfile={onOpenAgentProfile}
+                      viewerHandle={conversation.viewerHandle}
+                    />
+                  );
+                })}
+              </ol>
+            </div>
           )}
         </div>
         {(ownMessages.length > 0 || !followingLatest) && (

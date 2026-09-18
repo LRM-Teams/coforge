@@ -294,14 +294,17 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
   );
 }
 
-/** One virtualized history row: optional day divider, then the message with its hover actions. */
+/** One virtualized history row: optional day divider, then the message with its hover actions.
+ *
+ * The row is an ordinary flow item. Its vertical position comes from the rows above it inside the
+ * virtualizer's window container (`direct-conversation.tsx`), not from an offset of its own, so a
+ * row whose height the virtualizer has not measured yet cannot be drawn over its neighbour. */
 export function MessageRow({
   message,
   index,
   own,
   dayChanged,
   grouped,
-  offset,
   dateLocale,
   measureRef,
   threadEntry,
@@ -315,8 +318,6 @@ export function MessageRow({
   own: boolean;
   dayChanged: boolean;
   grouped: boolean;
-  /** Vertical position inside the list, from the virtualizer. */
-  offset: number;
   dateLocale?: string;
   measureRef: Ref<HTMLLIElement>;
   threadEntry?: (message: MessageView) => ReactNode;
@@ -354,16 +355,15 @@ export function MessageRow({
   // A system message (task/membership notices, etc.) is not a person talking: it carries no
   // avatar and no sender heading, and renders as a compact, muted line in the stream — like
   // Slack's channel notices. The body still goes through `MessageBody` so a `@handle` mention in
-  // it stays a resolved chip. The virtualizer wrapper (`li` with `data-index`/`measureRef` and
-  // the transform) is kept identical so row measurement and scrolling are unaffected.
+  // it stays a resolved chip. The virtualizer wrapper (`li` with `data-index`/`measureRef`) is
+  // kept identical so row measurement and scrolling are unaffected.
   if (message.senderKind === "system") {
     return (
       <li
         data-message-id={message.id}
         data-index={index}
         ref={measureRef}
-        className="absolute top-0 left-0 flex w-full flex-col"
-        style={{ transform: `translateY(${offset}px)` }}
+        className="flex flex-col"
       >
         {dayChanged && (
           <div className="flex items-center gap-3 px-4 py-2 md:px-6">
@@ -394,13 +394,7 @@ export function MessageRow({
     );
   }
   return (
-    <li
-      data-message-id={message.id}
-      data-index={index}
-      ref={measureRef}
-      className="absolute top-0 left-0 flex w-full flex-col"
-      style={{ transform: `translateY(${offset}px)` }}
-    >
+    <li data-message-id={message.id} data-index={index} ref={measureRef} className="flex flex-col">
       {dayChanged && (
         <div className="flex items-center gap-3 px-4 py-2 md:px-6">
           <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
