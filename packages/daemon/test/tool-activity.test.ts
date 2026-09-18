@@ -218,7 +218,7 @@ test("CoForge CLI invocations resolve to a semantic tool and an allowlisted tool
       detailKind: "tool_started",
       toolName: "react_message",
     },
-    { command: "coforge inbox check", detailKind: "checking_messages", toolName: "check_inbox" },
+
     {
       command: "coforge channel mute --target '#general'",
       detailKind: "tool_started",
@@ -362,11 +362,7 @@ test("CoForge CLI invocations resolve to a semantic tool and an allowlisted tool
       detailKind: "tool_started",
       toolName: "weekly_report",
     },
-    {
-      command: "coforge workspace info --agents",
-      detailKind: "tool_started",
-      toolName: "coforge_cli",
-    },
+
     {
       command:
         "coforge manual get index --intent 'Learn available CoForge workflows' --reason 'Browse the topic catalog'",
@@ -454,9 +450,9 @@ test("CoForge CLI tokenising stops at pipes, chains and semicolons before mappin
   const piped = toolActivity("bash", { command: "coforge message check | grep unread" });
   expect(piped).toMatchObject({ detailKind: "checking_messages" });
   expect(piped.entries).toEqual([{ kind: "tool_start", toolName: "check_messages" }]);
-  expect(toolActivity("bash", { command: "coforge inbox check && echo done" }).entries).toEqual([
-    { kind: "tool_start", toolName: "check_inbox" },
-  ]);
+  expect(
+    toolActivity("bash", { command: "coforge task list --target #general && echo done" }),
+  ).toMatchObject({ entries: [{ kind: "tool_start", toolName: "list_tasks" }] });
   expect(toolActivity("bash", { command: "coforge message check; echo done" }).entries).toEqual([
     { kind: "tool_start", toolName: "check_messages" },
   ]);
@@ -472,5 +468,41 @@ test("a bare `coforge` with no subcommand and a non-coforge shell command are un
     detailKind: "running_command",
     detail: "Running command…",
     entries: [{ kind: "tool_start", toolName: "bash", toolInput: "bun test packages/daemon" }],
+  });
+});
+
+test("only the server drain is a semantic operation; the local inbox view is an ordinary command", () => {
+  // The reference client's semantic map contains `message check` and not `inbox check`, so the
+  // two commands report different things. Both expectations are pinned as literal text: the
+  // command table above expects `detail: toolActivityLabel(toolName)`, which computes the
+  // expectation with the function under test and would not notice a name missing from the label
+  // vocabulary — that is how `Using check_inbox…` reached the UI in the first place.
+  expect(toolActivity("bash", { command: "coforge message check" })).toMatchObject({
+    detailKind: "checking_messages",
+    detail: "Checking messages…",
+    entries: [{ kind: "tool_start", toolName: "check_messages" }],
+  });
+  expect(toolActivity("bash", { command: "coforge inbox check" })).toMatchObject({
+    detailKind: "running_command",
+    detail: "Running command…",
+    entries: [{ kind: "tool_start", toolName: "bash", toolInput: "coforge inbox check" }],
+  });
+});
+
+test("an unrecognized CoForge subcommand is an ordinary command, not a nameless CoForge tool", () => {
+  // No `coforge_cli`-style stand-in: a command with no semantic identity reports the command
+  // itself, redacted and truncated like any other shell command.
+  expect(toolActivity("bash", { command: "coforge workspace info --agents" })).toMatchObject({
+    detailKind: "running_command",
+    detail: "Running command…",
+    entries: [
+      { kind: "tool_start", toolName: "bash", toolInput: "coforge workspace info --agents" },
+    ],
+  });
+  expect(toolActivity("bash", { command: "coforge something-new --flag value" })).toMatchObject({
+    detailKind: "running_command",
+    entries: [
+      { kind: "tool_start", toolName: "bash", toolInput: "coforge something-new --flag value" },
+    ],
   });
 });
