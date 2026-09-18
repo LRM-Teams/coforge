@@ -357,6 +357,18 @@ test("CoForge CLI invocations resolve to a semantic tool and allowlisted summary
       toolName: "check_messages",
       detail: "check_messages",
     },
+    {
+      command: "coforge whoami --json",
+      detailKind: "tool_started",
+      toolName: "whoami",
+      detail: "whoami",
+    },
+    {
+      command: "coforge version --json",
+      detailKind: "tool_started",
+      toolName: "get_version",
+      detail: "get_version",
+    },
   ];
   for (const { command, detailKind, toolName, detail } of cases) {
     expect(toolActivity("bash", { command })).toMatchObject({

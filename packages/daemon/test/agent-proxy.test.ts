@@ -374,6 +374,59 @@ test("proxy forwards an Agent Manual error response's errorCode unchanged, not t
   });
 });
 
+test("proxy forwards coforge version's local-only GET with the token-bound Agent API key", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      version: async (context, request, agentApiKey) => {
+        calls.push({ context, request, agentApiKey });
+        return {
+          ok: true,
+          daemonVersion: "0.1.0-dev.38",
+          computerVersion: "0.1.0-dev.38",
+          daemonPid: 4242,
+          startedAt: 1_726_000_000_000,
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  const response = await fetch(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.version.path),
+    {
+      method: agentApiRoutes.proxy.version.method,
+      headers: { authorization: `Bearer ${token}` },
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    ok: true,
+    daemonVersion: "0.1.0-dev.38",
+    computerVersion: "0.1.0-dev.38",
+    daemonPid: 4242,
+    startedAt: 1_726_000_000_000,
+  });
+  // No body is read for this GET route: the runtime request is an empty object, never
+  // caller-supplied fields.
+  expect(calls).toEqual([{ context: "agent-a", request: {}, agentApiKey }]);
+});
+
+test("proxy 404s coforge version when the runtime has no handler", async () => {
+  const proxy = startAgentProxy({ runtime: { agentMessage: async () => ({}) } });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.version.path),
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  expect(response.status).toBe(404);
+});
+
 test("proxy rejects unexpected GitHub credential fields before forwarding", async () => {
   let calls = 0;
   const proxy = startAgentProxy({
@@ -1122,6 +1175,10 @@ test("every route forwards the token-bound context and Agent API key to its runt
         calls.manualSearch = { context, agentApiKey };
         return {} as never;
       },
+      version: async (context, _request, agentApiKey) => {
+        calls.version = { context, agentApiKey };
+        return { ok: true, daemonVersion: "0.1.0-dev.38" };
+      },
       inbox: async (context) => {
         calls.inbox = { context };
         return {};
@@ -1215,6 +1272,10 @@ test("every route forwards the token-bound context and Agent API key to its runt
     fetch(`${at(agentApiRoutes.proxy.manual.search.path)}?query=tasks&intent=i&reason=r`, {
       headers: auth,
     }),
+    fetch(at(agentApiRoutes.proxy.version.path), {
+      method: agentApiRoutes.proxy.version.method,
+      headers: auth,
+    }),
   ]);
   for (const response of responses) expect(response.status).toBeLessThan(300);
 
@@ -1235,6 +1296,7 @@ test("every route forwards the token-bound context and Agent API key to its runt
     "githubCredentials",
     "manualGet",
     "manualSearch",
+    "version",
   ];
   for (const route of withKey)
     expect(calls[route], `route: ${route}`).toEqual({ context: "agent-a", agentApiKey });

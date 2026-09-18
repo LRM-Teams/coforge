@@ -25,10 +25,12 @@ import {
   decodeAgentManualErrorResponse,
   decodeAgentManualGetResponse,
   decodeAgentManualSearchResponse,
+  decodeAgentVersionResponse,
   decodeGitHubCredentialResponse,
   type ActionCardAction,
   type AgentManualGetResponse,
   type AgentManualSearchResponse,
+  type AgentVersionResponse,
 } from "@lrm/coforge-sdk/agent";
 import {
   CliError,
@@ -232,6 +234,44 @@ async function manualRequest<T>(
   return decode(rawBody);
 }
 
+/**
+ * GETs the local-only `/api/agent/v1/version` route (ADR 0036's placement-table rows): unlike
+ * `manualRequest` above, this never reaches Web/backend, so a non-ok response is always a local
+ * proxy/daemon condition, never a domain error envelope. A network/timeout failure is reported as
+ * "the live daemon could not be queried", matching `coforge version`'s own refusal wording for a
+ * daemon that never answered.
+ */
+async function versionRequest(
+  proxyEndpoint: (path: string) => URL,
+  context: string,
+  proxyUrl: string,
+): Promise<AgentVersionResponse> {
+  if (!context) throw preIssuanceError("version", "coforge agent context is not configured");
+  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+    throw preIssuanceError("version", "coforge agent context is invalid");
+  if (!proxyUrl) throw preIssuanceError("version", "coforge agent proxy is not configured");
+  let response: Response;
+  try {
+    response = await fetch(proxyEndpoint(agentApiRoutes.proxy.version.path), {
+      method: agentApiRoutes.proxy.version.method,
+      headers: { authorization: `Bearer ${context}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new CliError({
+      code: "VERSION_FAILED",
+      message:
+        "The live daemon could not be queried: agent proxy request failed (network or timeout).",
+      retryable: false,
+    });
+  }
+  if (!response.ok) {
+    const errorBody = await readProxyErrorBody(response);
+    throw proxyHttpFailure("version", response.status, errorBody, undefined);
+  }
+  return decodeAgentVersionResponse(await response.json().catch(() => undefined));
+}
+
 export function connectLocal(
   _socketPath: string,
   context: string,
@@ -394,6 +434,7 @@ export function connectLocal(
         { query, intent, reason },
         decodeAgentManualSearchResponse,
       ),
+    version: (): Promise<AgentVersionResponse> => versionRequest(proxyEndpoint, context, proxyUrl),
     view: async (attachmentId: string) => {
       if (!context) throw new Error("coforge agent context is not configured");
       if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
