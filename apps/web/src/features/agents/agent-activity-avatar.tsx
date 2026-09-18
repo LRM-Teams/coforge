@@ -3,15 +3,12 @@ import { Heading } from "react-aria-components";
 import { Avatar, type AvatarProps } from "@/components/base/avatar/avatar";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { HoverPopover } from "@/components/ui/hover-popover";
+import { StatusDot } from "@/components/ui/status-dot";
 import { ClockTime } from "@/components/ui/relative-time";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import {
-  activityToneClass,
-  agentDisplay,
-  presentActivityRows,
-} from "./agent-activity-presentation";
+import { agentDisplay, presentActivityRows } from "./agent-activity-presentation";
 import {
   POPOVER_EXCLUDED_DETAIL_KINDS,
   RECENT_ACTIVITY_LIMIT,
@@ -33,13 +30,16 @@ const displayDotClassName: Record<AvatarSize, string> = {
 export function AgentDisplayAvatar({
   name,
   display,
+  stopped,
   size = "sm",
 }: {
   name: string;
   display?: AgentDisplaySnapshot;
+  /** The user stopped this Agent; see `agentDisplay`. */
+  stopped?: boolean;
   size?: AvatarSize;
 }) {
-  const view = agentDisplay(display);
+  const view = agentDisplay(display, { stopped });
   return (
     <span
       role="img"
@@ -53,14 +53,10 @@ export function AgentDisplayAvatar({
         contentClassName={avatarToneClassName(name)}
       />
       {display && (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "absolute rounded-full border-primary",
-            displayDotClassName[size],
-            activityToneClass(view.tone),
-            view.pulse && "motion-safe:animate-pulse",
-          )}
+        <StatusDot
+          tone={view.tone}
+          pulse={view.pulse}
+          className={cn("absolute border-primary", displayDotClassName[size])}
         />
       )}
     </span>
@@ -130,14 +126,7 @@ export function AgentActivityAvatar({
         </div>
         {display && (
           <span className="flex items-center gap-1.5 text-xs text-tertiary">
-            <span
-              aria-hidden="true"
-              className={cn(
-                "size-1.5 rounded-full",
-                activityToneClass(view.tone),
-                view.pulse && "motion-safe:animate-pulse",
-              )}
-            />
+            <StatusDot tone={view.tone} pulse={view.pulse} className="size-1.5" />
             {view.label}
           </span>
         )}
@@ -166,14 +155,10 @@ export function AgentActivityAvatar({
                     plain
                     className="shrink-0 font-mono text-tertiary tabular-nums"
                   />
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "mt-1 size-1.5 shrink-0 rounded-full",
-                      activityToneClass(entry.recentTone),
-                      (entry.recentTone === "working" || entry.recentTone === "thinking") &&
-                        "motion-safe:animate-pulse",
-                    )}
+                  <StatusDot
+                    tone={entry.recentTone}
+                    pulse={entry.recentTone === "working" || entry.recentTone === "thinking"}
+                    className="mt-1 size-1.5"
                   />
                   <span className="min-w-0 truncate">{entry.recentLabel}</span>
                 </li>

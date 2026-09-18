@@ -1,12 +1,15 @@
 import type { ActivityEntry } from "./agent-activity";
 import type { AgentDisplaySnapshot, ActivityTrajectoryEntry } from "@lrm/coforge-sdk/internal";
 import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
+import type { StatusTone } from "@/components/ui/status-dot";
 
 export type ActivityObservation = Pick<
   ActivityEntry,
   "activityKind" | "detailKind" | "detail" | "level" | "entries"
 >;
-type Tone = "working" | "thinking" | "idle" | "offline" | "error" | "output" | "unknown";
+/** Agent activity tones; `online` is a Computer-only presence tone (see `StatusDot`). */
+export type ActivityTone = Exclude<StatusTone, "online">;
+type Tone = ActivityTone;
 /** Activity labels are not internationalized (AGENTS.md); reused verbatim for the persisted
  * "user stopped this Agent" (ADR 0038) status text, not just the offline-history activity row. */
 export const STOPPED_STATUS_DETAIL = "Stopped — won't receive messages until restarted";
@@ -345,22 +348,6 @@ export function presentActivityRows(activity: readonly ActivityEntry[]): Present
     openGroup = atom.mergeGroup;
   }
   return merged.reverse();
-}
-
-export function activityToneClass(tone: Tone) {
-  switch (tone) {
-    case "working":
-    case "thinking":
-      return "bg-amber-500";
-    case "idle":
-      return "bg-success-solid";
-    case "error":
-      return "bg-error-solid";
-    case "output":
-      return "bg-cyan-500";
-    default:
-      return "bg-offline";
-  }
 }
 
 /**

@@ -10,16 +10,13 @@ import {
 import { Activity as ActivityIcon, ChevronRight } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { ClockTime } from "@/components/ui/relative-time";
+import { StatusDot } from "@/components/ui/status-dot";
 import { calendarDayKey, formatCalendarDayLabel } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { getLocale } from "@/paraglide/runtime";
 import { m } from "@/paraglide/messages";
 import type { ActivityEntry } from "./agent-activity";
-import {
-  activityToneClass,
-  presentActivityRows,
-  type PresentedActivityRow,
-} from "./agent-activity-presentation";
+import { presentActivityRows, type PresentedActivityRow } from "./agent-activity-presentation";
 
 export function AgentActivityTimeline({
   activity,
@@ -192,14 +189,7 @@ function ActivityTimelineRow({
       <li className="grid grid-cols-[3.5rem_1fr] items-start gap-2 py-3" style={renderCost}>
         {clock}
         <div className="flex min-w-0 items-start gap-2">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "mt-1.5 size-1.5 shrink-0 rounded-full",
-              activityToneClass(row.tone),
-              row.pulse && "motion-safe:animate-pulse",
-            )}
-          />
+          <StatusDot tone={row.tone} pulse={row.pulse} className="mt-1.5 size-1.5" />
           <div className="min-w-0 flex-1 text-sm">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               {label}
@@ -218,14 +208,7 @@ function ActivityTimelineRow({
     >
       {clock}
       <div className="flex min-w-0 items-start gap-2">
-        <span
-          aria-hidden="true"
-          className={cn(
-            "mt-2 size-1.5 shrink-0 rounded-full",
-            activityToneClass(row.tone),
-            row.pulse && "motion-safe:animate-pulse",
-          )}
-        />
+        <StatusDot tone={row.tone} pulse={row.pulse} className="mt-2 size-1.5" />
         <div className="min-w-0 flex-1 text-sm">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             {label}
