@@ -12,6 +12,10 @@ import { createPublicChannel } from "./channels.functions";
 import { useCurrentWorkspaceId, useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { useChannelUnread } from "./conversation-unread";
+import {
+  conversationOpenMode,
+  type ConversationOpenMode,
+} from "@/features/settings/conversation-open-mode";
 
 const messagesRoute = getRouteApi("/_app/messages");
 const appRoute = getRouteApi("/_app");
@@ -19,26 +23,6 @@ const ConversationListContext = createContext<{
   showList: () => void;
   detailVisible: boolean;
 } | null>(null);
-
-/**
- * The open conversation's pane reports whether the user is currently reading the latest
- * message. Only consumed by the `newest-unread` open mode, which keeps unseen messages
- * unread until the latest is actually viewed. The pane below the provider reports through
- * `reportReadingLatest`; the route reads through `useReadingLatest`.
- */
-const ReadingLatestContext = createContext<{
-  readingLatest: boolean;
-  reportReadingLatest: (reading: boolean) => void;
-}>({ readingLatest: true, reportReadingLatest: () => {} });
-
-export function useReadingLatest(): boolean {
-  return useContext(ReadingLatestContext).readingLatest;
-}
-
-/** The open pane's reporter; a no-op outside `ConversationNavigation`. */
-export function useReadingLatestReporter() {
-  return useContext(ReadingLatestContext);
-}
 
 type UnreadControls = {
   /** Per-channel unread counts, keyed by conversation id. */
@@ -48,7 +32,7 @@ type UnreadControls = {
 };
 
 const UnreadContext = createContext<UnreadControls>({ counts: {}, clear: () => {} });
-const OpenModeContext = createContext<string>("newest-read");
+const OpenModeContext = createContext<ConversationOpenMode>("newest-read");
 
 export function useConversationDetailVisible() {
   return useContext(ConversationListContext)?.detailVisible ?? true;
@@ -67,8 +51,8 @@ export function useMarkConversationSeen(): (
   return useContext(UnreadContext).clear;
 }
 
-/** The user's "When I view a channel" open behavior, from their saved preferences. */
-export function useConversationOpenMode(): string {
+/** The user's "When I view a conversation" open behavior, from their saved preferences. */
+export function useConversationOpenMode(): ConversationOpenMode {
   return useContext(OpenModeContext);
 }
 
@@ -83,8 +67,9 @@ export function useConversationReadRequiresScroll(): boolean {
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { channels, projects, directUnread } = messagesRoute.useLoaderData();
-  const { conversationOpenMode } = appRoute.useLoaderData();
+  const { channels, projects, directUnread, viewerId } = messagesRoute.useLoaderData();
+  const { conversationOpenMode: savedOpenMode } = appRoute.useLoaderData();
+  const openMode = conversationOpenMode(savedOpenMode);
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
   const desktop = useBreakpoint("lg");
@@ -92,7 +77,6 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [browsing, setBrowsing] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [readingLatest, setReadingLatest] = useState(true);
   const create = useServerFn(createPublicChannel);
   const channel = useParams({ from: "/_app/messages/channels/$channelId", shouldThrow: false });
   const agent = useParams({ from: "/_app/messages/$agentId", shouldThrow: false });
@@ -113,20 +97,23 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
   const unread = useChannelUnread({
     workspaceId,
+    userId: viewerId,
     channels: visibleChannels,
-    directUnread,
     openConversationId: channel?.channelId,
+    // The open DM's own events must not bump its badge: they are being read right now.
+    openAgentId: agent?.agentId,
   });
   // Every loader refresh carries the server's own persisted counts; local arithmetic
-  // restarts from them (sequence boundaries survive, so no event double-counts).
+  // restarts from them (sequence boundaries survive, so no event double-counts). Direct
+  // messages are already keyed by Agent id, the same key their realtime signal carries.
   const { counts } = unread;
   const refresh = unread.replace;
   useEffect(() => {
     refresh([
       ...visibleChannels,
-      ...Object.entries(directUnread.conversationAgentIds).map(([conversationId, agentId]) => ({
+      ...Object.entries(directUnread).map(([agentId, unreadCount]) => ({
         id: agentId,
-        unreadCount: directUnread.counts[conversationId],
+        unreadCount,
       })),
     ]);
   }, [refresh, visibleChannels, directUnread]);
@@ -139,53 +126,51 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     <ConversationListContext
       value={{ showList: () => setBrowsing(true), detailVisible: desktop || !showList }}
     >
-      <OpenModeContext value={conversationOpenMode}>
-        <ReadingLatestContext value={{ readingLatest, reportReadingLatest: setReadingLatest }}>
-          <UnreadContext value={controls}>
-            <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
-              <section
-                className={cx(
-                  "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
-                  showList ? "flex" : "hidden",
-                )}
-              >
-                <PageHeader heading={m.navigation_chat()} />
-                <div className="min-h-0 flex-1 overflow-y-auto py-4">
-                  <ConversationDirectory
-                    channels={visibleChannels}
-                    agents={agents}
-                    selectedChannelId={channel?.channelId}
-                    selectedAgentId={agent?.agentId}
-                    onCreateChannel={() => setCreating(true)}
-                  />
-                </div>
-              </section>
-              <div
-                className={cx(
-                  "min-h-0 min-w-0 flex-1 flex-col lg:flex",
-                  showList ? "hidden" : "flex",
-                )}
-              >
-                {children}
+      <OpenModeContext value={openMode}>
+        <UnreadContext value={controls}>
+          <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
+            <section
+              className={cx(
+                "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
+                showList ? "flex" : "hidden",
+              )}
+            >
+              <PageHeader heading={m.navigation_chat()} />
+              <div className="min-h-0 flex-1 overflow-y-auto py-4">
+                <ConversationDirectory
+                  channels={visibleChannels}
+                  agents={agents}
+                  selectedChannelId={channel?.channelId}
+                  selectedAgentId={agent?.agentId}
+                  onCreateChannel={() => setCreating(true)}
+                />
               </div>
-            </main>
-            {creating && (
-              <CreateChannelDialog
-                open={creating}
-                onOpenChange={setCreating}
-                projects={projects}
-                onCreate={async (name, projectId) => {
-                  const result = await create({ data: { name, projectId } });
-                  await router.invalidate({ sync: true });
-                  await router.navigate({
-                    to: "/messages/channels/$channelId",
-                    params: { channelId: result.id },
-                  });
-                }}
-              />
-            )}
-          </UnreadContext>
-        </ReadingLatestContext>
+            </section>
+            <div
+              className={cx(
+                "min-h-0 min-w-0 flex-1 flex-col lg:flex",
+                showList ? "hidden" : "flex",
+              )}
+            >
+              {children}
+            </div>
+          </main>
+          {creating && (
+            <CreateChannelDialog
+              open={creating}
+              onOpenChange={setCreating}
+              projects={projects}
+              onCreate={async (name, projectId) => {
+                const result = await create({ data: { name, projectId } });
+                await router.invalidate({ sync: true });
+                await router.navigate({
+                  to: "/messages/channels/$channelId",
+                  params: { channelId: result.id },
+                });
+              }}
+            />
+          )}
+        </UnreadContext>
       </OpenModeContext>
     </ConversationListContext>
   );

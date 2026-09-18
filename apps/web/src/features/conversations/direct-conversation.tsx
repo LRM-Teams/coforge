@@ -29,8 +29,8 @@ import {
   ConversationListButton,
   useConversationDetailVisible,
   useConversationOpenMode,
-  useReadingLatestReporter,
 } from "./conversation-navigation";
+import { latestTopLevelSequence } from "./conversation-unread";
 import { ConversationPending } from "./conversation-pending";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import {
@@ -157,6 +157,13 @@ type ConversationProps = {
   onLoadMessageAround?: (messageId: string) => Promise<void>;
   onShowLatest?: () => Promise<void>;
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
+  /**
+   * The main pane reached the latest message by the user's own scrolling. Only the main pane
+   * receives it (thread panes are separate `ConversationPane` instances and must never advance
+   * the conversation cursor), and it is never fired by open positioning. Used by the
+   * `newest-unread` open mode, where the cursor advances only through this callback.
+   */
+  onReadLatest?: (throughSequence: number) => void;
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   onShowTasks?: () => void;
@@ -318,6 +325,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     onAgentProfileTabChange,
     onCloseAgentProfile,
     onLoadMessageAround,
+    // Held out of `conversationProps` so the thread panes (which spread it) never receive it:
+    // only the main pane may advance the conversation-level read cursor.
+    onReadLatest,
     ...conversationProps
   } = props;
   const detailVisible = useConversationDetailVisible();
@@ -452,6 +462,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     <ConversationPane
       {...conversationProps}
       onLoadMessageAround={onLoadMessageAround}
+      onReadLatest={onReadLatest}
       header={header}
       conversation={{ ...conversation, messages: mainMessages }}
       threadEntry={(message) => {
@@ -683,6 +694,7 @@ export function ConversationPane({
   onLoadOwnMessages,
   onLoadMessageAround,
   onShowLatest,
+  onReadLatest,
   onCreateTask,
   onOpenAgentProfile,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
@@ -880,13 +892,14 @@ export function ConversationPane({
 
     if (firstRender || changedConversation || followingLatestRef.current) {
       setNewMessageCount(0);
-      // The user's "When I view a channel" preference decides the open position:
+      // The user's "When I view a conversation" preference decides the open position:
       // - first-unread: land on the oldest unread (divider above it).
-      // - newest-read / newest-unread: land at the latest.
+      // - newest-read / newest-unread: land at the latest. `newest-unread` differs only in
+      //   when the cursor advances: it waits for `onReadLatest` below, never for the open.
       // A message hash (deep link, task jump) still wins over both — the anchor effect
       // handles it and has already cleared `followingLatest` by the time this runs.
       const initial =
-        openMode !== "newest-read" && !firstUnreadConsumedRef.current ? firstUnread : undefined;
+        openMode === "first-unread" && !firstUnreadConsumedRef.current ? firstUnread : undefined;
       firstUnreadConsumedRef.current = true;
       if (initial && !window.location.hash) {
         const index = conversation.messages.findIndex((message) => message.id === initial.id);
@@ -924,13 +937,6 @@ export function ConversationPane({
     if (messages) observer.observe(messages);
     return () => observer.disconnect();
   }, [conversation.conversationId, conversation.messages.length === 0]);
-
-  // `newest-unread` keeps unseen messages unread until the latest is actually viewed: the
-  // pane's own follow state is the truth the route's read-cursor effect waits on.
-  const { reportReadingLatest } = useReadingLatestReporter();
-  useEffect(() => {
-    reportReadingLatest(followingLatest);
-  }, [reportReadingLatest, followingLatest]);
 
   useLayoutEffect(() => {
     function scrollToMessageAnchor() {
@@ -989,8 +995,16 @@ export function ConversationPane({
     if (!history) return;
     if (history.scrollTop <= 80) void loadOlder();
     const followingLatest = history.scrollHeight - history.scrollTop - history.clientHeight <= 48;
+    const wasFollowingLatest = followingLatestRef.current;
     setFollowingLatest(followingLatest);
     if (followingLatest) setNewMessageCount(0);
+    // A genuine scroll transition into the latest run is the only signal that the user read
+    // it. Open positioning sets `followingLatest` directly and never passes through here, so
+    // it cannot mark a conversation read (ADR 0046's `newest-unread` mode).
+    if (followingLatest && !wasFollowingLatest && !root) {
+      const through = latestTopLevelSequence(conversation.messages);
+      if (through > 0) onReadLatest?.(through);
+    }
   }
 
   async function loadOlder() {

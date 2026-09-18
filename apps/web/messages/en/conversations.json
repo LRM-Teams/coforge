@@ -44,11 +44,11 @@
   "channel_members_leave_error": "Could not leave the channel. Try again.",
   "channel_unread_accessible": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": ["input channel", "input count", "local countPlural = count: plural"],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=one": "{count} unread message",
-        "countPlural=other": "{count} unread messages"
+        "countPlural=one": "{channel}, {count} unread message",
+        "countPlural=other": "{channel}, {count} unread messages"
       }
     }
   ],

@@ -36,7 +36,6 @@ import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-
 import {
   useConversationReadRequiresScroll,
   useMarkConversationSeen,
-  useReadingLatest,
 } from "@/features/conversations/conversation-navigation";
 import { latestTopLevelSequence } from "@/features/conversations/conversation-unread";
 import { useEffect } from "react";
@@ -83,29 +82,25 @@ function ChannelPage() {
     page.ensureLoaded,
   );
 
-  // Opening the channel is reading it — except in the `newest-unread` preference, which
-  // keeps unseen messages unread until the latest is actually viewed: the badge clears
-  // immediately, but the server-side cursor waits for the pane to report reading-latest.
+  // Opening the channel is reading it — except in the `newest-unread` preference, which keeps
+  // unseen messages unread until the latest is actually viewed: the badge clears immediately
+  // and every event it already counted is remembered, but the server-side cursor only
+  // advances through `onReadLatest` below.
   const markSeen = useMarkConversationSeen();
   const advanceReadCursor = useServerFn(markPublicChannelRead);
   const readRequiresScroll = useConversationReadRequiresScroll();
-  const readingLatest = useReadingLatest();
   const topLevelEnd = latestTopLevelSequence(conversation.messages);
   useEffect(() => {
     markSeen(channelId, topLevelEnd);
   }, [markSeen, channelId, topLevelEnd]);
   useEffect(() => {
-    if (!topLevelEnd || !conversation.senderMemberId) return;
-    if (readRequiresScroll && !readingLatest) return;
+    if (!topLevelEnd || !conversation.senderMemberId || readRequiresScroll) return;
     void advanceReadCursor({ data: { channelId, throughSequence: topLevelEnd } }).catch(() => {});
-  }, [
-    advanceReadCursor,
-    channelId,
-    topLevelEnd,
-    conversation.senderMemberId,
-    readRequiresScroll,
-    readingLatest,
-  ]);
+  }, [advanceReadCursor, channelId, topLevelEnd, conversation.senderMemberId, readRequiresScroll]);
+  const readLatest = (throughSequence: number) => {
+    if (!conversation.senderMemberId) return;
+    void advanceReadCursor({ data: { channelId, throughSequence } }).catch(() => {});
+  };
 
   // Membership changes reach the sidebar through the layout loader and this page
   // through its query; both are refreshed.
@@ -210,6 +205,7 @@ function ChannelPage() {
       }
       onLoadMessageAround={page.loadMessageAround}
       onShowLatest={page.showLatest}
+      onReadLatest={readLatest}
       onLoadOlder={page.loadOlder}
       onOpenAgentProfile={openAgentProfile}
       agentProfile={{ agentId: profileAgentId, tab: agentTab }}

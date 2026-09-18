@@ -2085,7 +2085,7 @@ test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent'
   }
 });
 
-test("channel unread (ADR 0043): list counts other-authored top-level messages past the cursor, markRead advances monotonically, threads never count, join/addMembers seed the cursor", async () => {
+test("channel unread (ADR 0046): list counts other-authored top-level messages past the cursor, markRead advances monotonically, threads never count, join/addMembers seed the cursor", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -2164,6 +2164,23 @@ test("channel unread (ADR 0043): list counts other-authored top-level messages p
     });
     list = await channels.list(workspace.id, carol.id);
     expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(0);
+
+    // Re-adding an already-active member is a no-op: it must not reset a cursor they had
+    // advanced, or an admin re-running `channel add-member` would re-badge read history.
+    await channels.markRead(workspace.id, carol.id, engineering.id, 10_000);
+    await send(alice.id, "unread for carol");
+    expect(
+      (await channels.list(workspace.id, carol.id)).find((c) => c.id === engineering.id)
+        ?.unreadCount,
+    ).toBe(1);
+    await channels.addMembers(workspace.id, { userId: alice.id }, engineering.id, {
+      userIds: [carol.id],
+      agentIds: [],
+    });
+    expect(
+      (await channels.list(workspace.id, carol.id)).find((c) => c.id === engineering.id)
+        ?.unreadCount,
+    ).toBe(1);
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });

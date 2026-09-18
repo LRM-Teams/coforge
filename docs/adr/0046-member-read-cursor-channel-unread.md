@@ -1,7 +1,8 @@
 # ADR 0046: A per-member read cursor powers the channel unread badge
 
-Status: proposed (awaiting approval — schema change)
+Status: accepted
 Date: 2026-09-18
+Amended: 2026-09-18 — the "When I view a conversation" open-mode preference (see below)
 
 ## Context
 
@@ -54,17 +55,27 @@ Two constraints bound the design:
    over-eager client cannot swallow future messages into "already read". Exposed to the browser
    as the `markPublicChannelRead` Server Function; the open channel route calls it whenever the
    member can read (active member) and the loaded history's latest top-level sequence advances.
-5. **Realtime**: the existing versioned `message.available.v1` event gains two additive fields —
-   `workspaceId` (always set on new publications) and `threadRootId` (set only for a thread
-   reply). `CentrifugoConversationRealtime.messageAvailable` now publishes the same event to both
-   `chat:<conversationId>` (the open conversation's reconciliation, unchanged) and the new
-   `chat:workspace:<workspaceId>` signal channel. The browser's Chat page holds **one** workspace
-   subscription (the same pattern as `agent:status:<workspaceId>`), bumps a listed channel's
-   badge when a top-level message arrives in any non-open conversation, and deduplicates by a
-   per-conversation sequence high-water mark so a late or reordered event never double-counts.
-   Every list fetch (loader refresh) replaces local arithmetic with the server's count.
+5. **Realtime**: the existing versioned `message.available.v1` event gains additive fields —
+   `workspaceId` (always set on channel publications) and `threadRootId` (set only for a thread
+   reply). `CentrifugoConversationRealtime.messageAvailable` publishes the same event to both
+   `chat:<conversationId>` (the open conversation's reconciliation, unchanged) and a fan-out
+   channel: `chat:workspace:<workspaceId>` for a channel message, or `chat:user:<userId>` for a
+   direct message. A DM therefore never reaches the whole Workspace, and its publication carries
+   the Agent badge it belongs to (`agentId`) directly instead of making the browser reverse-map a
+   conversation id. The browser's Chat page holds **two** subscriptions on the `_app` layout's one
+   connection — the workspace channel and the viewer's own user channel — bumps a listed channel's
+   or DM's badge when a top-level message arrives in a non-open conversation, and deduplicates by
+   a per-badge sequence high-water mark so a late or reordered event never double-counts. Every
+   list fetch (loader refresh) replaces local arithmetic with the server's count.
 6. **The badge is presentational**: the browser clears it optimistically on open and reconciles
    against the server's persisted count on the next list read. No new browser-persisted state.
+7. **Open position** (amended): the user's `User.conversationOpenMode` preference chooses how a
+   conversation opens. `newest-read` opens at the latest and marks read (the previous fixed
+   behavior); `first-unread` opens at the oldest unread with a "New messages" divider above it;
+   `newest-unread` opens at the latest but advances the read cursor only when the user's own
+   scrolling reaches the latest message. Only the main pane may report that (thread panes are
+   separate panes and never advance the conversation cursor), and open positioning never counts as
+   reading. A `#message-<id>` deep link wins over every mode.
 
 ## Rejected alternatives
 
@@ -85,20 +96,28 @@ Two constraints bound the design:
   member row to its conversation's current maximum sequence, so nobody is badged for history that
   predates the feature. New member rows start at 0 but every membership write path seeds the
   cursor, so the default is only reachable for rows created outside those paths.
+- Migration `20260918193000_conversation_open_mode` adds `User.conversationOpenMode`
+  (text, default `newest-read`), the amendment's open-position preference.
 - `listPublicChannels` becomes two statements (channel list + one grouped count) instead of one.
-  The count query is indexed by the existing `messages(conversationId, …)` indexes; channel lists
-  in the MVP are small.
+  The channel count is driven from the viewer's own memberships and the DM count from the
+  conversation's agent member row, so the `sequence > readThroughSequence` comparison is an index
+  condition against `messages(conversationId, threadRootId, sequence)`; channel and DM lists in
+  the MVP are small.
 - `PersistedDirectMessage` and both repository send paths carry `threadRootId` so the browser
   signal can exclude thread replies. The event schema change is additive; consumers that ignore
   the new fields behave exactly as before.
-- Rollback: drop the column and the workspace-channel publication. No data depends on the cursor
+- Rollback: drop both columns and the fan-out publications. No data depends on the cursor
   surviving.
 
 ## Validation
 
 - `apps/web/test/conversation-unread.test.ts` pins the reducer: seeding, thread exclusion, open-
-  conversation suppression, duplicate/out-of-order suppression, clear-with-boundary, and
-  server-count replacement.
-- `apps/web/test/public-channel.integration.ts` ("channel unread (ADR 0043)") pins the service
+  conversation suppression, duplicate/out-of-order suppression, clear-with-boundary,
+  server-count replacement, and both the channel- and DM-keyed event paths.
+- `apps/web/test/public-channel.integration.ts` ("channel unread (ADR 0046)") pins the service
   behavior end to end against PostgreSQL: counting, self-message exclusion, thread exclusion,
   monotone clamped `markRead`, non-member zero, and `addMembers`/`join` seeding.
+- `apps/web/test/direct-conversation-unread.integration.ts` pins the DM path against PostgreSQL:
+  counts keyed by the conversation's Agent member (never the viewer's own row), thread and
+  self-message exclusion, monotone clamped `markReadForUser`, a zero-unread DM still producing a
+  row so a later event can bump it, and no rows for a user without a DM.

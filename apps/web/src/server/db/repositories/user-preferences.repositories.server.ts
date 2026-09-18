@@ -2,6 +2,10 @@ import type { PrismaClient } from "../../../../generated/client";
 
 import { validateTimeZone } from "../../../lib/dates";
 import { AppError } from "../../../lib/app-error";
+import {
+  isConversationOpenMode,
+  DEFAULT_CONVERSATION_OPEN_MODE,
+} from "../../../features/settings/conversation-open-mode";
 
 export type UserPreferencesRepository = {
   getTimeZone(userId: string): Promise<string | null>;
@@ -54,7 +58,7 @@ export class PrismaUserPreferencesRepository implements UserPreferencesRepositor
       where: { id: userId },
       select: { conversationOpenMode: true },
     });
-    return user?.conversationOpenMode ?? "newest-read";
+    return user?.conversationOpenMode ?? DEFAULT_CONVERSATION_OPEN_MODE;
   }
 
   async setConversationOpenMode(userId: string, mode: string) {
@@ -65,14 +69,6 @@ export class PrismaUserPreferencesRepository implements UserPreferencesRepositor
     });
     return user.conversationOpenMode;
   }
-}
-
-/** The three Slack-style open behaviors, shared by the settings schema and the chat pane. */
-export const CONVERSATION_OPEN_MODES = ["newest-read", "first-unread", "newest-unread"] as const;
-export type ConversationOpenMode = (typeof CONVERSATION_OPEN_MODES)[number];
-
-export function isConversationOpenMode(value: string): value is ConversationOpenMode {
-  return (CONVERSATION_OPEN_MODES as readonly string[]).includes(value);
 }
 
 export class UserPreferences {

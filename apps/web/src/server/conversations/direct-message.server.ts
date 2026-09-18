@@ -67,7 +67,10 @@ export class SendDirectMessage {
           input.threadRootId,
         ),
     );
-    await this.publishBrowserEvent(message, input.conversationId, input.workspaceId);
+    // The sender's own message never bumps their own badge (the server's count excludes
+    // self-authored messages), so a human-authored DM fans out to the conversation channel
+    // only: the human is the only badge owner for this DM.
+    await this.publishBrowserEvent(message, input.conversationId, {});
     if (!message.agentId) throw new Error("message is not an Agent direct message");
     await this.publishUserMessageToAgent(input.requestId, input.conversationId, {
       ...message,
@@ -91,17 +94,21 @@ export class SendDirectMessage {
       (!input.target.startsWith("@") && !isChannelMessageTarget(input.target))
     )
       throw new Error("invalid agent direct message");
-    const conversation = isChannelMessageTarget(input.target)
+    const isChannel = isChannelMessageTarget(input.target);
+    const dmUserId = isChannel
+      ? undefined
+      : await (async () => {
+          const userId = await this.conversations.userIdForUsername?.(input.target);
+          if (!userId) throw new Error("target user not found");
+          return userId;
+        })();
+    const conversation = isChannel
       ? await this.conversations.getAgentChannel?.(
           input.workspaceId,
           input.agentId,
           input.target.split(":")[0]!,
         )
-      : await (async () => {
-          const userId = await this.conversations.userIdForUsername?.(input.target);
-          if (!userId) throw new Error("target user not found");
-          return this.conversations.getOrCreateUserAgent(input.workspaceId, userId, input.agentId);
-        })();
+      : await this.conversations.getOrCreateUserAgent(input.workspaceId, dmUserId!, input.agentId);
     if (!conversation) throw new Error("channel access is unavailable");
     const message = await this.idempotency.execute(
       {
@@ -123,7 +130,15 @@ export class SendDirectMessage {
         return persisted;
       },
     );
-    await this.publishBrowserEvent(message, conversation.id, input.workspaceId);
+    // A channel message fans out to the Workspace; a DM goes only to its human viewer, naming
+    // the sending Agent's badge so the browser needs no conversation alias (ADR 0046).
+    await this.publishBrowserEvent(
+      message,
+      conversation.id,
+      isChannel
+        ? { workspaceId: input.workspaceId }
+        : { userId: dmUserId!, agentId: input.agentId },
+    );
     await this.notifications?.notifyMessage(message.id);
     await this.publishAgentMentionDeliveries(input.requestId, conversation.id, message);
     return message;
@@ -183,7 +198,7 @@ export class SendDirectMessage {
   private async publishBrowserEvent(
     message: { id: string; sequence: number; threadRootId?: string | null },
     conversationId: string,
-    workspaceId?: string,
+    scope: { workspaceId?: string; userId?: string; agentId?: string },
   ) {
     if (!this.realtime) return;
     try {
@@ -191,7 +206,9 @@ export class SendDirectMessage {
         conversationId,
         messageId: message.id,
         sequence: message.sequence,
-        ...(workspaceId ? { workspaceId } : {}),
+        ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+        ...(scope.userId ? { userId: scope.userId } : {}),
+        ...(scope.agentId ? { agentId: scope.agentId } : {}),
         ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
       });
     } catch {

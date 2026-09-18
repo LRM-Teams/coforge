@@ -150,6 +150,7 @@ export function ChannelConversation({
   onLoadMessageAround,
   onShowLatest,
   onReadThread,
+  onReadLatest,
   onThreadFollowedChange,
   tasks,
   onCreateTask,
@@ -184,6 +185,8 @@ export function ChannelConversation({
   onLoadMessageAround?: (messageId: string) => Promise<void>;
   onShowLatest?: () => Promise<void>;
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
+  /** The main pane's own scroll reached the latest message; advances the conversation cursor. */
+  onReadLatest?: (throughSequence: number) => void;
   onThreadFollowedChange?: (rootMessageId: string, followed: boolean) => Promise<void>;
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
@@ -216,6 +219,7 @@ export function ChannelConversation({
       onLoadMessageAround={onLoadMessageAround}
       onShowLatest={onShowLatest}
       onReadThread={onReadThread}
+      onReadLatest={onReadLatest}
       onOpenAgentProfile={onOpenAgentProfile}
       agentProfile={agentProfile}
       onAgentProfileTabChange={onAgentProfileTabChange}

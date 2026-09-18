@@ -42,6 +42,12 @@ function UnreadDot() {
   );
 }
 
+/** The row's accessible name: the conversation it names, plus its unread count when it has one. */
+function rowLabel(unreadCount: number | undefined, label: string): string | undefined {
+  if (!unreadCount) return undefined;
+  return m.channel_unread_accessible({ channel: label, count: unreadCount });
+}
+
 // A local row (not NavItemBase — its `icon` slot hardcodes size-5 and can't
 // take an Avatar) so channel and DM rows share one grid: 20px icon column,
 // text starting at the same x, and the same current/hover treatment.
@@ -51,6 +57,7 @@ function ConversationRow({
   icon,
   muted,
   unreadCount,
+  label,
   children,
 }: {
   target: { channelId: string } | { agentId: string };
@@ -58,6 +65,8 @@ function ConversationRow({
   icon: ReactNode;
   muted?: boolean;
   unreadCount?: number;
+  /** The row's own name, so an unread row keeps its accessible name instead of replacing it. */
+  label: string;
   children: ReactNode;
 }) {
   return (
@@ -66,7 +75,7 @@ function ConversationRow({
         ? { to: "/messages/channels/$channelId", params: target }
         : { to: "/messages/$agentId", params: target })}
       aria-current={current ? "page" : undefined}
-      aria-label={unreadCount ? m.channel_unread_accessible({ count: unreadCount }) : undefined}
+      aria-label={rowLabel(unreadCount, label)}
       className={cx(
         "flex max-h-9 w-full cursor-pointer items-center gap-2 rounded-md p-2 outline-focus-ring transition duration-100 ease-linear select-none focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2",
         current ? "bg-sidebar-accent" : "hover:bg-primary_hover",
@@ -213,6 +222,7 @@ export function ConversationDirectory({
                     current={current}
                     muted={!channel.joined || channel.muted}
                     unreadCount={unreadCounts[channel.id]}
+                    label={`#${channel.name}`}
                     icon={
                       <Hash
                         aria-hidden="true"
@@ -242,6 +252,7 @@ export function ConversationDirectory({
                   target={{ agentId: agent.id }}
                   current={agent.id === selectedAgentId}
                   unreadCount={unreadCounts[agent.id]}
+                  label={agent.displayName}
                   icon={
                     <AgentDisplayAvatar
                       name={agent.displayName}

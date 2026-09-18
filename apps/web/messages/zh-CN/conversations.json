@@ -45,10 +45,10 @@
   "channel_members_leave_error": "离开频道失败，请重试。",
   "channel_unread_accessible": [
     {
-      "declarations": ["input count", "local countPlural = count: plural"],
+      "declarations": ["input channel", "input count", "local countPlural = count: plural"],
       "selectors": ["countPlural"],
       "match": {
-        "countPlural=other": "{count} 条未读消息"
+        "countPlural=other": "{channel}，{count} 条未读消息"
       }
     }
   ],

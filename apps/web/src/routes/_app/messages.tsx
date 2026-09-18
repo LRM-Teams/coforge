@@ -5,27 +5,27 @@ import { ConversationNavigation } from "@/features/conversations/conversation-na
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { listPublicChannels } from "@/features/conversations/channels.functions";
 import {
+  getViewerId,
   loadDirectConversationUnread,
   type DirectConversationUnread,
 } from "@/features/conversations/conversations.functions";
 import { listProjects } from "@/features/projects/projects.functions";
 
-const EMPTY_DIRECT_UNREAD: DirectConversationUnread = {
-  counts: {},
-  conversationAgentIds: {},
-};
+const EMPTY_DIRECT_UNREAD: DirectConversationUnread = {};
 
 export const Route = createFileRoute("/_app/messages")({
   loader: async () => {
-    const [channels, projects, directUnread] = await Promise.all([
+    const [channels, projects, directUnread, viewerId] = await Promise.all([
       listPublicChannels(),
       listProjects(),
       loadDirectConversationUnread().catch(() => EMPTY_DIRECT_UNREAD),
+      getViewerId().catch(() => undefined),
     ]);
     return {
       channels,
       projects,
       directUnread,
+      viewerId,
     };
   },
   pendingMs: 300,

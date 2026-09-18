@@ -7,8 +7,8 @@ import { requireDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaUserPreferencesRepository,
   UserPreferences,
-  CONVERSATION_OPEN_MODES,
 } from "../../server/db/repositories/user-preferences.repositories.server";
+import { CONVERSATION_OPEN_MODES } from "./conversation-open-mode";
 
 function preferences() {
   const db = requireDatabaseClient();

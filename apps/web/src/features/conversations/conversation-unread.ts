@@ -2,20 +2,28 @@ import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
 import { useRealtimeSubscription } from "../realtime/browser-realtime";
-import { getWorkspaceConversationSubscriptionToken } from "../realtime/realtime.functions";
-import { decodeMessageAvailableEvent, workspaceConversationChannel } from "./conversation-realtime";
+import {
+  getUserConversationSubscriptionToken,
+  getWorkspaceConversationSubscriptionToken,
+} from "../realtime/realtime.functions";
+import {
+  decodeMessageAvailableEvent,
+  userConversationChannel,
+  workspaceConversationChannel,
+} from "./conversation-realtime";
 
 /**
  * Sidebar unread state for the Chat page (ADR 0046, Slack/Discord model): a per-badge count
  * of unread top-level messages, seeded from the server's persisted read cursors and kept
- * live by the workspace conversation signal channel. Opening a conversation clears its
- * badge; every list fetch replaces local arithmetic with the server's own count.
+ * live by realtime signals. Opening a conversation clears its badge; every list fetch
+ * replaces local arithmetic with the server's own count.
  *
  * A badge key is the conversation id for channels and the Agent id for direct messages (the
- * directory rows' own keys). Realtime events carry only the conversation id, so the seed
- * payload also supplies the conversation→Agent alias map for DMs; a conversation the alias
- * map does not know yet (a DM never opened since the last fetch) still resolves through the
- * latest fetch at event time via the ref.
+ * directory rows' own keys). Channels and direct messages arrive on separate signal channels:
+ * the workspace channel carries every channel event, and each user's own channel carries only
+ * their direct messages, already labelled with the Agent badge they belong to. Neither path
+ * needs a conversation→Agent alias map, so a DM created after the last list fetch still bumps
+ * its badge live.
  *
  * Counts live alongside a per-badge sequence high-water mark (`<key>:seq`), so a late or
  * reordered event can never double-count a message the badge already reflects.
@@ -24,10 +32,8 @@ export type UnreadCounts = Record<string, number>;
 
 export type UnreadChannel = { id: string; unreadCount?: number };
 
-export type DirectUnreadSeed = {
-  counts: Readonly<Record<string, number>>;
-  conversationAgentIds: Readonly<Record<string, string>>;
-};
+/** DM unread counts, keyed by the Agent whose sidebar row owns the badge. */
+export type DirectUnreadSeed = Readonly<Record<string, number>>;
 
 /** Seeds local state from the server's list payload. */
 export function seedUnreadCounts(entries: readonly UnreadChannel[]): UnreadCounts {
@@ -41,29 +47,33 @@ export type UnreadEventInput = {
   conversationId: string;
   sequence: number;
   threadRootId?: string;
+  /** Present on a direct-message signal: the Agent badge this event belongs to. */
+  agentId?: string;
 };
 
 /**
  * Applies one `message.available.v1` event. Only a top-level message in a listed,
  * not-currently-open conversation bumps the badge: thread replies belong to their thread
  * target (reading a thread never consumes the main conversation's unread), and the open
- * conversation is being read right now.
+ * conversation is being read right now. A direct-message event carries its own badge key
+ * (`agentId`); a channel event is keyed by its conversation id.
  */
 export function applyUnreadEvent(
   current: UnreadCounts,
   event: UnreadEventInput,
   options: {
     openConversationId?: string;
-    /** Every conversation id a badge currently stands for (channels directly; DMs aliased). */
+    /** The open direct message's Agent badge key, if a DM is open. */
+    openAgentId?: string;
+    /** Every conversation id a badge currently stands for (channels; DMs use `agentId`). */
     conversations: ReadonlySet<string>;
-    /** Conversation id → Agent id for DM badges, from the latest list fetch. */
-    conversationAgentIds: Readonly<Record<string, string>>;
   },
 ): UnreadCounts {
   if (event.conversationId === options.openConversationId) return current;
-  if (!options.conversations.has(event.conversationId)) return current;
+  if (event.agentId && event.agentId === options.openAgentId) return current;
   if (event.threadRootId) return current;
-  const key = options.conversationAgentIds[event.conversationId] ?? event.conversationId;
+  const key = event.agentId ?? event.conversationId;
+  if (!event.agentId && !options.conversations.has(event.conversationId)) return current;
   const highWater = current[`${key}:seq`] ?? 0;
   if (event.sequence <= highWater) return current;
   return {
@@ -125,49 +135,48 @@ export type UnreadState = {
 };
 
 /**
- * The Chat page's one workspace conversation subscription and its unread-count state.
- * Renders nothing: the directory reads `counts`, the conversation routes call `clear`,
- * and every loader refresh flows through `replace`.
+ * The Chat page's two signal subscriptions and its unread-count state. Renders nothing: the
+ * directory reads `counts`, the conversation routes call `clear`, and every loader refresh
+ * flows through `replace`. Both subscriptions ride the `_app` layout's one Centrifuge
+ * connection; neither opens a WebSocket of its own.
  */
 export function useChannelUnread({
   workspaceId,
+  userId,
   channels,
-  directUnread,
   openConversationId,
+  openAgentId,
 }: {
   workspaceId?: string;
-  /** Channel rows currently listed; events for anything else are ignored. */
+  /** The viewer, whose own direct-message signal channel carries their DM badges. */
+  userId?: string;
+  /** Channel rows currently listed; channel events for anything else are ignored. */
   channels: readonly UnreadChannel[];
-  /** The current DM seed (counts keyed by conversation id, plus its Agent alias map). */
-  directUnread: DirectUnreadSeed;
   /** The conversation currently shown in the detail pane, if any. */
   openConversationId?: string;
+  /** The Agent badge of the direct message currently shown, if a DM is open. */
+  openAgentId?: string;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
-  const getToken = useServerFn(getWorkspaceConversationSubscriptionToken);
-  const refs = useRef({ channels, directUnread, openConversationId });
-  refs.current = { channels, directUnread, openConversationId };
+  const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
+  const getUserToken = useServerFn(getUserConversationSubscriptionToken);
+  const refs = useRef({ channels, openConversationId, openAgentId });
+  refs.current = { channels, openConversationId, openAgentId };
 
   const onPublication = useCallback((publication: { data: unknown }) => {
     try {
       const event = decodeMessageAvailableEvent(publication.data);
       const {
         channels: channelRows,
-        directUnread: direct,
         openConversationId: open,
+        openAgentId: openAgent,
       } = refs.current;
-      const conversationAgentIds = direct.conversationAgentIds;
-      // Every conversation a badge can stand for: listed channels plus the DMs the latest
-      // fetch counted. A DM created after that fetch has no badge until the next one.
-      const conversations = new Set([
-        ...channelRows.map((channel) => channel.id),
-        ...Object.keys(conversationAgentIds),
-      ]);
+      const conversations = new Set(channelRows.map((channel) => channel.id));
       setCounts((current) =>
         applyUnreadEvent(current, event, {
           conversations,
-          conversationAgentIds,
           openConversationId: open,
+          openAgentId: openAgent,
         }),
       );
     } catch {
@@ -177,7 +186,12 @@ export function useChannelUnread({
 
   useRealtimeSubscription({
     channel: workspaceId ? workspaceConversationChannel(workspaceId) : undefined,
-    getToken: workspaceId ? getToken : undefined,
+    getToken: workspaceId ? getWorkspaceToken : undefined,
+    onPublication,
+  });
+  useRealtimeSubscription({
+    channel: userId ? userConversationChannel(userId) : undefined,
+    getToken: userId ? getUserToken : undefined,
     onPublication,
   });
 

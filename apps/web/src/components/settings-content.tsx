@@ -34,6 +34,10 @@ import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/but
 import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
 import { GitHubSettings } from "@/features/integrations/github-settings";
 import { TEXT_SIZE_OPTIONS, type TextSizeValue } from "@/features/settings/text-size";
+import {
+  isConversationOpenMode,
+  type ConversationOpenMode,
+} from "@/features/settings/conversation-open-mode";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { isAppError } from "@/lib/app-error";
@@ -94,8 +98,8 @@ interface SettingsContentProps {
   onRailLabelsChange: (show: boolean) => void;
   onTextSizeChange: (size: TextSizeValue) => void;
   onTimeZoneChange: (timeZone: string) => void;
-  conversationOpenMode: string;
-  onConversationOpenModeChange: (mode: "newest-read" | "first-unread" | "newest-unread") => void;
+  conversationOpenMode: ConversationOpenMode;
+  onConversationOpenModeChange: (mode: ConversationOpenMode) => void;
   onBrowserNotificationsChange: (enabled: boolean) => Promise<void>;
   onEnableBrowserNotifications: () => Promise<void>;
   onTestBrowserNotification: () => Promise<boolean>;
@@ -762,8 +766,7 @@ function Preferences({
             value={conversationOpenMode}
             onChange={(key) => {
               const mode = String(key);
-              if (mode === "newest-read" || mode === "first-unread" || mode === "newest-unread")
-                onConversationOpenModeChange(mode);
+              if (isConversationOpenMode(mode)) onConversationOpenModeChange(mode);
             }}
           >
             <SelectItem id="newest-read" label={m.preferences_open_newest_read()} />

@@ -986,14 +986,14 @@ describe("PrismaDirectConversationRepository", () => {
     ]);
   });
 
-  test("unread counts group per DM conversation and carry the conversation→Agent alias", async () => {
+  test("unread counts group per DM by the Agent whose row owns the badge", async () => {
     const queries: { sql: string; values: unknown[] }[] = [];
     const db = {
       $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
         queries.push({ sql: strings.join(""), values: flattenSqlValues(values) });
         return [
-          { agentId: "agent-1", conversationId: "conversation-1", unread: 3 },
-          { agentId: "agent-2", conversationId: "conversation-2", unread: 1 },
+          { agentId: "agent-1", unread: 3 },
+          { agentId: "agent-2", unread: 0 },
         ];
       },
     } as unknown as PrismaClient;
@@ -1003,13 +1003,16 @@ describe("PrismaDirectConversationRepository", () => {
       "user-1",
     );
     expect(rows).toEqual([
-      { agentId: "agent-1", conversationId: "conversation-1", unread: 3 },
-      { agentId: "agent-2", conversationId: "conversation-2", unread: 1 },
+      { agentId: "agent-1", unread: 3 },
+      { agentId: "agent-2", unread: 0 },
     ]);
     const statement = queries[0]!;
     expect(statement.sql).toContain('"directKey" IS NOT NULL');
     expect(statement.sql).toContain('"threadRootId" IS NULL');
     expect(statement.sql).toContain('> cm."readThroughSequence"');
+    // The badge key is the conversation's agent member row, never the viewer's own row.
+    expect(statement.sql).toContain('am."agentId"');
+    expect(statement.sql).not.toContain('cm."agentId"');
     expect(statement.values).toContain("workspace-1");
     expect(statement.values).toContain("user-1");
   });

@@ -30,6 +30,10 @@ import {
 import { getLocale, setLocale } from "@/paraglide/runtime";
 import { readRailLabels, writeRailLabels } from "@/features/settings/rail-labels";
 import { readTextSize, writeTextSize, type TextSizeValue } from "@/features/settings/text-size";
+import {
+  conversationOpenMode,
+  type ConversationOpenMode,
+} from "@/features/settings/conversation-open-mode";
 import { m } from "@/paraglide/messages";
 
 type Theme = "system" | "light" | "dark";
@@ -168,9 +172,7 @@ function SettingsPage() {
     }
   }
 
-  async function changeConversationOpenMode(
-    nextMode: "newest-read" | "first-unread" | "newest-unread",
-  ) {
+  async function changeConversationOpenMode(nextMode: ConversationOpenMode) {
     try {
       await saveOpenMode({ data: { mode: nextMode } });
       await router.invalidate({ sync: true });
@@ -270,7 +272,7 @@ function SettingsPage() {
       textSize={textSize}
       onTextSizeChange={changeTextSize}
       onTimeZoneChange={changeTimeZone}
-      conversationOpenMode={savedOpenMode}
+      conversationOpenMode={conversationOpenMode(savedOpenMode)}
       onConversationOpenModeChange={changeConversationOpenMode}
       onBrowserNotificationsChange={changeBrowserNotifications}
       onEnableBrowserNotifications={enableBrowserNotifications}

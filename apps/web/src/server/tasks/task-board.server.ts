@@ -14,7 +14,10 @@ import {
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
-import type { ConversationRealtime } from "../conversations/conversation-realtime.server";
+import {
+  messageSignalScope,
+  type ConversationRealtime,
+} from "../conversations/conversation-realtime.server";
 import { mentionedNames } from "../conversations/mentions";
 import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
@@ -800,6 +803,11 @@ export class TaskBoard {
         Promise.resolve()
           .then(effect)
           .catch(() => undefined);
+      const signalScope = await messageSignalScope(
+        this.db,
+        scope.conversationId,
+        scope.workspaceId,
+      );
       const effects: Promise<unknown>[] = result.tasks.flatMap((task, index) => [
         ...(member.userId
           ? [attempt(() => this.dependencies.notifications?.notifyMessage(task.messageId))]
@@ -809,6 +817,7 @@ export class TaskBoard {
             conversationId: scope.conversationId,
             messageId: task.messageId,
             sequence: result.sequences[index]!,
+            ...signalScope,
           }),
         ),
       ]);
@@ -906,6 +915,11 @@ export class TaskBoard {
         deliveries: { include: { agent: { select: { computerId: true } } } },
       },
     });
+    const signalScope = await messageSignalScope(
+      this.db,
+      message.conversationId,
+      message.workspaceId,
+    );
     // A failed notification never rolls back or misreports a committed assignment.
     await Promise.allSettled([
       Promise.resolve().then(() =>
@@ -913,7 +927,7 @@ export class TaskBoard {
           conversationId: message.conversationId,
           messageId: message.id,
           sequence: message.sequence,
-          workspaceId: message.workspaceId,
+          ...signalScope,
         }),
       ),
       Promise.resolve().then(() => this.dependencies.notifications?.notifyMessage(message.id)),
@@ -1536,7 +1550,7 @@ export class TaskBoard {
         messageId: task.messageId,
         sequence: task.message.sequence,
         // Task metadata changes are always top-level messages, never thread replies.
-        workspaceId: task.workspaceId,
+        ...(await messageSignalScope(this.db, task.conversationId, task.workspaceId)),
         publicationId: `${task.messageId}:task:${task.revision}`,
       });
     } catch {

@@ -117,12 +117,9 @@ export const markDirectThreadRead = createServerFn({ method: "POST" })
     );
   });
 
-/** Per-DM unread for the sidebar: counts keyed by conversation id plus the conversation→Agent
- * alias map realtime events need, one grouped query for the whole Workspace (ADR 0046). */
-export type DirectConversationUnread = {
-  counts: Record<string, number>;
-  conversationAgentIds: Record<string, string>;
-};
+/** Per-DM unread for the sidebar, keyed by the Agent row that owns each badge — the same key
+ * the realtime publication carries, so no conversation→Agent alias map is needed (ADR 0046). */
+export type DirectConversationUnread = Record<string, number>;
 
 export const loadDirectConversationUnread = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
@@ -133,14 +130,15 @@ export const loadDirectConversationUnread = createServerFn({ method: "GET" })
         workspaceId,
         user.id,
       )) ?? [];
-    const counts: Record<string, number> = {};
-    const conversationAgentIds: Record<string, string> = {};
-    for (const row of rows) {
-      counts[row.conversationId] = row.unread;
-      conversationAgentIds[row.conversationId] = row.agentId;
-    }
-    return { counts, conversationAgentIds };
+    const counts: DirectConversationUnread = {};
+    for (const row of rows) counts[row.agentId] = row.unread;
+    return counts;
   });
+
+/** The signed-in user's id, for their own direct-message signal channel (ADR 0046). */
+export const getViewerId = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => context.user.id);
 
 /** Advances the DM read cursor for the sidebar badge; monotone and clamped (ADR 0046). */
 export const markDirectConversationRead = createServerFn({ method: "POST" })

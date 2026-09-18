@@ -11,6 +11,14 @@ export const conversationRealtimeChannel = (conversationId: string) => `chat:${c
 export const workspaceConversationChannel = (workspaceId: string) =>
   `chat:workspace:${workspaceId}`;
 
+/**
+ * The viewer's own direct-message signal channel. A DM event is published here (and on its
+ * conversation channel) instead of the workspace channel, so direct-message metadata never
+ * reaches every Workspace member, and the publication can name the Agent badge it belongs to
+ * directly rather than making the browser reverse-map a conversation id.
+ */
+export const userConversationChannel = (userId: string) => `chat:user:${userId}`;
+
 export type MessageAvailableEvent = {
   type: "message.available.v1";
   conversationId: string;
@@ -20,6 +28,11 @@ export type MessageAvailableEvent = {
   workspaceId?: string;
   /** Set only for a thread reply: reading a thread consumes thread unread, never channel unread. */
   threadRootId?: string;
+  /**
+   * Set only for a direct message: the Agent whose sidebar badge this event bumps. The user
+   * channel is already scoped to one viewer, so the badge key needs no conversation alias.
+   */
+  agentId?: string;
 };
 
 export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEvent {
@@ -33,6 +46,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
   const sequence = Reflect.get(value, "sequence");
   const workspaceId = Reflect.get(value, "workspaceId");
   const threadRootId = Reflect.get(value, "threadRootId");
+  const agentId = Reflect.get(value, "agentId");
   if (
     type !== "message.available.v1" ||
     typeof conversationId !== "string" ||
@@ -42,7 +56,8 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     !Number.isSafeInteger(sequence) ||
     sequence < 1 ||
     (workspaceId !== undefined && (typeof workspaceId !== "string" || !workspaceId)) ||
-    (threadRootId !== undefined && (typeof threadRootId !== "string" || !threadRootId))
+    (threadRootId !== undefined && (typeof threadRootId !== "string" || !threadRootId)) ||
+    (agentId !== undefined && (typeof agentId !== "string" || !agentId))
   )
     throw new Error("invalid conversation event");
   return {
@@ -52,5 +67,6 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     sequence,
     ...(workspaceId ? { workspaceId } : {}),
     ...(threadRootId ? { threadRootId } : {}),
+    ...(agentId ? { agentId } : {}),
   };
 }

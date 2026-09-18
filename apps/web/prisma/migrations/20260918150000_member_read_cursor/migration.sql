@@ -1,4 +1,4 @@
--- Human member read cursor over top-level messages (ADR 0043).
+-- Human member read cursor over top-level messages (ADR 0046).
 -- One-time baseline: existing member rows start already-read so nobody is
 -- badged for history that predates the cursor. New member rows start at 0.
 ALTER TABLE "conversation_members" ADD COLUMN     "readThroughSequence" INTEGER NOT NULL DEFAULT 0;
