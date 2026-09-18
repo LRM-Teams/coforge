@@ -39,8 +39,8 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
 import { MessageComposer } from "./message-composer";
-import { MessageBody } from "./message-body";
 import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
+import { CollapsibleMessageBody } from "./collapsible-message-body";
 import { AttachmentCard, MessageRow, clockLabel, groupsWithPrevious } from "./message-row";
 import {
   OwnMessagesMenu,
@@ -1027,10 +1027,14 @@ export function ConversationPane({
                   </time>
                 </p>
                 <div className="min-w-0 text-md leading-6 text-primary [overflow-wrap:anywhere]">
-                  <MessageBody
+                  {/* The root collapses exactly like the rows below it: opening a thread whose root
+                      is a wall of text should not bury the replies. */}
+                  <CollapsibleMessageBody
                     body={root.body}
                     mentions={root.mentions}
                     viewerHandle={conversation.viewerHandle}
+                    expanded={expandedMessages.has(root.id)}
+                    onToggleExpanded={() => toggleExpandedMessage(root.id)}
                   />
                 </div>
                 {root.attachments.map((attachment) => (
