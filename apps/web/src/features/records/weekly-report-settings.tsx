@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Edit01 as Edit, Plus, Trash01 as Trash, XClose as X } from "@untitledui/icons";
 import { Heading } from "react-aria-components";
 
-import { Tabs } from "@/components/application/tabs/tabs";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
@@ -47,7 +46,6 @@ export function WeeklyReportSettings({
   const update = useServerFn(updateWeeklyTemplate);
   const apply = useServerFn(applyWeeklyTemplate);
   const remove = useServerFn(deleteWeeklyTemplate);
-  const [settingsTab, setSettingsTab] = useState<"weekly" | "highlights">("weekly");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WeeklyTemplateList[number] | null>(null);
   const [detail, setDetail] = useState<WeeklyTemplateList[number] | null>(null);
@@ -103,32 +101,15 @@ export function WeeklyReportSettings({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
         <BackToRecords />
-        <Tabs
-          selectedKey={settingsTab}
-          onSelectionChange={(key) =>
-            setSettingsTab(key === "highlights" ? "highlights" : "weekly")
-          }
-          className="min-w-0 flex-1"
-        >
-          <Tabs.List type="underline" size="sm">
-            <Tabs.Item id="weekly" label={m.records_parent_tab_template()} />
-            <Tabs.Item id="highlights" label={m.records_settings_tab_highlights()} />
-          </Tabs.List>
-        </Tabs>
-        {settingsTab === "weekly" ? (
-          <Button size="sm" color="primary" iconLeading={Plus} onPress={openCreate}>
-            {m.records_create_template()}
-          </Button>
-        ) : null}
+        <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-primary">
+          {m.records_parent_tab_template()}
+        </h1>
+        <Button size="sm" color="primary" iconLeading={Plus} onPress={openCreate}>
+          {m.records_create_template()}
+        </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto bg-primary p-4 sm:p-6">
-        {settingsTab === "highlights" ? (
-          <Empty className="py-10">
-            <EmptyHeader>
-              <EmptyTitle>{m.records_highlight_templates_empty()}</EmptyTitle>
-            </EmptyHeader>
-          </Empty>
-        ) : templates.length === 0 ? (
+        {templates.length === 0 ? (
           <Empty className="py-10">
             <EmptyHeader>
               <EmptyTitle>{m.records_templates_empty()}</EmptyTitle>

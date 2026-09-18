@@ -206,7 +206,11 @@ export async function startCollectRun(
     const binding = bindingByComputer.get(computerId);
     if (!binding) throw new AppError("INVALID_INPUT");
     const agent = agentById.get(binding.collectorAgentId);
-    if (!agent || agent.computerId !== computerId || !collectorRuntimeConfigured(agent.runtimeConfig)) {
+    if (
+      !agent ||
+      agent.computerId !== computerId ||
+      !collectorRuntimeConfigured(agent.runtimeConfig)
+    ) {
       throw new AppError("INVALID_INPUT");
     }
   }
@@ -241,6 +245,104 @@ export async function startCollectRun(
   return toRunView(created);
 }
 
+export type AcceptCollectSlotReportResult = {
+  run: CollectRunView;
+  /** False on requestId replay or when the slot was already terminal. */
+  newlyAccepted: boolean;
+  /** True once when this accept moves the run from collecting into synthesizing. */
+  synthesisStarted: boolean;
+};
+
+/**
+ * Accepts a collector pack or terminal failure for one slot (Agent HTTPS).
+ * Idempotent on requestId. When every slot is terminal and ≥1 is ready, advances
+ * the run from collecting → synthesizing (ADR 0032 settle).
+ */
+export async function acceptCollectSlotReport(
+  db: PrismaClient,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    requestId: string;
+    runId: string;
+    outcome: "ready" | "empty" | "failed";
+    packMarkdown?: string;
+    failureReason?: string;
+  },
+): Promise<AcceptCollectSlotReportResult> {
+  const existingByRequest = await db.weeklyReportCollectSlot.findFirst({
+    where: { requestId: input.requestId },
+    include: { run: { include: { slots: true } } },
+  });
+  if (existingByRequest) {
+    if (existingByRequest.run.workspaceId !== input.workspaceId) {
+      throw new AppError("ACCESS_DENIED");
+    }
+    return {
+      run: toRunView({
+        ...existingByRequest.run,
+        slots: existingByRequest.run.slots,
+      }),
+      newlyAccepted: false,
+      synthesisStarted: false,
+    };
+  }
+
+  const run = await db.weeklyReportCollectRun.findFirst({
+    where: { id: input.runId, workspaceId: input.workspaceId },
+    include: { slots: true },
+  });
+  if (!run) throw new AppError("NOT_FOUND");
+  const slot = run.slots.find((row) => row.collectorAgentId === input.agentId);
+  if (!slot) throw new AppError("ACCESS_DENIED");
+  if (TERMINAL_SLOT_STATUSES.has(slot.status) && slot.requestId) {
+    return { run: toRunView(run), newlyAccepted: false, synthesisStarted: false };
+  }
+
+  const packMarkdown = input.outcome === "ready" ? (input.packMarkdown ?? "").trim() : null;
+  if (input.outcome === "ready" && !packMarkdown) throw new AppError("INVALID_INPUT");
+
+  await db.weeklyReportCollectSlot.update({
+    where: { id: slot.id },
+    data: {
+      status: input.outcome,
+      packMarkdown,
+      failureReason:
+        input.outcome === "failed"
+          ? (input.failureReason ?? "collector failed").slice(0, 2000)
+          : null,
+      requestId: input.requestId,
+    },
+  });
+
+  let refreshed = await db.weeklyReportCollectRun.findFirstOrThrow({
+    where: { id: run.id },
+    include: { slots: { orderBy: { computerId: "asc" } } },
+  });
+
+  let synthesisStarted = false;
+  if (
+    refreshed.status === COLLECT_RUN_STATUS.collecting &&
+    canSynthesizeFromSlots(refreshed.slots)
+  ) {
+    const advanced = await db.weeklyReportCollectRun.updateMany({
+      where: { id: run.id, status: COLLECT_RUN_STATUS.collecting },
+      data: { status: COLLECT_RUN_STATUS.synthesizing },
+    });
+    synthesisStarted = advanced.count === 1;
+    refreshed = await db.weeklyReportCollectRun.findFirstOrThrow({
+      where: { id: run.id },
+      include: { slots: { orderBy: { computerId: "asc" } } },
+    });
+  }
+
+  return {
+    run: toRunView(refreshed),
+    newlyAccepted: true,
+    synthesisStarted,
+  };
+}
+
 export async function getCollectRun(
   db: PrismaClient,
   input: { workspaceId: string; userId: string; runId: string },
@@ -255,4 +357,50 @@ export async function getCollectRun(
   });
   if (!run) throw new AppError("NOT_FOUND");
   return toRunView(run);
+}
+
+export type CollectRunSlotDetail = CollectRunSlotView & {
+  packMarkdown: string | null;
+  computerLabel: string;
+};
+
+export type CollectRunDetailView = Omit<CollectRunView, "slots"> & {
+  slots: CollectRunSlotDetail[];
+};
+
+/** Slot view including pack body for the collapsed result UI. */
+export async function getCollectRunWithPacks(
+  db: PrismaClient,
+  input: { workspaceId: string; userId: string; runId: string },
+): Promise<CollectRunDetailView> {
+  const run = await db.weeklyReportCollectRun.findFirst({
+    where: {
+      id: input.runId,
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+    },
+    include: {
+      slots: {
+        orderBy: { computerId: "asc" },
+        include: { computer: { select: { displayName: true, name: true } } },
+      },
+    },
+  });
+  if (!run) throw new AppError("NOT_FOUND");
+  const base = toRunView(run);
+  return {
+    ...base,
+    slots: run.slots.map((slot) => ({
+      id: slot.id,
+      computerId: slot.computerId,
+      collectorAgentId: slot.collectorAgentId,
+      scanPaths: asScanPaths(slot.scanPaths),
+      status: slot.status,
+      retryCount: slot.retryCount,
+      failureReason: slot.failureReason,
+      hasPack: Boolean(slot.packMarkdown && slot.packMarkdown.length > 0),
+      packMarkdown: slot.packMarkdown,
+      computerLabel: slot.computer.displayName || slot.computer.name || slot.computerId,
+    })),
+  };
 }

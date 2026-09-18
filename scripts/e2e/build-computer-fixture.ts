@@ -3,6 +3,8 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import { zodResolvePlugin } from "../bun-resolve-zod-plugin";
+
 const root = resolve(import.meta.dir, "../..");
 const server = Bun.env.COFORGE_E2E_WEB_URL;
 if (!server) throw new Error("COFORGE_E2E_WEB_URL is required");
@@ -21,6 +23,7 @@ const binaryPath = resolve(root, ".amp/e2e/bin/coforge-computer");
       "process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH": JSON.stringify("0"),
     },
     plugins: [
+      zodResolvePlugin(root),
       {
         name: "local-e2e-transports",
         setup(build) {

@@ -50,8 +50,10 @@ small deep modules rewritten against ADR 0032.
    `start`, `get`, pure settle helpers (`allSlotsTerminal`, `hasReadyPack`).  
    Start requires owned ready collectors + window; snapshots `scanPaths` onto slots.
 
-Later CRs (not this file’s first green): HTTPS pack submit, one platform retry,
-synthesizer wake, side-panel cards.
+Later CRs (not this file’s first green): one platform retry, synthesizer wake.
+HTTPS pack submit (`POST /api/agent/v1/weekly-report-collect` +
+`coforge weekly-report-collect submit-*` via Credential Proxy) and side-panel
+cards are landed.
 
 ## Module map note
 

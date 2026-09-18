@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import {
   COLLECT_SLOT_STATUS,
-  COLLECT_RUN_STATUS,
   allSlotsTerminal,
   canSynthesizeFromSlots,
   isRetryableSlotStatus,
@@ -13,9 +12,7 @@ import {
 } from "../src/server/records/weekly-report-collector.server";
 
 test("collector Agent names stay stable and User-Computer scoped", () => {
-  expect(weeklyReportCollectorAgentName("computer-a")).toBe(
-    "weekly-report-collector-computer-a",
-  );
+  expect(weeklyReportCollectorAgentName("computer-a")).toBe("weekly-report-collector-computer-a");
   expect(weeklyReportCollectorAgentName("computer-b")).not.toBe(
     weeklyReportCollectorAgentName("computer-a"),
   );
@@ -64,9 +61,8 @@ test("collect slot settle helpers match ADR 0032 terminal and partial-success ru
 });
 
 test("startCollectRun rejects foreign computers and zero ready collectors", async () => {
-  const { startCollectRun } = await import(
-    "../src/server/records/weekly-report-collect-run.server"
-  );
+  const { startCollectRun } =
+    await import("../src/server/records/weekly-report-collect-run.server");
   const { AppError } = await import("../src/lib/app-error");
 
   const db = {
@@ -127,7 +123,9 @@ test("startCollectRun rejects foreign computers and zero ready collectors", asyn
       windowEnd: new Date("2026-09-07T00:00:00.000Z"),
       computers: [{ computerId: "computer-other", scanPaths: ["/tmp"] }],
     }),
-  ).rejects.toMatchObject({ code: "ACCESS_DENIED" } satisfies Partial<InstanceType<typeof AppError>>);
+  ).rejects.toMatchObject({ code: "ACCESS_DENIED" } satisfies Partial<
+    InstanceType<typeof AppError>
+  >);
 
   await expect(
     startCollectRun(db as never, {
@@ -143,15 +141,13 @@ test("startCollectRun rejects foreign computers and zero ready collectors", asyn
 });
 
 test("ensureCollector refuses a Computer the User does not own", async () => {
-  const { ensureCollector } = await import(
-    "../src/server/records/weekly-report-collector.server"
-  );
+  const { ensureCollector } = await import("../src/server/records/weekly-report-collector.server");
 
-  const db = {
+  const db: any = {
     weeklyReportCollectorBinding: {
       findUnique: async () => null,
     },
-    $transaction: async (fn: (tx: typeof db) => Promise<unknown>) => fn(db),
+    $transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
     workspaceComputer: {
       findUnique: async () => ({
         computerId: "computer-1",
@@ -174,10 +170,76 @@ test("ensureCollector refuses a Computer the User does not own", async () => {
   ).rejects.toMatchObject({ code: "ACCESS_DENIED" });
 });
 
+test("ensureCollector reclaims an orphan Agent and creates the missing binding", async () => {
+  const { ensureCollector } = await import("../src/server/records/weekly-report-collector.server");
+  let createdBinding: unknown = null;
+  const db: any = {
+    $transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
+    weeklyReportCollectorBinding: {
+      findUnique: async () => null,
+      create: async ({ data }: { data: unknown }) => {
+        createdBinding = data;
+        return {
+          id: "binding-1",
+          ...(data as object),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      },
+    },
+    workspaceComputer: {
+      findUnique: async () => ({
+        computerId: "computer-a",
+        computer: {
+          id: "computer-a",
+          ownerId: "user-1",
+          displayName: "ubuntu",
+          name: "ubuntu",
+        },
+      }),
+    },
+    agent: {
+      findUnique: async () => ({
+        id: "orphan-agent",
+        ownerId: "user-1",
+        computerId: "computer-a",
+      }),
+      findMany: async () => [{ id: "orphan-agent" }],
+      create: async () => {
+        throw new Error("must not create duplicate agent");
+      },
+      update: async () => ({}),
+    },
+    conversation: {
+      createMany: async () => ({ count: 0 }),
+      findUniqueOrThrow: async () => ({ id: "general-1" }),
+    },
+    workspaceMembership: {
+      findMany: async () => [{ userId: "user-1" }],
+    },
+    conversationMember: {
+      createMany: async () => ({ count: 0 }),
+    },
+  };
+
+  const result = await ensureCollector(db as never, {
+    workspaceId: "ws-1",
+    userId: "user-1",
+    computerId: "computer-a",
+  });
+
+  expect(result.collectorAgentId).toBe("orphan-agent");
+  expect(createdBinding).toMatchObject({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    computerId: "computer-a",
+    collectorAgentId: "orphan-agent",
+  });
+});
+
 test("startCollectRun creates a collecting run with running slots for ready collectors", async () => {
-  const { startCollectRun, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } = await import(
-    "../src/server/records/weekly-report-collect-run.server"
-  );
+  const { startCollectRun, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } =
+    await import("../src/server/records/weekly-report-collect-run.server");
 
   let created: Record<string, unknown> | null = null;
   const db = {
@@ -275,4 +337,175 @@ test("startCollectRun creates a collecting run with running slots for ready coll
   expect(view.allTerminal).toBe(false);
   expect(view.canSynthesize).toBe(false);
   expect(created).not.toBeNull();
+});
+
+test("buildCollectSynthesizerWakeText includes status board and ready packs", async () => {
+  const { buildCollectSynthesizerWakeText } =
+    await import("../src/server/records/weekly-report-collect-orchestrate.server");
+  const text = buildCollectSynthesizerWakeText({
+    reportId: "report-1",
+    runId: "run-1",
+    slots: [
+      {
+        computerLabel: "ubuntu",
+        status: "ready",
+        packMarkdown: "## Evidence\n- shipped feature",
+        failureReason: null,
+      },
+      {
+        computerLabel: "mac",
+        status: "failed",
+        packMarkdown: null,
+        failureReason: "auth expired",
+      },
+    ],
+  });
+  expect(text).toContain("reportId=report-1");
+  expect(text).toContain("- ubuntu: ready");
+  expect(text).toContain("- mac: failed: auth expired");
+  expect(text).toContain("### Pack · ubuntu");
+  expect(text).toContain("shipped feature");
+  expect(text).toContain("[weekly-report-suggestion]");
+  expect(text).toContain("采集包应已按作者过滤");
+  expect(text).not.toContain("用户调整要求");
+});
+
+test("buildCollectorWakeBody requires owner-scoped harvest and lists identity hints", async () => {
+  const { buildCollectorWakeBody } =
+    await import("../src/server/records/weekly-report-collect-orchestrate.server");
+  const text = buildCollectorWakeBody({
+    runId: "run-1",
+    reportId: "report-1",
+    slotId: "slot-1",
+    windowStart: new Date("2026-09-14T00:00:00.000Z"),
+    windowEnd: new Date("2026-09-21T00:00:00.000Z"),
+    scanPaths: ["/home/jian40/Coforge"],
+    ownerUsername: "lijiannankai-95827c9b",
+    ownerDisplayName: "Li Jian",
+    ownerGitHubLogin: "lijiannankai",
+  });
+  expect(text).toContain("只采集本报告作者本人的工作");
+  expect(text).toContain("ownerUsername=lijiannankai-95827c9b");
+  expect(text).toContain("ownerDisplayName=Li Jian");
+  expect(text).toContain("ownerGitHubLogin=lijiannankai");
+  expect(text).toContain("- /home/jian40/Coforge");
+});
+
+test("buildCollectSynthesizerWakeText forwards user revision guidance", async () => {
+  const { buildCollectSynthesizerWakeText } =
+    await import("../src/server/records/weekly-report-collect-orchestrate.server");
+  const text = buildCollectSynthesizerWakeText({
+    reportId: "report-1",
+    runId: "run-1",
+    userGuidance: "刚才整理的周报太细碎了，帮我抽取的更概括一些",
+    slots: [
+      {
+        computerLabel: "ubuntu",
+        status: "ready",
+        packMarkdown: "## Evidence\n- shipped feature",
+        failureReason: null,
+      },
+    ],
+  });
+  expect(text).toContain("## 用户调整要求");
+  expect(text).toContain("刚才整理的周报太细碎了，帮我抽取的更概括一些");
+});
+
+test("acceptCollectSlotReport advances collecting→synthesizing when every slot is ready", async () => {
+  const { acceptCollectSlotReport, COLLECT_RUN_STATUS, COLLECT_SLOT_STATUS } =
+    await import("../src/server/records/weekly-report-collect-run.server");
+
+  let slotStatus: string = COLLECT_SLOT_STATUS.running;
+  let slotRequestId: string | null = null;
+  let slotPack: string | null = null;
+  let runStatus: string = COLLECT_RUN_STATUS.collecting;
+  let runCompletedAt: Date | null = null;
+
+  const slotRow = () => ({
+    id: "slot-1",
+    computerId: "computer-1",
+    collectorAgentId: "agent-1",
+    scanPaths: ["/work"],
+    status: slotStatus,
+    retryCount: 0,
+    failureReason: null,
+    packMarkdown: slotPack,
+    requestId: slotRequestId,
+  });
+
+  const runRow = () => ({
+    id: "run-1",
+    reportId: "report-1",
+    workspaceId: "ws-1",
+    userId: "user-1",
+    status: runStatus,
+    windowKind: "week",
+    windowStart: new Date("2026-08-31T00:00:00.000Z"),
+    windowEnd: new Date("2026-09-07T00:00:00.000Z"),
+    startedAt: new Date("2026-09-17T00:00:00.000Z"),
+    completedAt: runCompletedAt,
+    createdAt: new Date("2026-09-17T00:00:00.000Z"),
+    slots: [slotRow()],
+  });
+
+  const db = {
+    weeklyReportCollectSlot: {
+      findFirst: async ({ where }: { where: { requestId?: string } }) => {
+        if (where.requestId && where.requestId === slotRequestId) {
+          return { ...slotRow(), run: runRow() };
+        }
+        return null;
+      },
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        slotStatus = String(data.status);
+        slotPack = (data.packMarkdown as string | null) ?? null;
+        slotRequestId = (data.requestId as string | null) ?? null;
+        return slotRow();
+      },
+    },
+    weeklyReportCollectRun: {
+      findFirst: async () => runRow(),
+      findFirstOrThrow: async () => runRow(),
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { id: string; status?: string };
+        data: Record<string, unknown>;
+      }) => {
+        if (where.status !== undefined && where.status !== runStatus) {
+          return { count: 0 };
+        }
+        runStatus = String(data.status);
+        runCompletedAt = (data.completedAt as Date | null | undefined) ?? runCompletedAt;
+        return { count: 1 };
+      },
+    },
+  };
+
+  const first = await acceptCollectSlotReport(db as never, {
+    workspaceId: "ws-1",
+    agentId: "agent-1",
+    requestId: "11111111-1111-4111-8111-111111111111",
+    runId: "run-1",
+    outcome: "ready",
+    packMarkdown: "# pack from ubuntu",
+  });
+  expect(first.newlyAccepted).toBe(true);
+  expect(first.synthesisStarted).toBe(true);
+  expect(first.run.status).toBe(COLLECT_RUN_STATUS.synthesizing);
+  expect(first.run.canSynthesize).toBe(true);
+  expect(runStatus).toBe(COLLECT_RUN_STATUS.synthesizing);
+
+  const replay = await acceptCollectSlotReport(db as never, {
+    workspaceId: "ws-1",
+    agentId: "agent-1",
+    requestId: "11111111-1111-4111-8111-111111111111",
+    runId: "run-1",
+    outcome: "ready",
+    packMarkdown: "# pack from ubuntu",
+  });
+  expect(replay.newlyAccepted).toBe(false);
+  expect(replay.synthesisStarted).toBe(false);
+  expect(replay.run.status).toBe(COLLECT_RUN_STATUS.synthesizing);
 });

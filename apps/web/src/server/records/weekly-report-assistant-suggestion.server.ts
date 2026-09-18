@@ -1,4 +1,4 @@
-import type { HighlightContent, ReportContent } from "../../features/records/records-content";
+import type { ReportContent } from "../../features/records/records-content";
 
 const OPEN = "[weekly-report-suggestion]";
 const CLOSE = "[/weekly-report-suggestion]";
@@ -11,15 +11,6 @@ export type WeeklyReportBodyEditSuggestion = {
   content: ReportContent;
 };
 
-export type WeeklyReportHighlightSuggestion = {
-  type: "highlight";
-  cycleId: string;
-  highlightId?: string;
-  summary: string;
-  content: HighlightContent;
-  markCompleted?: boolean;
-};
-
 export type WeeklyReportSendPromptSuggestion = {
   type: "send-prompt";
   reportId: string;
@@ -27,7 +18,6 @@ export type WeeklyReportSendPromptSuggestion = {
 
 export type WeeklyReportAssistantSuggestion =
   | WeeklyReportBodyEditSuggestion
-  | WeeklyReportHighlightSuggestion
   | WeeklyReportSendPromptSuggestion;
 
 /** Builds an Agent→User DM body that carries a confirmable write suggestion. */
@@ -48,14 +38,51 @@ export function parseWeeklyReportAssistantSuggestion(
   body: string,
 ): WeeklyReportAssistantSuggestion | null {
   const start = body.indexOf(OPEN);
-  const end = body.indexOf(CLOSE);
-  if (start < 0 || end < 0 || end <= start) return null;
-  const raw = body.slice(start + OPEN.length, end).trim();
+  if (start < 0) return null;
+  const afterOpen = body.slice(start + OPEN.length).trimStart();
+  const closeAt = afterOpen.indexOf(CLOSE);
+  const candidate =
+    closeAt >= 0 ? afterOpen.slice(0, closeAt).trim() : extractLeadingJsonObject(afterOpen);
+  if (!candidate) return null;
   try {
-    return normalizeSuggestion(JSON.parse(raw) as unknown);
+    return normalizeSuggestion(JSON.parse(candidate) as unknown);
   } catch {
     return null;
   }
+}
+
+/** When the Agent omits `[/weekly-report-suggestion]`, take the first JSON object. */
+function extractLeadingJsonObject(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{")) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const ch = trimmed[i]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return trimmed.slice(0, i + 1);
+    }
+  }
+  return null;
 }
 
 function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | null {
@@ -78,24 +105,6 @@ function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | 
       content,
     };
   }
-  if (row.type === "highlight") {
-    if (typeof row.cycleId !== "string" || !UUID_RE.test(row.cycleId)) return null;
-    if (typeof row.summary !== "string" || row.summary.trim().length === 0) return null;
-    const content = asHighlightContent(row.content);
-    if (!content) return null;
-    const highlightId =
-      typeof row.highlightId === "string" && UUID_RE.test(row.highlightId)
-        ? row.highlightId
-        : undefined;
-    return {
-      type: "highlight",
-      cycleId: row.cycleId,
-      ...(highlightId ? { highlightId } : {}),
-      summary: row.summary.trim(),
-      content,
-      ...(row.markCompleted === true ? { markCompleted: true } : {}),
-    };
-  }
   return null;
 }
 
@@ -109,41 +118,15 @@ function asReportContent(value: unknown): ReportContent | null {
   if (!tabsValue || typeof tabsValue !== "object" || Array.isArray(tabsValue)) return null;
   const tabs: NonNullable<ReportContent["tabs"]> = {};
   for (const [name, tab] of Object.entries(tabsValue)) {
+    // Agents often emit `"Summary": "## ..."`; canonical form is `{ markdown }`.
+    if (typeof tab === "string") {
+      tabs[name] = { markdown: tab };
+      continue;
+    }
     if (!tab || typeof tab !== "object" || Array.isArray(tab)) return null;
     const markdown = Reflect.get(tab, "markdown");
     if (typeof markdown !== "string") return null;
     tabs[name] = { markdown };
   }
   return { tabs };
-}
-
-function asHighlightContent(value: unknown): HighlightContent | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const blocksValue = Reflect.get(value, "blocks");
-  if (!Array.isArray(blocksValue)) return null;
-  const blocks = [];
-  for (const block of blocksValue) {
-    if (!block || typeof block !== "object" || Array.isArray(block)) return null;
-    const id = Reflect.get(block, "id");
-    const heading = Reflect.get(block, "heading");
-    const paragraphs = Reflect.get(block, "paragraphs");
-    const items = Reflect.get(block, "items");
-    if (typeof id !== "string" || typeof heading !== "string") return null;
-    if (!Array.isArray(paragraphs) || !paragraphs.every((item) => typeof item === "string"))
-      return null;
-    if (!Array.isArray(items)) return null;
-    const normalizedItems = [];
-    for (const item of items) {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-      const text = Reflect.get(item, "text");
-      const sources = Reflect.get(item, "sources");
-      if (typeof text !== "string" || !Array.isArray(sources)) return null;
-      normalizedItems.push({
-        text,
-        sources: sources as HighlightContent["blocks"][0]["items"][0]["sources"],
-      });
-    }
-    blocks.push({ id, heading, paragraphs, items: normalizedItems });
-  }
-  return { blocks };
 }

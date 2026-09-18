@@ -405,7 +405,7 @@ PostgreSQL 的首要领域对象是：
 - `participant`
 - `message`
 - Workspace Records（周报）：`weekly_report_cycles`、`weekly_reports`、
-  `weekly_report_highlights`、`weekly_report_favorites`、`weekly_report_templates`、
+  `weekly_report_favorites`、`weekly_report_templates`、
   `weekly_report_assistants`、`record_notes`、`record_comments`（见 ADR 0009 / ADR 0011；schema
   变更需 Frank 批准）。`weekly_report_assistants` 将一个 User 在一个 Workspace
   内的固定周报助手 Agent 归属持久化为 `(workspaceId, userId)` 唯一关系；助手仍复用

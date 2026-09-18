@@ -1,7 +1,6 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 import { PageLoadError } from "@/features/errors/page-load-error";
-import { WeekHighlightEmpty } from "@/features/records/week-highlight-empty";
 
 export const Route = createFileRoute("/_app/records/weeks/$year/$week")({
   ssr: "data-only",
@@ -24,25 +23,12 @@ export const Route = createFileRoute("/_app/records/weeks/$year/$week")({
     const catalog = parent.loaderData;
     const memberWeek = catalog?.memberWeeks.find((row) => row.year === year && row.week === week);
     if (!memberWeek) throw notFound();
-    if (memberWeek.highlightId) {
-      throw redirect({
-        to: "/records/$recordId",
-        params: { recordId: memberWeek.highlightId },
-        search: { tab: "weekly" },
-      });
-    }
-    return {
-      year: memberWeek.year,
-      week: memberWeek.week,
-      title: memberWeek.title,
-      overviewReportId: memberWeek.overviewReportId,
-      canGenerate: memberWeek.submissions.length > 0,
-    };
+    const recordId = memberWeek.submissions[0]?.id ?? memberWeek.overviewReportId;
+    if (!recordId) throw notFound();
+    throw redirect({
+      to: "/records/$recordId",
+      params: { recordId },
+      search: { tab: "weekly" },
+    });
   },
-  component: WeekHighlightPage,
 });
-
-function WeekHighlightPage() {
-  const data = Route.useLoaderData();
-  return <WeekHighlightEmpty {...data} />;
-}

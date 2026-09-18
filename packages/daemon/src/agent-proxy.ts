@@ -41,6 +41,11 @@ import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./age
 import { AgentManualRequestError } from "./connection/agent-manual-request-error";
 import { AgentUserInfoRequestError } from "./connection/agent-user-info-request-error";
 import { AgentProfileRequestError } from "./connection/agent-profile-request-error";
+import {
+  validateWeeklyReportCollectCommand,
+  type WeeklyReportCollectCommand,
+  type WeeklyReportCollectResult,
+} from "./connection/weekly-report-collect";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentProxy = {
@@ -136,6 +141,11 @@ export type AgentProxyRuntime = {
     request: WeeklyReportCommand,
     agentApiKey: string,
   ): Promise<unknown>;
+  agentWeeklyReportCollect?(
+    context: string,
+    request: WeeklyReportCollectCommand,
+    agentApiKey: string,
+  ): Promise<WeeklyReportCollectResult>;
   issueAgentContext?: (agentId: string, context?: string) => string;
 };
 
@@ -158,6 +168,8 @@ const UPLOAD_SESSION_COMPLETE_SUFFIX = "/complete";
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const LOCAL_USER_ROUTE_PREFIX = LOCAL_PROXY_ROUTES.users.path("");
 const MAX_BODY_BYTES = 64 * 1024;
+/** Matches apps/web weekly-report-collect packMarkdown max (500_000) plus JSON framing. */
+const WEEKLY_REPORT_COLLECT_MAX_BODY_BYTES = 512 * 1024;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
 
 /** Forwards a cloud `Response` back through the local proxy unchanged. */
@@ -211,6 +223,8 @@ type ProxyRoute<K extends HandlerName = HandlerName> = {
    * not throw: a param that needs decoding is decoded in `parse`. */
   match(pathname: string): string | undefined;
   body: BodyRead;
+  /** Override the default JSON body size cap (Collect packs need a larger limit). */
+  maxBodyBytes?: number;
   /** The runtime method this route calls. The dispatcher looks it up, answers 404 when the runtime
    * lacks it, and always calls it with the token-bound context and Agent API key. */
   handler: K;
@@ -253,10 +267,13 @@ function contentLengthRejected(request: Request, maxBytes: number, required: boo
  * `content-length`), and malformed JSON is a `400` — this is the one place a `SyntaxError` becomes
  * a bare `400`; one thrown later, by a route's `parse` or by the runtime, is classified.
  */
-async function readJsonBody(request: Request): Promise<{ payload: unknown } | Response> {
-  if (contentLengthRejected(request, MAX_BODY_BYTES, false)) return payloadTooLarge();
+async function readJsonBody(
+  request: Request,
+  maxBytes = MAX_BODY_BYTES,
+): Promise<{ payload: unknown } | Response> {
+  if (contentLengthRejected(request, maxBytes, false)) return payloadTooLarge();
   const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) return payloadTooLarge();
+  if (new TextEncoder().encode(raw).byteLength > maxBytes) return payloadTooLarge();
   try {
     return { payload: JSON.parse(raw) };
   } catch {
@@ -686,6 +703,15 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     },
   }),
   defineRoute({
+    family: "agent-api/weekly-report-collect",
+    method: LOCAL_PROXY_ROUTES.weeklyReportCollect.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.weeklyReportCollect.path),
+    body: "json-object",
+    maxBodyBytes: WEEKLY_REPORT_COLLECT_MAX_BODY_BYTES,
+    handler: "agentWeeklyReportCollect",
+    parse: ({ fields }) => validateWeeklyReportCollectCommand(fields) ?? badRequest(),
+  }),
+  defineRoute({
     family: "agent-api/github-credential",
     method: LOCAL_PROXY_ROUTES.githubCredentials.method,
     match: exactPath(LOCAL_PROXY_ROUTES.githubCredentials.path),
@@ -774,7 +800,7 @@ export function startAgentProxy(input: {
             request.headers.get("content-type")?.toLowerCase() !== "application/json"
           )
             return new Response("unsupported media type", { status: 415 });
-          const body = await readJsonBody(request);
+          const body = await readJsonBody(request, route.maxBodyBytes ?? MAX_BODY_BYTES);
           if (body instanceof Response) return body;
           payload = body.payload;
           if (route.body === "json-object") {

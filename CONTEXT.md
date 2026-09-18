@@ -96,13 +96,13 @@ Task's message author or the User who owns the Agent.
 
 **Record**:
 A Workspace collaboration surface for durable written work outside chat:
-weekly-report cycles, member reports, highlights, favorites, send templates,
-and notes. It is not a Message inbox or an Agent run.
+weekly-report cycles, member reports, favorites, send templates, and notes.
+It is not a Message inbox or an Agent run.
 _Avoid_: Message, Task, Agent Activity
 
 **WeeklyReportCycle**:
-One ISO week bucket inside a Workspace that groups that week's template,
-member reports, and highlight.
+One ISO week bucket inside a Workspace that groups that week's template and
+member reports.
 _Avoid_: Calendar month, chat thread
 
 **WeeklyReport**:
@@ -119,18 +119,14 @@ while drafting; after submit it also appears as a child of that parent in
 「成员周报」, one per member per parent, overwritten on resend.
 _Avoid_: Free-form child page created by Leader “+”
 
-**WeeklyReportHighlight**:
-The Workspace-level key-points document for one WeeklyReportCycle.
-_Avoid_: Member WeeklyReport, channel summary
-
 **WeeklyReportTemplate**:
 Reusable Workspace send configuration for weekly reports (name, recipients,
 frequency, and send time), distinct from a Leader weekly parent document.
 _Avoid_: WeeklyReport content, Message template
 
 **RecordComment**:
-A comment attached to a Record subject (report, highlight, or cycle). Authors
-may be a User now, or later a system/assistant identity for AI side panels.
+A comment attached to a Record subject (report or cycle). Authors may be a
+User now, or later a system/assistant identity for AI side panels.
 _Avoid_: Message, Agent Activity
 
 **Agent status**:
@@ -236,7 +232,7 @@ _Avoid_: Task, Job, workflow, Agent Activity completion
 The structured Markdown evidence package one WeeklyReportCollector submits for
 a Collect Run slot. It is input to synthesis, not the finished member
 WeeklyReport body. See ADR 0032.
-_Avoid_: WeeklyReport body, Message, highlight
+_Avoid_: WeeklyReport body, Message
 
 **Code Agent installation**:
 An external provider executable, currently Codex or Claude Code, discovered from the Daemon's effective executable search path on one Computer. That path includes the service environment and the user's standard local executable directory. Its reported provider and version form a replaceable observation, not a credential or Agent runtime. Built-in Pi is not part of this inventory.

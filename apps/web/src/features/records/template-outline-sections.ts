@@ -174,7 +174,6 @@ function withAssignment(content: ReportContent, source: ReportContent): ReportCo
     ...content,
     ...(source.assignment ? { assignment: source.assignment } : {}),
     ...(source.schedule ? { schedule: source.schedule } : {}),
-    ...(source.highlightPrompt ? { highlightPrompt: source.highlightPrompt } : {}),
   };
 }
 

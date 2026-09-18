@@ -87,31 +87,52 @@ export async function ensureCollector(
         throw new AppError("ACCESS_DENIED");
       }
 
-      const label = mounted.computer.displayName || mounted.computer.name || mounted.computerId;
-      const agent = await tx.agent.create({
-        data: {
-          workspaceId: input.workspaceId,
-          ownerId: input.userId,
-          computerId: input.computerId,
-          name: agentName,
-          displayName: weeklyReportCollectorDisplayName(label),
-          description: "",
-          runtimeConfig: {
-            runtime: RUNTIME_PROVIDER.COFORGE,
-            provider: { kind: "default" },
-            model: "",
-            modelProvider: "",
-            reasoning: "",
-          },
+      // Reclaim an orphan Agent left by a previous partial create (unique name).
+      const orphan = await tx.agent.findUnique({
+        where: {
+          workspaceId_name: { workspaceId: input.workspaceId, name: agentName },
         },
+        select: { id: true, ownerId: true, computerId: true },
       });
+      let agentId = orphan?.id;
+      if (orphan) {
+        if (orphan.ownerId !== input.userId) throw new AppError("ACCESS_DENIED");
+        if (orphan.computerId !== input.computerId) {
+          await tx.agent.update({
+            where: { id_workspaceId: { id: orphan.id, workspaceId: input.workspaceId } },
+            data: { computerId: input.computerId },
+          });
+        }
+      } else {
+        const label = mounted.computer.displayName || mounted.computer.name || mounted.computerId;
+        const agent = await tx.agent.create({
+          data: {
+            workspaceId: input.workspaceId,
+            ownerId: input.userId,
+            computerId: input.computerId,
+            name: agentName,
+            displayName: weeklyReportCollectorDisplayName(label),
+            description: "",
+            runtimeConfig: {
+              runtime: RUNTIME_PROVIDER.COFORGE,
+              provider: { kind: "default" },
+              model: "",
+              modelProvider: "",
+              reasoning: "",
+            },
+          },
+        });
+        agentId = agent.id;
+      }
+      if (!agentId) throw new AppError("INVALID_INPUT");
+
       await enrollGeneralChannel(tx, input.workspaceId);
       return tx.weeklyReportCollectorBinding.create({
         data: {
           workspaceId: input.workspaceId,
           userId: input.userId,
           computerId: input.computerId,
-          collectorAgentId: agent.id,
+          collectorAgentId: agentId,
         },
       });
     });

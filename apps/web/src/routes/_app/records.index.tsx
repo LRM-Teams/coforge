@@ -1,4 +1,4 @@
-import { Navigate, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { RecordDetail } from "@/features/records/record-detail";
@@ -17,10 +17,8 @@ export const Route = createFileRoute("/_app/records/")({
     if (!catalog || parent.search.tab === "notes") return { landing: null, subject: null };
     const landing = latestWeeklyLanding({
       memberWeeks: catalog.memberWeeks,
-      highlights: catalog.highlights,
     });
     if (!landing) return { landing: null, subject: null };
-    if (landing.kind === "week") return { landing, subject: null };
     try {
       return {
         landing,
@@ -37,17 +35,7 @@ export const Route = createFileRoute("/_app/records/")({
 });
 
 function RecordsIndexPage() {
-  const { landing, subject } = Route.useLoaderData();
-  if (landing?.kind === "week") {
-    return (
-      <Navigate
-        to="/records/weeks/$year/$week"
-        params={{ year: String(landing.year), week: String(landing.week) }}
-        search={{ tab: "weekly" }}
-        replace
-      />
-    );
-  }
-  if (!subject || subject.type !== "highlight") return <EmptyRecord />;
+  const { subject } = Route.useLoaderData();
+  if (!subject || subject.type !== "report") return <EmptyRecord />;
   return <RecordDetail subject={subject} />;
 }

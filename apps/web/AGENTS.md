@@ -292,7 +292,7 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
 
 - Workspace Records (weekly reports) belong to `features/records/` (list/detail,
   settings, stats, side comments, and Server Functions) and
-  `server/records/record-catalog.server.ts` (cycles, reports, highlights,
+  `server/records/record-catalog.server.ts` (cycles, reports,
   templates, favorites, notes, and comments). Persistence is Prisma under
   Workspace membership. Report bodies use lightweight outline JSON keyed by
   template-dimension tabs. MVP writes only human `user` comments; `assistant`

@@ -110,6 +110,13 @@ if ! curl -fsS --max-time 3 "${COFORGE_E2E_WEB_URL%/}/health" >/dev/null; then
   exit 1
 fi
 
+# coforge-sdk imports zod; Bun.build resolves it from that package's node_modules.
+# A pruned/incomplete install drops the link and fails fixture compile.
+if ! run_bun -e "Bun.resolveSync('zod', Bun.argv[1])" "$root/packages/coforge-sdk" >/dev/null 2>&1; then
+  echo "==> Restoring workspace deps (zod link missing under coforge-sdk)"
+  (CDPATH='' cd -- "$root" && run_bun install)
+fi
+
 echo "==> Generating protocol"
 run_bun run --cwd "$root/packages/coforge-sdk" generate
 

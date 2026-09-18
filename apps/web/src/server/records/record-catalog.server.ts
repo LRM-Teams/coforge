@@ -3,30 +3,23 @@ import { AppError } from "../../lib/app-error";
 import {
   currentIsoWeek,
   emptyReportContent,
-  generatingHighlightContent,
-  highlightTitle,
   isAssignmentUnread,
   isAutoSendCancelled,
-  isHighlightGenerating,
   isValidTemplateName,
   isHourlySendTime,
   memberReportTitle,
   memberWeekTitle,
-  normalizeHighlightContent,
   normalizeReportContent,
   reportTabsEqual,
-  applyHighlightPromptText,
   withAssignmentUnread,
   withAutoSendCancelled,
-  withHighlightPrompt,
-  type HighlightContent,
-  type HighlightPromptState,
   type ReportContent,
 } from "../../features/records/records-content";
 import {
-  extractWeeklyHighlightContent,
-  looksLikeGenerateHighlightsRequest,
-  type HighlightMemberCandidate,
+  looksLikeCollectAgainRequest,
+  looksLikeMemberGenerateOfferAccept,
+  looksLikeSynthesizeWeeklyReportRequest,
+  parseRecordAssistantPayload,
   type RecordAssistantPayload,
 } from "../../features/records/weekly-highlight-extract";
 import {
@@ -52,10 +45,6 @@ type Db = PrismaClient;
 
 function asReportContent(value: unknown): ReportContent {
   return normalizeReportContent(value);
-}
-
-function asHighlightContent(value: unknown): HighlightContent {
-  return normalizeHighlightContent(value);
 }
 
 function asStringArray(value: unknown): string[] {
@@ -212,7 +201,6 @@ export class RecordCatalog {
         where: { workspaceId: input.workspaceId },
         orderBy: [{ year: "desc" }, { week: "desc" }],
         include: {
-          highlight: { select: { id: true, title: true, completedAt: true, content: true } },
           reports: {
             include: {
               author: { select: { id: true, username: true, displayName: true } },
@@ -245,21 +233,6 @@ export class RecordCatalog {
         select: { id: true, username: true, displayName: true },
       }),
     ]);
-
-    const highlights = cycles
-      .filter((cycle) => cycle.highlight)
-      .map((cycle) => ({
-        id: cycle.highlight!.id,
-        cycleId: cycle.id,
-        year: cycle.year,
-        week: cycle.week,
-        title: cycle.highlight!.title,
-        completedAt: cycle.highlight!.completedAt?.toISOString() ?? null,
-        generating: isHighlightGenerating(asHighlightContent(cycle.highlight!.content)),
-      }))
-      .sort((left, right) =>
-        left.year !== right.year ? right.year - left.year : right.week - left.week,
-      );
 
     const templateEntries = cycles
       .flatMap((cycle) =>
@@ -385,8 +358,6 @@ export class RecordCatalog {
         title: string;
         cycleId: string;
         overviewReportId: string;
-        highlightId: string | null;
-        highlightGenerating: boolean;
         submissions: Array<{
           id: string;
           title: string;
@@ -409,10 +380,6 @@ export class RecordCatalog {
           title: memberWeekTitle(cycle.year, cycle.week),
           cycleId: cycle.id,
           overviewReportId: report.id,
-          highlightId: cycle.highlight?.id ?? null,
-          highlightGenerating: cycle.highlight
-            ? isHighlightGenerating(asHighlightContent(cycle.highlight.content))
-            : false,
           submissions: [],
         };
         memberWeeksMap.set(key, week);
@@ -462,7 +429,6 @@ export class RecordCatalog {
           displayName: row.report.author.displayName ?? row.report.author.username,
         },
       })),
-      highlights,
       myReports: cycles.flatMap((cycle) =>
         cycle.reports
           .filter((report) => report.kind === "member" && report.authorId === input.userId)
@@ -623,24 +589,10 @@ export class RecordCatalog {
       userId: input.userId,
       now: input.now,
     });
-    const previous = await this.db.weeklyReport.findFirst({
-      where: {
-        workspaceId: input.workspaceId,
-        authorId: input.userId,
-        kind: "template",
-        settingsId: input.settingsId,
-      },
-      orderBy: { updatedAt: "desc" },
-      select: { content: true },
-    });
-    const previousPrompt = asReportContent(previous?.content).highlightPrompt;
-    let content =
+    const content =
       input.sections && input.sections.length > 0
         ? reportContentFromSections(input.sections)
         : emptyReportContent();
-    if (previousPrompt) {
-      content = withHighlightPrompt(content, previousPrompt);
-    }
     const created = await this.db.weeklyReport.create({
       data: {
         workspaceId: input.workspaceId,
@@ -738,42 +690,6 @@ export class RecordCatalog {
       select: { id: true, year: true, week: true, title: true },
     });
     return { id: cycle.id, year: cycle.year, week: cycle.week, title: cycle.title, created: true };
-  }
-
-  /** Create a highlight for the current ISO week only — does not create reports. */
-  async createHighlight(input: { workspaceId: string; userId: string; now?: Date }) {
-    const cycle = await this.ensureCurrentCycle(input);
-    const existing = await this.db.weeklyReportHighlight.findUnique({
-      where: { cycleId: cycle.id },
-      select: { id: true, title: true },
-    });
-    if (existing) {
-      return {
-        id: existing.id,
-        cycleId: cycle.id,
-        title: existing.title,
-        year: cycle.year,
-        week: cycle.week,
-        created: false,
-      };
-    }
-    const highlight = await this.db.weeklyReportHighlight.create({
-      data: {
-        workspaceId: input.workspaceId,
-        cycleId: cycle.id,
-        title: highlightTitle(cycle.year, cycle.week),
-        content: generatingHighlightContent() as unknown as Prisma.InputJsonValue,
-      },
-      select: { id: true, title: true },
-    });
-    return {
-      id: highlight.id,
-      cycleId: cycle.id,
-      title: highlight.title,
-      year: cycle.year,
-      week: cycle.week,
-      created: true,
-    };
   }
 
   /**
@@ -1189,10 +1105,61 @@ export class RecordCatalog {
     return { ok: true as const };
   }
 
+  /**
+   * Deletes the viewer's「成员周报」week node scope for one ISO week: their
+   * template parents in that cycle and member submissions under those parents.
+   * Other leaders' templates/submissions are left alone. The cycle row is
+   * removed only when nothing remains.
+   */
+  async deleteMemberWeek(input: { workspaceId: string; userId: string; cycleId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const cycle = await this.db.weeklyReportCycle.findFirst({
+      where: { id: input.cycleId, workspaceId: input.workspaceId },
+      select: { id: true },
+    });
+    if (!cycle) throw new AppError("NOT_FOUND");
+
+    const myTemplates = await this.db.weeklyReport.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        cycleId: cycle.id,
+        kind: "template",
+        authorId: input.userId,
+      },
+      select: { id: true },
+    });
+    if (myTemplates.length === 0) throw new AppError("NOT_FOUND");
+    const templateIds = myTemplates.map((row) => row.id);
+
+    const submissions = await this.db.weeklyReport.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        cycleId: cycle.id,
+        kind: "member",
+        sourceTemplateId: { in: templateIds },
+      },
+      select: { id: true },
+    });
+
+    const reportIds = [...submissions.map((row) => row.id), ...templateIds];
+    await this.db.$transaction(async (tx) => {
+      if (reportIds.length > 0) {
+        await tx.weeklyReport.deleteMany({ where: { id: { in: reportIds } } });
+      }
+      const remaining = await tx.weeklyReport.count({
+        where: { workspaceId: input.workspaceId, cycleId: cycle.id },
+      });
+      if (remaining === 0) {
+        await tx.weeklyReportCycle.delete({ where: { id: cycle.id } });
+      }
+    });
+    return { ok: true as const };
+  }
+
   async loadAssistantContextManifest(input: {
     workspaceId: string;
     userId: string;
-    subjectType: "report" | "highlight" | "cycle";
+    subjectType: "report" | "cycle";
     subjectId: string;
   }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
@@ -1215,33 +1182,9 @@ export class RecordCatalog {
           "template",
           "submission_status",
           "visible_member_reports",
-          "highlights",
           "favorites",
         ],
         contextVersion: subject.report.updatedAt,
-      } as const;
-    }
-
-    if (input.subjectType === "highlight") {
-      const subject = await this.getSubject({
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        id: input.subjectId,
-      });
-      if (subject.type !== "highlight") throw new AppError("NOT_FOUND");
-      const sourceReportIds = subject.highlight.content.blocks.flatMap((block) =>
-        block.items.flatMap((item) =>
-          typeof item === "string" ? [] : item.sources.map((source) => source.reportId),
-        ),
-      );
-      return {
-        subjectType: input.subjectType,
-        subjectId: input.subjectId,
-        cycle: subject.highlight.cycle,
-        structure: subject.highlight.content.blocks.map((block) => block.heading),
-        availableData: ["highlight", "source_reports", "visible_member_reports"],
-        sourceReportIds: [...new Set(sourceReportIds)],
-        contextVersion: subject.highlight.completedAt ?? subject.highlight.cycle.title,
       } as const;
     }
 
@@ -1262,7 +1205,7 @@ export class RecordCatalog {
       subjectId: input.subjectId,
       cycle: { id: cycle.id, year: cycle.year, week: cycle.week, title: cycle.title },
       structure: [],
-      availableData: ["cycle", "visible_member_reports", "highlights", "submission_status"],
+      availableData: ["cycle", "visible_member_reports", "submission_status"],
       reportCount: cycle._count.reports,
       contextVersion: cycle.createdAt.toISOString(),
     } as const;
@@ -1503,10 +1446,6 @@ export class RecordCatalog {
                   })
                 ).schedule
               : undefined,
-          highlightPrompt:
-            report.kind === "template" && surface === "format"
-              ? (content.highlightPrompt ?? { text: "", history: [] })
-              : undefined,
           favorited:
             report.kind === "member"
               ? Boolean(
@@ -1519,24 +1458,6 @@ export class RecordCatalog {
                 )
               : false,
           children,
-        },
-      };
-    }
-
-    const highlight = await this.db.weeklyReportHighlight.findFirst({
-      where: { id: input.id, workspaceId: input.workspaceId },
-      include: { cycle: { select: { id: true, year: true, week: true, title: true } } },
-    });
-    if (highlight) {
-      return {
-        type: "highlight" as const,
-        highlight: {
-          id: highlight.id,
-          title: highlight.title,
-          content: asHighlightContent(highlight.content),
-          completedAt: highlight.completedAt?.toISOString() ?? null,
-          generating: isHighlightGenerating(asHighlightContent(highlight.content)),
-          cycle: highlight.cycle,
         },
       };
     }
@@ -1668,39 +1589,6 @@ export class RecordCatalog {
     return { id: report.id, unread: false as const };
   }
 
-  async saveHighlightPrompt(input: {
-    workspaceId: string;
-    userId: string;
-    reportId: string;
-    text: string;
-    now?: Date;
-  }): Promise<{ highlightPrompt: HighlightPromptState }> {
-    await requireMembership(this.db, input.workspaceId, input.userId);
-    const report = await this.db.weeklyReport.findFirst({
-      where: {
-        id: input.reportId,
-        workspaceId: input.workspaceId,
-        authorId: input.userId,
-        kind: "template",
-        submissions: { none: { kind: "member" } },
-      },
-      select: { id: true, content: true },
-    });
-    if (!report) throw new AppError("NOT_FOUND");
-    const stored = asReportContent(report.content);
-    const highlightPrompt = applyHighlightPromptText(
-      stored.highlightPrompt,
-      input.text,
-      input.now ?? new Date(),
-    );
-    const next = withHighlightPrompt(stored, highlightPrompt);
-    await this.db.weeklyReport.update({
-      where: { id: report.id },
-      data: { content: next as unknown as Prisma.InputJsonValue },
-    });
-    return { highlightPrompt };
-  }
-
   async saveReportContent(input: {
     workspaceId: string;
     userId: string;
@@ -1737,9 +1625,6 @@ export class RecordCatalog {
     let content = normalizeReportContent(input.content);
     if (stored.schedule && !content.schedule) {
       content = { ...content, schedule: stored.schedule };
-    }
-    if (stored.highlightPrompt && !content.highlightPrompt) {
-      content = { ...content, highlightPrompt: stored.highlightPrompt };
     }
     const now = input.now ?? new Date();
     const week = report.cycle ?? currentIsoWeek(zonedCalendarDate(now));
@@ -1836,33 +1721,6 @@ export class RecordCatalog {
     };
   }
 
-  async saveHighlightContent(input: {
-    workspaceId: string;
-    userId: string;
-    highlightId: string;
-    content: HighlightContent;
-    markCompleted?: boolean;
-  }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
-    const highlight = await this.db.weeklyReportHighlight.findFirst({
-      where: { id: input.highlightId, workspaceId: input.workspaceId },
-      select: { id: true },
-    });
-    if (!highlight) throw new AppError("NOT_FOUND");
-    const updated = await this.db.weeklyReportHighlight.update({
-      where: { id: highlight.id },
-      data: {
-        content: normalizeHighlightContent(input.content) as unknown as Prisma.InputJsonValue,
-        ...(input.markCompleted ? { completedAt: new Date() } : {}),
-      },
-    });
-    return {
-      id: updated.id,
-      completedAt: updated.completedAt?.toISOString() ?? null,
-      updatedAt: updated.updatedAt.toISOString(),
-    };
-  }
-
   /**
    * Confirmed assistant body-edit write. Does not ask-to-send; the user still controls send.
    */
@@ -1879,92 +1737,6 @@ export class RecordCatalog {
       content: input.content,
       askToSend: false,
     });
-  }
-
-  /**
-   * Confirmed assistant highlight write. Upserts the cycle highlight when highlightId is omitted.
-   */
-  async applyConfirmedHighlight(input: {
-    workspaceId: string;
-    userId: string;
-    cycleId: string;
-    highlightId?: string;
-    content: HighlightContent;
-    markCompleted?: boolean;
-  }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
-    const content = normalizeHighlightContent(input.content);
-    const cycle = await this.db.weeklyReportCycle.findFirst({
-      where: { id: input.cycleId, workspaceId: input.workspaceId },
-      select: { id: true, year: true, week: true },
-    });
-    if (!cycle) throw new AppError("NOT_FOUND");
-
-    if (input.highlightId) {
-      const existing = await this.db.weeklyReportHighlight.findFirst({
-        where: {
-          id: input.highlightId,
-          workspaceId: input.workspaceId,
-          cycleId: input.cycleId,
-        },
-        select: { id: true },
-      });
-      if (!existing) throw new AppError("NOT_FOUND");
-      const updated = await this.saveHighlightContent({
-        workspaceId: input.workspaceId,
-        userId: input.userId,
-        highlightId: input.highlightId,
-        content,
-        markCompleted: input.markCompleted,
-      });
-      return {
-        highlightId: updated.id,
-        title: highlightTitle(cycle.year, cycle.week),
-        completedAt: updated.completedAt,
-        updatedAt: updated.updatedAt,
-      };
-    }
-
-    const title = highlightTitle(cycle.year, cycle.week);
-    const existing = await this.db.weeklyReportHighlight.findUnique({
-      where: { cycleId: input.cycleId },
-      select: { id: true },
-    });
-    const now = new Date();
-    if (existing) {
-      const updated = await this.db.weeklyReportHighlight.update({
-        where: { id: existing.id },
-        data: {
-          title,
-          content: content as unknown as Prisma.InputJsonValue,
-          ...(input.markCompleted ? { completedAt: now } : {}),
-        },
-        select: { id: true, completedAt: true, updatedAt: true },
-      });
-      return {
-        highlightId: updated.id,
-        title,
-        completedAt: updated.completedAt?.toISOString() ?? null,
-        updatedAt: updated.updatedAt.toISOString(),
-      };
-    }
-
-    const created = await this.db.weeklyReportHighlight.create({
-      data: {
-        workspaceId: input.workspaceId,
-        cycleId: input.cycleId,
-        title,
-        content: content as unknown as Prisma.InputJsonValue,
-        ...(input.markCompleted ? { completedAt: now } : {}),
-      },
-      select: { id: true, completedAt: true, updatedAt: true },
-    });
-    return {
-      highlightId: created.id,
-      title,
-      completedAt: created.completedAt?.toISOString() ?? null,
-      updatedAt: created.updatedAt.toISOString(),
-    };
   }
 
   async listTemplates(input: { workspaceId: string; userId: string }) {
@@ -2197,10 +1969,11 @@ export class RecordCatalog {
 
   private async writeAssistantComment(input: {
     workspaceId: string;
-    subjectType: "report" | "highlight" | "cycle";
+    subjectType: "report" | "cycle";
     subjectId: string;
     body: string;
     payload?: RecordAssistantPayload;
+    assistantSessionId?: string | null;
   }) {
     return this.db.recordComment.create({
       data: {
@@ -2209,53 +1982,51 @@ export class RecordCatalog {
         authorType: "assistant",
         authorUserId: null,
         body: input.body,
+        assistantSessionId: input.assistantSessionId ?? null,
         ...(input.payload ? { payload: input.payload as unknown as Prisma.InputJsonValue } : {}),
         reportId: input.subjectType === "report" ? input.subjectId : null,
-        highlightId: input.subjectType === "highlight" ? input.subjectId : null,
         cycleId: input.subjectType === "cycle" ? input.subjectId : null,
       },
     });
   }
 
-  private async loadHighlightMembers(input: {
+  /** Platform-owned assistant bubble for collect progress / packs (ADR 0032). */
+  async postAssistantCollectComment(input: {
     workspaceId: string;
-    cycleId: string;
-  }): Promise<HighlightMemberCandidate[]> {
-    const rows = await this.db.weeklyReport.findMany({
-      where: {
+    userId: string;
+    subjectType: "report" | "cycle";
+    subjectId: string;
+    body: string;
+    payload?: RecordAssistantPayload;
+    assistantSessionId?: string | null;
+  }) {
+    const { resolveLatestChatSessionId } =
+      await import("./weekly-report-assistant-chat-session.server");
+    const assistantSessionId =
+      input.assistantSessionId ??
+      (await resolveLatestChatSessionId(this.db, {
         workspaceId: input.workspaceId,
-        cycleId: input.cycleId,
-        kind: "member",
-      },
-      select: {
-        id: true,
-        authorId: true,
-        status: true,
-        author: { select: { displayName: true, username: true } },
-      },
-      orderBy: { createdAt: "asc" },
-    });
-    return rows.map((row) => {
-      const submitted = row.status === "submitted" || row.status === "shared";
-      return {
-        userId: row.authorId,
-        displayName: row.author.displayName ?? row.author.username,
-        submitted,
-        reportId: submitted ? row.id : undefined,
-      };
-    });
+        userId: input.userId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+      }));
+    await this.writeAssistantComment({ ...input, assistantSessionId });
+    return this.listComments({ ...input, assistantSessionId });
   }
 
   async ensureAssistantIntro(input: {
     workspaceId: string;
     userId: string;
-    subjectType: "report" | "highlight" | "cycle";
+    subjectType: "report" | "cycle";
     subjectId: string;
-    surface: "format" | "member-leader" | "highlight" | "plain";
+    surface: "format" | "member-leader" | "member-assignee" | "plain";
     formatCopy?: "preview" | "cancelled" | "ready";
+    assistantSessionId: string;
   }) {
     const existing = await this.listComments(input);
-    if (existing.length > 0 || input.surface === "plain") return existing;
+    if (existing.length > 0 || input.surface === "plain" || input.surface === "member-leader") {
+      return existing;
+    }
 
     if (input.surface === "format") {
       const body =
@@ -2268,199 +2039,382 @@ export class RecordCatalog {
         workspaceId: input.workspaceId,
         subjectType: input.subjectType,
         subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
         body,
       });
-    } else if (input.surface === "member-leader" && input.subjectType === "report") {
+    } else if (input.surface === "member-assignee" && input.subjectType === "report") {
       const report = await this.db.weeklyReport.findFirst({
-        where: { id: input.subjectId, workspaceId: input.workspaceId },
-        select: { cycleId: true },
+        where: {
+          id: input.subjectId,
+          workspaceId: input.workspaceId,
+          kind: "member",
+          authorId: input.userId,
+        },
+        select: {
+          cycle: { select: { year: true, week: true } },
+          author: { select: { displayName: true, username: true } },
+        },
       });
-      const members = report
-        ? await this.loadHighlightMembers({
-            workspaceId: input.workspaceId,
-            cycleId: report.cycleId,
-          })
-        : [];
-      await this.writeAssistantComment({
-        workspaceId: input.workspaceId,
-        subjectType: "report",
-        subjectId: input.subjectId,
-        body: "要生成本周周报要点吗？可以选择全部已提交成员，或只选部分成员。",
-        payload: { kind: "offer-generate", members },
-      });
-    } else if (input.surface === "highlight") {
-      await this.writeAssistantComment({
-        workspaceId: input.workspaceId,
-        subjectType: "highlight",
-        subjectId: input.subjectId,
-        body: "这是本周周报要点。条目下的 @ 可跳到对应成员周报。",
-      });
+      if (report) {
+        const displayName = report.author.displayName ?? report.author.username;
+        await this.writeAssistantComment({
+          workspaceId: input.workspaceId,
+          subjectType: "report",
+          subjectId: input.subjectId,
+          assistantSessionId: input.assistantSessionId,
+          body: `hi，${displayName}，${report.cycle.year} W${report.cycle.week}的工作周报模板已收到，是否需要我来帮你直接生成？`,
+          payload: { kind: "offer-help-generate" },
+        });
+      }
     }
 
     return this.listComments(input);
+  }
+
+  /** Assignee accepts 「需要」— posts the user turn and the E2 clarifying reply. */
+  async acceptMemberGenerateHelp(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    assistantSessionId: string;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        kind: "member",
+        authorId: input.userId,
+      },
+      select: { id: true },
+    });
+    if (!report) throw new AppError("NOT_FOUND");
+    return this.postSideChat({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: report.id,
+      assistantSessionId: input.assistantSessionId,
+      body: "需要",
+    });
   }
 
   async postSideChat(input: {
     workspaceId: string;
     userId: string;
-    subjectType: "report" | "highlight" | "cycle";
+    subjectType: "report" | "cycle";
     subjectId: string;
     body: string;
+    assistantSessionId: string;
   }) {
     await this.addUserComment(input);
-    if (input.subjectType === "report" && looksLikeGenerateHighlightsRequest(input.body)) {
-      const report = await this.db.weeklyReport.findFirst({
-        where: { id: input.subjectId, workspaceId: input.workspaceId },
-        select: { cycleId: true },
-      });
-      const leaderTemplate = report
-        ? await this.db.weeklyReport.findFirst({
-            where: {
-              workspaceId: input.workspaceId,
-              cycleId: report.cycleId,
-              authorId: input.userId,
-              kind: "template",
-            },
-            select: { id: true },
-          })
-        : null;
-      if (report && leaderTemplate) {
-        const members = await this.loadHighlightMembers({
+    if (input.subjectType === "report" && looksLikeMemberGenerateOfferAccept(input.body)) {
+      const assignment = await this.db.weeklyReport.findFirst({
+        where: {
+          id: input.subjectId,
           workspaceId: input.workspaceId,
-          cycleId: report.cycleId,
-        });
+          kind: "member",
+          authorId: input.userId,
+        },
+        select: {
+          id: true,
+          cycle: { select: { year: true, week: true } },
+        },
+      });
+      if (assignment) {
         await this.writeAssistantComment({
           workspaceId: input.workspaceId,
           subjectType: "report",
           subjectId: input.subjectId,
-          body: "请选择要纳入要点的成员，然后确认。",
-          payload: { kind: "pick-members", members },
+          assistantSessionId: input.assistantSessionId,
+          body: "好的，请确认数据采集的相关设置，以帮助你生成更全面的周报。",
+          payload: {
+            kind: "collect-plan",
+            reportId: assignment.id,
+            year: assignment.cycle.year,
+            week: assignment.cycle.week,
+          },
+        });
+      }
+    } else if (input.subjectType === "report" && looksLikeCollectAgainRequest(input.body)) {
+      const assignment = await this.loadMemberAssignmentForSideChat(input);
+      if (assignment) {
+        await this.writeAssistantComment({
+          workspaceId: input.workspaceId,
+          subjectType: "report",
+          subjectId: input.subjectId,
+          assistantSessionId: input.assistantSessionId,
+          body: "要重新采集一遍工作证据吗？确认后会打开采集设置卡。",
+          payload: {
+            kind: "confirm-intent",
+            intent: "collect-again",
+            reportId: assignment.id,
+            year: assignment.year,
+            week: assignment.week,
+            userGuidance: input.body.trim(),
+          },
+        });
+      }
+    } else if (
+      input.subjectType === "report" &&
+      looksLikeSynthesizeWeeklyReportRequest(input.body)
+    ) {
+      const assignment = await this.loadMemberAssignmentForSideChat(input);
+      if (assignment) {
+        await this.writeAssistantComment({
+          workspaceId: input.workspaceId,
+          subjectType: "report",
+          subjectId: input.subjectId,
+          assistantSessionId: input.assistantSessionId,
+          body: "要根据已有采集包整理一份周报草稿吗？",
+          payload: {
+            kind: "confirm-intent",
+            intent: "synthesize",
+            reportId: assignment.id,
+            year: assignment.year,
+            week: assignment.week,
+            userGuidance: input.body.trim(),
+          },
         });
       }
     }
     return this.listComments(input);
   }
 
-  async generateWeeklyHighlights(input: {
+  private async loadMemberAssignmentForSideChat(input: {
     workspaceId: string;
     userId: string;
-    reportId: string;
-    memberIds: "all" | string[];
-    now?: Date;
+    subjectId: string;
   }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
-    const source = await this.db.weeklyReport.findFirst({
-      where: { id: input.reportId, workspaceId: input.workspaceId },
-      select: { id: true, cycleId: true, cycle: { select: { year: true, week: true } } },
-    });
-    if (!source) throw new AppError("NOT_FOUND");
-    const leaderTemplate = await this.db.weeklyReport.findFirst({
+    const assignment = await this.db.weeklyReport.findFirst({
       where: {
+        id: input.subjectId,
         workspaceId: input.workspaceId,
-        cycleId: source.cycleId,
-        authorId: input.userId,
-        kind: "template",
-      },
-      select: { id: true },
-    });
-    if (!leaderTemplate) throw new AppError("ACCESS_DENIED");
-
-    const submissions = await this.db.weeklyReport.findMany({
-      where: {
-        workspaceId: input.workspaceId,
-        cycleId: source.cycleId,
         kind: "member",
-        status: { in: ["submitted", "shared"] },
+        authorId: input.userId,
       },
       select: {
         id: true,
-        authorId: true,
-        content: true,
-        author: { select: { displayName: true, username: true } },
+        cycle: { select: { year: true, week: true } },
       },
     });
-    if (input.memberIds !== "all") {
-      const allowed = new Set(submissions.map((row) => row.authorId));
-      if (input.memberIds.some((id) => !allowed.has(id))) {
-        throw new AppError("INVALID_INPUT");
-      }
-    }
-    const selected =
-      input.memberIds === "all"
-        ? submissions
-        : submissions.filter((row) => input.memberIds.includes(row.authorId));
-    if (selected.length === 0) throw new AppError("INVALID_INPUT");
+    if (!assignment) return null;
+    return {
+      id: assignment.id,
+      year: assignment.cycle.year,
+      week: assignment.cycle.week,
+    };
+  }
 
-    const extracted = extractWeeklyHighlightContent(
-      selected.map((row) => ({
-        reportId: row.id,
-        userId: row.authorId,
-        displayName: row.author.displayName ?? row.author.username,
-        content: asReportContent(row.content),
-      })),
-    );
-    const now = input.now ?? new Date();
-    const title = highlightTitle(source.cycle.year, source.cycle.week);
-    const existing = await this.db.weeklyReportHighlight.findUnique({
-      where: { cycleId: source.cycleId },
-      select: { id: true, title: true },
+  /** User confirms a regex-matched side-chat intent (collect-again / synthesize). */
+  async confirmMemberReportIntent(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    assistantSessionId: string;
+    intent: "collect-again" | "synthesize";
+    userGuidance?: string | null;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const assignment = await this.loadMemberAssignmentForSideChat({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectId: input.reportId,
     });
-    const highlight = existing
-      ? existing
-      : await this.db.weeklyReportHighlight.create({
-          data: {
-            workspaceId: input.workspaceId,
-            cycleId: source.cycleId,
-            title,
-            content: generatingHighlightContent() as unknown as Prisma.InputJsonValue,
-          },
-          select: { id: true, title: true },
-        });
-    await this.db.weeklyReportHighlight.update({
-      where: { id: highlight.id },
-      data: {
-        title,
-        content: extracted as unknown as Prisma.InputJsonValue,
-        completedAt: now,
+    if (!assignment) throw new AppError("NOT_FOUND");
+
+    await this.addUserComment({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: input.reportId,
+      body: "确认",
+      assistantSessionId: input.assistantSessionId,
+    });
+
+    if (input.intent === "collect-again") {
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.reportId,
+        assistantSessionId: input.assistantSessionId,
+        body: "好的，请确认采集设置后提交。",
+        payload: {
+          kind: "collect-plan",
+          reportId: assignment.id,
+          year: assignment.year,
+          week: assignment.week,
+        },
+      });
+      return this.listComments({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        subjectType: "report",
+        subjectId: input.reportId,
+        assistantSessionId: input.assistantSessionId,
+      });
+    }
+
+    const guidance =
+      input.userGuidance?.trim() ||
+      (await this.latestConfirmIntentOriginalText({
+        workspaceId: input.workspaceId,
+        reportId: input.reportId,
+        assistantSessionId: input.assistantSessionId,
+        intent: "synthesize",
+      }));
+
+    const { requestWeeklyReportSynthesis } =
+      await import("./weekly-report-collect-orchestrate.server");
+    const synthesis = await requestWeeklyReportSynthesis(this.db, {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      reportId: assignment.id,
+      sessionId: input.assistantSessionId,
+      userGuidance: guidance,
+    });
+    if (synthesis.ok) {
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.reportId,
+        assistantSessionId: input.assistantSessionId,
+        body: "好的，正在根据已有采集包整理周报草稿，请稍候确认。",
+      });
+    } else {
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.reportId,
+        assistantSessionId: input.assistantSessionId,
+        body: "目前还没有可用的采集包。请先确认采集设置；采集完成后再整理。",
+        payload: {
+          kind: "collect-plan",
+          reportId: assignment.id,
+          year: assignment.year,
+          week: assignment.week,
+        },
+      });
+    }
+    return this.listComments({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: input.reportId,
+      assistantSessionId: input.assistantSessionId,
+    });
+  }
+
+  /**
+   * Recover the original user utterance for a confirm-intent card.
+   * Prefer stored `userGuidance`; otherwise the preceding user comment.
+   */
+  private async latestConfirmIntentOriginalText(input: {
+    workspaceId: string;
+    reportId: string;
+    assistantSessionId: string;
+    intent?: "collect-again" | "synthesize";
+  }): Promise<string | null> {
+    const rows = await this.db.recordComment.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        reportId: input.reportId,
+        assistantSessionId: input.assistantSessionId,
       },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+      select: { authorType: true, body: true, payload: true },
+    });
+    let seekingPrecedingUser = false;
+    for (const row of rows) {
+      if (!seekingPrecedingUser) {
+        if (row.authorType !== "assistant") continue;
+        const payload = parseRecordAssistantPayload(row.payload);
+        if (payload?.kind !== "confirm-intent") continue;
+        if (input.intent && payload.intent !== input.intent) continue;
+        const guided = payload.userGuidance?.trim();
+        if (guided) return guided;
+        seekingPrecedingUser = true;
+        continue;
+      }
+      if (row.authorType !== "user") continue;
+      const body = row.body.trim();
+      if (!body || body === "确认" || body === "不是") continue;
+      return body;
+    }
+    return null;
+  }
+
+  /**
+   * User declines a regex-matched side-chat intent.
+   * Recover the original utterance so the caller can forward it to the Agent
+   * (bypass rule path) instead of ending the turn.
+   */
+  async declineMemberReportIntent(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    assistantSessionId: string;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const assignment = await this.loadMemberAssignmentForSideChat({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectId: input.reportId,
+    });
+    if (!assignment) throw new AppError("NOT_FOUND");
+
+    const originalUserText = await this.latestConfirmIntentOriginalText({
+      workspaceId: input.workspaceId,
+      reportId: input.reportId,
+      assistantSessionId: input.assistantSessionId,
+    });
+
+    await this.addUserComment({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: input.reportId,
+      body: "不是",
+      assistantSessionId: input.assistantSessionId,
     });
     await this.writeAssistantComment({
       workspaceId: input.workspaceId,
       subjectType: "report",
-      subjectId: source.id,
-      body: "本周周报要点已生成。",
-      payload: { kind: "generated", highlightId: highlight.id },
+      subjectId: input.reportId,
+      assistantSessionId: input.assistantSessionId,
+      body: originalUserText
+        ? "好的，我按你刚才的问题继续回答。"
+        : "好的。需要采集或整理周报时再说一声。",
+      payload: { kind: "intent-declined" },
     });
-    await this.writeAssistantComment({
+    const comments = await this.listComments({
       workspaceId: input.workspaceId,
-      subjectType: "highlight",
-      subjectId: highlight.id,
-      body: "本周周报要点已根据所选成员周报生成。",
-      payload: { kind: "generated", highlightId: highlight.id },
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: input.reportId,
+      assistantSessionId: input.assistantSessionId,
     });
-    return {
-      highlightId: highlight.id,
-      title,
-      year: source.cycle.year,
-      week: source.cycle.week,
-    };
+    return { comments, originalUserText };
   }
 
   async listComments(input: {
     workspaceId: string;
     userId: string;
-    subjectType: "report" | "highlight" | "cycle";
+    subjectType: "report" | "cycle";
     subjectId: string;
+    assistantSessionId?: string | null;
   }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const where =
-      input.subjectType === "report"
-        ? { reportId: input.subjectId }
-        : input.subjectType === "highlight"
-          ? { highlightId: input.subjectId }
-          : { cycleId: input.subjectId };
+      input.subjectType === "report" ? { reportId: input.subjectId } : { cycleId: input.subjectId };
     const rows = await this.db.recordComment.findMany({
-      where: { workspaceId: input.workspaceId, subjectType: input.subjectType, ...where },
+      where: {
+        workspaceId: input.workspaceId,
+        subjectType: input.subjectType,
+        ...where,
+        ...(input.assistantSessionId ? { assistantSessionId: input.assistantSessionId } : {}),
+      },
       orderBy: { createdAt: "asc" },
       include: {
         authorUser: { select: { id: true, username: true, displayName: true } },
@@ -2486,9 +2440,10 @@ export class RecordCatalog {
   async addUserComment(input: {
     workspaceId: string;
     userId: string;
-    subjectType: "report" | "highlight" | "cycle";
+    subjectType: "report" | "cycle";
     subjectId: string;
     body: string;
+    assistantSessionId?: string | null;
   }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const body = input.body.trim();
@@ -2499,8 +2454,8 @@ export class RecordCatalog {
       authorType: "user",
       authorUserId: input.userId,
       body,
+      assistantSessionId: input.assistantSessionId ?? null,
       reportId: input.subjectType === "report" ? input.subjectId : null,
-      highlightId: input.subjectType === "highlight" ? input.subjectId : null,
       cycleId: input.subjectType === "cycle" ? input.subjectId : null,
     };
     const created = await this.db.recordComment.create({ data });

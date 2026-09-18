@@ -74,8 +74,8 @@ ADR: [ADR 0032（accepted）](../adr/0032-weekly-report-collectors-and-collect-r
 
 ### c. 采集进行中
 
-1. 每台：平台投递唤醒采集 Agent（ACK ≠ 完成）。
-2. 采集员按 skill + recipes 扫盘，HTTPS `submit-pack` 上报采集包；失败则 HTTPS 上报错误摘要。
+1. 每台：平台投递唤醒采集 Agent（ACK ≠ 完成）；wake 携带报告作者身份提示（username / displayName / GitHub login）。
+2. 采集员按 skill 扫盘，**只采集该作者本人的工作证据**（git 等必须按 author 过滤，禁止整仓/全员历史）；HTTPS `submit-pack` 上报采集包；失败则 HTTPS 上报错误摘要。
 3. 单机进入终态（ready / failed / empty / stalled / cancelled）时，平台立刻在侧聊留一行（其它机可仍在跑）。
 4. 可重试失败：平台 **自动再派一次**（每槽位最多 1 次）；永久配置/鉴权失败不重试，由用户改配置后重开计划。
 5. 安全上限：**每波 15 分钟**；超时未终态标 `stalled`，再走重试/部分成功规则。

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useRouter, Link } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
   DotsHorizontal,
   Download01 as Download,
-  File06 as FileIcon,
   Heart,
   MessageChatCircle as Message,
   Share01 as Share,
@@ -13,23 +12,20 @@ import {
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/base/avatar/avatar";
-import { Tabs } from "@/components/application/tabs/tabs";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { TextArea } from "@/components/base/textarea/textarea";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
-import { cn } from "@/lib/utils";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { useAppToast } from "@/components/ui/toast";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
 import { ReportTabsEditor } from "./report-tabs-editor";
 import type { UploadResult } from "./report-editor/types";
 import {
   readReportDraft,
   clearReportDraft,
+  resolveReportEditorContent,
   trackReportSave,
   waitForReportSave,
   writeReportDraft,
@@ -39,8 +35,6 @@ import {
   deleteRecordNote,
   markWeeklyAssignmentOpened,
   saveRecordNote,
-  saveWeeklyHighlightContent,
-  saveWeeklyHighlightPrompt,
   saveWeeklyReportContent,
   sendWeeklyReportAssignments,
   setWeeklyReportFavorite,
@@ -52,16 +46,14 @@ import {
   reportContentToMarkdown,
   withAssignmentUnread,
   withAutoSendCancelled,
-  type HighlightContent,
-  type HighlightPromptState,
   type ReportContent,
 } from "./records-content";
 import { copyText } from "./report-editor/lib/clipboard";
 import { BackToRecords, WeekBadge, useFormatEditHint } from "./records-layout";
 import { RecordSidePanel } from "./record-side-panel";
+import { readSidePanelPinned } from "./record-side-panel-pin";
 import { TemplateChildrenTable, type TemplateChild } from "./template-children-table";
 import { normalizeLeaderFormatTabs } from "./template-outline-sections";
-import { HighlightPromptEditor } from "./highlight-prompt-editor";
 import { WEEKLY_SEND_TOAST_MS, WeeklySendConfirmDialog } from "./weekly-send-confirm-dialog";
 import { sendWindowEnd, useWeeklySendArmed } from "./use-send-window";
 
@@ -89,21 +81,8 @@ type ReportSubject = {
     } | null;
     editable?: boolean;
     favorited?: boolean;
-    highlightPrompt?: { text: string; history: Array<{ text: string; updatedAt: string }> };
     surface?: "format" | "overview";
     children?: TemplateChild[];
-  };
-};
-
-type HighlightSubject = {
-  type: "highlight";
-  highlight: {
-    id: string;
-    title: string;
-    content: HighlightContent;
-    completedAt: string | null;
-    generating?: boolean;
-    cycle: { id: string; year: number; week: number; title: string };
   };
 };
 
@@ -118,14 +97,7 @@ type NoteSubject = {
   };
 };
 
-export function RecordDetail({
-  subject,
-}: {
-  subject: ReportSubject | HighlightSubject | NoteSubject;
-}) {
-  if (subject.type === "highlight") {
-    return <HighlightDetail key={subject.highlight.id} highlight={subject.highlight} />;
-  }
+export function RecordDetail({ subject }: { subject: ReportSubject | NoteSubject }) {
   if (subject.type === "note") {
     return <NoteDetail key={subject.note.id} note={subject.note} />;
   }
@@ -163,21 +135,37 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
   const editable = report.editable === true;
   const [content, setContent] = useState(() =>
     editable
-      ? (readReportDraft(report.id) ?? normalizeReportContent(report.content))
+      ? resolveReportEditorContent({
+          serverContent: report.content,
+          draft: readReportDraft(report.id),
+        })
       : normalizeReportContent(report.content),
   );
   const contentRef = useRef(content);
   contentRef.current = content;
+  const [editorRevision, setEditorRevision] = useState(0);
   const reportIdRef = useRef(report.id);
   reportIdRef.current = report.id;
+  const isAssignment = Boolean(report.sourceTemplateId);
   const leaderReading = report.kind === "member" && report.editable !== true;
-  const [sideOpen, setSideOpen] = useState(leaderReading);
+  const memberAssignee = report.kind === "member" && editable && isAssignment;
+  const memberSurface = leaderReading
+    ? ("member-leader" as const)
+    : memberAssignee
+      ? ("member-assignee" as const)
+      : ("plain" as const);
+  const [sideOpen, setSideOpen] = useState(() =>
+    readSidePanelPinned("report", report.id, memberSurface),
+  );
+
+  useEffect(() => {
+    setSideOpen(readSidePanelPinned("report", report.id, memberSurface));
+  }, [report.id, memberSurface]);
   const [saving, setSaving] = useState(false);
   const [favorited, setFavorited] = useState(Boolean(report.favorited));
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [status, setStatus] = useState(report.status);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const isAssignment = Boolean(report.sourceTemplateId);
   const sent = status === "submitted" || status === "shared";
 
   useEffect(() => {
@@ -297,6 +285,42 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
       cancelled = true;
     };
   }, [editable, report.id, router]);
+
+  useEffect(() => {
+    if (!editable) {
+      const server = normalizeReportContent(report.content);
+      setContent(server);
+      contentRef.current = server;
+      return;
+    }
+    const next = resolveReportEditorContent({
+      serverContent: report.content,
+      draft: readReportDraft(report.id),
+    });
+    writeReportDraft(report.id, next);
+    if (
+      JSON.stringify(normalizeReportContent(contentRef.current)) ===
+      JSON.stringify(normalizeReportContent(next))
+    ) {
+      return;
+    }
+    setContent(next);
+    contentRef.current = next;
+  }, [editable, report.content, report.id]);
+
+  function applyAssistantBody(reportId: string, next: ReportContent) {
+    if (reportId !== report.id) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = undefined;
+    }
+    const normalized = normalizeReportContent(next);
+    writeReportDraft(report.id, normalized);
+    setContent(normalized);
+    contentRef.current = normalized;
+    // TipTap keeps a dirty buffer; remount so the inserted body is visible immediately.
+    setEditorRevision((value) => value + 1);
+  }
 
   useEffect(() => {
     if (!editable || !isAssignment || !report.unread) return;
@@ -435,6 +459,7 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
         <ReportTabsEditor
           content={content}
           editable={editable}
+          contentRevision={editorRevision}
           placeholder={m.records_report_body_placeholder()}
           onUploadFile={editable ? fileToDataUrlUpload : undefined}
           onChange={schedulePersist}
@@ -446,15 +471,15 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
         />
       </div>
 
-      {sideOpen ? (
-        <RecordSidePanel
-          key={report.id}
-          subjectType="report"
-          subjectId={report.id}
-          surface={leaderReading ? "member-leader" : "plain"}
-          onClose={() => setSideOpen(false)}
-        />
-      ) : null}
+      <RecordSidePanel
+        key={report.id}
+        subjectType="report"
+        subjectId={report.id}
+        surface={memberSurface}
+        open={sideOpen}
+        onOpenChange={setSideOpen}
+        onBodyApplied={applyAssistantBody}
+      />
     </div>
   );
 }
@@ -464,9 +489,9 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
   const toast = useAppToast();
   const setFormatEditing = useFormatEditHint();
   const save = useServerFn(saveWeeklyReportContent);
-  const saveHighlightPrompt = useServerFn(saveWeeklyHighlightPrompt);
   const sendAssignments = useServerFn(sendWeeklyReportAssignments);
   const isOverview = report.surface === "overview";
+  const formatSurface = isOverview ? ("plain" as const) : ("format" as const);
   const [content, setContent] = useState(() =>
     normalizeLeaderFormatTabs(readReportDraft(report.id) ?? normalizeReportContent(report.content)),
   );
@@ -475,7 +500,13 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
   const reportIdRef = useRef(report.id);
   reportIdRef.current = report.id;
   const formatCancelled = isAutoSendCancelled(content, report.cycle.year, report.cycle.week);
-  const [sideOpen, setSideOpen] = useState(!isOverview);
+  const [sideOpen, setSideOpen] = useState(() =>
+    readSidePanelPinned("report", report.id, formatSurface),
+  );
+
+  useEffect(() => {
+    setSideOpen(readSidePanelPinned("report", report.id, formatSurface));
+  }, [report.id, formatSurface]);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [dirty, setDirty] = useState(() => {
@@ -489,16 +520,9 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [canSendAssignments, setCanSendAssignments] = useState(Boolean(report.canSendAssignments));
-  const [formatKind, setFormatKind] = useState<"weekly" | "highlights">("weekly");
-  const [highlightPrompt, setHighlightPrompt] = useState<HighlightPromptState>(
-    () => report.highlightPrompt ?? { text: "", history: [] },
-  );
-  const [promptBusy, setPromptBusy] = useState(false);
-  const [promptDirty, setPromptDirty] = useState(false);
-  const [promptDraft, setPromptDraft] = useState(() => report.highlightPrompt?.text ?? "");
   const [sideRefresh, setSideRefresh] = useState(0);
   const sendSchedule = report.sendSchedule;
-  const hasUnsavedEdits = dirty || promptDirty;
+  const hasUnsavedEdits = dirty;
 
   const sendWindow = useMemo(
     () =>
@@ -527,13 +551,8 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
   useEffect(() => {
     setCanSendAssignments(Boolean(report.canSendAssignments));
     setDirty(false);
-    setPromptDirty(false);
     setConfirmOpen(false);
-    setFormatKind("weekly");
-    const nextPrompt = report.highlightPrompt ?? { text: "", history: [] };
-    setHighlightPrompt(nextPrompt);
-    setPromptDraft(nextPrompt.text);
-  }, [report.canSendAssignments, report.highlightPrompt, report.id]);
+  }, [report.canSendAssignments, report.id]);
 
   useEffect(() => {
     if (isOverview) {
@@ -592,23 +611,7 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
     writeReportDraft(reportIdRef.current, next);
   }
 
-  async function persistHighlightPrompt(text: string) {
-    setPromptBusy(true);
-    try {
-      const result = await saveHighlightPrompt({ data: { reportId: report.id, text } });
-      setHighlightPrompt(result.highlightPrompt);
-      setPromptDraft(result.highlightPrompt.text);
-      setPromptDirty(false);
-      await router.invalidate({ sync: true });
-    } finally {
-      setPromptBusy(false);
-    }
-  }
-
   async function saveFormatEdits() {
-    if (promptDirty) {
-      await persistHighlightPrompt(promptDraft);
-    }
     if (dirty) {
       await persist(contentRef.current, undefined, undefined, { askToSend: true });
     }
@@ -706,7 +709,7 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
                   <Button
                     size="sm"
                     color="primary"
-                    isDisabled={saving || sending || promptBusy}
+                    isDisabled={saving || sending}
                     onPress={() => void saveFormatEdits()}
                   >
                     {m.records_report_save()}
@@ -761,59 +764,31 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
             <TemplateChildrenTable children={report.children ?? []} />
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="shrink-0 border-b border-secondary px-4 sm:px-6">
-              <Tabs
-                selectedKey={formatKind}
-                onSelectionChange={(key) =>
-                  setFormatKind(key === "highlights" ? "highlights" : "weekly")
-                }
-              >
-                <Tabs.List type="underline" size="sm" className="gap-4">
-                  <Tabs.Item id="weekly" label={m.records_parent_tab_template()} />
-                  <Tabs.Item id="highlights" label={m.records_settings_tab_highlights()} />
-                </Tabs.List>
-              </Tabs>
-            </div>
-            {formatKind === "highlights" ? (
-              <HighlightPromptEditor
-                prompt={highlightPrompt}
-                text={promptDraft}
-                busy={promptBusy || saving || sending}
-                onChange={(text) => {
-                  setPromptDraft(text);
-                  setPromptDirty(text !== highlightPrompt.text);
-                }}
-              />
-            ) : (
-              <ReportTabsEditor
-                content={content}
-                editableTabs
-                placeholder={m.records_report_body_placeholder()}
-                onUploadFile={fileToDataUrlUpload}
-                onChange={markLocalContent}
-              />
-            )}
-          </div>
+          <ReportTabsEditor
+            content={content}
+            editableTabs
+            placeholder={m.records_report_body_placeholder()}
+            onUploadFile={fileToDataUrlUpload}
+            onChange={markLocalContent}
+          />
         )}
       </div>
 
-      {sideOpen ? (
-        <RecordSidePanel
-          key={report.id}
-          subjectType="report"
-          subjectId={report.id}
-          surface={isOverview ? "plain" : "format"}
-          formatCopy={formatCopy}
-          countdownUntil={countdownUntil}
-          refreshToken={sideRefresh}
-          onRequestSend={() => {
-            if (hasUnsavedEdits) return;
-            setConfirmOpen(true);
-          }}
-          onClose={() => setSideOpen(false)}
-        />
-      ) : null}
+      <RecordSidePanel
+        key={report.id}
+        subjectType="report"
+        subjectId={report.id}
+        surface={formatSurface}
+        formatCopy={formatCopy}
+        countdownUntil={countdownUntil}
+        refreshToken={sideRefresh}
+        open={sideOpen}
+        onOpenChange={setSideOpen}
+        onRequestSend={() => {
+          if (hasUnsavedEdits) return;
+          setConfirmOpen(true);
+        }}
+      />
 
       <WeeklySendConfirmDialog
         open={confirmOpen}
@@ -821,169 +796,6 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
         onOpenChange={setConfirmOpen}
         onConfirm={() => void onSendAssignments()}
       />
-    </div>
-  );
-}
-
-function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight"] }) {
-  const save = useServerFn(saveWeeklyHighlightContent);
-  const [content, setContent] = useState(highlight.content);
-  const contentRef = useRef(content);
-  contentRef.current = content;
-  const generating = highlight.generating === true || content.generating === true;
-  const [sideOpen, setSideOpen] = useState(true);
-  const [activeBlockId, setActiveBlockId] = useState(highlight.content.blocks[0]?.id ?? "");
-  const blockRefs = useRef<Record<string, HTMLElement | null>>({});
-
-  function focusBlock(blockId: string) {
-    setActiveBlockId(blockId);
-    blockRefs.current[blockId]?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1">
-      <div
-        className={`${sideOpen ? "hidden md:flex" : "flex"} min-w-0 flex-1 flex-col overflow-hidden`}
-      >
-        <PageHeader
-          heading={highlight.title}
-          leading={
-            <span className="flex items-center gap-2">
-              <BackToRecords />
-              <WeekBadge week={highlight.cycle.week} />
-            </span>
-          }
-          meta={
-            <span className="text-sm text-tertiary">
-              {generating
-                ? m.records_highlight_generating()
-                : highlight.completedAt
-                  ? m.records_highlight_completed({
-                      time: new Date(highlight.completedAt).toLocaleString(),
-                    })
-                  : m.records_highlight_draft()}
-            </span>
-          }
-          actions={
-            <ButtonUtility
-              size="sm"
-              color="tertiary"
-              icon={Message}
-              aria-label={m.records_side_chat()}
-              aria-pressed={sideOpen}
-              onClick={() => setSideOpen((open) => !open)}
-            />
-          }
-        />
-        {!generating ? (
-          <nav
-            aria-label={m.records_template_dimension()}
-            className="flex shrink-0 gap-6 border-b border-secondary px-4 sm:px-8"
-          >
-            {content.blocks.map((block) => (
-              <Button
-                key={block.id}
-                type="button"
-                size="sm"
-                color="link-gray"
-                aria-pressed={activeBlockId === block.id}
-                onPress={() => focusBlock(block.id)}
-                className={cn(
-                  "rounded-none border-b-2 px-0 pb-2.5 pt-3",
-                  activeBlockId === block.id
-                    ? "border-primary text-primary"
-                    : "border-transparent text-tertiary",
-                )}
-              >
-                {block.heading.replace(/^一、|^二、|^三、/, "")}
-              </Button>
-            ))}
-          </nav>
-        ) : null}
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-          {generating ? (
-            <Empty className="h-full py-10">
-              <EmptyHeader>
-                <EmptyMedia aria-hidden="true" className="text-brand-secondary">
-                  <FileIcon className="size-10" />
-                </EmptyMedia>
-                <EmptyTitle>{m.records_highlight_generating_empty()}</EmptyTitle>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <div className="space-y-8">
-              {content.blocks.map((block, index) => (
-                <section
-                  key={block.id}
-                  ref={(element) => {
-                    blockRefs.current[block.id] = element;
-                  }}
-                  className="scroll-mt-4 space-y-3"
-                >
-                  <h2 className="flex items-center gap-2 text-sm font-semibold text-primary">
-                    <span aria-hidden="true" className="size-2 rounded-full bg-brand-solid" />
-                    {block.heading}
-                  </h2>
-                  {block.items.length > 0 ? (
-                    <ul className="space-y-3">
-                      {block.items.map((item, itemIndex) => (
-                        <li key={`${block.id}-${itemIndex}`} className="space-y-1">
-                          <p className="rounded-lg bg-secondary px-3 py-2 text-sm leading-6 text-primary">
-                            {item.text}
-                          </p>
-                          {item.sources.length > 0 ? (
-                            <p className="px-3 text-xs text-tertiary">
-                              {m.records_highlight_source()}{" "}
-                              {item.sources.map((source) => (
-                                <Link
-                                  key={source.reportId}
-                                  to="/records/$recordId"
-                                  params={{ recordId: source.reportId }}
-                                  search={{ tab: "weekly" }}
-                                  className="mr-2 font-medium text-brand-secondary"
-                                >
-                                  @{source.displayName}
-                                </Link>
-                              ))}
-                            </p>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <TextArea
-                      value={block.paragraphs.join("\n")}
-                      onChange={(value) => {
-                        const next = structuredClone(contentRef.current);
-                        next.blocks[index]!.paragraphs = value.split("\n");
-                        setContent(next);
-                        contentRef.current = next;
-                      }}
-                      onBlur={() =>
-                        void save({
-                          data: {
-                            highlightId: highlight.id,
-                            content: contentRef.current,
-                          },
-                        })
-                      }
-                      rows={4}
-                    />
-                  )}
-                </section>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-      {sideOpen ? (
-        <RecordSidePanel
-          subjectType="highlight"
-          subjectId={highlight.id}
-          surface="highlight"
-          onClose={() => setSideOpen(false)}
-        />
-      ) : null}
     </div>
   );
 }

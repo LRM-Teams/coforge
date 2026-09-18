@@ -44,17 +44,15 @@ function RecordsPage() {
     tab === "weekly" && !selectedPanel && !routeRecordId && !selectedWeekKey
       ? latestWeeklyLanding({
           memberWeeks: catalog.memberWeeks,
-          highlights: catalog.highlights,
         })
       : undefined;
-  const landingHighlightId = landing?.kind === "highlight" ? landing.id : undefined;
-  const landingWeekKey = landing?.kind === "week" ? `${landing.year}-${landing.week}` : undefined;
+  const landingReportId = landing?.kind === "report" ? landing.id : undefined;
 
   return (
     <RecordsLayout
       catalog={catalog}
-      selectedRecordId={routeRecordId ?? landingHighlightId}
-      selectedWeekKey={selectedWeekKey ?? landingWeekKey}
+      selectedRecordId={routeRecordId ?? landingReportId}
+      selectedWeekKey={selectedWeekKey}
       detailOpen={Boolean(routeRecordId || selectedPanel || selectedWeekKey)}
       selectedPanel={selectedPanel}
       tab={tab}

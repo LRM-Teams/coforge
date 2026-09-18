@@ -21,23 +21,37 @@ export const IME_ENTER_GUARD_MS = 50;
 export type EnterKeyLikeEvent = {
   key: string;
   shiftKey: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
   /** `event.nativeEvent.isComposing` OR'd with the composer's own compositionstart/compositionend tracking. */
   isComposing: boolean;
   /** `event.keyCode`; Safari/Chrome fire keydown with 229 while a composition is in progress. */
   keyCode: number;
 };
 
+export type EnterSendOptions = {
+  /**
+   * Modifier that keeps Enter as a newline instead of send.
+   * Channel composer: Shift+Enter. Records side chat: Ctrl/Cmd+Enter.
+   */
+  newlineModifier?: "shift" | "ctrl";
+};
+
 /**
  * Whether a keydown on the composer textarea should submit the message.
- * Plain Enter sends; Shift+Enter always stays a newline; Enter is ignored
- * entirely while (or immediately after) an IME composition is being
+ * Plain Enter sends; the configured newline modifier stays a newline; Enter is
+ * ignored entirely while (or immediately after) an IME composition is being
  * confirmed.
  */
 export function shouldSendOnEnter(
   event: EnterKeyLikeEvent,
   composition: { lastCompositionEndAt: number | null; now: number },
+  options?: EnterSendOptions,
 ): boolean {
-  if (event.key !== "Enter" || event.shiftKey) return false;
+  if (event.key !== "Enter") return false;
+  const newlineModifier = options?.newlineModifier ?? "shift";
+  if (newlineModifier === "shift" && event.shiftKey) return false;
+  if (newlineModifier === "ctrl" && (event.ctrlKey || event.metaKey)) return false;
   if (event.isComposing || event.keyCode === 229) return false;
   const { lastCompositionEndAt, now } = composition;
   if (lastCompositionEndAt !== null && now - lastCompositionEndAt < IME_ENTER_GUARD_MS)

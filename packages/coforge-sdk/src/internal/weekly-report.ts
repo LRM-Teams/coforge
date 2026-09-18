@@ -2,7 +2,7 @@
 export const AGENT_WEEKLY_REPORT_METHOD = "agent:weekly-report" as const;
 export const WEEKLY_REPORT_PROTOCOL_MAJOR = 1 as const;
 
-export const WEEKLY_REPORT_SUBJECT_TYPES = ["report", "highlight", "cycle"] as const;
+export const WEEKLY_REPORT_SUBJECT_TYPES = ["report", "cycle"] as const;
 export type WeeklyReportSubjectType = (typeof WEEKLY_REPORT_SUBJECT_TYPES)[number];
 
 export type WeeklyReportCommand =

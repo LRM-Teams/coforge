@@ -9,7 +9,9 @@ import { RecordCatalog } from "./record-catalog.server";
 import { ensureWeeklyReportAssistant } from "./weekly-report-assistant.server";
 import {
   buildWeeklyReportAssistantRequestBody,
+  isWeeklyReportPlatformTurn,
   weeklyReportAssistantDisplayBody,
+  weeklyReportAssistantSessionFromBody,
   weeklyReportAssistantSubjectFromBody,
 } from "./weekly-report-assistant-request.server";
 import {
@@ -36,21 +38,32 @@ type BrowserChatMessage = {
   createdAt: Date | string;
 };
 
-/** Keeps page-scoped turns by binding assistant replies to the latest user subject. */
+/** Keeps page+session-scoped turns by binding assistant replies to the latest user turn. */
 export function selectWeeklyReportAssistantMessages(
   messages: readonly BrowserChatMessage[],
-  subjectType: "report" | "highlight" | "cycle",
+  subjectType: "report" | "cycle",
   subjectId: string,
+  sessionId?: string | null,
+  options?: { includeLegacyUnscoped?: boolean },
 ): WeeklyReportAssistantChatMessage[] {
   const subjectKey = `${subjectType}:${subjectId}`;
   let activeSubject: string | null = null;
+  let activeSession: string | null = null;
   const selected: WeeklyReportAssistantChatMessage[] = [];
   for (const message of messages) {
     if (message.senderKind === "user") {
       activeSubject = weeklyReportAssistantSubjectFromBody(message.body);
+      activeSession = weeklyReportAssistantSessionFromBody(message.body);
     }
     if (activeSubject !== subjectKey) continue;
+    if (sessionId) {
+      const matchesSession = activeSession === sessionId;
+      const matchesLegacy = Boolean(options?.includeLegacyUnscoped) && activeSession === null;
+      if (!matchesSession && !matchesLegacy) continue;
+    }
     if (message.senderKind !== "user" && message.senderKind !== "agent") continue;
+    // Platform synthesizer wakes still bind subject/session above, but stay out of the UI.
+    if (message.senderKind === "user" && isWeeklyReportPlatformTurn(message.body)) continue;
     const isAssistant = message.senderKind === "agent";
     selected.push({
       id: message.id,
@@ -82,9 +95,12 @@ export class WeeklyReportAssistantChat {
     workspaceId: string;
     userId: string;
     requestId: string;
-    subjectType: "report" | "highlight" | "cycle";
+    subjectType: "report" | "cycle";
     subjectId: string;
+    sessionId: string;
     body: string;
+    /** Collect→synthesize handoff: wake Agent, hide from side-panel member turns. */
+    platformTurn?: boolean;
   }) {
     const text = input.body.trim();
     if (!text) throw new AppError("INVALID_INPUT");
@@ -125,8 +141,10 @@ export class WeeklyReportAssistantChat {
       body: buildWeeklyReportAssistantRequestBody({
         subjectType: input.subjectType,
         subjectId: input.subjectId,
+        sessionId: input.sessionId,
         userText: text,
         contextManifest,
+        platformTurn: input.platformTurn,
       }),
     });
     return {
@@ -140,6 +158,7 @@ export class WeeklyReportAssistantChat {
         author: "user" as const,
         createdAt: message.createdAt.toISOString(),
         suggestion: null,
+        hidden: Boolean(input.platformTurn),
       },
     };
   }
@@ -147,8 +166,10 @@ export class WeeklyReportAssistantChat {
   async listMessages(input: {
     workspaceId: string;
     userId: string;
-    subjectType: "report" | "highlight" | "cycle";
+    subjectType: "report" | "cycle";
     subjectId: string;
+    sessionId: string;
+    includeLegacyUnscoped?: boolean;
   }): Promise<{
     agentId: string;
     conversationId: string;
@@ -171,6 +192,8 @@ export class WeeklyReportAssistantChat {
         opened.messages,
         input.subjectType,
         input.subjectId,
+        input.sessionId,
+        { includeLegacyUnscoped: input.includeLegacyUnscoped },
       ),
     };
   }

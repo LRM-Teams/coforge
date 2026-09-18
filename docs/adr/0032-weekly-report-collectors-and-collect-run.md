@@ -208,6 +208,8 @@ schema CR) persisted in PostgreSQL:
 ## Implementation details deferred to schema / code CRs
 
 - Exact Prisma model and field names.
-- Whether prompt/session states and Collect Run share one table or two.
+- Side-chat **UI** sessions for the weekly-report assistant are
+  `WeeklyReportAssistantChatSession` (page-subject scoped, Multica Notes
+  style). Collect Run remains a separate ledger — do not merge them.
 - Collect-roots file path under the CoForge computer data dir.
 - Whether large packs use FileStorage object keys instead of JSONB.

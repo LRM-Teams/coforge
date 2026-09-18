@@ -21,47 +21,56 @@ test("assistant context manifests expose structure without report bodies", async
       findUnique: async () => ({ role: "member" }),
     },
     weeklyReport: {
-      findFirst: async () => null,
-    },
-    weeklyReportHighlight: {
       findFirst: async () => ({
-        id: "highlight-1",
-        title: "2026 W38 Highlights",
+        id: "report-1",
+        workspaceId: "workspace-1",
+        cycleId: "cycle-1",
+        authorId: "user-1",
+        sourceTemplateId: null,
+        kind: "member",
+        title: "Alice 2026 W38",
+        status: "submitted",
         content: {
-          blocks: [
-            {
-              id: "block-1",
-              heading: "Progress",
-              paragraphs: ["private body must not escape"],
-              items: [
-                {
-                  text: "Shipped feature",
-                  sources: [{ reportId: "report-1", userId: "user-2", displayName: "Alice" }],
-                },
-              ],
-            },
-          ],
+          tabs: {
+            Progress: { markdown: "private body must not escape" },
+            Plans: { markdown: "next" },
+          },
         },
-        completedAt: new Date("2026-09-18T00:00:00.000Z"),
+        submittedAt: new Date("2026-09-18T00:00:00.000Z"),
+        updatedAt: new Date("2026-09-18T00:00:00.000Z"),
+        author: { id: "user-1", username: "alice", displayName: "Alice" },
         cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38" },
+        sourceTemplate: null,
+        settingsId: null,
       }),
+      count: async () => 0,
+      findMany: async () => [],
+    },
+    weeklyReportFavorite: {
+      findUnique: async () => null,
     },
   } as unknown as PrismaClient;
 
   const manifest = await new RecordCatalog(db).loadAssistantContextManifest({
     workspaceId: "workspace-1",
     userId: "user-1",
-    subjectType: "highlight",
-    subjectId: "highlight-1",
+    subjectType: "report",
+    subjectId: "report-1",
   });
 
   expect(manifest).toEqual({
-    subjectType: "highlight",
-    subjectId: "highlight-1",
+    subjectType: "report",
+    subjectId: "report-1",
     cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38" },
-    structure: ["Progress"],
-    availableData: ["highlight", "source_reports", "visible_member_reports"],
-    sourceReportIds: ["report-1"],
+    status: "submitted",
+    structure: ["Progress", "Plans"],
+    availableData: [
+      "current_report",
+      "template",
+      "submission_status",
+      "visible_member_reports",
+      "favorites",
+    ],
     contextVersion: "2026-09-18T00:00:00.000Z",
   });
   expect(JSON.stringify(manifest)).not.toContain("private body");
