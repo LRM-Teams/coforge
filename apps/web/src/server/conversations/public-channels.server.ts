@@ -188,11 +188,20 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
   const members = await db.workspaceMembership.findMany({
     where: { workspaceId },
   });
+  // New members start already-read: the badge counts only messages sent after enrollment,
+  // never #general's pre-existing history (same rule as `join`/`addMembers`).
+  const latest = await db.message.findFirst({
+    where: { conversationId: general.id },
+    orderBy: { sequence: "desc" },
+    select: { sequence: true },
+  });
+  const readThroughSequence = latest?.sequence ?? 0;
   await db.conversationMember.createMany({
     data: members.map(({ userId }) => ({
       workspaceId,
       conversationId: general.id,
       userId,
+      readThroughSequence,
     })),
     skipDuplicates: true,
   });
@@ -382,23 +391,64 @@ export class PublicChannels {
 
   async list(workspaceId: string, userId: string) {
     await this.authorize(workspaceId, userId);
-    const channels = await this.db.conversation.findMany({
-      where: { workspaceId, channelName: { not: null } },
-      orderBy: { channelName: "asc" },
-      select: {
-        id: true,
-        channelName: true,
-        archivedAt: true,
-        members: { where: { userId, ...ACTIVE_MEMBER_WHERE }, select: { id: true } },
-      },
-    });
+    const [channels, unread] = await Promise.all([
+      this.db.conversation.findMany({
+        where: { workspaceId, channelName: { not: null } },
+        orderBy: { channelName: "asc" },
+        select: {
+          id: true,
+          channelName: true,
+          archivedAt: true,
+          members: {
+            where: { userId, ...ACTIVE_MEMBER_WHERE },
+            select: {
+              id: true,
+              channelMuted: true,
+              // Slack-style unread cursor (ADR 0043). Thread replies belong to their thread
+              // target and never advance it, so they never count in the channel badge.
+              readThroughSequence: true,
+            },
+          },
+        },
+      }),
+      // One query for every channel's unread: other-authored top-level messages past the
+      // member's own read cursor. System messages (no sender member) and the viewer's own
+      // messages are already-read by definition; a soft-left membership has no badge.
+      this.db.$queryRaw<{ conversationId: string; unread: number }[]>`
+        SELECT m."conversationId" AS "conversationId", COUNT(*)::int AS "unread"
+        FROM "messages" m
+        JOIN "conversation_members" cm
+          ON cm."conversationId" = m."conversationId"
+         AND cm."userId" = ${userId}::uuid
+         AND cm."leftAt" IS NULL
+         AND m."sequence" > cm."readThroughSequence"
+        WHERE m."workspaceId" = ${workspaceId}::uuid
+          AND m."threadRootId" IS NULL
+          AND m."senderMemberId" IS NOT NULL
+          AND (m."senderMemberId" IS DISTINCT FROM cm."id")
+          AND EXISTS (
+            SELECT 1 FROM "conversations" c
+            WHERE c."id" = m."conversationId" AND c."workspaceId" = ${workspaceId}::uuid
+              AND c."channelName" IS NOT NULL
+          )
+        GROUP BY m."conversationId"
+      `,
+    ]);
+    const unreadByConversation = new Map(unread.map((row) => [row.conversationId, row.unread]));
     return channels
-      .map((channel) => ({
-        id: channel.id,
-        name: channel.channelName!,
-        joined: channel.members.length > 0,
-        archived: channel.archivedAt !== null,
-      }))
+      .map((channel) => {
+        const member = channel.members[0];
+        // A non-member (or soft-left viewer) sees no unread badge: the channel's history is
+        // readable, but nothing new is "for them" until they join.
+        return {
+          id: channel.id,
+          name: channel.channelName!,
+          joined: Boolean(member),
+          archived: channel.archivedAt !== null,
+          muted: member?.channelMuted ?? false,
+          unreadCount: member ? (unreadByConversation.get(channel.id) ?? 0) : 0,
+        };
+      })
       .sort((a, b) => Number(b.name === "general") - Number(a.name === "general"));
   }
 
@@ -493,10 +543,53 @@ export class PublicChannels {
     await this.channel(workspaceId, userId, channelId);
     // Upsert (not createMany/skipDuplicates): a human previously removed from this channel by
     // an admin Agent has a row with `leftAt` set, which re-joining must clear rather than skip.
-    await this.db.conversationMember.upsert({
-      where: { conversationId_userId: { conversationId: channelId, userId } },
-      create: { workspaceId, userId, conversationId: channelId },
-      update: { leftAt: null },
+    // (Re-)joining starts already-read at the channel's current top-level end: the badge
+    // counts what arrives *after* you joined, never the backlog that existed before.
+    await this.db.$transaction(async (tx) => {
+      await this.db.conversationMember.upsert({
+        where: { conversationId_userId: { conversationId: channelId, userId } },
+        create: { workspaceId, userId, conversationId: channelId },
+        update: { leftAt: null },
+      });
+      const latest = await tx.message.findFirst({
+        where: { conversationId: channelId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      });
+      await tx.conversationMember.updateMany({
+        where: { conversationId: channelId, userId },
+        data: { readThroughSequence: latest?.sequence ?? 0 },
+      });
+    });
+  }
+
+  /**
+   * Advances the human member's top-level read cursor (ADR 0043). Monotone and clamped to the
+   * conversation's current maximum sequence: a stale client cannot move the boundary backwards,
+   * and an over-eager client cannot push it past the conversation (which would swallow future
+   * messages into "already read").
+   */
+  async markRead(workspaceId: string, userId: string, channelId: string, throughSequence: number) {
+    await this.channel(workspaceId, userId, channelId);
+    if (!Number.isSafeInteger(throughSequence) || throughSequence < 1)
+      throw new AppError("INVALID_INPUT");
+    await this.db.$transaction(async (tx) => {
+      const latest = await tx.message.findFirst({
+        where: { conversationId: channelId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      });
+      const boundary = Math.min(throughSequence, latest?.sequence ?? 0);
+      if (boundary < 1) return;
+      await tx.conversationMember.updateMany({
+        where: {
+          conversationId: channelId,
+          userId,
+          readThroughSequence: { lt: boundary },
+          ...ACTIVE_MEMBER_WHERE,
+        },
+        data: { readThroughSequence: boundary },
+      });
     });
   }
 
@@ -748,12 +841,24 @@ export class PublicChannels {
       row.agentId ? [row.agentId] : [],
     );
 
+    // (Re-)added members start already-read at the channel's current end: the badge counts
+    // what arrives after the add, never the backlog that existed before (mirrors `join`).
+    const cursor = await this.db.message.findFirst({
+      where: { conversationId: channelId },
+      orderBy: { sequence: "desc" },
+      select: { sequence: true },
+    });
     await Promise.all([
       ...userIds.map((userId) =>
         this.db.conversationMember.upsert({
           where: { conversationId_userId: { conversationId: channelId, userId } },
-          create: { workspaceId, conversationId: channelId, userId },
-          update: { leftAt: null },
+          create: {
+            workspaceId,
+            conversationId: channelId,
+            userId,
+            readThroughSequence: cursor?.sequence ?? 0,
+          },
+          update: { leftAt: null, readThroughSequence: cursor?.sequence ?? 0 },
         }),
       ),
       ...agentIds.map((agentId) =>
@@ -1099,6 +1204,8 @@ export class PublicChannels {
           conversationId: channelId,
           messageId: message.id,
           sequence: message.sequence,
+          workspaceId,
+          threadRootId: message.threadRootId ?? undefined,
         });
       } catch {
         // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.

@@ -220,6 +220,9 @@ test("ensureCollector reclaims an orphan Agent and creates the missing binding",
     conversationMember: {
       createMany: async () => ({ count: 0 }),
     },
+    message: {
+      findFirst: async () => undefined,
+    },
   };
 
   const result = await ensureCollector(db as never, {

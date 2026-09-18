@@ -225,6 +225,9 @@ test("ensureWeeklyReportAssistant creates one assistant per User in a Workspace"
     conversationMember: {
       createMany: async () => ({ count: 0 }),
     },
+    message: {
+      findFirst: async () => undefined,
+    },
   };
   const db = {
     $transaction: async <T>(callback: (transaction: typeof tx) => Promise<T>) => callback(tx),

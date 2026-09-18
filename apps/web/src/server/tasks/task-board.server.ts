@@ -913,6 +913,7 @@ export class TaskBoard {
           conversationId: message.conversationId,
           messageId: message.id,
           sequence: message.sequence,
+          workspaceId: message.workspaceId,
         }),
       ),
       Promise.resolve().then(() => this.dependencies.notifications?.notifyMessage(message.id)),
@@ -1534,6 +1535,8 @@ export class TaskBoard {
         conversationId: task.conversationId,
         messageId: task.messageId,
         sequence: task.message.sequence,
+        // Task metadata changes are always top-level messages, never thread replies.
+        workspaceId: task.workspaceId,
         publicationId: `${task.messageId}:task:${task.revision}`,
       });
     } catch {

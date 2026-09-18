@@ -19,6 +19,7 @@ const persisted = {
   computerId: "computer-a",
   agentId: "agent-a",
   sequence: 1,
+  threadRootId: null,
   target: "@agent",
   latestSender: "@ada",
   attachments: [],

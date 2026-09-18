@@ -8,6 +8,7 @@ import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "@/features/agents/workspace-agents-realtime";
 import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
+import { useChannelUnreadCounts } from "./conversation-navigation";
 import {
   readCollapsedSections,
   writeCollapsedSections,
@@ -15,6 +16,25 @@ import {
 } from "./directory-sections";
 
 type DirectoryChannel = { id: string; name: string; joined: boolean };
+
+/** Slack-style badge: the count up to 99, then "99+". Hidden from AT by the row's label. */
+function UnreadBadge({ count }: { count: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-solid px-1.5 text-xs font-semibold leading-none text-white tabular-nums"
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+/** A muted channel de-emphasises its badge to a bare dot (Slack's muted treatment). */
+function UnreadDot() {
+  return (
+    <span aria-hidden="true" className="inline-flex size-2 shrink-0 rounded-full bg-brand-solid" />
+  );
+}
 
 // A local row (not NavItemBase — its `icon` slot hardcodes size-5 and can't
 // take an Avatar) so channel and DM rows share one grid: 20px icon column,
@@ -24,12 +44,14 @@ function ConversationRow({
   current,
   icon,
   muted,
+  unreadCount,
   children,
 }: {
   target: { channelId: string } | { agentId: string };
   current?: boolean;
   icon: ReactNode;
   muted?: boolean;
+  unreadCount?: number;
   children: ReactNode;
 }) {
   return (
@@ -38,6 +60,7 @@ function ConversationRow({
         ? { to: "/messages/channels/$channelId", params: target }
         : { to: "/messages/$agentId", params: target })}
       aria-current={current ? "page" : undefined}
+      aria-label={unreadCount ? m.channel_unread_accessible({ count: unreadCount }) : undefined}
       className={cx(
         "flex max-h-9 w-full cursor-pointer items-center gap-2 rounded-md p-2 outline-focus-ring transition duration-100 ease-linear select-none focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2",
         current ? "bg-sidebar-accent" : "hover:bg-primary_hover",
@@ -46,7 +69,7 @@ function ConversationRow({
       <span className="flex size-5 shrink-0 items-center justify-center">{icon}</span>
       <span
         className={cx(
-          "flex-1 truncate text-sm",
+          "min-w-0 flex-1 truncate text-sm",
           current
             ? "font-semibold text-brand-secondary"
             : muted
@@ -56,6 +79,7 @@ function ConversationRow({
       >
         {children}
       </span>
+      {unreadCount ? muted ? <UnreadDot /> : <UnreadBadge count={unreadCount} /> : null}
     </Link>
   );
 }
@@ -132,6 +156,7 @@ export function ConversationDirectory({
   /** Opens the create-channel flow from the "+" next to the CHANNELS caption. */
   onCreateChannel?: () => void;
 }) {
+  const unreadCounts = useChannelUnreadCounts();
   const sortedChannels = [...channels].sort((left, right) =>
     left.joined === right.joined ? 0 : left.joined ? -1 : 1,
   );
@@ -177,6 +202,7 @@ export function ConversationDirectory({
                     target={{ channelId: channel.id }}
                     current={current}
                     muted={!channel.joined}
+                    unreadCount={unreadCounts[channel.id]}
                     icon={
                       <Hash
                         aria-hidden="true"

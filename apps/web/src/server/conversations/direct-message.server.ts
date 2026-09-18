@@ -67,7 +67,7 @@ export class SendDirectMessage {
           input.threadRootId,
         ),
     );
-    await this.publishBrowserEvent(message, input.conversationId);
+    await this.publishBrowserEvent(message, input.conversationId, input.workspaceId);
     if (!message.agentId) throw new Error("message is not an Agent direct message");
     await this.publishUserMessageToAgent(input.requestId, input.conversationId, {
       ...message,
@@ -123,7 +123,7 @@ export class SendDirectMessage {
         return persisted;
       },
     );
-    await this.publishBrowserEvent(message, conversation.id);
+    await this.publishBrowserEvent(message, conversation.id, input.workspaceId);
     await this.notifications?.notifyMessage(message.id);
     await this.publishAgentMentionDeliveries(input.requestId, conversation.id, message);
     return message;
@@ -181,8 +181,9 @@ export class SendDirectMessage {
   }
 
   private async publishBrowserEvent(
-    message: { id: string; sequence: number },
+    message: { id: string; sequence: number; threadRootId?: string | null },
     conversationId: string,
+    workspaceId?: string,
   ) {
     if (!this.realtime) return;
     try {
@@ -190,6 +191,8 @@ export class SendDirectMessage {
         conversationId,
         messageId: message.id,
         sequence: message.sequence,
+        ...(workspaceId ? { workspaceId } : {}),
+        ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
       });
     } catch {
       // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.

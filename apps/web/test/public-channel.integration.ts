@@ -74,6 +74,8 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       conversationId: string;
       messageId: string;
       sequence: number;
+      workspaceId?: string;
+      threadRootId?: string;
     }> = [];
     const channels = new PublicChannels(
       db,
@@ -91,7 +93,14 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       channels.list(workspace.id, bob.id),
     ]);
     expect(first).toEqual([
-      { id: expect.any(String), name: "general", joined: true, archived: false },
+      {
+        id: expect.any(String),
+        name: "general",
+        joined: true,
+        archived: false,
+        muted: false,
+        unreadCount: 0,
+      },
     ]);
     expect(second).toEqual(first);
     expect(await channels.list(workspace.id, alice.id)).toEqual(first);
@@ -158,6 +167,8 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       conversationId: engineering.id,
       messageId: saved.id,
       sequence: saved.sequence,
+      workspaceId: workspace.id,
+      threadRootId: undefined,
     });
     expect((await send(alice.id, "Hello Bob", requestId)).id).toBe(saved.id);
     const unjoined = await channels.open(workspace.id, bob.id, engineering.id);
@@ -1071,7 +1082,14 @@ test("reads never enroll: general membership comes from write points and the bac
       [alice.id, bob.id, agent.id].sort(),
     );
     expect(await channels.list(workspace.id, bob.id)).toEqual([
-      { id: general.id, name: "general", joined: true, archived: false },
+      {
+        id: general.id,
+        name: "general",
+        joined: true,
+        archived: false,
+        muted: false,
+        unreadCount: 0,
+      },
     ]);
 
     // Re-running the backfill is a no-op.
@@ -1085,7 +1103,14 @@ test("reads never enroll: general membership comes from write points and the bac
         data: { workspaceId: workspace.id, userId: carol.id },
       });
       expect(await channels.list(workspace.id, carol.id)).toEqual([
-        { id: general.id, name: "general", joined: false, archived: false },
+        {
+          id: general.id,
+          name: "general",
+          joined: false,
+          archived: false,
+          muted: false,
+          unreadCount: 0,
+        },
       ]);
       await channels.open(workspace.id, carol.id, general.id);
       expect(await db.conversationMember.count({ where: { conversationId: general.id } })).toBe(3);
@@ -2056,6 +2081,92 @@ test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent'
     await db.workspace.deleteMany({ where: { id: { in: [workspace.id, foreignWorkspace.id] } } });
     await db.computer.deleteMany({ where: { ownerId: owner.id } });
     await db.user.deleteMany({ where: { id: owner.id } });
+    await db.$disconnect();
+  }
+});
+
+test("channel unread (ADR 0043): list counts other-authored top-level messages past the cursor, markRead advances monotonically, threads never count, join/addMembers seed the cursor", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `alice-${suffix}` } });
+  const bob = await db.user.create({ data: { username: `bob-${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: suffix,
+      name: "Unread",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    await enrollGeneral(db, workspace.id);
+    const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+    });
+    const engineering = await channels.create(workspace.id, alice.id, "unread-eng");
+
+    // Joining seeds the cursor at the channel's current end: no backlog badge.
+    await channels.join(workspace.id, alice.id, engineering.id);
+    await channels.join(workspace.id, bob.id, engineering.id);
+    const send = (userId: string, body: string, threadRootId?: string) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId,
+        channelId: engineering.id,
+        body,
+        requestId: crypto.randomUUID(),
+        ...(threadRootId ? { threadRootId } : {}),
+      });
+
+    const root = await send(alice.id, "root from alice");
+    // bob's view: alice's top-level message is unread; alice's own never is.
+    let list = await channels.list(workspace.id, bob.id);
+    expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(1);
+    list = await channels.list(workspace.id, alice.id);
+    expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(0);
+
+    // A thread reply never adds channel unread for bob.
+    await send(alice.id, "thread reply", root.id);
+    list = await channels.list(workspace.id, bob.id);
+    expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(1);
+
+    // A second top-level message bumps the count to 2.
+    await send(alice.id, "second top-level");
+    list = await channels.list(workspace.id, bob.id);
+    expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(2);
+
+    // markRead clears it; a stale boundary cannot move the cursor backwards.
+    await channels.markRead(workspace.id, bob.id, engineering.id, 10_000);
+    list = await channels.list(workspace.id, bob.id);
+    expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(0);
+    await send(alice.id, "third after read");
+    await channels.markRead(workspace.id, bob.id, engineering.id, 1);
+    list = await channels.list(workspace.id, bob.id);
+    expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(1);
+
+    // A non-member has no unread badge even though history is readable.
+    const carol = await db.user.create({ data: { username: `carol-${suffix}` } });
+    await db.workspaceMembership.create({
+      data: { workspaceId: workspace.id, userId: carol.id },
+    });
+    list = await channels.list(workspace.id, carol.id);
+    expect(list.find((c) => c.id === engineering.id)?.joined).toBe(false);
+    expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(0);
+
+    // A newly added member starts already-read: addMembers seeds the cursor at the end.
+    await channels.addMembers(workspace.id, { userId: alice.id }, engineering.id, {
+      userIds: [carol.id],
+      agentIds: [],
+    });
+    list = await channels.list(workspace.id, carol.id);
+    expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(0);
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
     await db.$disconnect();
   }
 });

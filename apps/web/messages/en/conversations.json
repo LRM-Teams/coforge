@@ -42,6 +42,16 @@
   "channel_members_leave_confirm_action": "Leave",
   "channel_members_leaving": "Leaving…",
   "channel_members_leave_error": "Could not leave the channel. Try again.",
+  "channel_unread_accessible": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} unread message",
+        "countPlural=other": "{count} unread messages"
+      }
+    }
+  ],
   "messages_title": "Messages",
   "messages_agent_list_label": "Agent conversations",
   "messages_agents_action": "Direct messages",

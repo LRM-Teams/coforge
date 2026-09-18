@@ -145,6 +145,15 @@ export const joinPublicChannel = createServerFn({ method: "POST" })
     await channels.join(workspaceId, userId, data.channelId);
   });
 
+/** Marks every top-level message through `throughSequence` read for the sidebar badge. */
+export const markPublicChannelRead = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelInput.extend({ throughSequence: z.number().int().positive() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    await channels.markRead(workspaceId, userId, data.channelId, data.throughSequence);
+  });
+
 export const leavePublicChannel = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(channelInput)
