@@ -1349,6 +1349,10 @@ export class DaemonConnection implements DaemonConnectionClient {
     return this.#usageScan.set(callback);
   }
 
+  onAgentContextScan(callback: (request: AgentContextScanRequest) => Promise<void>): () => void {
+    return this.#agentContextScan.set(callback);
+  }
+
   onReconnect(callback: () => void): () => void {
     return this.#reconnect.set(callback);
   }
@@ -2187,6 +2191,12 @@ export class DaemonConnection implements DaemonConnectionClient {
         void this.#usageScan.current?.(usage);
         return true;
       }) ||
+      this.#route(data, decodeAgentContextScanRequest, (scan) => {
+        if (scan.protocolMajor !== 1 || scan.workspaceId !== workspaceId || !scan.computerId)
+          return false;
+        void this.#agentContextScan.current?.(scan);
+        return true;
+      }) ||
       this.#route(data, decodeAgentActivityProbe, (probe) => {
         if (probe.protocolMajor !== 1 || !ownsDaemon(probe)) return false;
         this.#deliver(this.#agentActivityProbe, probe);
@@ -2283,6 +2293,10 @@ export class DaemonConnection implements DaemonConnectionClient {
       DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
       encodeDaemonRuntimeUsageScanResponse(response),
     );
+  }
+
+  async sendAgentContextScanResult(response: AgentContextScanResponse): Promise<void> {
+    await this.#rpc(AGENT_CONTEXT_SCAN_RESULT_METHOD, encodeAgentContextScanResponse(response));
   }
 
   async ready(createRequest: () => DaemonRuntimeReadyRequest): Promise<void> {

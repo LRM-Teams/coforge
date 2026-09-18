@@ -13,12 +13,15 @@ import {
   AGENT_STATUS_METHOD,
   AGENT_SESSION_INVALIDATE_METHOD,
   AGENT_CONTEXT_USAGE_METHOD,
+  AGENT_CONTEXT_SCAN_RESULT_METHOD,
   decodeAgentActivity,
   decodeAgentSessionInvalidate,
   decodeAgentContextUsage,
   decodeAgentStatus,
   decodeAgentMessageDeliveryAck,
   decodeDaemonRuntimeReadyRequest,
+  encodeAgentContextScanRequest,
+  decodeAgentContextScanResponse,
   encodeAgentMessageDelivery,
   encodeAgentStartIntent,
   encodeAgentStopIntent,
@@ -1209,6 +1212,78 @@ test("rejects an agent:activity_probe publication for a foreign Workspace", asyn
   );
 
   expect(probed).toEqual([]);
+});
+
+test("routes an agent:context_scan publication to its slot and answers through the result RPC", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const scanned: string[] = [];
+  transport.onAgentContextScan(async (request) => {
+    scanned.push(request.agentId);
+    await transport.sendAgentContextScanResult({
+      ...request,
+      accepted: false,
+      status: "no_session",
+    });
+  });
+  const calls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    calls.push({ method, data });
+    return new Uint8Array();
+  };
+  await transport.start("secret", config);
+
+  const request = {
+    protocolMajor: 1,
+    requestId: "context-scan-1",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId: "agent-1",
+    provider: "claude-code" as const,
+    launchId: "launch-1",
+    sessionId: "native-session-1",
+  };
+  fake.publish(
+    `daemon:${config.workspaceId}:${config.computerId}`,
+    encodeAgentContextScanRequest(request),
+  );
+  await Promise.resolve();
+  await Promise.resolve();
+
+  expect(scanned).toEqual(["agent-1"]);
+  const resultCall = calls.find(({ method }) => method === AGENT_CONTEXT_SCAN_RESULT_METHOD);
+  expect(resultCall).toBeDefined();
+  expect(decodeAgentContextScanResponse(resultCall!.data)).toMatchObject({
+    requestId: "context-scan-1",
+    agentId: "agent-1",
+    status: "no_session",
+  });
+});
+
+test("rejects an agent:context_scan publication for a foreign Workspace", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const scanned: string[] = [];
+  transport.onAgentContextScan(async (request) => {
+    scanned.push(request.agentId);
+  });
+  await transport.start("secret", config);
+
+  fake.publish(
+    `daemon:other-workspace:${config.computerId}`,
+    encodeAgentContextScanRequest({
+      protocolMajor: 1,
+      requestId: "context-scan-2",
+      workspaceId: "other-workspace",
+      computerId: config.computerId,
+      agentId: "agent-1",
+      provider: "claude-code",
+      launchId: "launch-1",
+      sessionId: "native-session-1",
+    }),
+  );
+
+  expect(scanned).toEqual([]);
 });
 
 test("consumes the Connect Proxy-bound control stream without a client subscription", async () => {
