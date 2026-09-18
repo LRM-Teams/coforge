@@ -1,13 +1,9 @@
-import { afterAll, describe, expect, jest, setSystemTime, test } from "bun:test";
+import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import {
-  AGENT_STARTUP_TURN_TEXT,
-  DaemonRuntime,
-  UPGRADE_RESULT_RECONCILE_MS,
-} from "../src/daemon-runtime/runtime";
+import { AGENT_STARTUP_TURN_TEXT, DaemonRuntime } from "../src/daemon-runtime/runtime";
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
@@ -191,16 +187,11 @@ test("a refused Computer upgrade request reports exactly one failed result with 
   }
 });
 
-test("a replacement daemon reports an upgrade result that appears after ready without waiting for reconnect", async () => {
-  jest.useFakeTimers();
+test("first ready reports a terminal upgrade result already present in child config", async () => {
   const credentials = new InMemoryDaemonCredentialStore();
-  await credentials.save(connection.workspaceId, connection.computerId, "token-upgrade-race");
-  const requestId = "upgrade-race";
-  let settled = false;
-  let refreshes = 0;
-  const sentResults: unknown[] = [];
-  const acknowledgements: string[] = [];
-  const acknowledged = Promise.withResolvers<void>();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-upgrade-terminal");
+  const events: string[] = [];
+  const requestId = "upgrade-terminal";
   const runtime = new DaemonRuntime(
     connection,
     () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
@@ -209,9 +200,11 @@ test("a replacement daemon reports an upgrade result that appears after ready wi
       create: () => ({
         async start() {},
         async stop() {},
-        async ready() {},
-        async sendUpgradeResult(result: unknown) {
-          sentResults.push(result);
+        async ready() {
+          events.push("ready");
+        },
+        async sendUpgradeResult(result: { requestId: string }) {
+          events.push(`result:${result.requestId}`);
           return true;
         },
       }),
@@ -221,284 +214,20 @@ test("a replacement daemon reports an upgrade result that appears after ready wi
     workspaceRoot,
     {
       recoveredUpgradeRequestIds: [requestId],
-      refreshUpgradeState: async () => {
-        refreshes += 1;
-        return {
-          requestIds: [requestId],
-          results: settled
-            ? [
-                {
-                  requestId,
-                  status: "succeeded" as const,
-                  version: "2.0.0",
-                  completedAtMs: 2_000,
-                },
-              ]
-            : [],
-        };
-      },
+      recoveredUpgradeResults: [
+        { requestId, status: "succeeded", version: "2.0.0", completedAtMs: 2_000 },
+      ],
       acknowledgeUpgradeResult: async (acknowledgedRequestId) => {
-        acknowledgements.push(acknowledgedRequestId);
-        acknowledged.resolve();
+        events.push(`ack:${acknowledgedRequestId}`);
       },
     },
     "2.0.0",
   );
   try {
     await runtime.start(connection);
-    expect(refreshes).toBe(1);
-    expect(sentResults).toEqual([]);
-
-    // Reproduces the field ordering: ready completed while the Coordinator still had the
-    // operation pending; its continuous receipt watch settles the local config shortly after.
-    settled = true;
-    jest.advanceTimersByTime(UPGRADE_RESULT_RECONCILE_MS);
-    await acknowledged.promise;
-
-    expect(refreshes).toBe(2);
-    expect(sentResults).toHaveLength(1);
-    expect(sentResults[0]).toMatchObject({
-      requestId,
-      status: "succeeded",
-      version: "2.0.0",
-    });
-    expect(acknowledgements).toEqual([requestId]);
+    expect(events).toEqual(["ready", `result:${requestId}`, `ack:${requestId}`]);
   } finally {
     await runtime.stop();
-    jest.useRealTimers();
-  }
-});
-
-test("an acknowledgement committed before its response was lost stops reconciliation on the next config read", async () => {
-  jest.useFakeTimers();
-  const credentials = new InMemoryDaemonCredentialStore();
-  await credentials.save(connection.workspaceId, connection.computerId, "token-upgrade-ack-race");
-  const requestId = "upgrade-ack-race";
-  let configHasRequest = true;
-  let refreshes = 0;
-  let reports = 0;
-  let acknowledgements = 0;
-  const reconciled = Promise.withResolvers<void>();
-  const runtime = new DaemonRuntime(
-    connection,
-    () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
-    credentials,
-    {
-      create: () => ({
-        async start() {},
-        async stop() {},
-        async ready() {},
-        async sendUpgradeResult() {
-          reports += 1;
-          return true;
-        },
-      }),
-    },
-    undefined,
-    emptyCodeAgentDiscovery,
-    workspaceRoot,
-    {
-      recoveredUpgradeRequestIds: [requestId],
-      refreshUpgradeState: async () => {
-        refreshes += 1;
-        if (refreshes === 2) reconciled.resolve();
-        return configHasRequest
-          ? {
-              requestIds: [requestId],
-              results: [
-                {
-                  requestId,
-                  status: "succeeded" as const,
-                  version: "2.0.0",
-                  completedAtMs: 2_000,
-                },
-              ],
-            }
-          : { requestIds: [], results: [] };
-      },
-      acknowledgeUpgradeResult: async () => {
-        acknowledgements += 1;
-        // The Coordinator commits and refreshes config before its local-RPC response returns.
-        configHasRequest = false;
-        throw new Error("acknowledgement response was lost");
-      },
-    },
-    "2.0.0",
-  );
-  try {
-    await runtime.start(connection);
-    expect({ refreshes, reports, acknowledgements }).toEqual({
-      refreshes: 1,
-      reports: 1,
-      acknowledgements: 1,
-    });
-
-    jest.advanceTimersByTime(UPGRADE_RESULT_RECONCILE_MS);
-    await reconciled.promise;
-    // Let the report pass consume the authoritative read and run its `finally` scheduler.
-    await new Promise<void>((resolve) => queueMicrotask(resolve));
-    expect(refreshes).toBe(2);
-    expect(reports).toBe(1);
-
-    // The authoritative config no longer carries the acknowledged request, so no permanent
-    // 250ms poller survives the ambiguous RPC response.
-    jest.advanceTimersByTime(UPGRADE_RESULT_RECONCILE_MS * 4);
-    expect(refreshes).toBe(2);
-  } finally {
-    await runtime.stop();
-    jest.useRealTimers();
-  }
-});
-
-test("an in-flight result refresh cannot report or reschedule after the runtime stops", async () => {
-  jest.useFakeTimers();
-  const credentials = new InMemoryDaemonCredentialStore();
-  await credentials.save(connection.workspaceId, connection.computerId, "token-upgrade-stop-race");
-  const requestId = "upgrade-stop-race";
-  let refreshes = 0;
-  let reports = 0;
-  const refreshStarted = Promise.withResolvers<void>();
-  const releaseRefresh = Promise.withResolvers<{
-    requestIds: string[];
-    results: Array<{
-      requestId: string;
-      status: "succeeded";
-      version: string;
-      completedAtMs: number;
-    }>;
-  }>();
-  const runtime = new DaemonRuntime(
-    connection,
-    () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
-    credentials,
-    {
-      create: () => ({
-        async start() {},
-        async stop() {},
-        async ready() {},
-        async sendUpgradeResult() {
-          reports += 1;
-          return true;
-        },
-      }),
-    },
-    undefined,
-    emptyCodeAgentDiscovery,
-    workspaceRoot,
-    {
-      recoveredUpgradeRequestIds: [requestId],
-      refreshUpgradeState: async () => {
-        refreshes += 1;
-        if (refreshes === 1) return { requestIds: [requestId], results: [] };
-        refreshStarted.resolve();
-        return await releaseRefresh.promise;
-      },
-    },
-    "2.0.0",
-  );
-  try {
-    await runtime.start(connection);
-    jest.advanceTimersByTime(UPGRADE_RESULT_RECONCILE_MS);
-    await refreshStarted.promise;
-
-    await runtime.stop();
-    releaseRefresh.resolve({
-      requestIds: [requestId],
-      results: [{ requestId, status: "succeeded", version: "2.0.0", completedAtMs: 2_000 }],
-    });
-    // The blocked refresh resumes after stop, but its old generation must be inert.
-    await new Promise<void>((resolve) => queueMicrotask(resolve));
-    await new Promise<void>((resolve) => queueMicrotask(resolve));
-
-    expect(reports).toBe(0);
-    expect(jest.getTimerCount()).toBe(0);
-    jest.advanceTimersByTime(UPGRADE_RESULT_RECONCILE_MS * 4);
-    expect(refreshes).toBe(2);
-  } finally {
-    await runtime.stop();
-    jest.useRealTimers();
-  }
-});
-
-test("an upgrade request accepted by an old connection transfers reconciliation to the restarted runtime", async () => {
-  jest.useFakeTimers();
-  const credentials = new InMemoryDaemonCredentialStore();
-  await credentials.save(
-    connection.workspaceId,
-    connection.computerId,
-    "token-upgrade-request-generation",
-  );
-  const requestId = "upgrade-request-generation";
-  const requestStarted = Promise.withResolvers<void>();
-  const allowRequest = Promise.withResolvers<void>();
-  const acknowledged = Promise.withResolvers<void>();
-  const requestUpgradeCallbacks: Array<
-    (requestId: string, expectedVersion?: string) => Promise<void>
-  > = [];
-  let state: {
-    requestIds: string[];
-    results: Array<{
-      requestId: string;
-      status: "succeeded";
-      version: string;
-      completedAtMs: number;
-    }>;
-  } = { requestIds: [], results: [] };
-  let reports = 0;
-  const runtime = new DaemonRuntime(
-    connection,
-    () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
-    credentials,
-    {
-      create: () => ({
-        async start(_token, config) {
-          requestUpgradeCallbacks.push(config.requestUpgrade!);
-        },
-        async stop() {},
-        async ready() {},
-        async sendUpgradeResult() {
-          reports += 1;
-          return true;
-        },
-      }),
-    },
-    undefined,
-    emptyCodeAgentDiscovery,
-    workspaceRoot,
-    {
-      requestUpgrade: async () => {
-        requestStarted.resolve();
-        await allowRequest.promise;
-        state = {
-          requestIds: [requestId],
-          results: [{ requestId, status: "succeeded", version: "2.0.0", completedAtMs: 2_000 }],
-        };
-      },
-      refreshUpgradeState: async () => structuredClone(state),
-      acknowledgeUpgradeResult: async () => acknowledged.resolve(),
-    },
-    "2.0.0",
-  );
-  try {
-    await runtime.start(connection);
-    const oldRequest = requestUpgradeCallbacks[0]!(requestId, "2.0.0");
-    await requestStarted.promise;
-
-    await runtime.stop();
-    await runtime.start(connection);
-    expect(requestUpgradeCallbacks).toHaveLength(2);
-
-    // The old local RPC finishes only after the new generation already ran its initial empty
-    // refresh. Its durable request must enroll the current generation and arm reconciliation.
-    allowRequest.resolve();
-    await oldRequest;
-    jest.advanceTimersByTime(UPGRADE_RESULT_RECONCILE_MS);
-    await acknowledged.promise;
-
-    expect(reports).toBe(1);
-  } finally {
-    await runtime.stop();
-    jest.useRealTimers();
   }
 });
 

@@ -1,8 +1,9 @@
 # ADR 0017: Computer upgrade as an explicit operation with a durable receipt
 
-Status: accepted (partially superseded by [ADR 0030](0030-upgrade-identity-durable-snapshot.md) for
-the upgrade identity key's expiry and the liveness check `begin()`/`upgradeComputer` perform before a
-new request)
+Status: accepted (amended by [ADR 0020](0020-upgrade-runner-hold.md) for runner quiescence,
+[ADR 0030](0030-upgrade-identity-durable-snapshot.md) for durable identity/liveness, and
+[ADR 0037](0037-upgrade-settlement-and-coordinator-shutdown.md) for receipt-before-Workspace-launch
+ordering)
 Date: 2026-09-16
 
 ## Context
@@ -145,27 +146,11 @@ UI — those stay in the logs and the result files.
 
 ## Runner hold before an upgrade
 
-Investigated and deliberately not changed here. `MachineSupervisor.pause()`
-(reached from `daemon:pause` during `pauseLaunches`) **only blocks lifecycle
-commands**: it sets a private `#paused` flag that makes `configure`, `command`
-and `recordUpgrade` throw, and the `launch-hold` marker makes the Coordinator's
-own local RPC refuse callers. Nothing in it reaches a Workspace daemon. There is
-no Coordinator→Workspace RPC channel at all, the Workspace daemon's local RPC
-has no generic `command` hook, `DaemonRuntime.handleAgentMessage` has no hold
-check, and `DaemonRuntime.stop()` rejects every queued input synchronously and
-then terminates each Agent process group on a 1 s SIGTERM / 1 s SIGKILL ladder.
-An Agent halfway through a tool call during an upgrade is killed, not drained;
-the effective grace period is about two seconds.
-
-A bounded hold is therefore a real gap, but it is a separate concern from this
-record and would touch five layers: the shared local RPC vocabulary and its
-launcher client, the Workspace daemon's RPC dispatcher and runtime port,
-`DaemonRuntime` itself (an admission gate at `handleAgentMessage` and
-`#startAgent` plus a quiescence poll), a new Coordinator→Workspace fan-out in
-`run-supervisor.ts`, and the sequencing in `upgrade-lifecycle.ts`. The one piece
-already in place is the drain predicate: `BUSY_ACTIVITY_DETAIL_KINDS` and
-`#lastBusyActivity` (ADR 0016) are cleared exactly at end-of-turn `idle`. This
-is recorded as follow-up work, not shipped here.
+This gap was closed by [ADR 0020](0020-upgrade-runner-hold.md). The Coordinator writes
+`launch-hold`, fans a hold out to running Workspace daemons, and waits within a fixed bound for
+in-flight Agent work to quiesce before stopping the old process tree. ADR 0037 further requires a
+replacement Coordinator born under that hold to load bindings without starting Workspace children;
+those children start only after terminal receipt commit and resume.
 
 ## Rejected alternatives
 

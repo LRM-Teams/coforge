@@ -235,13 +235,30 @@ Workspace process, and injects the still-unsettled operations into the
 replacement Workspace Daemon config on recovery. Corrupt state fails closed.
 Thus a Coordinator, Supervisor, and Workspace Daemon restart replays the same
 operation rather than creating a new one; duplicate delivery is bounded and
-idempotent. At most one operation may be pending per binding: a second request
+idempotent. `bindings.json.upgradeOperations` is the one canonical operation
+state. The result file is write-once inter-process evidence that advances that
+state; child config, ready hints and WSS result messages are derived projections,
+not independent truth sources. At most one operation may be pending per binding:
+a second request
 is refused at the operation level, before any job is launched, rather than left
 to collide over the installation lock.
 
+The persisted `launch-hold` names the exact request ID and spans Coordinator replacement. A replacement
+Coordinator that finds it loads durable bindings and exposes local RPC but does
+not start Workspace children. The external coordinator probes only the new
+Supervisor process identity and expected version, then commits the terminal
+receipt before calling resume. Resume settles that receipt into the initiating
+Workspace's child config before reconciling enabled Workspace processes. This
+makes the first Workspace ready/report pass observe terminal state without a
+polling trigger or forced reconnect. Receipt watcher/startup settlement invokes
+the same request-bound, idempotent held-recovery seam, so external-job exit or a lost resume
+response after commit cannot leave Workspace startup permanently held, and an unrelated receipt
+cannot release the current operation's hold.
+
 The Supervisor moves a pending operation to its terminal state from the job's
-result receipt, at Coordinator startup and while it watches a job it launched.
-The Workspace Daemon then reports that terminal result to Web as the additive
+result receipt, during the pre-resume settlement above and on later recovery
+sweeps when needed. The Workspace Daemon then reports that terminal result on
+its first ready (and retries on later reconnect) as the additive
 `coforge.rpc.v1.ComputerUpgradeResult` (`computer:upgrade_result`,
 `protocol_major` unchanged), and Web's acceptance is the acknowledgement that
 lets the Supervisor retire the record to bounded audit history. A reported
@@ -253,10 +270,13 @@ versions, and the distinct `recovered_upgrade_request_ids` evidence; missing,
 conflicting, timed-out, or unknown evidence remains failed or unknown (never
 successful). See [ADR 0017](adr/0017-computer-upgrade-operation-receipt.md).
 
-Nothing in this path holds Agent runners: the machine lifecycle pause taken
-before an upgrade blocks lifecycle commands only, and does not stop new Agent
-turns or drain an in-flight tool call. That gap is recorded in ADR 0017 as
-follow-up work.
+Before the switch, the machine lifecycle writes launch-hold, blocks lifecycle
+mutations, asks every running Workspace daemon to hold its Agent runners, and
+waits within the approved bound for in-flight work to quiesce. The new
+Coordinator keeps Workspace startup suppressed until terminal receipt commit.
+After resume, a Workspace child that cannot start is surfaced through the
+existing Workspace lifecycle fault path; it does not rewrite the already-durable
+Computer outcome or trigger executable rollback.
 
 Computer-scoped Redis state uses the canonical destructive-update key hierarchy
 `coforge:workspace:<workspace_id>:computer:<computer_id>:<operation>:v<n>`.

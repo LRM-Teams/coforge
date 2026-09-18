@@ -12,7 +12,11 @@ import {
 } from "../src/release/upgrade-coordinator";
 import type { UpgradeOperation } from "../src/release/upgrade-operation";
 import { ComputerUpdater, type LockedComputerUpdater } from "../src/updater";
-import type { ManagedRuntimeSnapshot, UpgradeLifecycle } from "../src/release/upgrade-lifecycle";
+import {
+  createSupervisorUpgradeLifecycle,
+  type ManagedRuntimeSnapshot,
+  type UpgradeLifecycle,
+} from "../src/release/upgrade-lifecycle";
 
 const directories: string[] = [];
 
@@ -56,11 +60,11 @@ async function harness(failCandidateProbe = false, failRestore = false) {
     },
     async probe(value, expected) {
       expect(value).toBe(snapshot);
-      expect(expected.previousProcessIds).toEqual([101]);
       calls.push(`probe:${expected.version}`);
       if (failCandidateProbe && expected.version === "2.0.0") throw new Error("wrong pid");
     },
-    async resumeLaunches() {
+    async resumeLaunches(resumeRequestId) {
+      expect(resumeRequestId).toBe(requestId);
       calls.push("resume");
     },
   };
@@ -107,6 +111,24 @@ async function harness(failCandidateProbe = false, failRestore = false) {
   return { calls, options, requestId };
 }
 
+test("launch-hold durably names the exact upgrade request that owns it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coforge-upgrade-hold-"));
+  directories.push(root);
+  const stateDirectory = join(root, "state");
+  const requestId = crypto.randomUUID();
+  const lifecycle = createSupervisorUpgradeLifecycle({
+    installRoot: root,
+    supervisorSocketPath: join(root, "missing.sock"),
+    supervisorStatePath: stateDirectory,
+  });
+
+  await lifecycle.pauseLaunches(requestId);
+  expect((await Bun.file(join(stateDirectory, "launch-hold")).text()).trim()).toBe(requestId);
+
+  await lifecycle.resumeLaunches(requestId);
+  expect(await Bun.file(join(stateDirectory, "launch-hold")).exists()).toBe(false);
+});
+
 test("direct install contends with the coordinator's lock through resume", async () => {
   const { options } = await harness();
   const enteredResume = Promise.withResolvers<void>();
@@ -114,10 +136,10 @@ test("direct install contends with the coordinator's lock through resume", async
   const lifecycle = options.lifecycle!;
   options.lifecycle = {
     ...lifecycle,
-    async resumeLaunches() {
+    async resumeLaunches(requestId) {
       enteredResume.resolve();
       await allowResume.promise;
-      await lifecycle.resumeLaunches();
+      await lifecycle.resumeLaunches(requestId);
     },
   };
   const coordinate = coordinateUpgrade(options);
@@ -132,11 +154,19 @@ test("direct install contends with the coordinator's lock through resume", async
   await expect(coordinate).resolves.toMatchObject({ status: "succeeded" });
 });
 
-test("coordinator prepares while running then restores the exact running snapshot on candidate", async () => {
+test("coordinator commits candidate success before resuming Workspace launches", async () => {
   const { calls, options } = await harness();
   const stages: string[] = [];
 
-  await expect(coordinateUpgrade(options, (stage) => stages.push(stage))).resolves.toMatchObject({
+  await expect(
+    coordinateUpgrade(
+      options,
+      (stage) => stages.push(stage),
+      async (result) => {
+        calls.push(`commit:${result.status}`);
+      },
+    ),
+  ).resolves.toMatchObject({
     status: "succeeded",
     version: "2.0.0",
     supervisorRunning: true,
@@ -154,6 +184,7 @@ test("coordinator prepares while running then restores the exact running snapsho
     "activate:2.0.0",
     "start:2.0.0",
     "probe:2.0.0",
+    "commit:succeeded",
     "resume",
   ]);
   expect(stages).toEqual([
@@ -161,18 +192,51 @@ test("coordinator prepares while running then restores the exact running snapsho
     "Holding Agent runners until they are idle",
     "Stopping Computer supervisor and 1 Workspace runtime",
     "Switching the active executable to 2.0.0",
-    "Starting Computer supervisor 2.0.0 (1 running Workspace runtime, 1 stopped Workspace binding left as is)",
-    "Waiting for the supervisor and Workspace runtimes to report 2.0.0",
-    "Computer supervisor 2.0.0 healthy with 1 Workspace runtime",
+    "Starting Computer supervisor 2.0.0; Workspace launches remain held (1 to resume, 1 stay stopped)",
+    "Waiting for the Computer supervisor to report 2.0.0",
+    "Computer supervisor 2.0.0 healthy; Workspace launches remain held",
+    "Recording the terminal upgrade result before Workspace launch",
     "Resuming Workspace launches",
   ]);
 });
 
-test("candidate health failure verifies and restores old bytes and exact running snapshot", async () => {
+test("Workspace recovery failure after commit does not roll the Computer version back", async () => {
+  const { calls, options } = await harness();
+  const lifecycle = options.lifecycle!;
+  options.lifecycle = {
+    ...lifecycle,
+    async resumeLaunches() {
+      calls.push("resume");
+      throw new Error("Workspace child failed to start");
+    },
+  };
+
+  await expect(
+    coordinateUpgrade(options, undefined, async (result) => {
+      calls.push(`commit:${result.status}`);
+    }),
+  ).rejects.toMatchObject({
+    result: { status: "succeeded", version: "2.0.0" },
+    message: "candidate committed; Workspace recovery failed",
+  });
+  expect(calls).toContain("commit:succeeded");
+  expect(calls).toContain("resume");
+  expect(calls.some((call) => call.startsWith("restore:"))).toBe(false);
+});
+
+test("candidate Supervisor health failure commits rollback before resuming Workspace launches", async () => {
   const { calls, options } = await harness(true);
   const stages: string[] = [];
 
-  await expect(coordinateUpgrade(options, (stage) => stages.push(stage))).rejects.toMatchObject({
+  await expect(
+    coordinateUpgrade(
+      options,
+      (stage) => stages.push(stage),
+      async (result) => {
+        calls.push(`commit:${result.status}`);
+      },
+    ),
+  ).rejects.toMatchObject({
     result: {
       status: "failed",
       restoredVersion: "1.0.0",
@@ -180,11 +244,12 @@ test("candidate health failure verifies and restores old bytes and exact running
       errorCode: "UPGRADE_ROLLED_BACK",
     },
   });
-  expect(calls.slice(-5)).toEqual([
+  expect(calls.slice(-6)).toEqual([
     "stop",
     "restore:1.0.0",
     "start:1.0.0",
     "probe:1.0.0",
+    "commit:failed",
     "resume",
   ]);
   expect(stages).toEqual([
@@ -192,14 +257,15 @@ test("candidate health failure verifies and restores old bytes and exact running
     "Holding Agent runners until they are idle",
     "Stopping Computer supervisor and 1 Workspace runtime",
     "Switching the active executable to 2.0.0",
-    "Starting Computer supervisor 2.0.0 (1 running Workspace runtime, 1 stopped Workspace binding left as is)",
-    "Waiting for the supervisor and Workspace runtimes to report 2.0.0",
+    "Starting Computer supervisor 2.0.0; Workspace launches remain held (1 to resume, 1 stay stopped)",
+    "Waiting for the Computer supervisor to report 2.0.0",
     "Upgrade failed: wrong pid; restoring 1.0.0",
     "Stopping Computer supervisor and 1 Workspace runtime",
     "Switching the active executable to 1.0.0",
-    "Starting Computer supervisor 1.0.0 (1 running Workspace runtime, 1 stopped Workspace binding left as is)",
-    "Waiting for the supervisor and Workspace runtimes to report 1.0.0",
-    "Computer supervisor 1.0.0 healthy with 1 Workspace runtime",
+    "Starting Computer supervisor 1.0.0; Workspace launches remain held (1 to resume, 1 stay stopped)",
+    "Waiting for the Computer supervisor to report 1.0.0",
+    "Computer supervisor 1.0.0 healthy; Workspace launches remain held",
+    "Recording the rollback result before Workspace launch",
     "Resuming Workspace launches",
     "Previous version 1.0.0 restored and healthy",
   ]);
@@ -254,6 +320,7 @@ test("stages describe an executable-only switch when no supervisor is running", 
     "Switching the active executable to 2.0.0",
     "Checking the activated executable reports 2.0.0",
     "Activated executable 2.0.0 confirmed",
+    "Recording the terminal upgrade result before Workspace launch",
     "Resuming Workspace launches",
   ]);
 });
@@ -309,9 +376,10 @@ test("an in-place lifecycle switches by check, activate, restart, probe with no 
     "Pausing new Workspace launches",
     "Holding Agent runners until they are idle",
     "Switching the active executable to 2.0.0",
-    "Restarting Computer supervisor as 2.0.0 (1 running Workspace runtime, 1 stopped Workspace binding left as is)",
-    "Waiting for the supervisor and Workspace runtimes to report 2.0.0",
-    "Computer supervisor 2.0.0 healthy with 1 Workspace runtime",
+    "Restarting Computer supervisor as 2.0.0; Workspace launches remain held (1 to resume, 1 stay stopped)",
+    "Waiting for the Computer supervisor to report 2.0.0",
+    "Computer supervisor 2.0.0 healthy; Workspace launches remain held",
+    "Recording the terminal upgrade result before Workspace launch",
     "Resuming Workspace launches",
   ]);
 });

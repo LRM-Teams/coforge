@@ -70,9 +70,12 @@ export class UpgradeCoordinatorError extends Error {
   }
 }
 
+export type CommitUpgradeResult = (result: UpgradeResult) => Promise<void>;
+
 export async function coordinateUpgrade(
   options: UpgradeCoordinatorOptions,
   onStage: (stage: string) => void = () => {},
+  commitResult: CommitUpgradeResult = async () => {},
 ): Promise<UpgradeResult> {
   assertUpgradeRequestId(options.requestId);
   const updater =
@@ -102,15 +105,23 @@ export async function coordinateUpgrade(
         ? await lockedUpdater.prepareRollback()
         : await lockedUpdater.prepare(options.selection);
     onStage("Pausing new Workspace launches");
-    await lifecycle.pauseLaunches();
+    await lifecycle.pauseLaunches(options.requestId);
     let snapshot: ManagedRuntimeSnapshot;
     try {
       snapshot = await lifecycle.snapshot();
     } catch (error) {
-      await lifecycle.resumeLaunches();
+      await lifecycle.resumeLaunches(options.requestId);
       throw error;
     }
-    return await switchRuntime(lifecycle, lockedUpdater, snapshot, prepared, options, onStage);
+    return await switchRuntime(
+      lifecycle,
+      lockedUpdater,
+      snapshot,
+      prepared,
+      options,
+      onStage,
+      commitResult,
+    );
   });
 }
 
@@ -147,15 +158,15 @@ function switchStageText(snapshot: ManagedRuntimeSnapshot, restartsInPlace: bool
       const verb = restartsInPlace
         ? "Restarting Computer supervisor as"
         : "Starting Computer supervisor";
-      return `${verb} ${version} (${running} running Workspace runtime${plural(running)}, ${stopped} stopped Workspace binding${plural(stopped)} left as is)`;
+      return `${verb} ${version}; Workspace launches remain held (${running} to resume, ${stopped} stay stopped)`;
     },
     waiting: (version: string) =>
       snapshot.supervisorRunning
-        ? `Waiting for the supervisor and Workspace runtimes to report ${version}`
+        ? `Waiting for the Computer supervisor to report ${version}`
         : `Checking the activated executable reports ${version}`,
     healthy: (version: string) =>
       snapshot.supervisorRunning
-        ? `Computer supervisor ${version} healthy with ${running} Workspace runtime${plural(running)}`
+        ? `Computer supervisor ${version} healthy; Workspace launches remain held`
         : `Activated executable ${version} confirmed`,
   };
 }
@@ -170,7 +181,6 @@ async function performSwitch(
   snapshot: ManagedRuntimeSnapshot,
   version: string,
   activate: () => Promise<void>,
-  previousProcessIds: readonly number[],
   onStage: (stage: string) => void,
 ): Promise<void> {
   const stage = switchStageText(snapshot, lifecycle.restartsInPlace);
@@ -182,7 +192,7 @@ async function performSwitch(
   if (startStage) onStage(startStage);
   await lifecycle.start(snapshot, version);
   onStage(stage.waiting(version));
-  await lifecycle.probe(snapshot, { version, previousProcessIds });
+  await lifecycle.probe(snapshot, { version });
   onStage(stage.healthy(version));
 }
 
@@ -193,11 +203,9 @@ async function switchRuntime(
   prepared: PreparedUpdate,
   { requestId: request_id, operation }: Pick<UpgradeOperation, "requestId" | "operation">,
   onStage: (stage: string) => void,
+  commitResult: CommitUpgradeResult,
 ): Promise<UpgradeResult> {
-  const oldProcessIds = snapshot.bindings
-    .filter((binding) => binding.running && binding.processId !== null)
-    .map((binding) => binding.processId!);
-  let paused = true;
+  let committedResult: UpgradeResult | undefined;
   try {
     // Quiesce before the switch, never after: for a stop-then-start lifecycle, `stop` runs the
     // ~2s SIGTERM/SIGKILL ladder this hold exists to keep away from a live tool call. For a
@@ -213,13 +221,9 @@ async function switchRuntime(
       snapshot,
       prepared.version,
       () => updater.activatePrepared(prepared),
-      oldProcessIds,
       onStage,
     );
-    onStage("Resuming Workspace launches");
-    await lifecycle.resumeLaunches();
-    paused = false;
-    return {
+    const result: UpgradeResult = {
       schema_version: 1,
       request_id,
       operation,
@@ -231,11 +235,45 @@ async function switchRuntime(
         running: binding.running,
       })),
     };
+    onStage("Recording the terminal upgrade result before Workspace launch");
+    await commitResult(result);
+    committedResult = result;
+    onStage("Resuming Workspace launches");
+    await lifecycle.resumeLaunches(request_id);
+    return result;
   } catch (candidateError) {
-    if (!paused || prepared.previous === null) {
-      if (paused) await lifecycle.resumeLaunches().catch(() => {});
-      throw candidateError;
+    // The Computer version is already durably committed. A later Workspace recovery failure is
+    // surfaced by the Workspace lifecycle and must not rewrite that result or roll bytes back.
+    if (committedResult)
+      throw new UpgradeCoordinatorError(
+        "candidate committed; Workspace recovery failed",
+        committedResult,
+        { cause: candidateError },
+      );
+
+    if (prepared.previous === null) {
+      const result: UpgradeResult = {
+        schema_version: 1,
+        request_id,
+        operation,
+        status: "failed",
+        error: errorMessage(candidateError),
+      };
+      try {
+        await commitResult(result);
+      } catch (commitError) {
+        throw new UpgradeCoordinatorError(
+          "candidate failed with no rollback version and result commit failed",
+          result,
+          { cause: commitError },
+        );
+      }
+      // No verified version exists to resume. Retain launch-hold for explicit recovery.
+      throw new UpgradeCoordinatorError("candidate failed with no rollback version", result, {
+        cause: candidateError,
+      });
     }
+
     try {
       onStage(`Upgrade failed: ${errorMessage(candidateError)}; restoring ${prepared.previous}`);
       await performSwitch(
@@ -243,27 +281,11 @@ async function switchRuntime(
         snapshot,
         prepared.previous,
         () => updater.restoreVerified(prepared.previous!, prepared.rollbackVersion ?? null),
-        oldProcessIds,
         onStage,
       );
-      onStage("Resuming Workspace launches");
-      await lifecycle.resumeLaunches();
-      onStage(`Previous version ${prepared.previous} restored and healthy`);
-      const result: UpgradeResult = {
-        schema_version: 1,
-        request_id,
-        operation,
-        status: "failed",
-        restoredVersion: prepared.previous,
-        error: errorMessage(candidateError),
-        errorCode: UPGRADE_ERROR_CODE.ROLLED_BACK,
-      };
-      throw new UpgradeCoordinatorError("candidate failed; previous version restored", result, {
-        cause: candidateError,
-      });
     } catch (rollbackError) {
-      if (rollbackError instanceof UpgradeCoordinatorError) throw rollbackError;
-      // Neither version has verified health: retain the launch hold for explicit recovery.
+      // Neither version has verified health: record the precise terminal failure and retain
+      // launch-hold for explicit recovery.
       const result: UpgradeResult = {
         schema_version: 1,
         request_id,
@@ -272,10 +294,53 @@ async function switchRuntime(
         error: `${errorMessage(candidateError)}; rollback failed: ${errorMessage(rollbackError)}`,
         errorCode: UPGRADE_ERROR_CODE.ROLLBACK_FAILED,
       };
+      try {
+        await commitResult(result);
+      } catch (commitError) {
+        throw new UpgradeCoordinatorError(
+          "candidate and rollback failed; result commit failed",
+          result,
+          { cause: commitError },
+        );
+      }
       throw new UpgradeCoordinatorError("candidate and rollback failed", result, {
         cause: rollbackError,
       });
     }
+
+    const result: UpgradeResult = {
+      schema_version: 1,
+      request_id,
+      operation,
+      status: "failed",
+      restoredVersion: prepared.previous,
+      error: errorMessage(candidateError),
+      errorCode: UPGRADE_ERROR_CODE.ROLLED_BACK,
+    };
+    onStage("Recording the rollback result before Workspace launch");
+    try {
+      await commitResult(result);
+    } catch (commitError) {
+      throw new UpgradeCoordinatorError(
+        "previous version restored but result commit failed",
+        result,
+        { cause: commitError },
+      );
+    }
+    onStage("Resuming Workspace launches");
+    try {
+      await lifecycle.resumeLaunches(request_id);
+    } catch (resumeError) {
+      throw new UpgradeCoordinatorError(
+        "previous version restored; Workspace recovery failed",
+        result,
+        { cause: resumeError },
+      );
+    }
+    onStage(`Previous version ${prepared.previous} restored and healthy`);
+    throw new UpgradeCoordinatorError("candidate failed; previous version restored", result, {
+      cause: candidateError,
+    });
   }
 }
 
@@ -290,9 +355,22 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
   const request = JSON.parse(await readFile(requestPath, "utf8")) as CoordinatorRequest;
   // The durable request file is the only carrier of the operation's identity between processes.
   assertUpgradeRequestId(request.requestId);
+  // A terminal receipt is write-once. `coordinateUpgrade` commits it before releasing
+  // launch-hold; the final call below only covers failures that happened before switchRuntime
+  // could construct a terminal result (prepare/snapshot, for example).
+  let committedResult: UpgradeResult | undefined;
+  const commitResult: CommitUpgradeResult = async (result) => {
+    if (committedResult) {
+      if (JSON.stringify(committedResult) !== JSON.stringify(result))
+        throw new Error("attempted to overwrite a committed upgrade result");
+      return;
+    }
+    await writeJsonAtomic(request.resultPath, result);
+    committedResult = result;
+  };
   let result: UpgradeResult;
   try {
-    result = await coordinateUpgrade(request, (stage) => console.log(`==> ${stage}`));
+    result = await coordinateUpgrade(request, (stage) => console.log(`==> ${stage}`), commitResult);
   } catch (error) {
     result =
       error instanceof UpgradeCoordinatorError
@@ -306,7 +384,7 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
             ...(error instanceof UpdateError ? { errorCode: error.code } : {}),
           };
   }
-  await writeJsonAtomic(request.resultPath, result);
+  await commitResult(result);
   // The caller reports the durable error; an uncaught throw would dump a second stack trace.
   if (result.status === "failed") process.exitCode = 1;
 }

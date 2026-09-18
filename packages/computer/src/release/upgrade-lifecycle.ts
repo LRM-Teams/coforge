@@ -29,12 +29,12 @@ export type ManagedRuntimeSnapshot = {
 
 export type UpgradeProbe = {
   version: string;
-  previousProcessIds: readonly number[];
 };
 
 /** Machine lifecycle boundary implemented by the Computer supervisor integration. `stop` must
- * stop the old supervisor, daemon, and Agent process trees; `probe` must reject a wrong version,
- * a missing previously-running binding, or reuse of an old process ID.
+ * stop the old supervisor and daemon process tree; `probe` must reject a wrong Supervisor version
+ * or reuse of the old Supervisor identity. Workspace children remain stopped under launch-hold
+ * until the terminal receipt is committed and `resumeLaunches` reconciles them.
  *
  * When `restartsInPlace` is true (launchd, ADR 0032), `stop` performs only the pre-switch
  * restartability check and `start` performs the in-place kickstart; neither one actually stops or
@@ -43,14 +43,14 @@ export type UpgradeProbe = {
 export interface UpgradeLifecycle {
   readonly restartsInPlace: boolean;
   snapshot(): Promise<ManagedRuntimeSnapshot>;
-  pauseLaunches(): Promise<void>;
+  pauseLaunches(requestId: string): Promise<void>;
   /** Stops every Agent admitting new turns and waits, bounded, for in-flight work to finish.
    * Always runs before `stop`; `resumeLaunches` lifts it if the upgrade aborts first. */
   holdRunners(): Promise<void>;
   stop(snapshot: ManagedRuntimeSnapshot): Promise<void>;
   start(snapshot: ManagedRuntimeSnapshot, version: string): Promise<void>;
   probe(snapshot: ManagedRuntimeSnapshot, expected: UpgradeProbe): Promise<void>;
-  resumeLaunches(): Promise<void>;
+  resumeLaunches(requestId: string): Promise<void>;
 }
 
 export type SupervisorUpgradeIntegrationOptions = {
@@ -143,9 +143,9 @@ export function createSupervisorUpgradeLifecycle(
         supervisorRunning: true,
       };
     },
-    async pauseLaunches() {
+    async pauseLaunches(requestId) {
       await mkdir(options.supervisorStatePath, { recursive: true, mode: 0o700 });
-      await writeFile(holdPath, "upgrade\n", { mode: 0o600 });
+      await writeFile(holdPath, `${requestId}\n`, { mode: 0o600 });
       supervisorWasRunning = await local.identity().then(
         () => true,
         () => false,
@@ -321,30 +321,14 @@ export function createSupervisorUpgradeLifecycle(
       const identity = await local.identity();
       if (identity.daemonId === previousSupervisorId || identity.version !== expected.version)
         throw new Error("supervisor replacement identity/version mismatch");
-      const actual = await local.control("snapshot");
-      if (
-        actual.length !== snapshot.bindings.length ||
-        snapshot.bindings.some((binding) => {
-          const runtime = actual.find((value) => value.workspaceId === binding.bindingId);
-          return (
-            !runtime ||
-            runtime.processId > 0 !== binding.running ||
-            (binding.running &&
-              (!runtime.instanceId ||
-                runtime.version !== expected.version ||
-                expected.previousProcessIds.includes(runtime.processId)))
-          );
-        })
-      )
-        throw new Error("Workspace replacement set/identity/version mismatch");
     },
-    async resumeLaunches() {
+    async resumeLaunches(requestId) {
       // Releasing first is what lifts a runner hold on an upgrade aborted before the stop. On the
       // success path the daemon answering here is a fresh process that was never held, and
       // `daemon:release` is idempotent, so the extra call is a no-op rather than a special case.
       if (supervisorWasRunning) {
         await local.hold("release").catch(() => {});
-        await local.control("resume");
+        await local.control("resume", undefined, requestId);
       }
       await rm(holdPath, { force: true });
     },
