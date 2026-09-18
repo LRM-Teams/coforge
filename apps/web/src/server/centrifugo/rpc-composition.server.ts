@@ -1,6 +1,7 @@
 import {
   AGENT_SESSION_METHOD,
   AGENT_SESSION_INVALIDATE_METHOD,
+  AGENT_CONTEXT_USAGE_METHOD,
   WORKSPACE_LIST_METHOD,
   AGENT_SKILLS_LIST_RESULT_METHOD,
   AGENT_WORKSPACE_FILES_LIST_RESULT_METHOD,
@@ -77,6 +78,7 @@ import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.
 import { createAgentSessions } from "../db/repositories/agent-session.repositories.server";
 import { AgentSessionReceiver } from "../agents/agent-session.server";
 import { createAgentControlResultMethod } from "./agent-control-receiver.server";
+import { createAgentContextUsageMethod } from "./agent-context-usage-receiver.server";
 import { PrismaReminderRepository } from "../db/repositories/reminder.repositories.server";
 import { Reminders } from "../reminders/reminders.server";
 import { getReminderCapabilityLease } from "../reminders/reminder-capability.server";
@@ -208,6 +210,11 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       methods: {
         [AGENT_SESSION_METHOD]: createAgentSessionMethod(sessions, sessionReceiver),
         [AGENT_SESSION_INVALIDATE_METHOD]: createAgentSessionInvalidateMethod(sessionReceiver),
+        [AGENT_CONTEXT_USAGE_METHOD]: createAgentContextUsageMethod(
+          controlStore,
+          getAgentDisplay(),
+          centrifugo,
+        ),
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
         [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(
           new WorkspaceAgentRecovery(
@@ -301,6 +308,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [AGENT_CONTROL_RESULT_METHOD]: unavailableMethod,
       [AGENT_SESSION_METHOD]: unavailableMethod,
       [AGENT_SESSION_INVALIDATE_METHOD]: unavailableMethod,
+      [AGENT_CONTEXT_USAGE_METHOD]: unavailableMethod,
       [AGENT_START_METHOD]: unavailableMethod,
       [AGENT_STATUS_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,

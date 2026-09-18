@@ -45,6 +45,23 @@ const activity = (
   ...overrides,
 });
 const fence = { daemonInstanceId: "daemon-a", launchId: "launch-a" };
+const contextUsage = (
+  sequence: number,
+  overrides = {},
+): import("@lrm/coforge-sdk/internal").AgentContextUsage => ({
+  protocolMajor: 1,
+  requestId: `context-usage-${sequence}`,
+  ...scope,
+  provider: "claude-code",
+  launchId: "launch-a",
+  sessionId: "native-session",
+  usedTokens: 27_908,
+  windowTokens: 200_000,
+  observedAtMs: sequence * 100,
+  daemonInstanceId: "daemon-a",
+  clientSeq: sequence,
+  ...overrides,
+});
 
 describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
   beforeAll(async () => {
@@ -371,6 +388,87 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     await subject.snapshot(scope);
     await subject.observeActivity(activity(1, "thinking_started"), fence);
     expect((await subject.observeStatus(status(1)))?.activityKind).toBe("thinking");
+  });
+
+  test("puts a context-window reading and surfaces it only while the process is active", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 6_000_000;
+    const subject = display();
+    // No process yet: the reading is stored but never surfaced while offline.
+    expect((await subject.putContextUsage(contextUsage(1)))?.contextUsage).toBeNull();
+    await subject.observeStatus(status(1));
+    const put = await subject.putContextUsage(contextUsage(2));
+    expect(put?.contextUsage).toEqual({
+      usedTokens: 27_908,
+      windowTokens: 200_000,
+      observedAtMs: 200,
+    });
+    expect((await subject.snapshot(scope)).contextUsage).toEqual(put!.contextUsage);
+  });
+
+  test("bumps the revision only when the reading actually changes", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 6_100_000;
+    const subject = display();
+    await subject.observeStatus(status(1));
+    const first = await subject.putContextUsage(contextUsage(2));
+    const repeat = await subject.putContextUsage(contextUsage(3));
+    expect(repeat?.revision).toBe(first!.revision);
+    const changed = await subject.putContextUsage(contextUsage(4, { usedTokens: 40_000 }));
+    expect(changed!.revision).toBeGreaterThan(repeat!.revision);
+    expect(changed?.contextUsage).toEqual({
+      usedTokens: 40_000,
+      windowTokens: 200_000,
+      observedAtMs: 400,
+    });
+  });
+
+  test("rejects a stale same-instance clientSeq but accepts an advancing one", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 6_200_000;
+    const subject = display();
+    await subject.observeStatus(status(1));
+    await subject.putContextUsage(contextUsage(5));
+    // Same daemon instance, non-advancing clientSeq: rejected.
+    expect(await subject.putContextUsage(contextUsage(5, { usedTokens: 1 }))).toBeUndefined();
+    expect((await subject.snapshot(scope)).contextUsage).toMatchObject({ usedTokens: 27_908 });
+    const advanced = await subject.putContextUsage(contextUsage(6, { usedTokens: 30_000 }));
+    expect(advanced?.contextUsage).toMatchObject({ usedTokens: 30_000 });
+  });
+
+  test("clears the reading once the process goes inactive, and a failover daemon instance starts fresh", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 6_300_000;
+    const subject = display();
+    await subject.observeStatus(status(1));
+    await subject.putContextUsage(contextUsage(1));
+    expect((await subject.observeStatus(status(2, "inactive")))?.contextUsage).toBeNull();
+    // A different daemon instance taking the process over also clears the old reading — it
+    // belongs to the daemon instance that failed, not the one now reporting the process active.
+    await subject.observeStatus(status(3, "active", { daemonInstanceId: "daemon-b" }));
+    expect((await subject.snapshot(scope)).contextUsage).toBeNull();
+    // The new daemon instance's own reading is then accepted and shown, starting clean.
+    const fromNewInstance = await subject.putContextUsage(
+      contextUsage(1, { daemonInstanceId: "daemon-b", usedTokens: 5 }),
+    );
+    expect(fromNewInstance?.contextUsage).toMatchObject({ usedTokens: 5 });
+  });
+
+  test("clears a retired launch's reading once a newer launch's Activity replaces it", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 6_400_000;
+    const subject = display();
+    await subject.observeStatus(status(1));
+    // Seed a launch-a Activity so the launch-b Activity below has something to retire.
+    await subject.observeActivity(activity(1, "starting"), fence);
+    await subject.putContextUsage(contextUsage(1));
+    expect((await subject.snapshot(scope)).contextUsage).not.toBeNull();
+    const fenceB = { daemonInstanceId: "daemon-a", launchId: "launch-b" };
+    await subject.observeActivity(
+      activity(2, "starting", { launchId: "launch-b", observedAtMs: 100_001 }),
+      fenceB,
+    );
+    expect((await subject.snapshot(scope)).contextUsage).toBeNull();
   });
 });
 
