@@ -387,6 +387,10 @@ export function AgentRuntimeFields({
           placeholder="provider/model-id"
           value={customModelText}
           onChange={setCustomModelText}
+          // Native validation blocks the form submit: an empty or slash-less entry would
+          // otherwise submit no model and silently save "Configured default".
+          isRequired
+          validate={(value) => (splitCustomModel(value) ? null : m.agent_form_model_custom_error())}
           isInvalid={customInvalid}
           hint={customInvalid ? m.agent_form_model_custom_error() : undefined}
         />
