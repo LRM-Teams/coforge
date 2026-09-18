@@ -226,11 +226,17 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
             recoveredUpgradeRequestIds:
               (config as { upgradeRequestIds?: string[] } | null)?.upgradeRequestIds ?? [],
             recoveredUpgradeResults: terminalUpgradeResults(config),
-            // Re-reads the same per-Workspace config file the Coordinator wrote before starting
-            // this process - and may rewrite again while this process keeps running, once its
-            // continuous upgrade-receipt watch settles an operation (ADR 0037) - so a result
-            // settled after this process started is still reported on the next reconnect.
-            refreshUpgradeResults: async () => terminalUpgradeResults(await configStore.load()),
+            // Re-reads the per-Workspace config that the Coordinator refreshes as its receipt
+            // watch moves an operation from pending → terminal → acknowledged. Returning both
+            // IDs and terminal details also resolves an ambiguous acknowledgement response.
+            refreshUpgradeState: async () => {
+              const current = await configStore.load();
+              if (!current) throw new Error("Workspace is not configured");
+              return {
+                requestIds: (current as { upgradeRequestIds?: string[] }).upgradeRequestIds ?? [],
+                results: terminalUpgradeResults(current),
+              };
+            },
             acknowledgeUpgradeResult: supervisorSocket
               ? async (requestId: string) => {
                   if (!config) throw new Error("Workspace is not configured");
