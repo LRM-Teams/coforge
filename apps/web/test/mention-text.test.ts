@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 
-import { filterMentionables, type Mentionable } from "../src/features/conversations/mention-text";
+import {
+  filterMentionables,
+  makeMentionBodyFormatter,
+  type Mentionable,
+} from "../src/features/conversations/mention-text";
 
 function person(handle: string, label: string, description = "", mentionScore = 0): Mentionable {
   return {
@@ -146,4 +150,27 @@ test("limit caps the result while keeping the best-ranked candidates", () => {
 test("an Agent candidate ranks and sorts the same way as a person candidate", () => {
   const ranked = filterMentionables([agent("scout", "Scout"), person("ada", "Ada")], "");
   expect(ranked.map((item) => item.handle)).toEqual(["ada", "scout"]);
+});
+
+const AGENT_UUID = "bf69603b-642b-40d7-b877-0080e29f4306";
+const USER_UUID = "11111111-2222-4333-8444-555555555555";
+
+test("makeMentionBodyFormatter rewrites an Agent token to its @handle", () => {
+  const format = makeMentionBodyFormatter([{ kind: "agent", id: AGENT_UUID, handle: "kiro" }]);
+  expect(format?.(`hi <@agent:${AGENT_UUID}> there`)).toBe("hi @kiro there");
+});
+
+test("makeMentionBodyFormatter resolves a human token and is case-insensitive on the uuid", () => {
+  const format = makeMentionBodyFormatter([{ kind: "user", id: USER_UUID, handle: "ada" }]);
+  expect(format?.(`<@human:${USER_UUID.toUpperCase()}>`)).toBe("@ada");
+});
+
+test("makeMentionBodyFormatter leaves an unknown token intact rather than dropping it", () => {
+  const format = makeMentionBodyFormatter([{ kind: "agent", id: AGENT_UUID, handle: "kiro" }]);
+  const other = "e14e9498-e145-4686-9999-000000000000";
+  expect(format?.(`<@agent:${other}>`)).toBe(`<@agent:${other}>`);
+});
+
+test("makeMentionBodyFormatter returns undefined when there is nothing to resolve", () => {
+  expect(makeMentionBodyFormatter([])).toBeUndefined();
 });
