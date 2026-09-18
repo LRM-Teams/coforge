@@ -26,7 +26,7 @@ the result receipt **after** `lifecycle.start()` (the new Coordinator comes up)
 **and** `lifecycle.probe()` (it must answer the handshake and report the
 expected version) succeed. The Coordinator that launched the job is the
 process the upgrade replaces - it never gets to see the receipt at all, and it
-is gone before the sequence above finishes. The *new* Coordinator's startup
+is gone before the sequence above finishes. The _new_ Coordinator's startup
 sweep runs too early: `probe()` (and therefore the receipt) has not happened
 yet, because `probe` itself depends on that new Coordinator having already
 reached the point in its own startup where the sweep runs. Every
@@ -78,7 +78,7 @@ not call back into `completeUpgrade`, since `recordUpgrade` is already inside
 that same serialized mutation and re-entering it would deadlock - so
 `recordUpgrade` applies the settlement itself, in the same atomic write that
 also records the new request. `run-supervisor.ts` wires this to a small
-closure that reuses `sweepComputerUpgradeReceipts` purely to *read* the answer
+closure that reuses `sweepComputerUpgradeReceipts` purely to _read_ the answer
 (receipt present, or TTL passed), never to write through it. The single
 pending slot rule is otherwise unchanged: a genuinely in-flight operation
 still refuses with the same message.
@@ -97,16 +97,38 @@ change):
   that Workspace - every time it settles an operation (via the continuous
   watch, via `recordUpgrade`'s pre-check, or via `daemon:upgrade_ack`), without
   restarting the Workspace process.
-- `DaemonRuntime` gained an optional `lifecycle.refreshUpgradeResults()` hook
-  that re-reads that same file fresh. `#reportUpgradeResults` prefers it over
-  the static snapshot, and it is now also called from the Workspace daemon's
+- `DaemonRuntime` gained an optional `lifecycle.refreshUpgradeState()` hook
+  that re-reads the same file's outstanding request IDs and terminal results fresh.
+  `#reportUpgradeResults` prefers it over the static snapshot, and it is now also called from the Workspace daemon's
   existing `onReconnect` handler (previously used only for code-agent runtime
   reports, control replay, and reminder resync), not only once at the initial
   ready handshake. A result the watch settles while a Workspace keeps running
   therefore reaches the server on that Workspace's next reconnect, not only at
   its own next process start.
 
-This is deliberately *not* Raft's model: Raft's carrier reconciles over its
+**2026-09-18 amendment: a continuously connected replacement reconciles without waiting for reconnect.**
+A later field upgrade exposed one remaining gap in the two bullets above. The replacement Workspace
+daemon can complete its initial ready handshake before `performSwitch` finishes its health probe and
+before the Coordinator writes the terminal receipt/config. If its WSS connection then stays healthy,
+there is no "next reconnect" to trigger the fresh read, so the server times out even though the local
+upgrade succeeded. Keeping cloud ready eager is a failure-isolation decision, not a dependency
+requirement: the Coordinator probe is local and could technically finish first, but binding process
+online/recovery to final upgrade bookkeeping would make a probe or Coordinator failure hide an
+otherwise live replacement from the server. While `recoveredUpgradeRequestIds` contains an
+unacknowledged operation,
+`DaemonRuntime` now re-reads `refreshUpgradeState()` every 250 ms, reports and acknowledges a
+terminal result as soon as the Coordinator publishes it, and then stops polling that request. A
+successful config read is also authoritative for IDs the Coordinator has already removed, so a
+committed acknowledgement whose local-RPC response was lost cannot leave a permanent poller. The
+timer is unreferenced, serialized with ready/reconnect reporting, and cancelled on runtime stop; a
+runtime generation fence prevents a config read already in flight from sending or re-arming after
+stop; an upgrade request whose local RPC completes after a replacement generation starts explicitly
+enrolls that current generation instead of leaving an unscheduled stale ID. A failed report or
+acknowledgement remains pending and is retried. This uses the same local config,
+wire RPC, and acknowledgement path already approved above; it adds no protocol or persisted format.
+Reconnect and initial ready remain eager reconciliation points, not the sole ones.
+
+This is deliberately _not_ Raft's model: Raft's carrier reconciles over its
 own server RPC on every connect. Ours has no Coordinator→server channel at
 all (ADR 0017's own rejected-alternatives already established that only the
 Workspace daemon holds the cloud connection); re-reading a Coordinator-owned
@@ -132,7 +154,7 @@ promise settles, so this is a second line of defence, not the fix itself.
 `runDaemon`'s promise resolves only after its own SIGINT/SIGTERM shutdown has
 stopped every Workspace runtime, closed the Agent proxy and local RPC server,
 and disposed logging. `__managed-agent` (`runLaunchdAgent`) is deliberately
-left alone: its promise resolves as soon as its relay socket *connects*, long
+left alone: its promise resolves as soon as its relay socket _connects_, long
 before the relayed Agent process or the socket itself ends, so its shutdown is
 not "fully awaited" the way the other two are - it already terminates through
 `process.exit` calls inside itself, at each real end of life, and exiting in
@@ -179,8 +201,11 @@ ever reads.
   (`PendingUpgradeSettler`). Every existing call site that only passed
   `(store, processes)` or `(store, processes, now)` is unaffected.
 - `DaemonRuntime`'s `lifecycle` parameter grew one more optional method
-  (`refreshUpgradeResults`). A caller that never supplies it gets exactly the
-  previous behaviour (the static `recoveredUpgradeResults` snapshot).
+  (`refreshUpgradeState`). A caller that never supplies it gets exactly the
+  previous behaviour (the static `recoveredUpgradeResults` snapshot). When the
+  hook exists and an unacknowledged request ID is known, a 250 ms unreferenced
+  reconciliation timer remains active only until that request is acknowledged;
+  runtime shutdown cancels it synchronously.
 - The Coordinator now performs one extra small local file write per settle
   (startup sweep, continuous watch, `recordUpgrade`'s pre-check, and
   `daemon:upgrade_ack`) into the affected Workspace's own config file. That
@@ -201,15 +226,15 @@ ever reads.
   continuous watch settles it → a second `recordUpgrade` is accepted) - see
   Validation below - but not against a real `launchComputerUpgrade` job or a
   real Coordinator restart.
-- The `onReconnect`-triggered re-report was verified at the unit level
-  (`refreshUpgradeResults` preferred over the static snapshot, and called from
-  the reconnect handler); it was not verified against a real WSS reconnect or
-  a real server accepting `computer:upgrade_result` a second time for the same
-  operation.
+- The reconnect-triggered re-report and the 2026-09-18 continuously-connected reconciliation
+  were verified at the unit level: `refreshUpgradeResults` is preferred over the static snapshot,
+  and a result absent at initial ready but added to local config afterwards is reported and
+  acknowledged on the next 250 ms reconciliation tick without a reconnect. Neither path was
+  verified against a real WSS connection or a live remote upgrade in this change.
 - Whether two `#reportUpgradeResults()` calls racing (e.g. the initial ready
   handshake and an near-simultaneous reconnect) could both report and both
   acknowledge the same result was reasoned about, not tested: both `
-  MachineSupervisor.acknowledgeUpgrade` and the server's own acceptance are
+MachineSupervisor.acknowledgeUpgrade` and the server's own acceptance are
   expected to be idempotent, consistent with how every other retry path in
   this area already behaves, but no test exercises the race directly.
 - The `50 ms`-granular handshake-polling `Bun.sleep` inside `MachineSupervisor`
@@ -239,8 +264,10 @@ available seam
 with no receipt yet leaves the operation pending → the receipt is written
 afterwards → the continuous watch, still in the same process, settles it to a
 terminal state → it is acknowledged → a second `recordUpgrade` is accepted,
-with no second process start anywhere in the test. `bun run check` passes for
-every workspace; `bun run --cwd packages/daemon test` and
+with no second process start anywhere in the test. A `DaemonRuntime` regression test covers the
+later field ordering too: initial ready sees no terminal result, the Coordinator-owned config then
+gains success while the same transport remains connected, and the next reconciliation tick reports
+and acknowledges it without a reconnect. `bun run check` passes for every workspace;
 `bun run --cwd packages/computer test` were run in full, with only the
 already-known local-only flakes (Claude/Codex/Kiro adapter and catalog tests'
 `AgentProcessCleanupError`, the `assigned-skills` symlink test, and three

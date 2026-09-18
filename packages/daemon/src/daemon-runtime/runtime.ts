@@ -288,6 +288,10 @@ type ActivityDraft = Omit<AgentActivity, "launchId" | "clientSeq" | "observedAtM
 // Kept here, not in daemon-connection.ts: the macOS lifecycle fixture replaces
 // that module with a stub that only exports the connection class.
 export const ACTIVITY_HEARTBEAT_MS = 60_000;
+/** A newly replaced Workspace daemon usually sees the Coordinator's terminal receipt within a
+ * couple seconds. Reconcile frequently while an unacknowledged request exists; the timer is
+ * unref'd and cancelled on stop, so it never owns process lifetime. */
+export const UPGRADE_RESULT_RECONCILE_MS = 250;
 
 /** Detail kinds the busy heartbeat keeps warm: the Agent is working or thinking. */
 const BUSY_ACTIVITY_DETAIL_KINDS = new Set<string>([
@@ -457,6 +461,13 @@ export class DaemonRuntime {
   readonly #lastContextUsage = new Map<string, { usedTokens: number; windowTokens: number }>();
   readonly #agentProxy?: AgentProxy;
   readonly #activityHeartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Upgrade operations whose durable terminal receipt has not yet been accepted and acknowledged.
+   * Unlike reconnect, this set exists continuously while the replacement daemon remains online. */
+  readonly #pendingUpgradeResultIds = new Set<string>();
+  #upgradeResultTimer: ReturnType<typeof setTimeout> | undefined;
+  #upgradeResultReportPromise: Promise<void> | undefined;
+  /** Invalidates timer/reconnect/report continuations from a stopped runtime generation. */
+  #upgradeResultGeneration = 0;
   readonly #lastBusyActivity = new Map<
     string,
     { launch: ActivityLaunch; activity: ActivityDraft; at: number }
@@ -498,19 +509,22 @@ export class DaemonRuntime {
        * at construction time. */
       recoveredUpgradeResults?: RecoveredUpgradeResult[];
       /**
-       * Re-reads the same terminal operations from their durable local source (the Coordinator's
-       * per-Workspace config file, which it may rewrite while this process keeps running - see
-       * ADR 0037). `#reportUpgradeResults` prefers this over the static
-       * `recoveredUpgradeResults` snapshot whenever it is provided, so a result the Coordinator's
-       * continuous watch settles after this process started is still reported on the next
-       * reconnect rather than only at this process's own next start.
+       * Re-reads pending and terminal operations from the same durable local config the
+       * Coordinator may rewrite while this process remains connected (ADR 0037). A successful
+       * read is authoritative for which IDs still need reconciliation; this lets the runtime
+       * recover when an acknowledgement committed but its local-RPC response was lost.
        */
-      refreshUpgradeResults?(): Promise<RecoveredUpgradeResult[]>;
+      refreshUpgradeState?(): Promise<{
+        requestIds: string[];
+        results: RecoveredUpgradeResult[];
+      }>;
       /** Called once the server has accepted a reported result. */
       acknowledgeUpgradeResult?(requestId: string): Promise<void>;
     } = {},
     private readonly computerVersion?: string,
   ) {
+    for (const requestId of lifecycle.recoveredUpgradeRequestIds ?? [])
+      this.#pendingUpgradeResultIds.add(requestId);
     this.#connection = connection;
     this.#createProvider = createProvider;
     this.#agentProcessManager = new AgentProcessManager(createProvider);
@@ -711,7 +725,8 @@ export class DaemonRuntime {
     if (this.#started) return Promise.resolve();
     if (this.#startPromise) return this.#startPromise;
 
-    this.#startPromise = this.#start(connection).finally(() => {
+    const generation = ++this.#upgradeResultGeneration;
+    this.#startPromise = this.#start(connection, generation).finally(() => {
       this.#startPromise = undefined;
     });
     return this.#startPromise;
@@ -725,7 +740,7 @@ export class DaemonRuntime {
     for (const unsubscribe of this.#subscriptions.splice(0)) unsubscribe();
   }
 
-  async #start(connection: DaemonConfig): Promise<void> {
+  async #start(connection: DaemonConfig, generation: number): Promise<void> {
     mkdirSync(connection.workspaceRoot, { recursive: true });
     await this.#agentControl.initialize();
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
@@ -774,11 +789,12 @@ export class DaemonRuntime {
                 outcome: "failed",
               });
             });
-          // A result the Coordinator's continuous watch settled after this process started its
-          // ready handshake (ADR 0037) is picked up here too, not only at the next process
-          // start: every reconnect re-reads the same durable local source `#reportUpgradeResults`
-          // read at startup.
-          void this.#reportUpgradeResults().catch(() => {});
+          // Reconnect remains an eager reconciliation point, but it is no longer the only one:
+          // a replacement daemon may keep this same connection while the Coordinator settles
+          // its receipt a moment later, so the pending-result timer below also re-reads the file.
+          void this.#reportUpgradeResults(generation)
+            .catch(() => {})
+            .finally(() => this.#scheduleUpgradeResultReport(generation));
         }),
       );
       const transport = this.#transport;
@@ -920,7 +936,8 @@ export class DaemonRuntime {
         recoveredUpgradeRequestIds: this.lifecycle.recoveredUpgradeRequestIds ?? [],
         capabilities: [REMINDER_CAPABILITY],
       }));
-      await this.#reportUpgradeResults();
+      await this.#reportUpgradeResults(generation);
+      this.#scheduleUpgradeResultReport(generation);
       await Promise.all(
         this.#readyRunningAgentIds().map((agentId) => this.#requestReminderSnapshot(agentId)),
       );
@@ -938,6 +955,7 @@ export class DaemonRuntime {
       this.#activityEnabled = true;
       await Promise.all(buffered.map((flush) => flush()));
     } catch (error) {
+      this.#clearUpgradeResultTimer();
       this.#unsubscribeAll();
       this.#started = false;
       // A transport may retain partial state after a failed start; never reuse it.
@@ -962,6 +980,15 @@ export class DaemonRuntime {
     if (!requestUpgrade) throw new Error("upgrade requests are unsupported");
     try {
       await requestUpgrade(requestId, expectedVersion);
+      // The request was durably recorded by the Coordinator. The current process usually gets
+      // replaced, but adding it here also covers an upgrade that leaves this Workspace connection
+      // alive long enough for the Coordinator to settle and refresh its local config.
+      this.#pendingUpgradeResultIds.add(requestId);
+      // The local RPC may outlive the transport generation that accepted the cloud intent. If a
+      // replacement generation is already running, hand reconciliation to it explicitly; if the
+      // runtime is between stop/start, the next start sees the retained ID and schedules it.
+      if (this.#started && !this.#stopping)
+        this.#scheduleUpgradeResultReport(this.#upgradeResultGeneration);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const errorCode = parseUpgradeErrorCode((error as { code?: unknown } | null)?.code);
@@ -996,19 +1023,85 @@ export class DaemonRuntime {
   }
 
   /**
+   * Keeps re-reading the Coordinator-owned config while this Workspace still owes at least one
+   * terminal result. The Coordinator can only write success after the replacement process has
+   * passed its health probe, which is necessarily later than this process's initial ready call;
+   * waiting for a future WSS reconnect leaves an otherwise healthy, continuously-connected
+   * Computer to time out in the Web UI.
+   */
+  #scheduleUpgradeResultReport(generation: number): void {
+    if (
+      generation !== this.#upgradeResultGeneration ||
+      this.#stopping ||
+      !this.lifecycle.refreshUpgradeState ||
+      this.#pendingUpgradeResultIds.size === 0 ||
+      this.#upgradeResultTimer
+    )
+      return;
+    this.#upgradeResultTimer = setTimeout(() => {
+      this.#upgradeResultTimer = undefined;
+      void this.#reportUpgradeResults(generation)
+        .catch(() => {})
+        .finally(() => this.#scheduleUpgradeResultReport(generation));
+    }, UPGRADE_RESULT_RECONCILE_MS);
+    this.#upgradeResultTimer.unref?.();
+  }
+
+  #clearUpgradeResultTimer(): void {
+    if (!this.#upgradeResultTimer) return;
+    clearTimeout(this.#upgradeResultTimer);
+    this.#upgradeResultTimer = undefined;
+  }
+
+  /** Serializes initial-ready, reconnect, and timer reconciliation through one report pass. */
+  async #reportUpgradeResults(generation: number): Promise<void> {
+    if (generation !== this.#upgradeResultGeneration || this.#stopping) return;
+    if (this.#upgradeResultReportPromise) return await this.#upgradeResultReportPromise;
+    const operation = this.#runUpgradeResultReport(generation);
+    this.#upgradeResultReportPromise = operation;
+    try {
+      await operation;
+    } finally {
+      if (this.#upgradeResultReportPromise === operation)
+        this.#upgradeResultReportPromise = undefined;
+    }
+  }
+
+  /**
    * Reports every terminal upgrade operation this machine has not settled yet. The server's
    * acceptance is the acknowledgement: only then does the local record become audit history.
-   * A refused or failed report is left alone so the next ready handshake retries it.
+   * A refused or failed report is left alone so the active reconciliation timer, reconnect, or a
+   * later ready handshake retries it.
    */
-  async #reportUpgradeResults(): Promise<void> {
-    const results = this.lifecycle.refreshUpgradeResults
-      ? await this.lifecycle
-          .refreshUpgradeResults()
-          .catch(() => this.lifecycle.recoveredUpgradeResults ?? [])
-      : (this.lifecycle.recoveredUpgradeResults ?? []);
-    if (!results.length || !this.#transport.sendUpgradeResult) return;
+  async #runUpgradeResultReport(generation: number): Promise<void> {
+    let state: { requestIds: string[]; results: RecoveredUpgradeResult[] };
+    if (this.lifecycle.refreshUpgradeState) {
+      try {
+        state = await this.lifecycle.refreshUpgradeState();
+        if (generation !== this.#upgradeResultGeneration || this.#stopping) return;
+        // A successful config read is authoritative. If an acknowledgement was committed but its
+        // local-RPC response was lost, the Coordinator has already removed that operation; drop
+        // the in-memory ID instead of polling an absent result forever.
+        const outstanding = new Set(state.requestIds);
+        for (const requestId of this.#pendingUpgradeResultIds)
+          if (!outstanding.has(requestId)) this.#pendingUpgradeResultIds.delete(requestId);
+      } catch {
+        state = {
+          requestIds: [...this.#pendingUpgradeResultIds],
+          results: this.lifecycle.recoveredUpgradeResults ?? [],
+        };
+      }
+    } else {
+      state = {
+        requestIds: this.lifecycle.recoveredUpgradeRequestIds ?? [],
+        results: this.lifecycle.recoveredUpgradeResults ?? [],
+      };
+    }
+    if (generation !== this.#upgradeResultGeneration || this.#stopping) return;
+    if (!state.results.length || !this.#transport.sendUpgradeResult) return;
     const connection = this.#connection;
-    for (const result of results) {
+    for (const result of state.results) {
+      if (generation !== this.#upgradeResultGeneration || this.#stopping) return;
       try {
         await this.#transport.sendUpgradeResult({
           protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
@@ -1021,8 +1114,12 @@ export class DaemonRuntime {
           ...(result.error ? { error: result.error } : {}),
           ...(result.errorCode ? { errorCode: result.errorCode } : {}),
         });
+        if (generation !== this.#upgradeResultGeneration || this.#stopping) return;
         await this.lifecycle.acknowledgeUpgradeResult?.(result.requestId);
+        if (generation !== this.#upgradeResultGeneration || this.#stopping) return;
+        this.#pendingUpgradeResultIds.delete(result.requestId);
       } catch (error) {
+        if (generation !== this.#upgradeResultGeneration || this.#stopping) return;
         logger.error("Computer upgrade result report failed", {
           event: "upgrade:result_report_failed",
           request_id: result.requestId,
@@ -3647,12 +3744,17 @@ export class DaemonRuntime {
   stop(): Promise<void> {
     if (this.#stopPromise) return this.#stopPromise;
     this.#runnerHold = undefined;
-    // Close every local capability synchronously before any shutdown await.
+    // Close every local capability synchronously before any shutdown await. Incrementing the
+    // generation fences a config read/report already in flight; clearing the shared promise lets
+    // a later start reconcile independently without waiting for that obsolete pass.
     this.#stopping = true;
+    this.#upgradeResultGeneration += 1;
+    this.#upgradeResultReportPromise = undefined;
     this.#started = false;
     this.#activityEnabled = false;
     for (const timer of this.#activityHeartbeatTimers.values()) clearTimeout(timer);
     this.#activityHeartbeatTimers.clear();
+    this.#clearUpgradeResultTimer();
     this.#lastBusyActivity.clear();
     this.#compactionTracker.disposeAll();
     this.#runtimeProgress.disposeAll();
