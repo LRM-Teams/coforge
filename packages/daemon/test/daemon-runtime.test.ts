@@ -5129,6 +5129,128 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("sends a context-window reading once and de-duplicates an unchanged repeat", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let listener: (event: AgentRuntimeEvent) => void = () => undefined;
+    const readings: import("@lrm/coforge-sdk/internal").AgentContextUsage[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return {
+            ...sessionSpy(),
+            subscribe(next) {
+              listener = next;
+              return () => undefined;
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+          sendAgentContextUsage(message) {
+            readings.push(message);
+          },
+        }),
+      },
+    );
+    try {
+      await runtime.start(connection);
+      // Seed the current native session id directly (the 3rd positional argument), the same
+      // way the fenced-session test above does, so this reading is not skipped for want of one.
+      await runtime.startAgent("agent-a", config, "known-session");
+      listener({
+        type: AGENT_RUNTIME_EVENT_TYPE.CONTEXT_USAGE,
+        usedTokens: 27_908,
+        windowTokens: 200_000,
+      });
+      listener({
+        type: AGENT_RUNTIME_EVENT_TYPE.CONTEXT_USAGE,
+        usedTokens: 27_908,
+        windowTokens: 200_000,
+      });
+      expect(readings).toHaveLength(1);
+      expect(readings[0]).toMatchObject({
+        agentId: "agent-a",
+        provider: "pi",
+        sessionId: "known-session",
+        usedTokens: 27_908,
+        windowTokens: 200_000,
+        clientSeq: 1,
+      });
+      listener({
+        type: AGENT_RUNTIME_EVENT_TYPE.CONTEXT_USAGE,
+        usedTokens: 40_000,
+        windowTokens: 200_000,
+      });
+      expect(readings).toHaveLength(2);
+      expect(readings[1]).toMatchObject({ usedTokens: 40_000, clientSeq: 2 });
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  test("skips a context-window reading while the current native session id is not yet known", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let listener: (event: AgentRuntimeEvent) => void = () => undefined;
+    const readings: import("@lrm/coforge-sdk/internal").AgentContextUsage[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return {
+            ...sessionSpy(),
+            subscribe(next) {
+              listener = next;
+              return () => undefined;
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+          sendAgentContextUsage(message) {
+            readings.push(message);
+          },
+        }),
+      },
+    );
+    try {
+      await runtime.start(connection);
+      // No sessionId seeded this time: `reportSessionId` never ran, so the daemon does not yet
+      // know the current native session id.
+      await runtime.startAgent("agent-a", config);
+      listener({
+        type: AGENT_RUNTIME_EVENT_TYPE.CONTEXT_USAGE,
+        usedTokens: 10,
+        windowTokens: 200_000,
+      });
+      expect(readings).toHaveLength(0);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test.each([
     ["session_missing", "missing"],
     ["provider_replay_rejected", "provider_replay_rejected"],

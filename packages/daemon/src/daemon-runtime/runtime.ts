@@ -452,6 +452,9 @@ export class DaemonRuntime {
   readonly #currentActivityLaunches = new Map<string, ActivityLaunch>();
   readonly #agentStatusSequences = new Map<string, number>();
   readonly #observedUsage = new Map<RuntimeProvider, UsageSnapshot>();
+  /** The last (usedTokens, windowTokens) reading sent per Agent (ADR 0047), so an unchanged
+   * reading is not re-sent. Forgotten on launch end/dispose, alongside `#compactionTracker`. */
+  readonly #lastContextUsage = new Map<string, { usedTokens: number; windowTokens: number }>();
   readonly #agentProxy?: AgentProxy;
   readonly #activityHeartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #lastBusyActivity = new Map<
@@ -1546,6 +1549,7 @@ export class DaemonRuntime {
     this.#clearActivityHeartbeat(agentId);
     this.#compactionTracker.dispose(agentId);
     this.#runtimeProgress.dispose(agentId);
+    this.#lastContextUsage.delete(agentId);
     this.#revokeLocalLaunch(agentId);
     try {
       await this.#releaseAgentRuntime(agentId);
@@ -1646,6 +1650,7 @@ export class DaemonRuntime {
     // ADR 0048: this launch's delivery mode, read by AgentMessageAttentionIndex.receive via
     // #deliveryQueue.shouldHold on every delivery for this Agent from now on.
     this.#deliveryQueue.setProvider(agentId, config.provider);
+    this.#lastContextUsage.delete(agentId);
     // AgentControl's fresh retry after a kiro/pi AgentSessionRecoveryError: the invalidate was
     // already reported before this launch (see `invalidateSession` above); narrate the cold
     // start here, where the real launch's ActivityLaunch now exists. `invalidateReason` is
@@ -1799,6 +1804,7 @@ export class DaemonRuntime {
         // No leaked watchdog timer, and a later launch for this Agent starts clean.
         this.#compactionTracker.dispose(agentId);
         this.#runtimeProgress.dispose(agentId);
+        this.#lastContextUsage.delete(agentId);
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#messageAttention.clearAgent(agentId);
         // ADR 0048: an unexpected exit only clears busy — whatever a queue_until_idle provider
@@ -1888,6 +1894,7 @@ export class DaemonRuntime {
         this.#clearActivityHeartbeat(agentId);
         this.#compactionTracker.dispose(agentId);
         this.#runtimeProgress.dispose(agentId);
+        this.#lastContextUsage.delete(agentId);
         this.#currentActivityLaunches.delete(agentId);
       }
       throw error;
@@ -2001,6 +2008,16 @@ export class DaemonRuntime {
     }
     if (event.type === AGENT_RUNTIME_EVENT_TYPE.USAGE) {
       if (event.snapshot.provider === config.provider) this.#rememberUsage(event.snapshot);
+      return;
+    }
+    if (event.type === AGENT_RUNTIME_EVENT_TYPE.CONTEXT_USAGE) {
+      this.#sendContextUsage(
+        agentId,
+        launch,
+        config.provider,
+        event.usedTokens,
+        event.windowTokens,
+      );
       return;
     }
     if (event.type === "activity" || event.type === "tool-start") {
@@ -2390,6 +2407,7 @@ export class DaemonRuntime {
     this.#clearActivityHeartbeat(agentId);
     this.#compactionTracker.dispose(agentId);
     this.#runtimeProgress.dispose(agentId);
+    this.#lastContextUsage.delete(agentId);
     this.#revokeLocalLaunch(agentId);
     const stopping = this.#stopAgent(agentId)
       .catch((error) => {
@@ -2629,6 +2647,46 @@ export class DaemonRuntime {
       clientSeq,
       observedAtMs: this.#startedAt,
     });
+  }
+
+  /**
+   * ADR 0047: fire-and-forget, never blocking or failing the turn it observed. Skipped when the
+   * Agent's current native session id is not yet known (the daemon has not yet reported this
+   * launch's first identity) or the reading is unchanged from the last one sent for this launch
+   * — `#lastContextUsage` is forgotten on launch end/dispose alongside `#compactionTracker`, so a
+   * new launch always sends its first reading. Reuses Activity's own `clientSeq` counter on the
+   * launch, the same ordering fence `#emitAgentActivity` advances.
+   */
+  #sendContextUsage(
+    agentId: string,
+    launch: ActivityLaunch,
+    provider: RuntimeProvider,
+    usedTokens: number,
+    windowTokens: number,
+  ): void {
+    const sessionId = this.#sessionReferences.get(agentId)?.sessionId;
+    if (!sessionId) return;
+    const last = this.#lastContextUsage.get(agentId);
+    if (last && last.usedTokens === usedTokens && last.windowTokens === windowTokens) return;
+    this.#lastContextUsage.set(agentId, { usedTokens, windowTokens });
+    this.#transport.sendAgentContextUsage?.({
+      protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+      requestId: crypto.randomUUID(),
+      workspaceId: this.#connection.workspaceId,
+      computerId: this.#connection.computerId,
+      agentId,
+      provider,
+      launchId: launch.launchId,
+      sessionId,
+      usedTokens,
+      windowTokens,
+      observedAtMs: Date.now(),
+      daemonInstanceId: this.#runtimeInstanceId,
+      clientSeq: ++launch.clientSeq,
+    });
+    // ADR 0042: survives a later exit so a wake reusing this launchId can continue the counter,
+    // the same reason `#emitAgentActivity` records it after every send on this shared counter.
+    this.#agentProcessManager.recordClientSeq(agentId, launch.clientSeq);
   }
 
   #cleanupUnconfirmed(agentId: string, error: unknown): boolean {
@@ -3598,6 +3656,7 @@ export class DaemonRuntime {
     this.#lastBusyActivity.clear();
     this.#compactionTracker.disposeAll();
     this.#runtimeProgress.disposeAll();
+    this.#lastContextUsage.clear();
     for (const agentId of this.#agentInputQueues.keys())
       this.#closeAgentInputQueue(agentId, new Error("daemon runtime is stopping"));
     this.#unsubscribeAll();

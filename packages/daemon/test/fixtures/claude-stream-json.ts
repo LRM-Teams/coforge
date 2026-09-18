@@ -226,6 +226,68 @@ function handle(record: Record<string, unknown>): void {
       write({ type: "result", subtype: "success" });
       return;
     }
+    if (message.content === "context-usage") {
+      write({
+        type: "result",
+        subtype: "success",
+        usage: {
+          input_tokens: 10,
+          cache_creation_input_tokens: 13_796,
+          cache_read_input_tokens: 14_102,
+          output_tokens: 59,
+          iterations: [
+            {
+              input_tokens: 10,
+              output_tokens: 59,
+              cache_read_input_tokens: 14_102,
+              cache_creation_input_tokens: 13_796,
+              type: "message",
+            },
+          ],
+        },
+        modelUsage: {
+          "claude-haiku-4-5-20251001": {
+            inputTokens: 905,
+            outputTokens: 67,
+            cacheReadInputTokens: 14_102,
+            cacheCreationInputTokens: 13_796,
+            contextWindow: 200_000,
+            maxOutputTokens: 32_000,
+            canonicalModel: "claude-haiku-4-5",
+          },
+          "claude-sonnet-5-20260101": {
+            inputTokens: 50,
+            outputTokens: 10,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            contextWindow: 1_000_000,
+            canonicalModel: "claude-sonnet-5",
+          },
+        },
+      });
+      return;
+    }
+    if (message.content === "context-usage-no-window") {
+      write({
+        type: "result",
+        subtype: "success",
+        usage: {
+          iterations: [
+            {
+              input_tokens: 1,
+              output_tokens: 1,
+              cache_read_input_tokens: 0,
+              cache_creation_input_tokens: 0,
+              type: "message",
+            },
+          ],
+        },
+        modelUsage: {
+          "claude-haiku-4-5-20251001": { inputTokens: 1, outputTokens: 1 },
+        },
+      });
+      return;
+    }
     if (
       message.content !== "finish" &&
       message.content !== "New message available. Run coforge message check."

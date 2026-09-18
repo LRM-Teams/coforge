@@ -146,6 +146,10 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   logged (`agent_session:invalidate_rejected`), never thrown or retried; an old server's
   "unknown RPC method" rejection logs at most once per connection lifetime, other rejections log
   every time.
+  `sendAgentContextUsage` (ADR 0047, Claude Code only) is a sibling fire-and-forget message with
+  the same buffer-while-disconnected/flush-on-reconnect and unknown-method log-once behavior;
+  `daemon-runtime/runtime.ts` de-dupes an unchanged reading and forgets the last one sent on
+  launch end/dispose, so this connection method never itself decides what has changed.
 - `agent-runtime/` owns Agent lifecycle and its finite state machine.
   `daemon-runtime/` coordinates the acknowledged cloud `agent:session` report
   from the current Workspace daemon/Agent launch and retains only volatile

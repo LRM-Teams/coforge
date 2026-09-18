@@ -44,13 +44,16 @@ import {
   encodeAgentControlResult,
   encodeAgentSessionReport,
   encodeAgentSessionInvalidate,
+  encodeAgentContextUsage,
   AGENT_CONTROL_RESULT_METHOD,
   AGENT_SESSION_METHOD,
   AGENT_SESSION_INVALIDATE_METHOD,
+  AGENT_CONTEXT_USAGE_METHOD,
   type AgentWorkspaceResetRequest,
   type AgentControlResult,
   type AgentSessionReport,
   type AgentSessionInvalidate,
+  type AgentContextUsage,
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentActivityProbe,
@@ -425,6 +428,9 @@ export interface DaemonConnectionClient {
   /** Fire-and-forget: never blocks or fails a launch. Buffered latest-per-agent while
    * disconnected and flushed on reconnect, like `sendAgentActivity`. */
   sendSessionInvalidate?(message: AgentSessionInvalidate): void;
+  /** Fire-and-forget: never blocks or fails a turn (ADR 0047). Buffered latest-per-agent while
+   * disconnected and flushed on reconnect, like `sendSessionInvalidate`. */
+  sendAgentContextUsage?(message: AgentContextUsage): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
   agentMessage?(
     request: AgentMessageRequest,
@@ -1158,6 +1164,13 @@ export class DaemonConnection implements DaemonConnectionClient {
    * been logged; suppresses repeats for the rest of this connection's lifetime (fix for a log
    * line that used to repeat on every rejected attempt). */
   #loggedUnknownSessionInvalidateMethod = false;
+  /** Latest-per-agent, like `#pendingSessionInvalidate` (ADR 0047). No launch-observation drop
+   * rule here: the server's own launch-fence gate already rejects a stale one, and a context
+   * reading is superseded by the next one anyway. */
+  readonly #pendingContextUsage = new Map<string, AgentContextUsage>();
+  /** Same one-per-connection-lifetime log suppression as
+   * `#loggedUnknownSessionInvalidateMethod`, for `agent:context:usage`. */
+  #loggedUnknownContextUsageMethod = false;
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
   readonly #upgradeRequestIds = new Set<string>();
@@ -1220,6 +1233,7 @@ export class DaemonConnection implements DaemonConnectionClient {
         // Invalidate before Activity on reconnect, as Raft does.
         this.#flushPendingSessionInvalidate(client);
         this.#flushPendingActivity(client);
+        this.#flushPendingContextUsage(client);
         for (const status of this.#latestStatuses.values()) this.#queueAgentStatus(client, status);
         this.#startStatusRefresh(config);
         if (reconnect && this.#readyRequestFactory) {
@@ -1326,6 +1340,15 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#publishSessionInvalidate(this.#client, message);
   }
 
+  /** Fire-and-forget; never awaited by a caller and never fails a turn (ADR 0047). */
+  sendAgentContextUsage(message: AgentContextUsage): void {
+    if (!this.#connected || !this.#client) {
+      this.#pendingContextUsage.set(message.agentId, message);
+      return;
+    }
+    this.#publishContextUsage(this.#client, message);
+  }
+
   sendAgentStatus(status: AgentStatus): void {
     this.#latestStatuses.set(status.agentId, status);
     if (this.#connected && this.#client) this.#queueAgentStatus(this.#client, status);
@@ -1398,6 +1421,36 @@ export class DaemonConnection implements DaemonConnectionClient {
       if (this.#supersededActivityLaunches.get(message.agentId)?.has(message.launchId)) continue;
       this.#publishSessionInvalidate(client, message);
     }
+  }
+
+  #publishContextUsage(client: CentrifugeWorkspaceClient, message: AgentContextUsage): void {
+    // An observation, not a command: a rejection (including an old server that does not
+    // recognize this RPC) is logged, never retried or surfaced to the caller.
+    void client.rpc(AGENT_CONTEXT_USAGE_METHOD, encodeAgentContextUsage(message)).catch((error) => {
+      const errorCode = diagnosticErrorCode(error);
+      // An old server that has never heard of this RPC rejects every attempt the same way for
+      // as long as this process talks to it; logging that fact once per connection lifetime is
+      // enough. Any other rejection (a genuinely transient failure) still logs every time.
+      const unknownMethod = errorCode === "404";
+      if (unknownMethod && this.#loggedUnknownContextUsageMethod) return;
+      if (unknownMethod) this.#loggedUnknownContextUsageMethod = true;
+      logger.warning("Agent context usage was not accepted", {
+        event: "agent_context_usage:rejected",
+        request_id: message.requestId,
+        workspace_id: message.workspaceId,
+        computer_id: message.computerId,
+        agent_id: message.agentId,
+        launch_id: message.launchId,
+        error_code: errorCode,
+        outcome: "failed",
+      });
+    });
+  }
+
+  #flushPendingContextUsage(client: CentrifugeWorkspaceClient): void {
+    const pending = [...this.#pendingContextUsage.values()];
+    this.#pendingContextUsage.clear();
+    for (const message of pending) this.#publishContextUsage(client, message);
   }
 
   #queueAgentStatus(client: CentrifugeWorkspaceClient, status: AgentStatus): void {
@@ -2338,9 +2391,11 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#upgradeRequestIds,
       this.#reportedUpgradeRequestIds,
       this.#latestObservedLaunchByAgent,
+      this.#pendingContextUsage,
     ])
       collection.clear();
     this.#loggedUnknownSessionInvalidateMethod = false;
+    this.#loggedUnknownContextUsageMethod = false;
     this.#statusRpcQueue = Promise.resolve();
     client?.disconnect();
   }

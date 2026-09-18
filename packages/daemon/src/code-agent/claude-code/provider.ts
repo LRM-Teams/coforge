@@ -99,6 +99,7 @@ export class ClaudeCodeProvider implements CodeAgentProvider {
           return { process: spawn(undefined, sessionId), sessionId };
         },
         initialFreshSessionId,
+        options.runtime?.model,
       );
       await session.ready();
       return session;
@@ -155,6 +156,9 @@ class ClaudeCodeAgentSession implements AgentSession {
     private expectedSessionId?: string,
     private readonly spawnFresh?: () => { process: JsonlProcess; sessionId: string },
     initialFreshSessionId?: string,
+    /** The Agent's configured model, if any (ADR 0047): matched against `result.modelUsage`'s
+     * keys/`canonicalModel` to select the context-window reading's window size. */
+    private readonly configuredModel?: string,
   ) {
     this.#process = process;
     this.#removePrompt = removePrompt;
@@ -593,6 +597,16 @@ class ClaudeCodeAgentSession implements AgentSession {
         return;
       }
       this.#reportIdentity();
+      // ADR 0047: a context-window reading is a session fact observed at every top-level
+      // result, independent of the turn's own running/interrupting/idle state below.
+      const contextUsage = claudeContextUsage(record, this.configuredModel);
+      if (contextUsage)
+        this.#emit({
+          type: AGENT_RUNTIME_EVENT_TYPE.CONTEXT_USAGE,
+          usedTokens: contextUsage.usedTokens,
+          windowTokens: contextUsage.windowTokens,
+          occurredAt: contextUsage.occurredAt,
+        });
       this.#sessionReadyForNotices = true;
       this.#setIdentity("resumable");
       this.#compacting = false;
@@ -720,4 +734,73 @@ function claudeRateLimitWindow(info: Record<string, unknown> | undefined):
       resetsAt: reset.toISOString(),
     },
   };
+}
+
+/**
+ * The context-window reading a top-level `result` record carries (ADR 0047), or `undefined`
+ * when this Claude Code build reports neither `usage.iterations` nor a matched
+ * `modelUsage[...].contextWindow` — never guessed. `usedTokens` is the last `"message"`-typed
+ * iteration's `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`.
+ * `windowTokens` is the `modelUsage` entry whose key or `canonicalModel` matches
+ * `configuredModel`, or, when unconfigured or unmatched, the entry with the largest
+ * `inputTokens + cacheReadInputTokens + cacheCreationInputTokens` (a subagent turn adds extra
+ * models to this map).
+ */
+function claudeContextUsage(
+  record: Readonly<Record<string, unknown>>,
+  configuredModel: string | undefined,
+):
+  | {
+      usedTokens: number;
+      windowTokens: number;
+      occurredAt: string;
+    }
+  | undefined {
+  const usage = asRecord(record.usage);
+  const iterations = Array.isArray(usage?.iterations) ? usage.iterations : undefined;
+  if (!iterations?.length) return undefined;
+  let lastMessage: Record<string, unknown> | undefined;
+  for (const entry of iterations) {
+    const parsed = asRecord(entry);
+    if (parsed?.type === "message") lastMessage = parsed;
+  }
+  if (!lastMessage) return undefined;
+  const usedTokens =
+    nonNegativeNumber(lastMessage.input_tokens) +
+    nonNegativeNumber(lastMessage.cache_read_input_tokens) +
+    nonNegativeNumber(lastMessage.cache_creation_input_tokens);
+  const modelUsage = asRecord(record.modelUsage);
+  if (!modelUsage) return undefined;
+  const entries = Object.entries(modelUsage).flatMap(([model, raw]) => {
+    const value = asRecord(raw);
+    return value ? [{ model, value }] : [];
+  });
+  if (!entries.length) return undefined;
+  const matched = configuredModel
+    ? entries.find(
+        ({ model, value }) => model === configuredModel || value.canonicalModel === configuredModel,
+      )
+    : undefined;
+  const selected =
+    matched ??
+    entries.reduce((largest, candidate) =>
+      claudeModelUsageWeight(candidate.value) > claudeModelUsageWeight(largest.value)
+        ? candidate
+        : largest,
+    );
+  const windowTokens = nonNegativeNumber(selected.value.contextWindow);
+  if (!windowTokens) return undefined;
+  return { usedTokens, windowTokens, occurredAt: eventTime(record) };
+}
+
+function claudeModelUsageWeight(value: Record<string, unknown>): number {
+  return (
+    nonNegativeNumber(value.inputTokens) +
+    nonNegativeNumber(value.cacheReadInputTokens) +
+    nonNegativeNumber(value.cacheCreationInputTokens)
+  );
+}
+
+function nonNegativeNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
 }

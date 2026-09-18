@@ -48,7 +48,12 @@ export interface CodeAgentProbe {
     searchPath?: string,
   ): string | undefined | Promise<string | undefined>;
 }
-export const AGENT_RUNTIME_EVENT_TYPE = { USAGE: "usage" } as const;
+export const AGENT_RUNTIME_EVENT_TYPE = {
+  USAGE: "usage",
+  // A provider-observed context-window reading (ADR 0047), distinct from the plan-usage
+  // `USAGE` event above. Claude Code only today; a provider with no such signal never emits it.
+  CONTEXT_USAGE: "context-usage",
+} as const;
 /** The account is authenticated but its quota cannot be represented safely. */
 export class UsageUnavailableError extends Error {
   constructor() {
