@@ -1,0 +1,14 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/probe","session_id":"00000000-0000-0000-0000-000000000000","model":"Auto","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]},"session_id":"00000000-0000-0000-0000-000000000000"}
+{"type":"thinking","subtype":"delta","text":"Starting a fresh chat","session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300000}
+{"type":"thinking","subtype":"completed","session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300100}
+{"type":"connection","subtype":"reconnecting","session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300200,"attempt":1,"endpoint_url":"https://agentn.global.api5.cursor.sh"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello!"}]},"session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300300}
+{"type":"retry","subtype":"starting","session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300300,"attempt":1,"is_resume":true}
+{"type":"retry","subtype":"resuming","session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300301,"checkpoint_turn_count":0,"attempt":1}
+{"type":"connection","subtype":"reconnected","session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300400}
+{"type":"thinking","subtype":"delta","text":"Greeting","session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300500}
+{"type":"thinking","subtype":"delta","text":"the user","session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300550}
+{"type":"thinking","subtype":"completed","session_id":"00000000-0000-0000-0000-000000000000","timestamp_ms":1789713300600}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello! How can I help?"}]},"session_id":"00000000-0000-0000-0000-000000000000"}
+{"type":"result","subtype":"success","duration_ms":3000,"duration_api_ms":3000,"is_error":false,"result":"Hello! How can I help?","session_id":"00000000-0000-0000-0000-000000000000","request_id":"req-3","usage":{"inputTokens":50,"outputTokens":8,"cacheReadTokens":0,"cacheWriteTokens":0}}

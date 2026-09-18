@@ -64,6 +64,10 @@ export async function listAgentSkills(options: {
       locals = [local(".kiro/skills")];
       if (home) globals = [native("KIRO_HOME", ".kiro", "skills")];
       break;
+    case RUNTIME_PROVIDER.CURSOR:
+      locals = [local(".cursor/skills")];
+      if (home) globals = [personal(".cursor/skills")];
+      break;
     case RUNTIME_PROVIDER.PI:
       locals = [local(".pi/skills", "pi"), local(".agents/skills")];
       if (home)

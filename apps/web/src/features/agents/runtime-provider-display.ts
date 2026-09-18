@@ -1,6 +1,7 @@
 import { RUNTIME_PROVIDER, type RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import codexMark from "@lobehub/icons-static-svg/icons/codex-color.svg";
+import cursorMark from "@lobehub/icons-static-svg/icons/cursor.svg";
 import kiroMark from "@lobehub/icons-static-svg/icons/kiro-color.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 import { m } from "@/paraglide/messages";
@@ -18,6 +19,7 @@ export const RUNTIME_PROVIDER_DISPLAY_ORDER: readonly RuntimeProvider[] = [
   RUNTIME_PROVIDER.CODEX,
   RUNTIME_PROVIDER.CLAUDE_CODE,
   RUNTIME_PROVIDER.KIRO,
+  RUNTIME_PROVIDER.CURSOR,
 ];
 
 /** The label shown in the runtime picker and the Agent detail page. CoForge's own built-in
@@ -29,6 +31,7 @@ export function runtimeProviderLabel(provider: RuntimeProvider): string {
     [RUNTIME_PROVIDER.CODEX]: "Codex",
     [RUNTIME_PROVIDER.CLAUDE_CODE]: "Claude Code",
     [RUNTIME_PROVIDER.KIRO]: "Kiro",
+    [RUNTIME_PROVIDER.CURSOR]: "Cursor CLI",
   };
   return labels[provider];
 }
@@ -40,6 +43,7 @@ export const RUNTIME_PROVIDER_MARK: Record<RuntimeProvider, string> = {
   [RUNTIME_PROVIDER.CODEX]: codexMark,
   [RUNTIME_PROVIDER.CLAUDE_CODE]: claudeCodeMark,
   [RUNTIME_PROVIDER.KIRO]: kiroMark,
+  [RUNTIME_PROVIDER.CURSOR]: cursorMark,
 };
 
 /** Whether that mark is a full-color icon rendered as an `<img>`, as opposed to a monochrome
@@ -50,4 +54,5 @@ export const RUNTIME_PROVIDER_MARK_IS_COLOR_ICON: Record<RuntimeProvider, boolea
   [RUNTIME_PROVIDER.CODEX]: true,
   [RUNTIME_PROVIDER.CLAUDE_CODE]: true,
   [RUNTIME_PROVIDER.KIRO]: true,
+  [RUNTIME_PROVIDER.CURSOR]: false,
 };

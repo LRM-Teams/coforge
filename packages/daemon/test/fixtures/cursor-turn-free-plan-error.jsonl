@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/probe","session_id":"c1a2b3c4-d5e6-4f70-8091-a2b3c4d5e6f7","model":"gpt-5.3-codex","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"use a named model on a free plan"}]},"session_id":"c1a2b3c4-d5e6-4f70-8091-a2b3c4d5e6f7"}

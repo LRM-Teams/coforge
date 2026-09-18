@@ -356,6 +356,7 @@ const RUNTIME_DISPLAY_NAME: Record<RuntimeProvider, string> = {
   [RUNTIME_PROVIDER.CODEX]: "Codex",
   [RUNTIME_PROVIDER.CLAUDE_CODE]: "Claude Code",
   [RUNTIME_PROVIDER.KIRO]: "Kiro",
+  [RUNTIME_PROVIDER.CURSOR]: "Cursor CLI",
   [RUNTIME_PROVIDER.PI]: "Pi",
   [RUNTIME_PROVIDER.COFORGE]: "CoForge",
 };

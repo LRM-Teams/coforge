@@ -32,6 +32,7 @@ src/
 ├── code-agent/                     # Provider public seam, Sessions, and provider adapters
 │   ├── codex/
 │   ├── claude-code/
+│   ├── cursor/
 │   ├── pi/
 │   ├── tool-activity.ts            # recognized tool aliases → existing semantic activities; safe input summaries
 │   ├── assigned-skills.ts          # CoForge-owned skill pack install before native discovery

@@ -71,6 +71,12 @@ test("assigned skill install never overwrites an existing same-named skill", asy
   }
 });
 
+test("assignedSkillsDirectory places Cursor packs under .cursor/skills", () => {
+  expect(assignedSkillsDirectory("cursor", "/workspace")).toBe(
+    join("/workspace", ".cursor", "skills"),
+  );
+});
+
 test("parseAssignedSkillPacks accepts only known packs", () => {
   expect(parseAssignedSkillPacks(["weekly-report", "weekly-report", "other"])).toEqual([
     "weekly-report",

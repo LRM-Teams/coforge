@@ -19,6 +19,7 @@ import {
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 import { discoverKiroCatalog } from "./kiro/catalog";
 import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "./kiro/version";
+import { discoverCursorCatalog } from "./cursor/catalog";
 import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";
@@ -65,6 +66,7 @@ const externalCodeAgents = [
   { provider: RUNTIME_PROVIDER.CODEX, executable: "codex" },
   { provider: RUNTIME_PROVIDER.CLAUDE_CODE, executable: "claude" },
   { provider: RUNTIME_PROVIDER.KIRO, executable: "kiro-cli" },
+  { provider: RUNTIME_PROVIDER.CURSOR, executable: "cursor-agent" },
 ] as const;
 
 /** The subset of RuntimeProvider backed by an external executable this module probes. */
@@ -190,6 +192,7 @@ export type CodeAgentInventory = {
 type CatalogCommands = {
   codex?: readonly string[];
   kiro?: readonly string[];
+  cursor?: readonly string[];
 };
 
 export type CodeAgentDiscoveryOptions = {
@@ -207,6 +210,7 @@ const CACHEABLE_CATALOG_PROVIDERS = [
   RUNTIME_PROVIDER.PI,
   RUNTIME_PROVIDER.CODEX,
   RUNTIME_PROVIDER.KIRO,
+  RUNTIME_PROVIDER.CURSOR,
 ] as const;
 
 function piAgentDirectory(environment: Readonly<Record<string, string | undefined>>): string {
@@ -344,6 +348,22 @@ export async function discoverCodeAgentCatalogs(
           .catch(() => undefined)
           .then((catalog) => ({
             provider: RUNTIME_PROVIDER.KIRO,
+            keyPaths: [executable],
+            catalog,
+          })),
+      );
+  }
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CURSOR)) {
+    const executable = probe.which(
+      externalCodeAgentExecutable[RUNTIME_PROVIDER.CURSOR],
+      searchPath,
+    );
+    if (executable)
+      discoveries.push(
+        discoverCursorCatalog(commands.cursor ?? [executable, "models"], cwd, environment)
+          .catch(() => undefined)
+          .then((catalog) => ({
+            provider: RUNTIME_PROVIDER.CURSOR,
             keyPaths: [executable],
             catalog,
           })),
@@ -691,6 +711,8 @@ function externalRuntimeDisplayName(provider: ExternalCodeAgentProvider): string
       return "Claude Code";
     case RUNTIME_PROVIDER.KIRO:
       return "Kiro";
+    case RUNTIME_PROVIDER.CURSOR:
+      return "Cursor CLI";
     default: {
       const unreachable: never = provider;
       throw new Error(`Unhandled external Code Agent provider: ${unreachable}`);
