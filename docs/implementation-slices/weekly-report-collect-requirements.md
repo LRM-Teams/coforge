@@ -1,14 +1,14 @@
 # 周报采集与自动生成 — 产品契约与切片
 
-Status: **accepted contract**（D1–D9 已锁定推荐项；schema 实现 CR 仍走 Frank 门禁）  
-Date: 2026-09-17  
-Branch: `feat/weekly-report-collection-alt`  
+Status: **accepted contract**（D1–D9 已锁定推荐项；schema 实现 CR 仍走 Frank 门禁）
+Date: 2026-09-17
+Branch: `feat/weekly-report-collection-alt`
 ADR: [ADR 0032（accepted）](../adr/0032-weekly-report-collectors-and-collect-run.md)
 
-本文记录「从用户电脑采集工作信息 → 按老板模板总结 → 用户检查 → 发送」的产品契约、与设计稿/Multica 的对照、已锁定决策，以及实现切片。  
+本文记录「从用户电脑采集工作信息 → 按老板模板总结 → 用户检查 → 发送」的产品契约、与设计稿/Multica 的对照、已锁定决策，以及实现切片。
 业务代码在后续切片中按 TDD 落地；引入 Collect Run 表的 Prisma migration 仍需 Frank 批准的 schema CR。
 
-关联已落地能力：[`weekly-report-ai-requirements.md`](weekly-report-ai-requirements.md)（周报助手、确认写、用户发送）。  
+关联已落地能力：[`weekly-report-ai-requirements.md`](weekly-report-ai-requirements.md)（周报助手、确认写、用户发送）。
 设计对照入口：[`weekly-report-design-alignment.md`](weekly-report-design-alignment.md)；本能力主图为员工侧：
 
 | 简称 | 文件 | 主题 |
@@ -121,8 +121,8 @@ ADR: [ADR 0032（accepted）](../adr/0032-weekly-report-collectors-and-collect-r
 
 ### 单机槽位
 
-`running` → `ready` | `failed` | `empty` | `stalled` | `cancelled`  
-`empty`：进程正常结束但无 pack / 无窗内证据 → **不**自动重试，交给合成状态板。  
+`running` → `ready` | `failed` | `empty` | `stalled` | `cancelled`
+`empty`：进程正常结束但无 pack / 无窗内证据 → **不**自动重试，交给合成状态板。
 `failed` / `stalled`：可重试则平台最多再派 1 次。
 
 **部分成功仍合成**（≥1 ready）。Composer 仅在 `collecting | synthesizing` 且确有进程在飞时可锁定输入（对齐 Multica）；主编辑器始终可读。

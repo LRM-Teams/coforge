@@ -1,8 +1,8 @@
 # Weekly-report collect — clean port from local WIP
 
-Status: active guide for `feat/weekly-report-collection-alt`  
-Date: 2026-09-17  
-Authority: [ADR 0032](../adr/0032-weekly-report-collectors-and-collect-run.md)  
+Status: active guide for `feat/weekly-report-collection-alt`
+Date: 2026-09-17
+Authority: [ADR 0032](../adr/0032-weekly-report-collectors-and-collect-run.md)
 Source WIP (do not merge wholesale): local branch `feat/weekly-report-local-collection` @ `be4a13f`
 
 The WIP is useful as a **behavior sketch**, not as code to cherry-pick. Prefer
@@ -42,12 +42,12 @@ small deep modules rewritten against ADR 0032.
 
 ## Public seams for this CR slice
 
-1. **`WeeklyReportCollectors`** (`weekly-report-collector.server.ts`)  
-   `listOwnedComputerSlots`, `ensureCollector`, naming helpers.  
+1. **`WeeklyReportCollectors`** (`weekly-report-collector.server.ts`)
+   `listOwnedComputerSlots`, `ensureCollector`, naming helpers.
    No path mutation; no run start.
 
-2. **`WeeklyReportCollectRuns`** (`weekly-report-collect-run.server.ts`)  
-   `start`, `get`, pure settle helpers (`allSlotsTerminal`, `hasReadyPack`).  
+2. **`WeeklyReportCollectRuns`** (`weekly-report-collect-run.server.ts`)
+   `start`, `get`, pure settle helpers (`allSlotsTerminal`, `hasReadyPack`).
    Start requires owned ready collectors + window; snapshots `scanPaths` onto slots.
 
 Later CRs (not this file’s first green): one platform retry, synthesizer wake.
