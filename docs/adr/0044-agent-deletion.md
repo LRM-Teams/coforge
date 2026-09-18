@@ -46,12 +46,13 @@ and cannot be messaged or woken.
    lock and `PrismaAgentDeletionStore` performs one transaction that sets `deletedAt`, soft-leaves
    every channel membership (`leftAt`, which is what actually stops delivery and wake, since both
    read `ACTIVE_MEMBER_WHERE`), cancels scheduled Reminders, and revokes Agent API keys. Every
-   path that could still target a deleted Agent also checks `deletedAt` directly: `AgentControl`
-   refuses it in `execute`, `publishStart` and `recover`, so no configuration, credential or
-   environment mutation can restart it; `ManageAgents.update` refuses the edit outright; and
-   `TaskBoard` applies `ACTIVE_MEMBER_WHERE` and `ACTIVE_AGENT_WHERE` when resolving an assignee
-   by handle and when selecting Task recipients, so a deleted Agent is not an assignable target
-   and receives no delivery rows.
+   path that could still target a deleted Agent also checks `deletedAt` directly — one guard,
+   `assertAgentLive` beside `ACTIVE_AGENT_WHERE`, so every refusal is the same `NOT_FOUND` a
+   live-view lookup gives: `AgentControl` refuses it in `execute`, `publishStart` and `recover`,
+   so no configuration, credential or environment mutation can restart it; `ManageAgents.update`
+   refuses the edit outright; and `TaskBoard` applies `ACTIVE_MEMBER_WHERE` and
+   `ACTIVE_AGENT_WHERE` when resolving an assignee by handle and when selecting Task recipients,
+   so a deleted Agent is not an assignable target and receives no delivery rows.
 3. **History is preserved.** Messages, Tasks, Action cards, Thread reads and Activity are never
    touched. A deleted sender still renders, greyed with a `DELETED` badge, and no longer opens a
    profile.
@@ -91,7 +92,8 @@ and cannot be messaged or woken.
   history. Recreating the same name requires a different username.
 - `AgentRepository.getById` deliberately returns a deleted Agent (control, session and deletion
   code must observe one to keep it inert); every caller serving a live view applies
-  `ACTIVE_AGENT_WHERE` itself. `listInWorkspace`/`listForComputer`/`listOwnedInWorkspace` apply it
+  `ACTIVE_AGENT_WHERE` itself, and every caller mutating or controlling one calls
+  `assertAgentLive`. `listInWorkspace`/`listForComputer`/`listOwnedInWorkspace` apply the filter
   internally.
 - An Agent API key minted before deletion is revoked. `AgentControl.authorizeLaunch` resolves the
   Agent through the unfiltered `getById` on purpose (recovery must still see it to reconcile a
@@ -102,10 +104,17 @@ and cannot be messaged or woken.
   assignment and recipients, reminders, the Agent Activity subject list, the Agent list served to
   Agent API callers, an Agent creator's `createdAgents`, the owned workspace-files assignment and
   the Agent profile lookup all stop returning the deleted Agent.
-- A deleted Agent's identity is greyed with a `DELETED` badge everywhere it can still be rendered
-  from history: message rows, the thread-root header, the thread reply-preview avatar stack, the
-  DM conversation header and the avatar's hover popover. The badge label is the shared
-  `agent_deleted_badge` i18n key.
+- A deleted Agent's identity is greyed with a `DELETED` badge everywhere it is rendered from
+  message history: message rows, the thread-root header, the thread reply-preview avatar stack,
+  the DM conversation header, and that avatar's hover popover (trigger label and inner avatar
+  both). The badge label is the shared `agent_deleted_badge` i18n key.
+- **Not covered: a Task's owner.** `TaskView.owner` is `{ memberId, kind, name }` on the shared
+  browser/Agent-RPC Task contract, so it carries no delete marker; `TaskOwner`
+  (`features/tasks/task-owner.tsx`) therefore renders a deleted Agent's name with a plain tinted
+  avatar and no `DELETED` badge on the board and overview. Existing Tasks owned by a deleted Agent
+  stay readable and are unaffected otherwise (a deleted Agent can no longer be *assigned* one —
+  see the `TaskBoard` filters above). Marking them needs a field on the shared Task contract,
+  which is a wire-protocol change and is deliberately left out of this decision.
 - No un-delete/restore surface is introduced. A mistaken delete is recovered by creating a new
   Agent; the deleted one keeps its history.
 

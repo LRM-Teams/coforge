@@ -111,7 +111,13 @@ export function AgentActivityAvatar({
     <HoverPopover
       onOpen={onOpen}
       onPress={onPress}
-      label={[agent.displayName, view.label, m.agent_avatar_recent()].join(", ")}
+      label={[
+        agent.displayName,
+        // ADR 0044: a deleted Agent has no live status, so the popover trigger must not announce
+        // one (the inner avatar's own label is already corrected in `AgentDisplayAvatar`).
+        deleted ? m.agent_deleted_badge() : view.label,
+        m.agent_avatar_recent(),
+      ].join(", ")}
       working={view.pulse}
       triggerClassName={cn(
         "relative shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4",

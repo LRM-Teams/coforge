@@ -1,5 +1,5 @@
 import type { AgentStartIntent, AgentStopIntent } from "@lrm/coforge-sdk/internal";
-import { AppError } from "../../lib/app-error";
+import { assertAgentLive } from "./active-agent.server";
 import type { AgentRecord } from "../db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import { agentStartIntent, agentStopIntent } from "./manage-agents.server";
@@ -63,7 +63,7 @@ export class ChangeAgentRuntimeCredential {
       )
         throw new Error("Agent is not authorized");
       // ADR 0044: a deleted Agent has no runtime credential to edit, and no restart either.
-      if (agent.deletedAt) throw new AppError("NOT_FOUND");
+      assertAgentLive(agent);
       // ADR 0038: a stopped Agent has nothing running to protect from the old credential; persist
       // without the stop -> ... -> start dance.
       if (agent.stoppedAt) {

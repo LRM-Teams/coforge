@@ -332,7 +332,7 @@ test("a deleted Agent has no user-initiated control, but an internal Stop still 
         action,
         ...(action === "full-reset" ? { confirmed: true } : {}),
       }),
-    ).rejects.toThrow("Agent is deleted");
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   }
   expect(published).toEqual([]);
 
