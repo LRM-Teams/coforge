@@ -1,6 +1,9 @@
 # ADR 0033: Agent Stop outcome is local process exit; control records are repaired, never latched
 
-Status: accepted
+Status: accepted; the pending-revoke retry (decision A's `#pendingAgentApiKeyRevokes` and
+`#retryPendingAgentApiKeyRevokes`) is superseded by
+[ADR 0043](0043-agent-api-key-revoke-once-never-retried.md), which found it revoked a running
+Agent's key on reconnect. Everything else here stands.
 Date: 2026-09-17
 
 ## Context
@@ -16,7 +19,7 @@ upgrades.
    failed because the server was mid-deploy. The combined `allSettled` still rejected, and
    `AgentControl.stop` (`packages/daemon/src/agent-runtime/agent-control.ts`) persisted the
    result as `phase: "stopping"` with a terminal `stopResult: { phase: "failed", errorCode:
-   "stop_failed" }` — a *local* Stop recorded as failed because of a *remote* revoke failure.
+"stop_failed" }` — a _local_ Stop recorded as failed because of a _remote_ revoke failure.
 2. Nothing about that persisted record distinguished "the process didn't exit" from "the
    process exited fine but something else failed." Every subsequent operation treated it as
    the former: a same-epoch Stop retry replayed the stored failed receipt instead of trying
@@ -24,7 +27,7 @@ upgrades.
    still `"stopping"`; and after each of the three following daemon restarts, `fence()`
    rejected every request at every epoch with `previous_process_stop_unconfirmed`, because the
    record's `daemonInstanceId` no longer matched the running daemon and the phase was still one
-   of `running`/`starting`/`stopping`. The same fence unconditionally treats *any* record left
+   of `running`/`starting`/`stopping`. The same fence unconditionally treats _any_ record left
    at `running`/`starting`/`stopping` by a daemon that never got to write a clean `stopped()`
    fact (a crash, not just this revoke case) the same way: wedged forever, because "a higher
    epoch" was never treated as proof the old process is gone.
@@ -50,7 +53,7 @@ and reads "Agent runtime could not be stopped." for a genuine local Stop failure
 `CLEANUP_UNCONFIRMED` handling is unchanged. Pending keys are retried on a non-blocking,
 best-effort pass (`#retryPendingAgentApiKeyRevokes`) fired after `#agentControl.replay()` on
 both the initial `ready()` path and every reconnect, and again at shutdown. The shutdown pass
-does *not* unconditionally recreate the transport: `DaemonConnection.revokeAgentApiKey` only
+does _not_ unconditionally recreate the transport: `DaemonConnection.revokeAgentApiKey` only
 needs the token/`serverHttpUrl` `.start()` already gave it, not the WSS client `.stop()` tears
 down, so keeping the same transport instance while a revoke is still pending lets the retry
 reuse its already-authenticated state; the transport is recreated once every pending key clears,
@@ -126,18 +129,18 @@ Behaviour read from the shipped 1.0.32 daemon bundle (see
 ## Why a repair is safe: no orphan survives into a new daemon instance
 
 The concern this ADR's first draft raised — that repairing a `running`/`starting`/`stopping`
-record from a *different* daemon instance could resurrect an Agent process a crashed daemon
+record from a _different_ daemon instance could resurrect an Agent process a crashed daemon
 left running, unfenced — does not apply on either platform this repo supports today, because
 the process itself cannot survive into the new instance:
 
 - **macOS**: an Agent process is a per-agent launchd job (`ProcessTreeOwner.spawn` →
   `LaunchdProcessOwner`, labelled under the `COFORGE_WORKSPACE_AGENT_PREFIX` prefix — see
   `packages/daemon/src/platform/process-tree.ts` and `launchd-process.ts`). Every daemon start
-  reaps every leftover job under that prefix *before* the Workspace runtime is even constructed:
+  reaps every leftover job under that prefix _before_ the Workspace runtime is even constructed:
   `packages/daemon/index.ts` calls `await stopLaunchdJobs(prefix, directory)`
   (`packages/daemon/src/platform/launchd-job.ts`) ahead of `let runtime: DaemonRuntime |
-  undefined`. `LaunchdJob.stop()` (used by `stopLaunchdJobs`) does not just ask launchd to tear
-  the job down — it polls until the label is gone from `launchctl list` *and* the process group
+undefined`. `LaunchdJob.stop()` (used by `stopLaunchdJobs`) does not just ask launchd to tear
+  the job down — it polls until the label is gone from `launchctl list` _and_ the process group
   is confirmed absent (`processGroupExists`), for up to 10 s, and throws
   `"launchd job cleanup did not complete"` if that does not happen. Because this call is not
   inside a try/catch in `index.ts`, that throw fails daemon startup outright — fail-closed, by
@@ -148,7 +151,7 @@ the process itself cannot survive into the new instance:
   set `KillMode=mixed`, so stopping/replacing the unit kills its whole cgroup, Agent child
   processes included.
 
-So a repaired record's `Runtime.running(agentId) === false` is not merely the *local* check
+So a repaired record's `Runtime.running(agentId) === false` is not merely the _local_ check
 passing — on both platforms, a process owned by a previous daemon instance genuinely cannot
 still be alive when a new instance evaluates it. This is what makes the cross-instance half of
 decision B's repair condition safe, not just convenient.

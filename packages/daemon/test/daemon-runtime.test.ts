@@ -5159,7 +5159,7 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
-  test("failed remote revoke keeps its handle for shutdown retry and closes local access first", async () => {
+  test("a failed remote revoke at shutdown is attempted once and closes local access first", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let attempts = 0;
@@ -5210,14 +5210,14 @@ describe("DaemonRuntime", () => {
       ),
     ).rejects.toThrow("not running");
     releaseStop();
-    // Revoke stays best-effort at shutdown too (docs/adr/0033): the failed revoke above never
-    // fails the overall Stop; the key just stays pending for the retry below.
+    // Revoke stays best-effort at shutdown (docs/adr/0033) and is never retried (docs/adr/0043):
+    // the failed revoke above never fails the overall Stop, and a second stop() sends nothing.
     await expect(stopping).resolves.toBeUndefined();
     await runtime.stop();
-    expect(attempts).toBe(2);
+    expect(attempts).toBe(1);
   });
 
-  test("shutdown retry reuses the authenticated production transport for pending revokes", async () => {
+  test("shutdown sends one authenticated revoke per running Agent and always recreates the transport", async () => {
     const configuredConnection = {
       ...connection,
       serverHttpUrl: "https://server.example/api/internal/centrifugo",
@@ -5231,9 +5231,7 @@ describe("DaemonRuntime", () => {
       async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         if (init?.method === "POST") return Response.json({ apiKey: credential });
         revokeAuthorizations.push(new Headers(init?.headers).get("authorization"));
-        return revokeAuthorizations.length === 1
-          ? new Response(null, { status: 503 })
-          : Response.json({ revoked: true });
+        return new Response(null, { status: 503 });
       },
       { preconnect: originalFetch.preconnect },
     );
@@ -5254,17 +5252,18 @@ describe("DaemonRuntime", () => {
     try {
       await runtime.start(configuredConnection);
       await runtime.startAgent("agent-a", config);
-      // Revoke stays best-effort at shutdown too (docs/adr/0033): the 503 above never fails the
-      // Stop; the key just stays pending, and the transport is kept (not recreated) so the
-      // retry below can reuse its authenticated token.
+      // Revoke stays best-effort at shutdown (docs/adr/0033): the 503 above never fails the
+      // Stop. It is not retried either (docs/adr/0043), so the second stop() sends nothing and
+      // the transport is recreated regardless of the revoke outcome.
       await expect(runtime.stop()).resolves.toBeUndefined();
       await runtime.stop();
     } finally {
       globalThis.fetch = originalFetch;
     }
 
-    expect(revokeAuthorizations).toEqual(["Bearer daemon-token", "Bearer daemon-token"]);
-    expect(transportsCreated).toBe(2);
+    expect(revokeAuthorizations).toEqual(["Bearer daemon-token"]);
+    // One transport for start(), one recreated by each of the two stop() calls.
+    expect(transportsCreated).toBe(3);
   });
 
   test("keeps App notices separate from Message state and drains them on normalized idle", async () => {
@@ -5608,12 +5607,11 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("a revoke failure at Stop keeps the key pending and it is retried and cleared on reconnect", async () => {
+  test("a revoke failure at Stop is logged once and a reconnect never retries it", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let reconnect: (() => void) | undefined;
     let revokeAttempts = 0;
-    const revokedKeys: string[] = [];
     const statuses: Array<{ agentId: string; status: string }> = [];
     const activities: Array<{ agentId: string; detailKind: string }> = [];
     const runtime = new DaemonRuntime(
@@ -5639,11 +5637,10 @@ describe("DaemonRuntime", () => {
           async requestAgentLaunchConfig() {
             return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
           },
-          async revokeAgentApiKey(agentApiKey) {
+          async revokeAgentApiKey() {
             revokeAttempts++;
-            // The server is mid-deploy on the first attempt, same as the s144 incident.
-            if (revokeAttempts === 1) throw new Error("remote revoke failed");
-            revokedKeys.push(agentApiKey);
+            // The server is mid-deploy, same as the s144 incident.
+            throw new Error("remote revoke failed");
           },
           sendAgentStatus({ agentId, status }) {
             statuses.push({ agentId, status });
@@ -5666,26 +5663,81 @@ describe("DaemonRuntime", () => {
       // stops cleanly even though the remote revoke above rejects, so stopAgent resolves.
       await expect(runtime.stopAgent("agent-a")).resolves.toBeUndefined();
       expect(revokeAttempts).toBe(1);
-      expect(revokedKeys).toEqual([]);
       expect(statuses.at(-1)).toEqual({ agentId: "agent-a", status: "inactive" });
       expect(
         activities.some((activity) => activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.STOPPED),
       ).toBe(true);
 
-      // The key stayed pending; the next reconnect's best-effort pass retries it and this time
-      // it succeeds.
+      // The daemon never retries a revoke (docs/adr/0043): reconnects leave the failure where it
+      // is, and the server invalidates the key at the Agent's next launch instead.
       reconnect?.();
       await Bun.sleep(0);
-      expect(revokeAttempts).toBe(2);
-      expect(revokedKeys).toHaveLength(1);
-
-      // Once revoked, the key is no longer pending, so a later reconnect does not retry it again.
       reconnect?.();
       await Bun.sleep(0);
-      expect(revokeAttempts).toBe(2);
+      expect(revokeAttempts).toBe(1);
     } finally {
       await runtime.stop();
     }
+  });
+
+  test("a reconnect pass never revokes the key a running Agent is still using", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let reconnect: (() => void) | undefined;
+    const revokedKeys: string[] = [];
+    const liveKey = `sk_agent_${"a".repeat(43)}`;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          onReconnect(callback) {
+            reconnect = callback;
+            return () => {
+              reconnect = undefined;
+            };
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(liveKey);
+          },
+          async revokeAgentApiKey(agentApiKey) {
+            revokedKeys.push(agentApiKey);
+          },
+        }),
+      },
+      undefined,
+      emptyCodeAgentDiscovery,
+    );
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+
+      // The cloud connection drops and comes back while the Agent keeps running. The pending
+      // revoke pass that runs on reconnect is for keys whose revoke is owed, never for the key
+      // the running Agent's proxy binding still sends with every request.
+      reconnect?.();
+      await Bun.sleep(0);
+      reconnect?.();
+      await Bun.sleep(0);
+      expect(revokedKeys).toEqual([]);
+
+      // Stopping the Agent is what revokes its key, exactly once.
+      await runtime.stopAgent("agent-a");
+      await Bun.sleep(0);
+      expect(revokedKeys).toEqual([liveKey]);
+    } finally {
+      await runtime.stop();
+    }
+    expect(revokedKeys).toEqual([liveKey]);
   });
 
   test("a fenced Start failure logs AgentControl's fixed rejection as a control_code", async () => {

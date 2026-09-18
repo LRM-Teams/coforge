@@ -412,10 +412,6 @@ export class DaemonRuntime {
   readonly #agentStops = new Map<string, Promise<void>>();
   readonly #currentActivityLaunches = new Map<string, ActivityLaunch>();
   readonly #agentStatusSequences = new Map<string, number>();
-  /** agentApiKey -> agentId, for keys whose remote revoke has not confirmed yet. Revoke is
-   * best-effort (docs/adr/0033): Stop's outcome depends only on the local process, so a key
-   * stays here until it is retried on the next ready/reconnect pass or at shutdown. */
-  readonly #pendingAgentApiKeyRevokes = new Map<string, string>();
   readonly #observedUsage = new Map<RuntimeProvider, UsageSnapshot>();
   readonly #agentProxy?: AgentProxy;
   readonly #activityHeartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -712,9 +708,6 @@ export class DaemonRuntime {
                 outcome: "failed",
               });
             });
-          // Best-effort, non-blocking: retries any Agent API key whose remote revoke failed
-          // earlier (docs/adr/0033). Never gates readiness or the control replay above.
-          this.#retryPendingAgentApiKeyRevokes();
           // A result the Coordinator's continuous watch settled after this process started its
           // ready handshake (ADR 0037) is picked up here too, not only at the next process
           // start: every reconnect re-reads the same durable local source `#reportUpgradeResults`
@@ -818,9 +811,6 @@ export class DaemonRuntime {
       });
       await this.#agentControl.replay();
       await this.#agentSessions.replay();
-      // Best-effort, non-blocking: retries any Agent API key whose remote revoke failed on a
-      // previous run and survived as a pending fact (docs/adr/0033). Never gates readiness.
-      this.#retryPendingAgentApiKeyRevokes();
       await this.#transport.ready(() => ({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId: crypto.randomUUID(),
@@ -1091,8 +1081,9 @@ export class DaemonRuntime {
     });
   }
 
-  /** Logs a revoke failure without ever logging the key itself; the key stays in
-   * #pendingAgentApiKeyRevokes and is retried on the next ready/reconnect pass or at shutdown. */
+  /** Logs a revoke failure without ever logging the key itself. The failure is recorded and
+   * nothing else happens (docs/adr/0043): the server invalidates the key at the Agent's next
+   * launch, and the daemon never retries a revoke. */
   #logAgentApiKeyRevokeFailed(agentId: string, error: unknown): void {
     logger.warning("Agent API key revoke failed", {
       event: "agent_api_key:revoke_failed",
@@ -1433,7 +1424,6 @@ export class DaemonRuntime {
     try {
       const launchConfig = await this.#requestLaunchConfig(agentId, managedScope);
       agentApiKey = launchConfig.agentApiKey;
-      this.#pendingAgentApiKeyRevokes.set(agentApiKey, agentId);
       this.#assertRunning();
       this.#assertAgentNotStopping(agentId);
       this.#agentApiKeys.set(agentId, agentApiKey);
@@ -1562,7 +1552,7 @@ export class DaemonRuntime {
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#messageAttention.clearAgent(agentId);
         this.#revokeLocalLaunch(agentId, localContext, proxyToken);
-        void this.#revokeAgentApiKey(agentApiKey).catch((revokeError) => {
+        void this.#revokeAgentApiKey(agentId, agentApiKey).catch((revokeError) => {
           // Local access is already revoked; the key stays pending and is retried later.
           this.#logAgentApiKeyRevokeFailed(agentId, revokeError);
         });
@@ -1627,9 +1617,8 @@ export class DaemonRuntime {
       this.#revokeLocalLaunch(agentId);
       if (agentApiKey) {
         try {
-          await this.#revokeAgentApiKey(agentApiKey);
+          await this.#revokeAgentApiKey(agentId, agentApiKey);
         } catch (revokeError) {
-          // Key stays in #pendingAgentApiKeyRevokes; retried on the next ready/reconnect pass.
           this.#logAgentApiKeyRevokeFailed(agentId, revokeError);
         }
       }
@@ -2068,12 +2057,11 @@ export class DaemonRuntime {
   /**
    * Stop's outcome depends only on the local process exiting (docs/adr/0033): revoking the
    * Agent API key is fire-and-forget alongside it, so a failed or slow revoke never fails or
-   * delays the Stop. A key that fails to revoke stays in #pendingAgentApiKeyRevokes and is retried
-   * by the next ready/reconnect pass (#retryPendingAgentApiKeyRevokes) or at shutdown.
+   * delays the Stop. A failed revoke is logged and not retried (docs/adr/0043).
    */
   async #releaseAgentRuntime(agentId: string, publishStopped = false): Promise<void> {
     const activityLaunch = this.#currentActivityLaunches.get(agentId);
-    void this.#revokeAgentApiKey(this.#agentApiKeys.get(agentId)).catch((error) => {
+    void this.#revokeAgentApiKey(agentId, this.#agentApiKeys.get(agentId)).catch((error) => {
       this.#logAgentApiKeyRevokeFailed(agentId, error);
     });
     await this.#agentProcessManager.stop(agentId);
@@ -2300,22 +2288,18 @@ export class DaemonRuntime {
     return "Agent runtime could not be stopped.";
   }
 
-  async #revokeAgentApiKey(agentApiKey: string | undefined): Promise<void> {
+  /**
+   * Revokes the key of an Agent process that is gone: it exited, its Stop was requested, or its
+   * launch failed after the key was minted. One request, exactly then, and never again
+   * (docs/adr/0043): a key still in use by a running Agent is never revoked by the daemon, and
+   * a revoke that fails is logged and left to the server, which invalidates every earlier key
+   * of the Agent when it mints the next one.
+   */
+  async #revokeAgentApiKey(agentId: string, agentApiKey: string | undefined): Promise<void> {
     if (!agentApiKey) return;
     if (!this.#transport.revokeAgentApiKey) return;
+    if (this.#agentApiKeys.get(agentId) === agentApiKey) this.#agentApiKeys.delete(agentId);
     await this.#transport.revokeAgentApiKey(agentApiKey);
-    this.#pendingAgentApiKeyRevokes.delete(agentApiKey);
-    for (const [agentId, current] of this.#agentApiKeys)
-      if (current === agentApiKey) this.#agentApiKeys.delete(agentId);
-  }
-
-  /** Best-effort retry for keys whose revoke failed earlier; fire-and-forget so it never blocks
-   * readiness. A key that keeps failing stays pending and is retried again on the next pass. */
-  #retryPendingAgentApiKeyRevokes(): void {
-    for (const [agentApiKey, agentId] of this.#pendingAgentApiKeyRevokes)
-      void this.#revokeAgentApiKey(agentApiKey).catch((error) => {
-        this.#logAgentApiKeyRevokeFailed(agentId, error);
-      });
   }
 
   async agentMessage(
@@ -3194,14 +3178,12 @@ export class DaemonRuntime {
     for (const agentId of activeAgentIds) this.#sendAgentStatus(agentId, "inactive");
     this.#currentActivityLaunches.clear();
     this.#sessionReferences.clear();
-    // Revoke stays best-effort at shutdown too (docs/adr/0033): Stop's outcome above already
-    // depended only on the local process, and a stuck revoke must never fail teardown or leave
-    // a key un-retried. A key that fails here stays pending; the next daemon's ready/reconnect
-    // pass retries it (in-memory only — a full process restart naturally drops the local set,
-    // same as every other in-memory runtime fact).
+    // Every Agent process is down now; each key they were using gets its one revoke request
+    // here, best-effort (docs/adr/0033, 0043): a failure is logged, never fails teardown, and is
+    // not retried.
     await Promise.all(
-      [...this.#pendingAgentApiKeyRevokes].map(([agentApiKey, agentId]) =>
-        this.#revokeAgentApiKey(agentApiKey).catch((error) => {
+      [...this.#agentApiKeys].map(([agentId, agentApiKey]) =>
+        this.#revokeAgentApiKey(agentId, agentApiKey).catch((error) => {
           this.#logAgentApiKeyRevokeFailed(agentId, error);
         }),
       ),
@@ -3211,14 +3193,8 @@ export class DaemonRuntime {
     } catch (error) {
       shutdownError ??= error;
     }
-    // Keep the same transport instance while a revoke is still pending: it already carries the
-    // authenticated token/serverHttpUrl a revoke retry needs (`#agentApiKeyRequest`), and that HTTP
-    // path does not depend on the WSS client `.stop()` just tore down. Recreating early would hand
-    // the retry an unauthenticated transport instead. Once every pending key is cleared, recreate
-    // so a later start() never reuses a transport that went through `.stop()`.
-    if (this.#pendingAgentApiKeyRevokes.size === 0) {
-      this.#transport = this.#transportFactory.create(this.#connection);
-    }
+    // Recreate so a later start() never reuses a transport that went through `.stop()`.
+    this.#transport = this.#transportFactory.create(this.#connection);
     if (shutdownError !== undefined) throw shutdownError;
   }
 }
