@@ -58,7 +58,7 @@ export const TOOL_LABELS: Readonly<Record<string, string>> = {
   todo_write: "Updating tasks",
   send_message: "Sending message",
   check_messages: "Checking messages",
-  check_inbox: "Checking inbox",
+  check_inbox: "Checking messages",
   receive_message: "Checking messages",
   wait_for_message: "Waiting for messages",
   read_history: "Reading history",

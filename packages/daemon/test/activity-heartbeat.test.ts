@@ -620,7 +620,7 @@ test("`coforge message check` reports checking_messages with a generic detail la
   }
 });
 
-test("`coforge inbox check` presents the local inbox view as checking inbox", async () => {
+test("`coforge inbox check` uses the existing checking-messages Activity path", async () => {
   const { runtime, activities, emitEvent } = await harness();
   try {
     activities.length = 0;
@@ -633,7 +633,7 @@ test("`coforge inbox check` presents the local inbox view as checking inbox", as
     expect(activities).toHaveLength(1);
     expect(activities[0]).toMatchObject({
       detailKind: "checking_messages",
-      detail: "Checking inbox…",
+      detail: "Checking messages…",
       entries: [{ kind: "tool_start", toolName: "check_inbox" }],
     });
   } finally {
