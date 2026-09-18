@@ -122,7 +122,7 @@ function DirectorySection({
           aria-expanded={expanded}
           aria-controls={listId}
           onPress={onToggle}
-          className="min-w-0 flex-1 justify-start pr-2 pl-0 text-quaternary group-hover/section:text-tertiary hover:bg-transparent"
+          className="min-w-0 flex-1 justify-start pr-2 pl-0 text-quaternary group-hover/section:text-tertiary hover:bg-transparent!"
           iconLeading={
             <ChevronRight
               aria-hidden="true"
@@ -192,7 +192,7 @@ export function ConversationDirectory({
                 tooltip={m.channel_create()}
                 aria-label={m.channel_create()}
                 onClick={onCreateChannel}
-                className="shrink-0 hover:bg-transparent"
+                className="shrink-0 hover:bg-transparent!"
               />
             ) : undefined
           }
