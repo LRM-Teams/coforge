@@ -124,14 +124,20 @@ function summarizeBash(command: unknown): {
   const tokens = tokenizeShellCommand(command);
   const first = tokens[0];
   if (tokens.length > 1 && first !== undefined && isCoforgeInvocation(first)) {
+    // An unrecognized subcommand has no semantic identity to report, so it falls through to
+    // the ordinary command summary below rather than reporting a name that stands for
+    // "some CoForge command" — the reference client's own rule (Raft Computer 1.0.32's
+    // `resolveRaftCliInvocation` returns null for a pair its closed set does not contain,
+    // leaving an ordinary `bash`/`running_command` Activity).
     const invocation = resolveCoforgeInvocation(tokens);
-    return {
-      detailKind: invocation.checkingMessages
-        ? AGENT_ACTIVITY_DETAIL_KIND.CHECKING_MESSAGES
-        : AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED,
-      summary: invocation.summary,
-      toolName: invocation.tool,
-    };
+    if (invocation)
+      return {
+        detailKind: invocation.checkingMessages
+          ? AGENT_ACTIVITY_DETAIL_KIND.CHECKING_MESSAGES
+          : AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED,
+        summary: invocation.summary,
+        toolName: invocation.tool,
+      };
   }
   // Never let a heredoc body (or anything after it) reach the Activity
   // detail; cut before redacting and truncating to the first 100 Unicode
@@ -151,7 +157,9 @@ function isCoforgeInvocation(token: string): boolean {
 
 type CoforgeInvocation = { tool: string; summary?: string; checkingMessages?: boolean };
 
-function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation {
+/** The semantic identity of a recognized CoForge subcommand, or `null` when this command has
+ * none and belongs in the ordinary command Activity. */
+function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation | null {
   const category = tokens[1];
   const sub = tokens[2];
   if (category === "message" && sub !== undefined) {
@@ -165,8 +173,10 @@ function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation 
       };
     if (sub === "resolve") return { tool: "resolve_message" };
     if (sub === "react") return { tool: "react_message" };
-  } else if (category === "inbox" && sub === "check") {
-    return { tool: "check_inbox", checkingMessages: true };
+    // `inbox check` is deliberately absent: the reference client's semantic map contains
+    // `message check` and not it, so it stays an ordinary command Activity here too. The two
+    // commands answer different questions — the Computer's own held view versus a server
+    // drain — and only the drain has a semantic identity in that vocabulary.
   } else if (category === "channel" && (sub === "mute" || sub === "unmute")) {
     return {
       tool: sub === "mute" ? "mute_channel" : "unmute_channel",
@@ -212,7 +222,7 @@ function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation 
   } else if (category === "profile" && sub === "update") {
     return { tool: "update_profile" };
   }
-  return { tool: "coforge_cli" };
+  return null;
 }
 
 function flagValue(tokens: readonly string[], flag: string): string | undefined {

@@ -164,8 +164,11 @@ token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是
 当命令的第一个 token 是 `coforge` 或以 `/coforge` 结尾的路径时，Daemon 把它解析为语义
 工具，只记录该工具预先约定的安全摘要字段作为 `toolInput`，从不使用原始命令行或消息正文
 （`message send` 之后的 heredoc 消息体同样不会出现在 `message` 或 `toolInput` 里）；
-`message check`/`inbox check` 使用 `checking_messages` 而不是 `running_command`/
-`tool_started`：
+`message check` 使用 `checking_messages` 而不是 `running_command`/`tool_started`。语义工具集是
+一个封闭集合，与参考客户端（Raft Computer 1.0.32 的 `resolveRaftCliInvocation`）保持一致：
+集合内的子命令才有语义身份，集合外的一律照普通命令上报，不再有代表"某个 CoForge 命令"的
+占位工具名。`inbox check` 不在集合内——它问的是 Computer 本地还握着什么，服务端 drain 才是
+`message check`：
 
 | CoForge CLI 子命令 | 语义工具 | `toolInput` 摘要 |
 | --- | --- | --- |
@@ -174,7 +177,6 @@ token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是
 | `message read` | `read_history` | `--target` |
 | `message search` | `search_messages` | `--query`（截断到 120 字符） |
 | `message resolve` / `message react` | `resolve_message` / `react_message` | 无 |
-| `inbox check` | `check_inbox`（`checking_messages`） | 无 |
 | `channel mute` / `unmute` | `mute_channel` / `unmute_channel` | `--target` |
 | `thread unfollow` | `unfollow_thread` | `--target` |
 | `task list/create/convert/claim/unclaim/assign/update/amend/history/delete/receipt` | `list_tasks` 等对应的 `*_task(s)` | `--target`，若有 `--number` 则附加 `#<n>` |
@@ -183,7 +185,7 @@ token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是
 | `reminder list` | `list_reminders` | 无 |
 | `reminder update/snooze/cancel/log/ack/dismiss` | 对应的 `*_reminder`/`reminder_log` | `--id` 前 8 位 |
 | `weekly-report *` | `weekly_report` | 无 |
-| 其他 `coforge` 子命令 | `coforge_cli` | 无 |
+| 其他 `coforge` 子命令（含 `inbox check`、`workspace info`） | 无语义工具：照普通命令上报 `bash`/`running_command`，`toolInput` 为脱敏截断后的命令本身 |
 
 `glob`、`grep`、`web_fetch`、`web_search`、`todo_write` 等 Code Agent 工具同样只从一个预先
 约定的参数字段取 `toolInput` 摘要（`pattern`/`query`/`url`，均有长度上限），或在没有对应
