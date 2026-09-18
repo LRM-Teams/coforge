@@ -36,7 +36,7 @@ import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
 import { MessageComposer } from "./message-composer";
 import { MessageBody } from "./message-body";
-import type { Mentionable } from "./mention-text";
+import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
 import { AttachmentCard, MessageRow, clockLabel, groupsWithPrevious } from "./message-row";
 import {
   OwnMessagesMenu,
@@ -681,6 +681,13 @@ export function ConversationPane({
     fallback: loadedOwnMessages,
   });
   const ownMessages = ownIndex.messages;
+  // The own-messages index shows the stored body, which spells a mention as its raw
+  // `<@agent:uuid>` token. Resolve those to `@handle` the way the message list does, using the
+  // conversation's known mentionables. Applies to channels too (both render through here).
+  const formatIndexBody = useMemo(
+    () => makeMentionBodyFormatter(conversation.mentionables ?? []),
+    [conversation.mentionables],
+  );
   const listRef = useRef<HTMLOListElement>(null);
   const messagesRef = useRef(conversation.messages);
   messagesRef.current = conversation.messages;
@@ -1050,6 +1057,7 @@ export function ConversationPane({
                 menuRef={ownIndex.menuRef}
                 onLoadOlder={ownIndex.loadOlder}
                 onSelect={(messageId) => void showMessage(messageId)}
+                formatBody={formatIndexBody}
               />
             )}
             {ownMessages.length > 0 && !followingLatest && (

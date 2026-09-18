@@ -119,6 +119,7 @@ export function OwnMessagesMenu({
   menuRef,
   onLoadOlder,
   onSelect,
+  formatBody,
 }: {
   messages: OwnMessageIndexEntry[];
   loading: boolean;
@@ -127,7 +128,11 @@ export function OwnMessagesMenu({
   menuRef: RefObject<HTMLDivElement | null>;
   onLoadOlder: () => void;
   onSelect: (messageId: string) => void;
+  /** Renders a stored body for display — used to turn `<@agent:uuid>` mention tokens into their
+   * `@handle`, matching how the message list itself renders them. Identity when omitted. */
+  formatBody?: (body: string) => string;
 }) {
+  const display = (body: string) => (formatBody ? formatBody(body) : body);
   return (
     <Dropdown.Root
       isOpen={open}
@@ -197,7 +202,7 @@ export function OwnMessagesMenu({
             <AriaMenuItem
               key={message.id}
               id={message.id}
-              textValue={message.body || message.attachmentFileName}
+              textValue={display(message.body) || message.attachmentFileName}
               className="group block cursor-pointer px-1.5 py-px outline-hidden"
             >
               {(state) => (
@@ -210,7 +215,7 @@ export function OwnMessagesMenu({
                   )}
                 >
                   <span className="min-w-0 flex-1 truncate font-medium text-secondary">
-                    {message.body || message.attachmentFileName}
+                    {display(message.body) || message.attachmentFileName}
                   </span>
                   <RelativeTime
                     value={message.createdAt}

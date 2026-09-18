@@ -6,9 +6,32 @@
  * counts as a mention; the message renderer consumes it through `message-markdown.ts`.
  * Rendering is token-only by design (no legacy plain-`@handle` compatibility).
  */
+import { replaceMentionTokens } from "@lrm/coforge-sdk/internal";
 
 /** One resolved mention row as the browser message view carries it. */
 export type MentionRef = { kind: "user" | "agent"; actorId: string; handle: string };
+
+/**
+ * A function that rewrites a stored body's mention tokens (`<@agent:uuid>` / `<@human:uuid>`) to
+ * their `@handle`, using the given mentionables, or `undefined` when there is nothing to resolve.
+ * Used by list/summary views (e.g. the own-messages jump index) that show the stored body as
+ * plain text and would otherwise leak the raw token. An unknown token is left byte-for-byte
+ * intact (see `replaceMentionTokens`), so the caller degrades to the raw token rather than
+ * dropping it. This is only display formatting — the stored body and wake rules are unchanged.
+ */
+export function makeMentionBodyFormatter(
+  mentionables: readonly { kind: "user" | "agent"; id: string; handle: string }[],
+): ((body: string) => string) | undefined {
+  const handleById = new Map(
+    mentionables.map((mention) => [`${mention.kind}:${mention.id.toLowerCase()}`, mention.handle]),
+  );
+  if (handleById.size === 0) return undefined;
+  return (body: string) =>
+    replaceMentionTokens(body, (type, id) => {
+      const handle = handleById.get(`${type}:${id.toLowerCase()}`);
+      return handle ? `@${handle}` : undefined;
+    });
+}
 
 export type Mentionable = {
   kind: "user" | "agent";
