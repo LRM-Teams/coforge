@@ -27,15 +27,16 @@ function stubLocalStorage(initial?: string) {
   return store;
 }
 
-afterEach(() => {
-  // @ts-expect-error clear test stub
-  delete globalThis.localStorage;
-});
+/** `delete globalThis.localStorage` needs a type-check suppression; this does not. */
+function removeLocalStorage() {
+  Reflect.deleteProperty(globalThis, "localStorage");
+}
+
+afterEach(removeLocalStorage);
 
 describe("Chat sidebar section collapse state", () => {
   test("reads nothing collapsed during SSR, where localStorage does not exist", () => {
-    // @ts-expect-error intentional deletion for SSR regression
-    delete globalThis.localStorage;
+    removeLocalStorage();
     expect(readCollapsedSections()).toEqual([]);
     expect(() => writeCollapsedSections(["channels"])).not.toThrow();
   });
