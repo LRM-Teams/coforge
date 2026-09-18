@@ -200,9 +200,7 @@ export function TaskDetailDialog({
             <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
               {confirmDelete ? (
                 <div className="flex flex-1 flex-wrap items-center gap-2">
-                  <p className="w-full text-sm text-error-primary">
-                    {m.tasks_delete_confirmation()}
-                  </p>
+                  <p className="w-full text-sm text-secondary">{m.tasks_delete_confirmation()}</p>
                   <Button
                     type="button"
                     size="sm"
