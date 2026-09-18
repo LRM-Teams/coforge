@@ -269,7 +269,6 @@ export function AgentsContent({
               {memberCount ? (
                 <Button
                   color="secondary"
-                  className="h-11 px-5"
                   onPress={() => (query ? setSearch("") : onMemberTypeChange("all"))}
                 >
                   {query ? m.agent_clear_search() : m.member_show_all()}

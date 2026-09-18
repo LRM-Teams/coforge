@@ -253,7 +253,7 @@ function NoComputers({ onAdd }: { onAdd: () => void }) {
         <EmptyDescription>{m.computer_empty_description()}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button size="md" className="h-11 px-5" iconLeading={Plus} onPress={onAdd}>
+        <Button iconLeading={Plus} onPress={onAdd}>
           {m.computer_add_title()}
         </Button>
       </EmptyContent>

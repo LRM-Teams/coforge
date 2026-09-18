@@ -52,7 +52,12 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
           <PageHeader
             heading={m.navigation_chat()}
             actions={
-              <Button size="sm" iconLeading={Plus} onPress={() => setCreating(true)}>
+              <Button
+                size="sm"
+                color="secondary"
+                iconLeading={Plus}
+                onPress={() => setCreating(true)}
+              >
                 {m.channel_create()}
               </Button>
             }

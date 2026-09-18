@@ -175,13 +175,12 @@ export function AgentCreateDialog({
                   <Button
                     type="button"
                     color="secondary"
-                    size="lg"
                     isDisabled={submitting}
                     onPress={() => onOpenChange(false)}
                   >
                     {m.controls_cancel()}
                   </Button>
-                  <Button type="submit" size="lg" isDisabled={submitting}>
+                  <Button type="submit" isDisabled={submitting}>
                     {submitting ? m.agent_form_submitting() : m.agent_form_submit()}
                   </Button>
                 </div>
@@ -203,11 +202,7 @@ export function AgentCreateDialog({
                   <Button color="secondary" onPress={() => onOpenChange(false)}>
                     {m.controls_cancel()}
                   </Button>
-                  <Button
-                    href={localizeHref("/computers")}
-                    className="h-11"
-                    onPress={() => onOpenChange(false)}
-                  >
+                  <Button href={localizeHref("/computers")} onPress={() => onOpenChange(false)}>
                     {m.agent_connect_computer()}
                   </Button>
                 </div>

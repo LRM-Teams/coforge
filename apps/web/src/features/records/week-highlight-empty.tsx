@@ -62,7 +62,7 @@ export function WeekHighlightEmpty(props: {
         </EmptyHeader>
         <EmptyContent>
           <Button
-            size="md"
+            color="secondary"
             isDisabled={!props.canGenerate || busy}
             isLoading={busy}
             onClick={() => void onGenerate()}
