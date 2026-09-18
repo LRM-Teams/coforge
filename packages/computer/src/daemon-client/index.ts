@@ -6,6 +6,9 @@ export function createCommand(input: {
   daemon: DaemonCommandRunner;
   logger?: Logger;
   resolveWorkspace?: (selector: string) => Promise<string>;
+  /** Progress lines for the user's terminal, mirroring what `upgrade` already prints. Omit to
+   * run silently (tests, internal callers); structured logging below is unaffected. */
+  write?: (line: string) => void;
 }): {
   start(workspace?: string): Promise<void>;
   stop(workspace?: string): Promise<void>;
@@ -15,12 +18,15 @@ export function createCommand(input: {
 } {
   const scope = (workspace?: string) =>
     workspace && input.resolveWorkspace ? input.resolveWorkspace(workspace) : workspace;
+  const write = input.write ?? (() => {});
   return {
     async start(workspace) {
       input.logger?.info("Computer start requested", { event: "computer:starting" });
+      write("Starting CoForge...");
       await input.daemon.ensureRunning();
       await input.daemon.command("start", await scope(workspace));
       input.logger?.info("Computer start completed", { event: "computer:started" });
+      write("CoForge started. Your Workspaces are online.");
     },
     async stop(workspace) {
       input.logger?.info("Computer stop requested", { event: "computer:stopping" });
@@ -30,9 +36,15 @@ export function createCommand(input: {
     },
     async restart(workspace) {
       input.logger?.info("Computer restart requested", { event: "computer:restarting" });
+      write(workspace ? `Restarting Workspace ${workspace}...` : "Restarting CoForge...");
       await input.daemon.ensureRunning();
       const runtimes = await input.daemon.command("restart", await scope(workspace));
       input.logger?.info("Computer restart completed", { event: "computer:restarted" });
+      write(
+        workspace
+          ? `Workspace ${workspace} restarted and is back online.`
+          : "CoForge restarted. Your Workspaces are back online.",
+      );
       return runtimes;
     },
   };
