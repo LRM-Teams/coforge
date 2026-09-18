@@ -15,6 +15,7 @@ export const agentApiRoutes = {
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
     actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
+    weeklyReportCollect: { method: "POST", path: "/api/agent/v1/weekly-report-collect" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
     users: {
@@ -33,6 +34,7 @@ export const agentApiRoutes = {
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
     actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
+    weeklyReportCollect: { method: "POST", path: "/api/agent/v1/weekly-report-collect" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
     attachments: {
@@ -156,6 +158,7 @@ export const agentApiRoutes = {
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
     actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
+    weeklyReportCollect: { method: "POST", path: "/api/agent/v1/weekly-report-collect" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     attachments: {
       method: "GET",

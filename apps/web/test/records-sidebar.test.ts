@@ -2,50 +2,49 @@ import { expect, test } from "bun:test";
 
 import {
   RECORDS_SIDEBAR_PREVIEW_LIMIT,
-  latestMemberWeekLanding,
-  latestWeeklyHighlight,
   latestWeeklyLanding,
   sidebarPreview,
 } from "../src/features/records/records-sidebar";
 
-test("latestWeeklyHighlight picks the newest ISO week", () => {
-  const latest = latestWeeklyHighlight([
-    { id: "w35", year: 2026, week: 35 },
-    { id: "w36", year: 2026, week: 36 },
-    { id: "prev", year: 2025, week: 52 },
-  ]);
-  expect(latest?.id).toBe("w36");
-});
-
-test("latestWeeklyHighlight is undefined when the catalog has no highlights", () => {
-  expect(latestWeeklyHighlight([])).toBeUndefined();
-});
-
-test("latestMemberWeekLanding prefers highlight id on the newest week", () => {
-  expect(
-    latestMemberWeekLanding([
-      { year: 2026, week: 35, highlightId: "hl-35" },
-      { year: 2026, week: 36, highlightId: "hl-36" },
-    ]),
-  ).toEqual({ kind: "highlight", id: "hl-36" });
-});
-
-test("latestMemberWeekLanding falls back to the week empty route when highlight is missing", () => {
-  expect(
-    latestMemberWeekLanding([
-      { year: 2026, week: 38, highlightId: null },
-      { year: 2026, week: 37, highlightId: "hl-37" },
-    ]),
-  ).toEqual({ kind: "week", year: 2026, week: 38 });
-});
-
-test("latestWeeklyLanding falls back to catalog highlights when member weeks are empty", () => {
+test("latestWeeklyLanding prefers the first submission on the newest week", () => {
   expect(
     latestWeeklyLanding({
-      memberWeeks: [],
-      highlights: [{ id: "hl-36", year: 2026, week: 36 }],
+      memberWeeks: [
+        {
+          year: 2026,
+          week: 35,
+          overviewReportId: "ov-35",
+          submissions: [{ id: "sub-35" }],
+        },
+        {
+          year: 2026,
+          week: 36,
+          overviewReportId: "ov-36",
+          submissions: [{ id: "sub-36a" }, { id: "sub-36b" }],
+        },
+      ],
     }),
-  ).toEqual({ kind: "highlight", id: "hl-36" });
+  ).toEqual({ kind: "report", id: "sub-36a" });
+});
+
+test("latestWeeklyLanding falls back to overviewReportId when submissions are empty", () => {
+  expect(
+    latestWeeklyLanding({
+      memberWeeks: [
+        { year: 2026, week: 38, overviewReportId: "ov-38", submissions: [] },
+        {
+          year: 2026,
+          week: 37,
+          overviewReportId: "ov-37",
+          submissions: [{ id: "sub-37" }],
+        },
+      ],
+    }),
+  ).toEqual({ kind: "report", id: "ov-38" });
+});
+
+test("latestWeeklyLanding is undefined when member weeks are empty", () => {
+  expect(latestWeeklyLanding({ memberWeeks: [] })).toBeUndefined();
 });
 
 test("sidebarPreview hides rows past the design preview limit", () => {

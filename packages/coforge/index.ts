@@ -152,6 +152,26 @@ export type WeeklyReportInvocation = {
   command: "weekly-report";
   weeklyReport: WeeklyReportCommand;
 };
+export type WeeklyReportCollectCommand = {
+  requestId: string;
+  runId: string;
+  outcome: "ready" | "empty" | "failed";
+  packMarkdown?: string;
+  failureReason?: string;
+};
+export type WeeklyReportCollectResult = {
+  requestId: string;
+  runId: string;
+  status: string;
+  allTerminal: boolean;
+  canSynthesize: boolean;
+};
+export type WeeklyReportCollectInvocation = {
+  command: "weekly-report-collect";
+  collect: WeeklyReportCollectCommand;
+  /** When set, `run` loads this file into `collect.packMarkdown` before posting. */
+  markdownPath?: string;
+};
 export type ActionPrepareInvocation = { command: "action-prepare"; target: string };
 export type ActionPrepareResult = { messageId?: string; metadata?: { kind: string } };
 export type ManualInvocation =
@@ -209,6 +229,7 @@ export type MessageTransport = {
   task?(command: TaskCommand): Promise<TaskResult>;
   workspaceInfo?(): Promise<WorkspaceInfoResult>;
   weeklyReport?(command: WeeklyReportCommand): Promise<WeeklyReportResponse>;
+  weeklyReportCollect?(command: WeeklyReportCollectCommand): Promise<WeeklyReportCollectResult>;
   githubCredential?(): Promise<GitHubCredentialResponse>;
   actionPrepare?(target: string, action: ActionCardAction): Promise<ActionPrepareResult>;
   manualGet?(topic: string, intent: string, reason: string): Promise<AgentManualGetResponse>;
@@ -240,6 +261,7 @@ export function parseArgs(
   | TaskInvocation
   | WorkspaceInfoInvocation
   | WeeklyReportInvocation
+  | WeeklyReportCollectInvocation
   | ActionPrepareInvocation
   | ManualInvocation
   | WhoamiInvocation
@@ -257,6 +279,7 @@ export function parseArgs(
   if (args[0] === "workspace" && args[1] === "info") return parseWorkspaceInfoArgs(args.slice(2));
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (args[0] === "task") return parseTaskArgs(args.slice(1));
+  if (args[0] === "weekly-report-collect") return parseWeeklyReportCollectArgs(args.slice(1));
   if (args[0] === "weekly-report") return parseWeeklyReportArgs(args.slice(1));
   if (args[0] === "action" && args[1] === "prepare") return parseActionPrepareArgs(args.slice(2));
   if (
@@ -526,7 +549,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge action prepare --target <target> | coforge manual get <topic> --intent <text> --reason <text> | coforge manual search \"<keywords>\" --intent <text> --reason <text> | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> --intent <text> --reason <text> | coforge manual search \"<keywords>\" --intent <text> --reason <text> | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
   );
 }
 
@@ -1049,6 +1072,17 @@ export async function run(args: readonly string[], transport: MessageTransport):
   if (invocation.command === "weekly-report") {
     if (!transport.weeklyReport) throw new Error("Weekly report transport is unavailable");
     return transport.weeklyReport(invocation.weeklyReport);
+  }
+  if (invocation.command === "weekly-report-collect") {
+    if (!transport.weeklyReportCollect)
+      throw new Error("Weekly report collect transport is unavailable");
+    let collect = invocation.collect;
+    if (invocation.markdownPath) {
+      const packMarkdown = await Bun.file(invocation.markdownPath).text();
+      collect = { ...collect, packMarkdown };
+    }
+    const result = await transport.weeklyReportCollect(collect);
+    return `Collect slot ${result.status} (run ${result.runId}; allTerminal=${result.allTerminal}; canSynthesize=${result.canSynthesize}).`;
   }
   if (invocation.command === "action-prepare") {
     if (!transport.actionPrepare) throw new Error("Action transport is unavailable");
@@ -1782,6 +1816,55 @@ function formatReminderResponse(
 
 const WEEKLY_REPORT_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseWeeklyReportCollectArgs(args: readonly string[]): WeeklyReportCollectInvocation {
+  const operation = args[0];
+  if (operation !== "submit-pack" && operation !== "submit-empty" && operation !== "submit-failure")
+    throw new Error("Usage:");
+  const values = new Map<string, string>();
+  for (let index = 1; index < args.length; index++) {
+    const name = args[index];
+    const value = args[++index];
+    if (!name?.startsWith("--") || !value || value.startsWith("--") || values.has(name))
+      throw new Error("Usage:");
+    values.set(name, value);
+  }
+  const runId = values.get("--run-id");
+  const requestId = values.get("--request-id");
+  if (
+    !runId ||
+    !WEEKLY_REPORT_UUID.test(runId) ||
+    !requestId ||
+    !WEEKLY_REPORT_UUID.test(requestId)
+  )
+    throw new Error("Usage:");
+  if (operation === "submit-pack") {
+    const markdownPath = values.get("--markdown");
+    if (!markdownPath || values.size !== 3) throw new Error("Usage:");
+    return {
+      command: "weekly-report-collect",
+      markdownPath,
+      collect: {
+        requestId,
+        runId,
+        outcome: "ready",
+      },
+    };
+  }
+  if (operation === "submit-empty") {
+    if (values.size !== 2) throw new Error("Usage:");
+    return {
+      command: "weekly-report-collect",
+      collect: { requestId, runId, outcome: "empty" },
+    };
+  }
+  const reason = values.get("--reason");
+  if (!reason || values.size !== 3) throw new Error("Usage:");
+  return {
+    command: "weekly-report-collect",
+    collect: { requestId, runId, outcome: "failed", failureReason: reason },
+  };
+}
 
 function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation {
   const operation = args[0];

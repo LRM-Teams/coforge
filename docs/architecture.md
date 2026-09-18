@@ -18,7 +18,7 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 - 云端业务控制面、实时传输面与本地执行面边界清晰；
 - 先以最少服务跑通纵向链路，不提前引入 Kubernetes 或微服务拆分。
 
-首版是消息系统，不是命令或工作流平台。当前垂直切片支持一个 Workspace 内 User↔Agent 的 DirectConversation，以及真人和 Agent 参与的公开频道。频道通知遵循成员 mute 设置与真人个人 mention 规则，Agent 发言不自动唤醒其他 Agent。run、stream event、generic job 和 workflow 暂不进入骨架核心。
+首版是消息系统，不是命令或工作流平台。当前垂直切片支持一个 Workspace 内 User↔Agent 的 DirectConversation，以及真人和 Agent 参与的公开频道。频道通知遵循成员 mute 设置与真人个人 mention 规则，Agent 发言不自动唤醒其他 Agent。run、stream event、generic job 和 workflow 暂不进入骨架核心。周报多机采集的窄域 Collect Run（[ADR 0032](adr/0032-weekly-report-collectors-and-collect-run.md)）是 Records 专用例外，不得推广为通用工作流引擎。
 
 ## 2. 总体拓扑
 
@@ -178,8 +178,12 @@ Daemon 到 Web/backend 的 Agent message read/search/send 使用独立的 HTTPS 
 config 的 `serverHttpUrl`（启动时可由 `COFORGE_SERVER_HTTP_URL` 注入）。未配置
 时请求 fail closed，绝不回退到 WSS。周报助手的按需读取同样走该 HTTPS 边界上的
 `POST /api/agent/v1/weekly-reports`（`context` / `list` / `read`），鉴权主体是助手所属 User 的
-既有 Records 可见性，而不是 Agent 身份本身。Server→Daemon 的 delivery、ready、ACK
-和 heartbeat/control 仍使用 daemon 唯一的 outbound WSS/RPC 连接。Daemon API key
+既有 Records 可见性，而不是 Agent 身份本身。周报采集 Agent（WeeklyReportCollector）在同
+一 HTTPS 族上报采集包与槽位失败（具体 path 在实现 CR 中固定），完成边界是该 HTTPS 提交
+或平台 settle 超时，而不是 `agent:deliver` ACK，也不是 best-effort Agent Activity；不新增
+WSS 业务 RPC 传 pack（见 [ADR 0032](adr/0032-weekly-report-collectors-and-collect-run.md)）。
+Server→Daemon 的 delivery、ready、ACK 和 heartbeat/control 仍使用 daemon 唯一的 outbound
+WSS/RPC 连接。Daemon API key
 认证出的 `(workspace_id, computer_id)` 是服务端定向投递身份；Connect Proxy 在认证连接时把它绑定到
 `daemon:<workspace_id>:<computer_id>` control stream，Daemon 不再为同一 channel 发起第二次客户端订阅。
 这里的 stream/channel 是 Centrifugo 的定向路由机制，不是业务实体。Agent start、message delivery、runtime usage scan
@@ -401,7 +405,7 @@ PostgreSQL 的首要领域对象是：
 - `participant`
 - `message`
 - Workspace Records（周报）：`weekly_report_cycles`、`weekly_reports`、
-  `weekly_report_highlights`、`weekly_report_favorites`、`weekly_report_templates`、
+  `weekly_report_favorites`、`weekly_report_templates`、
   `weekly_report_assistants`、`record_notes`、`record_comments`（见 ADR 0009 / ADR 0011；schema
   变更需 Frank 批准）。`weekly_report_assistants` 将一个 User 在一个 Workspace
   内的固定周报助手 Agent 归属持久化为 `(workspaceId, userId)` 唯一关系；助手仍复用
@@ -411,6 +415,13 @@ PostgreSQL 的首要领域对象是：
   CoForge 分配的 Skills 写入该 Agent workspace 的 provider 原生 project scope，且不覆盖
   已有同名 skill。页级助手请求复用现有 User–Agent DM（不新增浏览器 WebSocket）；请求正文
   携带 compact context envelope，不含完整报告正文。
+  多机 OS 采集→按模板合成由 [ADR 0032](adr/0032-weekly-report-collectors-and-collect-run.md)
+  规定：每台用户自有 Computer 至多一个 WeeklyReportCollector（`weekly_report_collector_bindings`）；
+  平台用窄域 `weekly_report_collect_runs` + `weekly_report_collect_slots` 做并行采集 settle（每波
+  15 分钟上限、每槽位至多一次自动重试、部分成功仍合成）；扫盘路径以 Computer 本地
+  collect-roots 为准，Run slot 只存当次路径快照；合成仍由 WeeklyReportAssistant 经确认
+  suggestion 写入成员周报，助手不得自动发送。Collect Run **不是** Workspace 通用
+  job/workflow，也不是 durable command mailbox。
 
 `run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 内容由 backend 设计评审确定，数据访问标准为 Prisma。
 

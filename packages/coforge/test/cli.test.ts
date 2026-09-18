@@ -2324,6 +2324,77 @@ test("send results hide the internal model cursor from Agent output", async () =
   expect(output).not.toContain("seenUpToSequence");
 });
 
+test("weekly-report-collect CLI parses submit-pack and dispatches the transport", async () => {
+  const packPath = `${tmpdir()}/coforge-collect-pack-${crypto.randomUUID()}.md`;
+  await Bun.write(packPath, "# pack\n");
+  try {
+    const invocation = parseArgs([
+      "weekly-report-collect",
+      "submit-pack",
+      "--run-id",
+      "22222222-2222-4222-8222-222222222222",
+      "--request-id",
+      "11111111-1111-4111-8111-111111111111",
+      "--markdown",
+      packPath,
+    ]);
+    expect(invocation).toEqual({
+      command: "weekly-report-collect",
+      markdownPath: packPath,
+      collect: {
+        requestId: "11111111-1111-4111-8111-111111111111",
+        runId: "22222222-2222-4222-8222-222222222222",
+        outcome: "ready",
+      },
+    });
+    const calls: unknown[] = [];
+    const output = await run(
+      [
+        "weekly-report-collect",
+        "submit-empty",
+        "--run-id",
+        "22222222-2222-4222-8222-222222222222",
+        "--request-id",
+        "11111111-1111-4111-8111-111111111111",
+      ],
+      {
+        check: async () => {
+          throw new Error("message check called");
+        },
+        read: async () => {
+          throw new Error("message read called");
+        },
+        send: async () => {
+          throw new Error("message send called");
+        },
+        view: async () => {
+          throw new Error("attachment view called");
+        },
+        weeklyReportCollect: async (command) => {
+          calls.push(command);
+          return {
+            requestId: command.requestId,
+            runId: command.runId,
+            status: "collecting",
+            allTerminal: true,
+            canSynthesize: false,
+          };
+        },
+      },
+    );
+    expect(calls).toEqual([
+      {
+        requestId: "11111111-1111-4111-8111-111111111111",
+        runId: "22222222-2222-4222-8222-222222222222",
+        outcome: "empty",
+      },
+    ]);
+    expect(output).toContain("Collect slot collecting");
+  } finally {
+    await rm(packPath, { force: true });
+  }
+});
+
 test("weekly-report CLI parses bounded reads and dispatches the transport", async () => {
   const invocation = parseArgs([
     "weekly-report",

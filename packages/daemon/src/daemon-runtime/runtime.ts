@@ -3051,6 +3051,20 @@ export class DaemonRuntime {
     );
   }
 
+  /** Forwards Collect Run pack submit over Agent HTTPS (ADR 0032 return path). */
+  async agentWeeklyReportCollect(
+    context: string,
+    command: import("../connection/weekly-report-collect").WeeklyReportCollectCommand,
+    agentApiKey?: string,
+  ): Promise<import("../connection/weekly-report-collect").WeeklyReportCollectResult> {
+    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    this.#agentIdForContext(context);
+    if (!this.#transport.agentWeeklyReportCollect)
+      throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.agentWeeklyReportCollect(command, agentApiKey);
+  }
+
   async #canonicalAgentMessageTarget(
     agentId: string,
     target: string,

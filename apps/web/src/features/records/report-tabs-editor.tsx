@@ -23,6 +23,7 @@ export function ReportTabsEditor({
   editable = true,
   editableTabs = false,
   placeholder,
+  contentRevision = 0,
   onChange,
   onBlur,
   onUploadFile,
@@ -31,6 +32,8 @@ export function ReportTabsEditor({
   editable?: boolean;
   editableTabs?: boolean;
   placeholder: string;
+  /** Bump to remount the active section editor (e.g. assistant insert). */
+  contentRevision?: number;
   onChange: (content: ReportContent) => void;
   onBlur?: () => void;
   onUploadFile?: (file: File) => Promise<UploadResult | null>;
@@ -275,7 +278,7 @@ export function ReportTabsEditor({
 
       {editableTabs ? (
         <LeaderFormatSectionsEditor
-          key={activeTab}
+          key={`${activeTab}:${contentRevision}`}
           defaultValue={activeContent}
           onUpdate={updateMarkdown}
           onBlur={onBlur}
@@ -283,7 +286,7 @@ export function ReportTabsEditor({
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
           <ReportSectionEditor
-            key={activeTab}
+            key={`${activeTab}:${contentRevision}`}
             defaultValue={activeContent}
             placeholder={placeholder}
             className="min-h-[55vh] pb-[30vh]"

@@ -73,6 +73,10 @@ interface TextFieldProps extends AriaTextFieldProps {
     rows?: number;
     /** Visible width of textarea in columns. */
     cols?: number;
+    /** Native textarea key / IME handlers (Enter-to-send, etc.). */
+    onTextAreaKeyDown?: TextAreaBaseProps["onKeyDown"];
+    onTextAreaCompositionStart?: TextAreaBaseProps["onCompositionStart"];
+    onTextAreaCompositionEnd?: TextAreaBaseProps["onCompositionEnd"];
 }
 
 export const TextArea = ({
@@ -87,6 +91,9 @@ export const TextArea = ({
     rows,
     cols,
     size = "md",
+    onTextAreaKeyDown,
+    onTextAreaCompositionStart,
+    onTextAreaCompositionEnd,
     ...props
 }: TextFieldProps) => {
     return (
@@ -104,7 +111,17 @@ export const TextArea = ({
                         </Label>
                     )}
 
-                    <TextAreaBase placeholder={placeholder} className={textAreaClassName} ref={textAreaRef} rows={rows} cols={cols} size={size} />
+                    <TextAreaBase
+                        placeholder={placeholder}
+                        className={textAreaClassName}
+                        ref={textAreaRef}
+                        rows={rows}
+                        cols={cols}
+                        size={size}
+                        onKeyDown={onTextAreaKeyDown}
+                        onCompositionStart={onTextAreaCompositionStart}
+                        onCompositionEnd={onTextAreaCompositionEnd}
+                    />
 
                     {hint && (
                         <HintText isInvalid={isInvalid} size={size}>

@@ -4,6 +4,7 @@ import {
   resolveReleaseFeedUrl,
   resolveServerUrl,
 } from "../../packages/computer/src/release-channel";
+import { zodResolvePlugin } from "../bun-resolve-zod-plugin";
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");
 
@@ -42,6 +43,7 @@ const result = await Bun.build({
     ? { compile: { outfile } }
     : { target: "bun" as const, outdir: join(packageDirectory, "dist") }),
   define,
+  plugins: [zodResolvePlugin(REPO_ROOT)],
 });
 
 if (!result.success) {

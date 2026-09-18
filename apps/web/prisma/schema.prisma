@@ -18,7 +18,10 @@ model Workspace {
   computerRuntimes       ComputerRuntime[]
   modelCatalogs          ComputerModelCatalog[]
   agents                 Agent[]
-  weeklyReportAssistants WeeklyReportAssistant[]
+  weeklyReportAssistants       WeeklyReportAssistant[]
+  weeklyReportAssistantChatSessions WeeklyReportAssistantChatSession[]
+  weeklyReportCollectorBindings WeeklyReportCollectorBinding[]
+  weeklyReportCollectRuns      WeeklyReportCollectRun[]
   agentApiKeys           AgentApiKey[]
   daemonApiKeys          DaemonApiKey[]
   conversations          Conversation[]
@@ -34,7 +37,6 @@ model Workspace {
   actionCards            ActionCard[]
   weeklyReportCycles     WeeklyReportCycle[]
   weeklyReports          WeeklyReport[]
-  weeklyHighlights       WeeklyReportHighlight[]
   weeklyTemplates        WeeklyReportTemplate[]
   recordNotes            RecordNote[]
   recordComments         RecordComment[]
@@ -86,7 +88,10 @@ model User {
   sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
   receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
   agents                      Agent[]
-  weeklyReportAssistants      WeeklyReportAssistant[]
+  weeklyReportAssistants        WeeklyReportAssistant[]
+  weeklyReportAssistantChatSessions WeeklyReportAssistantChatSession[]
+  weeklyReportCollectorBindings WeeklyReportCollectorBinding[]
+  weeklyReportCollectRuns       WeeklyReportCollectRun[]
   agentApiKeys                AgentApiKey[]
   daemonApiKeys               DaemonApiKey[]
   computers                   Computer[]
@@ -218,7 +223,8 @@ model Agent {
   reminders                 Reminder[]
   reminderOperationReceipts ReminderOperationReceipt[]
   preparedActionCards       ActionCard[]
-  weeklyReportAssistant     WeeklyReportAssistant?
+  weeklyReportAssistant         WeeklyReportAssistant?
+  weeklyReportCollectorBinding  WeeklyReportCollectorBinding?
   attachments               Attachment[]
   attachmentUploadSessions  AttachmentUploadSession[]
 
@@ -228,6 +234,81 @@ model Agent {
   @@index([workspaceId, createdAt])
   @@index([computerId])
   @@map("agents")
+}
+
+/// One User's durable weekly-report Collector Agent on one owned Computer (ADR 0032).
+model WeeklyReportCollectorBinding {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspaceId      String    @db.Uuid
+  userId           String    @db.Uuid
+  computerId       String    @db.Uuid
+  collectorAgentId String    @unique @db.Uuid
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  computer         Computer  @relation(fields: [computerId], references: [id], onDelete: Cascade)
+  agent            Agent     @relation(fields: [collectorAgentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([workspaceId, userId, computerId])
+  @@unique([collectorAgentId, workspaceId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([computerId])
+  @@map("weekly_report_collector_bindings")
+}
+
+/// One Collect Run for a member weekly report (ADR 0032). Not a generic job.
+model WeeklyReportCollectRun {
+  id          String                  @id @default(uuid()) @db.Uuid
+  workspaceId String                  @db.Uuid
+  userId      String                  @db.Uuid
+  reportId    String                  @db.Uuid
+  /// collecting | synthesizing | awaiting_confirm | done | cancelled
+  status      String
+  /// week | month | quarter | year | custom
+  windowKind  String
+  windowStart DateTime
+  windowEnd   DateTime
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  workspace   Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  report      WeeklyReport            @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  slots       WeeklyReportCollectSlot[]
+
+  @@index([workspaceId, userId, reportId])
+  @@index([reportId, createdAt])
+  @@map("weekly_report_collect_runs")
+}
+
+/// Per-Computer slot inside a Collect Run.
+model WeeklyReportCollectSlot {
+  id               String                 @id @default(uuid()) @db.Uuid
+  runId            String                 @db.Uuid
+  computerId       String                 @db.Uuid
+  collectorAgentId String                 @db.Uuid
+  /// Path snapshot for this run only; Computer-local collect-roots remain authoritative.
+  scanPaths        Json
+  /// running | ready | failed | empty | stalled | cancelled
+  status           String
+  retryCount       Int                    @default(0)
+  failureReason    String?
+  /// Collect pack markdown when status=ready; null otherwise.
+  packMarkdown     String?
+  /// HTTPS submit-pack idempotency key when a pack or failure was accepted.
+  requestId        String?                @unique
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  run              WeeklyReportCollectRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  computer         Computer               @relation(fields: [computerId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, computerId])
+  @@index([runId])
+  @@index([computerId])
+  @@map("weekly_report_collect_slots")
 }
 
 /// One User's fixed Agent identity for weekly-report AI in one Workspace.
@@ -247,6 +328,28 @@ model WeeklyReportAssistant {
   @@index([workspaceId])
   @@index([userId])
   @@map("weekly_report_assistants")
+}
+
+/// Multica-style side-chat session scoped to one page subject (report/cycle).
+model WeeklyReportAssistantChatSession {
+  id          String          @id @default(uuid()) @db.Uuid
+  workspaceId String          @db.Uuid
+  userId      String          @db.Uuid
+  /// report | cycle
+  subjectType String
+  subjectId   String          @db.Uuid
+  title       String          @default("")
+  /// active | archived
+  status      String          @default("active")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comments    RecordComment[]
+
+  @@index([workspaceId, userId, subjectType, subjectId, updatedAt])
+  @@index([workspaceId, userId])
+  @@map("weekly_report_assistant_chat_sessions")
 }
 
 /// A provider-native Session belongs to the Agent and the Computer/runtime that created it.
@@ -430,12 +533,14 @@ model Computer {
   workspaces        WorkspaceComputer[]
   runtimes          ComputerRuntime[]
   modelCatalogs     ComputerModelCatalog[]
-  agents            Agent[]
-  agentApiKeys      AgentApiKey[]
-  daemonApiKeys     DaemonApiKey[]
-  agentActivity     AgentActivity[]
-  reminders         Reminder[]
-  owner             User                   @relation(fields: [ownerId], references: [id])
+  agents                        Agent[]
+  agentApiKeys                  AgentApiKey[]
+  daemonApiKeys                 DaemonApiKey[]
+  agentActivity                 AgentActivity[]
+  reminders                     Reminder[]
+  weeklyReportCollectorBindings WeeklyReportCollectorBinding[]
+  weeklyReportCollectSlots      WeeklyReportCollectSlot[]
+  owner                         User                   @relation(fields: [ownerId], references: [id])
 
   @@unique([ownerId, machineId])
   @@map("computers")
@@ -890,7 +995,7 @@ model ReminderFireReceipt {
   @@map("reminder_fire_receipts")
 }
 
-/// ISO week bucket for Workspace Records (成员周报 / 周报要点 grouping).
+/// ISO week bucket for Workspace Records (成员周报 grouping).
 model WeeklyReportCycle {
   id          String                 @id @default(uuid()) @db.Uuid
   workspaceId String                 @db.Uuid
@@ -902,7 +1007,6 @@ model WeeklyReportCycle {
   workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy   User                   @relation("WeeklyReportCycleCreator", fields: [createdById], references: [id], onDelete: Cascade)
   reports     WeeklyReport[]
-  highlight   WeeklyReportHighlight?
   comments    RecordComment[]        @relation("CycleComments")
 
   @@unique([workspaceId, year, week])
@@ -937,6 +1041,7 @@ model WeeklyReport {
   settings         WeeklyReportTemplate?  @relation(fields: [settingsId], references: [id], onDelete: SetNull)
   favorites        WeeklyReportFavorite[]
   comments         RecordComment[]        @relation("ReportComments")
+  collectRuns      WeeklyReportCollectRun[]
 
   @@index([workspaceId, authorId])
   @@index([cycleId, kind])
@@ -944,23 +1049,6 @@ model WeeklyReport {
   @@index([sourceTemplateId])
   @@index([settingsId])
   @@map("weekly_reports")
-}
-
-model WeeklyReportHighlight {
-  id          String            @id @default(uuid()) @db.Uuid
-  workspaceId String            @db.Uuid
-  cycleId     String            @unique @db.Uuid
-  title       String
-  content     Json
-  completedAt DateTime?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  cycle       WeeklyReportCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  comments    RecordComment[]   @relation("HighlightComments")
-
-  @@index([workspaceId])
-  @@map("weekly_report_highlights")
 }
 
 model WeeklyReportFavorite {
@@ -1035,28 +1123,29 @@ model RecordNote {
 
 /// Side-panel comments on Record subjects; assistant authorType reserved for future AI.
 model RecordComment {
-  id           String                 @id @default(uuid()) @db.Uuid
-  workspaceId  String                 @db.Uuid
-  /// report | highlight | cycle
-  subjectType  String
-  reportId     String?                @db.Uuid
-  highlightId  String?                @db.Uuid
-  cycleId      String?                @db.Uuid
+  id                 String                          @id @default(uuid()) @db.Uuid
+  workspaceId        String                          @db.Uuid
+  /// report | cycle
+  subjectType        String
+  reportId           String?                         @db.Uuid
+  cycleId            String?                         @db.Uuid
+  /// Optional Multica-style side-chat session; null = legacy pre-session rows.
+  assistantSessionId String?                         @db.Uuid
   /// user | system | assistant
-  authorType   String
-  authorUserId String?                @db.Uuid
-  body         String
-  payload      Json?
-  createdAt    DateTime               @default(now())
-  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  authorUser   User?                  @relation("RecordCommentAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
-  report       WeeklyReport?          @relation("ReportComments", fields: [reportId], references: [id], onDelete: Cascade)
-  highlight    WeeklyReportHighlight? @relation("HighlightComments", fields: [highlightId], references: [id], onDelete: Cascade)
-  cycle        WeeklyReportCycle?     @relation("CycleComments", fields: [cycleId], references: [id], onDelete: Cascade)
+  authorType         String
+  authorUserId       String?                         @db.Uuid
+  body               String
+  payload            Json?
+  createdAt          DateTime                        @default(now())
+  workspace          Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  authorUser         User?                           @relation("RecordCommentAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  report             WeeklyReport?                   @relation("ReportComments", fields: [reportId], references: [id], onDelete: Cascade)
+  cycle              WeeklyReportCycle?              @relation("CycleComments", fields: [cycleId], references: [id], onDelete: Cascade)
+  assistantSession   WeeklyReportAssistantChatSession? @relation(fields: [assistantSessionId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, subjectType, createdAt])
   @@index([reportId])
-  @@index([highlightId])
   @@index([cycleId])
+  @@index([assistantSessionId])
   @@map("record_comments")
 }

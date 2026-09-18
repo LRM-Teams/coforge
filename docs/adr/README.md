@@ -12,3 +12,9 @@ Name records `NNNN-short-title.md` and include:
 - validation and rollback criteria.
 
 Do not use an ADR to silently rewrite history. Supersede the old record and link both directions.
+
+## Index (selected)
+
+| ADR | Status | Topic |
+| --- | --- | --- |
+| [0032](0032-weekly-report-collectors-and-collect-run.md) | accepted | Weekly-report per-Computer collectors + narrow Collect Run |

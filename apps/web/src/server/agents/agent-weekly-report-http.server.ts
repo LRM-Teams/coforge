@@ -10,7 +10,7 @@ type WeeklyReportCatalog = {
   loadAssistantContextManifest(input: {
     workspaceId: string;
     userId: string;
-    subjectType: "report" | "highlight" | "cycle";
+    subjectType: "report" | "cycle";
     subjectId: string;
   }): Promise<unknown>;
   listAssistantVisibleReports(input: {

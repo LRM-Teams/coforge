@@ -20,6 +20,25 @@ describe("shouldSendOnEnter", () => {
     expect(shouldSendOnEnter({ ...baseEnter, shiftKey: true }, noComposition)).toBe(false);
   });
 
+  test("with newlineModifier ctrl, keeps Ctrl/Cmd+Enter as a newline and still sends plain Enter", () => {
+    expect(
+      shouldSendOnEnter({ ...baseEnter, ctrlKey: true }, noComposition, {
+        newlineModifier: "ctrl",
+      }),
+    ).toBe(false);
+    expect(
+      shouldSendOnEnter({ ...baseEnter, metaKey: true }, noComposition, {
+        newlineModifier: "ctrl",
+      }),
+    ).toBe(false);
+    expect(
+      shouldSendOnEnter({ ...baseEnter, shiftKey: true }, noComposition, {
+        newlineModifier: "ctrl",
+      }),
+    ).toBe(true);
+    expect(shouldSendOnEnter(baseEnter, noComposition, { newlineModifier: "ctrl" })).toBe(true);
+  });
+
   test("ignores non-Enter keys", () => {
     expect(shouldSendOnEnter({ ...baseEnter, key: "a" }, noComposition)).toBe(false);
   });

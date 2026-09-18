@@ -308,12 +308,11 @@ export function RecordsLayout({
                           const hasSubmissions = week.submissions.length > 0;
                           const weekSelected =
                             selectedWeekKey === week.key ||
-                            (week.highlightId != null && week.highlightId === selectedRecordId);
+                            week.overviewReportId === selectedRecordId ||
+                            week.submissions.some((item) => item.id === selectedRecordId);
                           const expanded =
                             expandedWeeks[week.key] ??
-                            ((Boolean(query) && hasSubmissions) ||
-                              weekSelected ||
-                              week.submissions.some((item) => item.id === selectedRecordId));
+                            ((Boolean(query) && hasSubmissions) || weekSelected);
                           return (
                             <li key={week.key} className="space-y-0.5">
                               <div className="flex min-w-0 items-center gap-1 rounded-lg">
@@ -348,32 +347,15 @@ export function RecordsLayout({
                                 ) : (
                                   <span className="size-7 shrink-0" aria-hidden="true" />
                                 )}
-                                {week.highlightId ? (
-                                  <RecordLink
-                                    recordId={week.highlightId}
-                                    selected={weekSelected}
-                                    onSelect={() => setShowMobileList(false)}
-                                    className="min-w-0 flex-1 font-medium"
-                                  >
-                                    <WeekBadge week={week.week} />
-                                    <span className="truncate">
-                                      {week.highlightGenerating
-                                        ? m.records_highlight_generating()
-                                        : week.title}
-                                    </span>
-                                  </RecordLink>
-                                ) : (
-                                  <WeekHighlightLink
-                                    year={week.year}
-                                    week={week.week}
-                                    selected={weekSelected}
-                                    onSelect={() => setShowMobileList(false)}
-                                    className="min-w-0 flex-1 font-medium"
-                                  >
-                                    <WeekBadge week={week.week} />
-                                    <span className="truncate">{week.title}</span>
-                                  </WeekHighlightLink>
-                                )}
+                                <RecordLink
+                                  recordId={week.overviewReportId}
+                                  selected={weekSelected}
+                                  onSelect={() => setShowMobileList(false)}
+                                  className="min-w-0 flex-1 font-medium"
+                                >
+                                  <WeekBadge week={week.week} />
+                                  <span className="truncate">{week.title}</span>
+                                </RecordLink>
                               </div>
                               {hasSubmissions && expanded ? (
                                 <ul className="ml-7 space-y-0.5">
@@ -766,40 +748,6 @@ function RecordLink({
     <Link
       to="/records/$recordId"
       params={{ recordId }}
-      search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
-      aria-current={selected ? "page" : undefined}
-      resetScroll={false}
-      onClick={onSelect}
-      className={cn(
-        "flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-primary transition-colors hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
-        selected && "bg-primary_hover font-medium",
-        className,
-      )}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function WeekHighlightLink({
-  year,
-  week,
-  selected,
-  onSelect,
-  className,
-  children,
-}: {
-  year: number;
-  week: number;
-  selected: boolean;
-  onSelect: () => void;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <Link
-      to="/records/weeks/$year/$week"
-      params={{ year: String(year), week: String(week) }}
       search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
       aria-current={selected ? "page" : undefined}
       resetScroll={false}

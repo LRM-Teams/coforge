@@ -132,6 +132,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
             displayName: true,
             description: true,
             weeklyReportAssistant: { select: { id: true } },
+            weeklyReportCollectorBinding: { select: { id: true } },
             workspace: { select: { slug: true, name: true } },
             computer: {
               select: {
@@ -197,12 +198,19 @@ export const Route = createFileRoute("/api/agent-api-keys")({
           // The lookup above already requires `computerId: principal.computerId`.
           computer: agent.computer,
         });
+        const assignedSkillPacks = agent.weeklyReportAssistant
+          ? (["weekly-report"] as const)
+          : agent.weeklyReportCollectorBinding
+            ? (["weekly-report-collect"] as const)
+            : [];
         return Response.json(
           {
             apiKey,
             providerConfig,
             envVars,
-            ...(agent.weeklyReportAssistant ? { assignedSkillPacks: ["weekly-report"] } : {}),
+            ...(assignedSkillPacks.length > 0
+              ? { assignedSkillPacks: [...assignedSkillPacks] }
+              : {}),
             ...(identity ? { identity } : {}),
           },
           { headers: { "cache-control": "no-store" } },

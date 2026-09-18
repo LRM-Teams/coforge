@@ -3,11 +3,13 @@ import { access, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { RUNTIME_PROVIDER, type RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import { WEEKLY_REPORT_SKILL_FILES } from "./skills/weekly-report";
+import { WEEKLY_REPORT_COLLECT_SKILL_FILES } from "./skills/weekly-report-collect";
 
-export type AssignedSkillPack = "weekly-report";
+export type AssignedSkillPack = "weekly-report" | "weekly-report-collect";
 
 const PACKS: Record<AssignedSkillPack, Readonly<Record<string, string>>> = {
   "weekly-report": WEEKLY_REPORT_SKILL_FILES,
+  "weekly-report-collect": WEEKLY_REPORT_COLLECT_SKILL_FILES,
 };
 
 /** Provider-native workspace Skills root for CoForge-assigned packs. */
@@ -71,6 +73,7 @@ export function parseAssignedSkillPacks(value: unknown): AssignedSkillPack[] {
   const packs: AssignedSkillPack[] = [];
   for (const entry of value) {
     if (entry === "weekly-report" && !packs.includes(entry)) packs.push(entry);
+    if (entry === "weekly-report-collect" && !packs.includes(entry)) packs.push(entry);
   }
   return packs;
 }

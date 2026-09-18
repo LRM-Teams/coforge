@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 
 import {
   alignReportContentToTemplate,
-  applyHighlightPromptText,
   clearReportContent,
   emptyReportContent,
   isAutoSendCancelled,
@@ -12,9 +11,6 @@ import {
   reportTabsEqual,
   withAssignmentUnread,
   withAutoSendCancelled,
-  HIGHLIGHT_PROGRESS_HEADING,
-  isHighlightGenerating,
-  normalizeHighlightContent,
 } from "@/features/records/records-content";
 
 test("emptyReportContent creates named display pages", () => {
@@ -137,29 +133,7 @@ test("withAutoSendCancelled stamps the ISO week and survives normalize", () => {
   expect(normalizeReportContent(next).schedule).toEqual({ cancelledYear: 2026, cancelledWeek: 38 });
 });
 
-test("applyHighlightPromptText pushes the previous prompt onto history", () => {
-  const first = applyHighlightPromptText(
-    undefined,
-    "prompt-a",
-    new Date("2026-09-12T03:23:34.000Z"),
-  );
-  expect(first).toEqual({
-    text: "prompt-a",
-    updatedAt: "2026-09-12T03:23:34.000Z",
-    history: [],
-  });
-  const second = applyHighlightPromptText(first, "prompt-b", new Date("2026-09-13T04:00:00.000Z"));
-  expect(second).toEqual({
-    text: "prompt-b",
-    updatedAt: "2026-09-13T04:00:00.000Z",
-    history: [{ text: "prompt-a", updatedAt: "2026-09-12T03:23:34.000Z" }],
-  });
-  expect(
-    applyHighlightPromptText(second, "prompt-b", new Date("2026-09-13T05:00:00.000Z")).history,
-  ).toEqual(second.history);
-});
-
-test("normalizeReportContent keeps highlightPrompt history", () => {
+test("normalizeReportContent drops legacy highlightPrompt without preserving it", () => {
   expect(
     normalizeReportContent({
       tabs: { Summary: { markdown: "" } },
@@ -167,25 +141,8 @@ test("normalizeReportContent keeps highlightPrompt history", () => {
         text: "current",
         history: [{ text: "old", updatedAt: "2026-09-12T03:23:34.000Z" }],
       },
-    }).highlightPrompt,
+    }),
   ).toEqual({
-    text: "current",
-    history: [{ text: "old", updatedAt: "2026-09-12T03:23:34.000Z" }],
+    tabs: { Summary: { markdown: "" } },
   });
-});
-
-test("normalizeHighlightContent upgrades string items and keeps generating", () => {
-  const content = normalizeHighlightContent({
-    generating: true,
-    blocks: [
-      {
-        id: "progress",
-        heading: HIGHLIGHT_PROGRESS_HEADING,
-        paragraphs: [],
-        items: ["legacy line"],
-      },
-    ],
-  });
-  expect(isHighlightGenerating(content)).toBe(true);
-  expect(content.blocks[0]?.items).toEqual([{ text: "legacy line", sources: [] }]);
 });

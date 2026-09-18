@@ -1,5 +1,6 @@
 import { join, resolve } from "node:path";
 import { resolveServerUrl } from "../../packages/computer/src/release-channel";
+import { zodResolvePlugin } from "../bun-resolve-zod-plugin";
 
 // The release target names this repository already uses across docs/release.md, updater.ts's
 // manifest.platforms keys and install.sh's/install.ps1's `uname`/architecture switch, mapped to
@@ -99,6 +100,7 @@ async function compileOne(options: {
     entrypoints: [options.entrypoint],
     compile: { target: options.bunTarget as Bun.Build.CompileTarget, outfile: options.outfile },
     define: options.define,
+    plugins: [zodResolvePlugin(resolve(import.meta.dir, "../.."))],
   });
   if (!result.success) {
     throw new Error(

@@ -28,33 +28,7 @@ test("body-edit suggestions round-trip through the assistant message envelope", 
   expect(body).not.toContain("apiKey");
 });
 
-test("highlight suggestions and send prompts parse from assistant replies", () => {
-  const highlight: WeeklyReportAssistantSuggestion = {
-    type: "highlight",
-    cycleId: "22222222-2222-2222-2222-222222222222",
-    highlightId: "33333333-3333-3333-3333-333333333333",
-    summary: "Candidate highlights from submitted reports.",
-    content: {
-      blocks: [
-        {
-          id: "progress",
-          heading: "一、本周进展",
-          paragraphs: [],
-          items: [{ text: "Shipped feature", sources: [] }],
-        },
-      ],
-    },
-    markCompleted: true,
-  };
-  expect(
-    parseWeeklyReportAssistantSuggestion(
-      buildWeeklyReportAssistantSuggestionBody({
-        displayText: "Review these highlights.",
-        suggestion: highlight,
-      }),
-    ),
-  ).toEqual(highlight);
-
+test("send prompts parse from assistant replies; highlight suggestions are ignored", () => {
   expect(
     parseWeeklyReportAssistantSuggestion(
       buildWeeklyReportAssistantSuggestionBody({
@@ -63,6 +37,70 @@ test("highlight suggestions and send prompts parse from assistant replies", () =
       }),
     ),
   ).toEqual({ type: "send-prompt", reportId: "11111111-1111-1111-1111-111111111111" });
+
+  expect(
+    parseWeeklyReportAssistantSuggestion(
+      [
+        "Review these highlights.",
+        "",
+        "[weekly-report-suggestion]",
+        JSON.stringify({
+          type: "highlight",
+          cycleId: "22222222-2222-2222-2222-222222222222",
+          summary: "Candidate highlights",
+          content: { blocks: [] },
+        }),
+        "[/weekly-report-suggestion]",
+      ].join("\n"),
+    ),
+  ).toBeNull();
+});
+
+test("body-edit tabs accept plain markdown strings as well as {markdown} objects", () => {
+  const body = [
+    "Draft ready.",
+    "",
+    "[weekly-report-suggestion]",
+    JSON.stringify({
+      type: "body-edit",
+      reportId: "891871b0-2bbb-4bea-ade4-821b08390cbc",
+      summary: "整理为成员周报草稿",
+      content: {
+        tabs: {
+          Summary: "## Work Summary\n- shipped collect run\n",
+          Research: "- surveyed ADR 0032\n",
+        },
+      },
+    }),
+    "[/weekly-report-suggestion]",
+  ].join("\n");
+  expect(parseWeeklyReportAssistantSuggestion(body)).toEqual({
+    type: "body-edit",
+    reportId: "891871b0-2bbb-4bea-ade4-821b08390cbc",
+    summary: "整理为成员周报草稿",
+    content: {
+      tabs: {
+        Summary: { markdown: "## Work Summary\n- shipped collect run\n" },
+        Research: { markdown: "- surveyed ADR 0032\n" },
+      },
+    },
+  });
+});
+
+test("body-edit suggestions still parse when the closing fence is omitted", () => {
+  const payload = {
+    type: "body-edit",
+    reportId: "891871b0-2bbb-4bea-ade4-821b08390cbc",
+    summary: "草稿",
+    content: { tabs: { Summary: { markdown: "- item\n" } } },
+  };
+  const body = `请确认写入。\n\n[weekly-report-suggestion]\n${JSON.stringify(payload)}\n`;
+  expect(parseWeeklyReportAssistantSuggestion(body)).toEqual({
+    type: "body-edit" as const,
+    reportId: "891871b0-2bbb-4bea-ade4-821b08390cbc",
+    summary: "草稿",
+    content: { tabs: { Summary: { markdown: "- item\n" } } },
+  });
 });
 
 test("invalid or missing suggestion envelopes are ignored", () => {

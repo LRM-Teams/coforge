@@ -73,6 +73,12 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   context/list/read without interpreting report bodies or widening authorization.
   Web/backend re-checks the assistant owner User's existing Records visibility.
 
+- Weekly-report Collect Run pack submit uses Credential Proxy + Agent HTTPS
+  (`POST /api/agent/v1/weekly-report-collect`) and `coforge weekly-report-collect
+submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
+  forwards the body; Web/backend accepts the pack against the collector Agent's
+  Collect Slot (ADR 0032).
+
 - `daemon-runtime/agent-message-attention-index.ts` owns full-target thread
   attention, model-visible positions, and the accepted-Message observation hook.
   After successful current-generation `notify`, ordinary live Message delivery

@@ -45,14 +45,12 @@ export function TemplateChildrenTable({ children }: { children: readonly Templat
             <th className="border-r border-secondary px-3 py-2 font-medium">
               {m.records_template_col_submit_time()}
             </th>
-            <th className="px-3 py-2 font-medium">{m.records_template_col_key_points()}</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
               <td className="border-r border-secondary px-3 py-2 text-tertiary">&nbsp;</td>
-              <td className="border-r border-secondary px-3 py-2" />
               <td className="border-r border-secondary px-3 py-2" />
               <td className="px-3 py-2" />
             </tr>
@@ -71,7 +69,6 @@ export function TemplateChildrenTable({ children }: { children: readonly Templat
                     {row.name}
                   </Link>
                 </td>
-                <td className="border-r border-secondary px-3 py-2" />
                 <td className="border-r border-secondary px-3 py-2" />
                 <td className="px-3 py-2" />
               </tr>

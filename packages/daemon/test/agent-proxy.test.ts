@@ -1212,6 +1212,83 @@ test("proxy rejects resolve and react requests with bad ids or emoji", async () 
   expect(calls).toBe(0);
 });
 
+test("proxy forwards weekly-report-collect packs with the Agent API key path", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        throw new Error("message must not run");
+      },
+      agentWeeklyReportCollect: async (_context, command) => {
+        calls.push(command);
+        return {
+          requestId: command.requestId,
+          runId: command.runId,
+          status: "collecting",
+          allTerminal: true,
+          canSynthesize: true,
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const requestId = "11111111-1111-4111-8111-111111111111";
+  const runId = "22222222-2222-4222-8222-222222222222";
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.weeklyReportCollect.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId,
+        runId,
+        outcome: "ready",
+        packMarkdown: "# pack\n",
+      }),
+    },
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    requestId,
+    runId,
+    status: "collecting",
+    allTerminal: true,
+    canSynthesize: true,
+  });
+  expect(calls).toEqual([{ requestId, runId, outcome: "ready", packMarkdown: "# pack\n" }]);
+});
+
+test("proxy rejects unknown weekly-report-collect bodies as 400", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        throw new Error("message must not run");
+      },
+      agentWeeklyReportCollect: async () => {
+        throw new Error("must not run");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.weeklyReportCollect.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "not-a-uuid", runId: "x", outcome: "ready" }),
+    },
+  );
+  expect(response.status).toBe(400);
+});
+
 test("proxy forwards weekly-report reads after validating the local command", async () => {
   const calls: unknown[] = [];
   const proxy = startAgentProxy({

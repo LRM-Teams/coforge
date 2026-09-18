@@ -75,7 +75,7 @@ export function useConversationRealtime(conversationId: string, reconcile: () =>
   reconcileRef.current = reconcile;
 
   useEffect(() => {
-    if (!client) return;
+    if (!client || !conversationId) return;
     return subscribeToConversationRealtime<BrowserRealtimeSubscription>(client, {
       conversationId,
       getToken: () => getToken({ data: { conversationId } }),
