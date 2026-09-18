@@ -84,17 +84,17 @@ function DirectorySection({
   return (
     <>
       <div className="flex items-center gap-1 pr-2 pl-1">
-        {/* The whole caption row is the toggle (`w-full`), so the click target spans the sidebar
-            width like Slack's sections rather than just the short caption text. */}
+        {/* The whole caption row is the toggle. `size="sm"` gives it a ~36px tall target and
+            `flex-1` fills the row width, so the hit area is large both ways (the user reported
+            the old target was too small); `justify-start pl-0` keeps the caption's left edge on
+            the same x the channel rows' icons use. */}
         <Button
           color="tertiary"
-          size="xs"
+          size="sm"
           aria-expanded={expanded}
           aria-controls={listId}
           onPress={onToggle}
-          /* `justify-start px-1` lands the caption on the same x the rows' icons use while the
-             button still fills the row for a large hit area. */
-          className="w-full min-w-0 justify-start px-1 text-quaternary hover:text-tertiary"
+          className="min-w-0 flex-1 justify-start pr-2 pl-0 text-quaternary hover:text-tertiary"
           iconLeading={
             <ChevronRight
               aria-hidden="true"
