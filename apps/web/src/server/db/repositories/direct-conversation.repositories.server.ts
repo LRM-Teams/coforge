@@ -255,27 +255,24 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
   };
 }
 
-/** Messages an Agent has not yet consumed: from users, or system messages delivered to it. */
+/** Messages an Agent has not yet consumed: from users, or delivered explicitly to it. */
 function unreadForAgentWhere(agentId: string, isChannel: boolean) {
   return {
-    OR: [
-      { sender: { userId: { not: null } } },
-      { senderMemberId: null, deliveries: { some: { agentId } } },
-    ],
+    OR: [{ sender: { userId: { not: null } } }, { deliveries: { some: { agentId } } }],
     ...(isChannel ? { deliveries: { some: { agentId } } } : {}),
   } satisfies Prisma.MessageWhereInput;
 }
 
 /**
  * Messages the Agent owes attention to: above its per-target read boundary, sent by a user, or
- * system-authored with a delivery row for this Agent; channels only count with a delivery row.
- * Shared by `readAgentRecoveryContext` and `drainAgentEvents` so the rule cannot drift between them.
+ * explicitly delivered to it; channels only count with a delivery row. Shared by
+ * `readAgentRecoveryContext` and `drainAgentEvents` so the rule cannot drift between them.
  */
 function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
   return Prisma.sql`
     SELECT m."id", m."sequence", m."body", m."conversationId", m."threadRootId",
       m."senderMemberId", COALESCE(r."sequence", 0) AS "rootSequence",
-      d."deliveryId", su."username" AS "senderUsername", c."channelName",
+      d."deliveryId", COALESCE(sa."name", su."username") AS "senderUsername", c."channelName",
       (SELECT uu."username" FROM "conversation_members" um
         JOIN "users" uu ON uu."id" = um."userId"
         WHERE um."conversationId" = c."id" ORDER BY uu."username" LIMIT 1) AS "userUsername"
@@ -288,10 +285,11 @@ function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
     LEFT JOIN "thread_reads" tr ON tr."memberId" = am."id" AND tr."rootMessageId" = m."threadRootId"
     LEFT JOIN "conversation_members" sm ON sm."id" = m."senderMemberId"
     LEFT JOIN "users" su ON su."id" = sm."userId"
+    LEFT JOIN "agents" sa ON sa."id" = sm."agentId"
     LEFT JOIN "agent_message_deliveries" d ON d."messageId" = m."id" AND d."agentId" = ${agentId}::uuid
     WHERE m."sequence" > CASE WHEN m."threadRootId" IS NULL
         THEN am."agentReadThroughSequence" ELSE COALESCE(tr."readThroughSequence", 0) END
-      AND (sm."userId" IS NOT NULL OR (m."senderMemberId" IS NULL AND d."deliveryId" IS NOT NULL))
+      AND (sm."userId" IS NOT NULL OR d."deliveryId" IS NOT NULL)
       AND (c."channelName" IS NULL OR d."deliveryId" IS NOT NULL)`;
 }
 
@@ -1261,13 +1259,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           select: {
             body: true,
             threadRootId: true,
-            sender: {
-              select: {
-                agentId: true,
-                user: { select: { username: true } },
-                agent: { select: { name: true } },
-              },
-            },
+            sender: MESSAGE_SENDER_SELECT,
             mentions: MESSAGE_MENTIONS_SELECT,
           },
         },
@@ -1701,7 +1693,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return rows.reverse().map((m) => ({
       id: m.id,
       sequence: m.sequence,
-      sender: m.sender ? `@${m.sender.user?.username}` : "system",
+      sender: agentSenderHandle(m.sender),
       body: agentReadableBody(m.body, m.mentions),
       createdAt: m.createdAt,
       target: canonicalTarget,

@@ -803,6 +803,48 @@ describe("PrismaDirectConversationRepository", () => {
     ]);
   });
 
+  test("reads Agent-authored pending deliveries with the Agent handle", async () => {
+    const db = {
+      agentMessageDelivery: {
+        findMany: async () => [
+          {
+            deliveryId: "delivery-agent",
+            messageId: "message-agent",
+            conversationId: "conversation-1",
+            sequence: 5,
+            conversation: { channelName: "general", members: [] },
+            message: {
+              body: "@reviewer please review",
+              sender: {
+                agentId: "sender-agent",
+                agent: { name: "helper" },
+                user: null,
+              },
+              mentions: [],
+            },
+          },
+        ],
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      new PrismaDirectConversationRepository(db).readPendingAgentDeliveries(
+        "workspace-1",
+        "agent-1",
+      ),
+    ).resolves.toEqual([
+      {
+        messageId: "message-agent",
+        deliveryId: "delivery-agent",
+        conversationId: "conversation-1",
+        sequence: 5,
+        target: "#general",
+        latestSender: "@helper",
+        body: "@reviewer please review",
+      },
+    ]);
+  });
+
   test("sendAgentMessage links two attachments in send order and rejects one the Agent did not upload", async () => {
     const updates: { where: unknown; data: unknown }[] = [];
     const attachmentsById: Record<
