@@ -1,4 +1,4 @@
-import { AlertCircle, RefreshCcw01 as RotateCcw, StopSquare, XClose as X } from "@untitledui/icons";
+import { AlertCircle, RefreshCcw01 as RotateCcw, Stop, XClose as X } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 
 import { Button } from "@/components/base/buttons/button";
@@ -69,7 +69,7 @@ export function AgentControlDialogs({
                     isDisabled={control.stopPending}
                     onPress={control.confirmStop}
                   >
-                    <StopSquare aria-hidden="true" />
+                    <Stop aria-hidden="true" />
                     {control.stopPending
                       ? m.agent_control_stop_pending()
                       : m.agent_control_stop_confirm()}

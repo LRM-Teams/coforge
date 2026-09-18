@@ -4,7 +4,7 @@ import {
   Edit01,
   Play,
   RefreshCcw01 as RotateCcw,
-  StopSquare,
+  Stop,
   Trash01,
 } from "@untitledui/icons";
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -306,7 +306,7 @@ export function AgentProfileTab({
             <Button
               color="secondary"
               className="w-full justify-center"
-              iconLeading={controls.isOnline ? StopSquare : Play}
+              iconLeading={controls.isOnline ? Stop : Play}
               isDisabled={controls.startStopBusy}
               onPress={controls.pressStartOrStop}
             >

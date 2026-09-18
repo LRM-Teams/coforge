@@ -2,7 +2,7 @@ import {
   MessageSquare01 as MessageSquare,
   Play,
   RefreshCcw01 as RotateCcw,
-  StopSquare,
+  Stop,
   XClose as X,
 } from "@untitledui/icons";
 
@@ -54,7 +54,7 @@ export function AgentProfileHeader({
         href={localizeHref(`/messages/${agent.id}`)}
       />
       <ButtonUtility
-        icon={controls.isOnline ? StopSquare : Play}
+        icon={controls.isOnline ? Stop : Play}
         size="sm"
         isDisabled={controls.startStopBusy}
         tooltip={controls.isOnline ? m.agent_control_stop() : m.agent_control_start()}
