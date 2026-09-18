@@ -121,7 +121,7 @@ test("updates attention, sends only a body-free notice, and ACKs takeover", asyn
     expect.objectContaining({ target: "@ada", pendingCount: 1, latestSender: "@ada" }),
   ]);
   expect(notices).toEqual([
-    "[CoForge inbox notice:\nInbox update: 1 message waiting for you\n@ada  new: 1 message · latest sender @ada\nThese messages have not been read. Read them with `coforge message check`, or\n`coforge message read --target <target>`; leaving them unread does not establish that there is\nno work.]",
+    "[CoForge inbox notice:\nInbox update: 1 message delivered or held for you\n@ada  new: 1 message · latest sender @ada\nWhat the server still has for you is answered only by `coforge message check`, or\n`coforge message read --target <target>`; either may return nothing, because a message can\nalready have been read. A notice you have not acted on does not establish that there is no work.]",
   ]);
   expect(notices[0]).not.toContain("private body");
   expect(acks).toEqual(["delivery-one"]);
@@ -518,6 +518,7 @@ function heldQueue() {
       shouldHold: () => holding,
       enqueue: (_agentId: string, message: AgentMessageDelivery) => held.push(message),
       busy: (agentId: string) => busyCalls.push(agentId),
+      queued: () => held,
     },
   };
 }
@@ -547,8 +548,8 @@ test("a held delivery updates attention but does not notify or ACK until flush",
   expect(held.map((message) => message.deliveryId)).toEqual(["delivery-one", "delivery-two"]);
   await index.flush("agent-1", held);
   expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("Inbox update: 2 messages waiting for you");
-  expect(notices[0]).toContain("new: 2 messages");
+  expect(notices[0]).toContain("Inbox update: 2 messages delivered or held for you");
+  expect(notices[0]).toContain("@agent  new: 2 messages");
   expect(acks).toEqual(["delivery-one", "delivery-two"]);
 });
 
@@ -623,6 +624,10 @@ test("a not-yet-notified resend while held stays held instead of notifying again
   expect(held).toHaveLength(2);
   await index.flush("agent-1", held);
   expect(notices).toHaveLength(1);
+  // Both request attempts stay in the queue so each can be ACKed, but they are one message and
+  // the notice must say one.
+  expect(notices[0]).toContain("Inbox update: 1 message delivered or held for you");
+  expect(notices[0]).toContain("@agent  new: 1 message");
 });
 
 test("clearAgent forgets an Agent's read-context state", () => {
@@ -657,7 +662,7 @@ test("a later delivery is announced on its own, not added to an earlier notice's
 
   expect(notices).toHaveLength(2);
   for (const notice of notices) {
-    expect(notice).toContain("Inbox update: 1 message waiting for you");
+    expect(notice).toContain("Inbox update: 1 message delivered or held for you");
     expect(notice).toContain("#general  new: 1 message");
   }
 });
@@ -673,17 +678,20 @@ test("the notice's total includes deliveries still queued for a busy Agent", asy
       shouldHold: () => false,
       enqueue: () => {},
       busy: () => {},
-      queuedCount: () => 2,
+      queued: () => [
+        { ...delivery("queued-one"), target: "@ada" },
+        { ...delivery("queued-two"), target: "#random" },
+      ],
     },
   );
 
   await index.receive({ ...delivery("with-queue", "@ada"), target: "#general" });
 
-  expect(notices[0]).toContain("Inbox update: 3 messages waiting for you");
+  expect(notices[0]).toContain("Inbox update: 3 messages delivered or held for you");
   expect(notices[0]).toContain("#general  new: 1 message");
 });
 
-test("a notice never promises what `coforge message check` will return", async () => {
+test("a notice claims only what the daemon can establish, never the server's read state", async () => {
   const notices: string[] = [];
   const index = new AgentMessageAttentionIndex(
     "workspace-1",
@@ -693,8 +701,47 @@ test("a notice never promises what `coforge message check` will return", async (
 
   await index.receive({ ...delivery("wording"), target: "#general" });
 
-  // The old wording ("Run `coforge message check` to read pending messages") read as a
-  // guarantee, so an empty drain looked like a lost message rather than an already-read one.
-  expect(notices[0]).not.toContain("to read pending messages");
-  expect(notices[0]).toContain("leaving them unread does not establish that there is");
+  // The daemon knows what it delivered and what it holds. It does not know the backend's read
+  // cursor — a notice can race a `check`/`read` that already advanced it — so no phrasing may
+  // assert that these messages are unread, or that a later drain will return them. The boundary
+  // is what matters here, not one banned sentence: assert that the notice makes no read-state
+  // claim at all, and that it names the commands that can answer.
+  for (const readStateClaim of [
+    "have not been read",
+    "unread",
+    "pending messages",
+    "to read pending",
+    "waiting for you",
+  ])
+    expect(notices[0]).not.toContain(readStateClaim);
+  expect(notices[0]).toContain("delivered or held for you");
+  expect(notices[0]).toContain("answered only by `coforge message check`");
+  expect(notices[0]).toContain("either may return nothing");
+});
+
+test("a coalesced flush spanning targets gives each target its own line", async () => {
+  const notices: string[] = [];
+  const queue = heldQueue();
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async () => {},
+    () => {},
+    queue.hold,
+  );
+
+  queue.setHolding(true);
+  await index.receive({ ...delivery("channel-one", "@alice"), target: "#general" });
+  await index.receive({ ...delivery("dm-one", "@ada"), sequence: 2, target: "@ada" });
+  await index.receive({ ...delivery("channel-two", "@bob"), sequence: 3, target: "#general" });
+
+  const held = queue.drain();
+  await index.flush("agent-1", held);
+
+  // The queue is per Agent, so a batch can mix a channel and a DM. Attributing all three to the
+  // last delivery's target would hide #general entirely.
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain("Inbox update: 3 messages delivered or held for you");
+  expect(notices[0]).toContain("#general  new: 2 messages · latest sender @bob");
+  expect(notices[0]).toContain("@ada  new: 1 message · latest sender @ada");
 });

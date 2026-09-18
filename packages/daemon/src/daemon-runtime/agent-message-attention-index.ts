@@ -25,6 +25,13 @@ export type MessageAttention = Readonly<{
  */
 const REMEMBERED_DELIVERIES = 4096;
 
+/** Distinct messages in a delivery list. The same message can appear more than once: a request
+ * retried while held is enqueued again so both attempts stay ACK-able, and a redelivery arriving
+ * after the dedupe window is a second delivery of one message. A notice counts messages. */
+function countDistinctMessages(deliveries: readonly AgentMessageDelivery[]): number {
+  return new Set(deliveries.map((delivery) => delivery.messageId)).size;
+}
+
 /** Daemon-owned volatile attention and model-visible sequence index. */
 export class AgentMessageAttentionIndex {
   readonly #generations = new Map<
@@ -63,11 +70,13 @@ export class AgentMessageAttentionIndex {
       shouldHold(agentId: string): boolean;
       enqueue(agentId: string, message: AgentMessageDelivery): void;
       busy(agentId: string): void;
-      /** How many deliveries are held for this Agent and have not been shown to it yet. The
-       * notice reports this, so its number is always a count of messages the daemon is holding
-       * right now rather than a running total it would have to invalidate later. Optional: a
-       * composition without a delivery queue holds nothing, and says so. */
-      queuedCount?(agentId: string): number;
+      /** The deliveries held for this Agent that it has not been shown yet. The notice counts
+       * these, so its number is always a count of messages the daemon is holding right now rather
+       * than a running total it would have to invalidate later. Concrete deliveries rather than a
+       * number because the same message can be enqueued more than once — one request retried
+       * while held keeps both attempts for ACK bookkeeping — and a notice must count messages,
+       * not attempts. Optional: a composition without a delivery queue holds nothing. */
+      queued?(agentId: string): readonly AgentMessageDelivery[];
     } = { shouldHold: () => false, enqueue: () => {}, busy: () => {} },
   ) {
     this.#workspaceId = workspaceId;
@@ -161,9 +170,9 @@ export class AgentMessageAttentionIndex {
   async flush(agentId: string, held: readonly AgentMessageDelivery[]): Promise<void> {
     if (!held.length) return;
     const generation = this.#generation(agentId);
-    // One notice for the whole coalesced batch, counting all of it: these are exactly the
-    // messages being handed over now.
-    await this.#notify(held[held.length - 1]!, undefined, held.length);
+    // One notice for the whole coalesced batch, carrying the batch itself: the queue is per Agent,
+    // so a batch legitimately spans channels, DMs and threads, and each target needs its own line.
+    await this.#notify(held[held.length - 1]!, undefined, held);
     if (this.#generations.get(agentId) !== generation) return;
     for (const message of held)
       await this.sendAck({ ...message, method: "agent:deliver:ack", requestId: message.requestId });
@@ -285,11 +294,35 @@ export class AgentMessageAttentionIndex {
     if (recoveredMessages.length) this.messageReceived(agentId);
   }
 
+  /**
+   * One line per target in the announced batch, in the order the targets first appear. The
+   * delivery queue is per Agent (ADR 0048), so a coalesced flush can mix a channel, a DM and a
+   * thread; attributing the whole batch to the last delivery's target would hide the others.
+   */
+  #announcedRows(announced: readonly AgentMessageDelivery[]): string[] {
+    const byTarget = new Map<string, { messageIds: Set<string>; latestSender?: string }>();
+    for (const delivery of announced) {
+      // `receive` rejects a delivery without a target before it can be held, so this only narrows
+      // the wire type; a targetless delivery has no line to appear on either way.
+      const target = delivery.target;
+      if (!target) continue;
+      const row = byTarget.get(target) ?? { messageIds: new Set<string>() };
+      row.messageIds.add(delivery.messageId);
+      if (delivery.latestSender) row.latestSender = delivery.latestSender;
+      byTarget.set(target, row);
+    }
+    return [...byTarget].map(([target, row]) => {
+      const count = row.messageIds.size;
+      const sender = row.latestSender ? ` · latest sender ${row.latestSender}` : "";
+      return `${target}  new: ${count} message${count === 1 ? "" : "s"}${sender}`;
+    });
+  }
+
   #notify(
     message: AgentMessageDelivery,
     attention?: MessageAttention,
-    /** How many messages this notice announces: one delivery, or the size of a coalesced flush. */
-    announcedCount = 1,
+    /** The messages this notice announces: one delivery, or a coalesced flush's whole batch. */
+    announced: readonly AgentMessageDelivery[] = [message],
   ): Promise<void> {
     const generation = this.#generation(message.agentId);
     const session = this.#runtimes.session(message.agentId);
@@ -300,24 +333,26 @@ export class AgentMessageAttentionIndex {
     // session — before the next queued input for this Agent can be drained and see a stale
     // "not busy yet" state.
     this.hold.busy(message.agentId);
-    const current = attention ?? this.#attention.get(message.agentId)?.get(message.target);
-    // One source of truth. The numbers here describe messages the daemon has in hand — this
-    // delivery, plus the ones still queued for this Agent — and never a per-target total
-    // accumulated across earlier notices. Whether the *server* still holds anything unread is a
-    // question only `coforge message check` answers, and the wording below promises nothing
-    // about what that call will return: a notice that made such a promise could be contradicted
-    // (the two were tracked separately, and the accumulated count outlived what the server would
-    // hand over), which is what made a stale count look like a lost message.
-    const pendingCount = announcedCount;
-    const totalPendingCount = announcedCount + (this.hold.queuedCount?.(message.agentId) ?? 0);
-    const target = message.target;
-    const latestSender = current?.latestSender ? ` · latest sender ${current.latestSender}` : "";
+    void attention;
+    // One source of truth. Every number here is a fact the daemon owns right now — the messages
+    // it is announcing, plus the ones still queued for this Agent — never a per-target total
+    // accumulated across earlier notices, because such a total outlived what the server would
+    // hand over and made an already-read message look lost.
+    //
+    // The wording is bounded by what the daemon can actually establish. It knows what it
+    // delivered and what it holds; it does not know the server's read cursor, so it must not say
+    // these messages are unread — a delivery notice can race a `check` or `read` that already
+    // advanced that cursor. Only those commands answer what is left, and either may answer
+    // "nothing".
+    const rows = this.#announcedRows(announced);
+    const queued = this.hold.queued?.(message.agentId) ?? [];
+    const totalCount = countDistinctMessages([...announced, ...queued]);
     const notice = `[CoForge inbox notice:
-Inbox update: ${totalPendingCount} message${totalPendingCount === 1 ? "" : "s"} waiting for you
-${target}  new: ${pendingCount} message${pendingCount === 1 ? "" : "s"}${latestSender}
-These messages have not been read. Read them with \`coforge message check\`, or
-\`coforge message read --target <target>\`; leaving them unread does not establish that there is
-no work.]`;
+Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or held for you
+${rows.join("\n")}
+What the server still has for you is answered only by \`coforge message check\`, or
+\`coforge message read --target <target>\`; either may return nothing, because a message can
+already have been read. A notice you have not acted on does not establish that there is no work.]`;
     const notification = Promise.resolve()
       .then(() => session.notify!(notice))
       .then(() => {
@@ -330,9 +365,9 @@ no work.]`;
           request_id: message.requestId,
           workspace_id: message.workspaceId,
           agent_id: message.agentId,
-          target_count: 1,
-          pending_count: pendingCount,
-          total_pending_count: totalPendingCount,
+          target_count: rows.length,
+          pending_count: countDistinctMessages(announced),
+          total_pending_count: totalCount,
           outcome: "ok",
         });
       })
@@ -342,9 +377,9 @@ no work.]`;
           request_id: message.requestId,
           workspace_id: message.workspaceId,
           agent_id: message.agentId,
-          target_count: 1,
-          pending_count: pendingCount,
-          total_pending_count: totalPendingCount,
+          target_count: rows.length,
+          pending_count: countDistinctMessages(announced),
+          total_pending_count: totalCount,
           error_code: error instanceof Error ? error.name : "UnknownError",
           outcome: "failed",
         });
