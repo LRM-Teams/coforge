@@ -63,24 +63,15 @@ export function AgentProfilePanel({
   requestedTab,
   onTabChange,
   onClose,
-  hideClose = false,
-  backHref,
 }: {
   agentId: string;
   requestedTab: ProfileTabId | undefined;
   onTabChange: (tab: ProfileTabId) => void;
   onClose: () => void;
-  /** The Members page's detail pane (`features/agents/members-layout.tsx`) renders this same
-   * panel with nothing to close back to: no Close button, and Escape does nothing either. */
-  hideClose?: boolean;
-  /** Members page only, forwarded to `AgentProfileHeader` for its `md:hidden` back link. */
-  backHref?: string;
 }) {
   const timeZone = appRoute.useLoaderData().timeZone;
   // Escape closes the panel, like Thread's Close; an open overlay or a field being edited keeps it.
-  // Not registered at all when the panel has no Close to trigger (`hideClose`).
   useEffect(() => {
-    if (hideClose) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
@@ -91,7 +82,7 @@ export function AgentProfilePanel({
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [hideClose, onClose]);
+  }, [onClose]);
   const liveAgent = useLiveAgent(agentId);
   const query = useAgentProfileData(agentId);
   const profile = query.data;
@@ -217,15 +208,13 @@ export function AgentProfilePanel({
     return (
       <div className="flex h-full min-h-0 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-end border-b border-secondary pr-2">
-          {!hideClose && (
-            <ButtonUtility
-              icon={X}
-              size="sm"
-              color="tertiary"
-              tooltip={m.controls_close()}
-              onClick={onClose}
-            />
-          )}
+          <ButtonUtility
+            icon={X}
+            size="sm"
+            color="tertiary"
+            tooltip={m.controls_close()}
+            onClick={onClose}
+          />
         </header>
         <Empty className="flex-1 items-center justify-center px-6 text-center">
           <EmptyHeader className="items-center gap-3">
@@ -254,8 +243,6 @@ export function AgentProfilePanel({
         timeZone={timeZone}
         controls={controls}
         onClose={onClose}
-        hideClose={hideClose}
-        backHref={backHref}
       />
       <div className="flex h-11 shrink-0 items-center border-b border-secondary px-3">
         <AgentProfileTabs

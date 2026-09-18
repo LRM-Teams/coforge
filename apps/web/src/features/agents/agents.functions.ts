@@ -407,10 +407,8 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
   };
 }
 
-/** The Agent profile panel's data seam (see `features/agents/profile-panel/`): the Members page
- * and every conversation panel share this one query, so there is no separate full-page detail
- * loader any more (the old `/agents/$agentId` full page and its `getAgentDetail` were folded into
- * this panel when the Members page became a list + `AgentProfilePanel` layout). */
+/** The Agent profile panel's data seam (see `features/agents/profile-panel/`): the Members
+ * directory and every conversation panel share this one query. */
 export const getAgentProfile = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)

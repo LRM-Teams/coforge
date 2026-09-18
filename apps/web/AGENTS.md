@@ -398,12 +398,15 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   unsupported Usage remain plain, non-focusable identities.
 - `features/agents/agents-content.tsx` owns the Members page's mixed human/Agent
   cards, counted type filters, search recovery, and Agent creation dialog.
-  Computer prerequisites appear only after requesting Agent creation; runtime
-  management remains in Agent detail, not the directory. The per-User weekly-report
-  assistant is an internal Agent identity excluded from this directory; its
-  Computer/Runtime setup reuses the Agent detail seam. Workspace directory reads
-  belong to `features/workspaces/workspaces.functions.ts` and
-  `server/workspaces/members.server.ts`; owner-only Agent operations remain separate.
+  Clicking an Agent name opens the same right-hand `AgentProfilePanel` the
+  conversation slot uses (`profile`/`agentTab` search params); `/agents/$agentId`
+  redirects there. Computer prerequisites appear only after requesting Agent
+  creation; runtime management remains in that panel, not the directory. The
+  per-User weekly-report assistant is an internal Agent identity excluded from
+  this directory; its Computer/Runtime setup reuses the panel. Workspace
+  directory reads belong to `features/workspaces/workspaces.functions.ts` and
+  `server/workspaces/members.server.ts`; owner-only Agent operations remain
+  separate.
 - `src/features/profiles/profile.functions.ts` owns the authenticated current-user
   profile read and description mutation. Avatar bytes and profile persistence
   stay under `src/server/profiles/` and `src/server/db/repositories/`.

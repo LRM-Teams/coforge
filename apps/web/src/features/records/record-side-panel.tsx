@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
+import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
 import type { WeeklyReportAssistantSuggestion } from "../../server/records/weekly-report-assistant-suggestion.server";
 import type { HighlightContent, ReportContent } from "./records-content";
 import {
@@ -367,9 +368,11 @@ export function RecordSidePanel({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Link
-                to="/agents/$agentId"
-                params={{ agentId: assistantStatus.agentId }}
-                search={{ agentTab: "profile" }}
+                to="/agents"
+                search={{
+                  profile: formatAgentProfileParam(assistantStatus.agentId),
+                  agentTab: "profile",
+                }}
                 className="text-sm font-semibold text-brand-secondary"
               >
                 {m.records_weekly_ai_setup_action()}

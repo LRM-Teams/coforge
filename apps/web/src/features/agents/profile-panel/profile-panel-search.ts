@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 /**
- * The Agent profile panel's URL state, shared by both conversation routes
- * (`messages.$agentId.tsx`, `messages.channels.$channelId.tsx`): `profile=agent:<uuid>` opens the
- * panel on a given Agent, `agentTab` selects its tab. Kept in its own module so the search-param
- * shape, its zod validators and the tiny encode/decode helpers have one home the routes and the
- * panel both import, instead of separate copies of the same regex.
+ * The Agent profile panel's URL state, shared by the Members directory (`agents.index.tsx`) and
+ * both conversation routes (`messages.$agentId.tsx`, `messages.channels.$channelId.tsx`):
+ * `profile=agent:<uuid>` opens the panel on a given Agent, `agentTab` selects its tab. Kept in its
+ * own module so the search-param shape, its zod validators and the tiny encode/decode helpers have
+ * one home the routes and the panel both import, instead of separate copies of the same regex.
  */
 
 const AGENT_PROFILE_PREFIX = "agent:";
