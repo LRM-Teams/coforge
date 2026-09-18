@@ -16,6 +16,7 @@ import {
   KEYED_MODEL_PROVIDERS,
   PI_BUILTIN_MODEL_PROVIDERS,
 } from "./agent.schemas";
+import { modelProviderDisplayName } from "./model-provider-display";
 import { RUNTIME_PROVIDER_DISPLAY_ORDER, runtimeProviderLabel } from "./runtime-provider-display";
 import { RuntimeProviderMark } from "./runtime-provider-mark";
 
@@ -33,13 +34,6 @@ export type RuntimeSelection = {
   modelProvider: string;
   model: string;
   reasoning: string;
-};
-
-/** Pi's two built-in providers are proper nouns, like the RuntimeProvider brand names in
- * `runtime-provider-display.ts`: never localized. */
-const PI_BUILTIN_MODEL_PROVIDER_LABELS: Record<string, string> = {
-  deepseek: "DeepSeek",
-  openrouter: "OpenRouter",
 };
 
 /** The Model select's "let the built-in provider/Pi choose" sentinel and the Configured list's
@@ -293,11 +287,7 @@ export function AgentRuntimeFields({
             <>
               <Select.Item id="" label={m.agent_form_pi_provider_configured()} />
               {PI_BUILTIN_MODEL_PROVIDERS.map((value) => (
-                <Select.Item
-                  key={value}
-                  id={value}
-                  label={PI_BUILTIN_MODEL_PROVIDER_LABELS[value]}
-                />
+                <Select.Item key={value} id={value} label={modelProviderDisplayName(value)} />
               ))}
               {piExtraProvider && (
                 <Select.Item key={piExtraProvider} id={piExtraProvider} label={piExtraProvider} />
@@ -358,7 +348,7 @@ export function AgentRuntimeFields({
               id=""
               label={
                 piConfigured
-                  ? m.agent_form_model_configured_default()
+                  ? m.agent_form_pi_provider_configured()
                   : m.agent_form_provider_default()
               }
             />
@@ -563,7 +553,7 @@ export function splitCustomModel(
 /** A Pi Configured model's Select label: the catalog only lists this Computer's Pi models across
  * every host-configured provider, so each option names both. */
 export function piConfiguredModelLabel(model: CodeAgentModelMetadata): string {
-  return `${model.displayName} · ${model.modelProvider}`;
+  return `${model.displayName} · ${modelProviderDisplayName(model.modelProvider)}`;
 }
 
 function modelOptionValue(model: CodeAgentModelMetadata) {

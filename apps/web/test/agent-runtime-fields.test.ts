@@ -85,7 +85,7 @@ test("Configured lists only the Pi catalog, never the CoForge keyed-provider cat
 });
 
 test("Configured model labels combine the display name and the raw provider slug", () => {
-  expect(piConfiguredModelLabel(piModel)).toBe("DeepSeek V4 · lenovo-deepseek-v4");
+  expect(piConfiguredModelLabel(piModel)).toBe("DeepSeek V4 · Lenovo DeepSeek V4");
 });
 
 test("a built-in provider lists only the CoForge catalog, filtered to that provider", () => {
