@@ -13,6 +13,7 @@ import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 import { KEYED_MODEL_PROVIDERS } from "./agent.schemas";
 import { RUNTIME_PROVIDER_DISPLAY_ORDER, runtimeProviderLabel } from "./runtime-provider-display";
+import { RuntimeProviderMark } from "./runtime-provider-mark";
 
 export type RuntimeCatalog = {
   provider: string;
@@ -23,7 +24,7 @@ export type RuntimeOptions = {
   catalogs: RuntimeCatalog[];
 };
 
-type RuntimeSelection = {
+export type RuntimeSelection = {
   provider: RuntimeProvider;
   modelProvider: string;
   model: string;
@@ -36,12 +37,18 @@ export function AgentRuntimeFields({
   initial,
   credentialConfigured = false,
   onLoad,
+  onDirtyChange,
 }: {
   open: boolean;
   computerId: string;
   initial?: RuntimeSelection;
   credentialConfigured?: boolean;
   onLoad: (computerId: string) => Promise<RuntimeOptions>;
+  /** Fires with the current "would this Save do anything" state whenever a field the user can
+   * actually change moves away from (or back to) `initial`. `AgentRuntimeFields` keeps owning
+   * every field's state; this is only a notification, not a hook for the caller to drive values
+   * (the Profile panel's edit dialog uses it to disable Save until something changed). */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [provider, setProvider] = useState(initial?.provider ?? RUNTIME_PROVIDER.COFORGE);
   const [modelProvider, setModelProvider] = useState(initial?.modelProvider ?? "");
@@ -51,6 +58,10 @@ export function AgentRuntimeFields({
   const [modelKey, setModelKey] = useState(initialModelKey);
   const [reasoning, setReasoning] = useState(initial?.reasoning ?? "");
   const [apiKey, setApiKey] = useState("");
+  // Only the catalog-load-failed fallback below renders plain, uncontrolled text `Input`s for
+  // modelProvider/model instead of the tracked `Select`s; their own `onChange` marks this so
+  // `dirty` still notices a manual edit in that fallback.
+  const [manualDirty, setManualDirty] = useState(false);
   const [optionsByComputer, setOptionsByComputer] = useState<
     Record<string, RuntimeOptions | undefined>
   >({});
@@ -134,6 +145,18 @@ export function AgentRuntimeFields({
       return model.modelProvider === modelProvider;
     return true;
   });
+  const modelValue = selectedModel?.id ?? (modelKey === initialModelKey ? initial?.model : "");
+  const dirty =
+    manualDirty ||
+    apiKey.trim() !== "" ||
+    provider !== (initial?.provider ?? RUNTIME_PROVIDER.COFORGE) ||
+    submittedModelProvider !== (initial?.modelProvider ?? "") ||
+    (modelValue ?? "") !== (initial?.model ?? "") ||
+    reasoning !== (initial?.reasoning ?? "");
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   return (
     <>
@@ -155,10 +178,16 @@ export function AgentRuntimeFields({
         <Select.Item
           id={RUNTIME_PROVIDER.COFORGE}
           label={runtimeProviderLabel(RUNTIME_PROVIDER.COFORGE)}
+          icon={<RuntimeProviderMark provider={RUNTIME_PROVIDER.COFORGE} />}
         />
         {RUNTIME_PROVIDER_DISPLAY_ORDER.filter((candidate) => providers.has(candidate)).map(
           (candidate) => (
-            <Select.Item key={candidate} id={candidate} label={runtimeProviderLabel(candidate)} />
+            <Select.Item
+              key={candidate}
+              id={candidate}
+              label={runtimeProviderLabel(candidate)}
+              icon={<RuntimeProviderMark provider={candidate} />}
+            />
           ),
         )}
       </Select>
@@ -170,7 +199,10 @@ export function AgentRuntimeFields({
           isRequired={provider === RUNTIME_PROVIDER.COFORGE}
           maxLength={100}
           defaultValue={modelProvider}
-          onChange={() => setApiKey("")}
+          onChange={() => {
+            setApiKey("");
+            setManualDirty(true);
+          }}
         />
       ) : (
         !RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider] && (
@@ -210,14 +242,11 @@ export function AgentRuntimeFields({
           maxLength={200}
           defaultValue={initial?.model}
           className="min-w-0 sm:col-span-2"
+          onChange={() => setManualDirty(true)}
         />
       ) : (
         <>
-          <input
-            type="hidden"
-            name="model"
-            value={selectedModel?.id ?? (modelKey === initialModelKey ? initial?.model : "")}
-          />
+          <input type="hidden" name="model" value={modelValue} />
           <Select
             label={m.agent_form_model()}
             size="sm"

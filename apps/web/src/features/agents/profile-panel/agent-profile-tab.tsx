@@ -17,12 +17,10 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
-import {
-  RUNTIME_PROVIDER_MARK,
-  RUNTIME_PROVIDER_MARK_IS_COLOR_ICON,
-  runtimeProviderLabel,
-} from "@/features/agents/runtime-provider-display";
+import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
+import { RuntimeProviderMark } from "@/features/agents/runtime-provider-mark";
 import { computerIcon } from "@/features/computers/computer-identity";
+import { RuntimeUsage, UsageHealthDot } from "@/features/computers/runtime-usage";
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "@/features/agents/agents.functions";
 import { InlineEditField, SECTION_CAPTION_CLASS, SUBFIELD_LABEL_CLASS } from "./inline-edit-field";
@@ -69,6 +67,7 @@ export function AgentProfileTab({
   onSaveDescription,
   onSaveRole,
   runtimeCredentialDialog,
+  onStartRuntimeEdit,
 }: {
   profile: NonNullable<AgentProfile>;
   display?: AgentDisplaySnapshot;
@@ -81,22 +80,15 @@ export function AgentProfileTab({
   onSaveDescription: (value: string) => Promise<void>;
   onSaveRole?: (role: "admin" | "member") => Promise<void>;
   runtimeCredentialDialog: ReactNode;
+  /** Opens the container's `AgentRuntimeConfigDialog` (see `agent-profile-panel.tsx`). The
+   * RUNTIME CONFIG badges below never change; only the pencil does anything. */
+  onStartRuntimeEdit?: () => void;
 }) {
   const view = agentDisplay(display, { stopped: profile.stopped });
   const { runtime, model, reasoning } = profile.runtimeConfig;
+  const canEditRuntime = canManage && Boolean(profile.computer) && Boolean(onStartRuntimeEdit);
   const runtimeLabel = runtimeProviderLabel(runtime);
-  const mark = RUNTIME_PROVIDER_MARK[runtime];
-  const runtimeIcon = mark ? (
-    RUNTIME_PROVIDER_MARK_IS_COLOR_ICON[runtime] ? (
-      <img src={mark} alt="" className="size-3.5 shrink-0" />
-    ) : (
-      <span
-        aria-hidden="true"
-        className="size-3.5 shrink-0 bg-fg-primary mask-contain mask-center mask-no-repeat"
-        style={{ maskImage: `url("${mark}")`, WebkitMaskImage: `url("${mark}")` }}
-      />
-    )
-  ) : undefined;
+  const runtimeIcon = <RuntimeProviderMark provider={runtime} className="size-3.5" />;
   const creatorName = profile.owner.displayName?.trim() || profile.owner.username;
   const ComputerIcon = profile.computer
     ? computerIcon({
@@ -237,13 +229,43 @@ export function AgentProfileTab({
       <section className="border-b border-secondary px-6 py-5">
         <div className="flex items-center gap-1.5">
           <p className={SECTION_CAPTION_CLASS}>{m.agent_profile_section_runtime()}</p>
+          {canEditRuntime && (
+            <ButtonUtility
+              aria-label={m.agent_profile_edit_runtime_config()}
+              tooltip={m.agent_profile_edit_runtime_config()}
+              icon={Edit01}
+              size="xs"
+              color="tertiary"
+              onClick={onStartRuntimeEdit}
+            />
+          )}
           {canManage && runtimeCredentialDialog}
         </div>
         <div className="mt-3 flex flex-wrap gap-x-8 gap-y-4">
           <div>
             <p className={SUBFIELD_LABEL_CLASS}>{m.agent_runtime_field()}</p>
             <p className="mt-1">
-              <FactBadge icon={runtimeIcon}>{runtimeLabel}</FactBadge>
+              {profile.runtimeUsageVisible && profile.computer ? (
+                <RuntimeUsage
+                  computerId={profile.computer.id}
+                  runtime={{
+                    provider: runtime,
+                    displayName: runtimeLabel,
+                    version: profile.runtimeVersion,
+                  }}
+                  computerOnline={profile.computer.online}
+                  timeZone={timeZone}
+                  trigger={(health) => (
+                    <FactBadge icon={runtimeIcon}>
+                      {runtimeLabel}
+                      <UsageHealthDot health={health} />
+                    </FactBadge>
+                  )}
+                  triggerClassName="-m-1 inline-flex rounded-lg p-1 outline-none hover:bg-primary_hover data-focus-visible:ring-2 data-focus-visible:ring-brand"
+                />
+              ) : (
+                <FactBadge icon={runtimeIcon}>{runtimeLabel}</FactBadge>
+              )}
             </p>
           </div>
           <div>
