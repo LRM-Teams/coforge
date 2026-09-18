@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import {
   Activity as ActivityIcon,
   Bell01 as Bell,
@@ -32,8 +33,21 @@ export function AgentProfileTabs({
   showWorkspaceTab: boolean;
   onSelect: (tab: AgentProfileTab) => void;
 }) {
+  // On a narrow viewport the band scrolls, so the selected tab can start out of sight — for
+  // example opening the panel straight onto Workspace, the last of the four.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    navRef.current
+      ?.querySelector('[aria-current="page"]')
+      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [active]);
+
   return (
-    <nav aria-label={m.agent_profile_panel_tabs()} className="flex items-center gap-1">
+    <nav
+      ref={navRef}
+      aria-label={m.agent_profile_panel_tabs()}
+      className="flex w-max shrink-0 items-center gap-1"
+    >
       <Button
         type="button"
         color={active === "profile" ? "secondary" : "tertiary"}
