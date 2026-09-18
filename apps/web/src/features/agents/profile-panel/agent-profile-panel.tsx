@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { getRouteApi } from "@tanstack/react-router";
 import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
@@ -17,6 +17,8 @@ import { useSubmitGuard } from "@/hooks/use-submit-guard";
 import { useLiveAgent, useAgentActivityFeed } from "@/features/agents/workspace-agents-realtime";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { AgentActivityTimeline } from "@/features/agents/agent-activity-timeline";
+import { AgentReminders } from "@/features/agents/agent-reminders";
+import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
 import { useAgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
 import { executeAgentControl } from "@/features/agents/agent-control.functions";
@@ -83,6 +85,13 @@ export function AgentProfilePanel({
   const knownName = profile?.displayName ?? liveAgent?.displayName ?? "";
   const canManage = profile ? profile.canManageAgentRole || profile.ownedByCurrentUser : false;
   const tab = resolveAgentProfileTab(requestedTab, canManage);
+
+  const loadReminders = useServerFn(listAgentReminders);
+  const onLoadReminders = useCallback(
+    (cursor?: { id: string }) =>
+      loadReminders({ data: { agentId, ...(cursor ? { cursor } : {}) } }),
+    [agentId, loadReminders],
+  );
 
   const executeControl = useServerFn(executeAgentControl);
   const controls = useAgentRuntimeControls({
@@ -198,7 +207,7 @@ export function AgentProfilePanel({
         onClose={onClose}
       />
       <div className="flex h-11 shrink-0 items-center border-b border-secondary px-3">
-        <AgentProfileTabs active={tab} showActivity={canManage} onSelect={onTabChange} />
+        <AgentProfileTabs active={tab} showManagerTabs={canManage} onSelect={onTabChange} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!profile ? (
@@ -215,6 +224,15 @@ export function AgentProfilePanel({
           </div>
         ) : tab === "activity" ? (
           <AgentActivityTimeline activity={activity} timeZone={timeZone} compact />
+        ) : tab === "reminders" ? (
+          <div className="px-5 pb-5">
+            <AgentReminders
+              agentId={agentId}
+              owned={profile.ownedByCurrentUser}
+              timeZone={timeZone}
+              onLoad={onLoadReminders}
+            />
+          </div>
         ) : (
           <AgentProfileTab
             profile={profile}

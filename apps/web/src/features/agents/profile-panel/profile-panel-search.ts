@@ -13,7 +13,7 @@ const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`, "i");
 const AGENT_PROFILE_PATTERN = new RegExp(`^${AGENT_PROFILE_PREFIX}${UUID_SOURCE}$`, "i");
 
-export const AGENT_PROFILE_TABS = ["profile", "activity"] as const;
+export const AGENT_PROFILE_TABS = ["profile", "reminders", "activity"] as const;
 export type AgentProfileTab = (typeof AGENT_PROFILE_TABS)[number];
 
 /** Validates the raw `profile` search param: `undefined` or `agent:<uuid>`. Malformed values fall
@@ -41,13 +41,14 @@ export function agentIdFromProfileParam(profile: string | undefined): string | u
   return UUID_PATTERN.test(id) ? id : undefined;
 }
 
-/** Phase 1 offers only Profile and Activity, and Activity is manager/owner-only (brief
- * §Permissions). A requested tab a non-manager cannot see, or no request at all, resolves to
- * Profile. */
+/** The panel offers Profile, Reminders and Activity; Reminders and Activity are both
+ * manager/owner-only (brief §Permissions). A requested tab a non-manager cannot see, or no
+ * request at all, resolves to Profile. */
 export function resolveAgentProfileTab(
   requested: AgentProfileTab | undefined,
-  canSeeActivity: boolean,
+  canSeeManagerTabs: boolean,
 ): AgentProfileTab {
-  if (requested === "activity" && canSeeActivity) return "activity";
+  if ((requested === "activity" || requested === "reminders") && canSeeManagerTabs)
+    return requested;
   return "profile";
 }
