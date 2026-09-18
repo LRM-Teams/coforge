@@ -120,6 +120,9 @@ export class ActivityTrajectory {
       event.activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS
     )
       this.#lastAnnounced = event.activity.detailKind;
+    // The daemon core turns a tool-start into its Activity downstream; count it as announced
+    // here so the run that follows the tool call announces itself again.
+    if (event.type === "tool-start") this.#lastAnnounced = AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED;
     this.emit(event);
   }
 

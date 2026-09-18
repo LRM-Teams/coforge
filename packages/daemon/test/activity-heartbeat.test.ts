@@ -521,12 +521,18 @@ test("pending text is flushed before a tool-start's Activity", async () => {
     activities.length = 0;
     emitEvent({ type: "text-delta", text: "Thinking about it" });
     emitEvent({ type: "tool-start", id: "1", name: "Bash", input: { command: "ls" } });
-    expect(activities).toHaveLength(2);
-    expect(activities[0]).toMatchObject({
-      detailKind: "model_response_started",
+    // The run-start frame announces the response first, then the buffered text lands
+    // before the tool's own Activity.
+    expect(activities.map((activity) => activity.detailKind)).toEqual([
+      "model_response_started",
+      "model_response_started",
+      "running_command",
+    ]);
+    expect(activities[0]?.entries ?? []).toHaveLength(0);
+    expect(activities[1]).toMatchObject({
       entries: [{ kind: "text", text: "Thinking about it" }],
     });
-    expect(activities[1]).toMatchObject({ detailKind: "running_command", detail: "ls" });
+    expect(activities[2]).toMatchObject({ detail: "ls" });
   } finally {
     await runtime.stop();
   }
