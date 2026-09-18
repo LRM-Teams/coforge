@@ -12,6 +12,7 @@ import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
 } from "../../conversations/message-reactions.server";
+import { browserSenderHandle, browserSenderName } from "../../conversations/sender-display.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "../../attachments/attachment-view.server";
 import type { ActionCardView } from "../../conversations/action-cards.server";
@@ -108,7 +109,7 @@ const BROWSER_MESSAGE_SELECT = {
     select: {
       userId: true,
       agentId: true,
-      user: { select: { username: true, avatarObjectKey: true } },
+      user: { select: { username: true, displayName: true, avatarObjectKey: true } },
       agent: { select: { name: true, displayName: true, deletedAt: true } },
     },
   },
@@ -223,11 +224,8 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
       : message.sender.userId
         ? ("user" as const)
         : ("agent" as const),
-    senderName: !message.sender
-      ? "System"
-      : message.sender.userId
-        ? `@${message.sender.user?.username}`
-        : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
+    senderName: browserSenderName(message.sender),
+    senderHandle: browserSenderHandle(message.sender),
     /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
      * panel from a message row (`features/agents/profile-panel/`). */
     senderAgentId: message.sender?.agentId ?? undefined,

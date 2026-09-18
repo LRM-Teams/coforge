@@ -22,7 +22,11 @@ export type MessageView = {
   threadRootId?: string;
   senderKind: "user" | "agent" | "system";
   senderMemberId?: string | null;
+  /** What the reader sees: a display name, falling back to the handle (Slack's convention). */
   senderName: string;
+  /** The handle behind that name, kept separate because a display name is not an identity.
+   * Absent for a server-authored message. */
+  senderHandle?: string;
   /** The sender's Agent id, present only when `senderKind === "agent"`; opens the Agent profile
    * panel (`features/agents/profile-panel/`) from the avatar or the sender name. */
   senderAgentId?: string;
