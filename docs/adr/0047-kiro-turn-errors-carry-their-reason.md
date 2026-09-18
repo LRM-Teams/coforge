@@ -73,10 +73,11 @@ used either — it manufactured a fixed string instead of forwarding (scrubbed) 
 
 ## Comparison with Raft Computer 1.0.32
 
-Raft has no Kiro provider (per `docs/agents/reference-cli-research.md`'s existing note). The
-closest structural analog in the recovered 1.0.32 daemon bundle is its own ACP-based provider
-("Grok Build"), whose event normalizer (`GrokEventNormalizer.finishPrompt`, ~837962-838003)
-converts a resolved `session/prompt`'s stop reason exactly this way:
+Raft has no Kiro provider: `grep -in kiro` on the recovered 1.0.32 daemon bundle finds exactly one
+hit, a generic sandbox/terminal-program detector (`["kiro", [envMatches("TERM_PROGRAM", /kiro/)]]`)
+used for telemetry, not a runtime driver. The closest structural analog is Raft's own ACP-based
+provider ("Grok Build"), whose event normalizer (`GrokEventNormalizer.finishPrompt`,
+~837962-838003) converts a resolved `session/prompt`'s stop reason exactly this way:
 
 ```
 if (stopReason === "error") events.push({ kind: "error", message: agentResult ?? "Grok Build turn failed" });
@@ -85,17 +86,22 @@ events.push({ kind: "turn_end", ... });
 ```
 
 — an `error` event with the agent's own result text or a fixed fallback for `"error"`, and
-**always** an `error` event for `"cancelled"` too, before the turn ends. This is the shape Do item
-3 in the originating task brief is matched against.
+**always** an `error` event for `"cancelled"` too, before the turn ends. This is the shape decision
+2 above is matched against.
 
-One divergence, found while checking: Raft's Grok driver declares `communication.runtimeControl:
-"none"` — it has no mid-turn interrupt/cancel capability at all; a Stop there kills the process
-rather than sending `session/cancel`. Every `"cancelled"` stop reason Grok's normalizer sees is
-therefore, by construction, Kiro's own decision, never a daemon-requested one — Raft's normalizer
-has no `#interrupting`-equivalent gate because it has nothing to gate. CoForge's Kiro adapter does
-support a real mid-turn `interrupt()` (`session/cancel`), so it needs, and has, that gate; Raft's
-unconditional "cancelled → error" is the right shape only for the *unrequested* half of CoForge's
-two cases.
+One divergence, found while checking: Raft's Grok driver declares `communication.busyDeliveryMode:
+"direct"` (steer a busy turn, matching Kiro's own v3 busy-prompt behavior per ADR 0010) and
+`communication.runtimeControl: "none"`. `runtimeControl` turned out to be declared `"none"` on
+every driver in the bundle and is never read anywhere (`grep -n '\.runtimeControl\b'` finds no
+access) — it carries no real evidence about what a Stop does, so this ADR does not claim one. What
+is verifiable from `finishPrompt` itself: Grok's normalizer treats *every* `"cancelled"` stop
+reason as an error unconditionally, with no gate for "the daemon just asked for this." That is
+consistent with Grok never voluntarily cancelling a turn on Raft's behalf (it steers instead, per
+`busyDeliveryMode`), so every cancellation its normalizer can observe is, by construction, the
+provider's own decision. CoForge's Kiro adapter does support a real mid-turn `interrupt()`
+(`session/cancel`), so it needs, and has, an explicit `#interrupting` gate Raft's normalizer has no
+equivalent of; Raft's unconditional "cancelled → error" is the right shape only for the
+*unrequested* half of CoForge's two cases.
 
 Every runtime error's redaction/cap/fingerprint is built once, centrally, matching Raft's own
 `buildRuntimeErrorDiagnosticEnvelope` (~821014-821030, itself built on

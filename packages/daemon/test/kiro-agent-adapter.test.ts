@@ -4,7 +4,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { KiroProvider } from "../src/code-agent/kiro/provider";
-import type { AgentRuntimeEvent } from "../src/code-agent/contract";
+import type { AgentRuntimeEvent, AgentSession } from "../src/code-agent/contract";
 
 // macOS tmpdir lives under /var, a symlink; the Kiro provider rejects a linked
 // agent profile directory (comparing realpath to the literal resolved path).
@@ -170,6 +170,19 @@ test("Kiro v3 injects native instructions and accepts input before its turn comp
   }
 });
 
+/** `notify()` resolves on admission, not on turn completion (the earlier "accepts input before
+ * its turn completes" test proves that); waiting on it is not proof the turn's own `error`/
+ * `completed` events have arrived. Wait on the real public contract instead: the event the
+ * subscription callback actually delivers. */
+function waitForCompletion(session: AgentSession, events: AgentRuntimeEvent[]) {
+  const completed = Promise.withResolvers<void>();
+  const unsubscribe = session.subscribe((event) => {
+    events.push(event);
+    if (event.type === "completed") completed.resolve();
+  });
+  return { unsubscribe, completion: completed.promise };
+}
+
 test("Kiro forwards its own scrubbed reason for a turn that ends with its private error stop reason", async () => {
   const cwd = await mkdtemp(join(tempRoot, "kiro-turn-error-"));
   const session = await new KiroProvider({ command }).createAgentSession({
@@ -177,9 +190,10 @@ test("Kiro forwards its own scrubbed reason for a turn that ends with its privat
     instructions: "Keep the asymmetric marker 719 in the system prompt.",
   });
   const events: AgentRuntimeEvent[] = [];
-  session.subscribe((event) => events.push(event));
+  const { completion } = waitForCompletion(session, events);
   try {
     await session.notify!("turn-error-with-reason");
+    await completion;
     // The session_info_update's message and errorType are Kiro's real, specific reason
     // (matches the 2026-09-18 incident); a leaked-looking token is scrubbed before it is ever
     // forwarded, the same way every other runtime error is scrubbed.
@@ -204,9 +218,10 @@ test("Kiro reports a fixed fallback for a turn that ends with its private error 
     instructions: "Keep the asymmetric marker 719 in the system prompt.",
   });
   const events: AgentRuntimeEvent[] = [];
-  session.subscribe((event) => events.push(event));
+  const { completion } = waitForCompletion(session, events);
   try {
     await session.notify!("turn-error-silent");
+    await completion;
     expect(events).toContainEqual({
       type: "error",
       message: "Kiro ended the turn with an error",
@@ -226,9 +241,10 @@ test("Kiro reports a cancellation it never asked for as a failed turn, not a sil
     instructions: "Keep the asymmetric marker 719 in the system prompt.",
   });
   const events: AgentRuntimeEvent[] = [];
-  session.subscribe((event) => events.push(event));
+  const { completion } = waitForCompletion(session, events);
   try {
     await session.notify!("turn-cancelled-unrequested");
+    await completion;
     expect(events).toContainEqual({ type: "error", message: "Kiro cancelled the turn" });
     expect(events).toContainEqual({ type: "completed", status: "failed" });
     expect(
@@ -247,9 +263,10 @@ test("Kiro names the stop reason for a turn that ends before finishing (max_toke
     instructions: "Keep the asymmetric marker 719 in the system prompt.",
   });
   const events: AgentRuntimeEvent[] = [];
-  session.subscribe((event) => events.push(event));
+  const { completion } = waitForCompletion(session, events);
   try {
     await session.notify!("turn-max-tokens");
+    await completion;
     expect(events).toContainEqual({
       type: "error",
       message: "Kiro reached its token limit before finishing the turn",
