@@ -3,6 +3,7 @@ import type { PrismaClient } from "../../../generated/client";
 import { requireBrowserUser } from "#/server/auth/require-user.server";
 import {
   attachmentResponseHeaders,
+  isDeliveryInlinePreview,
   isInlineImage,
 } from "#/server/attachments/attachment-response.server";
 import { readAuthorizedAttachment } from "#/server/attachments/attachment.server";
@@ -40,10 +41,10 @@ const attachmentDownloadDependencies: AttachmentDownloadDependencies = {
 };
 
 /**
- * Serves one authorized attachment. Forced downloads (`?download`), non-image content types,
- * and deployments without a `FileDelivery` all stream the bytes through the backend exactly as
- * before. Otherwise-eligible inline images redirect to a short-lived signed CDN URL instead, so
- * the bytes never round-trip through the backend at all.
+ * Serves one authorized attachment. Forced downloads (`?download`), content types that are
+ * neither an inline image nor delivery-previewable, and deployments without a `FileDelivery` all
+ * stream the bytes through the backend exactly as before. Eligible types redirect to a
+ * short-lived signed CDN URL instead, so the bytes never round-trip through the backend at all.
  */
 export async function handleAttachmentDownload(
   request: Request,
@@ -59,8 +60,12 @@ export async function handleAttachmentDownload(
       userId: user.id,
     });
     const forceDownload = new URL(request.url).searchParams.has("download");
+    // A type that may only render off our own origin (a PDF) is redirected to the signed delivery
+    // URL as well; when there is no delivery to sign with, `signedRedirect` returns null and the
+    // bytes stream below as an opaque download, exactly as before.
     const redirect =
-      !forceDownload && isInlineImage(attachment.contentType)
+      !forceDownload &&
+      (isInlineImage(attachment.contentType) || isDeliveryInlinePreview(attachment.contentType))
         ? signedRedirect(dependencies, attachment.objectKey)
         : null;
     if (redirect) return redirect;

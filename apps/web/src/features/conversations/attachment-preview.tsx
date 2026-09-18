@@ -5,7 +5,7 @@ import { m } from "@/paraglide/messages";
 import { MessageBody } from "./message-body";
 
 /** What an attachment can be shown as without leaving the conversation. */
-export type AttachmentPreviewKind = "markdown" | "html" | "video" | "audio";
+export type AttachmentPreviewKind = "markdown" | "html" | "video" | "audio" | "pdf";
 
 /** Text previews are for a look, and the bytes travel through the authenticated backend route. */
 const TEXT_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
@@ -46,8 +46,14 @@ function extensionOf(fileName: string): string {
 export function attachmentPreviewKind(
   fileName: string,
   contentType: string,
+  /** The signed delivery URL, when the server supplied one. A PDF is previewable only with it:
+   * the browser's viewer needs a real URL with a real content type, and we only ever give it one
+   * on the delivery origin (see `isDeliveryInlinePreview` on the server). Without it — a
+   * deployment with no file delivery configured — a PDF stays a download. */
+  previewUrl?: string,
 ): AttachmentPreviewKind | null {
   const extension = extensionOf(fileName);
+  if ((extension === "pdf" || contentType === "application/pdf") && previewUrl) return "pdf";
   if (MARKDOWN_EXTENSIONS.has(extension)) return "markdown";
   if (HTML_EXTENSIONS.has(extension)) return "html";
   const media = MEDIA_TYPES.get(extension);
@@ -149,15 +155,45 @@ export function AttachmentPreview({
   fileName,
   kind,
   href,
+  previewUrl,
 }: {
   fileName: string;
   kind: AttachmentPreviewKind;
   /** The authenticated attachment URL; also the download target offered on failure. */
   href: string;
+  /** The signed delivery URL; required for `pdf`, unused by the other kinds. */
+  previewUrl?: string;
 }) {
+  if (kind === "pdf")
+    return previewUrl ? (
+      <PdfPreview fileName={fileName} previewUrl={previewUrl} />
+    ) : (
+      <PreviewStatus state={{ status: "error", tooLarge: false }} href={href} />
+    );
   if (kind === "video" || kind === "audio")
     return <MediaPreview fileName={fileName} kind={kind} href={href} />;
   return <TextPreview fileName={fileName} kind={kind} href={href} />;
+}
+
+/**
+ * A PDF in the browser's own viewer, loaded from the signed delivery URL.
+ *
+ * Deliberately **not** sandboxed, and deliberately **not** from our origin. An empty `sandbox`
+ * blocks the built-in viewer outright (verified in Chromium: the frame renders the broken-document
+ * placeholder instead of the PDF), so isolation has to come from somewhere else — and it does: the
+ * signed URL is on the delivery origin, which holds none of our cookies, so a document the sender
+ * controls is loaded outside our session's origin. `referrerpolicy` keeps the signed URL out of
+ * outbound referrers.
+ */
+function PdfPreview({ fileName, previewUrl }: { fileName: string; previewUrl: string }) {
+  return (
+    <iframe
+      aria-label={fileName}
+      src={previewUrl}
+      referrerPolicy="no-referrer"
+      className="min-h-0 w-full flex-1 border-0 bg-secondary"
+    />
+  );
 }
 
 function TextPreview({
