@@ -86,7 +86,29 @@ export type AgentRuntimeEvent =
   | { type: "compaction-interrupted"; occurredAt?: string }
   // Content-free "the provider is alive" signal (e.g. a partial stream frame with no
   // renderable text, or a turn/message lifecycle notification that carries no content).
-  | { type: "progress"; source?: string; occurredAt?: string };
+  | { type: "progress"; source?: string; occurredAt?: string }
+  /**
+   * A provider-observed runtime failure, reported as raw facts only: the provider
+   * never formats, truncates, or classifies this for display — the daemon core
+   * owns all of that (single conversion in agent-runtime/runtime-error-activity.ts).
+   * `providerErrorCode`/`providerErrorClass` are optional provider-native hints
+   * (e.g. a JSON-RPC error code, a turn error's `code` field); `providerErrorReason`
+   * is an optional stable category the provider already distinguishes (e.g. Codex's
+   * "turn_failed" for a turn ending in failure, as opposed to a mid-stream RPC
+   * error) — omit any of the three when the provider has no such fact. `retryable`
+   * reflects a provider's own "will retry" signal, if it has one.
+   */
+  | {
+      type: "error";
+      message: string;
+      retryable?: boolean;
+      providerErrorCode?: string;
+      providerErrorClass?: string;
+      providerErrorReason?: string;
+      occurredAt?: string;
+    }
+  /** The provider is reconnecting to its upstream after a transient disconnect. */
+  | { type: "reconnecting"; attempt?: number; message?: string };
 export interface AgentSession {
   sendMessage(message: string): Promise<void>;
   readSessionIdentity?(): Promise<AgentSessionIdentity | undefined>;

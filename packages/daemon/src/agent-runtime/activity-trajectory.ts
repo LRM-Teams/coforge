@@ -24,6 +24,7 @@ function endsThinking(event: AgentRuntimeEvent): boolean {
     case "tool-start":
     case "tool-end":
     case "completed":
+    case "error":
       return true;
     case "activity":
       return (
@@ -96,13 +97,18 @@ export class ActivityTrajectory {
     }
     // Compaction boundaries flush pending text first, like a tool call or a turn ending.
     // A bare "progress" ping never flushes.
+    // "error" flushing here (rather than in the runtime-error-activity conversion itself) is
+    // also what lets a separate in-flight change treat `error` as a thinking-end trigger: by the
+    // time that trajectory entry exists, any pending thinking/text is already flushed ahead of it.
     if (
       event.type === "tool-start" ||
       event.type === "activity" ||
       event.type === "completed" ||
       event.type === "compaction-started" ||
       event.type === "compaction-finished" ||
-      event.type === "compaction-interrupted"
+      event.type === "compaction-interrupted" ||
+      event.type === "error" ||
+      event.type === "reconnecting"
     )
       this.flush();
     this.#forward(event);

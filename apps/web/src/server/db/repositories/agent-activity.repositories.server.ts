@@ -49,6 +49,7 @@ export class AgentActivityRepository {
     const excludedTool = AGENT_ACTIVITY_DETAIL_KIND.TOOL_END;
     const excludedThinking = AGENT_ACTIVITY_DETAIL_KIND.THINKING_END;
     const excludedCompaction = AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED;
+    const excludedReview = AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED;
     const rows = await this.db.$queryRaw<CompactActivityRow[]>`
       WITH authorized_agents AS (
         SELECT agent."id"
@@ -73,7 +74,7 @@ export class AgentActivityRepository {
         FROM "agent_activities" AS activity
         INNER JOIN authorized_agents AS agent ON agent."id" = activity."agentId"
         WHERE activity."workspaceId" = ${workspaceId}::uuid
-          AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction})
+          AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction}, ${excludedReview})
       ),
       sequence_ranked AS (
         SELECT
@@ -94,7 +95,7 @@ export class AgentActivityRepository {
         FROM "agent_activities" AS activity
         INNER JOIN authorized_agents AS agent ON agent."id" = activity."agentId"
         WHERE activity."workspaceId" = ${workspaceId}::uuid
-          AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction})
+          AND activity."detailKind" NOT IN (${excludedTool}, ${excludedThinking}, ${excludedCompaction}, ${excludedReview})
       ),
       compact AS (
         SELECT sequence_ranked.*, ranked.slot

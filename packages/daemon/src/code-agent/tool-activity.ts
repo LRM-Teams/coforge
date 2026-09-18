@@ -210,6 +210,11 @@ function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation 
       tool: sub === "get" ? "get_manual" : "search_manual",
       summary: allowlistedString(tokens[3], 120),
     };
+  } else if (category === "whoami") {
+    // Deliberately local (ADR 0036): no wire call, so it is always read-only, unconditionally.
+    return { tool: "whoami" };
+  } else if (category === "version") {
+    return { tool: "get_version" };
   }
   return { tool: "coforge_cli" };
 }

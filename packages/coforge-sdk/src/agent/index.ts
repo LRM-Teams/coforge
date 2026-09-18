@@ -5,3 +5,4 @@ export * from "./messages";
 export * from "./channels";
 export * from "./action-cards";
 export * from "./manual";
+export * from "./version";

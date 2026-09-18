@@ -27,6 +27,7 @@ export const LIVENESS_ONLY_DETAIL_KINDS: ReadonlySet<string> = new Set([
   AGENT_ACTIVITY_DETAIL_KIND.TOOL_END,
   AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
   AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
+  AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED,
 ]);
 
 // "runtime_starting" and "working" are dropped: nothing in the daemon ever
@@ -50,8 +51,18 @@ const workingKinds = new Set([
   "tool_end",
   "thinking_end",
   "compaction_finished",
+  "review_finished",
   // ADR 0021 visible, stored busy detail kinds.
   "subagent_activity",
+  // The Agent's provider entered a review pass.
+  "reviewing_changes",
+  // Compaction/review started and no finish was observed for a long time.
+  "compaction_stale",
+  "review_stale",
+  // The daemon is restarting a provider it found stalled.
+  "stalled_recovery",
+  // The daemon injected a system/control message into the Agent's session.
+  "system_message",
 ]);
 
 export function activityKindForObservation(
@@ -60,7 +71,10 @@ export function activityKindForObservation(
   if (
     observation.level === "error" ||
     observation.detailKind === "runtime_error" ||
-    observation.detailKind === "runtime_crashed"
+    observation.detailKind === "runtime_crashed" ||
+    // The provider has produced nothing for too long while work is pending;
+    // follows how runtime_error/runtime_crashed map above.
+    observation.detailKind === "runtime_stalled"
   )
     return "error";
   if (observation.detailKind === "thinking_started") return "thinking";

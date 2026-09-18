@@ -9,9 +9,8 @@ import type { CodeAgentProvider } from "../contract";
 import { readCodexUsage } from "./usage";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess, JsonlRequestError } from "../jsonl-process";
-import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { COFORGE_DAEMON_VERSION } from "../../version";
-import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
 import { discoverCodexCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
 import type { ProviderDiscoveryOptions } from "../contract";
@@ -192,31 +191,15 @@ class CodexAgentSession implements AgentSession {
     };
     process.onRecord((record) => this.#accept(record));
     process.onStderr((text) => {
-      if (!/Reconnecting\.\.\.\s*\d+\s*\/\s*\d+/i.test(text)) return;
-      this.#emit({
-        type: "activity",
-        activity: {
-          ...createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING,
-            "info",
-            "Codex reconnecting to provider…",
-          ),
-          entries: [{ kind: "text", text: scrubError(text) }],
-        },
-      });
+      const match = /Reconnecting\.\.\.\s*(\d+)\s*\/\s*\d+/i.exec(text);
+      if (!match) return;
+      // Raw stderr line as the fact; the daemon core formats/redacts it into the
+      // visible `runtime_reconnecting` Activity (agent-runtime/runtime-error-activity.ts).
+      this.#emit({ type: "reconnecting", attempt: Number(match[1]), message: text });
     });
-    process.onFailure((error) =>
-      this.#emit({
-        type: "activity",
-        activity: createAgentActivity(
-          error.message === "code agent process exited unexpectedly"
-            ? AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_CRASHED
-            : AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-          "error",
-          error.message,
-        ),
-      }),
-    );
+    // Whether an unexpected close reads as a crash is the daemon core's call, made
+    // from this fact at the moment the process actually exits.
+    process.onFailure((error) => this.#emit({ type: "error", message: error.message }));
   }
 
   async sendMessage(text: string): Promise<void> {
@@ -358,15 +341,7 @@ class CodexAgentSession implements AgentSession {
         });
         return;
       }
-      this.#emit({
-        type: "activity",
-        activity: createAgentActivity(
-          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-          "error",
-          error.message,
-          eventTime(record),
-        ),
-      });
+      this.#emit({ type: "error", message: error.message, occurredAt: eventTime(record) });
       return;
     }
     if (record.method === "item/agentMessage/delta" && typeof params?.delta === "string") {
@@ -477,30 +452,26 @@ class CodexAgentSession implements AgentSession {
             : "failed";
       if (status === "failed") {
         const error = asRecord(turn.error);
-        const errorMessage =
-          typeof error?.message === "string" ? scrubError(error.message) : "Codex turn failed.";
+        // Raw fact only (no scrub/cap here) — the daemon core owns redaction and
+        // truncation for the visible Activity; this local scrub only bounds what
+        // reaches the daemon's own structured log line below.
+        const rawMessage =
+          typeof error?.message === "string" ? error.message : "Codex turn failed.";
         logger.error("Codex turn failed", {
           event: "codex.turn.failed",
           agent_id: this.#agentId,
           runtime_id: this.#runtimeId,
           turn_status: turn.status,
           error_code: typeof error?.code === "string" ? error.code : undefined,
-          error_message: errorMessage,
+          error_message: scrubError(rawMessage),
           outcome: "error",
         });
         this.#emit({
-          type: "activity",
-          activity: createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-            "error",
-            errorMessage,
-            eventTime(record),
-            {
-              errorClass: typeof error?.code === "string" ? error.code : "CodexTurnError",
-              errorReason: "turn_failed",
-              fingerprint: fingerprint(errorMessage),
-            },
-          ),
+          type: "error",
+          message: rawMessage,
+          occurredAt: eventTime(record),
+          providerErrorClass: typeof error?.code === "string" ? error.code : "CodexTurnError",
+          providerErrorReason: "turn_failed",
         });
       }
       this.#emit({ type: "completed", status });
@@ -538,17 +509,14 @@ function assertSkillsLoaded(response: Record<string, unknown>, cwd: string): voi
   }
 }
 
+// Bounds only the daemon's own structured log line (`codex.turn.failed`), never the visible
+// Activity: the daemon core owns redaction/truncation for anything shown to a user (see
+// agent-runtime/runtime-error-activity.ts, the single place that happens for every provider).
 function scrubError(message: string): string {
   return message
     .replace(/(?:sk|pk|api|token|key|secret)[_-]?[A-Za-z0-9_-]{8,}/gi, "[redacted]")
     .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
     .slice(0, 500);
-}
-
-function fingerprint(message: string): string {
-  let hash = 2166136261;
-  for (const byte of new TextEncoder().encode(message)) hash = Math.imul(hash ^ byte, 16777619);
-  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function fileChanges(

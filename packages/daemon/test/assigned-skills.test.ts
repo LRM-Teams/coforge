@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,8 +9,15 @@ import {
 } from "../src/code-agent/assigned-skills";
 import { listAgentSkills } from "../src/code-agent/agent-skills";
 
+/** macOS `TMPDIR` is `/var/folders/...` and `/var` is a symlink to `/private/var`, while the skill
+ * scanner rejects any root whose `realpath` differs from its resolved path. Create fixtures under
+ * an already-canonical root so the scan sees the directory it was given. */
+async function createFixtureRoot(prefix: string): Promise<string> {
+  return mkdtemp(join(await realpath(tmpdir()), prefix));
+}
+
 test("assigned skill packs install into provider-native workspace roots", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-assigned-skills-"));
+  const root = await createFixtureRoot("coforge-assigned-skills-");
   try {
     const result = await installAssignedSkills({
       provider: "coforge",

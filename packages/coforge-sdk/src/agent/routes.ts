@@ -6,6 +6,9 @@ export const agentApiRoutes = {
       get: { method: "GET", path: "/api/agent/v1/manual" },
       search: { method: "GET", path: "/api/agent/v1/manual/search" },
     },
+    // Local-only: answered entirely by the Daemon's Agent proxy and never forwarded to Web/backend
+    // (`coforge version`; see `docs/adr/0036-agent-manual.md`'s placement-table rows).
+    version: { method: "GET", path: "/api/agent/v1/version" },
     messages: { method: "POST", path: "/api/agent/v1/messages" },
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },

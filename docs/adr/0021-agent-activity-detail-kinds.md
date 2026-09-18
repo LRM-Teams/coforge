@@ -67,7 +67,7 @@ nothing will ever emit.
 | `compaction_finished` | Claude: `compact_boundary`; Kiro: `CompactionUpdate.status` transitioning away from `in_progress`; Pi/CoForge: the SDK's `compaction_end` event (when not aborted). Since 2026-09-18 the daemon core also *infers* this when a still-open compaction is followed by resumed text/thinking, a started tool, or a turn ending, ahead of "the generic 'next non-compaction event' fallback was rejected" note below, which this supersedes | working | liveness only, like `tool_end` |
 | `subagent_activity` | Any `activity` event whose entries carry a subagent scope (Claude `parent_tool_use_id`); only Claude ever sets that field, so this kind is Claude-only in practice even though the reclassification itself is provider-agnostic | working | visible, label "Subagent working…", stored |
 | `message_received` | The existing `AgentMessageAttentionIndex` observer that already reports "Message received" after a delivery/wake now uses this kind instead of the generic `model_request_started` it used before | working | visible, stored |
-| `runtime_crashed` | Claude and Codex: the process exits unexpectedly (the shared `JsonlProcess` wrapper's `"code agent process exited unexpectedly"` failure, observed outside the session's own `dispose()`) — same `errorClass`/`errorReason`/`fingerprint` fields as before, only the kind changes. Kiro and Pi have no provider-level crash signal distinct from an ordinary process exit and keep reporting `stopped`; they are skipped | error | visible, stored |
+| `runtime_crashed` | At the time of this record: Claude and Codex only, on an unexpected process exit (the shared `JsonlProcess` wrapper's `"code agent process exited unexpectedly"` failure). Kiro and Pi had no provider-level crash signal distinct from an ordinary process exit and kept reporting `stopped`. **Superseded** — see "Amendment" below: every provider now reports the same raw `error`/`completed` facts, and the daemon core alone decides `runtime_crashed` vs. `idle` for all four | error | visible, stored |
 | `runtime_interrupted` | A requested stop/restart (`stopAgent`/`#abandonLaunch`) cuts a turn that was busy (working/thinking) at the moment the stop was requested. Also mapped from a `completed` event's `interrupted` status for forward compatibility, though that path is unreachable today per the Context section | online | visible, stored |
 
 Added later, following this same discipline (ADR 0040, "An explicit `agent:session:invalidate` RPC replaces implicit-only session-loss reporting"):
@@ -75,6 +75,58 @@ Added later, following this same discipline (ADR 0040, "An explicit `agent:sessi
 | kind | daemon emits when | display kind | popover / history |
 | --- | --- | --- | --- |
 | `runtime_unavailable` | The daemon detects a stored native Session it cannot resume — missing (kiro/pi's classified `session_missing`, or Claude Code/Codex's own in-driver replacement, both reported as reason `missing`) or rejected on replay (kiro/pi's `provider_replay_rejected`) — reports it once via `agent:session:invalidate`, then cold-starts a fresh session under the same `launchId` | working | visible, label "Stored `<Runtime>` session missing/replay rejected; cold-starting a new session…", stored |
+
+Added later, extending the vocabulary ahead of the daemon work that will
+produce these kinds (no daemon producer is added by this record; it only
+widens the shared SDK/wire/validation surface the daemon changes will need):
+
+| kind | class | meaning |
+| --- | --- | --- |
+| `reviewing_changes` | busy, visible, stored | The Agent's provider entered a review pass. |
+| `review_finished` | busy, completion row, same class as `compaction_finished`/`tool_end` | The provider's review pass ended; stored and shown in the Activity log as `Working · Review finished`, left out of the avatar popover. |
+| `compaction_stale` | busy, visible, stored | Compaction started and no finish was observed for a long time. |
+| `review_stale` | busy, visible, stored | A review pass started and no finish was observed for a long time. |
+| `runtime_stalled` | error-level presentation, stored | The provider has produced nothing for too long while work is pending. Maps to the `error` display kind the same way `runtime_error`/`runtime_crashed` do, independent of the frame's own `level`. |
+| `stalled_recovery` | busy, visible, stored | The daemon is restarting a provider it found stalled. |
+| `system_message` | busy, visible, stored | The daemon injected a system/control message into the Agent's session. No dedicated label; the popover/current-status text falls back to the activity's own `detail`. |
+
+Also two additions to `ActivityTrajectoryEntry`:
+
+- A new entry kind, `system`: `{ kind: "system", title: string, text: string }`
+  (title capped at 120 characters, text at the same 2000-character cap as
+  `text`/`thinking` entries). Renders as its own row — label is the title,
+  detail is the text, expandable — and never merges into a neighbouring
+  text/thinking statement: it closes whatever merge group was open before it,
+  the same way a hidden `send_message` tool call already does.
+- `tool_start` gains an optional `toolInput`: the short, already-redacted
+  argument summary (capped at 200 characters, control characters rejected
+  like `toolName`). When present, the tool row's detail uses it instead of
+  the activity frame's own `detail`; absent (older daemons, stored rows),
+  the row keeps using `detail` exactly as before.
+
+On the wire, `ActivityTrajectoryEntry`'s `content` oneof gains a new member
+(`ActivitySystemEntry system = 5`, a nested message carrying `title`/`text`)
+and the entry gains a sibling scalar field (`tool_input = 6`) outside the
+oneof. Both are purely additive — no field is renumbered or repurposed — so
+an old encoder/decoder that has never heard of them keeps working exactly as
+before for every entry it already knew how to produce or consume.
+
+The one asymmetry: an **old decoder reading a `system` entry** does not
+silently ignore it. Protobuf leaves an unrecognized oneof member's field
+undecoded, so `entry.content.case` comes back `undefined`; this codec's
+`decodeAgentActivity`/`parseAgentDisplaySnapshot` already throw `"missing
+activity entry content"` for that case (pre-existing behavior — an entry that
+matches none of the codec's known oneof cases throws, dropping the *whole*
+Activity, not just that one entry). A `tool_start` entry's new `tool_input`
+field carries no such risk: it is a plain sibling field, and an old decoder
+already ignores field numbers it does not recognize, exactly as it does for
+`probe_id`/`activity_kind` today. Because of this, once the daemon starts
+emitting `system` entries, only a web deployment already carrying this
+codec's understanding of the `system` oneof case can decode them; **the web
+side of this vocabulary must ship (and be live in every replica) before any
+future daemon change starts emitting `system` entries** — the new detail
+kinds by themselves (`detail_kind` is a plain string) carry no such ordering
+requirement.
 
 `runtime_starting` is **not** added to the enum: the daemon has exactly one
 spawn moment (`#launchAgent` emits `starting` once the process is up; there is
@@ -190,6 +242,15 @@ nothing" note (ADR 0016) and the Kiro compaction-only row above.
   liveness-only kinds' filler behavior; `agent-activity-publish.test.ts` for
   history exclusion; `agent-activity.test.ts` for the popover drop;
   `agent-activity-presentation.test.ts` for the new labels/tones.
+- This change's additions (no daemon producer): SDK
+  `activity-entries.test.ts` and `agent-activity.test.ts` for `system`/
+  `toolInput` validation and codec round-trips, plus a round trip for every
+  new `detailKind`; web `agent-detail.test.ts` for the `system` entry's row,
+  `toolInput` taking precedence over the activity's own `detail`, each new
+  detail kind's label, and a `system` entry closing a statement merge group;
+  `agent-display.test.ts` for `activityKindForObservation` on the new kinds;
+  `agent-activity-publish.test.ts` for history inclusion/exclusion and for
+  the `toolInput`/`system` publish-and-persist round trip.
 - `bun run check` at the root, the touched package suites, and `bun run
   build` in `apps/web`.
 
@@ -279,6 +340,28 @@ place that can tell, provider-agnostically, when a thinking run has ended.
   emitter left; the two remaining references in `runtime.ts` are the
   `BUSY_ACTIVITY_DETAIL_KINDS` membership and the
   `safeRuntimeActivityMessage` branch above, not emission sites.
+
+## Amendment: providers stop classifying errors (`runtime-error-central`)
+
+The `runtime_crashed` row above, and the general principle it implied — that
+each provider decides whether its own failure is a crash, an ordinary error,
+or a reconnect — has been superseded. Providers now report only raw facts:
+`AgentRuntimeEvent`'s `error` (`message`, optional `providerErrorCode`/
+`providerErrorClass`/`providerErrorReason`/`occurredAt`) and `reconnecting`
+(`attempt`/`message`) members (`packages/agent/src/contract.ts`). A single
+module, `packages/daemon/src/agent-runtime/runtime-error-activity.ts`, turns
+those facts into the visible `runtime_error`/`runtime_crashed`/
+`runtime_reconnecting` Activity for every provider alike: the provider's
+message shown as reported, the crash summary redacted and capped at 512
+characters, the `Error: …` trajectory entry, and the structured `runtimeError`
+fields. No `code-agent/*/provider.ts` file
+constructs one of these three Activities anymore.
+
+This also closes the asymmetry the original table described: `runtime_crashed`
+is no longer Claude/Codex-only. `AgentSession.onExit` still carries no exit
+code or signal, so the daemon core decides crashed vs stopped at process exit
+from whether the most recent `error` event on that launch was left unresolved
+by a `completed` event, not from an OS-level signal/exit-code summary.
 
 ## Rollback
 

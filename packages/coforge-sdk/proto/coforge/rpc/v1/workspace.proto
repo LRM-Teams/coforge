@@ -233,8 +233,19 @@ message ActivityTrajectoryEntry {
     string text = 1;
     string thinking = 2;
     string tool_name = 3;
+    // The daemon injected a system/control message into the Agent's session.
+    ActivitySystemEntry system = 5;
   }
   string parent_tool_use_id = 4;
+  // `tool_name` only: the short, already-redacted argument summary. Absent on
+  // older daemons/stored rows, which keep using the activity's own `detail`.
+  string tool_input = 6;
+}
+
+// A daemon-injected system/control message shown as its own trajectory row.
+message ActivitySystemEntry {
+  string title = 1;
+  string text = 2;
 }
 
 // Versioned daemon-to-server Agent availability transition.

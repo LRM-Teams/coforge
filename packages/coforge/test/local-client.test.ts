@@ -1005,3 +1005,59 @@ test("channel: a successful response is returned as parsed JSON", async () => {
   ).channel({ operation: "join", target: "#eng" });
   expect(result).toEqual(rawResponse);
 });
+
+test("version GETs the local-only /api/agent/v1/version route and decodes the live daemon's response", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({ ok: true, daemonVersion: "0.1.0-dev.38", computerVersion: "0.1.0-dev.38" }),
+  );
+  const result = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.proxy.version),
+  ).version();
+  expect(fetch.mock.calls[0]?.[0]).toEqual(new URL(proxyUrl(agentApiRoutes.proxy.version)));
+  expect(fetch.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  expect(result).toEqual({
+    ok: true,
+    daemonVersion: "0.1.0-dev.38",
+    computerVersion: "0.1.0-dev.38",
+  });
+});
+
+test("version reports the live daemon could not be queried on a network/timeout failure", async () => {
+  spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.proxy.version),
+  )
+    .version()
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("VERSION_FAILED");
+  expect(cliError.message).toContain("The live daemon could not be queried");
+});
+
+test("version maps a >=500 proxy response to SERVER_5XX", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(new Response("boom", { status: 502 }));
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.proxy.version),
+  )
+    .version()
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  expect((error as CliError).code).toBe("SERVER_5XX");
+});
+
+test("version without a configured Agent proxy URL fails as a local precondition before any request", async () => {
+  const fetch = spyOn(globalThis, "fetch");
+  const error = await connectLocal("", `sfp_${"a".repeat(43)}`, "")
+    .version()
+    .catch((caught: unknown) => caught);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(error).toBeInstanceOf(CliError);
+  expect((error as CliError).code).toBe("VERSION_FAILED");
+});

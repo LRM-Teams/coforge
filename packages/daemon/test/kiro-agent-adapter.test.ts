@@ -211,12 +211,12 @@ test("Kiro replaces busy input, suppresses late completion, and normalizes ACP e
       input: {},
     });
 
+    // The provider never forwards Kiro's native error text (it may carry private
+    // provider data) — only this fixed, safe summary, as a raw `error` event; the
+    // daemon core (agent-runtime/runtime-error-activity.ts) builds the Activity.
     expect(
       events.some(
-        (event) =>
-          event.type === "activity" &&
-          event.activity.detailKind === "runtime_error" &&
-          event.activity.detail === "Kiro reported a runtime error",
+        (event) => event.type === "error" && event.message === "Kiro reported a runtime error",
       ),
     ).toBe(true);
   } finally {

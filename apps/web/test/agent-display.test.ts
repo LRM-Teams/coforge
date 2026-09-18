@@ -412,6 +412,27 @@ test("activityKindForObservation classifies the new detail kinds", () => {
   );
 });
 
+// This change's additions to the shared vocabulary.
+test("activityKindForObservation classifies this change's new detail kinds", () => {
+  for (const detailKind of [
+    "reviewing_changes",
+    "review_finished",
+    "compaction_stale",
+    "review_stale",
+    "stalled_recovery",
+    "system_message",
+  ])
+    expect(activityKindForObservation({ detailKind, level: "info" })).toBe("working");
+  expect(activityKindForObservation({ detailKind: "runtime_stalled", level: "error" })).toBe(
+    "error",
+  );
+  // Also follows how runtime_error/runtime_crashed map: matched by detailKind
+  // alone, independent of the level the frame actually carries.
+  expect(activityKindForObservation({ detailKind: "runtime_stalled", level: "info" })).toBe(
+    "error",
+  );
+});
+
 test("working and runtime_starting are dropped: nothing in the daemon emits either", () => {
   expect(activityKindForObservation({ detailKind: "working", level: "info" })).toBeUndefined();
   expect(

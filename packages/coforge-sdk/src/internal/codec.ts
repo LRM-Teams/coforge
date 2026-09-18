@@ -19,6 +19,7 @@ import {
   WorkspaceGetResponseSchema,
   WorkspaceListRequestSchema,
   WorkspaceListResponseSchema,
+  ActivitySystemEntrySchema,
 } from "./gen/coforge/rpc/v1/workspace_pb";
 import {
   DaemonRuntimeCodeAgentsUpdateRequestSchema,
@@ -808,10 +809,19 @@ export function encodeAgentActivity(value: AgentActivity): Uint8Array {
         content:
           entry.kind === "tool_start"
             ? { case: "toolName" as const, value: entry.toolName }
-            : entry.kind === "thinking"
-              ? { case: "thinking" as const, value: entry.text }
-              : { case: "text" as const, value: entry.text },
+            : entry.kind === "system"
+              ? {
+                  case: "system" as const,
+                  value: create(ActivitySystemEntrySchema, {
+                    title: entry.title,
+                    text: entry.text,
+                  }),
+                }
+              : entry.kind === "thinking"
+                ? { case: "thinking" as const, value: entry.text }
+                : { case: "text" as const, value: entry.text },
         parentToolUseId: entry.subagent?.parentToolUseId ?? "",
+        toolInput: entry.kind === "tool_start" ? (entry.toolInput ?? "") : "",
       })),
     }),
   );
@@ -866,7 +876,19 @@ export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
       ? { subagent: { parentToolUseId: entry.parentToolUseId } }
       : {};
     if (entry.content.case === "toolName")
-      return { kind: "tool_start", toolName: entry.content.value, ...scope };
+      return {
+        kind: "tool_start",
+        toolName: entry.content.value,
+        ...(entry.toolInput ? { toolInput: entry.toolInput } : {}),
+        ...scope,
+      };
+    if (entry.content.case === "system")
+      return {
+        kind: "system",
+        title: entry.content.value.title,
+        text: entry.content.value.text,
+        ...scope,
+      };
     if (entry.content.case === "thinking" || entry.content.case === "text")
       return { kind: entry.content.case, text: entry.content.value, ...scope };
     throw new Error("missing activity entry content");

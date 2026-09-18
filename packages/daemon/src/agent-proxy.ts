@@ -26,6 +26,7 @@ import {
   type AgentManualGetResponse,
   type AgentManualSearchRequest,
   type AgentManualSearchResponse,
+  type AgentVersionResponse,
   type GitHubCredentialRequest,
   type GitHubCredentialResponse,
 } from "@lrm/coforge-sdk/agent";
@@ -95,6 +96,13 @@ export type AgentProxyRuntime = {
     request: AgentManualSearchRequest,
     agentApiKey: string,
   ): Promise<AgentManualSearchResponse>;
+  /** `coforge version`'s local-only query (ADR 0036): answered entirely by the live Daemon, never
+   * forwarded to Web/backend. */
+  version?(
+    context: string,
+    request: Record<string, never>,
+    agentApiKey: string,
+  ): Promise<AgentVersionResponse>;
   githubCredential?(
     context: string,
     request: GitHubCredentialRequest,
@@ -462,6 +470,14 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
       reason: url.searchParams.get("reason") ?? "",
     }),
     domainFailure: manualDomainFailure,
+  }),
+  defineRoute({
+    family: "agent-api/version",
+    method: LOCAL_PROXY_ROUTES.version.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.version.path),
+    body: "none",
+    handler: "version",
+    parse: () => ({}),
   }),
   defineRoute({
     family: "agent-api/attachment",

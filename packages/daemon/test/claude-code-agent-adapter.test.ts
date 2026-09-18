@@ -200,8 +200,7 @@ test("Claude surfaces failed identity ACK and retries the observation at turn en
     reported.resolve();
   });
   fixture.session.subscribe((event) => {
-    if (event.type === "activity" && event.activity.detailKind === "runtime_error")
-      failed.resolve(event.activity.detail);
+    if (event.type === "error") failed.resolve(event.message);
   });
   try {
     await fixture.session.sendMessage("wait");
@@ -847,7 +846,10 @@ test("Claude Code does not report thinking_end for a content block stop without 
   }
 });
 
-test("Claude Code reports runtime_crashed, with the error class attached, when the CLI exits unexpectedly", async () => {
+test("Claude Code reports a raw error event, not a classified activity, when the CLI exits unexpectedly", async () => {
+  // The provider reports the raw fact only; the daemon core (agent-runtime/
+  // runtime-error-activity.ts) is the single place that turns it into a
+  // visible runtime_error/runtime_crashed Activity.
   const adapter = new ClaudeCodeProvider({
     command: [
       process.execPath,
@@ -864,11 +866,20 @@ test("Claude Code reports runtime_crashed, with the error class attached, when t
   try {
     await session.sendMessage("wait");
     await session.interrupt().catch(() => {});
-    await waitForDetailKind(events, "runtime_crashed");
-    const crash = events.find(
-      (event) => event.type === "activity" && event.activity.detailKind === "runtime_crashed",
-    );
-    expect(crash?.type === "activity" && crash.activity.level).toBe("error");
+    await waitForEvent(events, "error");
+    const error = events.find((event) => event.type === "error");
+    expect(error).toMatchObject({
+      type: "error",
+      message: "code agent process exited unexpectedly",
+    });
+    expect(
+      events.some(
+        (event) =>
+          event.type === "activity" &&
+          (event.activity.detailKind === "runtime_crashed" ||
+            event.activity.detailKind === "runtime_error"),
+      ),
+    ).toBe(false);
   } finally {
     await session.dispose();
   }
@@ -1183,15 +1194,4 @@ async function waitForEvent(
     await Bun.sleep(5);
   }
   throw new Error(`timed out waiting for ${type}`);
-}
-
-async function waitForDetailKind(events: AgentRuntimeEvent[], detailKind: string): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (
-      events.some((event) => event.type === "activity" && event.activity.detailKind === detailKind)
-    )
-      return;
-    await Bun.sleep(5);
-  }
-  throw new Error(`timed out waiting for detailKind ${detailKind}`);
 }

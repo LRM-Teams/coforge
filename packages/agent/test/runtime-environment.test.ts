@@ -1,11 +1,18 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession } from "../src/runner";
 
+/** macOS `TMPDIR` is `/var/folders/...` and `/var` is a symlink to `/private/var`, while the Agent
+ * workspace is canonicalized with `realpath` before any path is compared or written. Create
+ * fixtures under an already-canonical root so the two agree. */
+async function createFixtureRoot(prefix: string): Promise<string> {
+  return mkdtemp(join(await realpath(tmpdir()), prefix));
+}
+
 test("registered SDK Bash retains current session metadata and never revives stale control fields", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-bash-env-"));
+  const root = await createFixtureRoot("coforge-bash-env-");
   const previousSocket = Bun.env.COFORGE_SUPERVISOR_SOCKET;
   let created: Awaited<ReturnType<typeof createSession>> | undefined;
   try {
@@ -72,7 +79,7 @@ test("registered SDK Bash retains current session metadata and never revives sta
 });
 
 test("an awaiting SDK extension cannot expose Agent overrides to another local launch", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-initialization-env-"));
+  const root = await createFixtureRoot("coforge-initialization-env-");
   const previous = Bun.env.COFORGE_TEST_RUNTIME_VALUE;
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -125,7 +132,7 @@ test("an awaiting SDK extension cannot expose Agent overrides to another local l
 });
 
 test("SDK auth and model requests use each session's overrides without changing the host", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-request-env-"));
+  const root = await createFixtureRoot("coforge-request-env-");
   const sessions: Awaited<ReturnType<typeof createSession>>[] = [];
   const previousKey = Bun.env.OPENROUTER_API_KEY;
   const seen: string[] = [];

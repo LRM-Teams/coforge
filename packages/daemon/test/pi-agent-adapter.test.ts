@@ -80,6 +80,47 @@ test("Pi resolves native provider environment auth below stored auth and Agent k
   }
 });
 
+test("Pi reports a raw error event, not a classified activity, when the provider request fails", async () => {
+  // The provider reports the raw fact only; the daemon core (agent-runtime/
+  // runtime-error-activity.ts) is the single place that turns it into a
+  // visible runtime_error Activity for every provider, Pi included.
+  const root = await mkdtemp(join(tmpdir(), "coforge-pi-error-"));
+  const agentDir = join(root, "host-config");
+  const workspace = join(root, "workspace");
+  await mkdir(workspace, { recursive: true });
+  // 400 (a client error), not 5xx: the SDK retries transient server errors, which would
+  // make this test outrun its timeout instead of exercising the failure path quickly.
+  const server = Bun.serve({
+    port: 0,
+    fetch: () => new Response(JSON.stringify({ error: { message: "boom" } }), { status: 400 }),
+  });
+  try {
+    await writeOpenAiHost(agentDir, `${server.url}v1`);
+    await rm(join(agentDir, "auth.json"));
+    const session = await new PiProvider().createAgentSession({
+      agentWorkspaceDirectory: workspace,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+      environment: { PI_CODING_AGENT_DIR: agentDir, OPENAI_API_KEY: "declared-key" },
+      runtime: { provider: "pi", modelProvider: "openai", model: "custom", reasoning: "" },
+    });
+    const events: AgentRuntimeEvent[] = [];
+    session.subscribe((event) => events.push(event));
+    try {
+      await session.sendMessage("hello").catch(() => {});
+      expect(events.some((event) => event.type === "error")).toBe(true);
+      expect(events.some((event) => event.type === "activity")).toBe(false);
+      expect(events.some((event) => event.type === "completed" && event.status === "failed")).toBe(
+        true,
+      );
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    server.stop(true);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 function completionStream(delta: Record<string, unknown>, finishReason: string | null) {
   return new Response(
     [
