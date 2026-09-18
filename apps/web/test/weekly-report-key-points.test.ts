@@ -65,7 +65,12 @@ test("buildPersonalKeyPointWakeText embeds report id and prompt for the assistan
 
 test("mergeKeyPointPromptSlot updates one slot and keeps the other", () => {
   const base = emptyKeyPointPrompts();
-  const next = mergeKeyPointPromptSlot(base, "personal", "new personal", new Date("2026-09-18T00:00:00Z"));
+  const next = mergeKeyPointPromptSlot(
+    base,
+    "personal",
+    "new personal",
+    new Date("2026-09-18T00:00:00Z"),
+  );
   expect(next.personal.text).toBe("new personal");
   expect(next.team.text).toBe(base.team.text);
 });
@@ -114,7 +119,10 @@ test("startPersonalKeyPointExtraction marks pending_setup when Leader assistant 
       findFirst: async (query: { where?: { settingsId?: string; kind?: string } }) => {
         if (query.where?.settingsId) {
           return {
-            content: { tabs: { Summary: { markdown: "" } }, keyPointPrompts: emptyKeyPointPrompts() },
+            content: {
+              tabs: { Summary: { markdown: "" } },
+              keyPointPrompts: emptyKeyPointPrompts(),
+            },
           };
         }
         return {
@@ -142,7 +150,16 @@ test("startPersonalKeyPointExtraction marks pending_setup when Leader assistant 
       }),
     },
     agent: {
-      findUnique: async () => ({ computerId: null, runtimeConfig: { runtime: "coforge", provider: { kind: "default" }, model: "", modelProvider: "", reasoning: "" } }),
+      findUnique: async () => ({
+        computerId: null,
+        runtimeConfig: {
+          runtime: "coforge",
+          provider: { kind: "default" },
+          model: "",
+          modelProvider: "",
+          reasoning: "",
+        },
+      }),
       create: async () => ({ id: "agent-1" }),
     },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>

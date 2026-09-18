@@ -1831,7 +1831,9 @@ test("saveKeyPointPrompts writes personal slot history onto the live format", as
       }),
     },
     weeklyReport: {
-      findFirst: async (query: { select?: { content?: boolean; id?: boolean; title?: boolean } }) => {
+      findFirst: async (query: {
+        select?: { content?: boolean; id?: boolean; title?: boolean };
+      }) => {
         if (query.select?.title) return { title: "算法汇报" };
         if (query.select?.content) {
           return {
@@ -1914,10 +1916,7 @@ test("saveKeyPointPrompts persists an emptied personal prompt", async () => {
         }
         return { id: "format-1" };
       },
-      update: async (query: {
-        data: { content?: unknown };
-        select?: { content?: boolean };
-      }) => {
+      update: async (query: { data: { content?: unknown }; select?: { content?: boolean } }) => {
         if (query.select?.content) return { content: query.data.content };
         return {};
       },
@@ -2056,14 +2055,16 @@ test("saveReportContent first member submit starts personal key-point extraction
   });
 
   expect(result.status).toBe("submitted");
-  expect(contentWrites.some((row) =>
-    Boolean(
-      row &&
+  expect(
+    contentWrites.some((row) =>
+      Boolean(
+        row &&
         typeof row === "object" &&
         (row as { keyPointExtraction?: { status?: string } }).keyPointExtraction?.status ===
           "pending_setup",
+      ),
     ),
-  )).toBe(true);
+  ).toBe(true);
 });
 
 test("saveReportContent does not re-trigger key-point extraction when already submitted", async () => {

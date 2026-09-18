@@ -28,7 +28,9 @@ export function KeyPointPromptEditor({
   return (
     <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-primary">{m.records_key_points_prompt_label()}</h2>
+        <h2 className="text-sm font-semibold text-primary">
+          {m.records_key_points_prompt_label()}
+        </h2>
         <textarea
           ref={textareaRef}
           aria-label={m.records_key_points_prompt_label()}

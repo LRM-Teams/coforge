@@ -20,10 +20,7 @@ import { m } from "@/paraglide/messages";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { useAppToast } from "@/components/ui/toast";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
-import {
-  KEY_POINT_EXTRACTION_TAB,
-  KeyPointExtractionPanel,
-} from "./key-point-extraction-panel";
+import { KEY_POINT_EXTRACTION_TAB, KeyPointExtractionPanel } from "./key-point-extraction-panel";
 import { ReportTabsEditor } from "./report-tabs-editor";
 import type { UploadResult } from "./report-editor/types";
 import {

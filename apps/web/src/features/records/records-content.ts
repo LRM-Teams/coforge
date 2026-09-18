@@ -33,11 +33,7 @@ export type KeyPointPromptsMeta = {
   personal: KeyPointPromptState;
 };
 
-export type KeyPointExtractionStatus =
-  | "generating"
-  | "ready"
-  | "failed"
-  | "pending_setup";
+export type KeyPointExtractionStatus = "generating" | "ready" | "failed" | "pending_setup";
 
 /** Personal key-point extraction result on a member report (Leader-only UI tab). */
 export type KeyPointExtractionMeta = {
@@ -174,12 +170,7 @@ function parseKeyPointPrompts(value: unknown): KeyPointPromptsMeta | undefined {
   };
 }
 
-const EXTRACTION_STATUSES = new Set<string>([
-  "generating",
-  "ready",
-  "failed",
-  "pending_setup",
-]);
+const EXTRACTION_STATUSES = new Set<string>(["generating", "ready", "failed", "pending_setup"]);
 
 function parseKeyPointExtraction(value: unknown): KeyPointExtractionMeta | undefined {
   if (!value || typeof value !== "object") return undefined;

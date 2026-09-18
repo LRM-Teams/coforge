@@ -610,9 +610,7 @@ export class RecordCatalog {
       select: { content: true },
     });
     const priorPrompts = prior ? asReportContent(prior.content).keyPointPrompts : undefined;
-    const content = priorPrompts
-      ? { ...baseContent, keyPointPrompts: priorPrompts }
-      : baseContent;
+    const content = priorPrompts ? { ...baseContent, keyPointPrompts: priorPrompts } : baseContent;
     const created = await this.db.weeklyReport.create({
       data: {
         workspaceId: input.workspaceId,
@@ -1748,7 +1746,8 @@ export class RecordCatalog {
       report.status !== "shared"
     ) {
       try {
-        const { startPersonalKeyPointExtraction } = await import("./weekly-report-key-points.server");
+        const { startPersonalKeyPointExtraction } =
+          await import("./weekly-report-key-points.server");
         await startPersonalKeyPointExtraction(this.db, {
           workspaceId: input.workspaceId,
           memberReportId: report.id,
