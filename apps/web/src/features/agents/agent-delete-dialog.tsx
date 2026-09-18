@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { AlertCircle, Trash01, XClose as X } from "@untitledui/icons";
+import { AlertCircle, XClose as X } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { FeaturedIcon } from "@/components/foundations/featured-icon/featured-icon";
 import { m } from "@/paraglide/messages";
 import { isAppError } from "@/lib/app-error";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
@@ -80,12 +81,11 @@ export function AgentDeleteDialog({
                   onClick={close}
                 />
               </div>
-              <div
-                role="alert"
-                className="mx-6 mt-4 flex items-start gap-3 rounded-lg border border-error_subtle bg-error-primary p-4 text-sm text-error-primary"
-              >
-                <AlertCircle aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
-                <Text slot="description">{m.agent_delete_dialog_description()}</Text>
+              <div className="mx-6 mt-4 flex items-start gap-3">
+                <FeaturedIcon color="error" theme="light" size="sm" icon={AlertCircle} />
+                <Text slot="description" className="text-sm text-secondary">
+                  {m.agent_delete_dialog_description()}
+                </Text>
               </div>
               <label className="grid gap-1 px-6 pt-5 text-sm font-medium">
                 {m.agent_delete_confirm()}
@@ -111,9 +111,10 @@ export function AgentDeleteDialog({
                   color="primary-destructive"
                   data-agent-delete-confirm
                   isDisabled={!confirmed || deleting}
+                  isLoading={deleting}
+                  showTextWhileLoading
                   onPress={submit}
                 >
-                  <Trash01 aria-hidden="true" />
                   {deleting ? m.agent_delete_pending() : m.agent_delete_submit()}
                 </Button>
               </div>

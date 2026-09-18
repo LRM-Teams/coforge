@@ -322,7 +322,7 @@ export function AgentProfileTab({
             </Button>
             {onStartDelete && (
               <Button
-                color="secondary-destructive"
+                color="tertiary-destructive"
                 className="w-full justify-center"
                 iconLeading={Trash01}
                 onPress={onStartDelete}

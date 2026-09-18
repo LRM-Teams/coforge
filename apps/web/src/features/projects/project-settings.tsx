@@ -295,7 +295,7 @@ export function ProjectSettingsPage({
           {!deleting && (
             <div className="border-t border-secondary pt-4">
               <Button
-                color="secondary-destructive"
+                color="tertiary-destructive"
                 isDisabled={busy}
                 onPress={() => {
                   setDeleting(true);

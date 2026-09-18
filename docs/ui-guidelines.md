@@ -115,6 +115,14 @@
 - 语义色（success / error / warning）和品牌色分开，状态不用紫。
 - 不写十六进制颜色，不写 `text-white` 之外的硬编码。
 
+### 危险操作
+
+- 一个危险操作面里只允许一处实心红：确认键 `color="primary-destructive"`；有等待态用 `isLoading` + `showTextWhileLoading`。
+- 说明文字不装进红色警示框，用 `FeaturedIcon` + 灰色描述（参照 `weekly-send-confirm-dialog.tsx`）。
+- 打开危险流程的入口键用 `color="tertiary-destructive"`（纯红字）。
+- 选中项卡片不用红色，和非危险选项同款。
+- 按钮图标一律走 `iconLeading`，不作子元素，否则图标会挤到文字上方。
+
 ## 9. 状态与徽章
 
 - 在线状态用头像右下的圆点（官方 Avatar 的 `status`），不单独写 "Online" 文字，除非在页头徽章里。

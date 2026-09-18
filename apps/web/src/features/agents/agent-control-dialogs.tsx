@@ -1,4 +1,4 @@
-import { AlertCircle, RefreshCcw01 as RotateCcw, Stop, XClose as X } from "@untitledui/icons";
+import { RefreshCcw01 as RotateCcw, Stop, XClose as X } from "@untitledui/icons";
 import { Heading, Text } from "react-aria-components";
 
 import { Button } from "@/components/base/buttons/button";
@@ -115,7 +115,7 @@ export function AgentControlDialogs({
                       aria-label={option.label}
                       aria-pressed={control.action === option.action}
                       data-control-action={option.action}
-                      className={`h-auto flex-col items-start whitespace-normal rounded-xl p-4 text-left ${control.action === option.action ? (control.destructive ? "border-error bg-error-primary ring-1 ring-error hover:bg-error-primary" : "border-brand bg-primary ring-1 ring-brand hover:bg-primary") : "hover:bg-secondary"}`}
+                      className={`h-auto flex-col items-start whitespace-normal rounded-xl p-4 text-left ${control.action === option.action ? "border-brand bg-primary ring-1 ring-brand hover:bg-primary" : "hover:bg-secondary"}`}
                       onPress={() => control.setAction(option.action)}
                     >
                       <span className="font-semibold">{option.label}</span>
@@ -125,13 +125,9 @@ export function AgentControlDialogs({
                     </Button>
                   ))}
                   {control.destructive && (
-                    <div
-                      className="flex items-start gap-3 rounded-lg border border-error_subtle bg-error-primary p-4 text-sm text-error-primary"
-                      role="alert"
-                    >
-                      <AlertCircle aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
-                      <p>{m.agent_control_confirm_description()}</p>
-                    </div>
+                    <p className="px-1 text-sm text-tertiary">
+                      {m.agent_control_confirm_description()}
+                    </p>
                   )}
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-3 border-t border-secondary px-6 py-4">
@@ -141,9 +137,9 @@ export function AgentControlDialogs({
                   <Button
                     color={control.destructive ? "primary-destructive" : "primary"}
                     data-control-submit
+                    iconLeading={RotateCcw}
                     onPress={control.submitRestart}
                   >
-                    <RotateCcw aria-hidden="true" />
                     {control.selected.label}
                   </Button>
                 </div>
