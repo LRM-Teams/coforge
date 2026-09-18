@@ -93,3 +93,58 @@ test("a failed save shows an inline alert line, never a toast", () => {
   expect(markup).toContain('role="alert"');
   expect(markup).toContain(m.agent_form_runtime_unavailable());
 });
+
+test("a non-owner viewer (no `environment` prop) never renders the Advanced env disclosure", () => {
+  const markup = renderToStaticMarkup(
+    <AgentRuntimeConfigForm
+      computerId="computer-1"
+      initial={initial}
+      onLoad={noopLoad}
+      saving={false}
+      error=""
+      onSave={() => {}}
+    />,
+  );
+  expect(markup).not.toContain(m.agent_env_advanced());
+});
+
+test("the owner's Advanced disclosure renders closed by default with the hint copy", () => {
+  // The env rows themselves come from a `useEffect` seed (`environment.values` -> `envRows`),
+  // which never runs under `renderToStaticMarkup` (no DOM, no effects) — same SSR limitation the
+  // file header notes for `AgentRuntimeFields`. This asserts the static shell: the trigger, the
+  // panel rendered `hidden` (collapsed by default), and the Add/hint copy that doesn't depend on
+  // any seeded row.
+  const markup = renderToStaticMarkup(
+    <AgentRuntimeConfigForm
+      computerId="computer-1"
+      initial={initial}
+      onLoad={noopLoad}
+      environment={{ loaded: true, values: { API_TOKEN: "secret" } }}
+      saving={false}
+      error=""
+      onSave={() => {}}
+    />,
+  );
+  expect(markup).toContain(m.agent_env_advanced());
+  expect(markup).toContain('hidden=""');
+  expect(markup).not.toContain('data-expanded="true"');
+  expect(markup).toContain(m.agent_env_hint());
+  expect(markup).toContain(m.agent_env_add());
+});
+
+test("Save stays disabled while the owner's env query has not loaded yet, showing the loading copy", () => {
+  const markup = renderToStaticMarkup(
+    <AgentRuntimeConfigForm
+      computerId="computer-1"
+      initial={initial}
+      onLoad={noopLoad}
+      environment={{ loaded: false, values: {} }}
+      saving={false}
+      error=""
+      onSave={() => {}}
+    />,
+  );
+  expect(markup).toContain(m.agent_env_loading());
+  const saveButton = markup.slice(markup.lastIndexOf("<button"));
+  expect(saveButton).toContain(' disabled=""');
+});

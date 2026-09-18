@@ -47,3 +47,40 @@ export function agentUpdateErrorMessage(cause: unknown): string {
     return m.agent_form_computer_required();
   return m.agent_update_error();
 }
+
+/**
+ * The Runtime config dialog's Advanced env rows are plain `[name="envKey"]`/`[name="envValue"]`
+ * inputs (`agent-runtime-config-dialog.tsx`), read back here as parallel `FormData.getAll()`
+ * arrays. Empty keys are dropped; the last duplicate key wins (ADR 0045). No name-format validation here — the
+ * server (`agent-environment.server.ts`'s `validateAgentEnvironment`) is the single source of
+ * truth for what a valid variable name is.
+ */
+export function parseAgentEnvironmentFromForm(form: FormData): Record<string, string> {
+  const keys = form.getAll("envKey").map(String);
+  const values = form.getAll("envValue").map(String);
+  const result: Record<string, string> = {};
+  keys.forEach((key, index) => {
+    const trimmed = key.trim();
+    if (!trimmed) return;
+    result[trimmed] = values[index] ?? "";
+  });
+  return result;
+}
+
+/** Order-insensitive comparison the Advanced disclosure uses to decide its own dirty state, and
+ * the panel reuses to know whether a save should call `saveAgentEnvironment` at all. */
+export function agentEnvironmentRowsChanged(
+  rows: { key: string; value: string }[],
+  initial: Record<string, string>,
+): boolean {
+  const next: Record<string, string> = {};
+  for (const row of rows) {
+    const key = row.key.trim();
+    if (!key) continue;
+    next[key] = row.value;
+  }
+  const nextKeys = Object.keys(next);
+  const initialKeys = Object.keys(initial);
+  if (nextKeys.length !== initialKeys.length) return true;
+  return nextKeys.some((key) => next[key] !== initial[key]);
+}

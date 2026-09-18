@@ -147,11 +147,9 @@ async function scan(roots: Root[], deadline: number): Promise<AgentSkillsScope> 
             ((root.legacy === "commands" || (root.legacy === "pi" && depth === 1)) &&
               path.endsWith(".md")))
         ) {
-          const sourcePath = `${root.label}/${relative(root.path, path).split(sep).join("/")}`;
-          if (sourcePath.length > 512) {
-            result.status = "partial";
-            return;
-          }
+          // The containing scan directory, not the per-file path: the UI groups entries by it
+          // (ADR 0045).
+          const sourcePath = root.label;
           const file = await open(
             canonical,
             constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
@@ -168,23 +166,36 @@ async function scan(roots: Root[], deadline: number): Promise<AgentSkillsScope> 
             const metadata: unknown = header ? Bun.YAML.parse(header[1]!) : {};
             if (!metadata || typeof metadata !== "object" || Array.isArray(metadata))
               throw new Error("Invalid metadata");
+            // `name` is always the skill directory name (or the flat command file's basename),
+            // never the frontmatter `name`, so the `/name` badge always matches a real path.
             const name =
-              Reflect.get(metadata, "name") ??
-              (basename(path) === "SKILL.md"
-                ? basename(resolve(path, ".."))
-                : basename(path, ".md"));
+              basename(path) === "SKILL.md" ? basename(resolve(path, "..")) : basename(path, ".md");
+            const frontmatterName = Reflect.get(metadata, "name");
+            const displayName =
+              typeof frontmatterName === "string" && frontmatterName.trim()
+                ? frontmatterName.trim()
+                : name;
             const description = Reflect.get(metadata, "description") ?? "";
+            const userInvocableRaw = Reflect.get(metadata, "user-invocable");
+            const userInvocable = userInvocableRaw === true || userInvocableRaw === "true";
             if (
-              typeof name !== "string" ||
               !name.trim() ||
               name.length > 128 ||
+              !displayName.trim() ||
+              displayName.length > 128 ||
               typeof description !== "string" ||
               description.trim().length > 512 ||
               // oxlint-disable-next-line no-control-regex -- Do not publish terminal control bytes.
-              /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(name + description)
+              /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(name + displayName + description)
             )
               throw new Error("Invalid metadata fields");
-            result.entries.push({ name: name.trim(), description: description.trim(), sourcePath });
+            result.entries.push({
+              name: name.trim(),
+              displayName: displayName.trim(),
+              description: description.trim(),
+              userInvocable,
+              sourcePath,
+            });
           } finally {
             await file.close();
           }
@@ -198,8 +209,10 @@ async function scan(roots: Root[], deadline: number): Promise<AgentSkillsScope> 
       if (directory.status !== "missing") result.status = "partial";
     }
   }
-  result.entries.sort(
-    (a, b) => a.name.localeCompare(b.name) || a.sourcePath.localeCompare(b.sourcePath),
-  );
+  // Deduplicate by `name` within this scope: the first root/entry found wins (ADR 0045).
+  // Global and Workspace are separate scopes and are not deduplicated against each other.
+  const seen = new Map<string, (typeof result.entries)[number]>();
+  for (const entry of result.entries) if (!seen.has(entry.name)) seen.set(entry.name, entry);
+  result.entries = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
   return result;
 }

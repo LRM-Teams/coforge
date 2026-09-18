@@ -35,7 +35,13 @@ test("Skills query binds the owner's assignment and rechecks it before returning
           global: {
             status: "ok",
             entries: [
-              { name: "private", description: "", sourcePath: "~/.agents/skills/private/SKILL.md" },
+              {
+                name: "private",
+                displayName: "private",
+                description: "",
+                userInvocable: false,
+                sourcePath: "~/.agents/skills",
+              },
             ],
             directories: [],
           },

@@ -18,10 +18,11 @@ Codex ephemeral、Claude no-session-persistence 限制；它们的 Session 文�
 后需要另行设计认证/配置共享；代价是不能把 cwd 当作 Session 所有权或文件隔离边界。
 内置 CoForge 与外部 Pi 仍按 Agent workspace 保存 Session，不改变全局 Skills 写入禁令。
 
-依据是官方 [Raft 1.0.17 发布产物](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)、
+依据是官方 Raft Computer 1.0.32（见 `docs/agents/reference-cli-research.md`；该宿主原生存储复用
+行为在 1.0.17 中已观察到，未在 1.0.32 中重新核实）、
 [Claude CLI](https://code.claude.com/docs/en/cli-reference) 和
 [Codex app-server](https://developers.openai.com/codex/app-server)。只借鉴 Raft 的行为，不复制
-源码或变更 license；1.0.18 官方 package 未能取得。替代选项是独立 config home 加全局配置
+源码或变更 license。替代选项是独立 config home 加全局配置
 引用或外部 SessionStore，兼容与认证生命周期成本更高，当前不采用。
 
 运行契约以 [architecture.md](../architecture.md) 为准。后续用户已批准并实现完整

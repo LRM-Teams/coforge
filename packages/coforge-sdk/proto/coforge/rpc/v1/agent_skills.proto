@@ -35,6 +35,8 @@ message AgentSkillMetadata {
   string name = 1;
   string description = 2;
   string source_path = 3;
+  string display_name = 4;
+  bool user_invocable = 5;
 }
 
 message AgentSkillsDirectory {

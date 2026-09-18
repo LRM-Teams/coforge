@@ -43,6 +43,100 @@ inventory 推送，也不是完整的 provider 加载成功证据。UI 是否恰
 云端如何鉴权/持久化、1.0.18 是否修改该实现，均未从公开源码核实。
 Raft 的 transcript 接口是另一项功能，不属于本次对齐目标。
 
+### 1.1 对齐 Raft Computer 1.0.32（2026-09-18 更新）
+
+仓库参考基准已改为随发行的 Raft Computer **1.0.32** 二进制，不再是任何 npm 发行版；恢复方式与
+边界见 [`docs/agents/reference-cli-research.md`](../agents/reference-cli-research.md)。上表的
+1.0.17 证据保留为历史记录（当时用于设计本切片），本节记录针对 1.0.32 daemon bundle 的重新核实
+结果——用 Python（而非 ripgrep）逐项搜索确认，函数名与行为均未变化，`parseSkillMd`/
+`scanSkillsDir`/`SKILL_PATHS` 三个函数的完整源码摘录如下（未复制到 CoForge 代码中，仅供设计对照）：
+
+```text
+// SKILL_PATHS（约 846298 行）
+static SKILL_PATHS = {
+  claude: {
+    global: [".claude/skills", ".claude/commands"],
+    workspace: [".claude/skills", ".claude/commands"]
+  },
+  codex: {
+    global: [".codex/skills", ".codex/skills/.system", ".agents/skills"],
+    workspace: [".codex/skills", ".agents/skills"]
+  }
+};
+
+// scanSkillsDir(dir)（约 846452 行）——只扫描一层：
+// 子目录/symlink 下找 <dir>/<entry.name>/SKILL.md，name 取 entry.name；
+// 根目录下的 *.md 文件，name 取去掉 .md 后的文件名。两种情况 sourcePath 都设为 dir 本身
+// （随后统一做 dedup 与 ~ 缩短，不是逐文件路径）。
+
+// parseSkillMd(dirName, content)（约 846487 行）——name 永远等于 dirName（目录/文件名）：
+parseSkillMd(dirName, content) {
+  const info = { name: dirName, displayName: dirName, description: "", userInvocable: false };
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return info;
+  for (const line of match[1].split("\n")) {
+    const i = line.indexOf(":");
+    if (i === -1) continue;
+    const key = line.slice(0, i).trim(), value = line.slice(i + 1).trim();
+    if (key === "name") info.displayName = value;
+    if (key === "description") info.description = value;
+    if (key === "user-invocable") info.userInvocable = value === "true";
+  }
+  return info;
+}
+
+// dedup + shorten（listSkills 内，约 846380 行）
+const dedup = (skills) => {
+  const seen = new Set();
+  return skills.filter((s) => (seen.has(s.name) ? false : (seen.add(s.name), true)));
+};
+const shorten = (skills) => skills.map((s) => ({
+  ...s,
+  sourcePath: s.sourcePath?.startsWith(home) ? "~" + s.sourcePath.slice(home.length) : s.sourcePath
+}));
+```
+
+这完全证实了此前 1.0.17 表格记录的字段模型在 1.0.32 中原样保留，并给出比 1.0.17 表格更精确的
+细节，本次据此确认：
+
+- `name` **永远**是目录名（`SKILL.md` 场景）或去掉 `.md` 的文件名（flat 命令场景），frontmatter
+  的 `name:` 从不影响 `name`，只影响 `displayName`（有则用 frontmatter 值，否则回退到与 `name`
+  相同的初始值）。
+- `userInvocable` 只在 frontmatter `user-invocable` 字段**字符串**等于 `"true"` 时为真；布尔
+  `true` 在 1.0.32 这段代码里不会被识别（`value3 === "true"` 是字符串比较），CoForge 的实现
+  同时接受布尔 `true` 与字符串 `"true"`，是刻意的宽松超集，不是照搬。
+- `sourcePath` 是被扫描目录本身（`scanSkillsDir` 里 `skill.sourcePath = dir`），不是文件路径；
+  一层目录下所有 `SKILL.md`/`.md` 条目共享同一个 `sourcePath`，最后统一 `~` 缩短前缀。
+- `dedup` 按 `name` 去重、先出现者胜出（`Set` 加入顺序即扫描顺序），Global 与 Workspace 各自
+  独立去重，互不影响；这与 1.0.17 表格的记录一致。
+- 1.0.32 的 `scanSkillsDir` **只扫描一层**、**不做 symlink 逃逸检查、深度限制、文件大小上限或
+  per-directory 状态**（`directories`/`status` 完全是 CoForge 自己的诊断扩展，1.0.32 没有）；
+  1.0.32 对 flat `.md` 命令文件的识别**适用于每一个 skill root**（包括 `.claude/skills` 自己），
+  而 CoForge 当前实现仍只在 `legacy === "commands"`（Claude `.claude/commands`）与
+  `legacy === "pi" && depth === 1` 的根下识别 flat `.md`，`.claude/skills` 仍要求 `SKILL.md`
+  结构——这是一处已知、刻意保留的差异，不在本次改动范围内，未来若要扩大 flat `.md` 识别范围需
+  单独决定。
+
+CoForge 的实现现在对齐上述字段模型：
+`packages/coforge-sdk/proto/coforge/rpc/v1/agent_skills.proto` 的 `AgentSkillMetadata` 新增
+`display_name`（tag 4）与 `user_invocable`（tag 5）；`packages/daemon/src/code-agent/agent-skills.ts`
+的 `scan()` 改为按目录/文件 basename 计算 `name`（不再读 frontmatter `name`），
+`displayName` 取 frontmatter `name`（非空字符串）否则回退 `name`，`userInvocable` 取
+frontmatter `user-invocable === true || === "true"`，`sourcePath` 改为扫描根的 label（不再是
+逐文件路径），并在每个 scope（global/workspace）扫描完成后按 `name` 去重、先扫到者胜出。
+`directories`/`status` 仍留在协议与 daemon 实现里，供 CoForge 自己的诊断使用，但 Web UI
+（`apps/web/src/features/agents/agent-skills.tsx`）不再渲染它们，也不再渲染逐条目的 Source 列。
+
+Web UI 按 1.0.32 Profile 面板的观察布局重写：标题 `Skills (N)`（N = global + workspace 条目数）；
+加载态只有一行 “Loading skills…”；非 ready 状态显示原因文案 + 一个 Retry 按钮，不再有
+Refresh 按钮或说明段落；两个分组 “Global”／“Workspace”，各带小图标、文字与 `(count)`；组内按
+`sourcePath` 再分组，标题行是等宽、次要色的路径 + `(count)`；卡片只有粗体 `displayName`、
+`userInvocable` 时的 `/name` 徽标、以及最多两行的 `description`，不再有 Name/Description/
+Source 三列表格或目录展开列表。以上 UI 事实来自任务作者对 1.0.32 Web bundle
+`AgentDetailPanel-CW_VMZT6.js`（函数 `uc`/`pc`/`Fs`/`xc`）的独立观察，记录于
+[ADR 0045](../adr/0045-agent-skills-entry-fields-and-env-var-placement.md)，本文件不重复该
+bundle 的原始函数名列表，只记录对齐后的 CoForge 布局事实。
+
 ## 2. Provider 原生目录与时机
 
 下表中 `A` 是 CoForge 分配的稳定 Agent workspace，`H` 是 provider 实际使用的用户 HOME，
@@ -243,6 +337,10 @@ global Skills 是独立剩余决定，不应借 Session 隔离或模仿 Raft 静
 
 ### Raft 证据与不应照搬的部分
 
+以下行号与证据针对第 1 节校验和标注的 1.0.17 官方发布产物；这是 Session/Restart/Reset 调查的历史记录，
+不属于本次 Skills/环境变量切片改动范围，未针对 [Raft Computer 1.0.32](../agents/reference-cli-research.md)
+重新核实，仅原样保留作为当时的调查依据。
+
 同一 1.0.17 发布产物：
 
 - 约 11857 行 Claude `config.sessionId` 存在时添加 `--resume <id>`。
@@ -256,6 +354,8 @@ global Skills 是独立剩余决定，不应借 Session 隔离或模仿 Raft 静
   整个 Agent data directory，**不能拿它实现用户要的 Reset Session**。
 
 ### 追加核实：Raft 是否实现了独立存储根与全局配置复用
+
+（同样是 Session/Restart/Reset 调查的历史记录，未针对 1.0.32 重新核实，见上方说明。）
 
 结论：公开 1.0.17 的默认启动路径没有实现这套隔离，不能以“对齐 Raft”为理由直接启用
 Claude/Codex 的全局 ID resume。以下行号均针对第 1 节带校验和的官方发布产物：

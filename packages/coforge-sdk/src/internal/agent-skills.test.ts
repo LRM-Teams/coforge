@@ -24,8 +24,10 @@ test("Agent Skills keeps request scope and separate metadata groups on the wire"
       entries: [
         {
           name: "review",
+          displayName: "Review",
           description: "Review changes",
-          sourcePath: "~/.agents/skills/review/SKILL.md",
+          userInvocable: true,
+          sourcePath: "~/.agents/skills",
         },
       ],
       directories: [{ path: "~/.agents/skills", status: "scanned" as const }],
@@ -45,7 +47,15 @@ test("Agent Skills keeps request scope and separate metadata groups on the wire"
       ...result,
       global: {
         ...result.global,
-        entries: [{ name: "leak", description: "", sourcePath: "/home/private/SKILL.md" }],
+        entries: [
+          {
+            name: "leak",
+            displayName: "leak",
+            description: "",
+            userInvocable: false,
+            sourcePath: "/home/private/SKILL.md",
+          },
+        ],
       },
     }),
   ).toThrow();

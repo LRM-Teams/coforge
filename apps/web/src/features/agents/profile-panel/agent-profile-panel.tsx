@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
 
@@ -29,15 +30,21 @@ import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display
 import { executeAgentControl } from "@/features/agents/agent-control.functions";
 import { AgentControlDialogs } from "@/features/agents/agent-control-dialogs";
 import { AgentRuntimeCredentialDialog } from "@/features/agents/agent-runtime-credential-dialog";
-import { AgentRuntimeConfigDialog } from "@/features/agents/agent-runtime-config-dialog";
+import {
+  AgentRuntimeConfigDialog,
+  type AgentEnvironmentState,
+} from "@/features/agents/agent-runtime-config-dialog";
 import { useAgentRuntimeOptionsLoader } from "@/features/agents/agent-runtime-options";
-import { agentUpdateErrorMessage, updateAgentInputFromForm } from "@/features/agents/agent-form";
+import {
+  agentUpdateErrorMessage,
+  parseAgentEnvironmentFromForm,
+  updateAgentInputFromForm,
+} from "@/features/agents/agent-form";
 import {
   updateAgent,
   updateAgentRole,
   saveAgentRuntimeCredential,
   deleteAgentRuntimeCredential,
-  getAgentEnvironment,
   saveAgentEnvironment,
   deleteAgent,
 } from "@/features/agents/agents.functions";
@@ -50,7 +57,12 @@ import {
   resolveAgentProfileTab,
   type AgentProfileTab as ProfileTabId,
 } from "./profile-panel-search";
-import { useAgentProfileData, useInvalidateAgentProfile } from "./agent-profile-queries";
+import {
+  agentEnvironmentKey,
+  agentEnvironmentQuery,
+  useAgentProfileData,
+  useInvalidateAgentProfile,
+} from "./agent-profile-queries";
 
 const appRoute = getRouteApi("/_app");
 
@@ -119,19 +131,14 @@ export function AgentProfilePanel({
     [agentId, readWorkspaceFile],
   );
 
-  const loadEnvironment = useServerFn(getAgentEnvironment);
+  // Shared by the RUNTIME CONFIG section's masked chips (`agent-profile-tab.tsx`) and the
+  // Runtime config dialog's Advanced disclosure — one owner-only load, not two.
+  const queryClient = useQueryClient();
+  const envQuery = useQuery(agentEnvironmentQuery(agentId, Boolean(profile?.ownedByCurrentUser)));
   const saveEnvironment = useServerFn(saveAgentEnvironment);
-  const environment = useMemo(
-    () => ({
-      onLoad: () => loadEnvironment({ data: agentId }),
-      onSave: async (envVars: Parameters<typeof saveEnvironment>[0]["data"]["envVars"]) => {
-        const result = await saveEnvironment({ data: { agentId, envVars } });
-        await invalidate();
-        return result;
-      },
-    }),
-    [agentId, loadEnvironment, saveEnvironment, invalidate],
-  );
+  const environmentState: AgentEnvironmentState | undefined = profile?.ownedByCurrentUser
+    ? { loaded: envQuery.isSuccess, values: envQuery.data ?? {} }
+    : undefined;
 
   const executeControl = useServerFn(executeAgentControl);
   const controls = useAgentRuntimeControls({
@@ -186,22 +193,32 @@ export function AgentProfilePanel({
   // Reuses the full page's edit-dialog submit path (`updateAgentInputFromForm` +
   // `agentUpdateErrorMessage`, `agent-form.ts`) so the two Runtime config editors never drift.
   // The panel's form carries only the runtime fields, so displayName/description are supplied
-  // as fallbacks — never blanked by this save.
-  function onSaveRuntime(form: FormData) {
+  // as fallbacks — never blanked by this save. Env rows are a second, independent save
+  // (`saveAgentEnvironment`) gated by the form's own `changed.environment` flag, since Save can
+  // fire with only one of the two actually different from what loaded.
+  function onSaveRuntime(form: FormData, changed: { runtime: boolean; environment: boolean }) {
     void guardRuntimeForm(async () => {
       if (!profile || !profile.computer) return;
       setRuntimeFormError("");
       try {
-        await update({
-          data: updateAgentInputFromForm(form, {
-            agentId: profile.id,
-            computerId: profile.computer.id,
-            displayName: profile.displayName,
-            description: profile.description ?? "",
-          }),
-        });
+        if (changed.runtime)
+          await update({
+            data: updateAgentInputFromForm(form, {
+              agentId: profile.id,
+              computerId: profile.computer.id,
+              displayName: profile.displayName,
+              description: profile.description ?? "",
+            }),
+          });
+        if (changed.environment && profile.ownedByCurrentUser)
+          await saveEnvironment({
+            data: { agentId: profile.id, envVars: parseAgentEnvironmentFromForm(form) },
+          });
         setRuntimeEditing(false);
-        await invalidate();
+        await Promise.all([
+          invalidate(),
+          queryClient.invalidateQueries({ queryKey: agentEnvironmentKey(profile.id) }),
+        ]);
       } catch (cause) {
         setRuntimeFormError(agentUpdateErrorMessage(cause));
       }
@@ -289,7 +306,6 @@ export function AgentProfilePanel({
         ) : (
           <AgentProfileTab
             profile={profile}
-            display={liveAgent?.display}
             timeZone={timeZone}
             canManage={canManage}
             controls={controls}
@@ -312,7 +328,7 @@ export function AgentProfilePanel({
             }
             onStartRuntimeEdit={onStartRuntimeEdit}
             onLoadSkills={profile.ownedByCurrentUser ? onLoadSkills : undefined}
-            environment={profile.ownedByCurrentUser ? environment : undefined}
+            envVars={profile.ownedByCurrentUser ? (envQuery.data ?? {}) : undefined}
             onStartDelete={profile.canDeleteAgent ? () => setDeleteDialogOpen(true) : undefined}
             runtimeCredentialDialog={
               profile.ownedByCurrentUser && profile.runtimeConfig.provider.kind === "coforge" ? (
@@ -399,6 +415,7 @@ export function AgentProfilePanel({
             reasoning: profile.runtimeConfig.reasoning,
           }}
           onLoad={onLoadRuntimeOptions}
+          environment={environmentState}
           saving={runtimeFormSaving}
           error={runtimeFormError}
           onSave={onSaveRuntime}

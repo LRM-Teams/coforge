@@ -4,11 +4,9 @@ import {
   Edit01,
   Play,
   RefreshCcw01 as RotateCcw,
-  StopSquare,
+  Stop,
   Trash01,
 } from "@untitledui/icons";
-import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
-
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
@@ -16,10 +14,9 @@ import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Select } from "@/components/base/select/select";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { StatusDot } from "@/components/ui/status-dot";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
-import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
-import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
 import { RuntimeProviderMark } from "@/features/agents/runtime-provider-mark";
 import { computerIcon } from "@/features/computers/computer-identity";
@@ -27,16 +24,14 @@ import { RuntimeUsage, UsageHealthDot } from "@/features/computers/runtime-usage
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "@/features/agents/agents.functions";
 import { AgentSkills, type AgentSkillsLoadResult } from "@/features/agents/agent-skills";
-import {
-  AgentEnvironmentEditor,
-  type AgentEnvironmentEditorProps,
-} from "@/features/agents/agent-environment-editor";
 import { InlineEditField, SECTION_CAPTION_CLASS, SUBFIELD_LABEL_CLASS } from "./inline-edit-field";
 
-type AgentProfile = Awaited<ReturnType<typeof getAgentProfile>>;
+/** Values are never shown in the chip; the dot count hints at length without revealing it. */
+function maskEnvValue(value: string) {
+  return "•".repeat(Math.min(value.length, 8));
+}
 
-/** Status labels stay English (apps/web/AGENTS.md: Activity labels are not internationalized). */
-const STOPPED_LABEL = "Stopped";
+type AgentProfile = Awaited<ReturnType<typeof getAgentProfile>>;
 
 /** A small chip-style badge for Runtime / Model / Reasoning and the Role field — the prototype's
  * `.chip`; the app has no separate chip primitive, so this reuses the official `Badge` at
@@ -66,7 +61,6 @@ function FactBadge({
  */
 export function AgentProfileTab({
   profile,
-  display,
   timeZone,
   canManage,
   controls,
@@ -77,11 +71,10 @@ export function AgentProfileTab({
   runtimeCredentialDialog,
   onStartRuntimeEdit,
   onLoadSkills,
-  environment,
+  envVars,
   onStartDelete,
 }: {
   profile: NonNullable<AgentProfile>;
-  display?: AgentDisplaySnapshot;
   timeZone: string | null;
   /** `canManageAgentRole || ownedByCurrentUser` — gates every pencil, the ACTIONS section. */
   canManage: boolean;
@@ -97,13 +90,15 @@ export function AgentProfileTab({
   /** Owner-only, same as the old Agent detail page's Skills section. Omitted for a viewer who
    * does not own the Agent. */
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
-  /** Owner-only, same as the old Agent detail page's Environment section. */
-  environment?: AgentEnvironmentEditorProps;
   /** Opens the container's `AgentDeleteDialog` (ADR 0044). Present only when the viewer holds
    * Raft's `deleteAgents` capability and this Agent is a delete target at all. */
   onStartDelete?: () => void;
+  /** Owner-only read view of the Agent's launch environment overrides, masked; editing happens in
+   * the Runtime config dialog's Advanced disclosure (`agent-runtime-config-dialog.tsx`).
+   * `undefined` for a viewer who does not own the Agent (the GET is owner-only); an owner whose
+   * query has not resolved yet gets `{}`, same empty-state copy as a genuinely empty map. */
+  envVars?: Record<string, string>;
 }) {
-  const view = agentDisplay(display, { stopped: profile.stopped });
   const { runtime, model, reasoning } = profile.runtimeConfig;
   const canEditRuntime = canManage && Boolean(profile.computer) && Boolean(onStartRuntimeEdit);
   const runtimeLabel = runtimeProviderLabel(runtime);
@@ -118,24 +113,9 @@ export function AgentProfileTab({
     : undefined;
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* The tab starts directly with DISPLAY NAME; the avatar, name and status dot live only
+       * in the panel header (`agent-profile-header.tsx`) and are not repeated here. */}
       <section className="border-b border-secondary px-6 py-5">
-        <div className="flex items-center gap-4">
-          <AgentDisplayAvatar
-            name={profile.displayName}
-            display={display}
-            stopped={profile.stopped}
-            size="xl"
-          />
-          <div className="min-w-0">
-            <p className="flex flex-wrap items-center gap-2 text-lg font-semibold text-primary">
-              <span className="truncate">{profile.displayName}</span>
-              <Badge color={view.isOnline ? "success" : "gray"} size="sm">
-                {profile.stopped && !view.isOnline ? STOPPED_LABEL : view.label}
-              </Badge>
-            </p>
-            <p className="truncate font-mono text-sm text-tertiary">@{profile.name}</p>
-          </div>
-        </div>
         {profile.latestError && (
           <div
             role="alert"
@@ -288,13 +268,27 @@ export function AgentProfileTab({
             </p>
           </div>
         </div>
+        {profile.ownedByCurrentUser && (
+          <div className="mt-4">
+            <p className={SUBFIELD_LABEL_CLASS}>{m.agent_env_title()}</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {envVars && Object.keys(envVars).length > 0 ? (
+                Object.entries(envVars).map(([key, value]) => (
+                  <Tooltip key={key} title={`${key}=${value}`}>
+                    <TooltipTrigger>
+                      <Badge color="gray" size="sm" className="font-mono">
+                        {key}={maskEnvValue(value)}
+                      </Badge>
+                    </TooltipTrigger>
+                  </Tooltip>
+                ))
+              ) : (
+                <p className="text-sm text-tertiary italic">{m.agent_env_none()}</p>
+              )}
+            </div>
+          </div>
+        )}
       </section>
-
-      {profile.ownedByCurrentUser && environment && (
-        <div className="border-b border-secondary px-6">
-          <AgentEnvironmentEditor key={`environment:${profile.id}`} {...environment} />
-        </div>
-      )}
 
       {profile.ownedByCurrentUser && onLoadSkills && (
         <div className="border-b border-secondary px-6">
@@ -312,7 +306,7 @@ export function AgentProfileTab({
             <Button
               color="secondary"
               className="w-full justify-center"
-              iconLeading={controls.isOnline ? StopSquare : Play}
+              iconLeading={controls.isOnline ? Stop : Play}
               isDisabled={controls.startStopBusy}
               onPress={controls.pressStartOrStop}
             >

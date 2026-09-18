@@ -33,7 +33,10 @@ test("Skills metadata distinguishes native global and workspace roots and reread
       });
       expect(
         result.workspace.entries.some(
-          (entry) => entry.name === "review" && entry.description === "Workspace review",
+          (entry) =>
+            entry.name === "review" &&
+            entry.displayName === "review" &&
+            entry.description === "Workspace review",
         ),
       ).toBe(true);
       if (provider === "coforge") expect(result.global.status).toBe("unsupported");
@@ -47,15 +50,16 @@ test("Skills metadata distinguishes native global and workspace roots and reread
     const file = join(home, ".claude/skills/review/SKILL.md");
     const content = "---\nname: review\ndescription: Updated\n---\nPrivate body";
     await Bun.write(file, content);
-    expect(
-      (
-        await listAgentSkills({
-          provider: "claude-code",
-          agentWorkspaceDirectory: cwd,
-          environment: { HOME: home },
-        })
-      ).global.entries[0]?.description,
-    ).toBe("Updated");
+    const updated = await listAgentSkills({
+      provider: "claude-code",
+      agentWorkspaceDirectory: cwd,
+      environment: { HOME: home },
+    });
+    expect(updated.global.entries[0]?.description).toBe("Updated");
+    // `name` is the directory name, never the frontmatter `name`; `displayName` follows the
+    // frontmatter value.
+    expect(updated.global.entries[0]?.name).toBe("review");
+    expect(updated.global.entries[0]?.displayName).toBe("review");
     expect(await Bun.file(file).text()).toBe(content);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -79,11 +83,25 @@ test("Kiro Skills use KIRO_HOME without scanning the fallback home root", async 
       environment: { HOME: home, KIRO_HOME: kiroHome },
     });
 
-    expect(result.workspace.entries.map((entry) => entry.sourcePath)).toEqual([
-      ".kiro/skills/local/SKILL.md",
+    // `name` is the containing directory, `sourcePath` is the scanned root (not the file);
+    // `displayName` still follows the frontmatter `name`.
+    expect(result.workspace.entries).toEqual([
+      {
+        name: "local",
+        displayName: "kiro-review",
+        description: "Kiro review",
+        userInvocable: false,
+        sourcePath: ".kiro/skills",
+      },
     ]);
-    expect(result.global.entries.map((entry) => entry.sourcePath)).toEqual([
-      "$KIRO_HOME/skills/global/SKILL.md",
+    expect(result.global.entries).toEqual([
+      {
+        name: "global",
+        displayName: "kiro-review",
+        description: "Kiro review",
+        userInvocable: false,
+        sourcePath: "$KIRO_HOME/skills",
+      },
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -101,7 +119,13 @@ test("native command conventions differ from Pi markdown skills", async () => {
       environment: { HOME: root },
     });
     expect(claude.workspace.entries).toEqual([
-      { name: "review", description: "", sourcePath: ".claude/commands/team/review.md" },
+      {
+        name: "review",
+        displayName: "review",
+        description: "",
+        userInvocable: false,
+        sourcePath: ".claude/commands",
+      },
     ]);
     const pi = await listAgentSkills({ provider: "coforge", agentWorkspaceDirectory: root });
     expect(pi.workspace.entries).toEqual([]);
@@ -126,10 +150,13 @@ test("metadata queries bound malformed files, preserve duplicate sources and rej
     await symlink(join(home, "outside"), join(cwd, ".pi"));
     const result = await listAgentSkills({ provider: "coforge", agentWorkspaceDirectory: cwd });
     expect(result.workspace.status).toBe("partial");
-    expect(result.workspace.entries.map((entry) => entry.sourcePath)).toEqual([
-      ".agents/skills/one/SKILL.md",
-      ".agents/skills/two/SKILL.md",
-    ]);
+    // `name` comes from each skill's own directory ("one"/"two"), so both survive the
+    // dedup-by-name pass even though they share one scanned root.
+    expect(result.workspace.entries.map((entry) => entry.name)).toEqual(["one", "two"]);
+    expect(result.workspace.entries.every((entry) => entry.sourcePath === ".agents/skills")).toBe(
+      true,
+    );
+    expect(result.workspace.entries.every((entry) => entry.displayName === "review")).toBe(true);
     expect(JSON.stringify(result)).not.toContain(home);
     expect(JSON.stringify(result)).not.toContain("private");
     await Bun.write(join(root, "native/skills/custom/SKILL.md"), content);
@@ -138,7 +165,45 @@ test("metadata queries bound malformed files, preserve duplicate sources and rej
       agentWorkspaceDirectory: cwd,
       environment: { HOME: home, CLAUDE_CONFIG_DIR: join(root, "native") },
     });
-    expect(native.global.entries[0]?.sourcePath).toBe("$CLAUDE_CONFIG_DIR/skills/custom/SKILL.md");
+    expect(native.global.entries[0]).toMatchObject({
+      name: "custom",
+      displayName: "review",
+      sourcePath: "$CLAUDE_CONFIG_DIR/skills",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("userInvocable reads the frontmatter flag and entries dedup by name across scanned roots", async () => {
+  const root = await mkdtemp(join(tempRoot, "skills-dedup-"));
+  try {
+    const cwd = join(root, "agent");
+    // Codex workspace scans both `.agents/skills` and `.codex/skills`; a "review" skill in the
+    // first root must win over a same-named skill in the second.
+    await Bun.write(
+      join(cwd, ".agents/skills/review/SKILL.md"),
+      "---\nname: Review\ndescription: First root\nuser-invocable: true\n---\nbody",
+    );
+    await Bun.write(
+      join(cwd, ".codex/skills/review/SKILL.md"),
+      "---\nname: Review\ndescription: Second root\n---\nbody",
+    );
+    await Bun.write(
+      join(cwd, ".codex/skills/other/SKILL.md"),
+      '---\nname: Other\ndescription: Not invoked\nuser-invocable: "true"\n---\nbody',
+    );
+    const result = await listAgentSkills({ provider: "codex", agentWorkspaceDirectory: cwd });
+    expect(result.workspace.entries.map((entry) => entry.name)).toEqual(["other", "review"]);
+    const review = result.workspace.entries.find((entry) => entry.name === "review");
+    expect(review).toMatchObject({
+      displayName: "Review",
+      description: "First root",
+      userInvocable: true,
+      sourcePath: ".agents/skills",
+    });
+    const other = result.workspace.entries.find((entry) => entry.name === "other");
+    expect(other?.userInvocable).toBe(true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
