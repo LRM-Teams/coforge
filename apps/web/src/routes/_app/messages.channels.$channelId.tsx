@@ -33,7 +33,11 @@ import {
   agentProfileTabParamSchema,
 } from "@/features/agents/profile-panel/profile-panel-search";
 import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
-import { useMarkConversationSeen } from "@/features/conversations/conversation-navigation";
+import {
+  useConversationReadRequiresScroll,
+  useMarkConversationSeen,
+  useReadingLatest,
+} from "@/features/conversations/conversation-navigation";
 import { latestTopLevelSequence } from "@/features/conversations/conversation-unread";
 import { useEffect } from "react";
 
@@ -79,19 +83,29 @@ function ChannelPage() {
     page.ensureLoaded,
   );
 
-  // Opening the channel is reading it: the sidebar badge clears immediately, the read
-  // boundary advances server-side to the conversation's current end, and every event the
-  // badge had already counted is remembered so a late signal cannot re-raise it.
+  // Opening the channel is reading it — except in the `newest-unread` preference, which
+  // keeps unseen messages unread until the latest is actually viewed: the badge clears
+  // immediately, but the server-side cursor waits for the pane to report reading-latest.
   const markSeen = useMarkConversationSeen();
   const advanceReadCursor = useServerFn(markPublicChannelRead);
+  const readRequiresScroll = useConversationReadRequiresScroll();
+  const readingLatest = useReadingLatest();
   const topLevelEnd = latestTopLevelSequence(conversation.messages);
   useEffect(() => {
     markSeen(channelId, topLevelEnd);
   }, [markSeen, channelId, topLevelEnd]);
   useEffect(() => {
     if (!topLevelEnd || !conversation.senderMemberId) return;
+    if (readRequiresScroll && !readingLatest) return;
     void advanceReadCursor({ data: { channelId, throughSequence: topLevelEnd } }).catch(() => {});
-  }, [advanceReadCursor, channelId, topLevelEnd, conversation.senderMemberId]);
+  }, [
+    advanceReadCursor,
+    channelId,
+    topLevelEnd,
+    conversation.senderMemberId,
+    readRequiresScroll,
+    readingLatest,
+  ]);
 
   // Membership changes reach the sidebar through the layout loader and this page
   // through its query; both are refreshed.

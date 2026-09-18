@@ -38,6 +38,8 @@ describe("user time zone preferences", () => {
         browserNotificationsEnabled = enabled;
         return enabled;
       },
+      getConversationOpenMode: async () => "newest-read",
+      setConversationOpenMode: async (_userId, mode) => mode,
     };
     const preferences = new UserPreferences(repository);
 
@@ -57,6 +59,8 @@ describe("user time zone preferences", () => {
       setTimeZone: async () => null,
       getBrowserNotificationsEnabled: async () => enabled,
       setBrowserNotificationsEnabled: async (_userId, next) => (enabled = next),
+      getConversationOpenMode: async () => "newest-read",
+      setConversationOpenMode: async (_userId, mode) => mode,
     };
     const preferences = new UserPreferences(repository);
 

@@ -31,7 +31,11 @@ import {
   agentProfileTabParamSchema,
 } from "@/features/agents/profile-panel/profile-panel-search";
 import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
-import { useMarkConversationSeen } from "@/features/conversations/conversation-navigation";
+import {
+  useConversationReadRequiresScroll,
+  useMarkConversationSeen,
+  useReadingLatest,
+} from "@/features/conversations/conversation-navigation";
 import { latestTopLevelSequence } from "@/features/conversations/conversation-unread";
 import { markDirectConversationRead } from "@/features/conversations/conversations.functions";
 import { useEffect } from "react";
@@ -74,18 +78,22 @@ function DirectConversationPage() {
   const taskView = useConversationTasks(conversation.conversationId);
   const { showChat, showTasks, changeLayout, openTask } = useConversationView(page.ensureLoaded);
 
-  // Opening the DM is reading it: same badge contract as channels — the sidebar badge (keyed
-  // by Agent id) clears immediately and the read cursor advances server-side, clamped.
+  // Opening the DM is reading it — except in the `newest-unread` preference, which keeps
+  // unseen messages unread until the latest is actually viewed: the badge clears
+  // immediately, but the server-side cursor waits for the pane to report reading-latest.
   const markSeen = useMarkConversationSeen();
   const advanceReadCursor = useServerFn(markDirectConversationRead);
+  const readRequiresScroll = useConversationReadRequiresScroll();
+  const readingLatest = useReadingLatest();
   const topLevelEnd = latestTopLevelSequence(conversation.messages);
   useEffect(() => {
     markSeen(agentId, topLevelEnd);
   }, [markSeen, agentId, topLevelEnd]);
   useEffect(() => {
     if (!topLevelEnd) return;
+    if (readRequiresScroll && !readingLatest) return;
     void advanceReadCursor({ data: { agentId, throughSequence: topLevelEnd } }).catch(() => {});
-  }, [advanceReadCursor, agentId, topLevelEnd]);
+  }, [advanceReadCursor, agentId, topLevelEnd, readRequiresScroll, readingLatest]);
 
   if (view === "tasks")
     return (

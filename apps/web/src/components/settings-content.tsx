@@ -7,6 +7,7 @@ import {
   Clock as Clock3,
   Translate01 as Languages,
   LayoutLeft,
+  MessageSquare01 as MessagesSquare,
   Moon01 as Moon,
   Share01,
   Sliders01 as SlidersHorizontal,
@@ -93,6 +94,8 @@ interface SettingsContentProps {
   onRailLabelsChange: (show: boolean) => void;
   onTextSizeChange: (size: TextSizeValue) => void;
   onTimeZoneChange: (timeZone: string) => void;
+  conversationOpenMode: string;
+  onConversationOpenModeChange: (mode: "newest-read" | "first-unread" | "newest-unread") => void;
   onBrowserNotificationsChange: (enabled: boolean) => Promise<void>;
   onEnableBrowserNotifications: () => Promise<void>;
   onTestBrowserNotification: () => Promise<boolean>;
@@ -625,6 +628,8 @@ function Preferences({
   textSize,
   onTextSizeChange,
   onTimeZoneChange,
+  conversationOpenMode,
+  onConversationOpenModeChange,
 }: SettingsContentProps) {
   const timeZoneOptions = getTimeZoneOptions(m.preferences_system());
   const textSizeLabels: Record<TextSizeValue, string> = {
@@ -745,6 +750,26 @@ function Preferences({
             isSelected={railLabels}
             onChange={onRailLabelsChange}
           />
+        </PreferenceSection>
+
+        <PreferenceSection
+          icon={<MessagesSquare aria-hidden="true" />}
+          heading={m.preferences_conversations()}
+        >
+          <Select
+            aria-label={m.preferences_conversation_open_mode()}
+            className="max-w-sm"
+            value={conversationOpenMode}
+            onChange={(key) => {
+              const mode = String(key);
+              if (mode === "newest-read" || mode === "first-unread" || mode === "newest-unread")
+                onConversationOpenModeChange(mode);
+            }}
+          >
+            <SelectItem id="newest-read" label={m.preferences_open_newest_read()} />
+            <SelectItem id="first-unread" label={m.preferences_open_first_unread()} />
+            <SelectItem id="newest-unread" label={m.preferences_open_newest_unread()} />
+          </Select>
         </PreferenceSection>
       </div>
     </div>

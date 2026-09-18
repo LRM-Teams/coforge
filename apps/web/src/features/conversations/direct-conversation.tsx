@@ -25,7 +25,12 @@ import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents/deleted-agent";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { ConversationListButton, useConversationDetailVisible } from "./conversation-navigation";
+import {
+  ConversationListButton,
+  useConversationDetailVisible,
+  useConversationOpenMode,
+  useReadingLatestReporter,
+} from "./conversation-navigation";
 import { ConversationPending } from "./conversation-pending";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import {
@@ -692,6 +697,7 @@ export function ConversationPane({
   threadHeaderAction?: React.ReactNode;
   messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
 }) {
+  const openMode = useConversationOpenMode();
   const [dateLocale, setDateLocale] = useState<string>();
   useEffect(() => setDateLocale(getLocale()), []);
   const toast = useAppToast();
@@ -874,11 +880,13 @@ export function ConversationPane({
 
     if (firstRender || changedConversation || followingLatestRef.current) {
       setNewMessageCount(0);
-      // Slack's default open behavior: with unread top-level messages, land on the first
-      // one (divider right above it, oldest unread in view); otherwise at the latest. A
-      // message hash (deep link, task jump) still wins — the anchor effect handles it and
-      // has already cleared `followingLatest` by the time this runs.
-      const initial = !firstUnreadConsumedRef.current ? firstUnread : undefined;
+      // The user's "When I view a channel" preference decides the open position:
+      // - first-unread: land on the oldest unread (divider above it).
+      // - newest-read / newest-unread: land at the latest.
+      // A message hash (deep link, task jump) still wins over both — the anchor effect
+      // handles it and has already cleared `followingLatest` by the time this runs.
+      const initial =
+        openMode !== "newest-read" && !firstUnreadConsumedRef.current ? firstUnread : undefined;
       firstUnreadConsumedRef.current = true;
       if (initial && !window.location.hash) {
         const index = conversation.messages.findIndex((message) => message.id === initial.id);
@@ -916,6 +924,13 @@ export function ConversationPane({
     if (messages) observer.observe(messages);
     return () => observer.disconnect();
   }, [conversation.conversationId, conversation.messages.length === 0]);
+
+  // `newest-unread` keeps unseen messages unread until the latest is actually viewed: the
+  // pane's own follow state is the truth the route's read-cursor effect waits on.
+  const { reportReadingLatest } = useReadingLatestReporter();
+  useEffect(() => {
+    reportReadingLatest(followingLatest);
+  }, [reportReadingLatest, followingLatest]);
 
   useLayoutEffect(() => {
     function scrollToMessageAnchor() {

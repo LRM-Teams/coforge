@@ -82,6 +82,10 @@ model User {
   avatarContentType           String?
   timeZone                    String?
   browserNotificationsEnabled Boolean                         @default(false)
+  /// Slack's "When I view a channel" behavior: newest-read (open at the newest message and
+  /// mark read), first-unread (open at the oldest unread), newest-unread (open at the newest
+  /// but keep unseen messages unread until scrolled through).
+  conversationOpenMode        String                          @default("newest-read")
   createdAt                   DateTime                        @default(now())
   identities                  UserIdentity[]
   gitHubConnection            GitHubConnection?
