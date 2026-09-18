@@ -104,7 +104,8 @@ function scope(
     status: value.status as AgentSkillsScope["status"],
     entries: value.entries.map((entry) => ({
       name: text(entry.name, 128, true),
-      displayName: text(entry.displayName, 128, true),
+      // A Computer that predates this field sends an empty string; show the skill name instead.
+      displayName: text(entry.displayName || entry.name, 128, true),
       description: text(entry.description, 512),
       userInvocable: Boolean(entry.userInvocable),
       sourcePath: source(entry.sourcePath),
