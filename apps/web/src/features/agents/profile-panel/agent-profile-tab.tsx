@@ -56,7 +56,7 @@ function FactBadge({
 }
 
 /**
- * The Agent's current context-window usage, next to the Runtime badge — display only (ADR 0049):
+ * The Agent's current context-window usage, next to the Runtime badge — display only (ADR 0050):
  * nothing here triggers on any threshold, and it never colors by how full the window is. Hidden
  * entirely by the caller when there is no reading. The tooltip's observed time uses the same
  * `formatDateForDisplay` helper (workspace time zone, viewer locale) the Runtime usage popover's
@@ -114,7 +114,7 @@ export function AgentProfileTab({
 }: {
   profile: NonNullable<AgentProfile>;
   timeZone: string | null;
-  /** The Agent's current context-window usage (ADR 0049), or `null` when there is no reading —
+  /** The Agent's current context-window usage (ADR 0050), or `null` when there is no reading —
    * hidden entirely in that case. Display only; nothing triggers on it. */
   contextUsage?: { usedTokens: number; windowTokens: number; observedAtMs: number } | null;
   /** `canManageAgentRole || ownedByCurrentUser` — gates every pencil, the ACTIONS section. */

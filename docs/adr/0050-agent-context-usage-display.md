@@ -1,4 +1,4 @@
-# ADR 0049: Display the Agent's current context-window usage in the profile panel
+# ADR 0050: Display the Agent's current context-window usage in the profile panel
 
 Status: accepted
 Date: 2026-09-18

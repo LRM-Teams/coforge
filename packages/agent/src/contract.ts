@@ -78,7 +78,7 @@ export type AgentSessionOptions = AgentSessionCommonOptions;
 export type AgentRuntimeEvent =
   | { type: "activity"; activity: AgentActivity }
   | { type: "usage"; snapshot: UsageSnapshot }
-  // A provider-observed context-window reading (ADR 0049), distinct from the plan-usage
+  // A provider-observed context-window reading (ADR 0050), distinct from the plan-usage
   // `usage` event above. Claude Code reports this at the top-level `result` record; a
   // provider with no such signal never emits it.
   | { type: "context-usage"; usedTokens: number; windowTokens: number; occurredAt?: string }

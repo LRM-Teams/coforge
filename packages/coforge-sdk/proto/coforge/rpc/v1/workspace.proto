@@ -95,7 +95,7 @@ message AgentSessionInvalidate {
 }
 
 // Fire-and-forget daemon-to-cloud notice of the Agent's current context-window usage, observed
-// at the top-level Claude Code `result` record (ADR 0049). Claude Code only for now; a provider
+// at the top-level Claude Code `result` record (ADR 0050). Claude Code only for now; a provider
 // with no such signal never emits it. Never delivered as Activity. This message never shipped,
 // so its fields are numbered contiguously.
 message AgentContextUsage {
