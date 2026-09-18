@@ -9,6 +9,7 @@ export const APP_ERROR_CODES = [
   "COMPUTER_OFFLINE",
   "COMPUTER_IDENTITY_UNKNOWN",
   "RELEASE_FEED_UNAVAILABLE",
+  "AGENT_CONTEXT_UNAVAILABLE",
 ] as const;
 
 export type AppErrorCode = (typeof APP_ERROR_CODES)[number];

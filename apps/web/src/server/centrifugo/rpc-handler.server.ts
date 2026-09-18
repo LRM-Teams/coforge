@@ -12,6 +12,7 @@ import { getComputerStatusCache, type ComputerStatusCache } from "./computer-sta
 import { WorkspaceQueryError, WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@lrm/coforge-sdk/internal";
 import {
+  decodeAgentContextScanResponse,
   decodeAgentStartIntent,
   decodeAgentStatus,
   decodeDaemonRuntimeCodeAgentsUpdateRequest,
@@ -20,6 +21,11 @@ import {
   type CodeAgentModelCatalog,
   type RuntimeMetadata,
 } from "@lrm/coforge-sdk/internal";
+import {
+  getAgentContextCache,
+  type AgentContextCache,
+  type AgentContextReport,
+} from "./agent-context-cache.server";
 import { getUsageCache, type UsageCache, type UsageSnapshot } from "./usage-cache.server";
 import { PublishAgentRuntimeControl } from "../agents/agent-runtime-control.server";
 import { decodeAgentMessageDeliveryAck } from "@lrm/coforge-sdk/internal";
@@ -472,6 +478,180 @@ export function createDaemonRuntimeUsageScanResultMethod(
       collectedAt: snapshot?.collectedAt ?? new Date().toISOString(),
     });
     return new Uint8Array();
+  };
+}
+
+/**
+ * The Daemon's terminal report for one Agent context-composition scan (ADR 0051). Mirrors the
+ * usage-scan result method's principal checks; a valid `report_json` is parsed and stored, and
+ * nothing else here interprets the report - the Web feature owns that. A result the daemon could
+ * not produce (`no_session`, `unparsed`, ...) is still stored, as the visible reason the popover
+ * shows.
+ */
+export function createAgentContextScanResultMethod(
+  contextCache?: AgentContextCache,
+): CentrifugoRpcMethod {
+  return async (payload, metadata) => {
+    const response = decodeAgentContextScanResponse(payload);
+    // This RPC belongs to the Computer's daemon alone; an Agent-scoped principal never sends it
+    // (the same transport rule `createAgentContextUsageMethod` applies).
+    if (!metadata.principal.userId || metadata.principal.agentId)
+      return { code: 403, message: "daemon runtime identity is not authorized" };
+    const denied = requireDaemonPrincipal(metadata, response);
+    if (denied) return denied;
+    if (
+      response.protocolMajor !== 1 ||
+      !response.requestId ||
+      !response.provider ||
+      !response.agentId
+    )
+      return { code: 400, message: "invalid Agent context scan result" };
+    const report = response.reportJson
+      ? decodeAgentContextReport(response.reportJson, response.provider)
+      : undefined;
+    if (response.reportJson && !report)
+      return { code: 400, message: "invalid Agent context scan result" };
+    await (contextCache ?? getAgentContextCache()).putResult({
+      workspaceId: response.workspaceId,
+      computerId: response.computerId,
+      agentId: response.agentId,
+      scanId: response.requestId,
+      status: response.status,
+      message: response.message,
+      report,
+      // The report's own observation time when the Computer reported one, otherwise this result
+      // is only as fresh as the moment the server received it.
+      collectedAt: report?.observedAt ?? new Date().toISOString(),
+    });
+    return new Uint8Array();
+  };
+}
+
+/**
+ * The one place the server trusts a report's bytes: validates the shape the daemon's parser
+ * produces (provider-tagged, bounded strings, finite counts) before anything reaches the cache
+ * or the browser. Returns `undefined` for anything else.
+ */
+function decodeAgentContextReport(
+  bytes: Uint8Array,
+  expectedProvider: RuntimeMetadata["provider"],
+): AgentContextReport | undefined {
+  if (bytes.byteLength > 65_536) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return undefined;
+  }
+  const report = record(value);
+  if (!report || report.provider !== expectedProvider) return undefined;
+  const tokens = (field: unknown, maximum: number) =>
+    typeof field === "number" && Number.isFinite(field) && field >= 0 && field <= maximum;
+  const bounded = (field: unknown, maximum: number) =>
+    typeof field === "string" && field.length > 0 && field.length <= maximum;
+  if (typeof report.observedAt !== "string" || Number.isNaN(Date.parse(report.observedAt)))
+    return undefined;
+  const parseCategory = (
+    value: unknown,
+  ): { name: string; tokens: number; approximate?: boolean } | undefined => {
+    const item = record(value);
+    if (
+      !item ||
+      typeof item.name !== "string" ||
+      !bounded(item.name, 200) ||
+      typeof item.tokens !== "number" ||
+      !tokens(item.tokens, 1_000_000_000)
+    )
+      return undefined;
+    return {
+      name: item.name,
+      tokens: item.tokens,
+      ...(item.approximate === true ? { approximate: true as const } : {}),
+    };
+  };
+  if (
+    !Array.isArray(report.categories) ||
+    report.categories.length === 0 ||
+    report.categories.length > 64
+  )
+    return undefined;
+  const categories: AgentContextReport["categories"] = [];
+  for (const entry of report.categories) {
+    const parsed = parseCategory(entry);
+    if (!parsed) return undefined;
+    categories.push(parsed);
+  }
+  const model = report.model;
+  if (model !== undefined && (typeof model !== "string" || !bounded(model, 200))) return undefined;
+  const observedAt = report.observedAt;
+  if (typeof observedAt !== "string" || Number.isNaN(Date.parse(observedAt))) return undefined;
+  const usedTokens = report.usedTokens;
+  if (typeof usedTokens !== "number" || !tokens(usedTokens, 1_000_000_000)) return undefined;
+  const windowTokens = report.windowTokens;
+  if (typeof windowTokens !== "number" || !tokens(windowTokens, 1_000_000_000)) return undefined;
+  const parseMemoryFiles = (value: unknown): AgentContextReport["memoryFiles"] | undefined => {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.length > 200) return undefined;
+    const items: NonNullable<AgentContextReport["memoryFiles"]> = [];
+    for (const entry of value) {
+      const item = record(entry);
+      if (
+        !item ||
+        typeof item.kind !== "string" ||
+        !bounded(item.kind, 200) ||
+        typeof item.path !== "string" ||
+        !bounded(item.path, 400) ||
+        typeof item.tokens !== "number" ||
+        !tokens(item.tokens, 1_000_000_000)
+      )
+        return undefined;
+      items.push({
+        kind: item.kind,
+        path: item.path,
+        tokens: item.tokens,
+        ...(item.approximate === true ? { approximate: true as const } : {}),
+      });
+    }
+    return items;
+  };
+  const parseSkills = (value: unknown): AgentContextReport["skills"] | undefined => {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.length > 200) return undefined;
+    const items: NonNullable<AgentContextReport["skills"]> = [];
+    for (const entry of value) {
+      const item = record(entry);
+      if (
+        !item ||
+        typeof item.name !== "string" ||
+        !bounded(item.name, 400) ||
+        typeof item.source !== "string" ||
+        !bounded(item.source, 200) ||
+        typeof item.tokens !== "number" ||
+        !tokens(item.tokens, 1_000_000_000)
+      )
+        return undefined;
+      items.push({
+        name: item.name,
+        source: item.source,
+        tokens: item.tokens,
+        ...(item.approximate === true ? { approximate: true as const } : {}),
+      });
+    }
+    return items;
+  };
+  const memoryFiles = parseMemoryFiles(report.memoryFiles);
+  if (report.memoryFiles !== undefined && !memoryFiles) return undefined;
+  const skills = parseSkills(report.skills);
+  if (report.skills !== undefined && !skills) return undefined;
+  return {
+    provider: expectedProvider,
+    ...(model !== undefined ? { model } : {}),
+    usedTokens,
+    windowTokens,
+    observedAt,
+    categories,
+    ...(memoryFiles ? { memoryFiles } : {}),
+    ...(skills ? { skills } : {}),
   };
 }
 

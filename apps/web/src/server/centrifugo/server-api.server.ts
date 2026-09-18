@@ -1,9 +1,11 @@
 import {
   AGENT_START_METHOD,
+  encodeAgentContextScanRequest,
   encodeDaemonRuntimeUsageScanRequest,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
 import { getUsageCache, type UsageCache } from "./usage-cache.server";
+import { getAgentContextCache, type AgentContextCache } from "./agent-context-cache.server";
 
 export type CentrifugoServerApi = {
   publish(channel: string, data: Uint8Array): Promise<void>;
@@ -64,6 +66,33 @@ export function createUsageScan(
     await api.publish(
       daemonControlChannel(input.workspaceId, input.computerId),
       encodeDaemonRuntimeUsageScanRequest({ protocolMajor: 1, requestId, ...input }),
+    );
+    return requestId;
+  })();
+}
+
+/** Server → daemon context-composition scan (ADR 0051): one Agent, its own launch/session echoed
+ * for correlation only — the daemon still resolves its own current launch/session before running
+ * anything. The launch/session the server fills in come from its own record of the Agent's
+ * current control state, supplied by the caller. */
+export function createAgentContextScan(
+  api: Pick<CentrifugoServerApi, "publish">,
+  input: {
+    workspaceId: string;
+    computerId: string;
+    agentId: string;
+    provider: RuntimeProvider;
+    launchId: string;
+    sessionId: string;
+  },
+  cache: AgentContextCache = getAgentContextCache(),
+): Promise<string> {
+  const requestId = crypto.randomUUID();
+  return (async () => {
+    await cache.putScan({ ...input, scanId: requestId, status: "pending" });
+    await api.publish(
+      daemonControlChannel(input.workspaceId, input.computerId),
+      encodeAgentContextScanRequest({ protocolMajor: 1, requestId, ...input }),
     );
     return requestId;
   })();
