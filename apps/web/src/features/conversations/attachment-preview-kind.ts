@@ -42,15 +42,20 @@ export function mediaMimeType(fileName: string): string | null {
  * enforced here rather than described in a comment, and it fails closed: an absent, relative,
  * unparseable or same-origin URL is not previewable, and the attachment stays a download.
  *
- * `applicationOrigin` is the page's own origin. It is absent during server rendering, where there
- * is nothing to compare against; the server has already refused to sign a delivery URL on its own
- * origin (`readFileDeliveryConfig`), and the browser re-checks on hydration.
+ * `applicationOrigin` is the page's own origin, and an unknown origin is not previewable either.
+ * During server rendering there is nothing to compare against, so a frame emitted there would be
+ * decided by no check at all: the browser can begin loading `src` from the SSR HTML — with host
+ * cookies, if the delivery origin is misconfigured to this one — before hydration re-runs this
+ * function and removes it. A check that only runs after the frame exists is not fail-closed, so
+ * the answer without a known origin is "no". Every caller renders inside the conversation pane's
+ * `ClientOnly` boundary today, which is why this costs no visible behaviour: the browser always
+ * has an origin to compare.
  */
 export function isFrameableDocumentUrl(
   previewUrl: string | undefined,
   applicationOrigin: string | undefined,
 ): boolean {
-  if (!previewUrl) return false;
+  if (!previewUrl || !applicationOrigin) return false;
   let url: URL;
   try {
     url = new URL(previewUrl);
@@ -58,7 +63,6 @@ export function isFrameableDocumentUrl(
     return false;
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-  if (!applicationOrigin) return true;
   return url.origin !== applicationOrigin;
 }
 

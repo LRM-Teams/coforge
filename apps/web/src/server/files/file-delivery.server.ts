@@ -70,8 +70,13 @@ export function readFileDeliveryConfig(env: NodeJS.ProcessEnv): FileDeliveryConf
  * authenticated backend route, which serves every non-image as an opaque download.
  *
  * The application origin is taken from the configured OAuth redirect URI, the one setting that
- * already has to name this deployment's public origin. Without it there is nothing to compare, and
- * the browser makes the same check again before it frames anything (`attachmentPreviewKind`).
+ * already has to name this deployment's public origin. `AUTHING_REDIRECT_URI` is optional — the
+ * auth config otherwise derives the callback from the request — so a deployment can reach here
+ * with nothing to compare, and this check then permits the delivery URL. That is why it is not the
+ * only gate: `isFrameableDocumentUrl` refuses a same-origin document in the browser, and refuses
+ * one outright wherever no page origin is known, so the frame is never emitted on a check that did
+ * not run. A same-origin misconfiguration in such a deployment loses the PDF preview (the
+ * attachment stays a download) instead of framing a sender's document on the cookie-bearing host.
  */
 function assertNotApplicationOrigin(baseUrl: string, env: NodeJS.ProcessEnv): void {
   const redirectUri = env.AUTHING_REDIRECT_URI?.trim();
