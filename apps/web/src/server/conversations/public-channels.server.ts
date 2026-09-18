@@ -950,6 +950,10 @@ export class PublicChannels {
       senderMemberId: member?.id ?? "",
       viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
+      // The viewer's conversation-level read cursor over top-level messages (ADR 0046):
+      // the client positions the initial view at the first unread message and draws the
+      // divider there. Undefined for a non-member (nothing is "unread for them").
+      readThroughSequence: member?.readThroughSequence,
       threadReadThrough: Object.fromEntries(
         (member?.threadReads ?? []).map((read) => [read.rootMessageId, read.readThroughSequence]),
       ),

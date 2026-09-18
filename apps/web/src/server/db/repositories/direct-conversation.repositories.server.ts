@@ -562,6 +562,8 @@ export type DirectConversationRepository = {
   ): Promise<{
     conversationId: string;
     senderMemberId: string;
+    /** The viewer's conversation-level read cursor over top-level messages (ADR 0046). */
+    readThroughSequence?: number;
     threadReadThrough?: Record<string, number>;
     agent: { id: string; name: string; displayName: string; deletedAt: Date | null };
     hasOlder: boolean;
@@ -936,6 +938,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             id: true,
             userId: true,
             agentId: true,
+            // The viewer's own conversation-level read cursor: the client positions the
+            // initial view at the first unread message and draws the divider there (ADR 0046).
+            readThroughSequence: true,
             threadReads: {
               select: { rootMessageId: true, readThroughSequence: true },
             },
@@ -970,6 +975,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return {
       conversationId: conversation.id,
       senderMemberId: sender.id,
+      // The viewer's conversation-level read boundary: first unread = first top-level
+      // message past this. Thread replies are positioned by their thread instead.
+      readThroughSequence: sender.readThroughSequence,
       threadReadThrough: Object.fromEntries(
         sender.threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),

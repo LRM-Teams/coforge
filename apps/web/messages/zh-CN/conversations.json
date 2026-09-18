@@ -52,6 +52,7 @@
       }
     }
   ],
+  "conversation_unread_divider": "新消息",
   "messages_title": "消息",
   "messages_agent_list_label": "智能体会话",
   "messages_agents_action": "私聊",

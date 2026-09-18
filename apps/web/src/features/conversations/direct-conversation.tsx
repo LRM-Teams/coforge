@@ -87,6 +87,10 @@ const measureConversationElement: typeof measureElement = (element, entry, insta
 export type DirectConversationView = {
   conversationId: string;
   senderMemberId: string;
+  /** The viewer's conversation-level read cursor over top-level messages (ADR 0046).
+   * The first top-level message past it is the first unread; the initial view positions
+   * there and draws the divider. Absent for a non-member or a fully-read fresh seed. */
+  readThroughSequence?: number;
   threadReadThrough?: Record<string, number>;
   hasOlder?: boolean;
   hasNewer?: boolean;
@@ -700,6 +704,27 @@ export function ConversationPane({
   const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
   const pendingLatestRef = useRef(false);
+  // The initial-position decision is made once per conversation open: with unread messages,
+  // Slack's default lands on the first one and draws the divider; otherwise at the latest.
+  // Consumed by the mount effect below and never re-read on later updates.
+  const firstUnread = useMemo(() => {
+    const cursor = conversation.readThroughSequence;
+    if (cursor === undefined) return undefined;
+    const firstUnreadMessage = conversation.messages.find(
+      (message) => !message.threadRootId && message.sequence > cursor,
+    );
+    return firstUnreadMessage
+      ? { id: firstUnreadMessage.id, sequence: firstUnreadMessage.sequence }
+      : undefined;
+  }, [conversation.conversationId]);
+  const firstUnreadConsumedRef = useRef(false);
+  // The divider is frozen at the boundary seen at open, so the mark-read effect (which
+  // advances the cursor server-side) never makes it jump or vanish mid-visit.
+  const openBoundaryRef = useRef<{ id: string; sequence: number } | undefined>(undefined);
+  if (openBoundaryRef.current === undefined && firstUnread && !firstUnreadConsumedRef.current) {
+    openBoundaryRef.current = firstUnread;
+  }
+  const openBoundary = openBoundaryRef.current;
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
   // Handles that recently sent a message here, most-recent first: the mention completion popup
@@ -848,8 +873,25 @@ export function ConversationPane({
     previousLastSequenceRef.current = lastSequence;
 
     if (firstRender || changedConversation || followingLatestRef.current) {
-      scrollToLatest("instant");
       setNewMessageCount(0);
+      // Slack's default open behavior: with unread top-level messages, land on the first
+      // one (divider right above it, oldest unread in view); otherwise at the latest. A
+      // message hash (deep link, task jump) still wins — the anchor effect handles it and
+      // has already cleared `followingLatest` by the time this runs.
+      const initial = !firstUnreadConsumedRef.current ? firstUnread : undefined;
+      firstUnreadConsumedRef.current = true;
+      if (initial && !window.location.hash) {
+        const index = conversation.messages.findIndex((message) => message.id === initial.id);
+        if (index >= 0) {
+          setFollowingLatest(false);
+          messageVirtualizer.scrollToIndex(index, { align: "start" });
+          requestAnimationFrame(() => {
+            document.getElementById(`message-${initial.id}`)?.scrollIntoView({ block: "start" });
+          });
+          return undefined;
+        }
+      }
+      scrollToLatest("instant");
       setFollowingLatest(true);
       // TanStack's scroll restoration rewrites this container's scrollTop in the router's
       // `onRendered` pass, which runs after this child's layout effect. Reassert the
@@ -1143,6 +1185,9 @@ export function ConversationPane({
                     previous ? isOwn(previous) : false,
                     dateLocale,
                   );
+                  // The unread divider is anchored to the snapshot taken at open: once the
+                  // mark-read effect has advanced the cursor, the divider must not jump.
+                  const unreadStartsHere = openBoundary?.sequence === message.sequence;
                   return (
                     <MessageRow
                       key={key}
@@ -1151,6 +1196,7 @@ export function ConversationPane({
                       own={own}
                       dayChanged={dayChanged}
                       grouped={grouped}
+                      unreadStartsHere={unreadStartsHere}
                       expanded={expandedMessages.has(message.id)}
                       onToggleExpanded={() => toggleExpandedMessage(message.id)}
                       agentDisplay={agentDisplayFor}
