@@ -5,9 +5,8 @@ import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repo
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import { agentStopIntent } from "./manage-agents.server";
 
-/** What one delete changed. `deleted: false` means the Agent was already deleted. */
+/** What one delete changed. */
 export type AgentDeletionEffects = {
-  deleted: boolean;
   membershipsLeft: number;
   remindersCanceled: number;
   apiKeysRevoked?: number;

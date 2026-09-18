@@ -428,10 +428,9 @@ export function AgentProfilePanel({
           open={deleteDialogOpen}
           onOpenChange={setDeleteDialogOpen}
           onDelete={async (confirmation) => {
-            const result = await removeAgent({ data: { agentId, confirmation } });
-            // A protected Agent is never a delete target, so this is only reachable if the state
-            // changed under the viewer; keep the panel open instead of pretending it worked.
-            if (result.outcome === "protected") throw new Error("Agent is not deletable");
+            // A protected Agent throws server-side (the dialog shows its own message), so reaching
+            // here means the Agent really was deleted.
+            await removeAgent({ data: { agentId, confirmation } });
             setDeleteDialogOpen(false);
             // The Agent is gone from every live view, so the panel has nothing left to show.
             onClose();

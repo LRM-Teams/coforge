@@ -8,6 +8,7 @@ import { PrismaDirectConversationRepository } from "../src/server/db/repositorie
 import { enrollGeneralChannel } from "../src/server/conversations/public-channels.server";
 import { WorkspaceMembers, workspaceMemberRole } from "../src/server/workspaces/members.server";
 import { findWorkspaceUser } from "../src/server/agents/agent-user-info.server";
+import { TaskBoard } from "../src/server/tasks/task-board.server";
 
 /**
  * End-to-end Agent deletion against local PostgreSQL (ADR 0044). Drives the real `AgentDeletion`
@@ -274,6 +275,68 @@ test.skipIf(!connectionString)(
       expect((await db.reminder.findUniqueOrThrow({ where: { id: reminder.id } })).status).toBe(
         "canceled",
       );
+    } finally {
+      await teardown(db, workspace.id, [owner.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a deleted Agent is neither an assignable Task target nor a Task recipient",
+  async () => {
+    const { db, workspace, owner, agent } = await setup();
+    try {
+      const general = await db.conversation.findUniqueOrThrow({
+        where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
+      });
+      const board = new TaskBoard(db);
+      const principal = { workspaceId: workspace.id, userId: owner.id };
+
+      // Control: while the Agent is live it is both assignable and a delivery recipient.
+      const before = await board.execute(principal, {
+        operation: "create",
+        requestId: crypto.randomUUID(),
+        conversationId: general.id,
+        title: "Before delete",
+        assignee: `@${agent.name}`,
+      });
+      expect(before.assignmentReceipt).toMatchObject({ assignee: `@${agent.name}` });
+      const beforeMessage = await db.message.findUniqueOrThrow({
+        where: { id: before.tasks[0]!.messageId },
+        select: { deliveries: { select: { agentId: true } } },
+      });
+      expect(beforeMessage.deliveries.map((delivery) => delivery.agentId)).toContain(agent.id);
+
+      await deletionFor(db, []).delete(
+        { userId: owner.id, workspaceId: workspace.id, role: "owner" },
+        agent.id,
+      );
+
+      // The `@handle` no longer resolves to a conversation member, so the assignment is refused
+      // exactly like any other unknown handle.
+      await expect(
+        board.execute(principal, {
+          operation: "create",
+          requestId: crypto.randomUUID(),
+          conversationId: general.id,
+          title: "After delete",
+          assignee: `@${agent.name}`,
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+      // An ordinary Task in the channel no longer creates a delivery row for the deleted Agent, so
+      // nothing can wake it through the Task path.
+      const after = await board.execute(principal, {
+        operation: "create",
+        requestId: crypto.randomUUID(),
+        conversationId: general.id,
+        title: "No delivery after delete",
+      });
+      const afterMessage = await db.message.findUniqueOrThrow({
+        where: { id: after.tasks[0]!.messageId },
+        select: { deliveries: { select: { agentId: true } } },
+      });
+      expect(afterMessage.deliveries.map((delivery) => delivery.agentId)).not.toContain(agent.id);
     } finally {
       await teardown(db, workspace.id, [owner.id]);
     }

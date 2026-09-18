@@ -17,8 +17,8 @@ import { conversationLayoutStorage } from "@/features/conversations/layout-stora
 import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { Avatar } from "@/components/base/avatar/avatar";
-import { Badge } from "@/components/base/badges/badges";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents/deleted-agent";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ConversationListButton, useConversationDetailVisible } from "./conversation-navigation";
@@ -170,27 +170,35 @@ export function DirectConversationHeader({
           agent={conversation.agent}
           size="sm"
           display={display}
+          deleted={deleted}
           timeZone={timeZone}
           onPress={openProfile}
           {...activity}
         />
         <div className="min-w-0">
-          {openProfile ? (
-            <Button
-              color="tertiary"
-              noTextPadding
-              onPress={openProfile}
-              aria-label={m.agent_open_profile({ name: conversation.agent.displayName })}
-              className="h-auto min-w-0 max-w-full rounded p-0 text-base font-semibold text-primary hover:bg-transparent hover:text-primary hover:underline"
-            >
-              <h1 className="truncate">{conversation.agent.displayName}</h1>
-            </Button>
-          ) : (
-            <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            {openProfile ? (
+              <Button
+                color="tertiary"
+                noTextPadding
+                onPress={openProfile}
+                aria-label={m.agent_open_profile({ name: conversation.agent.displayName })}
+                className="h-auto min-w-0 max-w-full rounded p-0 text-base font-semibold text-primary hover:bg-transparent hover:text-primary hover:underline"
+              >
+                <h1 className="truncate">{conversation.agent.displayName}</h1>
+              </Button>
+            ) : (
+              <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
+            )}
+            {deleted && <DeletedAgentBadge />}
+          </div>
+          {/* A deleted Agent has no live status to report, so the header states the delete instead
+              of the generic "Status unknown" an absent display would otherwise produce. */}
+          {!deleted && (
+            <p role="status" className="truncate text-xs text-tertiary">
+              {displayLabel}
+            </p>
           )}
-          <p role="status" className="truncate text-xs text-tertiary">
-            {displayLabel}
-          </p>
         </div>
         <span className="hidden shrink-0 text-sm text-tertiary sm:block">
           @{conversation.agent.name}
@@ -433,10 +441,12 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
                 count: threadReplies.length,
               });
         const lastReply = threadReplies.at(-1)!;
-        const repliers: string[] = [];
+        // Carry each replier's deleted flag alongside its name so the preview stack greys a
+        // deleted Agent (ADR 0044) instead of losing the distinction when it dedupes by name.
+        const repliers: { name: string; deleted: boolean }[] = [];
         for (const reply of [...threadReplies].reverse()) {
-          if (repliers.includes(reply.senderName)) continue;
-          repliers.push(reply.senderName);
+          if (repliers.some((replier) => replier.name === reply.senderName)) continue;
+          repliers.push({ name: reply.senderName, deleted: Boolean(reply.senderDeleted) });
           if (repliers.length === 3) break;
         }
         return (
@@ -448,13 +458,15 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             className="h-auto w-fit min-w-0 justify-start gap-2 rounded-md px-1 py-1 text-left font-normal hover:bg-secondary focus-visible:outline-2 focus-visible:outline-brand"
           >
             <span className="flex shrink-0 -space-x-2">
-              {repliers.map((name) => (
+              {repliers.map((replier) => (
                 <Avatar
-                  key={name}
+                  key={replier.name}
                   size="xs"
-                  alt={name}
-                  initials={avatarInitial(name)}
-                  contentClassName={avatarToneClassName(name)}
+                  alt={replier.name}
+                  initials={avatarInitial(replier.name)}
+                  contentClassName={
+                    replier.deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(replier.name)
+                  }
                   className="ring-2 ring-primary"
                 />
               ))}
@@ -920,7 +932,7 @@ export function ConversationPane({
                   initials={avatarInitial(root.senderName)}
                   contentClassName={
                     root.senderDeleted
-                      ? "bg-offline text-white"
+                      ? DELETED_AGENT_AVATAR_CLASS
                       : avatarToneClassName(root.senderName)
                   }
                 />
@@ -930,11 +942,7 @@ export function ConversationPane({
                   <span className="text-sm font-semibold text-primary">
                     {isOwn(root) ? m.conversation_you() : root.senderName}
                   </span>
-                  {root.senderDeleted && (
-                    <Badge size="sm" color="gray" className="shrink-0 font-semibold tracking-wide">
-                      {m.agent_deleted_badge()}
-                    </Badge>
-                  )}
+                  {root.senderDeleted && <DeletedAgentBadge />}
                   <time
                     dateTime={new Date(root.createdAt).toISOString()}
                     className="text-xs text-tertiary tabular-nums"

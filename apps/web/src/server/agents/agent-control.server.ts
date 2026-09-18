@@ -244,6 +244,10 @@ export class AgentControl {
    */
   async recover(intent: AgentStartIntent, userId: string) {
     const agent = await this.authorized(userId, intent.workspaceId, intent.agentId);
+    // ADR 0044: recovery never starts a deleted Agent. `WorkspaceAgentRecovery` already lists
+    // deleted Agents separately and stops them instead, so this is the last line of defence for a
+    // Daemon `ready` that races a delete.
+    if (agent.deletedAt) throw new Error("Agent is deleted");
     if (agent.state && !terminal(agent.state)) {
       await this.advance(agent.id, agent.state.requestId, intent);
       return;
@@ -454,6 +458,10 @@ export class AgentControl {
   /** Caller already holds the existing Agent runtime lock (create/update/recovery). */
   async publishStart(intent: AgentStartIntent, userId: string): Promise<void> {
     const agent = await this.authorized(userId, intent.workspaceId, intent.agentId);
+    // ADR 0044: a deleted Agent is never started again. Every configuration, credential and
+    // environment mutation funnels its restart through here, so this is the one place that has to
+    // hold; `execute()` refuses it earlier, with a user-facing message.
+    if (agent.deletedAt) throw new Error("Agent is deleted");
     let state = agent.state;
     if (state && !terminal(state)) {
       // A Start already in flight for the same purpose (recovery, another config-triggered

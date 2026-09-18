@@ -57,6 +57,7 @@ export class AgentActivityRepository {
         INNER JOIN "workspace_memberships" AS membership
           ON membership."workspaceId" = agent."workspaceId"
         WHERE agent."workspaceId" = ${workspaceId}::uuid
+          AND agent."deletedAt" IS NULL
           AND membership."userId" = ${userId}::uuid
       ),
       ranked AS (

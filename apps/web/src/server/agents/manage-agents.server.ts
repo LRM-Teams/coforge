@@ -147,6 +147,9 @@ export class ManageAgents {
         current.ownerId !== principal.userId
       )
         throw new Error("Agent is not authorized");
+      // ADR 0044: a deleted Agent has no editable configuration. Refused here rather than only by
+      // the restart below, so a stopped/deleted Agent cannot be silently rewritten either.
+      if (current.deletedAt) throw new AppError("NOT_FOUND");
       const computerId = input.computerId ?? current.computerId;
       if (!computerId) throw new AppError("INVALID_INPUT", { errorId: "agent-computer-required" });
       if (!providers.has(input.provider)) throw new Error("provider is not supported");

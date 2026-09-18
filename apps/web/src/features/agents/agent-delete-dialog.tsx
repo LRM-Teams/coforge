@@ -45,7 +45,9 @@ export function AgentDeleteDialog({
         setError(
           isAppError(cause) && cause.code === "ACCESS_DENIED"
             ? m.agent_delete_access_denied()
-            : m.agent_delete_error(),
+            : isAppError(cause) && cause.errorId === "agent-delete-protected"
+              ? m.agent_delete_protected()
+              : m.agent_delete_error(),
         );
       }
     });

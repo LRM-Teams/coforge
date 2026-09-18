@@ -2,6 +2,7 @@ import { Heading } from "react-aria-components";
 
 import { Avatar, type AvatarProps } from "@/components/base/avatar/avatar";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "./deleted-agent";
 import { HoverPopover } from "@/components/ui/hover-popover";
 import { StatusDot } from "@/components/ui/status-dot";
 import { ClockTime } from "@/components/ui/relative-time";
@@ -31,28 +32,32 @@ export function AgentDisplayAvatar({
   name,
   display,
   stopped,
+  deleted,
   size = "sm",
 }: {
   name: string;
   display?: AgentDisplaySnapshot;
   /** The user stopped this Agent; see `agentDisplay`. */
   stopped?: boolean;
+  /** ADR 0044: the Agent was deleted. Its avatar renders greyed wherever it appears, so a deleted
+   * identity is recognisable outside message rows too (DM header, mention chips, member cards). */
+  deleted?: boolean;
   size?: AvatarSize;
 }) {
   const view = agentDisplay(display, { stopped });
   return (
     <span
       role="img"
-      aria-label={`${name}, ${view.label}`}
+      aria-label={`${name}, ${deleted ? m.agent_deleted_badge() : view.label}`}
       className="relative block shrink-0 rounded-[inherit]"
     >
       <Avatar
         size={size}
         alt=""
         initials={avatarInitial(name)}
-        contentClassName={avatarToneClassName(name)}
+        contentClassName={deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(name)}
       />
-      {display && (
+      {display && !deleted && (
         <StatusDot
           tone={view.tone}
           pulse={view.pulse}
@@ -70,6 +75,7 @@ export function AgentActivityAvatar({
   activity,
   loading = false,
   error = false,
+  deleted = false,
   size = "sm",
   timeZone,
   onOpen,
@@ -80,6 +86,8 @@ export function AgentActivityAvatar({
   activity: readonly ActivityEntry[];
   loading?: boolean;
   error?: boolean;
+  /** ADR 0044: render the deleted treatment instead of a live status. */
+  deleted?: boolean;
   size?: AvatarSize;
   timeZone?: string | null;
   onOpen?: () => void;
@@ -109,14 +117,23 @@ export function AgentActivityAvatar({
         "relative shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4",
         size === "sm" && "rounded-lg",
       )}
-      trigger={<AgentDisplayAvatar name={agent.displayName} display={display} size={size} />}
+      trigger={
+        <AgentDisplayAvatar
+          name={agent.displayName}
+          display={display}
+          deleted={deleted}
+          size={size}
+        />
+      }
     >
       <div className="flex items-center gap-3 px-4 pt-4">
         <Avatar
           size="lg"
           alt=""
           initials={avatarInitial(agent.displayName)}
-          contentClassName={avatarToneClassName(agent.displayName)}
+          contentClassName={
+            deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(agent.displayName)
+          }
         />
         <div className="min-w-0 flex-1">
           <Heading slot="title" className="truncate text-sm font-semibold">
@@ -124,11 +141,15 @@ export function AgentActivityAvatar({
           </Heading>
           <p className="truncate text-xs text-tertiary">@{agent.name}</p>
         </div>
-        {display && (
-          <span className="flex items-center gap-1.5 text-xs text-tertiary">
-            <StatusDot tone={view.tone} pulse={view.pulse} className="size-1.5" />
-            {view.label}
-          </span>
+        {deleted ? (
+          <DeletedAgentBadge />
+        ) : (
+          display && (
+            <span className="flex items-center gap-1.5 text-xs text-tertiary">
+              <StatusDot tone={view.tone} pulse={view.pulse} className="size-1.5" />
+              {view.label}
+            </span>
+          )
         )}
       </div>
       {agent.description && (

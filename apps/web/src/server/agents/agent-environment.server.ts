@@ -60,6 +60,8 @@ export class AgentEnvironment {
         agent.ownerId !== principal.userId
       )
         throw new Error("Agent is not authorized");
+      // ADR 0044: a deleted Agent has no environment to edit, and no restart either.
+      if (agent.deletedAt) throw new Error("Agent is not authorized");
       const envVars = validateAgentEnvironment(input);
       const config = await this.#ownedConfig(principal, agentId);
       const { environment: _environment, ...withoutEnvironment } = config;
