@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertCircle,
   Edit01,
@@ -7,11 +7,13 @@ import {
   Stop,
   Trash01,
 } from "@untitledui/icons";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Select } from "@/components/base/select/select";
+import { HoverPopover } from "@/components/ui/hover-popover";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
@@ -23,6 +25,8 @@ import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display
 import { RuntimeProviderMark } from "@/features/agents/runtime-provider-mark";
 import { computerIcon } from "@/features/computers/computer-identity";
 import { RuntimeUsage, UsageHealthDot } from "@/features/computers/runtime-usage";
+import { useAgentContextReport } from "@/features/agents/agent-context-report";
+import { AgentContextPopoverContent } from "@/features/agents/agent-context-popover";
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "@/features/agents/agents.functions";
 import { AgentSkills, type AgentSkillsLoadResult } from "@/features/agents/agent-skills";
@@ -61,13 +65,24 @@ function FactBadge({
  * entirely by the caller when there is no reading. The tooltip's observed time uses the same
  * `formatDateForDisplay` helper (workspace time zone, viewer locale) the Runtime usage popover's
  * `RelativeTime` already renders through.
+ *
+ * For a Claude Code Agent the badge is also the trigger of the context-breakdown popover (ADR
+ * 0051): hover shows the last stored report with the same auto-refresh-once/Refresh pattern the
+ * Runtime usage popover uses. Other runtimes keep the plain badge + tooltip.
  */
 function ContextUsageBadge({
+  agentId,
   contextUsage,
   timeZone,
+  supportsContextReport,
+  computerOnline,
 }: {
+  agentId: string;
   contextUsage: { usedTokens: number; windowTokens: number; observedAtMs: number };
   timeZone: string | null;
+  /** `runtime === "claude-code"` at the call site; only Claude Code has a composition to read. */
+  supportsContextReport: boolean;
+  computerOnline?: boolean;
 }) {
   const locale = getLocale();
   const percent = Math.min(
@@ -75,18 +90,46 @@ function ContextUsageBadge({
     Math.max(0, Math.round((contextUsage.usedTokens / contextUsage.windowTokens) * 100)),
   );
   const numberFormat = new Intl.NumberFormat(locale);
+  const badge = <FactBadge>{m.agent_context_usage_badge({ percent })}</FactBadge>;
+  const tooltipText = m.agent_context_usage_tooltip({
+    used: numberFormat.format(contextUsage.usedTokens),
+    window: numberFormat.format(contextUsage.windowTokens),
+    time: formatDateForDisplay(new Date(contextUsage.observedAtMs), timeZone, locale),
+  });
+  const context = useAgentContextReport(agentId, { enabled: supportsContextReport });
+  const [openCount, setOpenCount] = useState(0);
+  const refreshButtonWrapRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (openCount > 0) refreshButtonWrapRef.current?.querySelector("button")?.focus();
+  }, [openCount]);
+
+  if (!supportsContextReport) {
+    return (
+      <Tooltip title={tooltipText}>
+        <TooltipTrigger>{badge}</TooltipTrigger>
+      </Tooltip>
+    );
+  }
+
   return (
-    <Tooltip
-      title={m.agent_context_usage_tooltip({
-        used: numberFormat.format(contextUsage.usedTokens),
-        window: numberFormat.format(contextUsage.windowTokens),
-        time: formatDateForDisplay(new Date(contextUsage.observedAtMs), timeZone, locale),
-      })}
+    <HoverPopover
+      label={`${m.agent_context_title()} · ${m.agent_context_usage_badge({ percent })}`}
+      trigger={badge}
+      triggerClassName="-m-1 inline-flex rounded-lg p-1 outline-none hover:bg-primary_hover data-focus-visible:ring-2 data-focus-visible:ring-brand"
+      className="p-4 text-sm"
+      working={context.scanning}
+      onOpen={() => setOpenCount((count) => count + 1)}
     >
-      <TooltipTrigger>
-        <FactBadge>{m.agent_context_usage_badge({ percent })}</FactBadge>
-      </TooltipTrigger>
-    </Tooltip>
+      <AgentContextPopoverContent
+        data={context.data}
+        scanning={context.scanning}
+        scanFailed={context.scanFailed}
+        computerOnline={computerOnline}
+        timeZone={timeZone}
+        onRefresh={context.refresh}
+        refreshButtonWrapRef={refreshButtonWrapRef}
+      />
+    </HoverPopover>
   );
 }
 
@@ -293,7 +336,13 @@ export function AgentProfileTab({
                 <FactBadge icon={runtimeIcon}>{runtimeLabel}</FactBadge>
               )}
               {contextUsage && (
-                <ContextUsageBadge contextUsage={contextUsage} timeZone={timeZone} />
+                <ContextUsageBadge
+                  agentId={profile.id}
+                  contextUsage={contextUsage}
+                  timeZone={timeZone}
+                  supportsContextReport={runtime === RUNTIME_PROVIDER.CLAUDE_CODE}
+                  computerOnline={profile.computer?.online}
+                />
               )}
             </p>
           </div>
