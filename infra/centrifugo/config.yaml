@@ -3,6 +3,13 @@
 engine:
   type: redis
 
+# A Daemon's Code Agent inventory carries every runtime's model catalog in one
+# RPC (~145 KB of JSON with six runtimes). Above this limit Centrifugo closes the
+# socket with "message too big", which the client treats as final and never
+# reconnects, so the Computer silently stops receiving Agent control.
+websocket:
+  message_size_limit: 1048576
+
 health:
   enabled: true
 
