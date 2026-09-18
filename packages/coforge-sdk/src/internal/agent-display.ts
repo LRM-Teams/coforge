@@ -15,6 +15,13 @@ export type AgentDisplaySnapshot = {
   entries: ActivityTrajectoryEntry[];
   /** The cloud must be queried again at this deadline; it is not a client reducer rule. */
   expiresAt: number | null;
+  /**
+   * The Agent's most recently observed context-window reading (ADR 0047), display-only —
+   * nothing triggers on it. `undefined` on an older server that has never written this field;
+   * `null` once written but the process is offline, a different launch/daemon instance started,
+   * or no reading has been observed yet for the current one.
+   */
+  contextUsage?: { usedTokens: number; windowTokens: number; observedAtMs: number } | null;
 };
 
 const activityKinds = new Set<AgentActivityKind>([
@@ -52,6 +59,7 @@ export function parseAgentDisplaySnapshot(data: unknown): AgentDisplaySnapshot {
     (item.activityKind === "offline" ? item.expiresAt !== null : item.expiresAt === null)
   )
     throw new Error("invalid Agent display snapshot");
+  const contextUsage = parseContextUsage(item.contextUsage);
   return {
     protocolMajor: 1,
     workspaceId: item.workspaceId,
@@ -63,5 +71,30 @@ export function parseAgentDisplaySnapshot(data: unknown): AgentDisplaySnapshot {
     detail: item.detail,
     entries: parseActivityEntries(item.entries),
     expiresAt: item.expiresAt,
+    ...(contextUsage !== undefined ? { contextUsage } : {}),
   } as AgentDisplaySnapshot;
+}
+
+/** Tolerates a missing field (older server) by returning `undefined` — never a thrown error —
+ * and validates numbers when present. `null` (written but nothing to show) passes through. */
+function parseContextUsage(value: unknown): AgentDisplaySnapshot["contextUsage"] {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid Agent display snapshot");
+  const item = value as Record<string, unknown>;
+  const positiveInteger = (field: unknown) => Number.isSafeInteger(field) && (field as number) >= 0;
+  if (
+    !positiveInteger(item.usedTokens) ||
+    !Number.isSafeInteger(item.windowTokens) ||
+    (item.windowTokens as number) < 1 ||
+    !Number.isSafeInteger(item.observedAtMs) ||
+    (item.observedAtMs as number) < 1
+  )
+    throw new Error("invalid Agent display snapshot");
+  return {
+    usedTokens: item.usedTokens as number,
+    windowTokens: item.windowTokens as number,
+    observedAtMs: item.observedAtMs as number,
+  };
 }

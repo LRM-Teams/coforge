@@ -146,6 +146,31 @@ test("parses object and binary display snapshots and rejects invalid public valu
   }
 });
 
+test("tolerates a missing contextUsage field and validates it when present", () => {
+  // Older server: no `contextUsage` key at all — omitted from the parsed result, not `null`.
+  const parsed = parseAgentDisplaySnapshot({ type: "agent:display", ...display() });
+  expect(parsed).not.toHaveProperty("contextUsage");
+
+  const withUsage = display({
+    contextUsage: { usedTokens: 27_908, windowTokens: 200_000, observedAtMs: 1_758_000_000_000 },
+  });
+  expect(parseAgentDisplaySnapshot({ type: "agent:display", ...withUsage })).toEqual(withUsage);
+
+  const clearedUsage = display({ contextUsage: null });
+  expect(parseAgentDisplaySnapshot({ type: "agent:display", ...clearedUsage })).toEqual(
+    clearedUsage,
+  );
+
+  for (const invalid of [
+    display({ contextUsage: { usedTokens: -1, windowTokens: 200_000, observedAtMs: 1 } }),
+    display({ contextUsage: { usedTokens: 0, windowTokens: 0, observedAtMs: 1 } }),
+    display({ contextUsage: { usedTokens: 0, windowTokens: 200_000, observedAtMs: 0 } }),
+    display({ contextUsage: "not-an-object" as never }),
+  ]) {
+    expect(() => parseAgentDisplaySnapshot({ type: "agent:display", ...invalid })).toThrow();
+  }
+});
+
 test("applies increasing display revisions only within the authorized Agent scope", () => {
   const tracked = agents.map((agent) => ({
     ...agent,
