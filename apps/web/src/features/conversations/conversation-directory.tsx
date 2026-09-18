@@ -1,11 +1,17 @@
-import { Hash01 as Hash } from "@untitledui/icons";
-import type { ReactNode } from "react";
+import { ChevronRight, Hash01 as Hash } from "@untitledui/icons";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
+import { Button } from "@/components/base/buttons/button";
 import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "@/features/agents/workspace-agents-realtime";
 import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
+import {
+  readCollapsedSections,
+  writeCollapsedSections,
+  type DirectorySectionId,
+} from "./directory-sections";
 
 type DirectoryChannel = { id: string; name: string; joined: boolean };
 
@@ -53,6 +59,55 @@ function ConversationRow({
   );
 }
 
+/**
+ * A collapsible sidebar group (CHANNELS, DIRECT MESSAGES). The caption itself is the toggle,
+ * like Slack's sidebar sections; the chevron sits in a 20px gutter so the caption keeps the exact
+ * x position it has without a toggle, and the list below stays aligned with it.
+ */
+function DirectorySection({
+  label,
+  expanded,
+  onToggle,
+  children,
+}: {
+  label: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const listId = useId();
+  return (
+    <>
+      <div className="flex items-center justify-between pr-4 pl-1">
+        <Button
+          color="tertiary"
+          size="xs"
+          aria-expanded={expanded}
+          aria-controls={listId}
+          onPress={onToggle}
+          /* `px-1` (not a height override) lands the caption on the same x the rows' icons use. */
+          className="min-w-0 px-1 text-quaternary hover:text-tertiary"
+          iconLeading={
+            <ChevronRight
+              aria-hidden="true"
+              className={cx(
+                "size-3.5 shrink-0 transition-transform duration-100 ease-linear",
+                expanded && "rotate-90",
+              )}
+            />
+          }
+        >
+          <span className="truncate text-[0.6875rem] tracking-wide uppercase">{label}</span>
+        </Button>
+      </div>
+      {/* Kept mounted but hidden: collapsing must not throw away the rows' realtime state. */}
+      <div id={listId} hidden={!expanded}>
+        {children}
+      </div>
+    </>
+  );
+}
+
 /** Channel and direct-message selection within the Chat page. */
 export function ConversationDirectory({
   channels,
@@ -68,59 +123,77 @@ export function ConversationDirectory({
   const sortedChannels = [...channels].sort((left, right) =>
     left.joined === right.joined ? 0 : left.joined ? -1 : 1,
   );
+  /** Both groups start expanded so SSR and the first client render agree; the stored preference
+   * is applied right after mount (`localStorage` is unavailable during SSR). */
+  const [collapsed, setCollapsed] = useState<DirectorySectionId[]>([]);
+  useEffect(() => setCollapsed(readCollapsedSections()), []);
+  const toggle = (id: DirectorySectionId) =>
+    setCollapsed((current) => {
+      const next = current.includes(id)
+        ? current.filter((entry) => entry !== id)
+        : [...current, id];
+      writeCollapsedSections(next);
+      return next;
+    });
   return (
     <>
       <div className="mt-2">
-        <div className="flex h-7 items-center justify-between pr-4 pl-6">
-          <span className="text-[0.6875rem] font-semibold tracking-wide text-quaternary uppercase">
-            {m.channels_title()}
-          </span>
-        </div>
-        <ul aria-label={m.channels_title()} className="flex flex-col px-4">
-          {sortedChannels.map((channel) => {
-            const current = channel.id === selectedChannelId;
-            return (
-              <li key={channel.id} className="py-px">
-                <ConversationRow
-                  target={{ channelId: channel.id }}
-                  current={current}
-                  muted={!channel.joined}
-                  icon={
-                    <Hash
-                      aria-hidden="true"
-                      className={cx("size-4", current ? "text-brand-secondary" : "text-tertiary")}
-                    />
-                  }
-                >
-                  {channel.name}
-                </ConversationRow>
-              </li>
-            );
-          })}
-        </ul>
+        <DirectorySection
+          label={m.channels_title()}
+          expanded={!collapsed.includes("channels")}
+          onToggle={() => toggle("channels")}
+        >
+          <ul aria-label={m.channels_title()} className="flex flex-col px-4">
+            {sortedChannels.map((channel) => {
+              const current = channel.id === selectedChannelId;
+              return (
+                <li key={channel.id} className="py-px">
+                  <ConversationRow
+                    target={{ channelId: channel.id }}
+                    current={current}
+                    muted={!channel.joined}
+                    icon={
+                      <Hash
+                        aria-hidden="true"
+                        className={cx("size-4", current ? "text-brand-secondary" : "text-tertiary")}
+                      />
+                    }
+                  >
+                    {channel.name}
+                  </ConversationRow>
+                </li>
+              );
+            })}
+          </ul>
+        </DirectorySection>
       </div>
 
       <div className="mt-4">
-        <div className="flex h-7 items-center pl-6">
-          <span className="text-[0.6875rem] font-semibold tracking-wide text-quaternary uppercase">
-            {m.messages_agents_action()}
-          </span>
-        </div>
-        <ul aria-label={m.messages_agents_action()} className="flex flex-col px-4 pb-3">
-          {agents.map((agent) => (
-            <li key={agent.id} className="py-px">
-              <ConversationRow
-                target={{ agentId: agent.id }}
-                current={agent.id === selectedAgentId}
-                icon={
-                  <AgentDisplayAvatar name={agent.displayName} display={agent.display} size="xs" />
-                }
-              >
-                {agent.displayName}
-              </ConversationRow>
-            </li>
-          ))}
-        </ul>
+        <DirectorySection
+          label={m.messages_agents_action()}
+          expanded={!collapsed.includes("agents")}
+          onToggle={() => toggle("agents")}
+        >
+          <ul aria-label={m.messages_agents_action()} className="flex flex-col px-4 pb-3">
+            {agents.map((agent) => (
+              <li key={agent.id} className="py-px">
+                <ConversationRow
+                  target={{ agentId: agent.id }}
+                  current={agent.id === selectedAgentId}
+                  icon={
+                    <AgentDisplayAvatar
+                      name={agent.displayName}
+                      display={agent.display}
+                      size="xs"
+                    />
+                  }
+                >
+                  {agent.displayName}
+                </ConversationRow>
+              </li>
+            ))}
+          </ul>
+        </DirectorySection>
       </div>
     </>
   );
