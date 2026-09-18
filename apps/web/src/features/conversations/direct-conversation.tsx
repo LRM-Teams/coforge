@@ -12,9 +12,13 @@ import {
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
-import { useAgentRecentActivity, useLiveAgent } from "@/features/agents/workspace-agents-realtime";
+import {
+  useAgentRecentActivity,
+  useLiveAgent,
+  useLiveAgents,
+} from "@/features/agents/workspace-agents-realtime";
 import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
-import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
+import { AgentActivityAvatar, AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
@@ -35,8 +39,8 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
 import { MessageComposer } from "./message-composer";
-import { MessageBody } from "./message-body";
 import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
+import { CollapsibleMessageBody } from "./collapsible-message-body";
 import { AttachmentCard, MessageRow, clockLabel, groupsWithPrevious } from "./message-row";
 import {
   OwnMessagesMenu,
@@ -732,6 +736,28 @@ export function ConversationPane({
   );
   /** The full-height sizer the rows' window sits in; its top is where row offsets start. */
   const listRef = useRef<HTMLDivElement>(null);
+  // Agent presence for the stream's avatars: one lookup built from the app shell's single
+  // subscription, rather than each row subscribing for itself.
+  const liveAgents = useLiveAgents();
+  const agentDisplayById = useMemo(
+    () => new Map(liveAgents.map((agent) => [agent.id, agent.display])),
+    [liveAgents],
+  );
+  const agentDisplayFor = useCallback(
+    (agentId: string) => agentDisplayById.get(agentId),
+    [agentDisplayById],
+  );
+  /** Message ids whose very long body the reader has opened in full. Kept here rather than in the
+   * row: a row unmounts as soon as it leaves the virtualizer's window, and an expanded message
+   * must not re-collapse behind the reader. */
+  const [expandedMessages, setExpandedMessages] = useState<ReadonlySet<string>>(new Set());
+  const toggleExpandedMessage = useCallback((messageId: string) => {
+    setExpandedMessages((current) => {
+      const next = new Set(current);
+      if (!next.delete(messageId)) next.add(messageId);
+      return next;
+    });
+  }, []);
   const messagesRef = useRef(conversation.messages);
   messagesRef.current = conversation.messages;
   // Content above the list inside the scroll container (thread root, load-older control).
@@ -963,17 +989,29 @@ export function ConversationPane({
               className="mt-4 flex gap-3 bg-secondary px-4 py-2 md:px-6"
             >
               <div className="flex w-9 shrink-0 items-start justify-center">
-                <Avatar
-                  size="sm"
-                  alt={root.senderName}
-                  src={root.senderAvatarUrl}
-                  initials={avatarInitial(root.senderName)}
-                  contentClassName={
-                    root.senderDeleted
-                      ? DELETED_AGENT_AVATAR_CLASS
-                      : avatarToneClassName(root.senderName)
-                  }
-                />
+                {/* Same presence dot as the rows below, so the thread root does not read as a
+                    different kind of sender. */}
+                {root.senderKind === "agent" && root.senderAgentId ? (
+                  <AgentDisplayAvatar
+                    name={root.senderName}
+                    src={root.senderAvatarUrl}
+                    display={agentDisplayFor(root.senderAgentId)}
+                    deleted={root.senderDeleted}
+                    size="sm"
+                  />
+                ) : (
+                  <Avatar
+                    size="sm"
+                    alt={root.senderName}
+                    src={root.senderAvatarUrl}
+                    initials={avatarInitial(root.senderName)}
+                    contentClassName={
+                      root.senderDeleted
+                        ? DELETED_AGENT_AVATAR_CLASS
+                        : avatarToneClassName(root.senderName)
+                    }
+                  />
+                )}
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <p className="flex items-baseline gap-2">
@@ -989,10 +1027,14 @@ export function ConversationPane({
                   </time>
                 </p>
                 <div className="min-w-0 text-md leading-6 text-primary [overflow-wrap:anywhere]">
-                  <MessageBody
+                  {/* The root collapses exactly like the rows below it: opening a thread whose root
+                      is a wall of text should not bury the replies. */}
+                  <CollapsibleMessageBody
                     body={root.body}
                     mentions={root.mentions}
                     viewerHandle={conversation.viewerHandle}
+                    expanded={expandedMessages.has(root.id)}
+                    onToggleExpanded={() => toggleExpandedMessage(root.id)}
                   />
                 </div>
                 {root.attachments.map((attachment) => (
@@ -1079,6 +1121,9 @@ export function ConversationPane({
                       own={own}
                       dayChanged={dayChanged}
                       grouped={grouped}
+                      expanded={expandedMessages.has(message.id)}
+                      onToggleExpanded={() => toggleExpandedMessage(message.id)}
+                      agentDisplay={agentDisplayFor}
                       dateLocale={dateLocale}
                       measureRef={messageVirtualizer.measureElement}
                       threadEntry={threadEntry}

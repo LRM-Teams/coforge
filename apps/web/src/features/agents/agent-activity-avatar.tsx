@@ -30,12 +30,15 @@ const displayDotClassName: Record<AvatarSize, string> = {
 
 export function AgentDisplayAvatar({
   name,
+  src,
   display,
   stopped,
   deleted,
   size = "sm",
 }: {
   name: string;
+  /** The Agent's uploaded avatar, when it has one; initials stand in otherwise. */
+  src?: string | null;
   display?: AgentDisplaySnapshot;
   /** The user stopped this Agent; see `agentDisplay`. */
   stopped?: boolean;
@@ -54,6 +57,7 @@ export function AgentDisplayAvatar({
       <Avatar
         size={size}
         alt=""
+        src={src}
         initials={avatarInitial(name)}
         contentClassName={deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(name)}
       />

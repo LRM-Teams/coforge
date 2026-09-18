@@ -1,4 +1,5 @@
 import { useState, type ReactNode, type Ref } from "react";
+import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import { Download01, XClose } from "@untitledui/icons";
 
@@ -9,13 +10,14 @@ import { Button } from "@/components/base/buttons/button";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents/deleted-agent";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
 import { AttachmentPreview, attachmentPreviewKind } from "./attachment-preview";
-import { MessageBody } from "./message-body";
+import { CollapsibleMessageBody } from "./collapsible-message-body";
 
 export type MessageView = {
   id: string;
@@ -373,6 +375,9 @@ export function MessageRow({
   own,
   dayChanged,
   grouped,
+  expanded,
+  onToggleExpanded,
+  agentDisplay,
   dateLocale,
   measureRef,
   threadEntry,
@@ -386,6 +391,13 @@ export function MessageRow({
   own: boolean;
   dayChanged: boolean;
   grouped: boolean;
+  /** Whether this message's very long body is showing in full. Owned by the conversation so it
+   * survives the row unmounting as it scrolls out of the virtualizer's window. */
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  /** The live display snapshot for one Agent, from the app shell's subscription. Absent where the
+   * surface has no access to it; the avatar then renders without a dot rather than as a wrong one. */
+  agentDisplay?: (agentId: string) => AgentDisplaySnapshot | undefined;
   dateLocale?: string;
   measureRef: Ref<HTMLLIElement>;
   threadEntry?: (message: MessageView) => ReactNode;
@@ -409,17 +421,32 @@ export function MessageRow({
       : undefined;
   // A deleted sender is inert and visually muted: no profile affordance, a grey avatar tone, and
   // a `DELETED` badge beside the name (ADR 0044).
-  const avatar = (
-    <Avatar
-      size="sm"
-      alt=""
-      src={message.senderAvatarUrl}
-      initials={avatarInitial(message.senderName)}
-      contentClassName={
-        deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(message.senderName)
-      }
-    />
-  );
+  // An Agent's avatar in the stream carries the same online/working/thinking/error/offline dot the
+  // sidebar, conversation header and @-mention popup use, so you can tell whether the Agent that
+  // wrote a message is around right now without opening its profile. The snapshot comes from the
+  // app shell's one subscription, looked up by the conversation and passed in. A person has no
+  // presence in the product, so a person's avatar stays plain; a deleted Agent shows no dot
+  // either (`AgentDisplayAvatar` greys it and drops the dot) — a deletion is not a presence state.
+  const avatar =
+    message.senderKind === "agent" && message.senderAgentId ? (
+      <AgentDisplayAvatar
+        name={message.senderName}
+        src={message.senderAvatarUrl}
+        display={agentDisplay?.(message.senderAgentId)}
+        deleted={deleted}
+        size="sm"
+      />
+    ) : (
+      <Avatar
+        size="sm"
+        alt=""
+        src={message.senderAvatarUrl}
+        initials={avatarInitial(message.senderName)}
+        contentClassName={
+          deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(message.senderName)
+        }
+      />
+    );
   // A system message (task/membership notices, etc.) is not a person talking: it carries no
   // avatar and no sender heading, and renders as a compact, muted line in the stream — like
   // Slack's channel notices. The body still goes through `MessageBody` so a `@handle` mention in
@@ -543,11 +570,13 @@ export function MessageRow({
                 grouped && threadEntry && "pr-8",
               )}
             >
-              <MessageBody
+              <CollapsibleMessageBody
                 body={message.body}
                 mentions={message.mentions}
                 viewerHandle={viewerHandle}
                 onOpenAgentProfile={onOpenAgentProfile}
+                expanded={expanded}
+                onToggleExpanded={onToggleExpanded}
               />
             </div>
           )}

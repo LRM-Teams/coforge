@@ -85,6 +85,8 @@
   "conversation_attachment_preview_failed": "This file could not be previewed. Download it instead.",
   "conversation_attachment_preview_too_large": "This file is too large to preview. Download it instead.",
   "conversation_attachment_preview_html_note": "Preview only: scripts and network requests in this file are disabled.",
+  "conversation_message_show_more": "Show more",
+  "conversation_message_show_less": "Show less",
   "conversation_attachment_remove": "Remove attachment",
   "conversation_thread": "Thread",
   "conversation_thread_reply": "Reply in thread",
