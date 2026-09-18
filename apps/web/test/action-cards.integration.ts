@@ -165,8 +165,15 @@ test("prepare persists channel:create with handles resolved to UUIDs and a reada
       initialAgentIds: [ctx.agent.id],
     });
 
+    // One publication, carrying the Workspace the browser scopes the signal to. The event is
+    // additive (ADR 0046): it may grow further fields, so pin the meaningful ones and the count.
     expect(ctx.realtimeEvents).toEqual([
-      { conversationId: ctx.hub.id, messageId: result.messageId, sequence: message.sequence },
+      expect.objectContaining({
+        conversationId: ctx.hub.id,
+        messageId: result.messageId,
+        sequence: message.sequence,
+        workspaceId: ctx.hub.workspaceId,
+      }),
     ]);
   } finally {
     await ctx.cleanup();
