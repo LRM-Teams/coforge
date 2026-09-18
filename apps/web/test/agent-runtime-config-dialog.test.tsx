@@ -22,7 +22,7 @@ const initial = {
   reasoning: "high",
 };
 
-test("renders the dialog title, the three field labels, and Cancel", () => {
+test("renders the title, Provider and Model labels, and Cancel; Reasoning waits for the catalog", () => {
   const markup = renderToStaticMarkup(
     <AgentRuntimeConfigForm
       computerId="computer-1"
@@ -38,7 +38,9 @@ test("renders the dialog title, the three field labels, and Cancel", () => {
   expect(markup).toContain(m.agent_profile_edit_runtime_config());
   expect(markup).toContain(m.agent_form_provider());
   expect(markup).toContain(m.agent_form_model());
-  expect(markup).toContain(m.agent_form_reasoning());
+  // `renderToStaticMarkup` never runs effects, so the catalog load never resolves and the
+  // configured model is never confirmed against it. The Reasoning field must stay hidden here.
+  expect(markup).not.toContain(m.agent_form_reasoning());
   expect(markup).toContain(m.controls_cancel());
   expect(markup).toContain(m.agent_profile_save_runtime_config());
 });

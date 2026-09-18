@@ -146,13 +146,17 @@ export function AgentRuntimeFields({
     return true;
   });
   const modelValue = selectedModel?.id ?? (modelKey === initialModelKey ? initial?.model : "");
+  const { visible: reasoningVisible, submitted: submittedReasoning } = reasoningFieldState(
+    selectedModel,
+    reasoning,
+  );
   const dirty =
     manualDirty ||
     apiKey.trim() !== "" ||
     provider !== (initial?.provider ?? RUNTIME_PROVIDER.COFORGE) ||
     submittedModelProvider !== (initial?.modelProvider ?? "") ||
     (modelValue ?? "") !== (initial?.model ?? "") ||
-    reasoning !== (initial?.reasoning ?? "");
+    submittedReasoning !== (initial?.reasoning ?? "");
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -331,22 +335,39 @@ export function AgentRuntimeFields({
           </Button>
         </div>
       )}
-      <input type="hidden" name="reasoning" value={reasoning} />
-      <Select
-        label={m.agent_form_reasoning()}
-        size="sm"
-        className="min-w-0 sm:col-span-2"
-        isDisabled={!selectedModel?.reasoningEfforts.length}
-        selectedKey={reasoning}
-        onSelectionChange={(key) => key !== null && setReasoning(String(key))}
-      >
-        <Select.Item id="" label={m.agent_form_provider_default()} />
-        {selectedModel?.reasoningEfforts.map((effort) => (
-          <Select.Item key={effort} id={effort} label={effort} />
-        ))}
-      </Select>
+      <input type="hidden" name="reasoning" value={submittedReasoning} />
+      {reasoningVisible && (
+        <Select
+          label={m.agent_form_reasoning()}
+          size="sm"
+          className="min-w-0 sm:col-span-2"
+          selectedKey={reasoning}
+          onSelectionChange={(key) => key !== null && setReasoning(String(key))}
+        >
+          <Select.Item id="" label={m.agent_form_provider_default()} />
+          {selectedModel?.reasoningEfforts.map((effort) => (
+            <Select.Item key={effort} id={effort} label={effort} />
+          ))}
+        </Select>
+      )}
     </>
   );
+}
+
+/**
+ * Whether the Reasoning field renders and which value the form submits for it. The field shows
+ * only when the selected model is in the loaded catalog and reports at least one reasoning level.
+ * A catalog model with no levels submits "" so a saved level it cannot accept is cleared. While the
+ * model is not in the catalog (loading, load failed, configured model missing) the saved value is
+ * submitted unchanged.
+ */
+export function reasoningFieldState(
+  selectedModel: CodeAgentModelMetadata | undefined,
+  reasoning: string,
+): { visible: boolean; submitted: string } {
+  if (!selectedModel) return { visible: false, submitted: reasoning };
+  const visible = selectedModel.reasoningEfforts.length > 0;
+  return { visible, submitted: visible ? reasoning : "" };
 }
 
 function modelOptionValue(model: CodeAgentModelMetadata) {
