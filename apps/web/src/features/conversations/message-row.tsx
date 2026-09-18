@@ -44,7 +44,12 @@ export type MessageView = {
   }[];
   /** Resolved mention rows for the body's embedded `<@kind:uuid>` tokens; absent/empty for
    * DMs and pre-token history, which render as written (token-only highlight by design). */
-  mentions?: { kind: "user" | "agent"; actorId: string; handle: string }[];
+  mentions?: {
+    kind: "user" | "agent";
+    actorId: string;
+    handle: string;
+    label: string;
+  }[];
   reactions?: { emoji: string; count: number; reactors: string[] }[];
   /** Present when this message is the summary posted for an Agent-prepared action card
    * (ADR 0027). Replaces the plain-text draft hint line with the interactive card; the

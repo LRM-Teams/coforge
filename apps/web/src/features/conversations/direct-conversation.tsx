@@ -85,7 +85,12 @@ export type DirectConversationView = {
     body: string;
     createdAt: Date | string;
     /** Resolved mention rows for the body's embedded `<@kind:uuid>` tokens (channels only). */
-    mentions?: { kind: "user" | "agent"; actorId: string; handle: string }[];
+    mentions?: {
+      kind: "user" | "agent";
+      actorId: string;
+      handle: string;
+      label: string;
+    }[];
     /** Always present, possibly empty; order matches send/upload order. */
     attachments: {
       id: string;

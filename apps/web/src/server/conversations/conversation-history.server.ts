@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { attachmentView } from "../attachments/attachment-view.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
+import { BROWSER_MESSAGE_MENTIONS_SELECT, browserMessageMention } from "./mentions";
 import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions.server";
 import type { ActionCardView } from "./action-cards.server";
 
@@ -24,7 +25,7 @@ const browserMessageFields = {
       agent: { select: { name: true, displayName: true, deletedAt: true } },
     },
   },
-  mentions: { select: { kind: true, actorId: true, handle: true } },
+  mentions: BROWSER_MESSAGE_MENTIONS_SELECT,
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
@@ -72,11 +73,7 @@ export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: strin
       : null,
     body: message.body,
     createdAt: message.createdAt,
-    mentions: message.mentions.map((mention) => ({
-      kind: mention.kind as "user" | "agent",
-      actorId: mention.actorId,
-      handle: mention.handle,
-    })),
+    mentions: message.mentions.map(browserMessageMention),
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
     // Attached by the caller (`conversations.functions.ts`, `ActionCards.viewsFor`) in one

@@ -7,6 +7,41 @@ export function mentionedNames(body: string) {
 /** The mention-row projection every body reader needs to resolve embedded tokens. */
 export type MessageMentionRef = { kind: string; actorId: string; handle: string };
 
+export const BROWSER_MESSAGE_MENTIONS_SELECT = {
+  select: {
+    kind: true,
+    actorId: true,
+    handle: true,
+    member: {
+      select: {
+        user: { select: { displayName: true } },
+        agent: { select: { displayName: true } },
+      },
+    },
+  },
+} as const;
+
+/** A browser mention keeps the stable handle for identity/self matching and adds the current
+ * profile label for display. The relation survives ordinary channel leave because membership is
+ * soft-deleted; an absent/blank display name falls back to the immutable handle. */
+export type BrowserMessageMentionRow = MessageMentionRef & {
+  member: {
+    user: { displayName: string | null } | null;
+    agent: { displayName: string | null } | null;
+  };
+};
+
+export function browserMessageMention(row: BrowserMessageMentionRow) {
+  const displayName =
+    row.kind === "user" ? row.member.user?.displayName : row.member.agent?.displayName;
+  return {
+    kind: row.kind as "user" | "agent",
+    actorId: row.actorId,
+    handle: row.handle,
+    label: displayName?.trim() || row.handle,
+  };
+}
+
 /**
  * The Agent-facing body: embedded mention tokens (`<@human:uuid>`/`<@agent:uuid>`) read back as
  * plain `@handle` text. The token form is a storage/browser-render concern and never crosses

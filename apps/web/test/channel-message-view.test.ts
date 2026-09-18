@@ -53,6 +53,25 @@ test("a user-sent channel message has no senderAgentId", () => {
   expect(view.senderAgentId).toBeUndefined();
 });
 
+test("a channel mention exposes the current display label separately from its stable handle", () => {
+  const view = channelMessageView(
+    row({
+      mentions: [
+        {
+          kind: "user",
+          actorId: "user-ada",
+          handle: "ada",
+          member: { user: { displayName: "Ada Lovelace" }, agent: null },
+        },
+      ],
+    }),
+    WORKSPACE_ID,
+  );
+  expect(view.mentions).toEqual([
+    { kind: "user", actorId: "user-ada", handle: "ada", label: "Ada Lovelace" },
+  ]);
+});
+
 test("a system message (no sender) has no senderAgentId", () => {
   const view = channelMessageView(row({ sender: null }), WORKSPACE_ID);
   expect(view.senderKind).toBe("system");

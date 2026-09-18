@@ -6,7 +6,12 @@ import { AppError } from "../../../lib/app-error";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
 import { ACTIVE_MEMBER_WHERE } from "../../conversations/active-member.server";
-import { agentReadableBody, mentionedNames } from "../../conversations/mentions";
+import {
+  agentReadableBody,
+  BROWSER_MESSAGE_MENTIONS_SELECT,
+  browserMessageMention,
+  mentionedNames,
+} from "../../conversations/mentions";
 import { AgentSendRejectedError } from "../../conversations/agent-send-rejected-error.server";
 import {
   MESSAGE_REACTIONS_SELECT,
@@ -91,7 +96,7 @@ const ATTACHMENT_SELECT = {
   orderBy: { position: "asc" },
 } satisfies Prisma.MessageSelect["attachments"];
 
-/** Resolved mention rows: translates a body token (`<@kind:actorId>`) back to its `@handle`. */
+/** Stable mention identity for Agent-facing text; Agents always read the immutable handle. */
 const MESSAGE_MENTIONS_SELECT = {
   select: { kind: true, actorId: true, handle: true },
 } satisfies NonNullable<Prisma.MessageSelect["mentions"]>;
@@ -112,7 +117,7 @@ const BROWSER_MESSAGE_SELECT = {
       agent: { select: { name: true, displayName: true, deletedAt: true } },
     },
   },
-  mentions: MESSAGE_MENTIONS_SELECT,
+  mentions: BROWSER_MESSAGE_MENTIONS_SELECT,
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
@@ -243,11 +248,7 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
       : null,
     body: message.body,
     createdAt: message.createdAt,
-    mentions: message.mentions.map((mention) => ({
-      kind: mention.kind as "user" | "agent",
-      actorId: mention.actorId,
-      handle: mention.handle,
-    })),
+    mentions: message.mentions.map(browserMessageMention),
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
     // Attached by the caller (`conversations.functions.ts`, `ActionCards.viewsFor`) in one
