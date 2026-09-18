@@ -190,9 +190,12 @@ export function attachmentUrl(attachment: { id: string }) {
  * The short kind shown before a file's size: its extension, or the media type when the name has no
  * usable one (`LICENSE`, `Dockerfile`, a dotfile) so such a file still says what it is rather than
  * showing a bare size. `application/octet-stream` is the upload default for "unknown", so it names
- * nothing. Exported for its own test; not a general-purpose MIME formatter.
+ * nothing, and a dotted phrase ("notes.final version") is not an extension.
+ *
+ * Not exported and not unit-tested: this is display text, and `docs/agents/testing.md` reserves UI
+ * verification for a browser. The cases above are in this PR's verification Todo list instead.
  */
-export function attachmentTypeLabel(fileName: string, contentType: string): string | undefined {
+function attachmentTypeLabel(fileName: string, contentType: string): string | undefined {
   const dot = fileName.lastIndexOf(".");
   const suffix = dot > 0 ? fileName.slice(dot + 1) : "";
   // A long tail is part of the name rather than an extension ("notes.final version").
