@@ -6122,6 +6122,136 @@ describe("DaemonRuntime", () => {
   });
 });
 
+/** A fake session (ADR 0048) whose `subscribe` listener the test drives directly, so it can
+ * simulate a provider's busy/idle transitions (`progress` while a turn runs, `completed` at turn
+ * end) without a real provider process. */
+function deliveryQueueSession() {
+  const listeners = new Set<(event: AgentRuntimeEvent) => void>();
+  const notices: string[] = [];
+  return {
+    session: {
+      async sendMessage() {},
+      async notify(notice: string) {
+        notices.push(notice);
+      },
+      subscribe(listener: (event: AgentRuntimeEvent) => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      async interrupt() {},
+      onExit() {
+        return () => undefined;
+      },
+      async dispose() {},
+    } satisfies AgentSession,
+    notices,
+    emit: (event: AgentRuntimeEvent) => {
+      for (const listener of listeners) listener(event);
+    },
+  };
+}
+
+/** Resolves once `sendAgentDeliveryAck` has recorded `count` deliveries — the observable
+ * completion of a flush, rather than a timer-based wait (docs/agents/testing.md). */
+function ackGate(count: number) {
+  const acks: string[] = [];
+  let resolve!: () => void;
+  const done = new Promise<void>((r) => (resolve = r));
+  return {
+    acks,
+    done,
+    record(deliveryId: string) {
+      acks.push(deliveryId);
+      if (acks.length >= count) resolve();
+    },
+  };
+}
+
+describe("Agent delivery queue (ADR 0048)", () => {
+  async function deliveryQueueHarness(provider: AgentRuntimeConfig["provider"], acks = ackGate(0)) {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const fake = deliveryQueueSession();
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider, createAgentSession: async () => fake.session }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentDeliveryAck(ack) {
+            acks.record(ack.deliveryId);
+          },
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", { ...config, provider });
+    return {
+      runtime,
+      fake,
+      acks,
+      deliver: (sequence: number) =>
+        runtime.handleAgentMessage({
+          protocolMajor: 1,
+          requestId: `request-${sequence}`,
+          messageId: `message-${sequence}`,
+          deliveryId: `delivery-${sequence}`,
+          sequence,
+          workspaceId: connection.workspaceId,
+          conversationId: "conversation-a",
+          agentId: "agent-a",
+          body: `body-${sequence}`,
+          method: "agent:deliver",
+          target: "@ada",
+        }),
+    };
+  }
+
+  test("a busy Kiro-mode Agent holds deliveries and flushes exactly one coalesced notice at turn end", async () => {
+    const acks = ackGate(2);
+    const { fake, deliver } = await deliveryQueueHarness("kiro", acks);
+
+    fake.emit({ type: "progress" }); // the bootstrap turn is running
+    await Promise.all([deliver(1), deliver(2)]);
+    expect(fake.notices).toEqual([]);
+    expect(acks.acks).toEqual([]);
+
+    fake.emit({ type: "completed", status: "completed" });
+    await acks.done;
+    expect(fake.notices).toHaveLength(1);
+    expect(fake.notices[0]).toContain("2 unread message");
+    expect(acks.acks).toEqual(["delivery-1", "delivery-2"]);
+  });
+
+  test("an idle Kiro-mode Agent still delivers immediately", async () => {
+    const acks = ackGate(1);
+    const { fake, deliver } = await deliveryQueueHarness("kiro", acks);
+
+    await deliver(1);
+    await acks.done;
+    expect(fake.notices).toHaveLength(1);
+    expect(acks.acks).toEqual(["delivery-1"]);
+  });
+
+  test("a busy steer-mode Agent (Pi) is delivered to immediately, unchanged by this queue", async () => {
+    const acks = ackGate(1);
+    const { fake, deliver } = await deliveryQueueHarness("pi", acks);
+
+    fake.emit({ type: "progress" });
+    await deliver(1);
+    await acks.done;
+    expect(fake.notices).toHaveLength(1);
+    expect(acks.acks).toEqual(["delivery-1"]);
+  });
+});
+
 function connectedClient(): CentrifugeWorkspaceClient {
   let connected: (() => void) | undefined;
   return {

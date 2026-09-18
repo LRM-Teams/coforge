@@ -49,6 +49,17 @@ export class AgentMessageAttentionIndex {
     runtimes: Pick<AgentProcessManager, "session">,
     private readonly sendAck: (ack: AgentMessageDeliveryAck) => Promise<void>,
     private readonly messageReceived: (agentId: string) => void = () => {},
+    /**
+     * The daemon-owned delivery queue (ADR 0048, `agent-delivery-queue.ts`). `shouldHold` decides
+     * whether this delivery must wait rather than reach `AgentSession.notify` now; `enqueue`
+     * records it as held once this class has already updated its own attention/dedupe
+     * bookkeeping for it. Defaults to never holding, so every existing caller and test observes
+     * the prior immediate-notify behavior unchanged.
+     */
+    private readonly hold: {
+      shouldHold(agentId: string): boolean;
+      enqueue(agentId: string, message: AgentMessageDelivery): void;
+    } = { shouldHold: () => false, enqueue: () => {} },
   ) {
     this.#workspaceId = workspaceId;
     this.#runtimes = runtimes;
@@ -71,6 +82,10 @@ export class AgentMessageAttentionIndex {
     const generation = this.#generation(message.agentId);
     if (generation.seenDeliveryIds.has(message.deliveryId)) {
       if (!generation.notified.has(message.deliveryId)) {
+        if (this.hold.shouldHold(message.agentId)) {
+          this.hold.enqueue(message.agentId, message);
+          return;
+        }
         const attempt = generation.notificationAttempts.get(message.deliveryId);
         await (attempt ?? this.#notify(message));
         if (this.#generations.get(message.agentId) !== generation) return;
@@ -115,9 +130,32 @@ export class AgentMessageAttentionIndex {
     };
     byTarget.set(target, current);
     this.#attention.set(message.agentId, byTarget);
+    if (this.hold.shouldHold(message.agentId)) {
+      this.hold.enqueue(message.agentId, message);
+      return;
+    }
     await this.#notify(message, current);
     if (this.#generations.get(message.agentId) !== generation) return;
     await this.sendAck({ ...message, method: "agent:deliver:ack", requestId: message.requestId });
+  }
+
+  /**
+   * Delivers every notice `AgentDeliveryQueue` held for `agentId` (ADR 0048), oldest first, as
+   * one call to `AgentSession.notify` once the Agent is idle — the daemon core is the only
+   * caller, right after `AgentDeliveryQueue.idle`/`release` hands back what it drained. `receive`
+   * already recorded each held delivery's attention while it was held, so `#notify`'s existing
+   * coalesced-notice wording (built from that live attention) reads exactly as it would have for
+   * the most recent one, had it not been held. ACKs every held delivery only once that single
+   * notice is accepted — never on failure, so an un-acked delivery stays safe to hold or
+   * redeliver.
+   */
+  async flush(agentId: string, held: readonly AgentMessageDelivery[]): Promise<void> {
+    if (!held.length) return;
+    const generation = this.#generation(agentId);
+    await this.#notify(held[held.length - 1]!);
+    if (this.#generations.get(agentId) !== generation) return;
+    for (const message of held)
+      await this.sendAck({ ...message, method: "agent:deliver:ack", requestId: message.requestId });
   }
 
   async recover(

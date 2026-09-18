@@ -474,6 +474,83 @@ test("latestThreadReadUnderParent finds the most recently read thread rooted und
   );
 });
 
+// ADR 0048: a fake `hold` collaborator standing in for `AgentDeliveryQueue`, matching the seam
+// `AgentMessageAttentionIndex`'s constructor consumes (`shouldHold`/`enqueue`) and what
+// `flush` expects back (the drained list).
+function heldQueue() {
+  const held: AgentMessageDelivery[] = [];
+  let holding = false;
+  return {
+    setHolding: (value: boolean) => (holding = value),
+    drain: () => held.splice(0),
+    hold: {
+      shouldHold: () => holding,
+      enqueue: (_agentId: string, message: AgentMessageDelivery) => held.push(message),
+    },
+  };
+}
+
+test("a held delivery updates attention but does not notify or ACK until flush", async () => {
+  const notices: string[] = [];
+  const acks: string[] = [];
+  const queue = heldQueue();
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async (ack) => {
+      acks.push(ack.deliveryId);
+    },
+    () => {},
+    queue.hold,
+  );
+
+  queue.setHolding(true);
+  await index.receive(delivery("one"));
+  await index.receive({ ...delivery("two"), sequence: 2 });
+  expect(index.check("agent-1")[0]).toMatchObject({ pendingCount: 2 });
+  expect(notices).toEqual([]);
+  expect(acks).toEqual([]);
+
+  const held = queue.drain();
+  expect(held.map((message) => message.deliveryId)).toEqual(["delivery-one", "delivery-two"]);
+  await index.flush("agent-1", held);
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain("2 unread message");
+  expect(acks).toEqual(["delivery-one", "delivery-two"]);
+});
+
+test("flush is a no-op when nothing was held", async () => {
+  const notices: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async () => {},
+  );
+  await index.flush("agent-1", []);
+  expect(notices).toEqual([]);
+});
+
+test("a not-yet-notified resend while held stays held instead of notifying again", async () => {
+  const notices: string[] = [];
+  const queue = heldQueue();
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async () => {},
+    () => {},
+    queue.hold,
+  );
+
+  queue.setHolding(true);
+  await index.receive(delivery("one"));
+  await index.receive(delivery("one"));
+  expect(notices).toEqual([]);
+  const held = queue.drain();
+  expect(held).toHaveLength(2);
+  await index.flush("agent-1", held);
+  expect(notices).toHaveLength(1);
+});
+
 test("clearAgent forgets an Agent's read-context state", () => {
   const index = new AgentMessageAttentionIndex(
     "workspace-1",

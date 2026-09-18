@@ -97,6 +97,7 @@ import {
   readAgentWorkspaceFile,
 } from "../agent-runtime/agent-workspace-files";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
+import { AgentDeliveryQueue } from "./agent-delivery-queue";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
 import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
 import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
@@ -418,6 +419,8 @@ export class DaemonRuntime {
   /** One Workspace Files list/read at a time per daemon, mirroring `#skillsScanning`. */
   #workspaceFilesScanning = false;
   readonly #messageAttention: AgentMessageAttentionIndex;
+  /** Busy-gated delivery holding for providers with no safe busy path (ADR 0048). */
+  readonly #deliveryQueue = new AgentDeliveryQueue();
   readonly #reminders: ReminderScheduler;
   readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
   readonly #appInboxes = new Map<string, Promise<AgentAppInbox>>();
@@ -534,6 +537,10 @@ export class DaemonRuntime {
         } catch {
           // Best-effort observation must not turn accepted input into failed delivery.
         }
+      },
+      {
+        shouldHold: (agentId) => this.#deliveryQueue.shouldHold(agentId),
+        enqueue: (agentId, message) => this.#deliveryQueue.enqueue(agentId, message),
       },
     );
     this.#reminders = new ReminderScheduler(
@@ -1574,6 +1581,9 @@ export class DaemonRuntime {
     this.#clearActivityHeartbeat(agentId);
     this.#compactionTracker.dispose(agentId);
     this.#runtimeProgress.dispose(agentId);
+    // ADR 0048: this launch's delivery mode, read by AgentMessageAttentionIndex.receive via
+    // #deliveryQueue.shouldHold on every delivery for this Agent from now on.
+    this.#deliveryQueue.setProvider(agentId, config.provider);
     // AgentControl's fresh retry after a kiro/pi AgentSessionRecoveryError: the invalidate was
     // already reported before this launch (see `invalidateSession` above); narrate the cold
     // start here, where the real launch's ActivityLaunch now exists. `invalidateReason` is
@@ -1729,6 +1739,10 @@ export class DaemonRuntime {
         this.#runtimeProgress.dispose(agentId);
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#messageAttention.clearAgent(agentId);
+        // ADR 0048: an unexpected exit only clears busy — whatever a queue_until_idle provider
+        // was still holding stays queued for the next launch; only explicit Stop discards it
+        // (see #releaseAgentRuntime).
+        this.#deliveryQueue.onProcessExit(agentId);
         this.#revokeLocalLaunch(agentId, localContext, proxyToken);
         void this.#revokeAgentApiKey(agentId, agentApiKey).catch((revokeError) => {
           // Local access is already revoked; the key stays pending and is retried later.
@@ -1912,6 +1926,12 @@ export class DaemonRuntime {
     controlled: boolean,
     event: AgentRuntimeEvent,
   ): void {
+    // ADR 0048: every event but "session"/"usage"/"completed" means the runtime is mid-turn
+    // (activity, a tool call, compaction, a content-free liveness ping, a reconnect, or an
+    // error the runtime keeps running past). "completed" is the only idle transition, handled
+    // below with the rest of the turn-end Activity.
+    if (event.type !== "session" && event.type !== "usage" && event.type !== "completed")
+      this.#deliveryQueue.busy(agentId);
     if (event.type === "session") {
       if (controlled)
         void this.#agentSessions.update(agentId, launch.launchId, event.identity).catch(() => {});
@@ -2050,6 +2070,18 @@ export class DaemonRuntime {
       return;
     }
     if (event.type !== "completed") return;
+    // ADR 0048: release whatever a queue_until_idle provider held while this turn ran, as one
+    // coalesced notice for the next turn — never blocking this turn-end Activity on it.
+    const held = this.#deliveryQueue.idle(agentId);
+    if (held.length)
+      void this.#messageAttention.flush(agentId, held).catch((error: unknown) => {
+        logger.warn("Held Agent deliveries were not accepted at turn end", {
+          event: "agent.delivery_queue.flush_rejected",
+          agent_id: agentId,
+          held_count: held.length,
+          error_code: error instanceof Error ? error.name : "UnknownError",
+        });
+      });
     // A turn ending means a still-open compaction is done; report that before the turn's own
     // idle/failed/interrupted Activity.
     if (this.#compactionTracker.finish(agentId) === "finished")
@@ -2320,6 +2352,8 @@ export class DaemonRuntime {
     });
     await this.#agentProcessManager.stop(agentId);
     this.#messageAttention.clearAgent(agentId);
+    // ADR 0048: explicit Stop discards anything a queue_until_idle provider was holding.
+    this.#deliveryQueue.clearAgent(agentId);
     this.#sendAgentStatus(agentId, "inactive");
     if (publishStopped && activityLaunch)
       this.#emitAgentActivity(agentId, activityLaunch, this.#stoppedActivity(agentId));
