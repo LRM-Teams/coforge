@@ -6122,6 +6122,214 @@ describe("DaemonRuntime", () => {
   });
 });
 
+/** A fake session (ADR 0048) whose `subscribe` listener the test drives directly, so it can
+ * simulate a provider's busy/idle transitions (`progress` while a turn runs, `completed` at turn
+ * end) without a real provider process. */
+function deliveryQueueSession() {
+  const listeners = new Set<(event: AgentRuntimeEvent) => void>();
+  const exitListeners = new Set<() => void>();
+  const notices: string[] = [];
+  const waiters: Array<{ length: number; resolve: () => void }> = [];
+  return {
+    session: {
+      async sendMessage() {},
+      async notify(notice: string) {
+        notices.push(notice);
+        // Iterate backward while splicing so removing an earlier waiter never shifts a not-yet-
+        // visited one out from under the loop.
+        for (let index = waiters.length - 1; index >= 0; index--) {
+          const waiter = waiters[index]!;
+          if (notices.length >= waiter.length) {
+            waiters.splice(index, 1);
+            waiter.resolve();
+          }
+        }
+      },
+      subscribe(listener: (event: AgentRuntimeEvent) => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      async interrupt() {},
+      onExit(listener: () => void) {
+        exitListeners.add(listener);
+        return () => exitListeners.delete(listener);
+      },
+      async dispose() {},
+    } satisfies AgentSession,
+    notices,
+    emit: (event: AgentRuntimeEvent) => {
+      for (const listener of listeners) listener(event);
+    },
+    /** Simulates the runtime process exiting unexpectedly (a crash), firing every `onExit`
+     * listener DaemonRuntime has registered across every launch that used this session. */
+    exit: () => {
+      for (const listener of exitListeners) listener();
+    },
+    /** Resolves once at least `length` notices have been sent — the observable completion of a
+     * fire-and-forget release, rather than a timer-based wait (docs/agents/testing.md). */
+    waitForNotices: (length: number) =>
+      notices.length >= length
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => waiters.push({ length, resolve })),
+  };
+}
+
+/** Resolves once `sendAgentDeliveryAck` has recorded `count` deliveries — the observable
+ * completion of a flush, rather than a timer-based wait (docs/agents/testing.md). */
+function ackGate(count: number) {
+  const acks: string[] = [];
+  let resolve!: () => void;
+  const done = new Promise<void>((r) => (resolve = r));
+  return {
+    acks,
+    done,
+    record(deliveryId: string) {
+      acks.push(deliveryId);
+      if (acks.length >= count) resolve();
+    },
+  };
+}
+
+describe("Agent delivery queue (ADR 0048)", () => {
+  async function deliveryQueueHarness(
+    provider: AgentRuntimeConfig["provider"],
+    acks = ackGate(0),
+    stateDirectory?: string,
+  ) {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const fake = deliveryQueueSession();
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider, createAgentSession: async () => fake.session }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentDeliveryAck(ack) {
+            acks.record(ack.deliveryId);
+          },
+        }),
+      },
+      undefined,
+      undefined,
+      stateDirectory,
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", { ...config, provider });
+    return {
+      runtime,
+      fake,
+      acks,
+      deliver: (sequence: number) =>
+        runtime.handleAgentMessage({
+          protocolMajor: 1,
+          requestId: `request-${sequence}`,
+          messageId: `message-${sequence}`,
+          deliveryId: `delivery-${sequence}`,
+          sequence,
+          workspaceId: connection.workspaceId,
+          conversationId: "conversation-a",
+          agentId: "agent-a",
+          body: `body-${sequence}`,
+          method: "agent:deliver",
+          target: "@ada",
+        }),
+    };
+  }
+
+  test("a busy Kiro-mode Agent is delivered to immediately too, now that Kiro is steer mode", async () => {
+    // ADR 0048 (revised): Kiro's own AgentSession.notify steers a running turn through its ACP
+    // `_session/steer` extension instead of replacing it — see kiro-agent-adapter.test.ts for
+    // that provider-level behavior. At the daemon level this fake session stands in for any
+    // steer-mode provider, so `shouldHold` for "kiro" now behaves exactly like "pi" below.
+    const acks = ackGate(1);
+    const { fake, deliver } = await deliveryQueueHarness("kiro", acks);
+
+    fake.emit({ type: "progress" });
+    await deliver(1);
+    await acks.done;
+    expect(fake.notices).toHaveLength(1);
+    expect(acks.acks).toEqual(["delivery-1"]);
+  });
+
+  test("an idle Kiro-mode Agent still delivers immediately", async () => {
+    const acks = ackGate(1);
+    const { fake, deliver } = await deliveryQueueHarness("kiro", acks);
+
+    await deliver(1);
+    await acks.done;
+    expect(fake.notices).toHaveLength(1);
+    expect(acks.acks).toEqual(["delivery-1"]);
+  });
+
+  test("a busy steer-mode Agent (Pi) is delivered to immediately, unchanged by this queue", async () => {
+    const acks = ackGate(1);
+    const { fake, deliver } = await deliveryQueueHarness("pi", acks);
+
+    fake.emit({ type: "progress" });
+    await deliver(1);
+    await acks.done;
+    expect(fake.notices).toHaveLength(1);
+    expect(acks.acks).toEqual(["delivery-1"]);
+  });
+
+  // The daemon-level queue_until_idle busy-gating race (a delivery decided before the runtime
+  // emits any event) has no live provider to exercise it through DaemonRuntime's public API any
+  // more (Kiro moved to steer — see above); it stays covered at the unit level in
+  // agent-message-attention-index.test.ts ("marks busy synchronously … before the session
+  // accepts it") and agent-delivery-queue.test.ts ("a queue_until_idle mode only holds while
+  // busy", via the new setMode primitive that exists for exactly this).
+
+  test("a fallback notice (steer could not deliver it) is held and redelivered once at turn end, without a second ACK", async () => {
+    // ADR 0048 (revised): a steer-mode provider's own notify() can accept a notice and later
+    // learn it never actually reached the model - Kiro's own ACP `steering_cleared` without a
+    // prior `steering_injected`, or `_session/steer` failing outright (kiro-agent-adapter.test.ts
+    // covers when Kiro itself emits this). At the daemon level, `notice-undelivered` is a plain
+    // AgentRuntimeEvent any provider can raise; this fake session raises it directly to prove the
+    // daemon's own hold-and-redeliver-once-idle side, independent of Kiro's wire protocol.
+    const acks = ackGate(1);
+    const { fake, deliver } = await deliveryQueueHarness("kiro", acks);
+
+    await deliver(1); // ordinary idle delivery, ACKed immediately and unrelated to the fallback
+    await acks.done;
+    const delivered = fake.notices.length;
+    expect(acks.acks).toEqual(["delivery-1"]);
+
+    fake.emit({ type: "notice-undelivered", text: "STEERED-BUT-NEVER-INJECTED" });
+    expect(fake.notices).toHaveLength(delivered); // held, not sent yet
+
+    fake.emit({ type: "completed", status: "completed" });
+    await fake.waitForNotices(delivered + 1);
+    expect(fake.notices.at(-1)).toBe("STEERED-BUT-NEVER-INJECTED");
+    // Redelivery is a bare notify(), never routed through AgentMessageAttentionIndex - no new ACK.
+    expect(acks.acks).toEqual(["delivery-1"]);
+  });
+
+  test("a fallback notice survives an unexpected exit and is redelivered exactly once on the next launch", async () => {
+    const acks = ackGate(0);
+    const { runtime, fake } = await deliveryQueueHarness("kiro", acks);
+
+    fake.emit({ type: "notice-undelivered", text: "STEERED-BUT-NEVER-INJECTED" });
+    expect(fake.notices).toEqual([]);
+
+    fake.exit(); // an unexpected exit while the fallback notice is still held
+
+    // The next launch of the same Agent: a plain start, no recovery context (fallback notices
+    // are never dropped as "covered by recover" - a message-delivery notice might be, but this
+    // in-memory queue cannot tell the two apart, so it always redelivers - see runtime.ts).
+    await runtime.startAgent("agent-a", { ...config, provider: "kiro" });
+    await fake.waitForNotices(1);
+    expect(fake.notices).toEqual(["STEERED-BUT-NEVER-INJECTED"]);
+  });
+});
+
 function connectedClient(): CentrifugeWorkspaceClient {
   let connected: (() => void) | undefined;
   return {

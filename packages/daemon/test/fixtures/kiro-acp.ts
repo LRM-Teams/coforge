@@ -77,6 +77,7 @@ let active: Message | undefined;
 let replaced: Message | undefined;
 let admissions = 0;
 let clientRequestId = 1000;
+let steerCounter = 0;
 const permissionRequests = new Map<number, string | undefined>();
 const write = (message: object) => console.log(JSON.stringify({ jsonrpc: "2.0", ...message }));
 const result = (request: Message, value: unknown) => write({ id: request.id, result: value });
@@ -358,6 +359,57 @@ async function handle(request: Message) {
         },
       });
       break;
+    // Measured against real kiro-cli 2.22.0, 2026-09-18 (docs/adr/0048): `queued: true` plus a
+    // `steering_queued` update on success, prefixed `steer-<uuid>`; `queued: false` with
+    // `dropped: "epoch_changed"` when a turn boundary raced the steer request's own persistence.
+    // Real Kiro throws on an unknown session or an empty message and never emits an update for
+    // either — matched here as plain JSON-RPC errors, no `steering_queued`.
+    case "_session/steer": {
+      const params = request.params as
+        | { sessionId?: string; message?: string; messageId?: string }
+        | undefined;
+      if (params?.sessionId !== sid) {
+        write({ id: request.id, error: { code: -32602, message: "Unknown session" } });
+        break;
+      }
+      if (!params.message?.trim()) {
+        write({ id: request.id, error: { code: -32602, message: "message must not be empty" } });
+        break;
+      }
+      // Simulates an older/renamed kiro-cli that has not shipped this extension.
+      if (params.message.includes("steer-not-found")) {
+        write({ id: request.id, error: { code: -32601, message: "Method not found" } });
+        break;
+      }
+      const messageId = params.messageId ?? `steer-${++steerCounter}`;
+      if (params.message.includes("steer-queued-false")) {
+        result(request, { queued: false, messageId, dropped: "epoch_changed" });
+        break;
+      }
+      result(request, { queued: true, messageId });
+      update({
+        sessionUpdate: "session_info_update",
+        _meta: { kiro: { kind: "steering_queued", messageId, content: params.message } },
+      });
+      // A real turn boundary decides whether Kiro gets to inject before its own buffer clears;
+      // these two keywords each drive one side of that outcome deterministically for the test.
+      if (params.message.includes("steer-inject-then-clear")) {
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: { kiro: { kind: "steering_injected", messageId, content: params.message } },
+        });
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: { kiro: { kind: "steering_cleared", messageIds: [messageId] } },
+        });
+      } else if (params.message.includes("steer-clear-without-inject")) {
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: { kiro: { kind: "steering_cleared", messageIds: [messageId] } },
+        });
+      }
+      break;
+    }
     case "session/cancel":
       if (active) {
         if (JSON.stringify(active.params).includes("busy-old")) replaced = active;

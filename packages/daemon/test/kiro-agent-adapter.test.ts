@@ -300,7 +300,7 @@ test("Kiro forwards a scrubbed session/prompt rejection reason instead of a fixe
   }
 });
 
-test("Kiro replaces busy input, suppresses late completion, and normalizes ACP events", async () => {
+test("Kiro steers busy input through _session/steer instead of replacing the running turn, and normalizes ACP events", async () => {
   const cwd = await mkdtemp(join(tempRoot, "kiro-events-"));
   const session = await new KiroProvider({ command }).createAgentSession({
     agentWorkspaceDirectory: cwd,
@@ -309,7 +309,8 @@ test("Kiro replaces busy input, suppresses late completion, and normalizes ACP e
   const events: AgentRuntimeEvent[] = [];
   session.subscribe((event) => events.push(event));
   try {
-    await session.notify!("busy-old");
+    // Starts the active turn; the fixture leaves it open (never sends session/prompt's own
+    // result), same as real Kiro leaves a turn running until its own eventual stopReason.
     await session.notify!("events");
     expect(events.filter((event) => event.type === "completed")).toEqual([]);
     // Kiro's tool_call frames never carry a programmatic name, only a title
@@ -349,6 +350,84 @@ test("Kiro replaces busy input, suppresses late completion, and normalizes ACP e
     expect(
       events.some((event) => event.type === "error" && event.message === "provider unavailable"),
     ).toBe(true);
+
+    // ADR 0048: busy (this turn is still open) steers through the ACP `_session/steer`
+    // extension instead of replacing the turn with a new session/prompt. Injected before
+    // clearing means the model actually read it — no fallback event.
+    await session.notify!("steer-inject-then-clear STEER-MARKER-A");
+    expect(events.filter((event) => event.type === "notice-undelivered")).toEqual([]);
+
+    // Cleared without ever being injected means Kiro's own buffer discarded it before the
+    // model read it - the daemon core must redeliver it once idle (runtime.ts, ADR 0048).
+    // `notify` resolves on Kiro's `_session/steer` answer; `steering_cleared` is a separate
+    // notification that can arrive after it, so wait on the event itself.
+    const undelivered = Promise.withResolvers<void>();
+    const stopWaiting = session.subscribe((event) => {
+      if (event.type === "notice-undelivered") undelivered.resolve();
+    });
+    await session.notify!("steer-clear-without-inject STEER-MARKER-B");
+    await undelivered.promise;
+    stopWaiting();
+    expect(events).toContainEqual({
+      type: "notice-undelivered",
+      text: "steer-clear-without-inject STEER-MARKER-B",
+    });
+
+    // Still one continuous busy turn throughout - never replaced, never a second completion.
+    expect(events.filter((event) => event.type === "completed")).toEqual([]);
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Kiro's idle notify still sends an ordinary session/prompt, even when the text matches a steer-only fixture keyword", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-steer-idle-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    // Idle: session/prompt has no "steer-not-found" branch, so this is ordinary content and
+    // admits normally - proof that busy, not the text, selects _session/steer.
+    await session.notify!("steer-not-found");
+    expect(events.filter((event) => event.type === "notice-undelivered")).toEqual([]);
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Kiro's notify still accepts and surfaces notice-undelivered when _session/steer is unavailable or dropped", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-steer-fallback-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.notify!("events"); // busy; the fixture leaves this turn open
+
+    // -32601 method not found: an older/renamed Kiro without this extension.
+    await session.notify!("steer-not-found MARKER-1");
+    expect(events).toContainEqual({
+      type: "notice-undelivered",
+      text: "steer-not-found MARKER-1",
+    });
+
+    // queued: false: a turn boundary raced the steer request's own persistence
+    // (dropped: "epoch_changed").
+    await session.notify!("steer-queued-false MARKER-2");
+    expect(events).toContainEqual({
+      type: "notice-undelivered",
+      text: "steer-queued-false MARKER-2",
+    });
+
+    // Neither failure is mistaken for acceptance: no steering_queued fallout, still one open turn.
+    expect(events.filter((event) => event.type === "completed")).toEqual([]);
   } finally {
     await session.dispose();
     await rm(cwd, { recursive: true, force: true });

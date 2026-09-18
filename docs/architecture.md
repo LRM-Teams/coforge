@@ -1114,7 +1114,7 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 ### 6.1 云端到 Agent
 
 1. backend 先持久化 canonical Message，再通过 Centrifugo 向目标 daemon 发布 attention；Centrifugo 不读取 PostgreSQL 或自行决定目标；
-2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`，调用 provider-neutral `notify`；
+2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`，调用 provider-neutral `notify`；能在 turn 进行中安全接受输入的 provider（CoForge、Pi、Codex、Claude Code、Cursor，`steer` 模式）立即调用；没有安全 busy 路径的 provider（目前只有 Kiro，`queue_until_idle` 模式；其原生 `session/prompt` 会取消进行中的 turn）由 daemon 自己的 per-Agent delivery queue（`daemon-runtime/agent-delivery-queue.ts`，ADR 0048）暂存，等到该 turn 结束才作为一次合并通知调用 `notify`；这只改变何时调用 `notify`，不改变第 3 点的 ACK 时序；
 3. 只有 `AgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK。Claude Code 对齐 [Raft Computer 1.0.32](agents/reference-cli-research.md)（该 stdin-write-as-success 语义在 1.0.17 中已观察到，未在 1.0.32 中重新核实）：空闲时或允许的原生运行边界成功写入 stdin 即视为 `notify` 成功，不等待 user-message 回显；ACK 不证明 provider 已理解或处理通知。Pi/Codex 仍以各自 SDK/RPC 的原生接受响应确认；
 4. ACK 只表示 attention 已被当前 Agent session 接受，不表示 Agent 执行开始、完成或产生 response；Web 仅接受已认证 Computer 为该 Agent 当前 assignment 的 ACK，并继续校验完整 delivery tuple；
 5. attention 是易失提示，断线、进程退出或 ACK 丢失都可能造成丢失或重复。每个 Agent ConversationMember 持久化单调递增的 `agentReadThroughSequence`；无锚点的普通 read 从当前 canonical boundary 的下一条消息开始，成功返回的连续查询范围可包含并跨越该 Agent 自己已发送的已知消息，但绝不能跳过查询未返回的 User 消息。`before`、`after`、`around` 等显式历史跳转与 delivery ACK 都不推进阅读位置；conversation sequence 是总顺序，不声称仅由 User 消息组成或具有额外的无缺口保证；

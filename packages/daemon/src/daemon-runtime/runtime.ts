@@ -97,6 +97,7 @@ import {
   readAgentWorkspaceFile,
 } from "../agent-runtime/agent-workspace-files";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
+import { AgentDeliveryQueue } from "./agent-delivery-queue";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
 import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
 import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
@@ -418,6 +419,8 @@ export class DaemonRuntime {
   /** One Workspace Files list/read at a time per daemon, mirroring `#skillsScanning`. */
   #workspaceFilesScanning = false;
   readonly #messageAttention: AgentMessageAttentionIndex;
+  /** Busy-gated delivery holding for providers with no safe busy path (ADR 0048). */
+  readonly #deliveryQueue = new AgentDeliveryQueue();
   readonly #reminders: ReminderScheduler;
   readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
   readonly #appInboxes = new Map<string, Promise<AgentAppInbox>>();
@@ -534,6 +537,11 @@ export class DaemonRuntime {
         } catch {
           // Best-effort observation must not turn accepted input into failed delivery.
         }
+      },
+      {
+        shouldHold: (agentId) => this.#deliveryQueue.shouldHold(agentId),
+        enqueue: (agentId, message) => this.#deliveryQueue.enqueue(agentId, message),
+        busy: (agentId) => this.#deliveryQueue.busy(agentId),
       },
     );
     this.#reminders = new ReminderScheduler(
@@ -1339,6 +1347,14 @@ export class DaemonRuntime {
           if (recoveryCompletion) await recoveryCompletion;
           // The startup turn is not awaited: the launch (and the Start result reported from
           // it) completes when the process is up, never after a whole model turn.
+          // ADR 0048: no recovery item was enqueued for this launch at all (so
+          // `#recoverAttention` never ran), yet the session is ready — flush anything
+          // AgentDeliveryQueue held across an unexpected exit now.
+          else {
+            this.#flushSurvivingDeliveryQueue(agentId);
+            this.#releaseHeldAppItems(agentId);
+            this.#releaseFallbackNotices(agentId);
+          }
           return runtime;
         },
         (error: unknown) => {
@@ -1439,8 +1455,9 @@ export class DaemonRuntime {
       ...(context.wakeMessage ? [context.wakeMessage] : []),
       ...(context.resumeMessages ?? []),
     ];
+    const hasRecoveryContent = recoveryHasContent(context);
     try {
-      if (recoveryHasContent(context))
+      if (hasRecoveryContent)
         await this.#messageAttention.recover(agentId, messages, context.unreadSummary ?? {});
     } catch (error) {
       logger.warn("Agent recovery notice was not accepted; canonical unread state remains", {
@@ -1450,6 +1467,58 @@ export class DaemonRuntime {
       });
       throw error;
     }
+    // ADR 0048: reconcile whatever AgentDeliveryQueue held across an unexpected exit now that
+    // this launch's recovery pass has run. `recover()` above already told the Agent about the
+    // same canonical unread state (the server's own unread ledger, not this in-memory queue, is
+    // what a crashed-and-relaunched Agent's `resumeMessages`/`unreadSummary` are built from) —
+    // drop and ACK the surviving held deliveries instead of a second, redundant notice for them.
+    // When there was no recovery content, nothing else has told the Agent, so flush them now,
+    // treating the freshly launched session as idle.
+    if (hasRecoveryContent) this.#dropSurvivingDeliveryQueue(agentId);
+    else this.#flushSurvivingDeliveryQueue(agentId);
+    // App items (reminders, etc.) are a separate subsystem from canonical Message unread state
+    // (`agent-app-inbox/`); `recover()` above never mentions them, so a held one is always
+    // released here regardless of `hasRecoveryContent`, never dropped. A surviving fallback
+    // notice (Kiro's `notice-undelivered`) is treated the same way for the same reason: this
+    // in-memory queue does not know whether the text it held came from a Message delivery
+    // `recover()` already covers or an App Inbox notice it never mentions, so always releasing
+    // it is the only choice that never silently drops one.
+    this.#releaseHeldAppItems(agentId);
+    this.#releaseFallbackNotices(agentId);
+  }
+
+  /** ADR 0048: drops whatever `AgentDeliveryQueue` held for `agentId` across an unexpected exit,
+   * ACKing each one — used when this launch's `recover()` pass already covered the same unread
+   * state, so notifying about them again would be redundant. */
+  #dropSurvivingDeliveryQueue(agentId: string): void {
+    for (const message of this.#deliveryQueue.discardPending(agentId))
+      void this.#ackHeldDelivery(message).catch(() => {});
+  }
+
+  /** ADR 0048: flushes whatever `AgentDeliveryQueue` held for `agentId` across an unexpected
+   * exit, treating the (fresh or just-recovered) session as idle — used when nothing else has
+   * told the Agent about it. */
+  #flushSurvivingDeliveryQueue(agentId: string): void {
+    const held = this.#deliveryQueue.idle(agentId);
+    if (!held.length) return;
+    void this.#messageAttention.flush(agentId, held).catch((error: unknown) => {
+      logger.warn("Held Agent deliveries were not accepted at launch", {
+        event: "agent.delivery_queue.flush_rejected",
+        agent_id: agentId,
+        held_count: held.length,
+        error_code: error instanceof Error ? error.name : "UnknownError",
+      });
+    });
+  }
+
+  #ackHeldDelivery(message: AgentMessageDelivery): Promise<void> {
+    return (
+      this.#transport.sendAgentDeliveryAck?.({
+        ...message,
+        method: "agent:deliver:ack",
+        requestId: message.requestId,
+      }) ?? Promise.resolve()
+    );
   }
 
   /** Opens a freshly created session's first turn with a fixed prompt so its standing "Startup
@@ -1574,6 +1643,9 @@ export class DaemonRuntime {
     this.#clearActivityHeartbeat(agentId);
     this.#compactionTracker.dispose(agentId);
     this.#runtimeProgress.dispose(agentId);
+    // ADR 0048: this launch's delivery mode, read by AgentMessageAttentionIndex.receive via
+    // #deliveryQueue.shouldHold on every delivery for this Agent from now on.
+    this.#deliveryQueue.setProvider(agentId, config.provider);
     // AgentControl's fresh retry after a kiro/pi AgentSessionRecoveryError: the invalidate was
     // already reported before this launch (see `invalidateSession` above); narrate the cold
     // start here, where the real launch's ActivityLaunch now exists. `invalidateReason` is
@@ -1729,6 +1801,10 @@ export class DaemonRuntime {
         this.#runtimeProgress.dispose(agentId);
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#messageAttention.clearAgent(agentId);
+        // ADR 0048: an unexpected exit only clears busy — whatever a queue_until_idle provider
+        // was still holding stays queued for the next launch; only explicit Stop discards it
+        // (see #releaseAgentRuntime).
+        this.#deliveryQueue.onProcessExit(agentId);
         this.#revokeLocalLaunch(agentId, localContext, proxyToken);
         void this.#revokeAgentApiKey(agentId, agentApiKey).catch((revokeError) => {
           // Local access is already revoked; the key stays pending and is retried later.
@@ -1912,6 +1988,12 @@ export class DaemonRuntime {
     controlled: boolean,
     event: AgentRuntimeEvent,
   ): void {
+    // ADR 0048: every event but "session"/"usage"/"completed" means the runtime is mid-turn
+    // (activity, a tool call, compaction, a content-free liveness ping, a reconnect, or an
+    // error the runtime keeps running past). "completed" is the only idle transition, handled
+    // below with the rest of the turn-end Activity.
+    if (event.type !== "session" && event.type !== "usage" && event.type !== "completed")
+      this.#deliveryQueue.busy(agentId);
     if (event.type === "session") {
       if (controlled)
         void this.#agentSessions.update(agentId, launch.launchId, event.identity).catch(() => {});
@@ -2049,7 +2131,34 @@ export class DaemonRuntime {
       );
       return;
     }
+    if (event.type === "notice-undelivered") {
+      // ADR 0048: a steer-mode provider accepted this notice but later learned it never reached
+      // the model (Kiro's own steering buffer discarded it, or the steer call itself was never
+      // accepted). Hold the exact text for redelivery once this Agent is next idle — no ACK
+      // bookkeeping here; whatever originally accepted this text already settled its own ACK (or
+      // never had one, for an App Inbox notice).
+      this.#deliveryQueue.holdFallbackNotice(agentId, event.text);
+      return;
+    }
     if (event.type !== "completed") return;
+    // ADR 0048: release whatever a queue_until_idle provider held while this turn ran, as one
+    // coalesced notice for the next turn — never blocking this turn-end Activity on it.
+    const held = this.#deliveryQueue.idle(agentId);
+    if (held.length)
+      void this.#messageAttention.flush(agentId, held).catch((error: unknown) => {
+        logger.warn("Held Agent deliveries were not accepted at turn end", {
+          event: "agent.delivery_queue.flush_rejected",
+          agent_id: agentId,
+          held_count: held.length,
+          error_code: error instanceof Error ? error.name : "UnknownError",
+        });
+      });
+    // Checked after the flush call above, not before: `flush` (via `#notify`) marks busy again
+    // synchronously, in the same tick, whenever it actually has something to deliver — so a held
+    // app item correctly re-holds itself (via `#notifyAppItem`'s own `shouldHold` check) for the
+    // *next* turn end instead of racing the notice the flush just started sending.
+    this.#releaseHeldAppItems(agentId);
+    this.#releaseFallbackNotices(agentId);
     // A turn ending means a still-open compaction is done; report that before the turn's own
     // idle/failed/interrupted Activity.
     if (this.#compactionTracker.finish(agentId) === "finished")
@@ -2320,6 +2429,8 @@ export class DaemonRuntime {
     });
     await this.#agentProcessManager.stop(agentId);
     this.#messageAttention.clearAgent(agentId);
+    // ADR 0048: explicit Stop discards anything a queue_until_idle provider was holding.
+    this.#deliveryQueue.clearAgent(agentId);
     this.#sendAgentStatus(agentId, "inactive");
     if (publishStopped && activityLaunch)
       this.#emitAgentActivity(agentId, activityLaunch, this.#stoppedActivity(agentId));
@@ -3293,6 +3404,14 @@ export class DaemonRuntime {
         ).session;
       }
       if (!session.notify) return false;
+      // ADR 0048: a queue_until_idle provider's session/notify has no safe busy path, same as an
+      // ordinary message delivery — hold this app-item notice instead of sending it now, and
+      // release it (re-attempting this same call) at the next turn end.
+      if (this.#deliveryQueue.shouldHold(agentId)) {
+        this.#deliveryQueue.holdAppItem(agentId, itemId);
+        return false;
+      }
+      this.#deliveryQueue.busy(agentId);
       await session.notify("New app item available. Run coforge inbox check.");
       return true;
     });
@@ -3305,6 +3424,39 @@ export class DaemonRuntime {
       if (notified.get(itemId) === pending) notified.delete(itemId);
       throw error;
     }
+  }
+
+  /** ADR 0048: re-attempts every app-item notice `AgentDeliveryQueue` held for `agentId` — each
+   * one re-checks `shouldHold` itself inside `#notifyAppItem`, so one that is still busy (e.g. a
+   * coalesced delivery flush that just re-armed busy) simply re-holds itself for the next
+   * release rather than being lost or sent too early. */
+  #releaseHeldAppItems(agentId: string): void {
+    for (const itemId of this.#deliveryQueue.releaseAppItems(agentId))
+      void this.#notifyAppItem(agentId, itemId).catch(() => {});
+  }
+
+  /**
+   * ADR 0048: redelivers every fallback notice text `AgentDeliveryQueue` held for `agentId`
+   * (Kiro's `notice-undelivered` event) as a bare `session.notify` call — never through
+   * `AgentMessageAttentionIndex`, since the delivery or App Inbox item this text originally came
+   * from already settled its own ACK (or never had one); this call must never produce a second
+   * one. If the Agent has gone busy again by the time this runs (e.g. its own steer of another
+   * held text just started a fresh turn), `notify` steers this one into that turn instead of
+   * losing it.
+   */
+  #releaseFallbackNotices(agentId: string): void {
+    const texts = this.#deliveryQueue.releaseFallbackNotices(agentId);
+    if (!texts.length) return;
+    const session = this.#agentProcessManager.session(agentId);
+    if (!session?.notify) return;
+    for (const text of texts)
+      void session.notify(text).catch((error: unknown) => {
+        logger.warn("A steered notice could not be redelivered after its turn ended", {
+          event: "agent.delivery_queue.fallback_notice_rejected",
+          agent_id: agentId,
+          error_code: error instanceof Error ? error.name : "UnknownError",
+        });
+      });
   }
 
   #agentIdForContext(context: string): string {
