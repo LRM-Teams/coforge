@@ -80,6 +80,8 @@
   "conversation_attachment_label": "Add attachment",
   "conversation_drop_to_upload": "Drop to upload",
   "conversation_attachment_download": "Download",
+  "conversation_message_show_more": "Show more",
+  "conversation_message_show_less": "Show less",
   "conversation_attachment_remove": "Remove attachment",
   "conversation_thread": "Thread",
   "conversation_thread_reply": "Reply in thread",

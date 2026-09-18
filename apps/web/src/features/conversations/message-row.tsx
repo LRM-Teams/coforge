@@ -14,7 +14,7 @@ import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
-import { MessageBody } from "./message-body";
+import { CollapsibleMessageBody } from "./collapsible-message-body";
 
 export type MessageView = {
   id: string;
@@ -305,6 +305,8 @@ export function MessageRow({
   own,
   dayChanged,
   grouped,
+  expanded,
+  onToggleExpanded,
   dateLocale,
   measureRef,
   threadEntry,
@@ -318,6 +320,10 @@ export function MessageRow({
   own: boolean;
   dayChanged: boolean;
   grouped: boolean;
+  /** Whether this message's very long body is showing in full. Owned by the conversation so it
+   * survives the row unmounting as it scrolls out of the virtualizer's window. */
+  expanded: boolean;
+  onToggleExpanded: () => void;
   dateLocale?: string;
   measureRef: Ref<HTMLLIElement>;
   threadEntry?: (message: MessageView) => ReactNode;
@@ -475,11 +481,13 @@ export function MessageRow({
                 grouped && threadEntry && "pr-8",
               )}
             >
-              <MessageBody
+              <CollapsibleMessageBody
                 body={message.body}
                 mentions={message.mentions}
                 viewerHandle={viewerHandle}
                 onOpenAgentProfile={onOpenAgentProfile}
+                expanded={expanded}
+                onToggleExpanded={onToggleExpanded}
               />
             </div>
           )}
