@@ -45,7 +45,13 @@ and cannot be messaged or woken.
 2. **A deleted Agent is inert cloud-side.** `AgentDeletion.delete()` runs under the Agent runtime
    lock and `PrismaAgentDeletionStore` performs one transaction that sets `deletedAt`, soft-leaves
    every channel membership (`leftAt`, which is what actually stops delivery and wake, since both
-   read `ACTIVE_MEMBER_WHERE`), cancels scheduled Reminders, and revokes Agent API keys.
+   read `ACTIVE_MEMBER_WHERE`), cancels scheduled Reminders, and revokes Agent API keys. Every
+   path that could still target a deleted Agent also checks `deletedAt` directly: `AgentControl`
+   refuses it in `execute`, `publishStart` and `recover`, so no configuration, credential or
+   environment mutation can restart it; `ManageAgents.update` refuses the edit outright; and
+   `TaskBoard` applies `ACTIVE_MEMBER_WHERE` and `ACTIVE_AGENT_WHERE` when resolving an assignee
+   by handle and when selecting Task recipients, so a deleted Agent is not an assignable target
+   and receives no delivery rows.
 3. **History is preserved.** Messages, Tasks, Action cards, Thread reads and Activity are never
    touched. A deleted sender still renders, greyed with a `DELETED` badge, and no longer opens a
    profile.
@@ -87,10 +93,19 @@ and cannot be messaged or woken.
   code must observe one to keep it inert); every caller serving a live view applies
   `ACTIVE_AGENT_WHERE` itself. `listInWorkspace`/`listForComputer`/`listOwnedInWorkspace` apply it
   internally.
-- An Agent API key minted before deletion is revoked; the daemon's `agent:start` for a deleted
-  Agent is refused because the Agent is absent from the launch authorization path.
+- An Agent API key minted before deletion is revoked. `AgentControl.authorizeLaunch` resolves the
+  Agent through the unfiltered `getById` on purpose (recovery must still see it to reconcile a
+  running Daemon); the refusal lives in the start path itself — `execute`, `publishStart` and
+  `recover` all reject a deleted Agent — so no launch can begin even if a caller reaches
+  `authorizeLaunch` with one.
 - The Members directory, Chat DM list, `@`-mention targets, channel member pickers, Task
-  assignment, reminders and the Agent profile lookup all stop returning the deleted Agent.
+  assignment and recipients, reminders, the Agent Activity subject list, the Agent list served to
+  Agent API callers, an Agent creator's `createdAgents`, the owned workspace-files assignment and
+  the Agent profile lookup all stop returning the deleted Agent.
+- A deleted Agent's identity is greyed with a `DELETED` badge everywhere it can still be rendered
+  from history: message rows, the thread-root header, the thread reply-preview avatar stack, the
+  DM conversation header and the avatar's hover popover. The badge label is the shared
+  `agent_deleted_badge` i18n key.
 - No un-delete/restore surface is introduced. A mistaken delete is recovered by creating a new
   Agent; the deleted one keeps its history.
 

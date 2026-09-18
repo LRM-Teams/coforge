@@ -48,7 +48,6 @@ function fixture(options?: { stopFails?: boolean; record?: AgentRecord }) {
       effects.push(input);
       return {
         outcome: "deleted",
-        deleted: true,
         membershipsLeft: 2,
         remindersCanceled: 1,
         apiKeysRevoked: 1,

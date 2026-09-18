@@ -532,6 +532,9 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   `ACTIVE_AGENT_WHERE` is the predicate every live-view Agent query applies. Messages, Tasks and
   Action cards are preserved, so a deleted sender still renders (greyed, with a `DELETED` badge)
   through `senderDeleted` on the message projections.
+  `features/agents/deleted-agent.tsx` owns that rendering — the grey avatar class and the badge —
+  so message rows, the thread root, the thread reply preview, the DM header and the avatar popover
+  cannot drift apart.
 - `features/agents/agent-reminders.functions.ts` and `server/agents/agent-reminders.server.ts`
   own the owner-only, Workspace-scoped browser read model for bounded Reminder lists and
   expose scheduled Reminders only. Reminder lifecycle and history persistence remain in

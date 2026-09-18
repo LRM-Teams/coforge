@@ -3,6 +3,7 @@ import { resolveAgentStatus } from "#/server/agents/agent-user-info.server";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { buildAgentRuntimeContext } from "#/server/agents/agent-runtime-context.server";
 import { parseAgentRuntimeConfig } from "#/server/agents/agent-runtime-config.server";
+import { ACTIVE_AGENT_WHERE } from "#/server/agents/active-agent.server";
 
 export const Route = createFileRoute("/api/agent/v1/workspace")({
   server: {
@@ -25,7 +26,7 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
               orderBy: { user: { username: "asc" } },
             }),
             db.agent.findMany({
-              where: { workspaceId: principal.workspaceId },
+              where: { workspaceId: principal.workspaceId, ...ACTIVE_AGENT_WHERE },
               select: {
                 id: true,
                 name: true,

@@ -5,6 +5,7 @@ import type {
   AgentWorkspaceFilesListResult,
 } from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "../../../generated/client";
+import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 
 export type WorkspaceFilesViewer = { userId: string; workspaceId: string };
 export type WorkspaceFilesAssignment = { computerId: string; revision: string };
@@ -192,6 +193,8 @@ export async function findOwnedWorkspaceFilesAssignment(
       ownerId: viewer.userId,
       workspace: { members: { some: { userId: viewer.userId } } },
       computer: { workspaces: { some: { workspaceId: viewer.workspaceId } } },
+      // Same live-view rule as `findOwnedSkillsAssignment` (ADR 0044).
+      ...ACTIVE_AGENT_WHERE,
     },
     select: { computerId: true, runtimeConfig: true },
   });

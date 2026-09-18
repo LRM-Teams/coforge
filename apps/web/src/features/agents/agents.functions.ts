@@ -479,7 +479,15 @@ export const deleteAgent = createServerFn({ method: "POST" })
     });
     if (!agent || agent.name !== data.confirmation) throw new AppError("INVALID_INPUT");
     const role = await workspaceMemberRole(db, workspaceId, user.id);
-    return agentDeletion(db).delete({ userId: user.id, workspaceId, role }, data.agentId);
+    const result = await agentDeletion(db).delete(
+      { userId: user.id, workspaceId, role },
+      data.agentId,
+    );
+    // A protected Agent is not a delete target at all; the dialog shows its own message for this
+    // rather than the generic failure, so surface it as a distinguishable error.
+    if (result.outcome === "protected")
+      throw new AppError("CONFLICT", { errorId: "agent-delete-protected" });
+    return result;
   });
 
 export const getAgentEnvironment = createServerFn({ method: "GET" })

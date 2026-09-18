@@ -3,6 +3,7 @@ import type {
   AgentProfileCreator,
   AgentProfileView,
 } from "@lrm/coforge-sdk/agent";
+import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import type { PrismaClient } from "../../../generated/client";
 import { AGENT_DISPLAY_NAME_MAX_LENGTH } from "../../features/agents/agent.schemas";
 import { findWorkspaceUser, resolveAgentStatus } from "./agent-user-info.server";
@@ -38,7 +39,7 @@ async function createdAgentsFor(
   ownerId: string,
 ): Promise<AgentProfileCreatedAgent[]> {
   const owned = await db.agent.findMany({
-    where: { workspaceId, ownerId },
+    where: { workspaceId, ownerId, ...ACTIVE_AGENT_WHERE },
     select: { id: true, name: true, displayName: true, computerId: true, stoppedAt: true },
     orderBy: { name: "asc" },
   });

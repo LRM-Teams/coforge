@@ -46,6 +46,11 @@
      "online green" / "offline gray" dot color, so these stay as CoForge tokens. */
   --color-online: #1bb618;
   --color-offline: #afbccb;
+
+  /* Deleted-Agent avatar background (ADR 0044). Same greys as `--color-offline`, but a separate
+     token because that one is documented as the presence-dot colour and a deleted identity is not
+     a presence state. See docs/design-tokens.md. */
+  --color-avatar-deleted: #afbccb;
 }
 
 /* Sidebar background is a gradient in dark mode, which can't be expressed as a single
@@ -120,6 +125,7 @@
 
     --color-online: #42c83f;
     --color-offline: #778393;
+    --color-avatar-deleted: #778393;
 
     --sidebar-gradient: linear-gradient(155deg, #21183b 0%, #171421 52%, #141720 100%);
   }

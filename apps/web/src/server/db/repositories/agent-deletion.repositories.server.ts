@@ -28,7 +28,6 @@ export class PrismaAgentDeletionStore implements AgentDeletionStore {
         select: { id: true },
       });
       if (assistant) return { outcome: "protected" as const };
-
       const deleted = await tx.agent.updateMany({
         where: { id: input.agentId, workspaceId: input.workspaceId, ...ACTIVE_AGENT_WHERE },
         data: { deletedAt: input.deletedAt },
@@ -54,7 +53,6 @@ export class PrismaAgentDeletionStore implements AgentDeletionStore {
       });
       return {
         outcome: "deleted" as const,
-        deleted: true,
         membershipsLeft: membershipsLeft.count,
         remindersCanceled: remindersCanceled.count,
         apiKeysRevoked: apiKeysRevoked.count,

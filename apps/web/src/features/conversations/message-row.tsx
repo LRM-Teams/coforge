@@ -10,6 +10,7 @@ import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents/deleted-agent";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
@@ -336,7 +337,9 @@ export function MessageRow({
       alt=""
       src={message.senderAvatarUrl}
       initials={avatarInitial(message.senderName)}
-      contentClassName={deleted ? "bg-offline text-white" : avatarToneClassName(message.senderName)}
+      contentClassName={
+        deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(message.senderName)
+      }
     />
   );
   return (
@@ -403,11 +406,7 @@ export function MessageRow({
                   {displayName}
                 </span>
               )}
-              {deleted && (
-                <Badge size="sm" color="gray" className="shrink-0 font-semibold tracking-wide">
-                  {m.agent_deleted_badge()}
-                </Badge>
-              )}
+              {deleted && <DeletedAgentBadge />}
               <time
                 dateTime={new Date(message.createdAt).toISOString()}
                 className="shrink-0 text-xs text-tertiary tabular-nums"
