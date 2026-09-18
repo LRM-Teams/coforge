@@ -5,7 +5,6 @@ import {
   TOOL_LABELS,
   canonicalToolName,
   toolActivityLabel,
-  isToolActivityLabel,
 } from "@lrm/coforge-sdk/internal";
 import type { StatusTone } from "@/components/ui/status-dot";
 
@@ -45,11 +44,6 @@ export type ActivityRow = {
  * POPOVER_EXCLUDED_DETAIL_KINDS in agent-activity.ts), so falling through to its empty raw
  * `detail` below (no secondary text at all) is correct for it too.
  */
-const ENTRYLESS_TOOL_LABEL: Readonly<Record<string, string>> = {
-  [AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND]: "Running command…",
-  [AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED]: "Working…",
-};
-
 const STATUS_SECONDARY_LABEL: Readonly<Record<string, string>> = {
   [AGENT_ACTIVITY_DETAIL_KIND.TOOL_END]: "Tool finished",
   [AGENT_ACTIVITY_DETAIL_KIND.THINKING_END]: "Thinking finished",
@@ -76,13 +70,9 @@ function presentEntryItem(
     return {
       row: {
         label,
-        // An already-redacted argument summary from the entry itself takes
-        // precedence; older daemons and stored rows have no toolInput. A
-        // current daemon's own `detail` is by then already this same generic
-        // label (see `toolActivityLabel`), so echoing it here as a "detail"
-        // would just repeat the label; only an older daemon's raw detail is
-        // worth showing.
-        detail: item.toolInput ?? (isToolActivityLabel(detail) ? "" : detail),
+        // The already-redacted argument summary; the frame's own `detail` is only
+        // the generic label and would repeat `label`.
+        detail: item.toolInput ?? "",
         recentLabel: label,
         currentLabel: toolActivityLabel(item.toolName),
         tone: "working",
@@ -203,10 +193,6 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
                         : tone === "offline"
                           ? "Stopped"
                           : "Activity";
-  // A current daemon sends an argument-free label as a tool frame's `detail`; an older
-  // daemon's entry-less heartbeat/probe reply still resends its raw `detail` (a command or
-  // path), which must never become the header label.
-  const toolFallback = ENTRYLESS_TOOL_LABEL[kind];
   const recentLabel =
     tone === "working"
       ? starting
@@ -221,11 +207,7 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
                 ? "Review still running…"
                 : stalledRecovery
                   ? "Restarting stalled provider…"
-                  : toolFallback !== undefined
-                    ? isToolActivityLabel(detail)
-                      ? detail
-                      : toolFallback
-                    : detail || "Working…"
+                  : detail || "Working…"
       : tone === "thinking"
         ? "Thinking…"
         : tone === "idle"

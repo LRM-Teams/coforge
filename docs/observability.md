@@ -285,10 +285,7 @@ Web 在 `src/features/agents/` 内实现 activity timeline，按 `activity` 选�
 警告文本保持原始语言与 wording。未知 activity 必须使用通用 activity 样式显示安全
 文案，不能丢弃整条记录；`running_command`/`tool_started` 的当前状态标签只显示 Daemon
 发来的通用标签（`toolActivityLabel`），命令、路径等参数摘要只在展开的工具行里以
-entry 的 `toolInput` 展示，从不进入标题；前端不得把一个仍在发送原始 `message` 的旧版
-Daemon 的探测/心跳帧误当作参数摘要显示在标题上——`agent-activity-presentation.ts` 的
-`activityAtoms` 只在 `detail` 本身已经是这张标签表生成的字符串时才复用它，否则回退到
-「Running command…」/「Working…」。前端完整显示文件操作和工具 Activity 的 `message`，
+entry 的 `toolInput` 展示，从不进入标题，标题直接显示 `detail`。前端完整显示文件操作和工具 Activity 的 `message`，
 但不得自行补充 provider 未上报的内容。
 
 Daemon 按约 350ms 的静默间隔分批发送 provider 的文本/thinking 增量（每帧各自成为一条

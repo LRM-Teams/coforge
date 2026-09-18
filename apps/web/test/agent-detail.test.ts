@@ -252,10 +252,13 @@ test("structured tools separate the label from command and path details", () => 
     activityKind: "working" as const,
     detailKind: "tool_started",
     level: "info",
-    detail: "src/private.ts",
+    detail: "Reading file…",
   };
   expect(
-    presentActivity({ ...observation, entries: [{ kind: "tool_start", toolName: "read_file" }] }),
+    presentActivity({
+      ...observation,
+      entries: [{ kind: "tool_start", toolName: "read_file", toolInput: "src/private.ts" }],
+    }),
   ).toMatchObject([
     {
       label: "Reading file",
@@ -270,8 +273,8 @@ test("structured tools separate the label from command and path details", () => 
   expect(
     presentActivity({
       ...observation,
-      detail: "bun test",
-      entries: [{ kind: "tool_start", toolName: "bash" }],
+      detail: "Running command…",
+      entries: [{ kind: "tool_start", toolName: "bash", toolInput: "bun test" }],
     }),
   ).toMatchObject([
     {
@@ -293,59 +296,6 @@ test("structured tools separate the label from command and path details", () => 
       entries: [{ kind: "tool_start", toolName: "send_message" }],
     }),
   ).toEqual([]);
-});
-
-test("an entry-less running_command frame never leaks an older daemon's raw command into the header label", () => {
-  const rawCommand = 'mise exec -- bun test 2>&1 | grep -iE "error:|DATABASE_URL|ECONNREFUSED"';
-  const observation = {
-    activityKind: "working" as const,
-    detailKind: "running_command",
-    level: "info" as const,
-    detail: rawCommand,
-  };
-  expect(presentActivity(observation)).toMatchObject([
-    { label: "Working", recentLabel: "Running command…", currentLabel: "Running command…" },
-  ]);
-  expect(agentDisplay(display({ ...observation }))).toMatchObject({
-    label: "Running command…",
-  });
-});
-
-test("an entry-less tool_started frame already carrying a current daemon's generic label keeps it", () => {
-  const observation = {
-    activityKind: "working" as const,
-    detailKind: "tool_started",
-    level: "info" as const,
-    detail: "Reading file…",
-  };
-  expect(presentActivity(observation)).toMatchObject([
-    { recentLabel: "Reading file…", currentLabel: "Reading file…" },
-  ]);
-  expect(agentDisplay(display({ ...observation }))).toMatchObject({ label: "Reading file…" });
-});
-
-test("an entry-less tool_started frame from an older daemon falls back to Working, not the raw path", () => {
-  const observation = {
-    activityKind: "working" as const,
-    detailKind: "tool_started",
-    level: "info" as const,
-    detail: "/workspace/src/secret.ts",
-  };
-  expect(presentActivity(observation)).toMatchObject([
-    { recentLabel: "Working…", currentLabel: "Working…" },
-  ]);
-  expect(agentDisplay(display({ ...observation }))).toMatchObject({ label: "Working…" });
-});
-
-test("other entry-less working kinds are unaffected by the running_command/tool_started guard", () => {
-  expect(
-    presentActivity({
-      activityKind: "working" as const,
-      detailKind: "message_received",
-      level: "info" as const,
-      detail: "Message received",
-    }),
-  ).toMatchObject([{ recentLabel: "Message received", currentLabel: "Message received" }]);
 });
 
 test("thinking and output entries stay separate and retain provider text and lineage", () => {
@@ -874,12 +824,12 @@ test("a system entry shows its title as the label and its text as the detail", (
   ]);
 });
 
-test("a tool_start entry's toolInput takes precedence over the activity's own detail", () => {
+test("a tool row shows its toolInput, never the activity's own detail", () => {
   const observation = {
     activityKind: "working" as const,
     detailKind: "tool_started",
     level: "info",
-    detail: "fallback detail from an older daemon",
+    detail: "Running command…",
   };
   expect(
     presentActivity({
@@ -887,13 +837,13 @@ test("a tool_start entry's toolInput takes precedence over the activity's own de
       entries: [{ kind: "tool_start", toolName: "bash", toolInput: "ls -la /tmp" }],
     }),
   ).toMatchObject([{ label: "Running command", detail: "ls -la /tmp" }]);
-  // Older daemons/stored rows carry no toolInput: keeps using the activity's own detail.
+  // Without a toolInput the row shows only its label, never the frame's own detail.
   expect(
     presentActivity({
       ...observation,
       entries: [{ kind: "tool_start", toolName: "bash" }],
     }),
-  ).toMatchObject([{ label: "Running command", detail: "fallback detail from an older daemon" }]);
+  ).toMatchObject([{ label: "Running command", detail: "" }]);
 });
 
 test("a system entry closes an open statement merge group instead of merging into it", () => {
