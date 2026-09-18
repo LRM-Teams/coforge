@@ -604,7 +604,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     expect(html).toContain("E2E Agent reply");
 
     const profile = await fetch(
-      `http://127.0.0.1:8789/agents/${created.agent.id}?agentTab=profile`,
+      `http://127.0.0.1:8789/agents?profile=agent:${created.agent.id}&agentTab=profile`,
     );
     expect(profile.status).toBe(200);
     const profileHtml = await profile.text();
@@ -617,7 +617,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     let activityHtml = "";
     await waitFor(async () => {
       const activityPage = await fetch(
-        `http://127.0.0.1:8789/agents/${created.agent.id}?tab=activity`,
+        `http://127.0.0.1:8789/agents?profile=agent:${created.agent.id}&agentTab=activity`,
       );
       if (activityPage.status !== 200) return false;
       activityHtml = await activityPage.text();

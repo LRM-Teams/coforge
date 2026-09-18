@@ -1,5 +1,4 @@
 import {
-  ChevronLeft,
   MessageSquare01 as MessageSquare,
   Play,
   RefreshCcw01 as RotateCcw,
@@ -27,34 +26,16 @@ export function AgentProfileHeader({
   timeZone,
   controls,
   onClose,
-  hideClose = false,
-  backHref,
 }: {
   agent: { id: string; name: string; displayName: string; description?: string };
   display?: AgentDisplaySnapshot;
   timeZone: string | null;
   controls: AgentRuntimeControls;
   onClose: () => void;
-  /** The Members page's detail pane has nothing to close back to — it renders this same panel
-   * without a Close button (and without the panel's Escape handler; see `agent-profile-panel.tsx`). */
-  hideClose?: boolean;
-  /** Members page only, and only below `md`: a link back to the list, shown instead of Close in
-   * that one narrow-viewport case where the panel is the only thing on screen. */
-  backHref?: string;
 }) {
   const activity = useAgentRecentActivity(agent.id);
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary py-0 pr-2 pl-3">
-      {backHref && (
-        <ButtonUtility
-          icon={ChevronLeft}
-          size="sm"
-          color="tertiary"
-          tooltip={m.controls_back()}
-          href={backHref}
-          className="md:hidden"
-        />
-      )}
       <AgentActivityAvatar
         agent={agent}
         display={display}
@@ -85,15 +66,13 @@ export function AgentProfileHeader({
         tooltip={m.agent_control_restart_reset_tooltip()}
         onClick={() => controls.openRestart("restart")}
       />
-      {!hideClose && (
-        <ButtonUtility
-          icon={X}
-          size="sm"
-          color="tertiary"
-          tooltip={m.controls_close()}
-          onClick={onClose}
-        />
-      )}
+      <ButtonUtility
+        icon={X}
+        size="sm"
+        color="tertiary"
+        tooltip={m.controls_close()}
+        onClick={onClose}
+      />
     </header>
   );
 }

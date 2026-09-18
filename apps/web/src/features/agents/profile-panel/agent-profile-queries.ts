@@ -8,9 +8,8 @@ import { mergeAgentActivity } from "../agent-activity";
 
 const agentProfileKey = (agentId: string) => ["agent-profile", agentId] as const;
 
-/** The Agent profile panel's own data seam (see `AGENTS.md`'s "reuse `AgentDetailQuery`
- * pieces... do NOT run the full detail loader"): a light server read, not the `/agents/$agentId`
- * route's `getAgentDetail` + `listComputers` + `getUserPreferences` combination. */
+/** The Agent profile panel's own data seam: a light server read shared by the Members
+ * directory panel and every conversation panel. */
 export function agentProfileQuery(agentId: string | undefined) {
   return queryOptions({
     queryKey: agentProfileKey(agentId ?? ""),

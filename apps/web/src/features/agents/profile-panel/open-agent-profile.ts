@@ -9,9 +9,9 @@ import { formatAgentProfileParam, type AgentProfileTab } from "./profile-panel-s
 type AgentProfileSearch = { profile?: string; agentTab?: AgentProfileTab };
 
 /**
- * The one way a conversation page opens/closes/switches the Agent profile panel. Per
- * `apps/web/AGENTS.md` ("the conversations feature does not own Agent state"), conversation
- * components call this instead of writing `profile`/`agentTab` search params themselves.
+ * The one way a conversation page or the Members directory opens/closes/switches the Agent
+ * profile panel. Per `apps/web/AGENTS.md` ("the conversations feature does not own Agent state"),
+ * callers use this instead of writing `profile`/`agentTab` search params themselves.
  *
  * Opening pushes a history entry (plain `router.navigate` without `replace`, the same default
  * every other search-param writer on these routes already relies on — see

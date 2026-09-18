@@ -625,7 +625,9 @@ async function discoverIds(page) {
   })()`;
 
   await page.navigate(`${BASE_URL}/${LOCALE}/agents`);
-  ids.agentId = await page.evalJs(extract(`/${LOCALE}/agents/([0-9a-fA-F-]{36})(?:[/?]|$)`));
+  ids.agentId =
+    (await page.evalJs(extract(`/${LOCALE}/agents/([0-9a-fA-F-]{36})(?:[/?]|$)`))) ||
+    (await page.evalJs(extract(`profile=agent:([0-9a-fA-F-]{36})`)));
 
   await page.navigate(`${BASE_URL}/${LOCALE}/computers`);
   ids.computerId = await page.evalJs(extract(`/${LOCALE}/computers/([0-9a-fA-F-]{36})(?:[/?]|$)`));
@@ -657,7 +659,10 @@ function buildSurfaces(ids) {
 
   const surfaces = [
     { key: "agents-list", url: url("/agents") },
-    ids.agentId && { key: "agent-detail", url: url(`/agents/${ids.agentId}`) },
+    ids.agentId && {
+      key: "agent-detail",
+      url: url(`/agents?profile=agent:${ids.agentId}`),
+    },
     { key: "messages-index", url: url("/messages") },
     ids.channelId && { key: "channel-chat", url: url(`/messages/channels/${ids.channelId}`) },
     ids.channelId && {

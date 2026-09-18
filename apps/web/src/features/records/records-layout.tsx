@@ -24,6 +24,7 @@ import { useAppToast } from "@/components/ui/toast";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
 import {
   createRecordNote,
   loadWeeklyReportAssistantStatus,
@@ -515,9 +516,11 @@ export function RecordsLayout({
                         void loadAssistantStatus()
                           .then((status) =>
                             navigate({
-                              to: "/agents/$agentId",
-                              params: { agentId: status.agentId },
-                              search: { agentTab: "profile" },
+                              to: "/agents",
+                              search: {
+                                profile: formatAgentProfileParam(status.agentId),
+                                agentTab: "profile",
+                              },
                             }),
                           )
                           .catch(() => {

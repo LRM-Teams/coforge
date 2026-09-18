@@ -17,6 +17,7 @@ import { ChannelMembersDialog } from "./channel-members-dialog";
 import { AgentCreateDialog } from "@/features/agents/agent-create-dialog";
 import { createAgent } from "@/features/agents/agents.functions";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
+import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
 
 export type ActionCardRef = { id: string; displayName: string };
 type ActionCardBase = {
@@ -239,9 +240,11 @@ export function ActionCard({ card }: { card: ActionCardView }) {
             <>
               {" · "}
               <Link
-                to="/agents/$agentId"
-                params={{ agentId: view.result.agentId }}
-                search={{ agentTab: "profile" }}
+                to="/agents"
+                search={{
+                  profile: formatAgentProfileParam(view.result.agentId),
+                  agentTab: "profile",
+                }}
                 className="text-brand-secondary hover:underline"
               >
                 {view.name}
