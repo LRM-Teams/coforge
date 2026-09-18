@@ -201,9 +201,25 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
       color="secondary"
       tooltip={m.conversation_attachment_download()}
       href={`${href}?download`}
+      className="shrink-0"
+    />
+  );
+  // Over an image the same control is an overlay, so it stays out of the way until the pointer is
+  // on the image; a pointer that cannot hover keeps it visible.
+  const downloadOverlay = (
+    <ButtonUtility
+      icon={Download01}
+      size="xs"
+      color="secondary"
+      tooltip={m.conversation_attachment_download()}
+      href={`${href}?download`}
       className="shrink-0 opacity-0 transition-opacity group-hover/attachment:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
     />
   );
+  /** One bordered row holding the file and its actions: an IM file row rather than a wide banner.
+   * Bounded width so a long name cannot stretch the bubble, and the name truncates inside it. */
+  const attachmentRowClassName =
+    "group/attachment mt-1 flex w-full max-w-sm min-w-0 items-center rounded-xl bg-primary ring-1 ring-secondary ring-inset";
   if (attachment.contentType.startsWith("image/"))
     return (
       <div className="group/attachment relative mt-1 w-fit max-w-full">
@@ -277,7 +293,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             </Modal>
           </ModalOverlay>
         </DialogTrigger>
-        <div className="absolute top-2 right-2">{download}</div>
+        <div className="absolute top-2 right-2">{downloadOverlay}</div>
       </div>
     );
   const extension = attachment.fileName.split(".").pop()?.toUpperCase();
@@ -287,31 +303,39 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
     attachment.contentType,
     attachment.previewUrl,
   );
+  // The row owns its own flex: `Button` puts its children inside one `display: block` span, so an
+  // icon and a text block handed to it directly stack vertically instead of sitting side by side.
   const card = (
-    <>
+    <span className="flex min-w-0 items-center gap-3">
       <FileTypeIcon className="size-10 shrink-0 dark:hidden" type={iconType} theme="light" />
       <FileTypeIcon className="size-10 shrink-0 not-dark:hidden" type={iconType} theme="dark" />
-      <div className="min-w-0 text-left">
-        <p className="truncate text-sm font-medium text-secondary">{attachment.fileName}</p>
-        <p className="text-sm text-tertiary">
+      <span className="min-w-0 text-left">
+        <span className="block truncate text-sm font-medium text-secondary">
+          {attachment.fileName}
+        </span>
+        <span className="block truncate text-xs text-tertiary">
           {extension && extension !== attachment.fileName.toUpperCase() ? `${extension} · ` : ""}
           {getReadableFileSize(attachment.sizeBytes)}
-        </p>
-      </div>
-    </>
+          {previewKind ? ` · ${m.conversation_attachment_preview_hint()}` : ""}
+        </span>
+      </span>
+    </span>
   );
   // A file we can show reads in place instead of forcing a download: the card becomes the control
   // that opens the preview, with the download still one click away inside it. The preview lives in
   // a dialog rather than expanding inline so opening one never changes a message row's height.
   if (previewKind)
     return (
-      <div className="group/attachment mt-1 flex w-fit max-w-full min-w-0 items-center gap-1">
+      <div className={attachmentRowClassName}>
         <DialogTrigger>
           <Button
             color="tertiary"
             noTextPadding
             aria-label={m.conversation_attachment_preview_open({ name: attachment.fileName })}
-            className="h-auto min-w-0 justify-start gap-3 rounded-xl bg-primary p-3 ring-1 ring-secondary ring-inset hover:bg-secondary"
+            // `Button` wraps its children in one `display: block` span of intrinsic width; without
+            // `w-full min-w-0` on it the name cannot shrink, so it overflows under the download
+            // control instead of truncating.
+            className="h-auto min-w-0 flex-1 justify-start rounded-xl rounded-r-none p-3 hover:bg-secondary [&>span]:w-full [&>span]:min-w-0"
           >
             {card}
           </Button>
@@ -359,13 +383,14 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             </Modal>
           </ModalOverlay>
         </DialogTrigger>
-        {download}
+        <span className="mx-1 h-8 w-px shrink-0 bg-border-secondary" aria-hidden="true" />
+        <div className="shrink-0 pr-2">{download}</div>
       </div>
     );
   return (
-    <div className="group/attachment mt-1 flex w-fit max-w-full min-w-0 items-center gap-3 rounded-xl bg-primary p-3 pr-2 ring-1 ring-secondary ring-inset">
-      {card}
-      {download}
+    <div className={attachmentRowClassName}>
+      <div className="min-w-0 flex-1 p-3">{card}</div>
+      <div className="shrink-0 pr-2">{download}</div>
     </div>
   );
 }
