@@ -1,6 +1,7 @@
 import {
   Activity as ActivityIcon,
   Bell01 as Bell,
+  Folder,
   UserCircle as UserRound,
 } from "@untitledui/icons";
 
@@ -14,17 +15,21 @@ import type { AgentProfileTab } from "./profile-panel-search";
  * (`features/tasks/conversation-task-tabs.tsx`) uses for Chat/Tasks — that component is a plain
  * `<Button color={active ? "secondary" : "tertiary"}>` row, not a Link-based nav, so this mirrors
  * it directly rather than reusing that component (which is conversation-specific and untyped for
- * a third tab set). Profile, Reminders and Activity; Reminders and Activity are both
- * manager/owner-only.
+ * a third tab set). Profile, Reminders, Activity and Workspace; Reminders and Activity are both
+ * manager/owner-only, while Workspace is owner-only — independent of `showManagerTabs`, since a
+ * manager who does not own the Agent must not see it.
  */
 export function AgentProfileTabs({
   active,
   showManagerTabs,
+  showWorkspaceTab,
   onSelect,
 }: {
   active: AgentProfileTab;
   /** Non-managers (see the brief's Permissions section) see Profile only. */
   showManagerTabs: boolean;
+  /** The Agent's owner only; independent of `showManagerTabs`. */
+  showWorkspaceTab: boolean;
   onSelect: (tab: AgentProfileTab) => void;
 }) {
   return (
@@ -61,6 +66,18 @@ export function AgentProfileTabs({
           onPress={() => onSelect("activity")}
         >
           {m.agent_activity_tab()}
+        </Button>
+      )}
+      {showWorkspaceTab && (
+        <Button
+          type="button"
+          color={active === "workspace" ? "secondary" : "tertiary"}
+          size="sm"
+          aria-current={active === "workspace" ? "page" : undefined}
+          iconLeading={Folder}
+          onPress={() => onSelect("workspace")}
+        >
+          {m.agent_workspace_tab()}
         </Button>
       )}
     </nav>

@@ -733,6 +733,7 @@ export {
   validateAgentMessageRequest,
 } from "./codec";
 export * from "./agent-skills";
+export * from "./agent-workspace-files";
 export * from "./agent-control";
 export * from "./reminder";
 export * from "./tasks";

@@ -117,3 +117,19 @@ export const saveAgentEnvironmentInputSchema = z.object({
   agentId: agentIdSchema,
   envVars: z.record(z.string(), z.string()),
 });
+
+// A thin gate ahead of the codec's own strict validation (`agent-workspace-files.ts` rejects
+// control bytes, `..` segments, absolute/Windows paths, etc. on encode) — this just rejects
+// wildly wrong types/sizes before that.
+export const listAgentWorkspaceFilesInputSchema = z.object({
+  agentId: agentIdSchema,
+  dirPath: z.string().max(4096).default(""),
+  includeHidden: z.boolean().default(false),
+});
+export type ListAgentWorkspaceFilesInput = z.infer<typeof listAgentWorkspaceFilesInputSchema>;
+
+export const readAgentWorkspaceFileInputSchema = z.object({
+  agentId: agentIdSchema,
+  path: z.string().min(1).max(4096),
+});
+export type ReadAgentWorkspaceFileInput = z.infer<typeof readAgentWorkspaceFileInputSchema>;

@@ -3,11 +3,17 @@ import {
   AGENT_SESSION_INVALIDATE_METHOD,
   WORKSPACE_LIST_METHOD,
   AGENT_SKILLS_LIST_RESULT_METHOD,
+  AGENT_WORKSPACE_FILES_LIST_RESULT_METHOD,
+  AGENT_WORKSPACE_FILE_READ_RESULT_METHOD,
   AGENT_CONTROL_RESULT_METHOD,
   REMINDER_FIRE_METHOD,
   REMINDER_SNAPSHOT_METHOD,
 } from "@lrm/coforge-sdk/internal";
 import { createAgentSkillsListResultMethod } from "./agent-skills-cache.server";
+import {
+  createAgentWorkspaceFileReadResultMethod,
+  createAgentWorkspaceFilesListResultMethod,
+} from "./agent-workspace-files-cache.server";
 
 import {
   CentrifugoRpcHandler,
@@ -251,6 +257,8 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
         [COMPUTER_UPGRADE_RESULT_METHOD]:
           createComputerUpgradeResultMethod(getComputerUpgradeStore()),
         [AGENT_SKILLS_LIST_RESULT_METHOD]: createAgentSkillsListResultMethod(),
+        [AGENT_WORKSPACE_FILES_LIST_RESULT_METHOD]: createAgentWorkspaceFilesListResultMethod(),
+        [AGENT_WORKSPACE_FILE_READ_RESULT_METHOD]: createAgentWorkspaceFileReadResultMethod(),
         [AGENT_CONTROL_RESULT_METHOD]: createAgentControlResultMethod(control),
         [AGENT_START_METHOD]: createAgentStartMethod(
           new PublishAgentRuntimeControl(
@@ -287,6 +295,8 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
       [COMPUTER_UPGRADE_RESULT_METHOD]: unavailableMethod,
       [AGENT_SKILLS_LIST_RESULT_METHOD]: unavailableMethod,
+      [AGENT_WORKSPACE_FILES_LIST_RESULT_METHOD]: unavailableMethod,
+      [AGENT_WORKSPACE_FILE_READ_RESULT_METHOD]: unavailableMethod,
       [AGENT_CONTROL_RESULT_METHOD]: unavailableMethod,
       [AGENT_SESSION_METHOD]: unavailableMethod,
       [AGENT_SESSION_INVALIDATE_METHOD]: unavailableMethod,

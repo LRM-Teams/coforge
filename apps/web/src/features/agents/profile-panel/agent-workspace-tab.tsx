@@ -1,0 +1,550 @@
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  ChevronRight,
+  Copy01,
+  Eye,
+  EyeOff,
+  File02,
+  Folder,
+  RefreshCw01,
+} from "@untitledui/icons";
+import type {
+  AgentWorkspaceFileEntry,
+  AgentWorkspaceFileReadResult,
+  AgentWorkspaceFilesListResult,
+} from "@lrm/coforge-sdk/internal";
+
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { useResizeObserver } from "@/hooks/use-resize-observer";
+import { copyText } from "@/features/records/report-editor/lib/clipboard";
+import { ProjectFileView, ProjectFileViewSkeleton } from "@/features/projects/project-file-view";
+import { m } from "@/paraglide/messages";
+import { cn } from "@/lib/utils";
+import { SECTION_CAPTION_CLASS } from "./inline-edit-field";
+
+/** The container width, in CSS px, at and above which the tree and the open file split
+ * side-by-side (the wide Members-page pane). Below it, the file replaces the tree and a
+ * breadcrumb + back button return to it (the panel's own narrow width) — a single breakpoint,
+ * simpler than a true three-way responsive layout and acceptable per the brief. */
+const SPLIT_BREAKPOINT_PX = 900;
+
+export type AgentWorkspaceFilesLoadResult =
+  | { status: "ready"; result: AgentWorkspaceFilesListResult }
+  | { status: "offline" | "timeout" | "unavailable" };
+export type AgentWorkspaceFileLoadResult =
+  | { status: "ready"; result: AgentWorkspaceFileReadResult }
+  | { status: "offline" | "timeout" | "unavailable" };
+
+type DirState =
+  | { status: "loading" }
+  | { status: "ready"; entries: AgentWorkspaceFileEntry[]; rootPath?: string }
+  | { status: "offline" | "timeout" | "unavailable" | "missing" | "unreadable" | "error" };
+
+type FileState =
+  | { status: "loading"; path: string }
+  | { status: "ready"; path: string; result: AgentWorkspaceFileReadResult }
+  | {
+      status:
+        | "offline"
+        | "timeout"
+        | "unavailable"
+        | "missing"
+        | "unreadable"
+        | "binary"
+        | "too_large"
+        | "error";
+      path: string;
+    };
+
+function hiddenStorageKey(agentId: string) {
+  return `coforge:agent-workspace-hidden:${agentId}`;
+}
+
+function readHiddenPreference(agentId: string): boolean {
+  try {
+    return localStorage.getItem(hiddenStorageKey(agentId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeHiddenPreference(agentId: string, value: boolean) {
+  try {
+    localStorage.setItem(hiddenStorageKey(agentId), value ? "1" : "0");
+  } catch {
+    // Private mode or blocked storage: the choice still holds for this visit.
+  }
+}
+
+function sortedEntries(entries: AgentWorkspaceFileEntry[]): AgentWorkspaceFileEntry[] {
+  // The daemon already returns directories-first, name-sorted, but this component sorts
+  // defensively rather than trusting that contract.
+  return [...entries].sort((a, b) => {
+    if ((a.type === "dir") !== (b.type === "dir")) return a.type === "dir" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function joinPath(dirPath: string, name: string): string {
+  return dirPath === "" ? name : `${dirPath}/${name}`;
+}
+
+/**
+ * The Agent profile panel's Workspace tab: a lazy directory tree of the Agent's working directory
+ * on its Computer, plus a read-only file viewer. Owner-only (gated by the caller via
+ * `resolveAgentProfileTab`/`showWorkspaceTab`), matching the same publish/poll/timeout data shape
+ * as Skills, but with two operations (list, read) instead of one.
+ */
+export function AgentWorkspaceTab({
+  agentId,
+  onListDir,
+  onReadFile,
+}: {
+  agentId: string;
+  onListDir: (dirPath: string, includeHidden: boolean) => Promise<AgentWorkspaceFilesLoadResult>;
+  onReadFile: (path: string) => Promise<AgentWorkspaceFileLoadResult>;
+}) {
+  const [includeHidden, setIncludeHidden] = useState(() => readHiddenPreference(agentId));
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<string | undefined>(undefined);
+  const [fileState, setFileState] = useState<FileState | undefined>(undefined);
+  const [rootPath, setRootPath] = useState<string | undefined>(undefined);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  const cacheRef = useRef<Record<string, DirState>>({});
+  const [, forceRender] = useReducer((n: number) => n + 1, 0);
+  const dirSeq = useRef<Record<string, number>>({});
+  const fileSeq = useRef(0);
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  useResizeObserver({
+    ref: containerRef,
+    onResize: () => setContainerWidth(containerRef.current?.clientWidth ?? 0),
+  });
+  useEffect(() => {
+    setContainerWidth(containerRef.current?.clientWidth ?? 0);
+  }, []);
+
+  const setDirState = useCallback((dirPath: string, state: DirState) => {
+    cacheRef.current = { ...cacheRef.current, [dirPath]: state };
+    forceRender();
+  }, []);
+
+  const loadDir = useCallback(
+    async (dirPath: string, hidden: boolean) => {
+      const seq = (dirSeq.current[dirPath] ?? 0) + 1;
+      dirSeq.current[dirPath] = seq;
+      setDirState(dirPath, { status: "loading" });
+      try {
+        const response = await onListDir(dirPath, hidden);
+        if (dirSeq.current[dirPath] !== seq) return;
+        if (response.status !== "ready") {
+          setDirState(dirPath, { status: response.status });
+          return;
+        }
+        if (response.result.status !== "ok") {
+          setDirState(dirPath, { status: response.result.status });
+          return;
+        }
+        if (dirPath === "") setRootPath(response.result.rootPath);
+        setDirState(dirPath, { status: "ready", entries: sortedEntries(response.result.entries) });
+      } catch {
+        if (dirSeq.current[dirPath] === seq) setDirState(dirPath, { status: "error" });
+      }
+    },
+    [onListDir, setDirState],
+  );
+
+  const loadFile = useCallback(
+    async (path: string) => {
+      const seq = ++fileSeq.current;
+      setFileState({ status: "loading", path });
+      try {
+        const response = await onReadFile(path);
+        if (fileSeq.current !== seq) return;
+        if (response.status !== "ready") {
+          setFileState({ status: response.status, path });
+          return;
+        }
+        if (response.result.status === "ok") {
+          setFileState({ status: "ready", path, result: response.result });
+        } else {
+          setFileState({ status: response.result.status, path });
+        }
+      } catch {
+        if (fileSeq.current === seq) setFileState({ status: "error", path });
+      }
+    },
+    [onReadFile],
+  );
+
+  useEffect(() => {
+    void loadDir("", includeHidden);
+    // Reload every directory expanded so far so a hidden-files toggle applies everywhere at once.
+    for (const dir of expanded) void loadDir(dir, includeHidden);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch driven by includeHidden/agentId only.
+  }, [agentId, includeHidden]);
+
+  function toggleHidden() {
+    const next = !includeHidden;
+    setIncludeHidden(next);
+    writeHiddenPreference(agentId, next);
+  }
+
+  function refresh() {
+    void loadDir("", includeHidden);
+    for (const dir of expanded) void loadDir(dir, includeHidden);
+    if (selected) void loadFile(selected);
+  }
+
+  function toggleExpand(dirPath: string) {
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      if (next.has(dirPath)) {
+        next.delete(dirPath);
+      } else {
+        next.add(dirPath);
+        if (!cacheRef.current[dirPath]) void loadDir(dirPath, includeHidden);
+      }
+      return next;
+    });
+  }
+
+  function selectFile(path: string) {
+    setSelected(path);
+    void loadFile(path);
+  }
+
+  async function copyPath() {
+    if (rootPath) await copyText(rootPath);
+  }
+
+  const rootState = cacheRef.current[""];
+  const showSplit = containerWidth >= SPLIT_BREAKPOINT_PX;
+  const narrowShowingFile = !showSplit && selected !== undefined;
+
+  return (
+    <div ref={containerRef} className="flex h-full min-h-0 flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-secondary px-5 py-3">
+        <span className="min-w-0 truncate font-mono text-xs text-tertiary">{rootPath ?? " "}</span>
+        {rootPath && (
+          <ButtonUtility
+            icon={Copy01}
+            size="xs"
+            color="tertiary"
+            tooltip={m.agent_workspace_copy_path()}
+            onClick={() => void copyPath()}
+          />
+        )}
+      </div>
+
+      {!showSplit && (
+        <div className="flex items-center justify-between gap-2 border-b border-secondary px-5 py-2.5">
+          <p className={SECTION_CAPTION_CLASS}>{m.agent_workspace_section()}</p>
+          <HiddenAndRefreshButtons
+            includeHidden={includeHidden}
+            onToggleHidden={toggleHidden}
+            onRefresh={refresh}
+          />
+        </div>
+      )}
+
+      {narrowShowingFile ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex items-center gap-1.5 border-b border-secondary px-3 py-2">
+            <ButtonUtility
+              icon={ArrowLeft}
+              size="xs"
+              color="tertiary"
+              tooltip={m.agent_workspace_back()}
+              onClick={() => setSelected(undefined)}
+            />
+            <span className="min-w-0 truncate font-mono text-xs text-tertiary">{selected}</span>
+          </div>
+          <div className="min-h-0 flex-1">
+            <FilePane state={fileState} onRetry={() => selected && loadFile(selected)} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1">
+          <div
+            className={cn(
+              "min-h-0 overflow-y-auto",
+              showSplit ? "w-72 shrink-0 border-r border-secondary" : "flex-1",
+            )}
+          >
+            {showSplit && (
+              <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
+                <p className={SECTION_CAPTION_CLASS}>{m.agent_workspace_section()}</p>
+                <HiddenAndRefreshButtons
+                  includeHidden={includeHidden}
+                  onToggleHidden={toggleHidden}
+                  onRefresh={refresh}
+                />
+              </div>
+            )}
+            <TreeRoot
+              state={rootState}
+              cache={cacheRef.current}
+              expanded={expanded}
+              selected={selected}
+              onToggleExpand={toggleExpand}
+              onSelectFile={selectFile}
+              onRetry={() => loadDir("", includeHidden)}
+            />
+          </div>
+          {showSplit && (
+            <div className="min-h-0 flex-1">
+              {selected ? (
+                <FilePane state={fileState} onRetry={() => selected && loadFile(selected)} />
+              ) : (
+                <p className="px-5 py-16 text-center text-sm text-tertiary">
+                  {m.agent_workspace_select_file()}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HiddenAndRefreshButtons({
+  includeHidden,
+  onToggleHidden,
+  onRefresh,
+}: {
+  includeHidden: boolean;
+  onToggleHidden: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <ButtonUtility
+        icon={includeHidden ? Eye : EyeOff}
+        size="xs"
+        color="tertiary"
+        tooltip={
+          includeHidden
+            ? m.agent_workspace_hidden_files_shown()
+            : m.agent_workspace_hidden_files_hidden()
+        }
+        onClick={onToggleHidden}
+      />
+      <ButtonUtility
+        icon={RefreshCw01}
+        size="xs"
+        color="tertiary"
+        tooltip={m.agent_workspace_refresh()}
+        onClick={onRefresh}
+      />
+    </div>
+  );
+}
+
+function TreeRoot({
+  state,
+  cache,
+  expanded,
+  selected,
+  onToggleExpand,
+  onSelectFile,
+  onRetry,
+}: {
+  state: DirState | undefined;
+  cache: Record<string, DirState>;
+  expanded: Set<string>;
+  selected: string | undefined;
+  onToggleExpand: (dirPath: string) => void;
+  onSelectFile: (path: string) => void;
+  onRetry: () => void;
+}) {
+  if (!state || state.status === "loading") {
+    return (
+      <div className="space-y-2 px-3 py-3" aria-busy="true">
+        {[0, 1, 2, 3, 4].map((index) => (
+          <div
+            key={index}
+            className="h-3 animate-pulse rounded bg-secondary motion-reduce:animate-none"
+            style={{ width: `${70 - index * 8}%` }}
+          />
+        ))}
+      </div>
+    );
+  }
+  if (state.status === "offline") return <TreeMessage text={m.agent_workspace_offline()} />;
+  if (state.status === "timeout")
+    return <TreeMessage text={m.agent_workspace_timeout()} onRetry={onRetry} />;
+  if (state.status !== "ready")
+    return <TreeMessage text={m.agent_workspace_unavailable()} onRetry={onRetry} />;
+  if (state.entries.length === 0) return <TreeMessage text={m.agent_workspace_empty()} />;
+
+  return (
+    <ul className="px-2 pb-3">
+      <TreeEntries
+        dirPath=""
+        entries={state.entries}
+        depth={0}
+        cache={cache}
+        expanded={expanded}
+        selected={selected}
+        onToggleExpand={onToggleExpand}
+        onSelectFile={onSelectFile}
+      />
+    </ul>
+  );
+}
+
+function TreeEntries({
+  dirPath,
+  entries,
+  depth,
+  cache,
+  expanded,
+  selected,
+  onToggleExpand,
+  onSelectFile,
+}: {
+  dirPath: string;
+  entries: AgentWorkspaceFileEntry[];
+  depth: number;
+  cache: Record<string, DirState>;
+  expanded: Set<string>;
+  selected: string | undefined;
+  onToggleExpand: (dirPath: string) => void;
+  onSelectFile: (path: string) => void;
+}) {
+  return (
+    <>
+      {entries.map((entry) => {
+        const path = joinPath(dirPath, entry.name);
+        const isDir = entry.type === "dir";
+        const isExpanded = isDir && expanded.has(path);
+        const childState = isDir ? cache[path] : undefined;
+        return (
+          <li key={path}>
+            <Button
+              type="button"
+              color="tertiary"
+              size="sm"
+              onPress={() => (isDir ? onToggleExpand(path) : onSelectFile(path))}
+              style={{ paddingLeft: `${depth * 16 + 8}px` }}
+              noTextPadding
+              className={cn(
+                "!flex w-full min-w-0 items-center justify-start gap-1.5 rounded-md py-1.5 pr-2 text-left text-sm font-normal text-primary before:hidden",
+                !isDir && selected === path && "bg-secondary font-medium",
+              )}
+            >
+              {isDir && (
+                <ChevronRight
+                  aria-hidden="true"
+                  className={cn(
+                    "size-3.5 shrink-0 text-quaternary transition-transform",
+                    isExpanded && "rotate-90",
+                  )}
+                />
+              )}
+              {isDir ? (
+                <Folder aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
+              ) : (
+                <File02 aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
+              )}
+              <span className="min-w-0 truncate">{entry.name}</span>
+            </Button>
+            {isDir && isExpanded && (
+              <ul>
+                {!childState || childState.status === "loading" ? (
+                  <li style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }} className="py-1">
+                    <span className="block h-3 w-2/3 animate-pulse rounded bg-secondary motion-reduce:animate-none" />
+                  </li>
+                ) : childState.status === "ready" ? (
+                  childState.entries.length === 0 ? (
+                    <li
+                      style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
+                      className="py-1 text-xs text-tertiary"
+                    >
+                      {m.agent_workspace_directory_empty()}
+                    </li>
+                  ) : (
+                    <TreeEntries
+                      dirPath={path}
+                      entries={childState.entries}
+                      depth={depth + 1}
+                      cache={cache}
+                      expanded={expanded}
+                      selected={selected}
+                      onToggleExpand={onToggleExpand}
+                      onSelectFile={onSelectFile}
+                    />
+                  )
+                ) : (
+                  <li
+                    style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
+                    className="py-1 text-xs text-tertiary"
+                  >
+                    {m.agent_workspace_directory_error()}
+                  </li>
+                )}
+              </ul>
+            )}
+          </li>
+        );
+      })}
+    </>
+  );
+}
+
+function TreeMessage({ text, onRetry }: { text: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+      <p className="text-sm text-tertiary">{text}</p>
+      {onRetry && (
+        <Button size="sm" color="secondary" onPress={onRetry}>
+          {m.agent_workspace_retry()}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function FilePane({ state, onRetry }: { state: FileState | undefined; onRetry: () => void }) {
+  if (!state || state.status === "loading") {
+    const name = state?.path.split("/").pop() ?? "";
+    return <ProjectFileViewSkeleton name={name} />;
+  }
+  const name = state.path.split("/").pop() ?? state.path;
+
+  if (state.status === "ready")
+    return (
+      <ProjectFileView
+        key={state.path}
+        path={state.path}
+        name={name}
+        byteSize={state.result.sizeBytes}
+        text={state.result.text}
+        githubUrl={undefined}
+      />
+    );
+  if (state.status === "offline") return <EmptyFileState text={m.agent_workspace_offline()} />;
+  if (state.status === "timeout")
+    return <EmptyFileState text={m.agent_workspace_timeout()} onRetry={onRetry} />;
+  if (state.status === "binary") return <EmptyFileState text={m.agent_workspace_binary()} />;
+  if (state.status === "too_large") return <EmptyFileState text={m.agent_workspace_too_large()} />;
+  return <EmptyFileState text={m.agent_workspace_file_error()} onRetry={onRetry} />;
+}
+
+function EmptyFileState({ text, onRetry }: { text: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-3 px-5 py-16 text-center">
+      <p className="text-sm text-tertiary">{text}</p>
+      {onRetry && (
+        <Button size="sm" color="secondary" onPress={onRetry}>
+          {m.agent_workspace_retry()}
+        </Button>
+      )}
+    </div>
+  );
+}

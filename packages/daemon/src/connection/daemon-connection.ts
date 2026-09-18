@@ -53,6 +53,16 @@ import {
   AGENT_SKILLS_LIST_RESULT_METHOD,
   type AgentSkillsListRequest,
   type AgentSkillsListResult,
+  decodeAgentWorkspaceFilesListRequest,
+  encodeAgentWorkspaceFilesListResult,
+  AGENT_WORKSPACE_FILES_LIST_RESULT_METHOD,
+  type AgentWorkspaceFilesListRequest,
+  type AgentWorkspaceFilesListResult,
+  decodeAgentWorkspaceFileReadRequest,
+  encodeAgentWorkspaceFileReadResult,
+  AGENT_WORKSPACE_FILE_READ_RESULT_METHOD,
+  type AgentWorkspaceFileReadRequest,
+  type AgentWorkspaceFileReadResult,
   type ComputerUpgradeResult,
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
@@ -367,6 +377,14 @@ export interface DaemonConnectionClient {
   updateCodeAgents?(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void>;
   onSkillsList?(callback: (request: AgentSkillsListRequest) => Promise<void>): () => void;
   sendSkillsListResult?(result: AgentSkillsListResult): Promise<void>;
+  onWorkspaceFilesList?(
+    callback: (request: AgentWorkspaceFilesListRequest) => Promise<void>,
+  ): () => void;
+  sendWorkspaceFilesListResult?(result: AgentWorkspaceFilesListResult): Promise<void>;
+  onWorkspaceFileRead?(
+    callback: (request: AgentWorkspaceFileReadRequest) => Promise<void>,
+  ): () => void;
+  sendWorkspaceFileReadResult?(result: AgentWorkspaceFileReadResult): Promise<void>;
   onUsageScan?(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void;
   sendUsageScanResult?(response: DaemonRuntimeUsageScanResponse): Promise<void>;
   sendUpgradeResult?(result: ComputerUpgradeResult): Promise<boolean>;
@@ -1052,6 +1070,12 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #agentMessage = new ListenerSlot<(message: AgentMessageDelivery) => void>();
   readonly #reminderSync = new ListenerSlot<(sync: ReminderSync) => void>();
   readonly #skillsList = new ListenerSlot<(request: AgentSkillsListRequest) => Promise<void>>();
+  readonly #workspaceFilesList = new ListenerSlot<
+    (request: AgentWorkspaceFilesListRequest) => Promise<void>
+  >();
+  readonly #workspaceFileRead = new ListenerSlot<
+    (request: AgentWorkspaceFileReadRequest) => Promise<void>
+  >();
   readonly #usageScan = new ListenerSlot<
     (request: DaemonRuntimeUsageScanRequest) => Promise<void>
   >();
@@ -1190,6 +1214,18 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   onSkillsList(callback: (request: AgentSkillsListRequest) => Promise<void>): () => void {
     return this.#skillsList.set(callback);
+  }
+
+  onWorkspaceFilesList(
+    callback: (request: AgentWorkspaceFilesListRequest) => Promise<void>,
+  ): () => void {
+    return this.#workspaceFilesList.set(callback);
+  }
+
+  onWorkspaceFileRead(
+    callback: (request: AgentWorkspaceFileReadRequest) => Promise<void>,
+  ): () => void {
+    return this.#workspaceFileRead.set(callback);
   }
 
   onUsageScan(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void {
@@ -1934,6 +1970,16 @@ export class DaemonConnection implements DaemonConnectionClient {
           void this.#skillsList.current?.(request).catch(() => {});
         return true;
       }) ||
+      this.#route(data, decodeAgentWorkspaceFilesListRequest, (request) => {
+        if (request.workspaceId === workspaceId)
+          void this.#workspaceFilesList.current?.(request).catch(() => {});
+        return true;
+      }) ||
+      this.#route(data, decodeAgentWorkspaceFileReadRequest, (request) => {
+        if (request.workspaceId === workspaceId)
+          void this.#workspaceFileRead.current?.(request).catch(() => {});
+        return true;
+      }) ||
       this.#route(data, decodeDaemonRuntimeUsageScanRequest, (usage) => {
         if (usage.protocolMajor !== 1 || usage.workspaceId !== workspaceId || !usage.computerId)
           return false;
@@ -1999,6 +2045,20 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async sendSkillsListResult(result: AgentSkillsListResult): Promise<void> {
     await this.#rpc(AGENT_SKILLS_LIST_RESULT_METHOD, encodeAgentSkillsListResult(result));
+  }
+
+  async sendWorkspaceFilesListResult(result: AgentWorkspaceFilesListResult): Promise<void> {
+    await this.#rpc(
+      AGENT_WORKSPACE_FILES_LIST_RESULT_METHOD,
+      encodeAgentWorkspaceFilesListResult(result),
+    );
+  }
+
+  async sendWorkspaceFileReadResult(result: AgentWorkspaceFileReadResult): Promise<void> {
+    await this.#rpc(
+      AGENT_WORKSPACE_FILE_READ_RESULT_METHOD,
+      encodeAgentWorkspaceFileReadResult(result),
+    );
   }
 
   /**
