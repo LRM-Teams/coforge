@@ -9,6 +9,13 @@ import {
   Folder,
   RefreshCw01,
 } from "@untitledui/icons";
+import {
+  Button as AriaButton,
+  Collection,
+  Tree,
+  TreeItem,
+  TreeItemContent,
+} from "react-aria-components";
 import type {
   AgentWorkspaceFileEntry,
   AgentWorkspaceFileReadResult,
@@ -199,17 +206,15 @@ export function AgentWorkspaceTab({
     if (selected) void loadFile(selected);
   }
 
-  function toggleExpand(dirPath: string) {
-    setExpanded((previous) => {
-      const next = new Set(previous);
-      if (next.has(dirPath)) {
-        next.delete(dirPath);
-      } else {
-        next.add(dirPath);
-        if (!cacheRef.current[dirPath]) void loadDir(dirPath, includeHidden);
-      }
-      return next;
-    });
+  // Single entry point for every expansion change, whether it comes from the tree's own
+  // chevron toggle (a full next set) or a row click on a directory (one path flipped below).
+  // Any directory newly present in `next` that isn't cached yet gets fetched.
+  function applyExpanded(next: Set<string>) {
+    for (const dirPath of next) {
+      if (!expanded.has(dirPath) && !cacheRef.current[dirPath])
+        void loadDir(dirPath, includeHidden);
+    }
+    setExpanded(next);
   }
 
   function selectFile(path: string) {
@@ -290,7 +295,7 @@ export function AgentWorkspaceTab({
               cache={cacheRef.current}
               expanded={expanded}
               selected={selected}
-              onToggleExpand={toggleExpand}
+              onExpandedChange={applyExpanded}
               onSelectFile={selectFile}
               onRetry={() => loadDir("", includeHidden)}
             />
@@ -350,7 +355,7 @@ function TreeRoot({
   cache,
   expanded,
   selected,
-  onToggleExpand,
+  onExpandedChange,
   onSelectFile,
   onRetry,
 }: {
@@ -358,7 +363,7 @@ function TreeRoot({
   cache: Record<string, DirState>;
   expanded: Set<string>;
   selected: string | undefined;
-  onToggleExpand: (dirPath: string) => void;
+  onExpandedChange: (next: Set<string>) => void;
   onSelectFile: (path: string) => void;
   onRetry: () => void;
 }) {
@@ -383,117 +388,179 @@ function TreeRoot({
   if (state.entries.length === 0) return <TreeMessage text={m.agent_workspace_empty()} />;
 
   return (
-    <ul className="px-2 pb-3">
-      <TreeEntries
-        dirPath=""
-        entries={state.entries}
-        depth={0}
-        cache={cache}
-        expanded={expanded}
-        selected={selected}
-        onToggleExpand={onToggleExpand}
-        onSelectFile={onSelectFile}
-      />
-    </ul>
+    <WorkspaceTree
+      rootEntries={state.entries}
+      cache={cache}
+      expanded={expanded}
+      selected={selected}
+      onExpandedChange={onExpandedChange}
+      onSelectFile={onSelectFile}
+    />
   );
 }
 
-function TreeEntries({
-  dirPath,
-  entries,
-  depth,
+/** One row of the tree: either a real file/directory entry, or a non-interactive placeholder
+ * standing in for a directory's loading/empty/error child state. */
+type TreeRow =
+  | { kind: "entry"; entry: AgentWorkspaceFileEntry; path: string }
+  | { kind: "status"; id: string; loading: boolean; text: string };
+
+function childRows(dirPath: string, cache: Record<string, DirState>): TreeRow[] {
+  const state = cache[dirPath];
+  if (!state || state.status === "loading") {
+    return [{ kind: "status", id: `${dirPath}::loading`, loading: true, text: "" }];
+  }
+  if (state.status === "ready") {
+    if (state.entries.length === 0) {
+      return [
+        {
+          kind: "status",
+          id: `${dirPath}::empty`,
+          loading: false,
+          text: m.agent_workspace_directory_empty(),
+        },
+      ];
+    }
+    return state.entries.map((entry) => ({
+      kind: "entry",
+      entry,
+      path: joinPath(dirPath, entry.name),
+    }));
+  }
+  return [
+    {
+      kind: "status",
+      id: `${dirPath}::error`,
+      loading: false,
+      text: m.agent_workspace_directory_error(),
+    },
+  ];
+}
+
+/**
+ * The lazily-loaded directory tree, built on React Aria's `Tree`. Collapsed directories
+ * contribute no rows to the Collection, so expanding one is the only point a fetch happens.
+ */
+function WorkspaceTree({
+  rootEntries,
   cache,
   expanded,
   selected,
-  onToggleExpand,
+  onExpandedChange,
   onSelectFile,
 }: {
-  dirPath: string;
-  entries: AgentWorkspaceFileEntry[];
-  depth: number;
+  rootEntries: AgentWorkspaceFileEntry[];
   cache: Record<string, DirState>;
   expanded: Set<string>;
   selected: string | undefined;
-  onToggleExpand: (dirPath: string) => void;
+  onExpandedChange: (next: Set<string>) => void;
   onSelectFile: (path: string) => void;
 }) {
-  return (
-    <>
-      {entries.map((entry) => {
-        const path = joinPath(dirPath, entry.name);
-        const isDir = entry.type === "dir";
-        const isExpanded = isDir && expanded.has(path);
-        const childState = isDir ? cache[path] : undefined;
-        return (
-          <li key={path}>
-            <Button
-              type="button"
-              color="tertiary"
-              size="sm"
-              onPress={() => (isDir ? onToggleExpand(path) : onSelectFile(path))}
-              style={{ paddingLeft: `${depth * 16 + 8}px` }}
-              noTextPadding
-              className={cn(
-                "!flex w-full min-w-0 items-center justify-start gap-1.5 rounded-md py-1.5 pr-2 text-left text-sm font-normal text-primary before:hidden",
-                !isDir && selected === path && "bg-secondary font-medium",
-              )}
+  function toggleExpandPath(path: string) {
+    const next = new Set(expanded);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    onExpandedChange(next);
+  }
+
+  function renderRow(row: TreeRow) {
+    if (row.kind === "status") {
+      return (
+        <TreeItem id={row.id} textValue={row.text || m.agent_workspace_loading()} isDisabled>
+          <TreeItemContent>
+            {({ level }) => (
+              <div
+                className="flex min-w-0 items-center gap-1.5 py-1.5 pr-2 text-xs text-tertiary"
+                style={{ paddingLeft: 4 + (level - 1) * 16 }}
+              >
+                <span aria-hidden="true" className="size-6 shrink-0" />
+                {row.loading ? (
+                  <span className="block h-3 w-2/3 animate-pulse rounded bg-secondary motion-reduce:animate-none" />
+                ) : (
+                  row.text
+                )}
+              </div>
+            )}
+          </TreeItemContent>
+        </TreeItem>
+      );
+    }
+
+    const { entry, path } = row;
+    const isDir = entry.type === "dir";
+    const isCurrent = !isDir && selected === path;
+
+    return (
+      <TreeItem
+        id={path}
+        textValue={entry.name}
+        hasChildItems={isDir}
+        onAction={() => (isDir ? toggleExpandPath(path) : onSelectFile(path))}
+        className={cn(
+          "cursor-pointer rounded-md outline-none data-focus-visible:outline-2 data-focus-visible:-outline-offset-2 data-focus-visible:outline-focus-ring data-hovered:bg-primary_hover",
+          isCurrent && "bg-secondary",
+        )}
+      >
+        <TreeItemContent>
+          {({ level, isExpanded }) => (
+            <div
+              className="flex min-w-0 items-center gap-1.5 pr-2"
+              style={{ paddingLeft: 4 + (level - 1) * 16 }}
             >
-              {isDir && (
-                <ChevronRight
-                  aria-hidden="true"
-                  className={cn(
-                    "size-3.5 shrink-0 text-quaternary transition-transform",
-                    isExpanded && "rotate-90",
-                  )}
-                />
+              {isDir ? (
+                <AriaButton
+                  slot="chevron"
+                  className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-quaternary outline-focus-ring hover:text-tertiary focus-visible:outline-2"
+                >
+                  <ChevronRight
+                    aria-hidden="true"
+                    className={cn(
+                      "size-3.5 transition-transform motion-reduce:transition-none",
+                      isExpanded && "rotate-90",
+                    )}
+                  />
+                </AriaButton>
+              ) : (
+                <span aria-hidden="true" className="size-6 shrink-0" />
               )}
               {isDir ? (
-                <Folder aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
+                <Folder aria-hidden="true" className="size-4 shrink-0 text-quaternary" />
               ) : (
-                <File02 aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
+                <File02 aria-hidden="true" className="size-4 shrink-0 text-quaternary" />
               )}
-              <span className="min-w-0 truncate">{entry.name}</span>
-            </Button>
-            {isDir && isExpanded && (
-              <ul>
-                {!childState || childState.status === "loading" ? (
-                  <li style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }} className="py-1">
-                    <span className="block h-3 w-2/3 animate-pulse rounded bg-secondary motion-reduce:animate-none" />
-                  </li>
-                ) : childState.status === "ready" ? (
-                  childState.entries.length === 0 ? (
-                    <li
-                      style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
-                      className="py-1 text-xs text-tertiary"
-                    >
-                      {m.agent_workspace_directory_empty()}
-                    </li>
-                  ) : (
-                    <TreeEntries
-                      dirPath={path}
-                      entries={childState.entries}
-                      depth={depth + 1}
-                      cache={cache}
-                      expanded={expanded}
-                      selected={selected}
-                      onToggleExpand={onToggleExpand}
-                      onSelectFile={onSelectFile}
-                    />
-                  )
-                ) : (
-                  <li
-                    style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
-                    className="py-1 text-xs text-tertiary"
-                  >
-                    {m.agent_workspace_directory_error()}
-                  </li>
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate py-1.5 text-sm text-primary",
+                  isCurrent && "font-medium",
                 )}
-              </ul>
-            )}
-          </li>
-        );
-      })}
-    </>
+              >
+                {entry.name}
+              </span>
+            </div>
+          )}
+        </TreeItemContent>
+        {/* Collapsed directories contribute no rows; files pass an always-empty list. */}
+        <Collection
+          items={isDir && expanded.has(path) ? childRows(path, cache) : []}
+          dependencies={[expanded, cache, selected]}
+        >
+          {renderRow}
+        </Collection>
+      </TreeItem>
+    );
+  }
+
+  return (
+    <Tree
+      aria-label={m.agent_workspace_section()}
+      items={rootEntries.map((entry): TreeRow => ({ kind: "entry", entry, path: entry.name }))}
+      dependencies={[expanded, cache, selected]}
+      expandedKeys={expanded}
+      onExpandedChange={(keys) => onExpandedChange(new Set([...keys].map(String)))}
+      className="space-y-0.5 px-2 pb-3 outline-none"
+    >
+      {renderRow}
+    </Tree>
   );
 }
 
