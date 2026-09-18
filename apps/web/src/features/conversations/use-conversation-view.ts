@@ -2,11 +2,16 @@ import { useRouter } from "@tanstack/react-router";
 
 type ConversationView = "chat" | "tasks";
 type TaskLayout = "board" | "list";
-type ConversationSearch = { view?: ConversationView; layout?: TaskLayout };
+type ConversationSearch = {
+  view?: ConversationView;
+  layout?: TaskLayout;
+  threadRootId?: string;
+};
 
 /**
  * The chat/tasks view switch shared by conversation pages. Both routes keep
- * `view` and `layout` in their search params and jump to a message by hash.
+ * `view`, `layout` and `threadRootId` in their search params and jump to a
+ * message by hash (scroll target only).
  */
 export function useConversationView(ensureLoaded: (messageId: string) => Promise<unknown>) {
   const router = useRouter();
@@ -21,7 +26,7 @@ export function useConversationView(ensureLoaded: (messageId: string) => Promise
   const changeLayout = (layout: TaskLayout) => void update({ layout });
   const openTask = async (messageId: string) => {
     await ensureLoaded(messageId);
-    await update({ view: "chat" }, `message-${messageId}`);
+    await update({ view: "chat", threadRootId: messageId }, `message-${messageId}`);
   };
   return { router, showChat, showTasks, changeLayout, openTask };
 }

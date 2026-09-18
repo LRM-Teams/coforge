@@ -59,7 +59,18 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const channel = useParams({ from: "/_app/messages/channels/$channelId", shouldThrow: false });
   const agent = useParams({ from: "/_app/messages/$agentId", shouldThrow: false });
   const showList = browsing || pathname === "/messages" || pathname === "/messages/";
-  useEffect(() => router.subscribe("onResolved", () => setBrowsing(false)), [router]);
+  useEffect(() => {
+    // Leaving the conversation list is a path change (tapping a row). Loader
+    // re-resolves (`invalidate`, hash replace) must not bounce the user back
+    // into the hidden conversation on mobile.
+    let pathname = router.state.location.pathname;
+    return router.subscribe("onResolved", () => {
+      const next = router.state.location.pathname;
+      if (next === pathname) return;
+      pathname = next;
+      setBrowsing(false);
+    });
+  }, [router]);
 
   const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
   const unread = useChannelUnread({
