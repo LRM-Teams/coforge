@@ -107,7 +107,11 @@ function DirectorySection({
   const listId = useId();
   return (
     <>
-      <div className="flex items-center gap-1 pr-2 pl-1">
+      {/* One unified hover surface for the whole header row: the row itself carries the
+          `hover:bg-primary_hover` (like a channel/DM row), and the toggle and the trailing `+`
+          are transparent so they never paint a second, differently-shaped highlight. They stay
+          independent click targets. */}
+      <div className="group/section flex items-center gap-1 rounded-md pr-2 pl-1 transition-colors duration-100 ease-linear hover:bg-primary_hover">
         {/* The whole caption row is the toggle. `size="sm"` gives it a ~36px tall target and
             `flex-1` fills the row width, so the hit area is large both ways (the user reported
             the old target was too small); `justify-start pl-0` keeps the caption's left edge on
@@ -118,7 +122,7 @@ function DirectorySection({
           aria-expanded={expanded}
           aria-controls={listId}
           onPress={onToggle}
-          className="min-w-0 flex-1 justify-start pr-2 pl-0 text-quaternary hover:text-tertiary"
+          className="min-w-0 flex-1 justify-start pr-2 pl-0 text-quaternary group-hover/section:text-tertiary hover:bg-transparent"
           iconLeading={
             <ChevronRight
               aria-hidden="true"
@@ -188,7 +192,7 @@ export function ConversationDirectory({
                 tooltip={m.channel_create()}
                 aria-label={m.channel_create()}
                 onClick={onCreateChannel}
-                className="shrink-0"
+                className="shrink-0 hover:bg-transparent"
               />
             ) : undefined
           }
