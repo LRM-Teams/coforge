@@ -2,10 +2,14 @@
 # Deploy one immutable image digest to the coforge-staging Compose project.
 #
 # This script runs on the target host only. It consumes the release contract
-# in docs/release.md: one immutable digest per deployment, the previous healthy
-# digest recorded before mutation, automatic rollback on health failure, and a
-# key=value report on stdout that never contains secret values. Runtime Authing
-# and session values stay out of the deploy .env file and container environment.
+# in docs/release.md: one immutable digest per deployment, the previous
+# healthy digest recorded before mutation, automatic rollback on health
+# failure, and a key=value report on stdout that never contains secret
+# values. The rollback unit is the last healthy release, not only the image:
+# the exact image digest plus the shipped Compose file, Caddyfile, and
+# Centrifugo configuration, snapshotted together once a deployment is verified
+# healthy and restored together when a later candidate fails. Runtime Authing and session values stay
+# out of the deploy .env file and container environment.
 #
 # Usage:
 #   remote-deploy.sh --image REGISTRY/REPOSITORY@sha256:... \
@@ -80,6 +84,15 @@ done
 [ -n "$public_health_url" ] || usage
 
 readonly COMPOSE_ARGS=(-p "$project" -f "$compose_file")
+
+# The last healthy release: the shipped Compose file, Caddyfile, and Centrifugo
+# configuration that were live the last time this script recorded a healthy
+# deployment. The deploy workflow overwrites these paths on the host before
+# this script ever runs (see "Copy deployment assets" in deploy-staging.yml),
+# so by the time a bad configuration is detected the previous good copy is
+# already gone from its live path; this snapshot is the only place it survives.
+release_snapshot_dir="$(dirname "$state_file")/last-healthy"
+release_snapshot_files=(docker-compose.yml caddy/Caddyfile centrifugo/config.yaml)
 
 load_compose_secrets() {
 	AUTHING_APP_ID="$(cat "$secrets_dir/authing_app_id")"
@@ -196,6 +209,46 @@ write_deploy_env() {
 	mv "$env_file_tmp" "$env_file"
 }
 
+# Records the just-verified-healthy Compose file, Caddyfile, and Centrifugo
+# configuration so a later failed candidate can restore this exact release,
+# not only its image. Writes to a temporary directory first and swaps it into
+# place, so a snapshot in progress never leaves a partial one on disk.
+snapshot_release() {
+	local source_dir tmp_dir file source dest
+	source_dir="$(dirname "$compose_file")"
+	tmp_dir="$(mktemp -d "${release_snapshot_dir}.XXXXXX")"
+	chmod 700 "$tmp_dir"
+	for file in "${release_snapshot_files[@]}"; do
+		source="$source_dir/$file"
+		[ -f "$source" ] || continue
+		dest="$tmp_dir/$file"
+		mkdir -p "$(dirname "$dest")"
+		cp -pf "$source" "$dest"
+	done
+	rm -rf "${release_snapshot_dir}.previous"
+	if [ -d "$release_snapshot_dir" ]; then
+		mv "$release_snapshot_dir" "${release_snapshot_dir}.previous"
+	fi
+	mv "$tmp_dir" "$release_snapshot_dir"
+	rm -rf "${release_snapshot_dir}.previous"
+	chmod 700 "$release_snapshot_dir"
+}
+
+# Restores the last healthy release's Compose file, Caddyfile, and Centrifugo
+# configuration into their live paths ahead of a rollback. Only files that
+# were actually snapshotted are restored.
+restore_release_snapshot() {
+	local source_dir file source dest
+	source_dir="$(dirname "$compose_file")"
+	for file in "${release_snapshot_files[@]}"; do
+		source="$release_snapshot_dir/$file"
+		[ -f "$source" ] || continue
+		dest="$source_dir/$file"
+		mkdir -p "$(dirname "$dest")"
+		cp -pf "$source" "$dest"
+	done
+}
+
 compose_all_healthy() {
 	local service container
 	for service in web centrifugo redis postgres; do
@@ -231,13 +284,26 @@ verify_running_digest() {
 		docker image inspect "$image" >/dev/null 2>&1
 }
 
-# Roll back to the last healthy digest; with an empty environment, restore the
-# recorded empty bootstrap state by removing the failed candidate.
+# Roll back to the last healthy release; with an empty environment, restore the
+# recorded empty bootstrap state by removing the failed candidate. Restoring
+# only the image digest cannot recover a configuration regression (the shipped
+# Compose file, Caddyfile, or Centrifugo config), so when a snapshot exists
+# this restores those files too and recreates every service, not only web:
+# Caddy does not depend on web, and a Centrifugo config change only takes
+# effect when Centrifugo itself is recreated.
 rollback() {
 	local target="$1"
 	if [ -n "$target" ]; then
-		write_deploy_env "$target"
-		compose up -d --wait --wait-timeout "$timeout" web >/dev/null
+		if [ -d "$release_snapshot_dir" ]; then
+			restore_release_snapshot
+			printf 'restored the last healthy release configuration\n' >&2
+			write_deploy_env "$target"
+			compose up -d --wait --wait-timeout "$timeout" >/dev/null
+		else
+			printf 'no last healthy release snapshot; rolling back the image only\n' >&2
+			write_deploy_env "$target"
+			compose up -d --wait --wait-timeout "$timeout" web >/dev/null
+		fi
 		if wait_for_health; then
 			printf 'rolled back to the previous healthy digest\n' >&2
 			return 0
@@ -312,6 +378,22 @@ if ! compose config --quiet; then
 	exit 0
 fi
 
+# Validate the shipped Centrifugo configuration with the exact pinned image
+# that will run it, before recreating anything. On 2026-09-18 two merged PRs
+# each added a top-level `websocket:` key to this file; the duplicate key made
+# Centrifugo exit at start, nothing here checked the config first, and
+# `compose up -d --wait` recreated the live container straight into that
+# failure. Centrifugo's own `checkconfig` subcommand parses the file exactly
+# as `centrifugo` itself would at start.
+# shellcheck disable=SC2016 # single-quoted on purpose: the $(...) below must
+# expand inside the centrifugo container's shell, not this host shell.
+if ! compose run --rm --no-deps --entrypoint sh centrifugo \
+	-c 'export CENTRIFUGO_VAR_RPC_PROXY_SECRET="$(cat /run/secrets/centrifugo_proxy_secret)"; exec centrifugo checkconfig -c /centrifugo/config.yaml' \
+	</dev/null 1>&2; then
+	report "$current_image" "failed: Centrifugo configuration validation failed" "failed" ""
+	exit 0
+fi
+
 compose pull --quiet web >/dev/null
 
 if ! compose run --rm --entrypoint sh migrate \
@@ -331,6 +413,8 @@ fi
 if ! public_health; then
 	fail_deployment "failed: public readiness failed"
 fi
+
+snapshot_release
 
 printf '%s\n' \
 	"PREVIOUS_WEB_IMAGE=$current_image" \

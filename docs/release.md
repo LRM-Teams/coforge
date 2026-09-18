@@ -528,14 +528,19 @@ The automated cloud path is:
 3. Capture the pushed image digest as a workflow output and deployment record.
 4. Enter the `staging` GitHub Environment and its environment-specific
    concurrency group.
-5. Validate the Compose configuration, set the service image to the exact
-   digest, pull it, and recreate the affected service with `--no-build`.
+5. Validate the Compose configuration, including the Centrifugo configuration
+   checked by running Centrifugo's own `checkconfig` subcommand inside the
+   pinned Centrifugo image, before any service is recreated; set the service
+   image to the exact digest, pull it, and recreate the affected service with
+   `--no-build`.
 6. Use a bounded wait for Compose health, then run the complete verification set
    below.
 7. Record the digest as healthy only after every required check passes.
-8. If any check fails, restore the previous healthy digest, repeat the
-   checks, and report the failed candidate and rollback result. For the first
-   deployment to a verified empty environment, restore the empty state.
+8. If any check fails, restore the previous healthy release - the image
+   digest and the shipped configuration (Compose file, Caddyfile, and
+   Centrifugo configuration) together - repeat the checks, and report the
+   failed candidate and rollback result. For the first deployment to a
+   verified empty environment, restore the empty state.
 
 The deployment job must fail if it cannot identify a previous healthy digest
 before mutation, unless it has verified and recorded that this is the first
@@ -683,6 +688,15 @@ error signatures. It examines at most 80 log lines from five minutes, capped at
 Three Docker reads each have a five-second deadline plus one-second forced-kill
 grace period; the HTTP probe has a five-second timeout. Missing diagnostics do
 not prevent rollback or alter its outcome.
+
+After every healthy deployment, `remote-deploy.sh` snapshots the shipped
+Compose file, Caddyfile, and Centrifugo configuration to `$REMOTE_ROOT/last-healthy/`
+before recording the release healthy. Rollback restores those files from that
+snapshot ahead of restoring the image, because the deploy workflow overwrites
+their live paths before `remote-deploy.sh` ever runs, so a configuration
+regression - not only an image regression - would otherwise survive rollback.
+The first deployment after this change has no snapshot yet and falls back to
+restoring the image digest alone, with a stderr note saying so.
 
 ### Local Computer distribution
 

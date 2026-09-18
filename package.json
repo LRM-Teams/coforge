@@ -14,7 +14,7 @@
     "build": "bun run --cwd packages/coforge-sdk generate && bun run --filter \"*\" --if-present build",
     "check": "bun run check:ci && bun run --cwd packages/coforge-sdk generate && bun run --filter \"*\" --if-present check",
     "test:deploy": "bun test scripts/deploy/deployment.test.ts",
-    "check:deploy": "bunx oxfmt --check scripts/deploy && bunx oxlint scripts/deploy && mise exec -- shellcheck scripts/deploy/remote-deploy.sh",
+    "check:deploy": "bunx oxfmt --check scripts/deploy && bunx oxlint scripts/deploy && mise exec -- shellcheck scripts/deploy/remote-deploy.sh scripts/deploy/check-centrifugo-config.sh && bash scripts/deploy/check-centrifugo-config.sh",
     "test:release": "bun run --cwd packages/coforge-sdk generate && bun test scripts/release",
     "check:release": "bunx oxfmt --check scripts/release && bunx oxlint scripts/release && mise exec -- shellcheck scripts/release/install.sh",
     "test:ci": "bun test scripts/ci",

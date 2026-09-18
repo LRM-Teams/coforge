@@ -1,5 +1,5 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { createECDH } from "node:crypto";
+import { createECDH, createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -448,6 +448,312 @@ if [[ "$*" = *http_code* ]]; then echo 500; fi
       }
     });
   }
+});
+
+// Shared by the Centrifugo config-guard and snapshot/rollback tests below.
+const requiredSecretNames = [
+  "authing_app_id",
+  "authing_app_secret",
+  "coforge_session_secret",
+  "coforge_agent_credential_encryption_key",
+  "coforge_web_push_public_key",
+  "coforge_web_push_private_key",
+  "coforge_file_delivery_key",
+  "postgres_password",
+  "redis_password",
+  "centrifugo_http_api_key",
+  "centrifugo_proxy_secret",
+  "worker_jwt_key_id",
+  "worker_jwt_private_jwk",
+];
+
+describe("Centrifugo configuration guard and release snapshot", () => {
+  test("a Centrifugo configuration the pinned image rejects stops the deployment before anything is recreated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-deploy-centrifugo-reject-"));
+    try {
+      await mkdir(join(root, "bin"));
+      await mkdir(join(root, "secrets"));
+      await mkdir(join(root, "centrifugo"));
+      await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n");
+      await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
+      for (const name of requiredSecretNames) {
+        await Bun.write(join(root, "secrets", name), "fixture-private-value");
+      }
+      const previous = `coforge/web@sha256:${"c".repeat(64)}`;
+      const state = `CURRENT_WEB_IMAGE=${previous}\nPREVIOUS_WEB_IMAGE=\n`;
+      await Bun.write(join(root, "state.env"), state);
+      await writeFile(
+        join(root, "bin/docker"),
+        `#!/bin/bash
+echo "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$1" = compose ]]; then
+  shift 5
+  if [[ "$1" = run && "$*" == *checkconfig* ]]; then
+    exit 1
+  fi
+fi
+exit 0
+`,
+        { mode: 0o700 },
+      );
+      const proc = Bun.spawn(
+        [
+          "bash",
+          new URL("./remote-deploy.sh", import.meta.url).pathname,
+          "--image",
+          registryImage,
+          "--compose-file",
+          join(root, "docker-compose.yml"),
+          "--secrets-dir",
+          join(root, "secrets"),
+          "--state-file",
+          join(root, "state.env"),
+          "--web-health-url",
+          "http://127.0.0.1/health",
+          "--public-health-url",
+          "https://example.test/health",
+        ],
+        {
+          env: { ...Bun.env, PATH: `${join(root, "bin")}:${Bun.env.PATH}`, FIXTURE_ROOT: root },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      expect(code).toBe(0);
+      const outputs = parseRemoteOutputs(stdout);
+      expect(outputs.outcome).toBe("failed");
+      expect(outputs.healthResult).toBe("failed: Centrifugo configuration validation failed");
+      expect(await Bun.file(join(root, "state.env")).text()).toBe(state);
+      const calls = await Bun.file(join(root, "calls")).text();
+      expect(calls).not.toMatch(/ up -d/);
+      expect(calls).not.toMatch(/ pull /);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rollback restores the last healthy release configuration together with the image", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-deploy-rollback-snapshot-"));
+    try {
+      await mkdir(join(root, "bin"));
+      await mkdir(join(root, "secrets"));
+      await mkdir(join(root, "centrifugo"));
+      await mkdir(join(root, "last-healthy/centrifugo"), { recursive: true });
+      const marker = "client: {}\n# last healthy\n";
+      await Bun.write(join(root, "last-healthy/centrifugo/config.yaml"), marker);
+      await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n# stale candidate\n");
+      await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
+      for (const name of requiredSecretNames) {
+        await Bun.write(join(root, "secrets", name), "fixture-private-value");
+      }
+      const previous = `coforge/web@sha256:${"c".repeat(64)}`;
+      const state = `CURRENT_WEB_IMAGE=${previous}\nPREVIOUS_WEB_IMAGE=\n`;
+      await Bun.write(join(root, "state.env"), state);
+      await writeFile(
+        join(root, "bin/timeout"),
+        `#!/bin/bash
+echo "timeout $*" >> "$FIXTURE_ROOT/calls"
+exec ${JSON.stringify(Bun.which("timeout"))} "$@"
+`,
+        { mode: 0o700 },
+      );
+      await writeFile(
+        join(root, "bin/docker"),
+        `#!/bin/bash
+echo "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$1" = compose ]]; then
+  shift 5
+  case "$1" in
+    up)
+      if [[ ! -f "$FIXTURE_ROOT/up-failed-once" ]]; then
+        touch "$FIXTURE_ROOT/up-failed-once"
+        exit 1
+      fi
+      ;;
+    ps) echo "container-$3" ;;
+  esac
+  exit 0
+elif [[ "$1" = ps || "$1" = logs ]]; then
+  exit 0
+elif [[ "$1" = inspect ]]; then
+  if [[ "$*" = *RestartCount* ]]; then
+    echo 'running 0 1 unhealthy'
+  else
+    echo healthy
+  fi
+fi
+`,
+        { mode: 0o700 },
+      );
+      await writeFile(
+        join(root, "bin/curl"),
+        `#!/bin/bash
+if [[ "$*" = *http_code* ]]; then echo 500; fi
+exit 0
+`,
+        { mode: 0o700 },
+      );
+      const proc = Bun.spawn(
+        [
+          "bash",
+          new URL("./remote-deploy.sh", import.meta.url).pathname,
+          "--image",
+          registryImage,
+          "--compose-file",
+          join(root, "docker-compose.yml"),
+          "--secrets-dir",
+          join(root, "secrets"),
+          "--state-file",
+          join(root, "state.env"),
+          "--web-health-url",
+          "http://127.0.0.1/health",
+          "--public-health-url",
+          "https://example.test/health",
+        ],
+        {
+          env: { ...Bun.env, PATH: `${join(root, "bin")}:${Bun.env.PATH}`, FIXTURE_ROOT: root },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      expect(code, stderr).toBe(0);
+      expect(parseRemoteOutputs(stdout).outcome).toBe("rolled_back");
+      expect(await Bun.file(join(root, "centrifugo/config.yaml")).text()).toBe(marker);
+      const markerSha256 = createHash("sha256").update(marker).digest("hex");
+      const env = await Bun.file(join(root, ".env")).text();
+      expect(env).toContain(`COFORGE_CENTRIFUGO_CONFIG_SHA256=${markerSha256}`);
+      expect(stderr).toContain("restored the last healthy release configuration");
+      const calls = await Bun.file(join(root, "calls")).text();
+      const upCalls = calls.split("\n").filter((line) => line.includes("up -d --wait"));
+      expect(upCalls).toHaveLength(2);
+      expect(upCalls[1]?.trim().endsWith(" web")).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a healthy deployment records the shipped configuration as the last healthy release", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-deploy-healthy-snapshot-"));
+    try {
+      await mkdir(join(root, "bin"));
+      await mkdir(join(root, "secrets"));
+      await mkdir(join(root, "centrifugo"));
+      const shipped = "client: {}\n# shipped candidate\n";
+      await Bun.write(join(root, "centrifugo/config.yaml"), shipped);
+      await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
+      for (const name of requiredSecretNames) {
+        await Bun.write(join(root, "secrets", name), "fixture-private-value");
+      }
+      const previous = `coforge/web@sha256:${"c".repeat(64)}`;
+      const state = `CURRENT_WEB_IMAGE=${previous}\nPREVIOUS_WEB_IMAGE=\n`;
+      await Bun.write(join(root, "state.env"), state);
+      await writeFile(
+        join(root, "bin/docker"),
+        `#!/bin/bash
+echo "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$1" = compose ]]; then
+  shift 5
+  case "$1" in
+    ps) echo "container-$3" ;;
+  esac
+  exit 0
+elif [[ "$1" = inspect ]]; then
+  if [[ "$*" == *Config.Image* ]]; then
+    echo "$IMAGE_REF"
+  elif [[ "$*" == *Health.Status* ]]; then
+    echo healthy
+  fi
+  exit 0
+elif [[ "$1" = image ]]; then
+  exit 0
+fi
+exit 0
+`,
+        { mode: 0o700 },
+      );
+      await writeFile(join(root, "bin/curl"), "#!/bin/bash\nexit 0\n", { mode: 0o700 });
+      const proc = Bun.spawn(
+        [
+          "bash",
+          new URL("./remote-deploy.sh", import.meta.url).pathname,
+          "--image",
+          registryImage,
+          "--compose-file",
+          join(root, "docker-compose.yml"),
+          "--secrets-dir",
+          join(root, "secrets"),
+          "--state-file",
+          join(root, "state.env"),
+          "--web-health-url",
+          "http://127.0.0.1/health",
+          "--public-health-url",
+          "https://example.test/health",
+        ],
+        {
+          env: {
+            ...Bun.env,
+            PATH: `${join(root, "bin")}:${Bun.env.PATH}`,
+            FIXTURE_ROOT: root,
+            IMAGE_REF: registryImage,
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      expect(code, stderr).toBe(0);
+      expect(parseRemoteOutputs(stdout).outcome).toBe("healthy");
+      expect(await Bun.file(join(root, "last-healthy/centrifugo/config.yaml")).text()).toBe(
+        shipped,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("check-centrifugo-config.sh", () => {
+  test("checks both configuration files against the digest-pinned image the staging Compose file ships", async () => {
+    const script = await Bun.file(new URL("./check-centrifugo-config.sh", import.meta.url)).text();
+    const compose = await Bun.file(
+      new URL("../../infra/staging/docker-compose.yml", import.meta.url),
+    ).text();
+
+    // Mirrors the script's own extraction: the exact image line under the
+    // centrifugo: service, and it must be digest-pinned - this test never
+    // runs docker, only proves the shape the script depends on holds today.
+    const centrifugoStart = compose.indexOf("\n  centrifugo:\n");
+    const redisStart = compose.indexOf("\n  redis:\n");
+    expect(centrifugoStart).toBeGreaterThanOrEqual(0);
+    expect(redisStart).toBeGreaterThan(centrifugoStart);
+    const centrifugoBlock = compose.slice(centrifugoStart, redisStart);
+    const imageLine = centrifugoBlock.match(/^ {4}image: (\S+)$/m);
+    expect(imageLine).not.toBeNull();
+    expect(imageLine?.[1]).toMatch(/@sha256:[0-9a-f]{64}$/);
+
+    expect(script).toContain("set -euo pipefail");
+    expect(script).toContain("infra/centrifugo/config.yaml");
+    expect(script).toContain("infra/staging/centrifugo/config.yaml");
+    expect(script).toContain("checkconfig -c /config.yaml");
+    expect(script).toContain("CENTRIFUGO_VAR_RPC_PROXY_SECRET");
+    expect(script).toContain("is not pinned to a digest");
+  });
+
+  test("is wired into check:deploy alongside the other deploy scripts", async () => {
+    const packageJson = await Bun.file(new URL("../../package.json", import.meta.url)).text();
+    expect(packageJson).toContain("check-centrifugo-config.sh");
+    expect(packageJson).toContain("remote-deploy.sh");
+  });
 });
 
 describe("staging Web Push key validation", () => {
