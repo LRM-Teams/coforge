@@ -8,8 +8,14 @@
  */
 import { replaceMentionTokens } from "@lrm/coforge-sdk/internal";
 
-/** One resolved mention row as the browser message view carries it. */
-export type MentionRef = { kind: "user" | "agent"; actorId: string; handle: string };
+/** One resolved mention row as the browser message view carries it. `handle` is stable identity;
+ * `label` is the current profile display name (falling back to that handle). */
+export type MentionRef = {
+  kind: "user" | "agent";
+  actorId: string;
+  handle: string;
+  label: string;
+};
 
 /**
  * A function that rewrites a stored body's mention tokens (`<@agent:uuid>` / `<@human:uuid>`) to
@@ -20,16 +26,21 @@ export type MentionRef = { kind: "user" | "agent"; actorId: string; handle: stri
  * dropping it. This is only display formatting — the stored body and wake rules are unchanged.
  */
 export function makeMentionBodyFormatter(
-  mentionables: readonly { kind: "user" | "agent"; id: string; handle: string }[],
+  mentionables: readonly {
+    kind: "user" | "agent";
+    id: string;
+    handle: string;
+    label: string;
+  }[],
 ): ((body: string) => string) | undefined {
-  const handleById = new Map(
-    mentionables.map((mention) => [`${mention.kind}:${mention.id.toLowerCase()}`, mention.handle]),
+  const labelById = new Map(
+    mentionables.map((mention) => [`${mention.kind}:${mention.id.toLowerCase()}`, mention.label]),
   );
-  if (handleById.size === 0) return undefined;
+  if (labelById.size === 0) return undefined;
   return (body: string) =>
     replaceMentionTokens(body, (type, id) => {
-      const handle = handleById.get(`${type}:${id.toLowerCase()}`);
-      return handle ? `@${handle}` : undefined;
+      const label = labelById.get(`${type}:${id.toLowerCase()}`);
+      return label ? `@${label}` : undefined;
     });
 }
 

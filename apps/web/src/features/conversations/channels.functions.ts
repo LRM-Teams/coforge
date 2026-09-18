@@ -12,6 +12,7 @@ import { attachmentIdsSchema } from "./conversation.schemas";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
+import { browserMessageMention } from "../../server/conversations/mentions";
 import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
 
 const channelInput = z.object({ channelId: z.uuid() });
@@ -250,11 +251,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       ),
       body: message.body,
       createdAt: message.createdAt,
-      mentions: message.mentions.map((mention) => ({
-        kind: mention.kind as "user" | "agent",
-        actorId: mention.actorId,
-        handle: mention.handle,
-      })),
+      mentions: message.mentions.map(browserMessageMention),
       attachments: message.attachments.map((attachment) => attachmentView(attachment)),
       reactions: undefined,
       // A human-sent message never carries an action card (those are Agent-authored only).

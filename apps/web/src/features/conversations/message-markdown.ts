@@ -12,7 +12,7 @@
  *    code span or fence — the same rule `splitCodeSpans` gives the composer and the server.
  *
  * Chips are injected *after* `rehype-sanitize` runs. The sanitizer strips `className`, and the
- * nodes injected here are trusted — a fixed `span` whose only text is a resolved handle — so
+ * nodes injected here are trusted — a fixed `span` whose only text is a resolved display label —
  * they need not pass the untrusted-content schema. Nothing sanitizer-relevant is added before
  * it runs.
  */
@@ -64,13 +64,14 @@ export function escapeLiteralHtml(body: string): string {
     .join("");
 }
 
-/** A resolved mention as a chip needs it: the handle to show, plus the Agent id to open its
- * profile panel on click (absent for a human mention — there is no human profile panel). */
-export type ChipMention = { handle: string; agentId?: string };
+/** A resolved mention as a chip needs both its stable handle (identity/self matching) and its
+ * display label, plus the Agent id to open its profile panel when applicable. */
+export type ChipMention = { handle: string; label: string; agentId?: string };
 
 /**
  * The resolved mention for every token in a body, keyed the way `MENTION_TOKEN_PATTERN`
- * spells the token (`user:<uuid>` / `agent:<uuid>`, lower-cased). A token with no row here
+ * spells the token (`user:<uuid>` / `agent:<uuid>`, lower-cased). Stable handles continue to
+ * identify the viewer while current profile labels are rendered. A token with no row here
  * degrades to its raw text rather than a phantom chip. An `agent` mention carries its
  * `actorId` as `agentId` so the chip can open that Agent's profile panel.
  */
@@ -78,7 +79,11 @@ export function mentionHandlesByToken(mentions: readonly MentionRef[]): Map<stri
   return new Map(
     mentions.map((mention) => [
       `${mention.kind}:${mention.actorId.toLowerCase()}`,
-      { handle: mention.handle, agentId: mention.kind === "agent" ? mention.actorId : undefined },
+      {
+        handle: mention.handle,
+        label: mention.label,
+        agentId: mention.kind === "agent" ? mention.actorId : undefined,
+      },
     ]),
   );
 }
@@ -153,7 +158,7 @@ function chipParts(
           className,
           ...(mention.agentId ? { "data-mention-agent-id": mention.agentId } : {}),
         },
-        children: [{ type: "text", value: `@${mention.handle}` }],
+        children: [{ type: "text", value: `@${mention.label}` }],
       });
     }
     offset = match.index + match[0].length;

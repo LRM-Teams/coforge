@@ -222,7 +222,12 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     // projection's `kind` is `user` (the browser's sender vocabulary); the token's prefix is
     // `human`.
     expect(history.messages[2]?.mentions).toEqual([
-      { kind: "user", actorId: bob.id, handle: bob.username },
+      {
+        kind: "user",
+        actorId: bob.id,
+        handle: bob.username,
+        label: bob.username,
+      },
     ]);
     expect(history.messages[0]?.mentions).toEqual([]);
     expect(history.messages[0]?.senderMemberId).toBe(history.senderMemberId);
