@@ -148,3 +148,81 @@ test("Save stays disabled while the owner's env query has not loaded yet, showin
   const saveButton = markup.slice(markup.lastIndexOf("<button"));
   expect(saveButton).toContain(' disabled=""');
 });
+
+/**
+ * The Pi Provider picker's option set and its Configured hint don't depend on the Computer's
+ * catalog (only the Model list does), so they render even though `renderToStaticMarkup` never
+ * runs the catalog-loading effect.
+ */
+test("Pi offers Configured, DeepSeek and OpenRouter as Provider options, with the Configured hint", () => {
+  const piInitial = {
+    provider: RUNTIME_PROVIDER.PI,
+    modelProvider: "",
+    model: "",
+    reasoning: "",
+  };
+  const markup = renderToStaticMarkup(
+    <AgentRuntimeConfigForm
+      computerId="computer-1"
+      credentialConfigured={false}
+      initial={piInitial}
+      onLoad={noopLoad}
+      saving={false}
+      error=""
+      onSave={() => {}}
+    />,
+  );
+  expect(markup).toContain(m.agent_form_pi_provider_configured());
+  expect(markup).toContain("DeepSeek");
+  expect(markup).toContain("OpenRouter");
+  // The rendered attribute HTML-escapes the apostrophes in the message text, so assert a
+  // substring that doesn't cross one rather than the raw `m.agent_form_pi_configured_help()`.
+  expect(markup).toContain("~/.pi/agent");
+  // Configured mode never shows the "{provider} API key" field.
+  expect(markup).not.toContain(m.agent_form_api_key_preserve_help());
+});
+
+test("a saved Pi built-in provider with a stored credential shows the preserve-key hint, not a required key", () => {
+  const piInitial = {
+    provider: RUNTIME_PROVIDER.PI,
+    modelProvider: "deepseek",
+    model: "deepseek-chat",
+    reasoning: "",
+  };
+  const markup = renderToStaticMarkup(
+    <AgentRuntimeConfigForm
+      computerId="computer-1"
+      credentialConfigured
+      initial={piInitial}
+      onLoad={noopLoad}
+      saving={false}
+      error=""
+      onSave={() => {}}
+    />,
+  );
+  expect(markup).toContain(m.agent_runtime_api_key({ provider: "deepseek" }));
+  expect(markup).toContain(m.agent_form_api_key_preserve_help());
+  expect(markup).not.toContain(' required=""');
+});
+
+test("a saved Pi provider outside the built-in set (e.g. zai) is still offered, so opening the dialog doesn't silently change it", () => {
+  const piInitial = {
+    provider: RUNTIME_PROVIDER.PI,
+    modelProvider: "zai",
+    model: "zai-model",
+    reasoning: "",
+  };
+  const markup = renderToStaticMarkup(
+    <AgentRuntimeConfigForm
+      computerId="computer-1"
+      credentialConfigured
+      initial={piInitial}
+      onLoad={noopLoad}
+      saving={false}
+      error=""
+      onSave={() => {}}
+    />,
+  );
+  expect(markup).toContain("zai");
+  expect(markup).toContain(m.agent_runtime_api_key({ provider: "zai" }));
+});

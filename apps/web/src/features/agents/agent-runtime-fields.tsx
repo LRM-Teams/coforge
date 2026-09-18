@@ -11,7 +11,12 @@ import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
-import { KEYED_MODEL_PROVIDERS } from "./agent.schemas";
+import {
+  isPiBuiltinModelProvider,
+  KEYED_MODEL_PROVIDERS,
+  PI_BUILTIN_MODEL_PROVIDERS,
+} from "./agent.schemas";
+import { modelProviderDisplayName } from "./model-provider-display";
 import { RUNTIME_PROVIDER_DISPLAY_ORDER, runtimeProviderLabel } from "./runtime-provider-display";
 import { RuntimeProviderMark } from "./runtime-provider-mark";
 
@@ -30,6 +35,12 @@ export type RuntimeSelection = {
   model: string;
   reasoning: string;
 };
+
+/** The Model select's "let the built-in provider/Pi choose" sentinel and the Configured list's
+ * "type it in myself" sentinel. Neither collides with a real `modelOptionValue` (which always
+ * contains "--"), and both stay free of the CSS-selector-special characters `modelOptionValue`
+ * itself has to avoid. */
+const CUSTOM_MODEL_KEY = "custom-model";
 
 export function AgentRuntimeFields({
   open,
@@ -52,10 +63,16 @@ export function AgentRuntimeFields({
 }) {
   const [provider, setProvider] = useState(initial?.provider ?? RUNTIME_PROVIDER.COFORGE);
   const [modelProvider, setModelProvider] = useState(initial?.modelProvider ?? "");
+  const [piProviderChoice, setPiProviderChoice] = useState(
+    piInitialProviderChoice(initial, credentialConfigured),
+  );
+  const piExtraProvider = piExtraProviderOption(initial, credentialConfigured);
   const initialModelKey = initial?.model
     ? `${encodeURIComponent(initial.modelProvider ?? "")}--${encodeURIComponent(initial.model)}`
     : "";
   const [modelKey, setModelKey] = useState(initialModelKey);
+  const [customModelActive, setCustomModelActive] = useState(false);
+  const [customModelText, setCustomModelText] = useState("");
   const [reasoning, setReasoning] = useState(initial?.reasoning ?? "");
   const [apiKey, setApiKey] = useState("");
   // Only the catalog-load-failed fallback below renders plain, uncontrolled text `Input`s for
@@ -71,6 +88,9 @@ export function AgentRuntimeFields({
   const previousComputerId = useRef(computerId);
   const options = optionsByComputer[computerId];
   const failed = failedComputerId === computerId;
+  const isPi = provider === RUNTIME_PROVIDER.PI;
+  const piConfigured = isPi && piProviderChoice === "";
+  const piBuiltin = isPi && !piConfigured;
 
   useEffect(() => {
     if (!open) setApiKey("");
@@ -110,8 +130,29 @@ export function AgentRuntimeFields({
     initial?.provider,
     ...(options?.providers ?? []),
   ]);
-  const catalogModels =
-    provider === RUNTIME_PROVIDER.PI ? piCatalogModels(options) : runtimeModels(options, provider);
+
+  const configuredModelSelected = Boolean(
+    initial?.model && provider === initial.provider && modelKey === initialModelKey,
+  );
+
+  // A saved Pi Configured pick whose model the Computer's Pi catalog no longer reports (or never
+  // did) opens as Custom, prefilled, rather than silently falling back to "Configured default".
+  useEffect(() => {
+    if (!options || customModelActive) return;
+    if (!(piConfigured && configuredModelSelected)) return;
+    if (
+      isPiCustomModel(piConfiguredModels(options), initial?.modelProvider, initial?.model ?? "")
+    ) {
+      setCustomModelActive(true);
+      setCustomModelText(joinCustomModel(initial?.modelProvider, initial?.model ?? ""));
+    }
+  }, [options, piConfigured, configuredModelSelected, initial, customModelActive]);
+
+  const catalogModels = isPi
+    ? piBuiltin
+      ? piBuiltinModels(options, piProviderChoice)
+      : piConfiguredModels(options)
+    : runtimeModels(options, provider);
   const modelProviders = [
     ...new Set(
       catalogModels
@@ -124,43 +165,59 @@ export function AgentRuntimeFields({
       modelOptionValue(model) === modelKey &&
       (provider !== RUNTIME_PROVIDER.COFORGE || model.modelProvider === modelProvider),
   );
-  const configuredModelSelected = Boolean(
-    initial?.model && provider === initial.provider && modelKey === initialModelKey,
-  );
   const configuredModelLabel = configuredModelSelected
     ? selectedModel?.displayName || initial?.model
     : undefined;
-  const submittedModelProvider =
-    provider === RUNTIME_PROVIDER.COFORGE
+  const customSplit = customModelActive ? splitCustomModel(customModelText) : undefined;
+  const customInvalid = customModelActive && customModelText.trim() !== "" && !customSplit;
+  const submittedModelProvider = piBuiltin
+    ? piProviderChoice
+    : provider === RUNTIME_PROVIDER.COFORGE
       ? modelProvider
-      : (selectedModel?.modelProvider ??
-        (modelKey === initialModelKey ? (initial?.modelProvider ?? "") : ""));
+      : customModelActive
+        ? (customSplit?.modelProvider ?? "")
+        : (selectedModel?.modelProvider ??
+          (modelKey === initialModelKey ? (initial?.modelProvider ?? "") : ""));
   const matchingConfiguredCredential =
     credentialConfigured &&
     initial?.provider === provider &&
-    initial.modelProvider === modelProvider;
+    initial.modelProvider === submittedModelProvider;
   const visibleModels = catalogModels.filter((model) => {
     if (provider === RUNTIME_PROVIDER.COFORGE) return model.modelProvider === modelProvider;
-    if (provider === RUNTIME_PROVIDER.PI && modelProvider)
-      return model.modelProvider === modelProvider;
     return true;
   });
-  const modelValue = selectedModel?.id ?? (modelKey === initialModelKey ? initial?.model : "");
+  const modelValue = customModelActive
+    ? (customSplit?.model ?? "")
+    : (selectedModel?.id ?? (modelKey === initialModelKey ? initial?.model : ""));
   const { visible: reasoningVisible, submitted: submittedReasoning } = reasoningFieldState(
     selectedModel,
     reasoning,
   );
-  const dirty =
-    manualDirty ||
-    apiKey.trim() !== "" ||
-    provider !== (initial?.provider ?? RUNTIME_PROVIDER.COFORGE) ||
-    submittedModelProvider !== (initial?.modelProvider ?? "") ||
-    (modelValue ?? "") !== (initial?.model ?? "") ||
-    submittedReasoning !== (initial?.reasoning ?? "");
+  const apiKeyProviderId = piBuiltin ? piProviderChoice : modelProvider;
+  const showApiKeyField =
+    !RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider] &&
+    (piBuiltin || (provider !== RUNTIME_PROVIDER.PI && KEYED_MODEL_PROVIDERS.has(modelProvider)));
+  const dirty = isRuntimeDirty({
+    manualDirty,
+    apiKey,
+    provider,
+    submittedModelProvider,
+    modelValue: modelValue ?? "",
+    submittedReasoning,
+    initial,
+  });
 
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  function resetModelFields() {
+    setModelKey("");
+    setCustomModelActive(false);
+    setCustomModelText("");
+    setReasoning("");
+    setApiKey("");
+  }
 
   return (
     <>
@@ -174,9 +231,8 @@ export function AgentRuntimeFields({
           if (key === null) return;
           setProvider(parseRuntimeProvider(key) ?? RUNTIME_PROVIDER.COFORGE);
           setModelProvider("");
-          setModelKey("");
-          setReasoning("");
-          setApiKey("");
+          setPiProviderChoice("");
+          resetModelFields();
         }}
       >
         <Select.Item
@@ -209,33 +265,43 @@ export function AgentRuntimeFields({
           }}
         />
       ) : (
-        !RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider] && (
-          <>
-            <input type="hidden" name="modelProvider" value={modelProvider} />
-            <Select
-              label={m.agent_form_model_provider()}
-              size="sm"
-              className="min-w-0"
-              isDisabled={!options}
-              selectedKey={modelProvider}
-              onSelectionChange={(key) => {
-                if (key === null) return;
-                setModelProvider(String(key));
-                setModelKey("");
-                setReasoning("");
-                setApiKey("");
-              }}
-            >
+        <input type="hidden" name="modelProvider" value={submittedModelProvider} />
+      )}
+      {!failed && !RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider] && (
+        <Select
+          label={m.agent_form_model_provider()}
+          size="sm"
+          className="min-w-0"
+          isDisabled={!options}
+          hint={isPi ? m.agent_form_pi_configured_help() : undefined}
+          selectedKey={isPi ? piProviderChoice : modelProvider}
+          onSelectionChange={(key) => {
+            if (key === null) return;
+            const value = String(key);
+            if (isPi) setPiProviderChoice(value);
+            else setModelProvider(value);
+            resetModelFields();
+          }}
+        >
+          {isPi ? (
+            <>
+              <Select.Item id="" label={m.agent_form_pi_provider_configured()} />
+              {PI_BUILTIN_MODEL_PROVIDERS.map((value) => (
+                <Select.Item key={value} id={value} label={modelProviderDisplayName(value)} />
+              ))}
+              {piExtraProvider && (
+                <Select.Item key={piExtraProvider} id={piExtraProvider} label={piExtraProvider} />
+              )}
+            </>
+          ) : (
+            <>
               <Select.Item id="" label={m.agent_form_provider_default()} />
               {modelProviders.map((value) => (
                 <Select.Item key={value} id={value} label={value} />
               ))}
-            </Select>
-          </>
-        )
-      )}
-      {!failed && RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider] && (
-        <input type="hidden" name="modelProvider" value={submittedModelProvider} />
+            </>
+          )}
+        </Select>
       )}
       {failed ? (
         <Input
@@ -258,19 +324,35 @@ export function AgentRuntimeFields({
             className="min-w-0 sm:col-span-2"
             popoverClassName="min-w-(--trigger-width) w-max max-w-[min(36rem,calc(100vw-3rem))]"
             isDisabled={!options}
-            selectedKey={modelKey}
+            selectedKey={piConfigured && customModelActive ? CUSTOM_MODEL_KEY : modelKey}
             onSelectionChange={(key) => {
               if (key === null) return;
               const value = String(key);
+              if (piConfigured && value === CUSTOM_MODEL_KEY) {
+                setCustomModelActive(true);
+                setModelKey("");
+                setReasoning("");
+                return;
+              }
+              setCustomModelActive(false);
               setModelKey(value);
               const model = catalogModels.find((item) => modelOptionValue(item) === value);
-              if (model?.modelProvider !== modelProvider) setApiKey("");
-              setModelProvider(model?.modelProvider ?? "");
+              if (!isPi) {
+                if (model?.modelProvider !== modelProvider) setApiKey("");
+                setModelProvider(model?.modelProvider ?? "");
+              }
               setReasoning(model?.defaultReasoning ?? "");
             }}
           >
-            <Select.Item id="" label={m.agent_form_provider_default()} />
-            {configuredModelSelected && !selectedModel && (
+            <Select.Item
+              id=""
+              label={
+                piConfigured
+                  ? m.agent_form_pi_provider_configured()
+                  : m.agent_form_provider_default()
+              }
+            />
+            {configuredModelSelected && !selectedModel && !(piConfigured && customModelActive) && (
               <Select.Item id={initialModelKey} label={configuredModelLabel} />
             )}
             {visibleModels.map((model) => (
@@ -278,42 +360,56 @@ export function AgentRuntimeFields({
                 key={modelOptionValue(model)}
                 id={modelOptionValue(model)}
                 className="[&_[slot=label]]:whitespace-normal [&_[slot=label]]:wrap-break-word"
-                label={
-                  provider === "pi" && !modelProvider && model.modelProvider
-                    ? `${model.modelProvider} / ${model.displayName}`
-                    : model.displayName
-                }
+                label={piConfigured ? piConfiguredModelLabel(model) : model.displayName}
               />
             ))}
+            {piConfigured && (
+              <Select.Item id={CUSTOM_MODEL_KEY} label={m.agent_form_model_custom()} />
+            )}
           </Select>
         </>
       )}
-      {!RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider] &&
-        KEYED_MODEL_PROVIDERS.has(modelProvider) && (
-          <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-            {m.agent_runtime_api_key({ provider: modelProvider })}
-            <input
-              name="apiKey"
-              type="password"
-              aria-label={m.agent_runtime_api_key({ provider: modelProvider })}
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              required={provider === RUNTIME_PROVIDER.COFORGE && !matchingConfiguredCredential}
-              minLength={8}
-              maxLength={4096}
-              autoComplete="new-password"
-              placeholder={m.agent_runtime_api_key_placeholder({ provider: modelProvider })}
-              className="h-10 rounded-lg border border-secondary bg-primary px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
-            />
-            <span className="text-xs font-normal text-tertiary">
-              {matchingConfiguredCredential
-                ? m.agent_form_api_key_preserve_help()
-                : provider === RUNTIME_PROVIDER.PI
-                  ? m.agent_form_pi_api_key_help()
-                  : m.agent_form_coforge_api_key_help()}
-            </span>
-          </label>
-        )}
+      {piConfigured && customModelActive && (
+        <Input
+          label={m.agent_form_model_custom_id()}
+          size="sm"
+          className="min-w-0 sm:col-span-2"
+          placeholder="provider/model-id"
+          value={customModelText}
+          onChange={setCustomModelText}
+          // Native validation blocks the form submit: an empty or slash-less entry would
+          // otherwise submit no model and silently save "Configured default".
+          isRequired
+          validate={(value) => (splitCustomModel(value) ? null : m.agent_form_model_custom_error())}
+          isInvalid={customInvalid}
+          hint={customInvalid ? m.agent_form_model_custom_error() : undefined}
+        />
+      )}
+      {showApiKeyField && (
+        <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+          {m.agent_runtime_api_key({ provider: apiKeyProviderId })}
+          <input
+            name="apiKey"
+            type="password"
+            aria-label={m.agent_runtime_api_key({ provider: apiKeyProviderId })}
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            required={!matchingConfiguredCredential}
+            minLength={8}
+            maxLength={4096}
+            autoComplete="new-password"
+            placeholder={m.agent_runtime_api_key_placeholder({ provider: apiKeyProviderId })}
+            className="h-10 rounded-lg border border-secondary bg-primary px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          />
+          <span className="text-xs font-normal text-tertiary">
+            {matchingConfiguredCredential
+              ? m.agent_form_api_key_preserve_help()
+              : provider === RUNTIME_PROVIDER.PI
+                ? m.agent_form_pi_api_key_help()
+                : m.agent_form_coforge_api_key_help()}
+          </span>
+        </label>
+      )}
       {failed && (
         <div role="alert" className="grid gap-2 sm:col-span-2">
           <p className="text-sm text-error-primary">{m.agent_form_catalog_manual_help()}</p>
@@ -370,6 +466,96 @@ export function reasoningFieldState(
   return { visible, submitted: visible ? reasoning : "" };
 }
 
+/**
+ * Whether the current field values would actually change something a Save submits — the same
+ * comparison for every RuntimeProvider (Pi's Configured/built-in split only changes how
+ * `submittedModelProvider`/`modelValue` are derived upstream, not this comparison itself).
+ */
+export function isRuntimeDirty(params: {
+  manualDirty: boolean;
+  apiKey: string;
+  provider: RuntimeProvider;
+  submittedModelProvider: string;
+  modelValue: string;
+  submittedReasoning: string;
+  initial?: RuntimeSelection;
+}): boolean {
+  return (
+    params.manualDirty ||
+    params.apiKey.trim() !== "" ||
+    params.provider !== (params.initial?.provider ?? RUNTIME_PROVIDER.COFORGE) ||
+    params.submittedModelProvider !== (params.initial?.modelProvider ?? "") ||
+    params.modelValue !== (params.initial?.model ?? "") ||
+    params.submittedReasoning !== (params.initial?.reasoning ?? "")
+  );
+}
+
+/**
+ * The Pi "Provider" choice (`""` for Configured, else a built-in slug) a saved Agent's runtime
+ * config opens with. A stored credential (`credentialConfigured`) means the saved config used a
+ * keyed built-in provider — DeepSeek, OpenRouter, or one CoForge no longer offers by default
+ * (e.g. `zai`, see `piExtraProviderOption`). No stored credential means Configured: the
+ * Computer's own Pi setup, whatever raw provider slug it launched Pi with.
+ */
+export function piInitialProviderChoice(
+  initial: RuntimeSelection | undefined,
+  credentialConfigured: boolean,
+): string {
+  if (!credentialConfigured || initial?.provider !== RUNTIME_PROVIDER.PI) return "";
+  return initial.modelProvider ?? "";
+}
+
+/**
+ * A saved Pi built-in provider outside `PI_BUILTIN_MODEL_PROVIDERS` (e.g. `zai`, offered before
+ * CoForge narrowed the Pi picker to DeepSeek/OpenRouter): still listed as a Provider option so
+ * opening and saving the runtime dialog doesn't silently switch the Agent away from it.
+ */
+export function piExtraProviderOption(
+  initial: RuntimeSelection | undefined,
+  credentialConfigured: boolean,
+): string | undefined {
+  const choice = piInitialProviderChoice(initial, credentialConfigured);
+  return choice && !isPiBuiltinModelProvider(choice) ? choice : undefined;
+}
+
+/** Whether a saved Pi Configured pick (`modelProvider`/`model`) is absent from the Computer's own
+ * Pi catalog — it opens the Model field as Custom, prefilled, rather than falling back to
+ * "Configured default" and silently changing the Agent's launch config. */
+export function isPiCustomModel(
+  models: CodeAgentModelMetadata[],
+  modelProvider: string | undefined,
+  model: string,
+): boolean {
+  if (!model) return false;
+  return !models.some((item) => item.id === model && item.modelProvider === modelProvider);
+}
+
+/** The Custom model ID field's prefill for a saved provider/model pair. */
+export function joinCustomModel(modelProvider: string | undefined, model: string): string {
+  return `${modelProvider ?? ""}/${model}`;
+}
+
+/**
+ * Splits a "Custom model ID" entry at the FIRST `/` into `modelProvider`/`model` — a model id can
+ * itself contain slashes (an OpenRouter id like `anthropic/claude-x`), so only the first one
+ * marks the provider boundary. Returns undefined when the text has no `/`, or either side of it
+ * is empty.
+ */
+export function splitCustomModel(
+  value: string,
+): { modelProvider: string; model: string } | undefined {
+  const trimmed = value.trim();
+  const index = trimmed.indexOf("/");
+  if (index <= 0 || index === trimmed.length - 1) return undefined;
+  return { modelProvider: trimmed.slice(0, index), model: trimmed.slice(index + 1) };
+}
+
+/** A Pi Configured model's Select label: the catalog only lists this Computer's Pi models across
+ * every host-configured provider, so each option names both. */
+export function piConfiguredModelLabel(model: CodeAgentModelMetadata): string {
+  return `${model.displayName} · ${modelProviderDisplayName(model.modelProvider)}`;
+}
+
 function modelOptionValue(model: CodeAgentModelMetadata) {
   // Used as both a React `key` and a Select.Item `id`. The official Select
   // (react-aria-components) uses the raw id in an internal CSS selector for
@@ -384,15 +570,17 @@ function runtimeModels(options: RuntimeOptions | undefined, provider: RuntimePro
   return options?.catalogs.find((item) => item.provider === provider)?.models ?? [];
 }
 
-function piCatalogModels(options: RuntimeOptions | undefined) {
-  const models = [
-    ...runtimeModels(options, RUNTIME_PROVIDER.PI),
-    ...runtimeModels(options, RUNTIME_PROVIDER.COFORGE),
-  ];
-  const unique = new Map<string, CodeAgentModelMetadata>();
-  for (const model of models) {
-    const key = modelOptionValue(model);
-    if (!unique.has(key)) unique.set(key, model);
-  }
-  return [...unique.values()];
+/** The models offered by the Pi "Configured" list: exactly the Computer's own Pi catalog
+ * (`~/.pi/agent`), never CoForge's keyed-provider catalog — unlike `piBuiltinModels`, which reads
+ * that catalog instead once a built-in provider is chosen. */
+export function piConfiguredModels(options: RuntimeOptions | undefined) {
+  return runtimeModels(options, RUNTIME_PROVIDER.PI);
+}
+
+/** The models offered once a Pi built-in provider is selected: CoForge's keyed-provider catalog
+ * (the same one the CoForge runtime picker uses), filtered to that one provider. */
+export function piBuiltinModels(options: RuntimeOptions | undefined, modelProvider: string) {
+  return runtimeModels(options, RUNTIME_PROVIDER.COFORGE).filter(
+    (model) => model.modelProvider === modelProvider,
+  );
 }

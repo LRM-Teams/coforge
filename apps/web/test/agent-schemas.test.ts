@@ -91,7 +91,7 @@ describe("createAgentInputSchema", () => {
       createAgentInputSchema.parse({
         ...validInput,
         provider: "pi",
-        modelProvider: " openai ",
+        modelProvider: " deepseek ",
         apiKey: "  secret-key  ",
       }).apiKey,
     ).toBe("secret-key");
@@ -110,7 +110,7 @@ describe("createAgentInputSchema", () => {
       createAgentInputSchema.safeParse({
         ...validInput,
         provider: "pi",
-        modelProvider: "openai",
+        modelProvider: "deepseek",
         apiKey: "short",
       }).success,
     ).toBe(false);
@@ -141,6 +141,44 @@ describe("createAgentInputSchema", () => {
         apiKey: "fixture-key",
       }).success,
     ).toBe(false);
+  });
+
+  test("rejects a Pi API key for zai: CoForge's keyed catalog carries it, but Pi's picker offers only DeepSeek and OpenRouter as built-in providers", () => {
+    expect(
+      createAgentInputSchema.safeParse({
+        ...validInput,
+        provider: "pi",
+        modelProvider: "zai",
+        apiKey: "fixture-key",
+      }).success,
+    ).toBe(false);
+    expect(
+      updateAgentInputSchema.safeParse({
+        ...validUpdate,
+        provider: "pi",
+        modelProvider: "zai",
+        apiKey: "fixture-key",
+      }).success,
+    ).toBe(false);
+  });
+
+  test("accepts a Pi API key for DeepSeek and OpenRouter, the Pi built-in provider set", () => {
+    expect(
+      createAgentInputSchema.safeParse({
+        ...validInput,
+        provider: "pi",
+        modelProvider: "deepseek",
+        apiKey: "fixture-key",
+      }).success,
+    ).toBe(true);
+    expect(
+      createAgentInputSchema.safeParse({
+        ...validInput,
+        provider: "pi",
+        modelProvider: "openrouter",
+        apiKey: "fixture-key",
+      }).success,
+    ).toBe(true);
   });
 
   test("strips a name from update input, even if one is supplied; the handle can't be renamed", () => {
