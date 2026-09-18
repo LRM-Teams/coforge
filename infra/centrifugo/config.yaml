@@ -12,6 +12,12 @@ admin:
 log:
   level: info
 
+# Largest single client message. The Computer returns a Workspace File read (up to 1 MiB of text,
+# packages/daemon/src/agent-runtime/agent-workspace-files.ts) in one RPC; over this limit
+# Centrifugo closes the connection. 2 MiB leaves room for the envelope.
+websocket:
+  message_size_limit: 2097152
+
 client:
   allowed_origins:
     - http://localhost:8788
