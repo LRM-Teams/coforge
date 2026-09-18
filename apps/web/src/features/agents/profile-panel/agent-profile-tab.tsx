@@ -321,9 +321,13 @@ export function AgentProfileTab({
               {m.agent_control_restart_reset_tooltip()}
             </Button>
             {onStartDelete && (
+              /* A danger entry button is still a button (`docs/ui-guidelines.md` §8 危险操作), so it
+               * gets the bordered red rather than bare red text. The one solid red belongs to the
+               * confirm in `AgentDeleteDialog`; `mt-1` keeps a small break between the reversible
+               * actions above and this one. */
               <Button
-                color="tertiary-destructive"
-                className="w-full justify-center"
+                color="secondary-destructive"
+                className="mt-1 w-full justify-center"
                 iconLeading={Trash01}
                 onPress={onStartDelete}
               >
