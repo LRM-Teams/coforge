@@ -20,6 +20,16 @@ import {
 
 export type AvatarSize = NonNullable<AvatarProps["size"]>;
 
+/** One dot scale per avatar size so the sidebar row and the conversation header read alike. */
+const displayDotClassName: Record<AvatarSize, string> = {
+  xs: "-right-0.5 -bottom-0.5 size-2 border",
+  sm: "-right-1 -bottom-1 size-3 border-2",
+  md: "-right-1 -bottom-1 size-3 border-2",
+  lg: "-right-1 -bottom-1 size-3.5 border-2",
+  xl: "-right-1 -bottom-1 size-4 border-2",
+  "2xl": "-right-1 -bottom-1 size-4 border-2",
+};
+
 export function AgentDisplayAvatar({
   name,
   display,
@@ -46,7 +56,8 @@ export function AgentDisplayAvatar({
         <span
           aria-hidden="true"
           className={cn(
-            "absolute -right-1 -bottom-1 size-3 rounded-full border-2 border-primary",
+            "absolute rounded-full border-primary",
+            displayDotClassName[size],
             activityToneClass(view.tone),
             view.pulse && "motion-safe:animate-pulse",
           )}
