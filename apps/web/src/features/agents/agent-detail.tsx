@@ -23,10 +23,9 @@ import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { m } from "@/paraglide/messages";
 import { localizeHref } from "@/paraglide/runtime";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
-import { isAppError } from "@/lib/app-error";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import { runtimeProviderLabel } from "./runtime-provider-display";
-import { updateAgentInputFromForm } from "./agent-form";
+import { agentUpdateErrorMessage, updateAgentInputFromForm } from "./agent-form";
 import { AGENT_DISPLAY_NAME_MAX_LENGTH, type UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
 import { agentDisplay } from "./agent-activity-presentation";
@@ -362,15 +361,7 @@ const Profile = memo(function Profile({
                     );
                     setEditOpen(false);
                   } catch (cause) {
-                    setEditError(
-                      isAppError(cause) && cause.errorId === "agent-api-key-required"
-                        ? m.agent_form_api_key_required()
-                        : isAppError(cause) && cause.errorId === "agent-runtime-unavailable"
-                          ? m.agent_form_runtime_unavailable()
-                          : isAppError(cause) && cause.errorId === "agent-computer-required"
-                            ? m.agent_form_computer_required()
-                            : m.agent_update_error(),
-                    );
+                    setEditError(agentUpdateErrorMessage(cause));
                   }
                 });
               }}

@@ -71,8 +71,8 @@ async function waitForUsage(
 ) {
   const cache = getUsageCache();
   for (let attempt = 0; attempt < 150; attempt += 1) {
-    const result = await cache.get({ workspaceId, computerId, provider });
-    if (result?.scanId === scanId && result.status !== "pending") return result;
+    const { result } = await cache.read({ workspaceId, computerId, provider });
+    if (result?.scanId === scanId) return result;
     await Bun.sleep(100);
   }
   throw new Error(`provider usage scan timed out for ${provider}`);

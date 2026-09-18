@@ -46,13 +46,19 @@ export class ComputerRuntimeVisibility {
     return runtime?.ownerId === principal.userId || runtime?.isPublic === true;
   }
 
-  async isOwner(principal: RuntimePrincipal, computerId: string, provider: RuntimeProvider) {
+  /** The runtime row itself, only when the current user owns it — so a caller that also needs
+   * its fields (e.g. `version`) never runs a second lookup just to get them. */
+  async ownedRuntime(principal: RuntimePrincipal, computerId: string, provider: RuntimeProvider) {
     const runtime = await this.runtimes.findInWorkspace(
       principal.workspaceId,
       computerId,
       provider,
     );
-    return runtime?.ownerId === principal.userId;
+    return runtime?.ownerId === principal.userId ? runtime : undefined;
+  }
+
+  async isOwner(principal: RuntimePrincipal, computerId: string, provider: RuntimeProvider) {
+    return Boolean(await this.ownedRuntime(principal, computerId, provider));
   }
 
   async setPublic(principal: RuntimePrincipal, runtimeId: string, isPublic: boolean) {

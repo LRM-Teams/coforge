@@ -22,6 +22,9 @@ import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display
 import { executeAgentControl } from "@/features/agents/agent-control.functions";
 import { AgentControlDialogs } from "@/features/agents/agent-control-dialogs";
 import { AgentRuntimeCredentialDialog } from "@/features/agents/agent-runtime-credential-dialog";
+import { AgentRuntimeConfigDialog } from "@/features/agents/agent-runtime-config-dialog";
+import { useAgentRuntimeOptionsLoader } from "@/features/agents/agent-runtime-options";
+import { agentUpdateErrorMessage, updateAgentInputFromForm } from "@/features/agents/agent-form";
 import {
   updateAgent,
   updateAgentRole,
@@ -102,6 +105,10 @@ export function AgentProfilePanel({
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [runtimeSaving, guardRuntime] = useSubmitGuard();
   const [runtimeError, setRuntimeError] = useState("");
+  const onLoadRuntimeOptions = useAgentRuntimeOptionsLoader();
+  const [runtimeEditing, setRuntimeEditing] = useState(false);
+  const [runtimeFormSaving, guardRuntimeForm] = useSubmitGuard();
+  const [runtimeFormError, setRuntimeFormError] = useState("");
 
   function baseUpdateInput(overrides: { displayName?: string; description?: string }) {
     if (!profile) throw new Error("profile not loaded");
@@ -115,6 +122,39 @@ export function AgentProfilePanel({
       reasoning: profile.runtimeConfig.reasoning,
       ...(profile.computerId ? { computerId: profile.computerId } : {}),
     };
+  }
+
+  function onStartRuntimeEdit() {
+    setRuntimeFormError("");
+    setRuntimeEditing(true);
+  }
+  function onCancelRuntimeEdit() {
+    setRuntimeEditing(false);
+    setRuntimeFormError("");
+  }
+  // Reuses the full page's edit-dialog submit path (`updateAgentInputFromForm` +
+  // `agentUpdateErrorMessage`, `agent-form.ts`) so the two Runtime config editors never drift.
+  // The panel's form carries only the runtime fields, so displayName/description are supplied
+  // as fallbacks — never blanked by this save.
+  function onSaveRuntime(form: FormData) {
+    void guardRuntimeForm(async () => {
+      if (!profile || !profile.computer) return;
+      setRuntimeFormError("");
+      try {
+        await update({
+          data: updateAgentInputFromForm(form, {
+            agentId: profile.id,
+            computerId: profile.computer.id,
+            displayName: profile.displayName,
+            description: profile.description ?? "",
+          }),
+        });
+        setRuntimeEditing(false);
+        await invalidate();
+      } catch (cause) {
+        setRuntimeFormError(agentUpdateErrorMessage(cause));
+      }
+    });
   }
 
   if (query.isError)
@@ -199,6 +239,7 @@ export function AgentProfilePanel({
                   }
                 : undefined
             }
+            onStartRuntimeEdit={onStartRuntimeEdit}
             runtimeCredentialDialog={
               <>
                 <ButtonUtility
@@ -272,6 +313,24 @@ export function AgentProfilePanel({
           />
         )}
       </div>
+      {profile && profile.computer && (
+        <AgentRuntimeConfigDialog
+          open={runtimeEditing}
+          onClose={onCancelRuntimeEdit}
+          computerId={profile.computer.id}
+          credentialConfigured={Boolean(profile.runtimeCredential)}
+          initial={{
+            provider: profile.runtimeConfig.runtime,
+            modelProvider: profile.runtimeConfig.modelProvider,
+            model: profile.runtimeConfig.model,
+            reasoning: profile.runtimeConfig.reasoning,
+          }}
+          onLoad={onLoadRuntimeOptions}
+          saving={runtimeFormSaving}
+          error={runtimeFormError}
+          onSave={onSaveRuntime}
+        />
+      )}
       <AgentControlDialogs agentName={knownName} control={controls} />
     </div>
   );

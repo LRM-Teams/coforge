@@ -40,6 +40,15 @@ export type UsageSnapshot = Readonly<{
   credits?: Readonly<{ hasCredits: boolean; unlimited: boolean }>;
   /** Included credits consumed, included limit, and separately billed overage. */
   creditUsage?: Readonly<{ used: number; limit: number; overage: number }>;
+  /** When this snapshot was actually observed (ISO instant) — stamped centrally by
+   * `DaemonRuntime.scanUsage`, never by an individual provider reader, so a snapshot reused from
+   * a passively observed usage event carries the time it was observed rather than "now". Older
+   * Computers omit it. */
+  collectedAt?: string;
+  /** The signed-in account, masked before it ever leaves the Computer (only the local part's
+   * first characters survive, e.g. `me****@gmail.com`) — never the raw address. Populated only
+   * for a provider whose existing usage/auth read already reports it. */
+  accountLabel?: string;
 }>;
 export type AgentSessionIdentity = Readonly<{
   sessionId: string;

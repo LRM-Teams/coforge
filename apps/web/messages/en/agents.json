@@ -197,6 +197,7 @@
   "agent_profile_action_stop": "Stop agent",
   "agent_profile_action_start": "Start agent",
   "agent_profile_edit_runtime_config": "Edit runtime configuration",
+  "agent_profile_save_runtime_config": "Save runtime configuration",
   "agent_control_restart_reset_tooltip": "Restart / Reset",
   "agent_profile_loading": "Loading profile…",
   "agent_role_admin": "Admin",

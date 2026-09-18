@@ -190,10 +190,9 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
     const usageCache = new RedisUsageCache(redis);
     const scanId = await createUsageScan(createCentrifugoServerApi(), usageKey, usageCache);
     await until(async () => {
-      const record = await usageCache.get(usageKey);
-      return record?.scanId === scanId && record.status !== "pending";
+      return (await usageCache.read(usageKey)).result?.scanId === scanId;
     });
-    const usage = await usageCache.get(usageKey);
+    const usage = (await usageCache.read(usageKey)).result;
     expect(usage?.status).toBe("available");
     expect(usage?.snapshot?.provider).toBe("kiro");
     expect(usage?.snapshot?.primary?.usedPercent).toBeGreaterThanOrEqual(0);

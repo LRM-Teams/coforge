@@ -18,8 +18,9 @@ import {
 } from "@/features/agents/agents.functions";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
-import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
+import { listComputers } from "@/features/computers/computers.functions";
 import { useAgentActivityFeed, useLiveAgent } from "@/features/agents/workspace-agents-realtime";
+import { useAgentRuntimeOptionsLoader } from "@/features/agents/agent-runtime-options";
 import { agentActivityFeedQuery } from "@/features/agents/agent-activity-queries";
 import { mergeAgentActivity } from "@/features/agents/agent-activity";
 
@@ -68,8 +69,6 @@ function AgentDetailPage() {
   const saveEnvironment = useServerFn(saveAgentEnvironment);
   const update = useServerFn(updateAgent);
   const updateRole = useServerFn(updateAgentRole);
-  const loadComputers = useServerFn(listComputers);
-  const loadCatalog = useServerFn(getComputerRuntimeCatalog);
   const loadSkills = useServerFn(getAgentSkills);
   const executeControl = useServerFn(executeAgentControl);
   const loadReminders = useServerFn(listAgentReminders);
@@ -101,22 +100,7 @@ function AgentDetailPage() {
     (request: Parameters<typeof executeControl>[0]["data"]) => executeControl({ data: request }),
     [executeControl],
   );
-  const onLoadRuntimeOptions = useCallback(
-    async (computerId: string) => {
-      const [computers, catalogs] = await Promise.all([
-        loadComputers(),
-        loadCatalog({ data: { computerId } }),
-      ]);
-      return {
-        providers:
-          computers
-            .find((computer) => computer.id === computerId)
-            ?.runtimes.map((runtime) => runtime.provider) ?? [],
-        catalogs,
-      };
-    },
-    [loadComputers, loadCatalog],
-  );
+  const onLoadRuntimeOptions = useAgentRuntimeOptionsLoader();
   const onSaveRuntimeCredential = useCallback(
     async (apiKey: string) => {
       await saveCredential({ data: { agentId: detail.id, apiKey } });

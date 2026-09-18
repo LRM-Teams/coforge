@@ -1,9 +1,13 @@
 import { expect, test } from "bun:test";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
 import { AgentProfileTab } from "@/features/agents/profile-panel/agent-profile-tab";
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "@/features/agents/agents.functions";
+import { m } from "@/paraglide/messages";
 
 type AgentProfile = NonNullable<Awaited<ReturnType<typeof getAgentProfile>>>;
 
@@ -44,8 +48,17 @@ function profileFixture(overrides: Partial<AgentProfile> = {}): AgentProfile {
     runtimeCredential: null,
     canManageAgentRole: false,
     canFullResetAgent: false,
+    runtimeUsageVisible: false,
     ...overrides,
   } as unknown as AgentProfile;
+}
+
+/** The Runtime badge reads cached usage through React Query, so every render gets a client; with
+ * `renderToStaticMarkup` no query ever runs. */
+function render(node: ReactNode) {
+  return renderToStaticMarkup(
+    <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>,
+  );
 }
 
 function controlsFixture(isOnline: boolean): AgentRuntimeControls {
@@ -80,7 +93,7 @@ function controlsFixture(isOnline: boolean): AgentRuntimeControls {
 const noop = async () => {};
 
 test("a member (non-manager) sees a read-only Profile: no pencils, no Actions section", () => {
-  const markup = renderToStaticMarkup(
+  const markup = render(
     <AgentProfileTab
       profile={profileFixture()}
       display={undefined}
@@ -104,7 +117,7 @@ test("a member (non-manager) sees a read-only Profile: no pencils, no Actions se
 });
 
 test("a manager (owner or admin-like) sees pencils and the Actions section", () => {
-  const markup = renderToStaticMarkup(
+  const markup = render(
     <AgentProfileTab
       profile={profileFixture({ ownedByCurrentUser: true })}
       display={undefined}
@@ -127,7 +140,7 @@ test("a manager (owner or admin-like) sees pencils and the Actions section", () 
 });
 
 test("a stopped Agent's Actions section offers Start instead of Stop", () => {
-  const markup = renderToStaticMarkup(
+  const markup = render(
     <AgentProfileTab
       profile={profileFixture({ ownedByCurrentUser: true, stopped: true })}
       display={undefined}
@@ -142,4 +155,138 @@ test("a stopped Agent's Actions section offers Start instead of Stop", () => {
   );
   expect(markup).toContain("Start agent");
   expect(markup).not.toContain("Stop agent");
+});
+
+test("a viewer without visibility into the runtime's usage sees the plain Runtime badge, no usage button", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ runtimeUsageVisible: false })}
+      display={undefined}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain("Codex");
+  expect(markup).not.toContain("Codex · Usage");
+});
+
+test('the runtime\'s owner gets a usage button labelled "<Runtime> · Usage" wrapping the badge', () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ runtimeUsageVisible: true })}
+      display={undefined}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain('aria-label="Codex · Usage"');
+  expect(markup).toContain("Codex");
+});
+
+test("a runtime without usage support keeps the plain badge even for its owner", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({
+        runtimeUsageVisible: true,
+        runtimeConfig: {
+          runtime: RUNTIME_PROVIDER.PI,
+          provider: { kind: "default" },
+          model: "",
+          modelProvider: "",
+          reasoning: "",
+        },
+      })}
+      display={undefined}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain("Pi");
+  expect(markup).not.toContain('aria-label="Pi · Usage"');
+});
+
+test("a manager with a Computer sees the Runtime config pencil", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ ownedByCurrentUser: true })}
+      display={undefined}
+      timeZone="UTC"
+      canManage
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      onStartRuntimeEdit={() => {}}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain(m.agent_profile_edit_runtime_config());
+});
+
+test("a non-manager never sees the Runtime config pencil", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture()}
+      display={undefined}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      onStartRuntimeEdit={() => {}}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).not.toContain(m.agent_profile_edit_runtime_config());
+});
+
+test("an Agent without a Computer shows no Runtime config pencil, even for a manager", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ ownedByCurrentUser: true, computerId: null, computer: undefined })}
+      display={undefined}
+      timeZone="UTC"
+      canManage
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      onStartRuntimeEdit={() => {}}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).not.toContain(m.agent_profile_edit_runtime_config());
+});
+
+test("the Runtime config pencil never renders when the container gives no onStartRuntimeEdit", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ ownedByCurrentUser: true })}
+      display={undefined}
+      timeZone="UTC"
+      canManage
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).not.toContain(m.agent_profile_edit_runtime_config());
 });
