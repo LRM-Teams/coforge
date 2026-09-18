@@ -53,11 +53,18 @@ async function pathExists(path: string): Promise<boolean> {
  * whenever the sequencer markers `githooks(5)` documents for either are present (verified: plain
  * `git rebase` and `git cherry-pick` fire `prepare-commit-msg` this way). */
 async function sequencerInProgress(git: GitRunner): Promise<boolean> {
-  for (const name of ["rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD"] as const) {
-    const result = await git(["rev-parse", "--git-path", name]);
-    if (result.exitCode === 0 && result.stdout && (await pathExists(result.stdout))) return true;
-  }
-  return false;
+  const result = await git([
+    "rev-parse",
+    "--git-path",
+    "rebase-merge",
+    "--git-path",
+    "rebase-apply",
+    "--git-path",
+    "CHERRY_PICK_HEAD",
+  ]);
+  if (result.exitCode !== 0) return false;
+  const found = await Promise.all(result.stdout.split("\n").filter(Boolean).map(pathExists));
+  return found.includes(true);
 }
 
 /**
@@ -80,8 +87,11 @@ export async function runGitPrepareCommitMsg(
   const [messageFile, source] = args;
   if (!messageFile) throw new Error("prepare-commit-msg requires a commit message file argument");
   if (source === "merge" || source === "squash") return;
-  if (await sequencerInProgress(git)) return;
-  const remote = await git(["remote", "get-url", "origin"]);
+  const [replaying, remote] = await Promise.all([
+    sequencerInProgress(git),
+    git(["remote", "get-url", "origin"]),
+  ]);
+  if (replaying) return;
   const repository = remote.exitCode === 0 ? repositoryFromRemoteUrl(remote.stdout) : null;
   const trailers = await lookup(repository);
   for (const trailer of trailers) {

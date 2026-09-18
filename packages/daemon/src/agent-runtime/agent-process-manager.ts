@@ -7,6 +7,8 @@ import {
   type AgentLaunchIdentity,
 } from "../code-agent/agent-instructions";
 import { installAssignedSkills, type AssignedSkillPack } from "../code-agent/assigned-skills";
+import { agentEnvironment } from "../code-agent/environment";
+import { resolveGitHookInjectionForLaunch } from "../code-agent/git-hooks";
 import { seedAgentMemory } from "./agent-memory-seed";
 import { mkdir } from "node:fs/promises";
 
@@ -39,6 +41,7 @@ export type { CodeAgentProviderFactory } from "../code-agent/contract";
 /** Owns Agent availability and runtime processes for one supervised Workspace. */
 export class AgentProcessManager {
   readonly #createProvider: CodeAgentProviderFactory;
+  readonly #resolveGitHooks: typeof resolveGitHookInjectionForLaunch;
   readonly #runtimes = new Map<string, AgentRuntime>();
   readonly #restartConfigs = new Map<string, AgentRestartConfig>();
   readonly #states = new Map<string, AgentStateMachine>();
@@ -51,8 +54,12 @@ export class AgentProcessManager {
    * config on `stop()`/`shutdown()`. */
   readonly #launchClientSeq = new Map<string, number>();
 
-  constructor(createProvider: CodeAgentProviderFactory) {
+  constructor(
+    createProvider: CodeAgentProviderFactory,
+    resolveGitHooks: typeof resolveGitHookInjectionForLaunch = resolveGitHookInjectionForLaunch,
+  ) {
     this.#createProvider = createProvider;
+    this.#resolveGitHooks = resolveGitHooks;
   }
 
   get size(): number {
@@ -95,6 +102,10 @@ export class AgentProcessManager {
         packs: assignedSkillPacks,
       });
     }
+    // Probed against the same PATH the Agent's own git calls will search (ADR 0048).
+    const gitHooks = await this.#resolveGitHooks(
+      agentEnvironment(environment, Bun.env, process.platform, { envVars: config.envVars }).PATH,
+    );
     let session: AgentSession;
     try {
       session = await this.#createProvider(config.provider).createAgentSession({
@@ -111,6 +122,7 @@ export class AgentProcessManager {
         onSessionId,
         runtime: config,
         environment,
+        gitHooks,
       });
     } catch (error) {
       if (error instanceof AgentProcessCleanupError) this.#stopping.add(agentId);

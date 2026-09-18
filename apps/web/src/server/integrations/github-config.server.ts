@@ -2,6 +2,8 @@ import { AppError } from "../../lib/app-error";
 import { requireDatabaseClient } from "../db/client.server";
 import { GitHubConnection, type GitHubConfig } from "./github-connection.server";
 
+const GITHUB_APP_SLUG = /^[a-z0-9-]+$/;
+
 export async function readGitHubConfig(
   env: Record<string, string | undefined> = Bun.env,
 ): Promise<GitHubConfig | null> {
@@ -19,7 +21,7 @@ export async function readGitHubConfig(
   if (
     !Number.isSafeInteger(appId) ||
     appId <= 0 ||
-    !/^[a-z0-9-]+$/.test(appSlug) ||
+    !GITHUB_APP_SLUG.test(appSlug) ||
     !/^[0-9a-f]{64}$/i.test(encryptionKey) ||
     callbackUrl.protocol !== "https:" ||
     callbackUrl.username ||
@@ -65,7 +67,8 @@ export function readGitHubAppBotIdentity(
 ): GitHubAppBotIdentity | null {
   const slug = env.COFORGE_GITHUB_APP_SLUG?.trim() ?? "";
   const botUserId = Number(env.COFORGE_GITHUB_APP_BOT_USER_ID);
-  if (!/^[a-z0-9-]+$/.test(slug) || !Number.isSafeInteger(botUserId) || botUserId <= 0) return null;
+  if (!GITHUB_APP_SLUG.test(slug) || !Number.isSafeInteger(botUserId) || botUserId <= 0)
+    return null;
   return { slug, botUserId };
 }
 

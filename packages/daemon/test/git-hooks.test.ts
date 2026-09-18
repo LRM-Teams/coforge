@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,25 +20,27 @@ async function fakeGit(version: string | undefined): Promise<string> {
   return directory;
 }
 
+beforeEach(() => {
+  resetGitHookVersionProbeCacheForTests();
+  resetGitHookShimDirectoryCacheForTests();
+});
+
 test("git missing from PATH injects nothing", async () => {
   const plan = await resolveGitHookInjectionForLaunch("/nonexistent-coforge-test-path");
   expect(plan).toBeUndefined();
 });
 
 test("an unparseable git --version injects nothing", async () => {
-  resetGitHookVersionProbeCacheForTests();
   const gitDirectory = await fakeGit("garbage output, not a version string");
   expect(await resolveGitHookInjectionForLaunch(gitDirectory)).toBeUndefined();
 });
 
 test("a git that exits non-zero on --version injects nothing", async () => {
-  resetGitHookVersionProbeCacheForTests();
   const gitDirectory = await fakeGit(undefined);
   expect(await resolveGitHookInjectionForLaunch(gitDirectory)).toBeUndefined();
 });
 
 test("git >= 2.54 resolves the config-hook plan", async () => {
-  resetGitHookVersionProbeCacheForTests();
   for (const version of ["2.54.0", "2.54.1", "3.0.0", "2.60"]) {
     const gitDirectory = await fakeGit(version);
     expect(await resolveGitHookInjectionForLaunch(gitDirectory)).toEqual({ kind: "config-hook" });
@@ -46,8 +48,6 @@ test("git >= 2.54 resolves the config-hook plan", async () => {
 });
 
 test("git < 2.54 resolves the hooks-path plan when the shim directory can be prepared", async () => {
-  resetGitHookVersionProbeCacheForTests();
-  resetGitHookShimDirectoryCacheForTests();
   const daemonHome = await mkdtemp(join(tmpdir(), "coforge-daemon-home-"));
   const previous = process.env.COFORGE_DAEMON_HOME;
   process.env.COFORGE_DAEMON_HOME = daemonHome;
@@ -67,13 +67,11 @@ test("git < 2.54 resolves the hooks-path plan when the shim directory can be pre
 });
 
 test("a pre-2.54 git on win32 injects nothing (the shim directory holds POSIX sh, not usable there)", async () => {
-  resetGitHookVersionProbeCacheForTests();
   const gitDirectory = await fakeGit("2.43.0");
   expect(await resolveGitHookInjectionForLaunch(gitDirectory, "win32")).toBeUndefined();
 });
 
 test("the version probe is cached per resolved git executable path", async () => {
-  resetGitHookVersionProbeCacheForTests();
   const gitDirectory = await fakeGit("2.54.0");
   expect(await resolveGitHookInjectionForLaunch(gitDirectory)).toEqual({ kind: "config-hook" });
   const gitPath = join(gitDirectory, "git");

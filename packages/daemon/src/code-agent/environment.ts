@@ -4,7 +4,7 @@ import {
   executablePathDelimiter,
 } from "../platform/code-agent-path";
 import type { CoforgeAgentPromptContext } from "./agent-instructions";
-import { resolveGitHookInjectionForLaunch, type GitHookInjectionPlan } from "./git-hooks";
+import type { AgentGitHookPlan } from "@coforge/agent";
 
 const CLI_BIN_DIRECTORIES = [
   // Computer installs a version-local `coforge` launcher next to the daemon.
@@ -90,10 +90,9 @@ export function agentEnvironment(
   options: {
     envVars?: Readonly<Record<string, string>>;
     extraEnv?: Readonly<Record<string, string | undefined>>;
-    /** How to inject the commit co-author trailer hook (`launchAgentEnvironment` resolves this by
-     * probing the Agent's own `git`); omitted injects nothing, so every existing caller that only
-     * scans or reads usage (never launches an Agent process) is unaffected. */
-    gitHooks?: GitHookInjectionPlan;
+    /** The commit co-author trailer hook plan resolved at launch (`agent-process-manager.ts`);
+     * omitted injects nothing, so discovery and usage callers are unaffected. */
+    gitHooks?: AgentGitHookPlan;
   } = {},
 ): Record<string, string> {
   const environment: Record<string, string> = {};
@@ -177,44 +176,4 @@ export function agentEnvironment(
   if (options.gitHooks?.kind === "hooks-path")
     result.COFORGE_GIT_CONFIG_BASE_COUNT = String(gitConfigCount);
   return result;
-}
-
-/**
- * `agentEnvironment`, but also probes the Agent's own resolved `git` (with the exact `PATH` that
- * environment carries) and injects the commit co-author trailer hook the right way for that git's
- * version - see `git-hooks.ts`. Every Agent-process launch site should call this instead of
- * `agentEnvironment` directly; discovery/inventory/usage callers that never launch an Agent
- * process keep calling the plain, synchronous `agentEnvironment`.
- */
-export async function launchAgentEnvironment(
-  declared: Readonly<Record<string, string>> | undefined,
-  inherited: Readonly<Record<string, string | undefined>> = Bun.env,
-  platform: NodeJS.Platform = process.platform,
-  options: {
-    envVars?: Readonly<Record<string, string>>;
-    extraEnv?: Readonly<Record<string, string | undefined>>;
-  } = {},
-): Promise<Record<string, string>> {
-  const gitHooks = await resolveLaunchGitHooks(declared, inherited, platform, options);
-  return agentEnvironment(declared, inherited, platform, { ...options, gitHooks });
-}
-
-/**
- * The git-hook-probing half of `launchAgentEnvironment`, split out for a provider whose session
- * spawns more than one process over its lifetime (Claude Code's fresh-session recreation, Cursor's
- * one-process-per-turn model): resolve this once per session and pass the same
- * `GitHookInjectionPlan` into each synchronous `agentEnvironment` call, rather than probing `git`
- * again for every process.
- */
-export async function resolveLaunchGitHooks(
-  declared: Readonly<Record<string, string>> | undefined,
-  inherited: Readonly<Record<string, string | undefined>> = Bun.env,
-  platform: NodeJS.Platform = process.platform,
-  options: {
-    envVars?: Readonly<Record<string, string>>;
-    extraEnv?: Readonly<Record<string, string | undefined>>;
-  } = {},
-): Promise<GitHookInjectionPlan | undefined> {
-  const base = agentEnvironment(declared, inherited, platform, options);
-  return resolveGitHookInjectionForLaunch(base.PATH, platform);
 }

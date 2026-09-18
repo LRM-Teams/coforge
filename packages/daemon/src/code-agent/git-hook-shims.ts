@@ -130,13 +130,15 @@ export async function ensureGitHookShimDirectory(
       if (await Bun.file(marker).exists()) return directory;
       await mkdir(directory, { recursive: true, mode: 0o700 });
       await chmod(directory, 0o700);
-      for (const name of GIT_HOOK_SHIM_NAMES) {
-        const path = join(directory, name);
-        const temporary = `${path}.${crypto.randomUUID()}.tmp`;
-        await writeFile(temporary, gitHookShimScript(name), { mode: 0o700 });
-        await chmod(temporary, 0o700);
-        await rename(temporary, path);
-      }
+      await Promise.all(
+        GIT_HOOK_SHIM_NAMES.map(async (name) => {
+          const path = join(directory, name);
+          const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+          await writeFile(temporary, gitHookShimScript(name), { mode: 0o700 });
+          await chmod(temporary, 0o700);
+          await rename(temporary, path);
+        }),
+      );
       await writeFile(marker, "");
       return directory;
     } catch (error) {

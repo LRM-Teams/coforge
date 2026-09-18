@@ -675,7 +675,7 @@ function within<T>(promise: Promise<T>): Promise<T> {
 }
 
 /** Collects a `--version` child's output, killing it if it outlives the probe budget. */
-async function versionProbeOutput(
+export async function versionProbeOutput(
   process: ReturnType<CodeAgentProbe["spawn"]>,
 ): Promise<{ output: string; exitCode: number }> {
   return Promise.race([

@@ -1,19 +1,9 @@
+import type { AgentGitHookPlan } from "@coforge/agent";
 import { getLogger } from "@logtape/logtape";
 import { ensureGitHookShimDirectory } from "./git-hook-shims";
+import { versionProbeOutput } from "./runtime-inventory";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "git-hooks"]);
-
-/**
- * How `environment.ts#agentEnvironment` injects the CoForge commit co-author trailer hook,
- * decided once per Agent launch by `resolveGitHookInjectionForLaunch` below:
- * - `config-hook`: git >= 2.54's config-based hooks (`hook.<name>.event`/`.command`), which run
- *   alongside the repository's own hooks without touching `core.hooksPath` at all.
- * - `hooks-path`: an older git needs `core.hooksPath` pointed at the Daemon's own shim directory,
- *   which forwards every hook to the repository's real one (see `git-hook-shims.ts`).
- */
-export type GitHookInjectionPlan =
-  | { kind: "config-hook" }
-  | { kind: "hooks-path"; hooksDir: string };
 
 /** git 2.54 (April 2026) is the first release with config-based hooks. */
 const MIN_CONFIG_HOOK_VERSION = [2, 54] as const;
@@ -32,7 +22,7 @@ function parseGitVersion(output: string): number[] | undefined {
   return [Number(match[1]), Number(match[2]), Number(match[3] ?? "0")];
 }
 
-type ProbedKind = "config-hook" | "hooks-path" | undefined;
+type ProbedKind = AgentGitHookPlan["kind"] | undefined;
 
 /** Probes `git --version` on one resolved git executable path once per Daemon process, keyed by
  * that path so every Agent launch that resolves the same git binary (the common case) reuses the
@@ -49,15 +39,10 @@ async function probeGitHookKind(gitPath: string): Promise<ProbedKind> {
   if (!cached) {
     cached = (async (): Promise<ProbedKind> => {
       try {
-        const process = Bun.spawn([gitPath, "--version"], {
-          stdout: "pipe",
-          stderr: "ignore",
-          signal: AbortSignal.timeout(5_000),
-        });
-        const [output, exitCode] = await Promise.all([
-          new Response(process.stdout).text(),
-          process.exited,
-        ]);
+        const process = Bun.spawn([gitPath, "--version"], { stdout: "pipe", stderr: "ignore" });
+        const { output, exitCode } = await versionProbeOutput(process).finally(() =>
+          process.kill(),
+        );
         if (exitCode !== 0) return undefined;
         const version = parseGitVersion(output);
         if (!version) return undefined;
@@ -87,7 +72,7 @@ async function probeGitHookKind(gitPath: string): Promise<ProbedKind> {
 export async function resolveGitHookInjectionForLaunch(
   path: string | undefined,
   platform: NodeJS.Platform = process.platform,
-): Promise<GitHookInjectionPlan | undefined> {
+): Promise<AgentGitHookPlan | undefined> {
   const gitPath = Bun.which("git", { PATH: path ?? "" });
   if (!gitPath) return undefined;
   const kind = await probeGitHookKind(gitPath);

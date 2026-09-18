@@ -5,7 +5,7 @@ import {
   type CodeAgentProvider,
 } from "../contract";
 import type { AgentSession, AgentSessionIdentity, AgentSessionOptions } from "@coforge/agent";
-import { agentEnvironment, resolveLaunchGitHooks } from "../environment";
+import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { readClaudeCodeUsage } from "./usage";
@@ -66,11 +66,6 @@ export class ClaudeCodeProvider implements CodeAgentProvider {
     try {
       const promptPath = join(promptDirectory, "system-prompt.md");
       await writeFile(promptPath, options.instructions, { mode: 0o600 });
-      // Resolved once and reused for every process this session spawns (including a fresh-session
-      // recreation after compaction), rather than probing `git` again per process.
-      const gitHooks = await resolveLaunchGitHooks(options.environment, Bun.env, undefined, {
-        envVars: options.runtime?.envVars,
-      });
       const command = (resumeSessionId?: string, createSessionId?: string) => [
         ...this.#command,
         "--dangerously-skip-permissions",
@@ -90,7 +85,7 @@ export class ClaudeCodeProvider implements CodeAgentProvider {
           options.agentWorkspaceDirectory,
           agentEnvironment(options.environment, Bun.env, undefined, {
             envVars: options.runtime?.envVars,
-            gitHooks,
+            gitHooks: options.gitHooks,
           }),
         );
       process = spawn(options.sessionId, initialFreshSessionId);

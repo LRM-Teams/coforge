@@ -40,7 +40,9 @@ No prompt instruction asks any Agent to add it, and no provider's shell tool is 
 inject it - see Rejected alternatives.
 
 **Two injection paths, chosen by probing the Agent's own `git --version` once per launch (cached
-per resolved git executable path; a missing `git` injects nothing):**
+per resolved git executable path; a missing `git` injects nothing).** The Daemon resolves the plan in
+`AgentProcessManager.start`, the one seam every provider launches through, and hands it to the
+provider as `AgentSessionOptions.gitHooks`; providers only forward it to `agentEnvironment`.
 
 - **git >= 2.54** (April 2026 added config-based hooks): inject
   `hook.coforge-commit-trailers.event = prepare-commit-msg` and

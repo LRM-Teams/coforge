@@ -5,8 +5,7 @@ import {
   type CodeAgentProvider,
   type ProviderDiscoveryOptions,
 } from "../contract";
-import { agentEnvironment, resolveLaunchGitHooks } from "../environment";
-import type { GitHookInjectionPlan } from "../git-hooks";
+import { agentEnvironment } from "../environment";
 import { asRecord, eventTime } from "../json-record";
 import { discoverExternalCodeAgents } from "../runtime-inventory";
 import { discoverCursorCatalog } from "./catalog";
@@ -49,11 +48,7 @@ export class CursorProvider implements CodeAgentProvider {
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
     if (options.sessionId !== undefined && !options.sessionId.trim())
       throw new Error("Invalid session ID");
-    // Resolved once and reused for every turn's process, rather than probing `git` again per turn.
-    const gitHooks = await resolveLaunchGitHooks(options.environment, Bun.env, undefined, {
-      envVars: options.runtime?.envVars,
-    });
-    const session = new CursorAgentSession(options, this.#command, gitHooks);
+    const session = new CursorAgentSession(options, this.#command);
     if (!options.sessionId) {
       // A fresh session has no history to resume, so CoForge establishes it immediately with a
       // first turn whose only content is the standing instructions - there is no other way to
@@ -75,7 +70,6 @@ type SessionState = "idle" | "running" | "interrupting" | "disposed";
 class CursorAgentSession implements AgentSession {
   readonly #options: AgentSessionOptions;
   readonly #command: readonly string[];
-  readonly #gitHooks: GitHookInjectionPlan | undefined;
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   readonly #exitListeners = new Set<() => void>();
   readonly #queue: Array<{ text: string; resolve(): void; reject(error: Error): void }> = [];
@@ -93,14 +87,9 @@ class CursorAgentSession implements AgentSession {
     | { promise: Promise<void>; resolve(): void; reject(error: Error): void }
     | undefined;
 
-  constructor(
-    options: AgentSessionOptions,
-    command: readonly string[],
-    gitHooks: GitHookInjectionPlan | undefined,
-  ) {
+  constructor(options: AgentSessionOptions, command: readonly string[]) {
     this.#options = options;
     this.#command = command;
-    this.#gitHooks = gitHooks;
     this.#resumeId = options.sessionId;
     this.#sessionId = options.sessionId;
     this.#everCompletedTurn = Boolean(options.sessionId);
@@ -220,7 +209,7 @@ class CursorAgentSession implements AgentSession {
     const environment = {
       ...agentEnvironment(this.#options.environment, Bun.env, undefined, {
         envVars: this.#options.runtime?.envVars,
-        gitHooks: this.#gitHooks,
+        gitHooks: this.#options.gitHooks,
       }),
       NO_COLOR: "1",
     };

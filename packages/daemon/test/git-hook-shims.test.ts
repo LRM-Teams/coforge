@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,10 @@ import {
   resetGitHookShimDirectoryCacheForTests,
 } from "../src/code-agent/git-hook-shims";
 
+beforeEach(() => {
+  resetGitHookShimDirectoryCacheForTests();
+});
+
 test("gitHookShimScript runs the CoForge commit trailer command only for prepare-commit-msg", () => {
   expect(gitHookShimScript("prepare-commit-msg")).toContain("coforge git prepare-commit-msg");
   for (const name of GIT_HOOK_SHIM_NAMES) {
@@ -18,7 +22,6 @@ test("gitHookShimScript runs the CoForge commit trailer command only for prepare
 });
 
 test("ensureGitHookShimDirectory writes an executable shim for every hook name, mode 0700, idempotently", async () => {
-  resetGitHookShimDirectoryCacheForTests();
   const root = await mkdtemp(join(tmpdir(), "coforge-shim-root-"));
   const directory = await ensureGitHookShimDirectory(root);
   expect(directory).toBeTruthy();
@@ -29,7 +32,6 @@ test("ensureGitHookShimDirectory writes an executable shim for every hook name, 
     expect((await Bun.file(path).stat()).mode & 0o777).toBe(0o700);
   }
   // Same content, same root: a second call is a no-op (idempotent), same directory returned.
-  resetGitHookShimDirectoryCacheForTests();
   const again = await ensureGitHookShimDirectory(root);
   expect(again).toBe(directory);
   expect(await Bun.file(join(directory!, "pre-push")).text()).toBe(first);
@@ -72,7 +74,6 @@ async function writeExecutable(path: string, script: string): Promise<void> {
 }
 
 test("the shim forwards to the repository's own hookdir hook (.git/hooks)", async () => {
-  resetGitHookShimDirectoryCacheForTests();
   const shimDirectory = (await ensureGitHookShimDirectory(
     await mkdtemp(join(tmpdir(), "coforge-shim-root-")),
   ))!;
@@ -88,7 +89,6 @@ test("the shim forwards to the repository's own hookdir hook (.git/hooks)", asyn
 });
 
 test("the shim honors a repository-local core.hooksPath (husky-style)", async () => {
-  resetGitHookShimDirectoryCacheForTests();
   const shimDirectory = (await ensureGitHookShimDirectory(
     await mkdtemp(join(tmpdir(), "coforge-shim-root-")),
   ))!;
@@ -105,7 +105,6 @@ test("the shim honors a repository-local core.hooksPath (husky-style)", async ()
 });
 
 test("the shim forwards stdin to the repository's own hook (pre-push)", async () => {
-  resetGitHookShimDirectoryCacheForTests();
   const shimDirectory = (await ensureGitHookShimDirectory(
     await mkdtemp(join(tmpdir(), "coforge-shim-root-")),
   ))!;
@@ -124,7 +123,6 @@ test("the shim forwards stdin to the repository's own hook (pre-push)", async ()
 });
 
 test("the shim exits without recursing when the repository's own hooksPath resolves to the shim directory itself", async () => {
-  resetGitHookShimDirectoryCacheForTests();
   const shimDirectory = (await ensureGitHookShimDirectory(
     await mkdtemp(join(tmpdir(), "coforge-shim-root-")),
   ))!;
@@ -135,7 +133,6 @@ test("the shim exits without recursing when the repository's own hooksPath resol
 });
 
 test("the prepare-commit-msg shim runs coforge git prepare-commit-msg before forwarding, and ignores its exit status", async () => {
-  resetGitHookShimDirectoryCacheForTests();
   const shimDirectory = (await ensureGitHookShimDirectory(
     await mkdtemp(join(tmpdir(), "coforge-shim-root-")),
   ))!;
@@ -168,7 +165,6 @@ test("the prepare-commit-msg shim runs coforge git prepare-commit-msg before for
 });
 
 test("the shim exits cleanly (does not fail the git operation) when the repository has no hook of that name", async () => {
-  resetGitHookShimDirectoryCacheForTests();
   const shimDirectory = (await ensureGitHookShimDirectory(
     await mkdtemp(join(tmpdir(), "coforge-shim-root-")),
   ))!;
