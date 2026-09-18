@@ -81,6 +81,14 @@ for (const detailKind of [
   AGENT_ACTIVITY_DETAIL_KIND.MESSAGE_RECEIVED,
   AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_CRASHED,
   AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_INTERRUPTED,
+  // This change's additions to the shared vocabulary.
+  AGENT_ACTIVITY_DETAIL_KIND.REVIEWING_CHANGES,
+  AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED,
+  AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_STALE,
+  AGENT_ACTIVITY_DETAIL_KIND.REVIEW_STALE,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_STALLED,
+  AGENT_ACTIVITY_DETAIL_KIND.STALLED_RECOVERY,
+  AGENT_ACTIVITY_DETAIL_KIND.SYSTEM_MESSAGE,
 ]) {
   test(`round trips the ${detailKind} detail kind`, () => {
     const withKind: AgentActivity = { ...activity, detailKind };
@@ -88,3 +96,37 @@ for (const detailKind of [
     expect(decoded.detailKind).toBe(detailKind);
   });
 }
+
+test("round trips a tool_start entry's toolInput", () => {
+  const withEntry: AgentActivity = {
+    ...activity,
+    entries: [{ kind: "tool_start", toolName: "bash", toolInput: "ls -la /tmp" }],
+  };
+  const decoded = decodeAgentActivity(encodeAgentActivity(withEntry));
+  expect(decoded.entries).toEqual([
+    { kind: "tool_start", toolName: "bash", toolInput: "ls -la /tmp" },
+  ]);
+});
+
+test("omits toolInput on decode when a tool_start entry did not carry one", () => {
+  const withEntry: AgentActivity = {
+    ...activity,
+    entries: [{ kind: "tool_start", toolName: "bash" }],
+  };
+  const decoded = decodeAgentActivity(encodeAgentActivity(withEntry));
+  expect(decoded.entries).toEqual([{ kind: "tool_start", toolName: "bash" }]);
+  expect(decoded.entries?.[0]).not.toHaveProperty("toolInput");
+});
+
+test("round trips a system entry", () => {
+  const withEntry: AgentActivity = {
+    ...activity,
+    entries: [
+      { kind: "system", title: "Session reset", text: "The daemon restarted the session." },
+    ],
+  };
+  const decoded = decodeAgentActivity(encodeAgentActivity(withEntry));
+  expect(decoded.entries).toEqual([
+    { kind: "system", title: "Session reset", text: "The daemon restarted the session." },
+  ]);
+});

@@ -91,13 +91,29 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   TOOL_END: "tool_end",
   THINKING_END: "thinking_end",
   COMPACTION_FINISHED: "compaction_finished",
+  // The provider's review pass ended; same liveness-only class as
+  // compaction_finished/tool_end above.
+  REVIEW_FINISHED: "review_finished",
   // Visible, stored busy detail kinds.
   COMPACTING_CONTEXT: "compacting_context",
   SUBAGENT_ACTIVITY: "subagent_activity",
   MESSAGE_RECEIVED: "message_received",
+  // The Agent's provider entered a review pass.
+  REVIEWING_CHANGES: "reviewing_changes",
+  // Compaction started and no finish was observed for a long time.
+  COMPACTION_STALE: "compaction_stale",
+  // A review pass started and no finish was observed for a long time.
+  REVIEW_STALE: "review_stale",
+  // The daemon is restarting a provider it found stalled.
+  STALLED_RECOVERY: "stalled_recovery",
+  // The daemon injected a system/control message into the Agent's session.
+  SYSTEM_MESSAGE: "system_message",
   // Terminal detail kinds.
   RUNTIME_CRASHED: "runtime_crashed",
   RUNTIME_INTERRUPTED: "runtime_interrupted",
+  // The provider has produced nothing for too long while work is pending.
+  // Error-level presentation, like runtime_error/runtime_crashed above.
+  RUNTIME_STALLED: "runtime_stalled",
   OTHER: "other",
 } as const;
 export type AgentActivityDetailKind =

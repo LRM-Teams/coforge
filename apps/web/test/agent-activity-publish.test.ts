@@ -314,6 +314,85 @@ describe("Agent activity publication", () => {
     }
   });
 
+  test("persists this change's new visible detail kinds to history", async () => {
+    for (const detailKind of [
+      "reviewing_changes",
+      "compaction_stale",
+      "review_stale",
+      "stalled_recovery",
+      "system_message",
+    ]) {
+      const history: unknown[] = [];
+      const response = await handleAgentActivityPublication(
+        request({
+          b64data: encodedBase64({ ...activity, detailKind, detail: "" }),
+        }),
+        {
+          proxySecret: "test-secret",
+          agentBelongsToWorkspace: async () => true,
+          agentBelongsToComputer: async () => true,
+          computerBelongsToWorkspace: async () => true,
+          observe: async (value) => {
+            history.push(value);
+          },
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(history).toHaveLength(1);
+    }
+  });
+
+  test("persists a review_finished frame to history, like tool_end/compaction_finished", async () => {
+    const history: unknown[] = [];
+    const response = await handleAgentActivityPublication(
+      request({
+        b64data: encodedBase64({ ...activity, detailKind: "review_finished", detail: "" }),
+      }),
+      {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        observe: async (value) => {
+          history.push(value);
+        },
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(history).toHaveLength(1);
+  });
+
+  test("keeps a tool_start entry's toolInput and a system entry through the publish/persist round trip", async () => {
+    const history: Array<{ entries?: unknown }> = [];
+    const withEntries = {
+      ...activity,
+      entries: [
+        { kind: "tool_start" as const, toolName: "bash", toolInput: "ls -la /tmp" },
+        { kind: "system" as const, title: "Session reset", text: "The daemon restarted it." },
+      ],
+    };
+    const response = await handleAgentActivityPublication(
+      request({ b64data: encodedBase64(withEntries) }),
+      {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        observe: async (value) => {
+          history.push(value);
+        },
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(history).toHaveLength(1);
+    expect(history[0].entries).toEqual(withEntries.entries);
+    const result = (await response.json()) as { result: { b64data: string } };
+    const published = decodeAgentActivity(
+      Uint8Array.from(atob(result.result.b64data), (character) => character.charCodeAt(0)),
+    );
+    expect(published.entries).toEqual(withEntries.entries);
+  });
+
   test("rejects an untrusted proxy or mismatched connection scope", async () => {
     const dependencies = {
       proxySecret: "test-secret",

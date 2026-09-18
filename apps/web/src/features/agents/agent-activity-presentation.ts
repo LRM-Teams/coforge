@@ -40,6 +40,7 @@ const STATUS_SECONDARY_LABEL: Readonly<Record<string, string>> = {
   [AGENT_ACTIVITY_DETAIL_KIND.TOOL_END]: "Tool finished",
   [AGENT_ACTIVITY_DETAIL_KIND.THINKING_END]: "Thinking finished",
   [AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED]: "Compaction finished",
+  [AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED]: "Review finished",
 };
 
 const toolLabels: Readonly<Record<string, string>> = {
@@ -120,7 +121,10 @@ function presentEntryItem(
     return {
       row: {
         label,
-        detail,
+        // An already-redacted argument summary from the entry itself takes
+        // precedence; older daemons and stored rows have no toolInput, so
+        // this falls back to the activity frame's own detail as before.
+        detail: item.toolInput ?? detail,
         recentLabel: label,
         currentLabel: toolLabels[canonical]
           ? `${label}…`
@@ -130,6 +134,25 @@ function presentEntryItem(
         pulse: false,
         monospace: true,
         expandable: false,
+        subagent: item.subagent,
+      },
+    };
+  }
+  if (item.kind === "system") {
+    // A daemon-injected system/control message. Never merged with a
+    // neighbouring text/thinking row: returning no `mergeGroup` closes
+    // whatever statement merge group was open before it.
+    return {
+      row: {
+        label: item.title,
+        detail: item.text,
+        recentLabel: item.title,
+        currentLabel: item.title,
+        tone: "output",
+        recentTone: "working",
+        pulse: false,
+        monospace: true,
+        expandable: true,
         subagent: item.subagent,
       },
     };
@@ -191,29 +214,54 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
         : (observation.activityKind ?? "unknown");
   const starting = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.STARTING;
   const compacting = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT;
+  const reviewing = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.REVIEWING_CHANGES;
+  const compactionStale =
+    tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_STALE;
+  const reviewStale = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.REVIEW_STALE;
+  const stalledRecovery =
+    tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.STALLED_RECOVERY;
+  const stalled = tone === "error" && kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_STALLED;
   const label =
     tone === "error"
-      ? "Error"
+      ? stalled
+        ? "Stalled"
+        : "Error"
       : starting
         ? "Starting"
         : compacting
           ? "Compacting context"
-          : tone === "working"
-            ? "Working"
-            : tone === "thinking"
-              ? "Thinking"
-              : tone === "idle"
-                ? "Idle"
-                : tone === "offline"
-                  ? "Stopped"
-                  : "Activity";
+          : reviewing
+            ? "Reviewing changes"
+            : compactionStale
+              ? "Compaction still running"
+              : reviewStale
+                ? "Review still running"
+                : stalledRecovery
+                  ? "Restarting stalled provider"
+                  : tone === "working"
+                    ? "Working"
+                    : tone === "thinking"
+                      ? "Thinking"
+                      : tone === "idle"
+                        ? "Idle"
+                        : tone === "offline"
+                          ? "Stopped"
+                          : "Activity";
   const recentLabel =
     tone === "working"
       ? starting
         ? "Starting…"
         : compacting
           ? "Compacting context…"
-          : detail || "Working…"
+          : reviewing
+            ? "Reviewing changes…"
+            : compactionStale
+              ? "Compaction still running…"
+              : reviewStale
+                ? "Review still running…"
+                : stalledRecovery
+                  ? "Restarting stalled provider…"
+                  : detail || "Working…"
       : tone === "thinking"
         ? "Thinking…"
         : tone === "idle"
@@ -221,9 +269,13 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
           : tone === "offline"
             ? STOPPED_STATUS_DETAIL
             : tone === "error"
-              ? detail
-                ? `Error: ${detail}`
-                : "Error"
+              ? stalled
+                ? detail
+                  ? `Stalled: ${detail}`
+                  : "Stalled"
+                : detail
+                  ? `Error: ${detail}`
+                  : "Error"
               : detail || label;
   // Completion rows prefer the daemon's own detail ("Tool finished") and fall back to
   // STATUS_SECONDARY_LABEL for frames reported or stored with an empty one.

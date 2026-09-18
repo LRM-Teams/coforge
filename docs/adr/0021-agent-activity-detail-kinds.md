@@ -76,6 +76,58 @@ Added later, following this same discipline (ADR 0040, "An explicit `agent:sessi
 | --- | --- | --- | --- |
 | `runtime_unavailable` | The daemon detects a stored native Session it cannot resume — missing (kiro/pi's classified `session_missing`, or Claude Code/Codex's own in-driver replacement, both reported as reason `missing`) or rejected on replay (kiro/pi's `provider_replay_rejected`) — reports it once via `agent:session:invalidate`, then cold-starts a fresh session under the same `launchId` | working | visible, label "Stored `<Runtime>` session missing/replay rejected; cold-starting a new session…", stored |
 
+Added later, extending the vocabulary ahead of the daemon work that will
+produce these kinds (no daemon producer is added by this record; it only
+widens the shared SDK/wire/validation surface the daemon changes will need):
+
+| kind | class | meaning |
+| --- | --- | --- |
+| `reviewing_changes` | busy, visible, stored | The Agent's provider entered a review pass. |
+| `review_finished` | busy, completion row, same class as `compaction_finished`/`tool_end` | The provider's review pass ended; stored and shown in the Activity log as `Working · Review finished`, left out of the avatar popover. |
+| `compaction_stale` | busy, visible, stored | Compaction started and no finish was observed for a long time. |
+| `review_stale` | busy, visible, stored | A review pass started and no finish was observed for a long time. |
+| `runtime_stalled` | error-level presentation, stored | The provider has produced nothing for too long while work is pending. Maps to the `error` display kind the same way `runtime_error`/`runtime_crashed` do, independent of the frame's own `level`. |
+| `stalled_recovery` | busy, visible, stored | The daemon is restarting a provider it found stalled. |
+| `system_message` | busy, visible, stored | The daemon injected a system/control message into the Agent's session. No dedicated label; the popover/current-status text falls back to the activity's own `detail`. |
+
+Also two additions to `ActivityTrajectoryEntry`:
+
+- A new entry kind, `system`: `{ kind: "system", title: string, text: string }`
+  (title capped at 120 characters, text at the same 2000-character cap as
+  `text`/`thinking` entries). Renders as its own row — label is the title,
+  detail is the text, expandable — and never merges into a neighbouring
+  text/thinking statement: it closes whatever merge group was open before it,
+  the same way a hidden `send_message` tool call already does.
+- `tool_start` gains an optional `toolInput`: the short, already-redacted
+  argument summary (capped at 200 characters, control characters rejected
+  like `toolName`). When present, the tool row's detail uses it instead of
+  the activity frame's own `detail`; absent (older daemons, stored rows),
+  the row keeps using `detail` exactly as before.
+
+On the wire, `ActivityTrajectoryEntry`'s `content` oneof gains a new member
+(`ActivitySystemEntry system = 5`, a nested message carrying `title`/`text`)
+and the entry gains a sibling scalar field (`tool_input = 6`) outside the
+oneof. Both are purely additive — no field is renumbered or repurposed — so
+an old encoder/decoder that has never heard of them keeps working exactly as
+before for every entry it already knew how to produce or consume.
+
+The one asymmetry: an **old decoder reading a `system` entry** does not
+silently ignore it. Protobuf leaves an unrecognized oneof member's field
+undecoded, so `entry.content.case` comes back `undefined`; this codec's
+`decodeAgentActivity`/`parseAgentDisplaySnapshot` already throw `"missing
+activity entry content"` for that case (pre-existing behavior — an entry that
+matches none of the codec's known oneof cases throws, dropping the *whole*
+Activity, not just that one entry). A `tool_start` entry's new `tool_input`
+field carries no such risk: it is a plain sibling field, and an old decoder
+already ignores field numbers it does not recognize, exactly as it does for
+`probe_id`/`activity_kind` today. Because of this, once the daemon starts
+emitting `system` entries, only a web deployment already carrying this
+codec's understanding of the `system` oneof case can decode them; **the web
+side of this vocabulary must ship (and be live in every replica) before any
+future daemon change starts emitting `system` entries** — the new detail
+kinds by themselves (`detail_kind` is a plain string) carry no such ordering
+requirement.
+
 `runtime_starting` is **not** added to the enum: the daemon has exactly one
 spawn moment (`#launchAgent` emits `starting` once the process is up; there is
 no separate "launch intent" activity), so the reducer's dead `runtime_starting`
@@ -153,6 +205,15 @@ sibling branch owns wiring it.
   liveness-only kinds' filler behavior; `agent-activity-publish.test.ts` for
   history exclusion; `agent-activity.test.ts` for the popover drop;
   `agent-activity-presentation.test.ts` for the new labels/tones.
+- This change's additions (no daemon producer): SDK
+  `activity-entries.test.ts` and `agent-activity.test.ts` for `system`/
+  `toolInput` validation and codec round-trips, plus a round trip for every
+  new `detailKind`; web `agent-detail.test.ts` for the `system` entry's row,
+  `toolInput` taking precedence over the activity's own `detail`, each new
+  detail kind's label, and a `system` entry closing a statement merge group;
+  `agent-display.test.ts` for `activityKindForObservation` on the new kinds;
+  `agent-activity-publish.test.ts` for history inclusion/exclusion and for
+  the `toolInput`/`system` publish-and-persist round trip.
 - `bun run check` at the root, the touched package suites, and `bun run
   build` in `apps/web`.
 
