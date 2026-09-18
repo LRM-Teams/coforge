@@ -608,7 +608,7 @@ function CodeView({
       // from report-editor's code.css. Deliberately no `<code>` element
       // anywhere below — `.rich-text-editor code` carries inline-code
       // border/background/padding that would otherwise bleed into every line.
-      className="pfv-code-root rich-text-editor relative min-h-full min-w-full py-2 font-mono text-[13px] leading-5 tab-4"
+      className="pfv-code-root rich-text-editor relative min-h-full min-w-full py-2 font-mono text-[0.8125rem] leading-5 tab-4"
       data-wrap={wrap ? "on" : "off"}
       style={{ "--pfv-gutter-w": gutterWidth } as CSSProperties}
     >

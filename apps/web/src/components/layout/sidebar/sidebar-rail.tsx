@@ -40,7 +40,7 @@ function RailItem({ href, icon: Icon, label, current, badge }: RailItemType) {
       </span>
       <span
         className={cx(
-          "text-[10px] leading-3 font-medium tracking-normal whitespace-nowrap transition-colors duration-100 ease-linear [.rail-labels-hidden_&]:hidden",
+          "text-[0.625rem] leading-3 font-medium tracking-normal whitespace-nowrap transition-colors duration-100 ease-linear [.rail-labels-hidden_&]:hidden",
           current
             ? "font-semibold text-brand-secondary"
             : "text-tertiary group-hover:text-secondary",
