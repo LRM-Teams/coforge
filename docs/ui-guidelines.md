@@ -120,7 +120,7 @@
 
 - 一个危险操作面里只允许一处实心红：确认键 `color="primary-destructive"`；有等待态用 `isLoading` + `showTextWhileLoading`。
 - 说明文字不装进红色警示框，用 `FeaturedIcon` + 灰色描述（参照 `weekly-send-confirm-dialog.tsx`）。
-- 打开危险流程的入口键用 `color="tertiary-destructive"`（纯红字）。
+- 打开危险流程的入口键用 `color="tertiary-destructive"`（纯红字）；但当它和其他描边按钮同处一个竖排操作区（如 Agent 面板的 ACTIONS）时改用 `color="secondary-destructive"`，否则纯红字在描边按钮之间读起来不像按钮。实心红仍然只在确认弹窗里出现一次。
 - 选中项卡片不用红色，和非危险选项同款。
 - 按钮图标一律走 `iconLeading`，不作子元素，否则图标会挤到文字上方。
 

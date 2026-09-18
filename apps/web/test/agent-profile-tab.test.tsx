@@ -152,6 +152,26 @@ test("a manager (owner or admin-like) sees pencils and the Actions section", () 
   expect(markup).toContain('data-testid="runtime-dialog-slot"');
 });
 
+test("the Delete agent entry renders as a bordered destructive button, not bare red text", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ ownedByCurrentUser: true })}
+      timeZone="UTC"
+      canManage
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+      onStartDelete={() => {}}
+    />,
+  );
+  expect(markup).toContain(m.agent_profile_action_delete());
+  // `secondary-destructive`: a ring/border and a surface, so it reads like the Stop and
+  // Restart buttons stacked above it instead of a red text link.
+  expect(markup).toContain("ring-error_subtle");
+});
+
 test("a stopped Agent's Actions section offers Start instead of Stop", () => {
   const markup = render(
     <AgentProfileTab
