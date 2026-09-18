@@ -13,19 +13,31 @@ test("Skills metadata distinguishes native global and workspace roots and reread
   const home = join(root, "home"),
     cwd = join(root, "agent");
   try {
-    for (const dir of [".claude/skills", ".agents/skills", ".pi/agent/skills", ".kiro/skills"]) {
+    for (const dir of [
+      ".claude/skills",
+      ".agents/skills",
+      ".pi/agent/skills",
+      ".kiro/skills",
+      ".cursor/skills",
+    ]) {
       await Bun.write(
         join(home, dir, "review/SKILL.md"),
         "---\nname: review\ndescription: 'Global: review'\n---\nNEVER REPORT BODY",
       );
     }
-    for (const dir of [".claude/skills", ".agents/skills", ".pi/skills", ".kiro/skills"]) {
+    for (const dir of [
+      ".claude/skills",
+      ".agents/skills",
+      ".pi/skills",
+      ".kiro/skills",
+      ".cursor/skills",
+    ]) {
       await Bun.write(
         join(cwd, dir, "review/SKILL.md"),
         "---\nname: review\ndescription: >\n  Workspace review\n---\nBODY",
       );
     }
-    for (const provider of ["claude-code", "codex", "kiro", "pi", "coforge"] as const) {
+    for (const provider of ["claude-code", "codex", "kiro", "cursor", "pi", "coforge"] as const) {
       const result = await listAgentSkills({
         provider,
         agentWorkspaceDirectory: cwd,

@@ -1,0 +1,13 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/probe","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","model":"Auto","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"say done again"}]},"session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b"}
+{"type":"thinking","subtype":"delta","text":"Reconnecting","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","timestamp_ms":1789713294500}
+{"type":"thinking","subtype":"completed","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","timestamp_ms":1789713294546}
+{"type":"connection","subtype":"reconnecting","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","timestamp_ms":1789713297205,"attempt":1,"endpoint_url":"https://agentn.global.api5.cursor.sh"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]},"session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","timestamp_ms":1789713299491}
+{"type":"retry","subtype":"starting","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","timestamp_ms":1789713299491,"attempt":1,"is_resume":true}
+{"type":"retry","subtype":"resuming","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","timestamp_ms":1789713299492,"checkpoint_turn_count":2,"attempt":1}
+{"type":"connection","subtype":"reconnected","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","timestamp_ms":1789713299600}
+{"type":"thinking","subtype":"delta","text":"Confirming","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","timestamp_ms":1789713299700}
+{"type":"thinking","subtype":"completed","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","timestamp_ms":1789713299750}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]},"session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b"}
+{"type":"result","subtype":"success","duration_ms":5000,"duration_api_ms":5000,"is_error":false,"result":"done","session_id":"f8d5b6d7-6f40-4225-a31f-b9b441015f0b","request_id":"req-2","usage":{"inputTokens":100,"outputTokens":10,"cacheReadTokens":0,"cacheWriteTokens":0}}

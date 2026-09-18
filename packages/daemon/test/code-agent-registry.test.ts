@@ -11,4 +11,5 @@ test("code-agent registry exposes every supported Provider", () => {
     RUNTIME_PROVIDER.CLAUDE_CODE,
   );
   expect(createCodeAgentProvider(RUNTIME_PROVIDER.KIRO).provider).toBe(RUNTIME_PROVIDER.KIRO);
+  expect(createCodeAgentProvider(RUNTIME_PROVIDER.CURSOR).provider).toBe(RUNTIME_PROVIDER.CURSOR);
 });

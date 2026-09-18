@@ -181,12 +181,13 @@ describe("external Code Agent inventory", () => {
     expect(killed).toBe(true);
   });
 
-  test("detects Codex, Claude Code, and Kiro as external runtimes without installed Pi", async () => {
+  test("detects Codex, Claude Code, Kiro, and Cursor CLI as external runtimes without installed Pi", async () => {
     const runtimes = await discoverExternalCodeAgents(
       probeFor({
         codex: { path: "/bin/codex", version: "codex-cli 0.151.0\n" },
         claude: { path: "/bin/claude", version: "2.1.0\n" },
         "kiro-cli": { path: "/bin/kiro-cli", version: "kiro-cli 2.21.2\n" },
+        "cursor-agent": { path: "/bin/cursor-agent", version: "2026.08.11-e8db854\n" },
         pi: { path: "/bin/pi", version: "0.9.1\n" },
       }),
     );
@@ -195,6 +196,7 @@ describe("external Code Agent inventory", () => {
       { provider: "codex", version: "0.151.0", displayName: "Codex" },
       { provider: "claude-code", version: "2.1.0", displayName: "Claude Code" },
       { provider: "kiro", version: "2.21.2", displayName: "Kiro" },
+      { provider: "cursor", version: "2026.08.11-e8db854", displayName: "Cursor CLI" },
     ]);
   });
 
@@ -235,6 +237,46 @@ describe("external Code Agent inventory", () => {
       displayName: "Kiro",
     });
     expect(inventory.catalogs.some((catalog) => catalog.provider === "kiro")).toBe(false);
+  });
+
+  test("discovers a Cursor CLI model catalog for an installed runtime", async () => {
+    const inventory = await discoverCodeAgentInventory({
+      probe: probeFor({
+        "cursor-agent": { path: "/bin/cursor-agent", version: "2026.08.11-e8db854\n" },
+      }),
+      commands: {
+        cursor: [
+          process.execPath,
+          new URL("./fixtures/cursor-agent-fixture.ts", import.meta.url).pathname,
+          "models",
+        ],
+      },
+      environment: {
+        HOME: "/fixture/home",
+        PATH: "",
+        COFORGE_CURSOR_MODELS_OUTPUT: "Available models\n\nauto - Auto (default)\n",
+      },
+    });
+
+    expect(inventory.runtimes).toContainEqual({
+      provider: "cursor",
+      version: "2026.08.11-e8db854",
+      displayName: "Cursor CLI",
+    });
+    expect(inventory.catalogs.find((catalog) => catalog.provider === "cursor")).toEqual({
+      provider: "cursor",
+      models: [
+        {
+          id: "auto",
+          displayName: "Auto",
+          description: "",
+          modelProvider: "",
+          reasoningEfforts: [],
+          defaultReasoning: "",
+          recommended: true,
+        },
+      ],
+    });
   });
 
   test("does not wait indefinitely for a runtime version probe", async () => {
