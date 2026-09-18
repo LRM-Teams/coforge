@@ -67,6 +67,7 @@ describe("resolveConversationThreadRoot", () => {
 
 describe("conversation thread search updates", () => {
   test("opening writes threadRootId and keeps the rest of search", () => {
+    // Search that does not already carry a thread id is the case this exists for.
     expect(conversationSearchWithThread({ view: "chat", profile: "agent:1" }, "root-1")).toEqual({
       view: "chat",
       profile: "agent:1",

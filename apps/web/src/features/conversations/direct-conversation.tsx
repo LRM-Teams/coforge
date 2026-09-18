@@ -412,8 +412,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
 
   // Hash-only deep links (notifications) still land on `#message-<id>`. Promote
   // that into `threadRootId` search once, then leave the hash as a scroll target.
-  const attemptedHashLoad = useRef<string>();
-  const attemptedSearchLoad = useRef<string>();
+  const attemptedHashLoad = useRef<string | undefined>(undefined);
+  const attemptedSearchLoad = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     if (searchThreadRootId) return;
     const hash = typeof window === "undefined" ? "" : window.location.hash;

@@ -33,10 +33,16 @@ export function resolveConversationThreadRoot(input: {
   return message?.threadRootId ?? message?.id ?? input.searchThreadRootId;
 }
 
-export function conversationSearchWithThread<T extends { threadRootId?: string }>(
+/**
+ * `T extends object`, not `T extends { threadRootId?: string }`: that constraint is a weak type
+ * (every property optional), so search that does not already carry `threadRootId` has no property
+ * in common with it and is rejected — while this function's whole job is adding the property to
+ * search that lacks it. The return type says what it did, instead of claiming the input type back.
+ */
+export function conversationSearchWithThread<T extends object>(
   previous: T,
   threadRootId: string,
-): T {
+): T & { threadRootId: string } {
   return { ...previous, threadRootId };
 }
 
