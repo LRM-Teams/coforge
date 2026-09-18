@@ -632,6 +632,7 @@ function createCommand(
       if (!binding) throw new Error(`Workspace '${selector}' is not registered locally`);
       return binding.id;
     },
+    write: io.stdout,
   });
   return {
     async start(workspace) {
