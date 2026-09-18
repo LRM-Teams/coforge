@@ -11,7 +11,7 @@ export function AgentsPending() {
         <PageHeader
           heading={m.navigation_agents()}
           actions={
-            <Button size="sm" iconLeading={Plus} isDisabled>
+            <Button size="sm" color="secondary" iconLeading={Plus} isDisabled>
               {m.header_new_agent()}
             </Button>
           }

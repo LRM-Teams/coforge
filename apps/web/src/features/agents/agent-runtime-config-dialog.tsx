@@ -165,10 +165,10 @@ export function AgentRuntimeConfigForm({
         )}
       </div>
       <div className="flex justify-end gap-3 border-t border-secondary px-6 py-4">
-        <Button type="button" size="md" color="secondary" isDisabled={saving} onPress={onClose}>
+        <Button type="button" color="secondary" isDisabled={saving} onPress={onClose}>
           {m.controls_cancel()}
         </Button>
-        <Button type="submit" size="md" isDisabled={saving || !dirty || envPending}>
+        <Button type="submit" isDisabled={saving || !dirty || envPending}>
           {saving ? m.agent_profile_saving() : m.agent_profile_save_runtime_config()}
         </Button>
       </div>

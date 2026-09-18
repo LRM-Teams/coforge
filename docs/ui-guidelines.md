@@ -112,6 +112,7 @@
 - 语义 token 用官方名：`bg-primary / bg-secondary / bg-tertiary`，`text-primary / text-secondary / text-tertiary / text-quaternary`，`border-primary / border-secondary`，`bg-brand-solid`，`text-brand-secondary`，`text-error-primary`。映射表见 `docs/design-tokens.md`。
 - 品牌紫只出现在：侧栏选中项、主按钮、链接、Public 徽章、自己发出的消息气泡、焦点环。其他地方一律灰阶。
 - "主按钮"指一个界面里唯一的主动作：弹窗的确认键、空状态的引导键。页头和工具栏里的操作按钮（New agent、Add computer、Create task）一律 `color="secondary"`，参照 Linear 和 Notion。
+- **按钮尺寸**：按钮高度只用 `size` 控制，不用 `h-*` / `py-*` 覆盖；产品界面统一默认 `sm`（36px），弹窗页脚、空状态、页头都是；`lg` 只用于登录和设备授权页；空状态引导键只有 onboarding（如 Add computer）用 primary，其余 secondary。
 - 语义色（success / error / warning）和品牌色分开，状态不用紫。
 - 不写十六进制颜色，不写 `text-white` 之外的硬编码。
 

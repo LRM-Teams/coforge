@@ -110,7 +110,6 @@ export function AgentRuntimeCredentialDialog({
                   {credentialHint && onDelete && (
                     <Button
                       type="button"
-                      size="md"
                       color="tertiary"
                       isDisabled={saving}
                       onPress={() => void onDelete()}
@@ -122,14 +121,13 @@ export function AgentRuntimeCredentialDialog({
                 <div className="flex gap-3">
                   <Button
                     type="button"
-                    size="md"
                     color="secondary"
                     isDisabled={saving}
                     onPress={() => onOpenChange(false)}
                   >
                     {m.controls_cancel()}
                   </Button>
-                  <Button type="submit" size="md" isDisabled={saving}>
+                  <Button type="submit" isDisabled={saving}>
                     {saving ? m.agent_runtime_saving() : m.agent_runtime_save()}
                   </Button>
                 </div>

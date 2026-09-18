@@ -28,7 +28,7 @@ export function ProjectsContent({
       <PageHeader
         heading={m.projects_title()}
         actions={
-          <Button size="sm" iconLeading={Plus} onPress={() => setCreating(true)}>
+          <Button size="sm" color="secondary" iconLeading={Plus} onPress={() => setCreating(true)}>
             {m.project_create()}
           </Button>
         }
