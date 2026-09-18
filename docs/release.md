@@ -774,9 +774,13 @@ are the only channel between the coordinator process and the Daemon, and the
 result receipt names its own `request_id`.
 
 The Coordinator records each operation in `~/.coforge/daemon/bindings.json` as
-`upgradeOperations`, moving it from `pending` to `succeeded`/`failed` from that
-receipt - at Coordinator startup, and while it watches a job it launched - and
-finally to `acknowledged` once the server has accepted the reported result. Only
+`upgradeOperations`; this is the single canonical operation state for exclusion,
+reporting, acknowledgement and audit. The write-once result file is inter-process
+evidence that advances it from `pending` to `succeeded`/`failed`, not a second
+state machine. Child config and cloud messages are projections of the canonical
+record. Settlement happens during exact-request resume and on startup/watch
+recovery when needed; server acceptance moves the same record to `acknowledged`.
+Only
 one operation may be pending per binding; a second request is refused before
 anything is launched rather than left to collide over the installation lock.
 

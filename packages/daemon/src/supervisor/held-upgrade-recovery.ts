@@ -14,8 +14,22 @@ export type HeldUpgradeOperation = {
   requestId: string;
   state: "pending" | "succeeded" | "failed" | "acknowledged";
   requestedAt: number;
-  terminal?: { errorCode?: string };
+  terminal?: { version?: string; error?: string; errorCode?: string };
 };
+
+/** Durable binding state remains sufficient after server acknowledgement: success keeps its
+ * version, and verified rollback keeps its typed code. Other acknowledged failures stay held. */
+export function operationAllowsWorkspaceRecovery(operation: HeldUpgradeOperation): boolean {
+  if (operation.state === "pending") return false;
+  if (operation.state === "succeeded") return true;
+  if (operation.terminal?.errorCode === UPGRADE_ERROR_CODE.ROLLED_BACK) return true;
+  return (
+    operation.state === "acknowledged" &&
+    Boolean(operation.terminal?.version) &&
+    !operation.terminal?.error &&
+    !operation.terminal?.errorCode
+  );
+}
 
 /**
  * A held Coordinator restart may find the receipt already settled but hold removal unfinished.
@@ -27,15 +41,18 @@ export function selectLegacyHeldRequestId(
 ): string | undefined {
   return [...operations]
     .filter(
-      (operation) =>
-        operation.state === "pending" ||
-        (operation.state !== "acknowledged" &&
-          terminalAllowsWorkspaceRecovery({
-            status: operation.state === "succeeded" ? "succeeded" : "failed",
-            errorCode: operation.terminal?.errorCode,
-          })),
+      (operation) => operation.state === "pending" || operationAllowsWorkspaceRecovery(operation),
     )
     .sort((left, right) => right.requestedAt - left.requestedAt)[0]?.requestId;
+}
+
+export function resolveHeldRequestId(
+  persistedValue: string | undefined,
+  operations: readonly HeldUpgradeOperation[],
+): string | undefined {
+  const exact = operations.find((operation) => operation.requestId === persistedValue);
+  if (exact) return exact.requestId;
+  return persistedValue === "upgrade" ? selectLegacyHeldRequestId(operations) : undefined;
 }
 
 export type HeldUpgradeRecoveryDependencies = {
@@ -94,8 +111,8 @@ export class HeldUpgradeRecovery {
       await this.#finishing;
       return true;
     }
-    const operation = this.#finish(requestId, receiptAlreadySettled);
     this.#finishingRequestId = requestId;
+    const operation = this.#finish(requestId, receiptAlreadySettled);
     this.#finishing = operation;
     try {
       await operation;

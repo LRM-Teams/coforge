@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 
 import {
   HeldUpgradeRecovery,
+  operationAllowsWorkspaceRecovery,
+  resolveHeldRequestId,
   selectLegacyHeldRequestId,
   shouldAutoFinishHeldUpgrade,
   terminalAllowsWorkspaceRecovery,
@@ -40,6 +42,17 @@ function harness(requestId = "upgrade-1") {
   };
 }
 
+test("persisted request ownership wins; only the literal legacy marker falls back", () => {
+  const operations = [
+    { requestId: "older", state: "pending" as const, requestedAt: 1 },
+    { requestId: "current", state: "succeeded" as const, requestedAt: 2 },
+  ];
+  expect(resolveHeldRequestId("current", operations)).toBe("current");
+  expect(resolveHeldRequestId("upgrade", operations)).toBe("current");
+  expect(resolveHeldRequestId("unknown-uuid", operations)).toBeUndefined();
+  expect(resolveHeldRequestId("", operations)).toBeUndefined();
+});
+
 test("newest operation owns a legacy launch-hold across unrelated bindings", () => {
   expect(
     selectLegacyHeldRequestId([
@@ -74,6 +87,25 @@ test("Coordinator restart resumes the newest verified unacknowledged terminal op
       },
     ]),
   ).toBe("restored");
+});
+
+test("acknowledged success remains sufficient to clear a leftover hold", () => {
+  expect(
+    operationAllowsWorkspaceRecovery({
+      requestId: "success",
+      state: "acknowledged",
+      requestedAt: 1,
+      terminal: { version: "2.0.0" },
+    }),
+  ).toBe(true);
+  expect(
+    operationAllowsWorkspaceRecovery({
+      requestId: "failed",
+      state: "acknowledged",
+      requestedAt: 2,
+      terminal: { error: "rollback failed", errorCode: "UPGRADE_ROLLBACK_FAILED" },
+    }),
+  ).toBe(false);
 });
 
 test("only verified promotion or rollback terminal results release launch-hold", () => {
@@ -125,10 +157,12 @@ test("unknown or corrupt hold ownership fails closed instead of rebinding", asyn
 
 test("explicit settlement does not deadlock by re-entering its watcher callback", async () => {
   const calls: string[] = [];
+  let guardSawFinishing = false;
   let recovery!: HeldUpgradeRecovery;
   recovery = new HeldUpgradeRecovery(true, "exact", {
     settle: async (requestId) => {
       calls.push(`settle:${requestId}`);
+      guardSawFinishing = recovery.isFinishing(requestId);
       if (shouldAutoFinishHeldUpgrade(recovery, requestId, { status: "succeeded" }))
         await recovery.finish(requestId, true);
     },
@@ -143,6 +177,7 @@ test("explicit settlement does not deadlock by re-entering its watcher callback"
   });
 
   await recovery.finish("exact");
+  expect(guardSawFinishing).toBe(true);
   expect(calls).toEqual(["settle:exact", "resume", "clear"]);
 });
 

@@ -80,6 +80,12 @@ job writes the `failed`/`UPGRADE_ROLLED_BACK` receipt before resume. If rollback
 A receipt commit failure is fail-closed: Workspace launch remains held. The job never releases
 Workspace startup without durable terminal evidence.
 
+`bindings.json.upgradeOperations` remains the single canonical operation state for reporting,
+acknowledgement, exclusion, and audit. `<requestId>.result.json` is immutable inter-process evidence,
+not a second state machine: settlement validates its request ID and applies it once to the canonical
+operation. Child config, ready fields, and WSS result messages are projections/transports of that
+operation and never decide outcome independently.
+
 Once a candidate or rollback receipt is committed, a later Workspace recovery error cannot overwrite
 that receipt or trigger executable rollback. It is an application lifecycle fault under the promoted
 Computer version.
@@ -137,6 +143,33 @@ held until terminal commit. The meanings remain separate:
 - receipt: the upgrade transaction is terminal;
 - Workspace ready: one application child is online;
 - Workspace fault: post-promotion application recovery needs repair.
+
+### Raft Computer 1.0.32 source comparison
+
+The comparison was re-derived from the shipped 1.0.32 SEA binary (Linux x64 manifest SHA-256
+`cfac8759…679a`), not the obsolete npm packages. Conclusions, in our own words:
+
+- `@botiverse/k-carrier/core/src/txn/engine.ts`: the engine journals `promoted`, promotes the
+  experiment slot, then calls `host.resume`; process-start recovery sees a last `promoted` journal
+  entry and retries promotion/resume. This is the durable self-completion precedent.
+- `packages/computer/src/kHostAdapter.ts`: `quiesce` durably records the exact managed set and runner
+  hold; `healthProbe` reads service machine attestation only; `resume` removes runner hold and then
+  waits for the parked managed set to converge.
+- `packages/computer/src/service.ts`: while `holdRunnersForK` is true, the service reconcile loop does
+  not spawn runners and schedules another check; the service itself remains available.
+- `@botiverse/k-carrier/core/src/upgrade/drive.ts` and `operationLifecycle.ts`: the externally
+  reconcileable `operation.json` is the single report/ack state. Engine journal/slot evidence is
+  used by `settleRecovery()` to move that operation to terminal; connect reporting does not create
+  a second outcome.
+- `packages/computer/src/kUpgradeReconcile.ts`: each runner connect reports only the terminal,
+  unacknowledged operation belonging to its origin server and checks the running version against the
+  promoted/up-to-date outcome.
+- `packages/computer/src/kUpgradeProcess.ts`: detached coordinator requests and recovered operations
+  are fenced by exact request identity; an in-flight outcome can spawn a recovery coordinator.
+
+CoForge keeps its existing receipt/binding/WSS contracts rather than copying Raft identifiers or code.
+It makes the local receipt-before-Workspace boundary explicit, persists the owning request ID in
+`launch-hold`, and uses request-bound held recovery for the same crash cutpoints.
 
 ## Rejected alternatives
 

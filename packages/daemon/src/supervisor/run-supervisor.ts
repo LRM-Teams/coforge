@@ -28,9 +28,9 @@ import { sweepLeftoverComputerUpgradeJobs } from "../platform/computer-upgrade-s
 import { UpgradeLaunchFailedError } from "./upgrade-error";
 import {
   HeldUpgradeRecovery,
-  selectLegacyHeldRequestId,
+  operationAllowsWorkspaceRecovery,
+  resolveHeldRequestId,
   shouldAutoFinishHeldUpgrade,
-  terminalAllowsWorkspaceRecovery,
 } from "./held-upgrade-recovery";
 import {
   sweepComputerUpgradeReceipts,
@@ -412,13 +412,7 @@ async function runWithSupervisorLock(
         const operation = await upgradeOperation(requestId);
         if (!operation || operation.state === "pending")
           throw new Error(`Computer upgrade receipt is not terminal: ${requestId}`);
-        if (
-          operation.state === "acknowledged" ||
-          !terminalAllowsWorkspaceRecovery({
-            status: operation.state === "succeeded" ? "succeeded" : "failed",
-            errorCode: operation.terminal?.errorCode,
-          })
-        )
+        if (!operationAllowsWorkspaceRecovery(operation))
           throw new Error(`Computer upgrade receipt cannot release launch-hold: ${requestId}`);
       }
     } catch (error) {
@@ -500,14 +494,7 @@ async function runWithSupervisorLock(
     const upgradeOperations = (await supervisor.snapshot()).flatMap(
       (binding) => binding.upgradeOperations ?? [],
     );
-    const persistedOperation = upgradeOperations.find(
-      (operation) => operation.requestId === persistedHoldRequestId,
-    );
-    const heldRequestId = persistedOperation
-      ? persistedOperation.requestId
-      : persistedHoldRequestId === "upgrade"
-        ? selectLegacyHeldRequestId(upgradeOperations)
-        : undefined;
+    const heldRequestId = resolveHeldRequestId(persistedHoldRequestId, upgradeOperations);
     heldRecovery = new HeldUpgradeRecovery(heldAtStartup, heldRequestId, {
       settle: (requestId) => settlePendingUpgradeOperations(true, requestId),
       resume: () => supervisor.resume(),
@@ -522,16 +509,7 @@ async function runWithSupervisorLock(
     const heldOperation = upgradeOperations.find(
       (operation) => operation.requestId === heldRequestId,
     );
-    if (
-      heldRecovery.active &&
-      heldOperation &&
-      heldOperation.state !== "pending" &&
-      heldOperation.state !== "acknowledged" &&
-      terminalAllowsWorkspaceRecovery({
-        status: heldOperation.state === "succeeded" ? "succeeded" : "failed",
-        errorCode: heldOperation.terminal?.errorCode,
-      })
-    )
+    if (heldRecovery.active && heldOperation && operationAllowsWorkspaceRecovery(heldOperation))
       await heldRecovery.finish(heldOperation.requestId, true);
     // Best-effort crash recovery: an old receipt may already exist when this Coordinator starts.
     // During the normal held replacement path the receipt intentionally arrives later and the

@@ -13,9 +13,10 @@ export type RestartResult =
   | { requestId: string; status: "cancelled" };
 
 /**
- * One Computer upgrade operation as this machine knows it. `pending` means an external one-shot
- * job was launched and has not left a receipt yet; `succeeded`/`failed` carry that receipt;
- * `acknowledged` means the server accepted the reported result and the record is audit only.
+ * The canonical local Computer upgrade operation. `pending` means an external one-shot job was
+ * launched and has not supplied terminal evidence yet; `succeeded`/`failed` are the one settled
+ * outcome projected to child config/cloud; `acknowledged` means server acceptance and bounded
+ * audit history. The immutable result file is evidence applied to this record, not a peer state.
  */
 export type UpgradeOperationState = "pending" | "succeeded" | "failed" | "acknowledged";
 export type UpgradeOperationTerminal = {

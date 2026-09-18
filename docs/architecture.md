@@ -235,7 +235,11 @@ Workspace process, and injects the still-unsettled operations into the
 replacement Workspace Daemon config on recovery. Corrupt state fails closed.
 Thus a Coordinator, Supervisor, and Workspace Daemon restart replays the same
 operation rather than creating a new one; duplicate delivery is bounded and
-idempotent. At most one operation may be pending per binding: a second request
+idempotent. `bindings.json.upgradeOperations` is the one canonical operation
+state. The result file is write-once inter-process evidence that advances that
+state; child config, ready hints and WSS result messages are derived projections,
+not independent truth sources. At most one operation may be pending per binding:
+a second request
 is refused at the operation level, before any job is launched, rather than left
 to collide over the installation lock.
 
