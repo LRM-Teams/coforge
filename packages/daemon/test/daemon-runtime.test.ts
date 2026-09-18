@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { DaemonRuntime } from "../src/daemon-runtime/runtime";
+import { AGENT_STARTUP_TURN_TEXT, DaemonRuntime } from "../src/daemon-runtime/runtime";
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
@@ -638,6 +638,7 @@ async function queueHarness(
     credential?: Promise<string>;
     launch?: () => void | Promise<void>;
     notify?: (notice: string) => void | Promise<void>;
+    subscribe?: (listener: (event: AgentRuntimeEvent) => void) => void;
     dispose?: () => void | Promise<void>;
     lifecycle?: (event: string) => void;
     activity?: (activity: import("@lrm/coforge-sdk/internal").AgentActivity) => void;
@@ -659,6 +660,10 @@ async function queueHarness(
         sessions++;
         return {
           ...sessionSpy(),
+          subscribe(listener: (event: AgentRuntimeEvent) => void) {
+            options.subscribe?.(listener);
+            return () => undefined;
+          },
           async notify(notice: string) {
             notices.push(notice);
             await options.notify?.(notice);
@@ -3902,6 +3907,141 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
+  test("a launch that creates a new session with nothing to recover sends one startup turn", async () => {
+    const harness = await queueHarness();
+    await harness.runtime.startAgent(
+      "agent-a",
+      config,
+      "cloud-first",
+      "create-request",
+      undefined,
+      undefined,
+      "create",
+    );
+    await Bun.sleep(10);
+    expect(harness.notices).toEqual([AGENT_STARTUP_TURN_TEXT]);
+    await harness.runtime.stop();
+  });
+
+  test("the end of the startup turn reports the Agent idle", async () => {
+    const listeners: Array<(event: AgentRuntimeEvent) => void> = [];
+    const kinds: string[] = [];
+    const harness = await queueHarness({
+      subscribe: (listener) => listeners.push(listener),
+      notify: () => {
+        for (const listener of listeners) listener({ type: "completed", status: "completed" });
+      },
+      activity: (activity) => kinds.push(activity.detailKind),
+    });
+    await harness.runtime.startAgent(
+      "agent-a",
+      config,
+      undefined,
+      "create-request",
+      undefined,
+      undefined,
+      "create",
+    );
+    await Bun.sleep(10);
+    expect(harness.notices).toEqual([AGENT_STARTUP_TURN_TEXT]);
+    expect(kinds.indexOf("idle")).toBeGreaterThan(kinds.indexOf("starting"));
+    expect(kinds).toContain("starting");
+    await harness.runtime.stop();
+  });
+
+  test("the launch resolves without waiting for the startup turn to finish", async () => {
+    let finishTurn!: () => void;
+    const turn = new Promise<void>((resolve) => (finishTurn = resolve));
+    const harness = await queueHarness({ notify: () => turn });
+    await harness.runtime.startAgent(
+      "agent-a",
+      config,
+      undefined,
+      "create-request",
+      undefined,
+      undefined,
+      "create",
+    );
+    await Bun.sleep(10);
+    expect(harness.notices).toEqual([AGENT_STARTUP_TURN_TEXT]);
+    finishTurn();
+    await harness.runtime.stop();
+  });
+
+  test("a resume launch sends no startup turn", async () => {
+    const harness = await queueHarness();
+    await harness.runtime.startAgent(
+      "agent-a",
+      config,
+      "stored-session-id",
+      "resume-request",
+      undefined,
+      undefined,
+      "resume",
+    );
+    await Bun.sleep(10);
+    expect(harness.notices).toEqual([]);
+    await harness.runtime.stop();
+  });
+
+  test("a launch without an explicit session mode sends no startup turn", async () => {
+    const harness = await queueHarness();
+    await harness.runtime.startAgent("agent-a", config);
+    await Bun.sleep(10);
+    expect(harness.notices).toEqual([]);
+    await harness.runtime.stop();
+  });
+
+  test("a create launch with a wake message sends only the wake notice", async () => {
+    const harness = await queueHarness();
+    await harness.runtime.startAgent(
+      "agent-a",
+      config,
+      undefined,
+      "wake-request",
+      {
+        wakeMessage: {
+          messageId: "wake-message",
+          deliveryId: "wake-delivery",
+          conversationId: "conversation-a",
+          sequence: 1,
+          target: "@ada",
+          latestSender: "@ada",
+          body: "wake only",
+        },
+      },
+      undefined,
+      "create",
+    );
+    await Bun.sleep(10);
+    expect(harness.notices).toHaveLength(1);
+    expect(harness.notices[0]).toContain("wake only");
+    await harness.runtime.stop();
+  });
+
+  test("a stop that races a create launch drops its queued startup turn", async () => {
+    let releaseLaunch!: () => void;
+    const launchGate = new Promise<void>((resolve) => (releaseLaunch = resolve));
+    const harness = await queueHarness({ launch: () => launchGate });
+    const launching = harness.runtime.startAgent(
+      "agent-a",
+      config,
+      undefined,
+      "create-request",
+      undefined,
+      undefined,
+      "create",
+    );
+    await Bun.sleep(0);
+    const stopping = harness.runtime.stopAgent("agent-a");
+    releaseLaunch();
+    await expect(launching).rejects.toThrow("stopping");
+    await stopping;
+    await Bun.sleep(10);
+    expect(harness.notices).toEqual([]);
+    await harness.runtime.stop();
+  });
+
   test("queues launch recovery before live delivery", async () => {
     let release!: (credential: string) => void;
     const credential = new Promise<string>((resolve) => (release = resolve));
@@ -4913,6 +5053,7 @@ describe("DaemonRuntime", () => {
       await credentials.save(connection.workspaceId, connection.computerId, "token-a");
       const invalidations: import("@lrm/coforge-sdk/internal").AgentSessionInvalidate[] = [];
       const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+      const notices: string[] = [];
       let attempts = 0;
       const runtime = new DaemonRuntime(
         connection,
@@ -4921,7 +5062,12 @@ describe("DaemonRuntime", () => {
           async createAgentSession(options) {
             attempts++;
             if (options.sessionId) throw new AgentSessionRecoveryError(code);
-            return sessionSpy();
+            return {
+              ...sessionSpy(),
+              async notify(notice: string) {
+                notices.push(notice);
+              },
+            };
           },
         }),
         credentials,
@@ -4975,6 +5121,9 @@ describe("DaemonRuntime", () => {
         expect(
           activities.filter((activity) => activity.detailKind === "runtime_unavailable"),
         ).toHaveLength(1);
+        // The fresh session the retry creates opens with the startup turn.
+        await Bun.sleep(10);
+        expect(notices).toEqual([AGENT_STARTUP_TURN_TEXT]);
       } finally {
         await runtime.stop();
         await rm(stateDirectory, { recursive: true, force: true });

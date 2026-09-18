@@ -172,7 +172,7 @@ test("classified recovery retries once without restoring resume mode and reports
 
   expect(attempts[1]).toMatchObject({ replacedSessionId: "old" });
   expect(attempts[1]!.intent).not.toHaveProperty("sessionId");
-  expect(attempts[1]!.intent).not.toHaveProperty("sessionMode");
+  expect(attempts[1]!.intent).toMatchObject({ sessionMode: "create" });
 });
 
 test.each([
