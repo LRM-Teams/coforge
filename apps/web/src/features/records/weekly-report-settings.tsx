@@ -378,17 +378,20 @@ function SettingsTabButton({
   onPress: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
-      onClick={onPress}
-      className={`shrink-0 border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
+      size="sm"
+      color="tertiary"
+      aria-pressed={active}
+      onPress={onPress}
+      className={`-mb-px shrink-0 rounded-none px-3 py-3 ${
         active
-          ? "border-brand text-brand-secondary"
-          : "border-transparent text-tertiary hover:text-secondary"
+          ? "border-b-2 border-brand text-brand-secondary"
+          : "border-b-2 border-transparent text-tertiary hover:text-secondary"
       }`}
     >
       {label}
-    </button>
+    </Button>
   );
 }
 

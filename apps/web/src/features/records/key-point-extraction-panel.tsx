@@ -58,23 +58,16 @@ export function KeyPointExtractionPanel({
             {prompt || m.records_key_points_prompt_empty()}
           </p>
           {prompt.length > 80 ? (
-            <button
+            <Button
               type="button"
-              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-secondary"
-              onClick={() => setExpanded((value) => !value)}
+              size="xs"
+              color="link-color"
+              className="mt-2"
+              iconLeading={expanded ? ChevronUp : ChevronDown}
+              onPress={() => setExpanded((value) => !value)}
             >
-              {expanded ? (
-                <>
-                  <ChevronUp className="size-3.5" aria-hidden="true" />
-                  {m.records_key_points_collapse()}
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="size-3.5" aria-hidden="true" />
-                  {m.records_key_points_expand()}
-                </>
-              )}
-            </button>
+              {expanded ? m.records_key_points_collapse() : m.records_key_points_expand()}
+            </Button>
           ) : null}
         </div>
       </section>
