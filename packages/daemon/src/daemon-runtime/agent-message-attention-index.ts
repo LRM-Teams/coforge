@@ -25,6 +25,22 @@ export type MessageAttention = Readonly<{
  */
 const REMEMBERED_DELIVERIES = 4096;
 
+/**
+ * A sender name a notice may repeat: the server identity, or `@` plus a handle. Everything else is
+ * dropped rather than printed.
+ *
+ * The wire type allows any non-empty string here, and a notice is model-visible text, so an
+ * unchecked value could carry newlines and pass itself off as further instruction lines. One rule
+ * for recording attention and for rendering, so the two cannot disagree about what is printable.
+ */
+const NOTICE_SENDER = /^@[a-z0-9][a-z0-9_-]*$/i;
+
+function printableSender(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value === "system") return value;
+  return NOTICE_SENDER.test(value) ? value : undefined;
+}
+
 /** Distinct messages in a delivery list. The same message can appear more than once: a request
  * retried while held is enqueued again so both attempts stay ACK-able, and a redelivery arriving
  * after the dedupe window is a second delivery of one message. A notice counts messages. */
@@ -125,11 +141,7 @@ export class AgentMessageAttentionIndex {
       });
       return;
     }
-    const latestSender =
-      message.latestSender === "system" ||
-      (message.latestSender?.startsWith("@") && message.latestSender.length > 1)
-        ? message.latestSender
-        : undefined;
+    const latestSender = printableSender(message.latestSender);
     const byTarget = this.#attention.get(message.agentId) ?? new Map<string, MessageAttention>();
     const previous = byTarget.get(target);
     const pendingByTarget =
@@ -295,26 +307,56 @@ export class AgentMessageAttentionIndex {
   }
 
   /**
-   * One line per target in the announced batch, in the order the targets first appear. The
-   * delivery queue is per Agent (ADR 0048), so a coalesced flush can mix a channel, a DM and a
-   * thread; attributing the whole batch to the last delivery's target would hide the others.
+   * One line per target, in the order the targets first appear: what this notice announces (`new`)
+   * and what stays queued for this Agent (`held`). The delivery queue is per Agent (ADR 0048), so
+   * a coalesced flush can mix a channel, a DM and a thread; attributing the whole batch to the
+   * last delivery's target would hide the others.
+   *
+   * Both sets appear because the headline counts both. A headline that summed announced and queued
+   * while the lines showed only the announced ones left the reader unable to tell where the rest
+   * were, which is the same kind of unexplainable number this change exists to remove.
    */
-  #announcedRows(announced: readonly AgentMessageDelivery[]): string[] {
-    const byTarget = new Map<string, { messageIds: Set<string>; latestSender?: string }>();
+  #localViewRows(
+    announced: readonly AgentMessageDelivery[],
+    queued: readonly AgentMessageDelivery[],
+  ): string[] {
+    const announcedIds = new Set(announced.map((delivery) => delivery.messageId));
+    const byTarget = new Map<
+      string,
+      { newIds: Set<string>; heldIds: Set<string>; latestSender?: string }
+    >();
+    const rowFor = (target: string) => {
+      const existing = byTarget.get(target);
+      if (existing) return existing;
+      const created: { newIds: Set<string>; heldIds: Set<string>; latestSender?: string } = {
+        newIds: new Set<string>(),
+        heldIds: new Set<string>(),
+      };
+      byTarget.set(target, created);
+      return created;
+    };
     for (const delivery of announced) {
       // `receive` rejects a delivery without a target before it can be held, so this only narrows
       // the wire type; a targetless delivery has no line to appear on either way.
-      const target = delivery.target;
-      if (!target) continue;
-      const row = byTarget.get(target) ?? { messageIds: new Set<string>() };
-      row.messageIds.add(delivery.messageId);
-      if (delivery.latestSender) row.latestSender = delivery.latestSender;
-      byTarget.set(target, row);
+      if (!delivery.target) continue;
+      const row = rowFor(delivery.target);
+      row.newIds.add(delivery.messageId);
+      row.latestSender = printableSender(delivery.latestSender) ?? row.latestSender;
+    }
+    for (const delivery of queued) {
+      if (!delivery.target || announcedIds.has(delivery.messageId)) continue;
+      const row = rowFor(delivery.target);
+      row.heldIds.add(delivery.messageId);
+      row.latestSender = printableSender(delivery.latestSender) ?? row.latestSender;
     }
     return [...byTarget].map(([target, row]) => {
-      const count = row.messageIds.size;
-      const sender = row.latestSender ? ` · latest sender ${row.latestSender}` : "";
-      return `${target}  new: ${count} message${count === 1 ? "" : "s"}${sender}`;
+      const parts: string[] = [];
+      if (row.newIds.size)
+        parts.push(`new: ${row.newIds.size} message${row.newIds.size === 1 ? "" : "s"}`);
+      if (row.heldIds.size)
+        parts.push(`held: ${row.heldIds.size} message${row.heldIds.size === 1 ? "" : "s"}`);
+      if (row.latestSender) parts.push(`latest sender ${row.latestSender}`);
+      return `${target}  ${parts.join(" · ")}`;
     });
   }
 
@@ -344,8 +386,8 @@ export class AgentMessageAttentionIndex {
     // these messages are unread — a delivery notice can race a `check` or `read` that already
     // advanced that cursor. Only those commands answer what is left, and either may answer
     // "nothing".
-    const rows = this.#announcedRows(announced);
     const queued = this.hold.queued?.(message.agentId) ?? [];
+    const rows = this.#localViewRows(announced, queued);
     const totalCount = countDistinctMessages([...announced, ...queued]);
     const notice = `[CoForge inbox notice:
 Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or held for you

@@ -1547,52 +1547,14 @@ function heldSendCliError(
   });
 }
 
-/**
- * The local view, rendered for reading: the message targets the Computer is holding, then the
- * pending App Inbox entries. This command drains nothing and advances no read position, so the
- * counts here are the Computer's own and carry no claim about what the server still has —
- * `coforge message check` is the only thing that answers that.
- *
- * Sequence numbers stay out of the text (they are wire bookkeeping, and the previous JSON shape
- * dropped them too); `--json` is unaffected because this formatter is the text path.
- */
-function formatInboxCheckText(result: unknown): string | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  const entries = (result as { entries?: unknown[] }).entries;
-  if (!Array.isArray(entries)) return undefined;
-  const lines: string[] = [];
-  for (const entry of entries) {
-    if (!entry || typeof entry !== "object") continue;
-    const messageTarget = (entry as { messageTarget?: Record<string, unknown> }).messageTarget;
-    if (!messageTarget) continue;
-    const target = typeof messageTarget.target === "string" ? messageTarget.target : undefined;
-    if (!target) continue;
-    const count = typeof messageTarget.pendingCount === "number" ? messageTarget.pendingCount : 0;
-    const parts = [`held: ${count} message${count === 1 ? "" : "s"}`];
-    if (typeof messageTarget.latestSender === "string" && messageTarget.latestSender)
-      parts.push(`latest sender ${messageTarget.latestSender}`);
-    const flags = messageTarget.flags;
-    if (Array.isArray(flags))
-      for (const flag of flags) if (typeof flag === "string") parts.push(flag);
-    lines.push(`${target}  ${parts.join(" · ")}`);
-  }
-  const appEntries = entries.filter(
-    (entry) => entry && typeof entry === "object" && "app" in (entry as Record<string, unknown>),
-  );
-  if (appEntries.length)
-    lines.push(
-      `App Inbox: ${appEntries.length} pending item${appEntries.length === 1 ? "" : "s"} (see the JSON below for each item's own completion command)`,
-    );
-  if (!lines.length)
-    return "Nothing held locally. `coforge message check` is what asks the server.";
-  return lines.join("\n");
-}
-
 function formatInboxCheck(result: unknown): string {
   if (!result || typeof result !== "object") return JSON.stringify(result);
   const response = result as { entries?: unknown[]; [key: string]: unknown };
-  const text = formatInboxCheckText(result);
-  const payload = JSON.stringify({
+  // One JSON document, as before. The held message targets are already in `entries` (the daemon
+  // returns them next to the App Inbox items), so an Agent can read the local view from this
+  // output; a human-readable rendering would change machine output that callers parse today, and
+  // this command has no `--json` escape hatch to change it behind.
+  return JSON.stringify({
     ...response,
     ...(response.entries
       ? {
@@ -1610,7 +1572,6 @@ function formatInboxCheck(result: unknown): string {
         }
       : {}),
   });
-  return text ? `${text}\n\n${payload}` : payload;
 }
 
 function isMessageCommand(value: string | undefined): value is MessageCommand {

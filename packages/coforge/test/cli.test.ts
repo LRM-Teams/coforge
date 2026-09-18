@@ -1994,7 +1994,7 @@ test("App Inbox hides message ordering fields from Agent output", async () => {
   expect(output).toContain('"pendingCount":2');
 });
 
-test("inbox check reads as the Computer's own view, with no claim about the server", async () => {
+test("inbox check stays one JSON document and carries the held targets", async () => {
   const output = await run(["inbox", "check"], {
     check: async () => ({ messages: [] }),
     read: async () => undefined,
@@ -2018,26 +2018,28 @@ test("inbox check reads as the Computer's own view, with no claim about the serv
     }),
   });
 
-  // The word for this view is "held": these are messages the Computer has in hand. It must not
-  // read as unread-on-the-server, which only `coforge message check` can answer.
-  expect(output).toContain("#general  held: 2 messages · latest sender @ada · channel");
-  expect(output).toContain("App Inbox: 1 pending item");
-  expect(output).not.toContain("unread");
-  // The JSON payload is still there for an Agent that needs an item's own fields.
-  expect(output).toContain('"itemId":"item-1"');
-});
-
-test("inbox check says plainly when the Computer holds nothing", async () => {
-  const output = await run(["inbox", "check"], {
-    check: async () => ({ messages: [] }),
-    read: async () => undefined,
-    send: async () => undefined,
-    view: async () => ({ bytes: new Uint8Array() }),
-    inboxCheck: async () => ({ entries: [] }),
+  // This command's output is machine-readable and there is no `--json` to switch behind, so it
+  // stays exactly one JSON document. The local view is legible from it: the held targets sit in
+  // `entries` next to the App Inbox items.
+  const parsed = JSON.parse(String(output)) as {
+    entries: {
+      kind: string;
+      messageTarget?: {
+        target: string;
+        pendingCount: number;
+        latestSender?: string;
+        flags?: string[];
+      };
+    }[];
+  };
+  const target = parsed.entries.find((entry) => entry.kind === "message_target");
+  expect(target?.messageTarget).toEqual({
+    target: "#general",
+    pendingCount: 2,
+    latestSender: "@ada",
+    flags: ["channel"],
   });
-
-  expect(output).toContain("Nothing held locally");
-  expect(output).toContain("`coforge message check` is what asks the server");
+  expect(parsed.entries.some((entry) => entry.kind === "app")).toBe(true);
 });
 
 test("--reviewer-isolation is accepted only on send, claim, update and amend", () => {
