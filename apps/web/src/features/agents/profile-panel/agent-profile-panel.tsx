@@ -252,7 +252,7 @@ export function AgentProfilePanel({
     );
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
       <AgentProfileHeader
         agent={{
           id: agentId,
@@ -265,7 +265,9 @@ export function AgentProfilePanel({
         controls={controls}
         onClose={onClose}
       />
-      <div className="flex h-11 shrink-0 items-center border-b border-secondary px-3">
+      {/* The four tabs need ~465px, more than a phone is wide, so the band scrolls instead of
+          pushing the panel (and with it the whole page) past the viewport. */}
+      <div className="scrollbar-hide flex h-11 shrink-0 items-center overflow-x-auto border-b border-secondary px-3">
         <AgentProfileTabs
           active={tab}
           showManagerTabs={canManage}
