@@ -655,7 +655,7 @@ Session 与 Skills 的作用域不同。CoForge Agent 与 Pi 的 Session 只在�
 
 2026-09-09 用户明确批准对齐 Raft 的环境合成分工，取消普通宿主环境变量白名单：Daemon 在本地按自身实际环境 → 用户显式 Agent `envVars` → adapter `extraEnv` → 可信系统启动字段的顺序构建运行环境。Provider API key、代理以及其他普通变量默认继承；不读取任意终端的环境，不把继承结果上传、同步或存入云端。服务管理器启动的 Daemon 只能继承服务进程实际获得的环境，终端后来 export 的值不会自动进入已运行的 Daemon。仅清除旧 CoForge Agent capability、代理地址和控制 socket 字段，再安装当前启动字段；保留版本本地 CLI PATH 优先级，并将 loopback 合入大小写两种 NO_PROXY。该决策取代本文早期的普通环境白名单描述，不把 cwd 作为 OS 安全隔离承诺。
 
-云端只保存用户在 Agent 设置中主动填写的 overrides，使用既有 runtime credential 密钥加密，普通 Agent profile/list 不包含该数据；owner 专用接口读取和修改。空配置表示恢复本地继承，不表示删除宿主变量。启动时通过既有认证 HTTPS launch-config 接口交给 Daemon，不经 WSS 同步本地主机环境。修改配置走既有 runtime lock 下的停止、保存、启动路径；停止必须确认，离线或未确认停止时不覆盖旧设置；保存后启动发布失败则保留新配置、返回 deferred。Raft 参考：[官方 daemon 1.0.17 发布包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz) 的 `prepareCliTransport`；保留 CoForge 自己的 HTTPS credential 传递与系统 capability 规则。
+云端只保存用户在 Agent 设置中主动填写的 overrides，使用既有 runtime credential 密钥加密，普通 Agent profile/list 不包含该数据；owner 专用接口读取和修改。空配置表示恢复本地继承，不表示删除宿主变量。启动时通过既有认证 HTTPS launch-config 接口交给 Daemon，不经 WSS 同步本地主机环境。修改配置走既有 runtime lock 下的停止、保存、启动路径；停止必须确认，离线或未确认停止时不覆盖旧设置；保存后启动发布失败则保留新配置、返回 deferred。Raft 参考：[Raft Computer 1.0.32](agents/reference-cli-research.md) 的 `prepareCliTransport`（已在 1.0.32 daemon bundle 中重新核实：仍按宿主环境 → 显式 envVars → provider extraEnv 的顺序合成）；保留 CoForge 自己的 HTTPS credential 传递与系统 capability 规则。
 
 内置 SDK 在启动入口复制 Agent 环境，并绑定到该 Session 独有的 `ModelRuntime.getAuth`、
 `stream` 与 `streamSimple`，覆盖普通对话、摘要预认证以及使用该 runtime 的扩展模型调用；
@@ -763,8 +763,8 @@ reset-session、full-reset 都可以立即发起，不要求先完成特定动�
 进行，请稍后重试"这一拒绝路径。
 这保证顺序、互斥和防重复，不是跨进程、文件系统和数据库的全有或全无事务；无通用
 工作流引擎、任务队列或自动补偿。原子命令的拆分参考
-[Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
-中独立的 `agent:stop`、`agent:reset-workspace`、`agent:start` dispatch，不据此推断私有前端实现。
+[Raft Computer 1.0.32](agents/reference-cli-research.md)
+中独立的 `agent:stop`、`agent:reset-workspace`、`agent:start` dispatch（已在 1.0.32 daemon bundle 中重新核实为同名独立的 message-type 分支），不据此推断私有前端实现。
 
 ADR 0038（2026-09-17）新增 Start 与 Stop 为独立的用户操作：`agents` 表新增可空
 `stoppedAt` 列，表示"用户已停止该 Agent"这一持久意图，独立于 `controlState`（仍只是
@@ -843,8 +843,8 @@ Daemon 以 error 级别记录失败原因（沿用 Raft 1.0.32 的行为，线�
 
 Daemon 转发 Activity 的 error 文本时保留 adapter 上报原文，不做内容脱敏；Codex 的非重试 `error` 通知直接使用其 `message`。继续遵守现有 512 字符长度限制。界面只显示 `Error` 和错误文本，不添加重试前缀或展示内部错误分类。此显示策略不改变本地结构化日志的 secret 脱敏规则。
 
-Codex 重试提示按 [Raft Daemon 1.0.17](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
-的已核实分流处理：结构化 `error` 通知的 `willRetry: true` 只记录内部诊断，不产生 Error
+Codex 重试提示按 [Raft Computer 1.0.32](agents/reference-cli-research.md)
+的已核实分流处理（`willRetry` 字段与匹配 `Reconnecting... n/n` 的 `isCodexProviderReconnectLog` 已在 1.0.32 daemon bundle 中重新核实存在）：结构化 `error` 通知的 `willRetry: true` 只记录内部诊断，不产生 Error
 Activity，也不结束当前 turn。适配器识别 stderr 中 `Reconnecting... n/n` 后发送 info 级别
 `runtime_reconnecting`，detail 为 `Codex reconnecting to provider…`，text entry 保留经过既有
 脱敏与长度限制的诊断文本；Backend 将其归类为 working，当前标签显示 detail，时间线保留
@@ -864,7 +864,7 @@ lease 续至服务端接收时间后 90 秒；`working`/`thinking` 从服务端�
 process lease 到期则为 `offline`。当前 Activity 的 `runtimeSession` launch fence 是在处理时读取的
 best-effort current-launch 检查，并非与 Redis 投影提交组成的跨存储事务，不能宣称完全阻挡该窗口内
 的 stale Activity。界面责任与呈现依据来自核查
-[Raft 1.0.17 官方 tarball](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
+[Raft Computer 1.0.32](agents/reference-cli-research.md)（该 UI 呈现细节在 1.0.17 中已观察到，未在 1.0.32 中重新核实）
 及 [Raft app](https://app.raft.build/)；这里只对齐可观察的责任和样式，不声称知道其隐藏 cloud
 reducer 的精确算法。
 
@@ -1068,7 +1068,7 @@ Agent 配置编辑保持当前 Computer assignment 不变。名称和描述只�
 持久化新配置，再发布 `agent:start`；协议不存在 `agent:replace`。Daemon 对同一 Agent
 保存正在执行的 stop Promise，后续 start 只等待该 Promise，不建立通用启动队列；旧
 Session 或外部进程未确认退出前不得创建替代 Runtime，停止失败则本次启动失败。Activity
-表现与 Raft 1.0.17 对齐：stop 请求本身不产生 `stopping` Activity；停止完成后先报告
+表现参考 [Raft Computer 1.0.32](agents/reference-cli-research.md)（该顺序细节在 1.0.17 中已观察到，未在 1.0.32 中重新核实）：stop 请求本身不产生 `stopping` Activity；停止完成后先报告
 inactive status，再报告 `stopped` Activity；新 Runtime 创建成功后先报告 active status，
 再报告 `starting` Activity。启动失败报告 inactive 与 `launch_failed`，不能伪装在线。
 Web/backend 使用按 Agent ID 获取的 PostgreSQL session advisory lock 串行化配置修改、
@@ -1092,7 +1092,7 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 
 1. backend 先持久化 canonical Message，再通过 Centrifugo 向目标 daemon 发布 attention；Centrifugo 不读取 PostgreSQL 或自行决定目标；
 2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`，调用 provider-neutral `notify`；
-3. 只有 `AgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK。Claude Code 对齐 [Raft 1.0.17](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)：空闲时或允许的原生运行边界成功写入 stdin 即视为 `notify` 成功，不等待 user-message 回显；ACK 不证明 provider 已理解或处理通知。Pi/Codex 仍以各自 SDK/RPC 的原生接受响应确认；
+3. 只有 `AgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK。Claude Code 对齐 [Raft Computer 1.0.32](agents/reference-cli-research.md)（该 stdin-write-as-success 语义在 1.0.17 中已观察到，未在 1.0.32 中重新核实）：空闲时或允许的原生运行边界成功写入 stdin 即视为 `notify` 成功，不等待 user-message 回显；ACK 不证明 provider 已理解或处理通知。Pi/Codex 仍以各自 SDK/RPC 的原生接受响应确认；
 4. ACK 只表示 attention 已被当前 Agent session 接受，不表示 Agent 执行开始、完成或产生 response；Web 仅接受已认证 Computer 为该 Agent 当前 assignment 的 ACK，并继续校验完整 delivery tuple；
 5. attention 是易失提示，断线、进程退出或 ACK 丢失都可能造成丢失或重复。每个 Agent ConversationMember 持久化单调递增的 `agentReadThroughSequence`；无锚点的普通 read 从当前 canonical boundary 的下一条消息开始，成功返回的连续查询范围可包含并跨越该 Agent 自己已发送的已知消息，但绝不能跳过查询未返回的 User 消息。`before`、`after`、`around` 等显式历史跳转与 delivery ACK 都不推进阅读位置；conversation sequence 是总顺序，不声称仅由 User 消息组成或具有额外的无缺口保证；
 6. Daemon 每次 ready（包括 reconnect 与 ready retry）都从当前实际 runtime 快照动态上报 `runningAgentIds`，并为该次请求生成新 `requestId`。Web/backend 对不在该集合中的 persisted Agent 从 canonical read boundary 读取私聊恢复上下文并发布 `agent:start`；对仍在运行的 Agent 不发布 start，而是从 persisted `AgentMessageDelivery` ledger 按创建时间、delivery ID 确定性 oldest-first 读取全部尚未 ACK（`receivedAt` 为 null）的记录，以稳定的 message ID、delivery ID 和原正文重新发布现有 `agent:deliver`（每次重投可使用新的 request ID）。这一路径不推进 canonical read boundary，也不依赖或声称 Centrifugo 自动 history recovery。`agent:start` 的 `resumeMessages` 包含 message ID、delivery ID、conversation ID、sequence、target、latest sender 与正文；每个 Agent 总计最多 100 条，并从各 target 最老未读开始。`unreadSummary` 严格只是公共 `@username` target 到完整未读总数的映射，不含正文、ID、sequence 或 cursor；超出批次或仅有 summary 的 target 必须由 Agent 显式读取；
@@ -1185,7 +1185,7 @@ Agent 是否需要再次 check；Daemon 仅循环取页直到收到空页或 `ha
 runtime 生命周期和单条 WSS。Web 使用会话实时信号与 canonical HTTP reconciliation；顶层消息提供回复数量和未读入口，
 桌面右侧讨论面板、移动端完整讨论视图及返回保留主聊天滚动位置；各目标草稿独立。
 
-交互目标格式参考已批准的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)，
+交互目标格式参考已批准的 [Raft Computer 1.0.32](agents/reference-cli-research.md)（具体格式在 1.0.17 中已观察到，未在 1.0.32 中重新核实），
 不继承其未知默认 read 或自动 root 注入语义。持久化沿用
 [Prisma relation queries](https://www.prisma.io/docs/orm/prisma-client/queries/relation-queries)
 与 [PostgreSQL INSERT ON CONFLICT](https://www.postgresql.org/docs/current/sql-insert.html)
@@ -1311,7 +1311,7 @@ CoForge 仍缺少 private channel 与 DM Thread follow/unfollow 能力，standin
 声称或复制这两项。Raft 官方默认频道名为
 [#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
 [Thread 文档](https://docs.raft.build/features/messaging/threads/)定义上述 follow/unfollow 行为；
-已核对的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
+已核对的 [Raft Computer 1.0.32](agents/reference-cli-research.md)（其共享协议中的 `threadUnfollow` 路由已在 1.0.32 中重新核实存在；mention 恢复 follow 与父频道 mute 例外的细节在 1.0.17 中已观察到，未在 1.0.32 中重新核实）
 还明确给出 `raft thread unfollow`、mention 恢复 follow 和父频道 mute 例外。官方
 [mute 上线说明](https://raft.build/resources/blog/how-a-feature-ships-for-raft-on-raft/)
 支持实际投递控制与 mention 例外，但不据此推断其服务端补投实现。
@@ -1326,8 +1326,10 @@ Agent mute/mention/恢复资格；
 用户在本次 Reminder 实现中批准参考 Raft 1.0.17 的分工：Web/backend 保存权威计划，
 Workspace Daemon 本地计时，到期先请求服务端裁决，再进入 Agent App Inbox。
 这不是云端 cron，也不是通用 jobs/command mailbox。只借鉴
-[官方发布包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
-可核实的行为，不复制其代码或推断私有服务端实现；发布包 SHA-1 为
+[Raft Computer 1.0.32](agents/reference-cli-research.md)
+可核实的行为，不复制其代码或推断私有服务端实现；`reminderSchedule` 与 `appInbox` 结构已在
+1.0.32 daemon bundle 中重新核实仍然存在，具体裁决与计时细节在 1.0.17 中已观察到，未在
+1.0.32 中重新核实。1.0.17 发布包 SHA-1（历史存档，供追溯当时核对的具体产物）为
 `374ad1f8b99b0f19d3110b9ea2caeb4aa808f942`。
 
 Agent 通过 `coforge reminder schedule|list|update|snooze|cancel|log` 调用已有
@@ -1342,8 +1344,8 @@ Reminder 的 `title` 是完整提醒正文，不是短标题；创建、更新�
 保留长文本及换行、制表符，不施加 Inbox 的 120 字预览限制。仅在生成 Agent App
 Inbox item 时归一化控制字符和空白，并截取最多 120 个 UTF-16 code unit（不拆开
 代理对）的单行预览；原始正文和 occurrence receipt 不被截断。仍拒绝空白正文和
-除 tab、CR、LF 外的 C0/DEL 控制字符。此处对齐 Raft 1.0.17 发布包的正文与预览
-分离，不据客户端 schema 推断其私有服务端长度上限。协议字段及数据库结构不变，
+除 tab、CR、LF 外的 C0/DEL 控制字符。此处对齐 [Raft Computer 1.0.32](agents/reference-cli-research.md) 发布包的正文与预览
+分离（该 120 字预览上限的具体取值在 1.0.17 中已观察到，未在 1.0.32 中重新核实），不据客户端 schema 推断其私有服务端长度上限。协议字段及数据库结构不变，
 但旧版 Daemon 的 120 字校验无法接收长正文，发布时须配套更新 Web 与本地客户端。
 
 PostgreSQL 的 Reminder 保存 owner、Workspace、Computer、canonical Message 锚点、
@@ -1465,8 +1467,9 @@ Centrifugo 与现有会话通知规则，不新增服务、依赖、runtime 版�
 
 实现依据：[Raft Tasks](https://docs.raft.build/features/collaboration/tasks.md)、
 [Divide the work](https://docs.raft.build/divide-the-work.md) 及
-[官方 daemon 1.0.17](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
-（SHA-256 `76b1249c6987ffba3657948f2074e7f0b6c64775181ec9a00b8ac5e95b5186d2`）。
+[Raft Computer 1.0.32](agents/reference-cli-research.md)（Task 相关权限与并发细节在 1.0.17
+中已观察到，未在 1.0.32 中重新核实；1.0.17 发布包 SHA-256，历史存档，供追溯当时核对的具体
+产物，为 `76b1249c6987ffba3657948f2074e7f0b6c64775181ec9a00b8ac5e95b5186d2`）。
 公开源码未证明私有服务端事务、状态矩阵或 human-only 审批门；上述权限与并发规则是
 CoForge 的显式选择。未照搬 Raft 的 assign/unassign、amend/history、资源 receipt、
 reviewer isolation 或结构化子任务/依赖调度。子任务首版只是各自独立的普通 Task。

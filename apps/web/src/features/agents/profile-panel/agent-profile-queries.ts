@@ -2,11 +2,12 @@ import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import { getAgentProfile } from "../agents.functions";
+import { getAgentEnvironment, getAgentProfile } from "../agents.functions";
 import { agentActivityFeedQuery } from "../agent-activity-queries";
 import { mergeAgentActivity } from "../agent-activity";
 
 const agentProfileKey = (agentId: string) => ["agent-profile", agentId] as const;
+export const agentEnvironmentKey = (agentId: string) => ["agent-environment", agentId] as const;
 
 /** The Agent profile panel's own data seam: a light server read shared by the Members
  * directory panel and every conversation panel. */
@@ -36,6 +37,21 @@ export function useAgentProfileData(agentId: string | undefined) {
     );
   }, [agentId, activity, queryClient]);
   return query;
+}
+
+/**
+ * The RUNTIME CONFIG section's masked env chips and the Runtime config dialog's Advanced rows
+ * share this one load: owner-only (the GET itself enforces it; `enabled` just avoids firing the
+ * request for a viewer who can never get anything back), short `staleTime` since it reflects a
+ * value that can change from another surface (`ADR 0038`'s deferred-save + external restart).
+ */
+export function agentEnvironmentQuery(agentId: string | undefined, enabled: boolean) {
+  return queryOptions({
+    queryKey: agentEnvironmentKey(agentId ?? ""),
+    queryFn: async () => getAgentEnvironment({ data: agentId! }),
+    enabled: Boolean(agentId) && enabled,
+    staleTime: 15_000,
+  });
 }
 
 /**

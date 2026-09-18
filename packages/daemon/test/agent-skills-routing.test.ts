@@ -79,7 +79,13 @@ test("WSS Skills query scans a stopped Agent without launching or changing inven
       }),
     });
     expect((await result.promise).workspace.entries).toEqual([
-      { name: "check", description: "Workspace check", sourcePath: ".pi/skills/check/SKILL.md" },
+      {
+        name: "check",
+        displayName: "check",
+        description: "Workspace check",
+        userInvocable: false,
+        sourcePath: ".pi/skills",
+      },
     ]);
     expect(inventories).toBe(1);
     expect(runtime.agentProcessManager.size).toBe(0);

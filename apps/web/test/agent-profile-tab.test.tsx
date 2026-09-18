@@ -96,7 +96,6 @@ test("a member (non-manager) sees a read-only Profile: no pencils, no Actions se
   const markup = render(
     <AgentProfileTab
       profile={profileFixture()}
-      display={undefined}
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
@@ -107,7 +106,6 @@ test("a member (non-manager) sees a read-only Profile: no pencils, no Actions se
     />,
   );
   expect(markup).toContain("Builder");
-  expect(markup).toContain("@builder");
   // No edit affordance anywhere in the read-only view.
   expect(markup).not.toContain("Edit display name");
   expect(markup).not.toContain("Edit description");
@@ -116,11 +114,26 @@ test("a member (non-manager) sees a read-only Profile: no pencils, no Actions se
   expect(markup).not.toContain("Restart");
 });
 
+test("the identity block (avatar, name heading, status badge, @handle) is not repeated in the tab body — it lives only in the panel header", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture()}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onGotoActivity={() => {}}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).not.toContain("@builder");
+});
+
 test("a manager (owner or admin-like) sees pencils and the Actions section", () => {
   const markup = render(
     <AgentProfileTab
       profile={profileFixture({ ownedByCurrentUser: true })}
-      display={undefined}
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
@@ -143,7 +156,6 @@ test("a stopped Agent's Actions section offers Start instead of Stop", () => {
   const markup = render(
     <AgentProfileTab
       profile={profileFixture({ ownedByCurrentUser: true, stopped: true })}
-      display={undefined}
       timeZone="UTC"
       canManage
       controls={controlsFixture(false)}
@@ -161,7 +173,6 @@ test("a viewer without visibility into the runtime's usage sees the plain Runtim
   const markup = render(
     <AgentProfileTab
       profile={profileFixture({ runtimeUsageVisible: false })}
-      display={undefined}
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
@@ -179,7 +190,6 @@ test('the runtime\'s owner gets a usage button labelled "<Runtime> · Usage" wra
   const markup = render(
     <AgentProfileTab
       profile={profileFixture({ runtimeUsageVisible: true })}
-      display={undefined}
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
@@ -206,7 +216,6 @@ test("a runtime without usage support keeps the plain badge even for its owner",
           reasoning: "",
         },
       })}
-      display={undefined}
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
@@ -224,7 +233,6 @@ test("a manager with a Computer sees the Runtime config pencil", () => {
   const markup = render(
     <AgentProfileTab
       profile={profileFixture({ ownedByCurrentUser: true })}
-      display={undefined}
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
@@ -242,7 +250,6 @@ test("a non-manager never sees the Runtime config pencil", () => {
   const markup = render(
     <AgentProfileTab
       profile={profileFixture()}
-      display={undefined}
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
@@ -260,7 +267,6 @@ test("an Agent without a Computer shows no Runtime config pencil, even for a man
   const markup = render(
     <AgentProfileTab
       profile={profileFixture({ ownedByCurrentUser: true, computerId: null, computer: undefined })}
-      display={undefined}
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
@@ -278,7 +284,6 @@ test("the Runtime config pencil never renders when the container gives no onStar
   const markup = render(
     <AgentProfileTab
       profile={profileFixture({ ownedByCurrentUser: true })}
-      display={undefined}
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}

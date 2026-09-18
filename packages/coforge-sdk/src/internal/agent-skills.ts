@@ -21,7 +21,13 @@ export type AgentSkillsListRequest = {
 };
 export type AgentSkillsScope = {
   status: "ok" | "partial" | "error" | "unsupported";
-  entries: { name: string; description: string; sourcePath: string }[];
+  entries: {
+    name: string;
+    displayName: string;
+    description: string;
+    userInvocable: boolean;
+    sourcePath: string;
+  }[];
   directories: { path: string; status: "scanned" | "missing" | "unreadable" | "unsupported" }[];
 };
 export type AgentSkillsListResult = AgentSkillsListRequest & {
@@ -76,7 +82,13 @@ function scope(
   value:
     | {
         status: string;
-        entries: { name: string; description: string; sourcePath: string }[];
+        entries: {
+          name: string;
+          displayName: string;
+          description: string;
+          userInvocable: boolean;
+          sourcePath: string;
+        }[];
         directories: { path: string; status: string }[];
       }
     | undefined,
@@ -92,7 +104,9 @@ function scope(
     status: value.status as AgentSkillsScope["status"],
     entries: value.entries.map((entry) => ({
       name: text(entry.name, 128, true),
+      displayName: text(entry.displayName, 128, true),
       description: text(entry.description, 512),
+      userInvocable: Boolean(entry.userInvocable),
       sourcePath: source(entry.sourcePath),
     })),
     directories: value.directories.map((directory) => {

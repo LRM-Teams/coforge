@@ -78,11 +78,12 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   After successful current-generation `notify`, ordinary live Message delivery
   and concrete wake/resume batches report `Message received` with
   `message_received` (ADR 0021; previously the generic
-  `model_request_started`), matching Raft 1.0.17's
-  `broadcastMessageReceivedActivity`. Summary-only recovery and deduplicated
+  `model_request_started`), matching Raft Computer 1.0.32's
+  `broadcastMessageReceivedActivity` (re-verified present in the 1.0.32 daemon bundle; see
+  `docs/agents/reference-cli-research.md`). Summary-only recovery and deduplicated
   inputs do not report it. `runtime.ts` assigns launch/sequence metadata and
   publishes best-effort Activity before live delivery ACK; observer failure
-  must not reject accepted input. Reference: [official Raft distribution](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz).
+  must not reject accepted input.
   `runtime.ts` routes those targets to
   the existing Agent session and canonicalizes short channel/DM thread targets.
   Thread follow state remains cloud-persisted; Daemon only forwards the Agent's
@@ -196,8 +197,9 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   must not parse Claude, Codex, or Pi output. `codex/provider.ts` owns retry
   classification: structured `willRetry: true` notifications remain internal
   diagnostics, while numbered stderr reconnect lines become informational
-  `runtime_reconnecting` Activity, matching Raft 1.0.17. Other errors keep their
-  existing handling. This module inventories external Codex and Claude Code
+  `runtime_reconnecting` Activity, matching Raft Computer 1.0.32's `isCodexProviderReconnectLog`
+  (re-verified present in the 1.0.32 daemon bundle; see `docs/agents/reference-cli-research.md`).
+  Other errors keep their existing handling. This module inventories external Codex and Claude Code
   installations from Daemon's effective PATH at startup and after reconnect.
   Pi and built-in CoForge Agent are reported from their embedded SDK/version
   rather than scanned from PATH. It also discovers the model catalog available
