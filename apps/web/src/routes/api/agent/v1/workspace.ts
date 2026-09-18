@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { resolveAgentStatus } from "#/server/agents/agent-user-info.server";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { buildAgentRuntimeContext } from "#/server/agents/agent-runtime-context.server";
 import { parseAgentRuntimeConfig } from "#/server/agents/agent-runtime-config.server";
@@ -25,7 +26,14 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
             }),
             db.agent.findMany({
               where: { workspaceId: principal.workspaceId },
-              select: { id: true, name: true, displayName: true, description: true },
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                description: true,
+                computerId: true,
+                stoppedAt: true,
+              },
               orderBy: { name: "asc" },
             }),
             db.project.findMany({
@@ -61,6 +69,14 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
             }),
           ]);
           if (!workspace) return Response.json({ error: "workspace not found" }, { status: 404 });
+          // Same online/offline source the Agents list and `coforge user info` read; one read per
+          // Agent, in parallel, and never a failure of the whole response.
+          const agentStatuses = await Promise.all(
+            agents.map(async (agent) => ({
+              agent,
+              ...(await resolveAgentStatus(principal.workspaceId, agent)),
+            })),
+          );
           return Response.json({
             workspace,
             humans: humans.map((human) => ({
@@ -68,13 +84,13 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
               displayName: human.user.displayName?.trim() || human.user.username,
               role: human.role,
             })),
-            agents: agents.map((agent) => ({
+            agents: agentStatuses.map(({ agent, status, availability }) => ({
               name: agent.name,
               displayName: agent.displayName,
               description: agent.description,
-              status: "unknown",
+              status,
               activity: null,
-              activityDetail: null,
+              activityDetail: availability ?? null,
               role: agent.id === principal.agentId ? "self" : null,
             })),
             projects,

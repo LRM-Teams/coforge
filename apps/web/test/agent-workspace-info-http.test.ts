@@ -1,6 +1,33 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, mock, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { Route } from "../src/routes/api/agent/v1/workspace";
+
+// The live status source: only `agent-1` (on computer-1) has an "online" display snapshot; every
+// other read throws, which the route must report as "unknown", never as a failure.
+mock.module("../src/server/agents/agent-display.server", () => ({
+  getAgentDisplay: () => ({
+    snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
+      if (scope.agentId !== "agent-1") throw new Error("no snapshot");
+      return {
+        protocolMajor: 1 as const,
+        workspaceId: scope.workspaceId,
+        computerId: scope.computerId,
+        agentId: scope.agentId,
+        revision: 1,
+        activityKind: "online",
+        detailKind: "idle",
+        detail: "",
+        entries: [],
+        expiresAt: null,
+      };
+    },
+  }),
+}));
+
+const { Route } = await import("../src/routes/api/agent/v1/workspace");
+
+afterAll(() => {
+  mock.restore();
+});
 
 const handlers = Route.options.server!.handlers;
 if (!handlers || typeof handlers === "function" || typeof handlers.GET !== "function")
@@ -13,6 +40,8 @@ const OTHER_AGENT = {
   name: "helper",
   displayName: "Helper",
   description: "",
+  computerId: "computer-1",
+  stoppedAt: null,
 };
 
 function baseDb(selfAgent: unknown) {
@@ -26,6 +55,8 @@ function baseDb(selfAgent: unknown) {
           name: "scout",
           displayName: "Scout",
           description: "Reviews pull requests.",
+          computerId: "computer-1",
+          stoppedAt: null,
         },
         OTHER_AGENT,
       ],
@@ -108,7 +139,7 @@ test("workspace info never includes another Agent's runtime data", async () => {
       name: "scout",
       displayName: "Scout",
       description: "Reviews pull requests.",
-      status: "unknown",
+      status: "online",
       activity: null,
       activityDetail: null,
       role: "self",
