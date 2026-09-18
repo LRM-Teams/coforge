@@ -113,7 +113,7 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
         try {
           globalThis.process.kill(-pid, force ? "SIGKILL" : "SIGTERM");
         } catch (error) {
-          if ((error as { code?: string }).code !== "ESRCH") throw error;
+          if (!this.#groupIsGone(error)) throw error;
         }
       },
       waitForExit: async (timeoutMs) => {
@@ -152,8 +152,20 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
       globalThis.process.kill(this.platform === "win32" ? pid : -pid, 0);
       return true;
     } catch (error) {
-      if ((error as { code?: string }).code === "ESRCH") return false;
+      if (this.#groupIsGone(error)) return false;
       throw error;
     }
+  }
+
+  /** Whether a failed `kill` against the owned process group means nothing is left to signal.
+   *
+   * `ESRCH` says the group is gone. macOS answers `EPERM` instead while the group's only remaining
+   * member is a zombie: the child has exited but its owner has not reaped it yet, and `kill`
+   * refuses a group with nothing signalable left in it. A group that still holds a live process
+   * answers 0, so `EPERM` means no live member - the same condition the linux branch states
+   * explicitly as `state !== "Z"`. Every other failure is real and must propagate. */
+  #groupIsGone(error: unknown): boolean {
+    const code = (error as { code?: string }).code;
+    return code === "ESRCH" || (this.platform === "darwin" && code === "EPERM");
   }
 }
