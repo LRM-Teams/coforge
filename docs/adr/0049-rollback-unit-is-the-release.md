@@ -1,4 +1,4 @@
-# ADR 0048: The rollback unit is the release, not the image
+# ADR 0049: The rollback unit is the release, not the image
 
 Status: accepted
 Date: 2026-09-18

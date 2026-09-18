@@ -10,7 +10,7 @@
 # so the bad config reached the live host, killed the running Centrifugo
 # container, and failed health; automatic rollback could not recover it
 # because it only restores the image, not the configuration (see
-# docs/adr/0048-rollback-unit-is-the-release.md).
+# docs/adr/0049-rollback-unit-is-the-release.md).
 #
 # This script parses each config file with Centrifugo's own `checkconfig`
 # subcommand, run inside the exact digest-pinned image that infra/staging
