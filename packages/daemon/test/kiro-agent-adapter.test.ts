@@ -359,7 +359,15 @@ test("Kiro steers busy input through _session/steer instead of replacing the run
 
     // Cleared without ever being injected means Kiro's own buffer discarded it before the
     // model read it - the daemon core must redeliver it once idle (runtime.ts, ADR 0048).
+    // `notify` resolves on Kiro's `_session/steer` answer; `steering_cleared` is a separate
+    // notification that can arrive after it, so wait on the event itself.
+    const undelivered = Promise.withResolvers<void>();
+    const stopWaiting = session.subscribe((event) => {
+      if (event.type === "notice-undelivered") undelivered.resolve();
+    });
     await session.notify!("steer-clear-without-inject STEER-MARKER-B");
+    await undelivered.promise;
+    stopWaiting();
     expect(events).toContainEqual({
       type: "notice-undelivered",
       text: "steer-clear-without-inject STEER-MARKER-B",
