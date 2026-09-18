@@ -1,15 +1,17 @@
 import { getFileDelivery, type FileDelivery } from "../files/file-delivery.server";
-import { isInlineImage } from "./attachment-response.server";
+import { isDeliveryInlinePreview, isInlineImage } from "./attachment-response.server";
 
 export type AttachmentView = {
   id: string;
   fileName: string;
   contentType: string;
   sizeBytes: number;
-  /** A short-lived signed CDN URL, present only for an inline-eligible image when delivery is
-   * configured. `<img src>` should prefer this over `/api/attachments/:id` so the bytes never
-   * round-trip through the backend; once it expires, that route is the fallback (it redirects to
-   * a freshly signed URL, or streams the bytes when delivery is not configured). */
+  /** A short-lived signed CDN URL, present for an inline-eligible image and for a type that may
+   * only be previewed off our own origin (a PDF) when delivery is configured. `<img src>` should
+   * prefer this over `/api/attachments/:id` so the bytes never round-trip through the backend;
+   * once it expires, that route is the fallback (it redirects to a freshly signed URL, or streams
+   * the bytes when delivery is not configured). Its absence is also the client's signal that a
+   * PDF cannot be previewed in this deployment, so it offers the download instead. */
   previewUrl?: string;
 };
 
@@ -46,7 +48,7 @@ export function attachmentView(
   delivery: FileDelivery | null = getFileDelivery(),
 ): AttachmentView {
   const previewUrl =
-    delivery && isInlineImage(row.contentType)
+    delivery && (isInlineImage(row.contentType) || isDeliveryInlinePreview(row.contentType))
       ? signPreviewUrl(delivery, row.objectKey)
       : undefined;
   return {
