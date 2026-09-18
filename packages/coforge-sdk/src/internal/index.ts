@@ -23,11 +23,22 @@ export const AGENT_ACTIVITY_PROBE_MESSAGE_TYPE = "coforge.rpc.v1.AgentActivityPr
 export const USAGE_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.DaemonRuntimeUsageScanRequest" as const;
 export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeUsageScanResponse" as const;
+/** Server -> daemon, on the daemon control channel like the usage scan (ADR 0051); per-Agent
+ * rather than per-provider, so it decodes through the same `#route` chain in
+ * `daemon-connection.ts` rather than a dedicated method the daemon calls. */
+export const AGENT_CONTEXT_SCAN_METHOD = "agent:context_scan" as const;
+/** Daemon -> server RPC carrying the scan's result. */
+export const AGENT_CONTEXT_SCAN_RESULT_METHOD = "agent:context_scan_result" as const;
+export const AGENT_CONTEXT_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.AgentContextScanRequest" as const;
+export const AGENT_CONTEXT_SCAN_RESPONSE_MESSAGE_TYPE =
+  "coforge.rpc.v1.AgentContextScanResponse" as const;
 export type DaemonRuntimeMessageType =
   | typeof AGENT_START_MESSAGE_TYPE
   | typeof AGENT_STOP_MESSAGE_TYPE
   | typeof USAGE_SCAN_MESSAGE_TYPE
-  | typeof USAGE_SCAN_RESPONSE_MESSAGE_TYPE;
+  | typeof USAGE_SCAN_RESPONSE_MESSAGE_TYPE
+  | typeof AGENT_CONTEXT_SCAN_MESSAGE_TYPE
+  | typeof AGENT_CONTEXT_SCAN_RESPONSE_MESSAGE_TYPE;
 export const AGENT_MESSAGE_METHOD = "agent:deliver" as const;
 export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
 export const AGENT_CHANNEL_MUTE_METHOD = "agent:channel:mute" as const;
@@ -473,6 +484,57 @@ export type DaemonRuntimeUsageScanResponse = DaemonRuntimeUsageScanRequest & {
   message?: string;
   snapshotJson?: Uint8Array;
 };
+/** Server -> daemon, on the daemon control channel like the usage scan (ADR 0051). Per-Agent: the
+ * server fills `launchId`/`sessionId` from its own record of the Agent's current control state;
+ * the daemon still resolves its own current launch/session independently before running anything
+ * (see `DaemonRuntime.scanAgentContext`) rather than trusting these fields outright. */
+export type AgentContextScanRequest = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  provider: RuntimeProvider;
+  launchId: string;
+  sessionId: string;
+  messageType?: DaemonRuntimeMessageType;
+};
+export const AGENT_CONTEXT_SCAN_STATUS = {
+  AVAILABLE: "available",
+  UNSUPPORTED: "unsupported",
+  NO_SESSION: "no_session",
+  UNPARSED: "unparsed",
+  TIMEOUT: "timeout",
+  ERROR: "error",
+} as const;
+export type AgentContextScanStatus =
+  (typeof AGENT_CONTEXT_SCAN_STATUS)[keyof typeof AGENT_CONTEXT_SCAN_STATUS];
+/** Daemon -> server RPC (method `agent:context_scan_result`). `reportJson` decodes to
+ * `AgentContextReport`, present only when `status` is `"available"`. */
+export type AgentContextScanResponse = AgentContextScanRequest & {
+  accepted: boolean;
+  status: AgentContextScanStatus;
+  message?: string;
+  reportJson?: Uint8Array;
+};
+/**
+ * A parsed Claude Code `/context` report (ADR 0051): what the current context window is made of,
+ * by category, plus the per-item Memory files/Skills lists. Claude Code only today; a provider
+ * with no equivalent signal never produces one. Categories are free text, kept exactly as the CLI
+ * printed them (English, Claude Code's own labels — never translated); `"Free space"` is
+ * recognized by name to draw the remainder in the UI. `approximate` marks a token count the CLI
+ * itself only bounded (its `< N` form), never a value this parser guessed.
+ */
+export type AgentContextReport = {
+  provider: RuntimeProvider;
+  model?: string;
+  usedTokens: number;
+  windowTokens: number;
+  observedAt: string;
+  categories: { name: string; tokens: number; approximate?: boolean }[];
+  memoryFiles?: { kind: string; path: string; tokens: number; approximate?: boolean }[];
+  skills?: { name: string; source: string; tokens: number; approximate?: boolean }[];
+};
 export type AgentStartIntent = {
   protocolMajor: number;
   requestId: string;
@@ -727,6 +789,10 @@ export {
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
   decodeDaemonRuntimeUsageScanResponse,
+  encodeAgentContextScanRequest,
+  decodeAgentContextScanRequest,
+  encodeAgentContextScanResponse,
+  decodeAgentContextScanResponse,
   encodeComputerRestartIntent,
   decodeComputerRestartIntent,
   encodeComputerUpgradeIntent,
