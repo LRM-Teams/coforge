@@ -53,12 +53,28 @@ describe("a PDF is previewable only from a different origin", () => {
     ).toBe("pdf");
   });
 
-  test("during server rendering the server's own refusal is what protects the frame", () => {
-    // No page origin exists to compare against; the server has already refused to sign a delivery
-    // URL on its own origin, and the browser repeats this check on hydration.
-    expect(isFrameableDocumentUrl(`${DELIVERY_ORIGIN}/o/k`, undefined)).toBe(true);
+  test("server rendering frames nothing: with no page origin, no URL is previewable", () => {
+    // A frame emitted during SSR is decided by no origin check at all — the browser can start
+    // loading its `src` from the served HTML before hydration re-runs the check and removes it,
+    // which is not fail-closed. The hydrated browser always has an origin, so the PDF frame
+    // appears there instead.
+    expect(isFrameableDocumentUrl(`${DELIVERY_ORIGIN}/o/k`, undefined)).toBe(false);
+    expect(isFrameableDocumentUrl(`${APP_ORIGIN}/o/k`, undefined)).toBe(false);
     expect(isFrameableDocumentUrl("/api/attachments/abc", undefined)).toBe(false);
     expect(isFrameableDocumentUrl(undefined, undefined)).toBe(false);
+    expect(
+      attachmentPreviewKind("spec.pdf", "application/pdf", `${DELIVERY_ORIGIN}/o/k`, undefined),
+    ).toBeNull();
+  });
+
+  test("a delivery origin equal to the application's own is never framed, however it is reached", () => {
+    // The deployment the server-side guard cannot catch: `AUTHING_REDIRECT_URI` is unset, so
+    // `readFileDeliveryConfig` has no application origin to compare and permits the delivery URL.
+    // This is then the only check left, and it refuses.
+    expect(isFrameableDocumentUrl(`${APP_ORIGIN}/files/o/k`, APP_ORIGIN)).toBe(false);
+    expect(
+      attachmentPreviewKind("spec.pdf", "application/pdf", `${APP_ORIGIN}/files/o/k`, APP_ORIGIN),
+    ).toBeNull();
   });
 });
 
