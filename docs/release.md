@@ -44,9 +44,9 @@ redaction, and a non-root deployment identity.
 
 ## Release tracks and immutable identities
 
-| Track | Candidate identity | Test target | Production effect |
-| --- | --- | --- | --- |
-| Cloud application | Full `registry/repository@sha256:...` image reference | `staging` GitHub Environment and Compose project | Deploy the same digest to production Compose |
+| Track                       | Candidate identity                                                                                      | Test target                                                  | Production effect                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Cloud application           | Full `registry/repository@sha256:...` image reference                                                   | `staging` GitHub Environment and Compose project             | Deploy the same digest to production Compose                                                          |
 | Local Computer distribution | A release version plus its manifest's SHA-256 checksum for every platform's unified Computer executable | Version published behind the staging feed's `latest` pointer | Build the same commit against the production feed, publish it, then point production's `latest` at it |
 
 The daemon runtime role is released inside `coforge-daemon`; it is not a third local
@@ -75,20 +75,20 @@ release version injection must give both roles the same version.
 
 Every deployment or local-distribution publication record must identify:
 
-| Field | Meaning |
-| --- | --- |
-| `source_commit` | Full Git commit SHA on `main`; host-initiated rollback uses the explicit `manual` sentinel and remains bound to immutable image digests |
-| `track` | Cloud application or local Computer distribution |
-| `artifact_identity` | Cloud image digest or local release version and its manifest's SHA-256 |
-| `artifact_members` | Image reference or, per platform, the unified Computer executable's name, size, and SHA-256 checksum |
-| `environment_or_channel` | Isolated `staging` or `production` target |
-| `workflow_run` | GitHub Actions run URL or stable run ID; host-initiated rollback uses the explicit `manual` sentinel |
-| `previous_identity` | Last known healthy digest/manifest, or an explicit bootstrap marker; cloud JSONL names this `previous_digest` |
-| `verification_result` | Track-specific internal, public, shared-ingress, running-identity, install, upgrade, and integrity evidence; cloud JSONL names this `health_result` |
-| `approval` | Production-only human approval bound to the exact artifact identity |
-| `executor` | Agent or human that executed the deployment |
-| `started_at` / `completed_at` | UTC transaction boundaries |
-| `outcome` | Healthy, failed, rolled back, or failed rollback |
+| Field                         | Meaning                                                                                                                                             |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source_commit`               | Full Git commit SHA on `main`; host-initiated rollback uses the explicit `manual` sentinel and remains bound to immutable image digests             |
+| `track`                       | Cloud application or local Computer distribution                                                                                                    |
+| `artifact_identity`           | Cloud image digest or local release version and its manifest's SHA-256                                                                              |
+| `artifact_members`            | Image reference or, per platform, the unified Computer executable's name, size, and SHA-256 checksum                                                |
+| `environment_or_channel`      | Isolated `staging` or `production` target                                                                                                           |
+| `workflow_run`                | GitHub Actions run URL or stable run ID; host-initiated rollback uses the explicit `manual` sentinel                                                |
+| `previous_identity`           | Last known healthy digest/manifest, or an explicit bootstrap marker; cloud JSONL names this `previous_digest`                                       |
+| `verification_result`         | Track-specific internal, public, shared-ingress, running-identity, install, upgrade, and integrity evidence; cloud JSONL names this `health_result` |
+| `approval`                    | Production-only human approval bound to the exact artifact identity                                                                                 |
+| `executor`                    | Agent or human that executed the deployment                                                                                                         |
+| `started_at` / `completed_at` | UTC transaction boundaries                                                                                                                          |
+| `outcome`                     | Healthy, failed, rolled back, or failed rollback                                                                                                    |
 
 Tags, versions, filenames, and channel names are useful labels, but they do not
 replace immutable identity. Compose must ultimately resolve a cloud service as
@@ -98,15 +98,15 @@ recorded SHA-256 checksums.
 
 ## Cloud environment model
 
-| Concern | `staging` | `production` |
-| --- | --- | --- |
-| Trigger | Successful push to `main` | Promotion request for a tested digest |
-| Authorization | Automatic | Human approves the exact digest; Agent executes |
-| Artifact | Newly built immutable digest | Same digest already healthy in `staging` |
-| GitHub Environment | `staging` | `production` |
-| Compose project | `coforge-staging` | `coforge-production` |
-| Concurrency | One deployment at a time | One deployment at a time |
-| Rollback target | Previous healthy digest or empty bootstrap state | Previous healthy digest or approved bootstrap state |
+| Concern            | `staging`                                        | `production`                                        |
+| ------------------ | ------------------------------------------------ | --------------------------------------------------- |
+| Trigger            | Successful push to `main`                        | Promotion request for a tested digest               |
+| Authorization      | Automatic                                        | Human approves the exact digest; Agent executes     |
+| Artifact           | Newly built immutable digest                     | Same digest already healthy in `staging`            |
+| GitHub Environment | `staging`                                        | `production`                                        |
+| Compose project    | `coforge-staging`                                | `coforge-production`                                |
+| Concurrency        | One deployment at a time                         | One deployment at a time                            |
+| Rollback target    | Previous healthy digest or empty bootstrap state | Previous healthy digest or approved bootstrap state |
 
 GitHub Environment secrets, variables, protection, deployment history, and
 concurrency are independent from the Git branch model. Staging and production
@@ -405,7 +405,7 @@ command. Metadata requests are quiet; only the binary download has a progress ba
 `install.sh` and `install.ps1` read the same `COFORGE_RELEASE_FEED_URL`
 variable, but unconditionally and at runtime: any `https://` value is
 accepted, not just the compiled-in default. This is deliberate, not an
-oversight of the rule above: `release-channel.ts` hardens the *compiled*,
+oversight of the rule above: `release-channel.ts` hardens the _compiled_,
 long-lived binary that auto-updates itself indefinitely, where a runtime
 toggle would let it be silently redirected to an untrusted feed on every
 future update. The bootstrap scripts are the opposite shape - a one-shot the
@@ -422,7 +422,7 @@ path with the exact bytes of `scripts/release/install.sh` (embedded at build
 time; see `apps/web/src/server/install/install-script.server.ts`) unchanged -
 the same script, with the same compiled-in `https://releases.coforge.cn`
 default, is served from every deployment. How a staging deployment's served
-copy of `install.sh` would reach the staging feed *by default* (as opposed to
+copy of `install.sh` would reach the staging feed _by default_ (as opposed to
 a caller exporting the variable by hand) therefore remains unresolved and
 belongs to a future per-environment publishing/serving decision, not to this
 variable. Both scripts carry the threat-model half of this reasoning inline
@@ -430,11 +430,11 @@ as a comment.
 
 ### Reading GitHub Actions
 
-| Workflow | When it runs | Steps |
-| --- | --- | --- |
-| **CI** | A pull request is opened or updated | Plan checks → validate affected packages and scripts → CI passed |
-| **Deploy Web (staging)** | A commit reaches `main` | Validate → build and push Docker image → deploy and verify Web |
-| **Publish Computer (staging)** | Manually started from `main` | Validate → build all six platforms → upload and verify release → update staging `latest` |
+| Workflow                       | When it runs                        | Steps                                                                                    |
+| ------------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| **CI**                         | A pull request is opened or updated | Plan checks → validate affected packages and scripts → CI passed                         |
+| **Deploy Web (staging)**       | A commit reaches `main`             | Validate → build and push Docker image → deploy and verify Web                           |
+| **Publish Computer (staging)** | Manually started from `main`        | Validate → build all six platforms → upload and verify release → update staging `latest` |
 
 The Web workflow skips image build and deployment when the commit does not
 affect Web. Computer publication is manual and its run title includes the
@@ -737,17 +737,31 @@ seams before a local distribution channel can be promoted.
 
 An upgrade or rollback coordinator must execute outside the managed service's
 kill scope. Under native management it acquires the machine mutation lock for
-the complete transaction, prepares and verifies bytes, pauses launches,
+the complete transaction, prepares and verifies bytes, persists launch-hold
+with the exact request ID,
 snapshots the exact running Workspace set, holds the runners and waits for them
 to quiesce (below), asks `systemd --user` or per-user `launchd` to stop the
-Supervisor, activates the target, restarts the manager,
-and accepts health only with a new Supervisor identity, expected version, and
-new identity for every previously running Workspace child. Candidate failure
-automatically restores the prior immutable installation and the same running
-set, then repeats those checks; failed rollback keeps launches held for explicit
-recovery. A foreground externally supervised instance cannot currently be
-stopped by this coordinator and must be stopped through its external supervisor
-before upgrade.
+Supervisor, activates the target, and restarts the manager. A replacement
+Coordinator born while launch-hold exists loads its bindings and exposes local
+control but does not start Workspace children. Candidate health requires a new
+Supervisor identity reporting the expected version; it does not require
+Workspace children to be online. The coordinator writes the terminal receipt
+before resume. Resume first settles that receipt into the affected child config,
+then removes the internal pause and starts enabled Workspace children, whose
+first cloud ready can therefore report the already-durable result. The same
+held-recovery seam is bound to the request ID stored in launch-hold and is also invoked by receipt
+watcher/startup settlement: if the external job exits after receipt commit or loses the resume
+response, the Coordinator still resumes that exact verified operation and clears launch-hold; an
+unrelated terminal receipt cannot release it. Legacy hold files select the newest operation by
+`requestedAt`. Candidate
+Supervisor failure automatically restores the prior immutable installation,
+probes that Supervisor, records the rollback result, and only then resumes.
+Once a candidate or rollback receipt is committed, a later Workspace child
+startup failure is a separate Workspace lifecycle fault and never rewrites the
+Computer result or rolls the executable back. Failed Supervisor rollback keeps
+launches held for explicit recovery. A foreground externally supervised instance
+cannot currently be stopped by this coordinator and must be stopped through its
+external supervisor before upgrade.
 
 ### Upgrade operations and their receipts
 

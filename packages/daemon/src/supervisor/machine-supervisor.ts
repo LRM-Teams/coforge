@@ -127,24 +127,12 @@ export class MachineSupervisor {
     private readonly settlePendingUpgrade?: PendingUpgradeSettler,
   ) {}
 
-  recover() {
+  recover(options: { paused?: boolean } = {}) {
     return this.#serialize(async () => {
       this.#bindings = await this.store.load();
       this.#reloadRequired = false;
-      const failures: Error[] = [];
-      for (const workspaceId of this.#bindings.map((binding) => binding.workspaceId)) {
-        await this.#refresh();
-        const binding = this.#bindings.find((entry) => entry.workspaceId === workspaceId)!;
-        try {
-          if (!binding.enabled) await this.#stop(binding);
-          else if (binding.restart) await this.#advanceRestart(binding);
-          else await this.#start(binding);
-        } catch (cause) {
-          failures.push(new Error(`Workspace ${workspaceId} recovery failed`, { cause }));
-        }
-      }
-      if (failures.length)
-        throw new WorkspaceRecoveryError(failures, "Workspace recovery incomplete");
+      this.#paused = options.paused ?? false;
+      if (!this.#paused) await this.#reconcileBindings();
     });
   }
 
@@ -342,12 +330,31 @@ export class MachineSupervisor {
   resume() {
     return this.#serialize(async () => {
       this.#paused = false;
+      await this.#refresh();
+      await this.#reconcileBindings();
     });
   }
   shutdown() {
     return this.#serialize(async () => {
       for (const binding of this.#bindings) await this.#stop(binding);
     });
+  }
+
+  async #reconcileBindings(): Promise<void> {
+    const failures: Error[] = [];
+    for (const workspaceId of this.#bindings.map((binding) => binding.workspaceId)) {
+      await this.#refresh();
+      const binding = this.#bindings.find((entry) => entry.workspaceId === workspaceId)!;
+      try {
+        if (!binding.enabled) await this.#stop(binding);
+        else if (binding.restart) await this.#advanceRestart(binding);
+        else await this.#start(binding);
+      } catch (cause) {
+        failures.push(new Error(`Workspace ${workspaceId} recovery failed`, { cause }));
+      }
+    }
+    if (failures.length)
+      throw new WorkspaceRecoveryError(failures, "Workspace recovery incomplete");
   }
 
   async #advanceRestart(binding: ManagedBinding): Promise<void> {

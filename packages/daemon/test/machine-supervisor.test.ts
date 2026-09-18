@@ -37,6 +37,36 @@ function upgradeFixture(
   return { state, supervisor, operations: () => state.saved[0]?.upgradeOperations };
 }
 
+test("paused recovery loads bindings without starting them, then resume reconciles the set", async () => {
+  const calls: string[] = [];
+  const bindings: ManagedBinding[] = [
+    { workspaceId: "running", computerId: "c", workspaceRoot: "/running", enabled: true },
+    { workspaceId: "stopped", computerId: "c", workspaceRoot: "/stopped", enabled: false },
+  ];
+  const supervisor = new MachineSupervisor(
+    { load: async () => structuredClone(bindings), save: async () => {} },
+    {
+      start: async (binding) => {
+        calls.push(`start:${binding.workspaceId}`);
+        return `instance:${binding.workspaceId}`;
+      },
+      stop: async (binding) => {
+        calls.push(`stop:${binding.workspaceId}`);
+      },
+      instance: async () => null,
+    },
+  );
+
+  await supervisor.recover({ paused: true });
+  expect(calls).toEqual([]);
+  await expect(
+    supervisor.configure({ workspaceId: "new", computerId: "c", workspaceRoot: "/new" }),
+  ).rejects.toBeInstanceOf(UpgradeLaunchesPausedError);
+
+  await supervisor.resume();
+  expect(calls).toEqual(["start:running", "stop:stopped"]);
+});
+
 test("only one upgrade operation may be pending, and a replay is not a second launch", async () => {
   const { supervisor, operations } = upgradeFixture();
   await supervisor.recover();

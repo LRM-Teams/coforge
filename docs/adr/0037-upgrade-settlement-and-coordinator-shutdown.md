@@ -1,289 +1,212 @@
-# ADR 0037: The Coordinator keeps settling Computer upgrades after startup, and exits when it says it has
+# ADR 0037: Commit Computer upgrade results before Workspace launch
 
-Status: accepted
+Status: accepted, amended 2026-09-18
+
 Date: 2026-09-17
 
 ## Context
 
-Two incidents on 2026-09-17, both on machines running the receipt model from
-[ADR 0017](0017-computer-upgrade-operation-receipt.md).
+Two field incidents exposed an invalid ordering in the local Computer upgrade transaction.
 
-**A successful remote upgrade was never settled.** macOS dev.36 → dev.37 and
-Linux dev.35 → dev.36 both **succeeded** (`result.json` `status: "succeeded"`),
-yet `bindings.json` kept the operation `state: "pending"` afterwards. On the
-Linux machine the next remote upgrade was refused twice with `Computer upgrade
-operation <id> is still pending; wait for it to finish before starting
-another`, and the web UI showed "The Computer did not report the new version
-in time."
+First, a successful remote upgrade could remain pending. The replacement Coordinator started every
+enabled Workspace during `recover()`. A Workspace daemon connected to cloud and ran its initial
+ready/result reconciliation before the external upgrade job finished its local health probe and
+wrote `result.json`. The result therefore was absent from that first ready. The old implementation
+only re-read it on a later reconnect, so a continuously healthy WSS connection timed out in Web even
+though the machine already ran the new version.
 
-The cause is a timing gap in ADR 0017's own design, not a defect in any one
-function. `sweepComputerUpgradeReceipts` is run twice: once at Coordinator
-startup (`settlePendingUpgradeOperations`, before the local RPC server even
-starts), and once by an in-process `watchUpgradeReceipt` bounded to 10 minutes,
-owned by the very Coordinator that launched the job. But
-`packages/computer/src/release/upgrade-coordinator.ts`'s `performSwitch` writes
-the result receipt **after** `lifecycle.start()` (the new Coordinator comes up)
-**and** `lifecycle.probe()` (it must answer the handshake and report the
-expected version) succeed. The Coordinator that launched the job is the
-process the upgrade replaces - it never gets to see the receipt at all, and it
-is gone before the sequence above finishes. The _new_ Coordinator's startup
-sweep runs too early: `probe()` (and therefore the receipt) has not happened
-yet, because `probe` itself depends on that new Coordinator having already
-reached the point in its own startup where the sweep runs. Every
-`upgrade:operation_settled` log line ever produced in the field was therefore
-emitted by a **later** Coordinator start than the one whose upgrade produced
-it - the receipt sat on disk, unread, until something else happened to
-restart the Coordinator again.
+PR #430 added a pending-only 250 ms reconciliation loop in each Workspace daemon. It repaired the
+visible timeout, including acknowledgement and stop/restart races, but retained the inverted cause:
+Workspace startup was still a prerequisite for creating the Computer terminal receipt.
 
-**The Coordinator outlived its own shutdown by ~5 s and was SIGKILLed.**
-Measured on macOS: `coordinator:stopped` logged at 17:19:04.17, process gone at
-17:19:09 - exactly launchd's 5 s `SIGKILL` window (ADR 0032). Cause:
-`watchUpgradeReceipt` looped on a bare `Bun.sleep(UPGRADE_RECEIPT_POLL_MS)` for
-up to 10 minutes and was never cancelled at shutdown. A pending `Bun.sleep`
-keeps Bun's event loop - and so the process - alive; this is the same class of
-bug ADR 0032 fixed in `runner-hold.ts`'s `answeredWithin`, just in a second,
-unrelated background wait that was not touched by that fix.
+Second, the earlier Coordinator receipt watch used an uncancelled `Bun.sleep`. It kept a stopped
+Coordinator process alive until the OS manager's forced-kill deadline. The existing abortable receipt
+watch remains necessary for crash recovery, independently of the ordering decision below.
 
-Two additions were folded in after comparing with Raft Computer 1.0.32's
-`k-carrier`: it keeps one durable operation record and re-delivers /
-acknowledges an unacknowledged terminal receipt on **every** server
-(re)connect via `onComputerUpgradeReconcile`, and `raft-computer status`
-prints `K terminal receipt, unacknowledged (id …)`. Raft has the same
-single-pending-slot rule and the same refusal shape
-(`OPERATION_RECEIPT_PENDING` / `K_UPGRADE_OPERATION_BLOCKED`), but reconciles
-continuously and surfaces the state in its own status command; ours did
-neither before this record.
+The previous release contract also defined candidate health as a new Supervisor plus a replacement
+identity for every previously running Workspace child. That coupled immutable Computer promotion to
+application recovery. Frank approved separating those outcomes on 2026-09-18: Computer promotion is
+committed after the replacement Supervisor passes its local identity/version probe; Workspace startup
+happens afterwards and reports its own faults without rewriting or rolling back the Computer result.
 
 ## Decision
 
-**The Coordinator keeps watching every still-pending operation after
-startup**, not only once. `watchComputerUpgradeReceipt`
-(`packages/daemon/src/platform/computer-upgrade-receipts.ts`) is the extracted,
-unit-testable unit: given `{ signal, sleep, now, pollMs, ttlMs }` it checks
-immediately, then polls, reusing `sweepComputerUpgradeReceipts` - the very
-function the startup sweep already uses - for the actual settle. It resolves
-the moment a receipt appears, the moment the operation ages past `ttlMs`, or
-the moment `signal` aborts. The pending-TTL expiry that used to be enforced
-only in the startup sweep is therefore enforced continuously by the same
-mechanism, for as long as the Coordinator runs. `run-supervisor.ts` starts one
-watch per still-pending operation right after the startup sweep, and one more
-each time `daemon:upgrade` records a new operation; there is no longer a fixed
-10-minute watch window separate from the TTL.
+### Keep the pre-switch quiescence boundary
 
-**`recordUpgrade` settles a stale blocker before refusing.** A new,
-optional, constructor-injected `PendingUpgradeSettler` (`{workspaceId,
-requestId, requestedAt} -> settlement | undefined`) is consulted only when a
-pending operation would otherwise cause a refusal. It is read-only - it does
-not call back into `completeUpgrade`, since `recordUpgrade` is already inside
-that same serialized mutation and re-entering it would deadlock - so
-`recordUpgrade` applies the settlement itself, in the same atomic write that
-also records the new request. `run-supervisor.ts` wires this to a small
-closure that reuses `sweepComputerUpgradeReceipts` purely to _read_ the answer
-(receipt present, or TTL passed), never to write through it. The single
-pending slot rule is otherwise unchanged: a genuinely in-flight operation
-still refuses with the same message.
+Before changing bytes, the old Coordinator still:
 
-**A settled result still has to reach the server, without a Workspace
-restart.** `#reportUpgradeResults()` (`daemon-runtime/runtime.ts`) used to read
-a static snapshot (`recoveredUpgradeResults`) captured once, at process
-construction, from the config file the Coordinator wrote before spawning that
-Workspace. That snapshot never reflected anything the continuous watch settled
-afterwards. Two changes, both purely local (no wire or local-RPC protocol
-change):
+1. writes `launch-hold` containing the exact upgrade request ID and pauses lifecycle mutations;
+2. fans a runner hold out to every running Workspace daemon;
+3. waits within the existing bound for active Agent/tool work to quiesce;
+4. snapshots the registered/running Workspace set for post-promotion reconciliation and evidence;
+5. stops the old Supervisor and activates the candidate.
 
-- The Coordinator (`run-supervisor.ts`) now rewrites the affected Workspace's
-  own local config file (`buildChildConfig` / `refreshChildUpgradeConfig`) -
-  the exact file, and the exact shape, it already writes once before spawning
-  that Workspace - every time it settles an operation (via the continuous
-  watch, via `recordUpgrade`'s pre-check, or via `daemon:upgrade_ack`), without
-  restarting the Workspace process.
-- `DaemonRuntime` gained an optional `lifecycle.refreshUpgradeState()` hook
-  that re-reads the same file's outstanding request IDs and terminal results fresh.
-  `#reportUpgradeResults` prefers it over the static snapshot, and it is now also called from the Workspace daemon's
-  existing `onReconnect` handler (previously used only for code-agent runtime
-  reports, control replay, and reminder resync), not only once at the initial
-  ready handshake. A result the watch settles while a Workspace keeps running
-  therefore reaches the server on that Workspace's next reconnect, not only at
-  its own next process start.
+The bounded wait behavior is unchanged. An unreachable or perpetually busy Workspace cannot block the
+machine forever; the Coordinator records that evidence and proceeds under the existing runner-hold
+contract.
 
-**2026-09-18 amendment: a continuously connected replacement reconciles without waiting for reconnect.**
-A later field upgrade exposed one remaining gap in the two bullets above. The replacement Workspace
-daemon can complete its initial ready handshake before `performSwitch` finishes its health probe and
-before the Coordinator writes the terminal receipt/config. If its WSS connection then stays healthy,
-there is no "next reconnect" to trigger the fresh read, so the server times out even though the local
-upgrade succeeded. Keeping cloud ready eager is a failure-isolation decision, not a dependency
-requirement: the Coordinator probe is local and could technically finish first, but binding process
-online/recovery to final upgrade bookkeeping would make a probe or Coordinator failure hide an
-otherwise live replacement from the server. While `recoveredUpgradeRequestIds` contains an
-unacknowledged operation,
-`DaemonRuntime` now re-reads `refreshUpgradeState()` every 250 ms, reports and acknowledges a
-terminal result as soon as the Coordinator publishes it, and then stops polling that request. A
-successful config read is also authoritative for IDs the Coordinator has already removed, so a
-committed acknowledgement whose local-RPC response was lost cannot leave a permanent poller. The
-timer is unreferenced, serialized with ready/reconnect reporting, and cancelled on runtime stop; a
-runtime generation fence prevents a config read already in flight from sending or re-arming after
-stop; an upgrade request whose local RPC completes after a replacement generation starts explicitly
-enrolls that current generation instead of leaving an unscheduled stale ID. A failed report or
-acknowledgement remains pending and is retried. This uses the same local config,
-wire RPC, and acknowledgement path already approved above; it adds no protocol or persisted format.
-Reconnect and initial ready remain eager reconciliation points, not the sole ones.
+### A replacement Coordinator honors launch-hold during recovery
 
-This is deliberately _not_ Raft's model: Raft's carrier reconciles over its
-own server RPC on every connect. Ours has no Coordinator→server channel at
-all (ADR 0017's own rejected-alternatives already established that only the
-Workspace daemon holds the cloud connection); re-reading a Coordinator-owned
-local file that already existed for this exact purpose reaches the same
-outcome without adding one.
+`run-supervisor.ts` checks `launch-hold` before calling `MachineSupervisor.recover`. When present,
+recovery loads durable bindings and exposes local RPC but starts no Workspace process. `pause` still
+blocks configure/start/stop/restart/upgrade mutations.
 
-**Every Coordinator-owned background wait is cancelled at shutdown.** A single
-`AbortController` in `run-supervisor.ts` is threaded into every
-`watchComputerUpgradeReceipt` call; `runWithSupervisorLock`'s `finally` aborts
-it and awaits every in-flight watch before releasing the supervisor lock.
-`abortableSleep` (`computer-upgrade-receipts.ts`) is the sleep primitive: it
-clears its timer the instant `signal` aborts, so - unlike the bare
-`Bun.sleep` it replaces - no pending timer is ever left behind for the event
-loop to wait on.
+`MachineSupervisor.resume` clears its internal pause and reconciles the loaded binding set. This same
+operation is idempotent for an old Coordinator whose Workspace processes survived the pause.
 
-**The `__daemon` and `__workspace-daemon` entries exit explicitly.**
-`packages/computer/src/main.ts`'s `__daemon` branch now exits with
-`process.exit(process.exitCode ?? 0)` once `runMachineSupervisor` resolves, or
-`process.exit(1)` if it threw - belt and braces: shutdown there is already
-fully awaited (every background wait cancelled, logging disposed) before the
-promise settles, so this is a second line of defence, not the fix itself.
-`__workspace-daemon` gets the identical treatment for the same reason:
-`runDaemon`'s promise resolves only after its own SIGINT/SIGTERM shutdown has
-stopped every Workspace runtime, closed the Agent proxy and local RPC server,
-and disposed logging. `__managed-agent` (`runLaunchdAgent`) is deliberately
-left alone: its promise resolves as soon as its relay socket _connects_, long
-before the relayed Agent process or the socket itself ends, so its shutdown is
-not "fully awaited" the way the other two are - it already terminates through
-`process.exit` calls inside itself, at each real end of life, and exiting in
-`main.ts` too would kill the relay the moment it connects. `process.exit` is
-called only from this entrypoint file, never from library code.
+### Probe only the promoted Computer Supervisor
 
-**`coforge-computer status` lists unsettled upgrade operations, read-only.**
-`collectComputerStatus` now reports every operation still not `acknowledged`
-(`requestId`, `expectedVersion`, `state`, age in ms) per Workspace, in both the
-human and `--json` output. No acknowledge command was added; `status` only
-ever reads.
+The upgrade health probe verifies the replacement Supervisor has:
+
+- a new process identity (not the pre-switch daemon ID); and
+- the expected Computer/Daemon version.
+
+It no longer requires Workspace child processes to be online, to have new PIDs, or to report the
+candidate version. Workspace processes are intentionally still stopped under launch-hold at this
+point.
+
+When no Supervisor was running before the operation, the existing executable-only version probe
+remains unchanged.
+
+### Commit the terminal receipt before resume
+
+The external upgrade job receives a write-once result commit callback. After the candidate Supervisor
+probe succeeds, it atomically writes the `succeeded` receipt before invoking `resumeLaunches`.
+
+If candidate Supervisor health fails and the previous immutable version is restored successfully, the
+job writes the `failed`/`UPGRADE_ROLLED_BACK` receipt before resume. If rollback fails, it writes
+`UPGRADE_ROLLBACK_FAILED` and retains launch-hold for explicit recovery.
+
+A receipt commit failure is fail-closed: Workspace launch remains held. The job never releases
+Workspace startup without durable terminal evidence.
+
+Once a candidate or rollback receipt is committed, a later Workspace recovery error cannot overwrite
+that receipt or trigger executable rollback. It is an application lifecycle fault under the promoted
+Computer version.
+
+### Settle before starting Workspace children
+
+A Coordinator born under launch-hold completes the exact upgrade request in this order:
+
+1. sweep that request's durable receipt;
+2. require that exact operation to be terminal;
+3. persist terminal state in the binding and refresh the affected child config;
+4. reconcile enabled Workspace bindings;
+5. remove `launch-hold`.
+
+The external job's `daemon:resume` RPC and the Coordinator's receipt watcher/startup sweep share one
+idempotent `HeldUpgradeRecovery` seam bound to the request ID stored in `launch-hold`. If the job
+exits after receipt rename, or resume side effects commit but the RPC response is lost, terminal
+settlement still resumes Workspace bindings and clears hold. An unrelated receipt cannot join or
+release the held request. On Coordinator restart, the persisted request ID selects its exact
+operation; legacy `upgrade\n` hold files fall back to the newest pending or verified terminal
+operation by `requestedAt`. `UPGRADE_ROLLBACK_FAILED` and unknown failure receipts retain hold for
+explicit recovery.
+
+Workspace recovery is best effort across bindings. A failed child is logged as
+`upgrade:workspace_recovery_incomplete`; healthy peers continue and machine-wide hold is released.
+The existing Workspace lifecycle/error surface owns subsequent repair.
+
+### Report once on first ready; reconnect remains recovery
+
+Because terminal state is in child config before a Workspace starts, its first cloud ready is followed
+by the existing `computer:upgrade_result` report and local acknowledgement. No active polling, file
+watcher, or new local/cloud protocol is needed.
+
+A later reconnect replays an unacknowledged terminal result. Server-side request ID idempotency and the
+existing `daemon:upgrade_ack` path handle a lost response. Coordinator startup/continuous receipt
+sweeps remain crash recovery for jobs that outlive the process that launched them.
+
+### Cancel Coordinator-owned waits at shutdown
+
+The existing `AbortController` continues to own every `watchComputerUpgradeReceipt` wait.
+`runWithSupervisorLock` aborts and awaits those watches before releasing the Supervisor lock.
+`abortableSleep` clears its timer immediately, so no receipt watch retains the process after shutdown.
+
+## Why this ordering
+
+The design follows the established transactional-upgrade pattern used by Raft Computer 1.0.32:
+quiesce work, promote and attest the machine service, commit durable outcome, then resume managed
+work. CoForge makes the receipt-before-resume boundary strict rather than relying on process startup
+latency.
+
+Cloud ready is not delayed inside a running Workspace daemon. Instead, Workspace creation itself is
+held until terminal commit. The meanings remain separate:
+
+- Supervisor probe: the Computer version is promoted;
+- receipt: the upgrade transaction is terminal;
+- Workspace ready: one application child is online;
+- Workspace fault: post-promotion application recovery needs repair.
 
 ## Rejected alternatives
 
-- **A fixed watch window longer than 10 minutes, kept separate from the
-  pending TTL.** Two numbers governing the same question (how long is this
-  operation allowed to sit unresolved) drift apart by construction. The watch
-  now shares `ttlMs` with the sweep it calls.
-- **Have `recordUpgrade`'s settle check call `completeUpgrade`.** Both run
-  inside `MachineSupervisor`'s single serialized mutation queue; a call from
-  inside an in-flight mutation back into a method that enqueues its own would
-  deadlock rather than settle anything. The settle check is read-only by
-  design; the caller (`recordUpgrade` itself) applies the answer.
-- **A new local-RPC method (or a widened `daemon:snapshot`/lifecycle response)
-  for the Workspace daemon to ask the Coordinator to sweep and hand back its
-  current terminal operations.** Investigated and rejected for this record:
-  every existing local-RPC response is either a bare accepted/rejected boolean
-  or a `ManagedRuntimeIdentity[]` (pid/version/enabled) - none carries upgrade
-  state, and adding a field or a method would be a local-RPC protocol change,
-  which this record was explicitly scoped to avoid. Rewriting the
-  already-Coordinator-owned per-Workspace config file the Workspace daemon
-  already reads reaches the same outcome with no protocol surface change at
-  all.
-- **A manual "acknowledge" CLI command for a stuck operation.** Not added.
-  `status` is read-only; the continuous watch plus the TTL is the only path to
-  a terminal state.
+### Keep PR #430's 250 ms Workspace reconciliation loop
+
+It can self-heal the timeout, but it adds a second state machine to every Workspace daemon to compensate
+for a deterministic ordering inversion. Generation fencing, pending-ID authority, ambiguous ack
+handling, and timer lifecycle all disappear when terminal state precedes Workspace startup.
+
+### Push a local notification after config refresh
+
+A notification reduces latency but still needs reconnect/poll fallback for lost delivery and retains the
+same inverted order. It also adds a local RPC compatibility surface without removing durable config.
+
+### Let the Coordinator report directly to cloud HTTPS
+
+This would add a second machine-result reporter, a new authenticated endpoint, Workspace credential
+selection for a machine-wide operation, retry/outbox behavior, and a security-boundary exception.
+The existing Workspace daemon remains the sole cloud reporter; durable receipt plus first-ready/reconnect
+reconciliation is sufficient once ordering is correct.
+
+### Keep Workspace children in the Computer promotion health gate
+
+This was the old release contract. It makes one application child's recovery failure roll immutable
+Computer bytes back even after the Supervisor is healthy, and forces Workspace startup before the
+terminal receipt can exist. Frank approved the separated contract on 2026-09-18.
 
 ## Consequences
 
-- A pending operation is now bounded by exactly one number
-  (`UPGRADE_OPERATION_PENDING_TTL_MS`, 30 minutes) enforced continuously, not
-  by a startup sweep plus a separate, shorter watch window.
-- `MachineSupervisor`'s constructor grew one more optional trailing parameter
-  (`PendingUpgradeSettler`). Every existing call site that only passed
-  `(store, processes)` or `(store, processes, now)` is unaffected.
-- `DaemonRuntime`'s `lifecycle` parameter grew one more optional method
-  (`refreshUpgradeState`). A caller that never supplies it gets exactly the
-  previous behaviour (the static `recoveredUpgradeResults` snapshot). When the
-  hook exists and an unacknowledged request ID is known, a 250 ms unreferenced
-  reconciliation timer remains active only until that request is acknowledged;
-  runtime shutdown cancels it synchronously.
-- The Coordinator now performs one extra small local file write per settle
-  (startup sweep, continuous watch, `recordUpgrade`'s pre-check, and
-  `daemon:upgrade_ack`) into the affected Workspace's own config file. That
-  file was already rewritten unconditionally on every real Workspace start;
-  this adds writes only at settlement, at most a handful per operation.
-- `coforge-computer status --json` gains one field per Workspace
-  (`unsettledUpgrades`). Existing consumers that read specific fields are
-  unaffected; a consumer doing a strict full-object comparison against the old
-  shape needs updating (two existing unit tests here needed exactly that).
-
-## What was NOT verified
-
-- No live remote upgrade was executed end to end on this machine (it already
-  runs a live Coordinator that was deliberately left untouched). The fix is
-  validated at the unit and integration-seam level: the extracted watch, the
-  settle-before-refuse path, and a reproduction of the incident's exact
-  sequencing (record → startup sweep finds nothing → receipt appears →
-  continuous watch settles it → a second `recordUpgrade` is accepted) - see
-  Validation below - but not against a real `launchComputerUpgrade` job or a
-  real Coordinator restart.
-- The reconnect-triggered re-report and the 2026-09-18 continuously-connected reconciliation
-  were verified at the unit level: `refreshUpgradeResults` is preferred over the static snapshot,
-  and a result absent at initial ready but added to local config afterwards is reported and
-  acknowledged on the next 250 ms reconciliation tick without a reconnect. Neither path was
-  verified against a real WSS connection or a live remote upgrade in this change.
-- Whether two `#reportUpgradeResults()` calls racing (e.g. the initial ready
-  handshake and an near-simultaneous reconnect) could both report and both
-  acknowledge the same result was reasoned about, not tested: both `
-MachineSupervisor.acknowledgeUpgrade` and the server's own acceptance are
-  expected to be idempotent, consistent with how every other retry path in
-  this area already behaves, but no test exercises the race directly.
-- The `50 ms`-granular handshake-polling `Bun.sleep` inside `MachineSupervisor`
-  binding `start()` (waiting up to 30 s for a Workspace's own handshake) was
-  reviewed and deliberately left alone: it runs on the main startup path
-  already awaited by `recover()`/`configure()`, not as a detached background
-  wait, so it is not the class of bug this record fixes.
+- `launch-hold` now stores the owning request UUID. The legacy literal `upgrade` remains readable by
+  selecting the newest pending or verified terminal operation, so no migration is required.
+- `docs/release.md` now defines local Computer promotion health by the replacement Supervisor identity
+  and expected version. Workspace recovery is a separate post-promotion gate/fault.
+- `MachineSupervisor.recover({ paused: true })` loads bindings without starting them;
+  `resume()` performs reconciliation.
+- Upgrade receipts become write-once commit records before Workspace launch.
+- The runtime polling state introduced by PR #430 is removed.
+- No Protobuf, cloud RPC, local RPC method, manifest, or persisted record shape changes.
+- A machine whose Supervisor is healthy but one Workspace fails to start remains on the promoted
+  version and exposes that Workspace fault for repair.
+- A missing/unwritable terminal receipt leaves launch-hold in place rather than starting children
+  without auditable outcome.
 
 ## Validation
 
-Unit tests over the extracted watch
-(`packages/daemon/test/computer-upgrade-receipts.test.ts`): settles when a
-receipt appears on a later poll; settles as failed/expired exactly at the TTL
-without a receipt; stops promptly on abort without settling; does nothing
-beyond its first check when a receipt is already present; and a real-process
-test in the style of `runner-hold-quiescence.test.ts`'s `answeredWithin`
-test - a child process given a ten-minute budget, aborted after 20 ms, exits
-in under 3 s (confirmed to hang to the bound instead if the abort is not wired
-through the sleep). Unit tests over `MachineSupervisor`
-(`packages/daemon/test/machine-supervisor.test.ts`): `recordUpgrade` settles an
-already-receipted pending operation and accepts the new request; still refuses
-a genuinely in-flight one; still refuses if the settle check itself throws;
-and (unchanged) still refuses exactly as before when no settle check is
-configured at all. A reproduction of the field incident at the closest
-available seam
-(`packages/daemon/test/computer-upgrade-receipts.test.ts`): record → a sweep
-with no receipt yet leaves the operation pending → the receipt is written
-afterwards → the continuous watch, still in the same process, settles it to a
-terminal state → it is acknowledged → a second `recordUpgrade` is accepted,
-with no second process start anywhere in the test. A `DaemonRuntime` regression test covers the
-later field ordering too: initial ready sees no terminal result, the Coordinator-owned config then
-gains success while the same transport remains connected, and the next reconciliation tick reports
-and acknowledges it without a reconnect. `bun run check` passes for every workspace;
-`bun run --cwd packages/computer test` were run in full, with only the
-already-known local-only flakes (Claude/Codex/Kiro adapter and catalog tests'
-`AgentProcessCleanupError`, the `assigned-skills` symlink test, and three
-failures plus one error in `compiled-cli.test.ts`) failing, none in a file
-this record touched.
+Required regression seams:
 
-Rollback is by revert. The only persisted-format addition is none: this
-record adds behaviour around the existing `upgradeOperations` shape from ADR
-0017, it does not change it. A reverted Coordinator goes back to settling only
-at its own startup, and a reverted Workspace daemon goes back to reporting
-only its static snapshot at its own start; neither corrupts state, they simply
-reintroduce the settlement-timing gap this record closes.
+- paused recovery loads bindings but starts no Workspace; resume reconciles enabled/stopped bindings;
+- candidate success commit occurs before resume;
+- successful rollback commit occurs before resume;
+- candidate Supervisor success followed by Workspace recovery failure does not restore old bytes;
+- candidate/rollback Supervisor failure keeps launch-hold;
+- external job exit after receipt commit is self-completed by watcher/startup settlement;
+- a lost explicit-resume response is idempotent and does not leave hold behind;
+- an unrelated terminal receipt cannot release another request's hold;
+- Coordinator restart uses persisted hold ownership; legacy hold selects the newest operation by age;
+- first Workspace ready reports terminal result from initial child config without reconnect or timers;
+- Coordinator receipt watches remain abortable and do not retain shutdown;
+- Computer, Daemon, Web upgrade suites plus package check/build gates pass.
 
-See also [ADR 0017](0017-computer-upgrade-operation-receipt.md), which this
-record does not supersede: the receipt file, the operation record shape, and
-the report/acknowledge RPCs are unchanged. See also
-[ADR 0032](0032-launchd-in-place-restart.md) for the first instance of the
-"a pending `Bun.sleep` keeps the process alive past shutdown" class of bug,
-in a different background wait (`runner-hold.ts`'s `answeredWithin`).
+Staging still needs one real connected upgrade and rollback rehearsal before this behavior is treated as
+release evidence. This ADR authorizes implementation and review, not staging or production publication.
+
+## Rollback
+
+Rollback is a normal revert of the implementation and contract changes. Persisted operation and receipt
+formats are unchanged. Reverting restores the old ordering and, if PR #430 is also restored, its
+pending-only reconciliation loop; no data migration is required.
+
+See also [ADR 0017](0017-computer-upgrade-operation-receipt.md),
+[ADR 0020](0020-upgrade-runner-hold.md),
+[ADR 0032](0032-launchd-in-place-restart.md), and
+[ADR 0030](0030-upgrade-identity-durable-snapshot.md).

@@ -27,6 +27,12 @@ import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
 import { sweepLeftoverComputerUpgradeJobs } from "../platform/computer-upgrade-sweep";
 import { UpgradeLaunchFailedError } from "./upgrade-error";
 import {
+  HeldUpgradeRecovery,
+  selectLegacyHeldRequestId,
+  shouldAutoFinishHeldUpgrade,
+  terminalAllowsWorkspaceRecovery,
+} from "./held-upgrade-recovery";
+import {
   sweepComputerUpgradeReceipts,
   watchComputerUpgradeReceipt,
   type ComputerUpgradeReceipt,
@@ -205,12 +211,10 @@ async function runWithSupervisorLock(
     return settlement;
   };
   /**
-   * The config a Workspace daemon child reads: every operation it must still settle with the
-   * server, computed fresh from the current binding - pending ones as cloud ready hints, terminal
-   * ones as results it owes the server a report for. `start(binding)` writes this before spawning
-   * the child; `refreshChildUpgradeConfig` below writes the same shape again, without a restart,
-   * so an operation the continuous watch settles while that child keeps running is still there for
-   * it to find - `#reportUpgradeResults` re-reads this file on every reconnect (ADR 0037).
+   * The config a Workspace daemon child reads: pending operations are ready hints; terminal ones
+   * are results it owes the server. Under normal promotion `daemon:resume` settles the receipt
+   * before `start(binding)` writes this config and spawns the child, so its first ready can report
+   * immediately. `refreshChildUpgradeConfig` remains the reconnect/crash-recovery fallback.
    */
   const buildChildConfig = (binding: ManagedBinding) => {
     // Only the replacement receives the pending request as a cloud ready hint.
@@ -331,6 +335,8 @@ async function runWithSupervisorLock(
     {},
     settlePendingUpgrade,
   );
+  // Assigned after reading launch-hold, before startup sweep or local RPC can settle/resume.
+  let heldRecovery: HeldUpgradeRecovery | undefined;
   const scopedCredentials = (workspaceId: string) =>
     new FileDaemonCredentialStore(workspaceDirectory(workspaceId));
   const snapshot = async () =>
@@ -366,46 +372,69 @@ async function runWithSupervisorLock(
         workspace_id: workspaceId,
         status: receipt.status,
       });
-      // The Workspace daemon this operation belongs to may still be running from before this
-      // settled - it is never restarted just to learn this - so its local config is refreshed
-      // here too; `#reportUpgradeResults` picks it up on its next reconnect (ADR 0037).
+      // Under launch-hold the replacement Workspace has not started yet; refresh its config now
+      // so the first ready/report pass sees terminal state. Outside an upgrade this remains safe
+      // for an already-running child and its next reconnect recovery.
       await refreshChildUpgradeConfig(workspaceId);
+      if (shouldAutoFinishHeldUpgrade(heldRecovery, requestId, receipt))
+        await heldRecovery!.finish(requestId, true);
     }
     return recorded;
   };
-  const pendingUpgradeOperations = async () =>
+  const pendingUpgradeOperations = async (requestId?: string) =>
     (await supervisor.snapshot()).flatMap((binding) =>
       (binding.upgradeOperations ?? [])
-        .filter((operation) => operation.state === "pending")
+        .filter(
+          (operation) =>
+            operation.state === "pending" && (!requestId || operation.requestId === requestId),
+        )
         .map((operation) => ({
           workspaceId: binding.workspaceId,
           requestId: operation.requestId,
           requestedAt: operation.requestedAt,
         })),
     );
-  const settlePendingUpgradeOperations = async () => {
+  const upgradeOperation = async (requestId: string) =>
+    (await supervisor.snapshot())
+      .flatMap((binding) => binding.upgradeOperations ?? [])
+      .find((operation) => operation.requestId === requestId);
+  const settlePendingUpgradeOperations = async (requireTerminal = false, requestId?: string) => {
     try {
       // A stranded operation is aged out here too: without that, one lost receipt would refuse
       // every later upgrade on this machine.
-      await sweepComputerUpgradeReceipts(await pendingUpgradeOperations(), completeUpgrade, {
-        pendingTtlMs: UPGRADE_OPERATION_PENDING_TTL_MS,
-      });
+      await sweepComputerUpgradeReceipts(
+        await pendingUpgradeOperations(requestId),
+        completeUpgrade,
+        { pendingTtlMs: UPGRADE_OPERATION_PENDING_TTL_MS },
+      );
+      if (requireTerminal) {
+        if (!requestId) throw new Error("Computer upgrade resume requires a request ID");
+        const operation = await upgradeOperation(requestId);
+        if (!operation || operation.state === "pending")
+          throw new Error(`Computer upgrade receipt is not terminal: ${requestId}`);
+        if (
+          operation.state === "acknowledged" ||
+          !terminalAllowsWorkspaceRecovery({
+            status: operation.state === "succeeded" ? "succeeded" : "failed",
+            errorCode: operation.terminal?.errorCode,
+          })
+        )
+          throw new Error(`Computer upgrade receipt cannot release launch-hold: ${requestId}`);
+      }
     } catch (error) {
       upgradeLogger.error("Computer upgrade receipt sweep failed", {
         event: "upgrade:receipt_sweep_failed",
         error_message: error instanceof Error ? error.message : String(error),
       });
+      if (requireTerminal) throw error;
     }
   };
   /**
-   * Keeps watching one pending operation - the one this process just launched, or one the startup
-   * sweep above still found pending - until its receipt appears or it ages past the pending TTL.
-   * A remote upgrade replaces the very Coordinator that launched it, so that Coordinator is never
-   * the one that gets to see the receipt (ADR 0037); only a later Coordinator's startup sweep
-   * used to see it, and only at that later Coordinator's own next startup. This keeps watching for
-   * the rest of this process's life instead, so the operation settles as soon as the receipt lands
-   * (or the TTL passes) rather than waiting for yet another restart. Cancelled at shutdown via
-   * `upgradeWatchController`, so no pending sleep ever outlives this process (ADR 0032/0037).
+   * Keeps watching one pending operation - either one this process launched, or crash-recovery
+   * state whose receipt was not yet available. The normal promoted path is stricter: the external
+   * job writes its receipt, then `daemon:resume` performs a synchronous settle before Workspace
+   * launch. This watch remains the fallback when either side dies between those steps and shares
+   * the same TTL as startup sweeping. Cancelled at shutdown through `upgradeWatchController`.
    */
   const upgradeWatchController = new AbortController();
   const upgradeWatches = new Set<Promise<void>>();
@@ -451,9 +480,15 @@ async function runWithSupervisorLock(
     };
   };
   let rpc: Awaited<ReturnType<typeof startDaemonLocalRpcServer>> | undefined;
+  // A replacement Coordinator starts while the external upgrade job still owns launch-hold.
+  // Load durable bindings and expose local RPC, but do not start any Workspace until the job has
+  // committed its terminal receipt and explicitly resumes this process.
+  const holdFile = Bun.file(holdPath);
+  const heldAtStartup = await holdFile.exists();
+  const persistedHoldRequestId = heldAtStartup ? (await holdFile.text()).trim() : undefined;
   try {
     try {
-      await supervisor.recover();
+      await supervisor.recover({ paused: heldAtStartup });
     } catch (error) {
       if (!(error instanceof WorkspaceRecoveryError)) throw error;
       // Keep local control available for explicit stop/retry; other Workspaces were reconciled.
@@ -462,14 +497,50 @@ async function runWithSupervisorLock(
         { error },
       );
     }
-    // A remote upgrade stops and replaces this very process, so Coordinator startup is the first
-    // moment anything can observe what the job the old process launched actually did.
+    const upgradeOperations = (await supervisor.snapshot()).flatMap(
+      (binding) => binding.upgradeOperations ?? [],
+    );
+    const persistedOperation = upgradeOperations.find(
+      (operation) => operation.requestId === persistedHoldRequestId,
+    );
+    const heldRequestId = persistedOperation
+      ? persistedOperation.requestId
+      : persistedHoldRequestId === "upgrade"
+        ? selectLegacyHeldRequestId(upgradeOperations)
+        : undefined;
+    heldRecovery = new HeldUpgradeRecovery(heldAtStartup, heldRequestId, {
+      settle: (requestId) => settlePendingUpgradeOperations(true, requestId),
+      resume: () => supervisor.resume(),
+      clearHold: () => rm(holdPath, { force: true }),
+      isWorkspaceRecoveryError: (error) => error instanceof WorkspaceRecoveryError,
+      onWorkspaceRecoveryError: (error) =>
+        upgradeLogger.error("Workspace recovery after Computer promotion was incomplete", {
+          event: "upgrade:workspace_recovery_incomplete",
+          error_message: error.message,
+        }),
+    });
+    const heldOperation = upgradeOperations.find(
+      (operation) => operation.requestId === heldRequestId,
+    );
+    if (
+      heldRecovery.active &&
+      heldOperation &&
+      heldOperation.state !== "pending" &&
+      heldOperation.state !== "acknowledged" &&
+      terminalAllowsWorkspaceRecovery({
+        status: heldOperation.state === "succeeded" ? "succeeded" : "failed",
+        errorCode: heldOperation.terminal?.errorCode,
+      })
+    )
+      await heldRecovery.finish(heldOperation.requestId, true);
+    // Best-effort crash recovery: an old receipt may already exist when this Coordinator starts.
+    // During the normal held replacement path the receipt intentionally arrives later and the
+    // strict `daemon:resume` branch settles it synchronously before any Workspace starts.
     await settlePendingUpgradeOperations();
-    // Anything still pending after that sweep is watched for the rest of this process's life
-    // (`watchPendingUpgrade`), rather than only at the next Coordinator startup.
+    // Anything still pending is watched as a fallback for a job/Coordinator interrupted before
+    // the normal resume handshake.
     for (const operation of await pendingUpgradeOperations())
       watchPendingUpgrade(operation.workspaceId, operation.requestId, operation.requestedAt);
-    if (await Bun.file(holdPath).exists()) await supervisor.pause();
     rpc = await startDaemonLocalRpcServer({
       socketPath,
       version: COFORGE_DAEMON_VERSION,
@@ -485,8 +556,10 @@ async function runWithSupervisorLock(
         release: () => fanOutRunnerHold("release", "upgrade"),
         async command(method, request) {
           if (method === "daemon:pause") await supervisor.pause();
-          else if (method === "daemon:resume") await supervisor.resume();
-          else if (method === "daemon:upgrade") {
+          else if (method === "daemon:resume") {
+            if (heldRecovery?.active) await heldRecovery.finish(request.requestId);
+            else await supervisor.resume();
+          } else if (method === "daemon:upgrade") {
             if (!request.workspaceId || !request.expectedVersion)
               throw new Error("upgrade requires workspace and expected version");
             const created = await supervisor.recordUpgrade(
