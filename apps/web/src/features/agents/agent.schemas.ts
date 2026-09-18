@@ -25,6 +25,16 @@ export const KEYED_MODEL_PROVIDERS = new Set([
   "xiaomi",
 ]);
 
+/** The Pi runtime's own built-in providers, offered directly in the Pi "Provider" picker
+ * alongside "Configured" (the Computer's own `~/.pi/agent` setup). A narrower set than
+ * `KEYED_MODEL_PROVIDERS` (CoForge's full keyed-provider catalog): Pi only ever launches with an
+ * Agent-entered key for one of these two. */
+export const PI_BUILTIN_MODEL_PROVIDERS = ["deepseek", "openrouter"] as const;
+const PI_BUILTIN_MODEL_PROVIDER_SET: ReadonlySet<string> = new Set(PI_BUILTIN_MODEL_PROVIDERS);
+export function isPiBuiltinModelProvider(value: string): boolean {
+  return PI_BUILTIN_MODEL_PROVIDER_SET.has(value);
+}
+
 const apiKeySchema = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
   z.string().trim().min(8).max(4096).optional(),
@@ -69,7 +79,7 @@ function validateRuntimeKey(
   }
   if (
     value.provider === RUNTIME_PROVIDER.PI &&
-    !KEYED_MODEL_PROVIDERS.has(value.modelProvider ?? "")
+    !isPiBuiltinModelProvider(value.modelProvider ?? "")
   ) {
     context.addIssue({
       code: "custom",
