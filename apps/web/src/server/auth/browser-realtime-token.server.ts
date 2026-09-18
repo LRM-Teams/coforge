@@ -2,7 +2,10 @@ import { importJWK, SignJWT, type JWK } from "jose";
 
 import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
 import { agentActivityChannel } from "../../features/agents/agent-activity";
-import { conversationRealtimeChannel } from "../../features/conversations/conversation-realtime";
+import {
+  conversationRealtimeChannel,
+  workspaceConversationChannel,
+} from "../../features/conversations/conversation-realtime";
 
 async function browserRealtimeSigner(
   environment: Record<string, string | undefined>,
@@ -63,6 +66,18 @@ export function issueConversationRealtimeToken(
   return browserRealtimeSigner(
     environment,
     { channel: conversationRealtimeChannel(input.conversationId) },
+    input.userId,
+  );
+}
+
+/** The Workspace-level conversation signal channel, for the Chat sidebar's unread badges. */
+export async function issueWorkspaceConversationSubscriptionToken(
+  input: { userId: string; workspaceId: string },
+  environment: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  return browserRealtimeSigner(
+    environment,
+    { channel: workspaceConversationChannel(input.workspaceId) },
     input.userId,
   );
 }

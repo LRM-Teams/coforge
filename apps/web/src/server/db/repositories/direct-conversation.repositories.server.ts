@@ -394,6 +394,8 @@ export type DirectConversationRepository = {
     body: string;
     createdAt: Date;
     sequence: number;
+    /** The message's thread anchor, or null for a top-level message. */
+    threadRootId: string | null;
     deliveryId?: string;
     workspaceId: string;
     agentId: string;
@@ -517,6 +519,8 @@ export type DirectConversationRepository = {
     body: string;
     createdAt: Date;
     sequence: number;
+    /** The message's thread anchor, or null for a top-level message. */
+    threadRootId: string | null;
     deliveryId?: string;
     workspaceId: string;
     agentId: string;
@@ -1089,6 +1093,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           body: true,
           createdAt: true,
           sequence: true,
+          // Carried so the browser signal can exclude thread replies from channel unread.
+          threadRootId: true,
           deliveries: { select: { deliveryId: true } },
         },
       });
@@ -1786,6 +1792,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           body: true,
           createdAt: true,
           sequence: true,
+          // Carried so the browser signal can exclude thread replies from channel unread.
+          threadRootId: true,
           mentions: { select: { kind: true, actorId: true, handle: true } },
           deliveries: {
             select: {

@@ -5,6 +5,7 @@ import { AppError } from "../../lib/app-error";
 import {
   issueBrowserRealtimeToken,
   issueConversationRealtimeToken,
+  issueWorkspaceConversationSubscriptionToken,
 } from "../../server/auth/browser-realtime-token.server";
 import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { ACTIVE_MEMBER_WHERE } from "../../server/conversations/active-member.server";
@@ -42,4 +43,12 @@ export const getConversationRealtimeToken = createServerFn({ method: "GET" })
       userId: user.id,
       conversationId: conversation.id,
     });
+  });
+
+/** Subscription token for the Workspace-level conversation signal channel (unread badges). */
+export const getWorkspaceConversationSubscriptionToken = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => {
+    const { user, workspaceId } = context;
+    return issueWorkspaceConversationSubscriptionToken({ userId: user.id, workspaceId });
   });

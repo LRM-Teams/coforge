@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft } from "@untitledui/icons";
@@ -9,8 +9,9 @@ import { ConversationDirectory } from "./conversation-directory";
 import { m } from "@/paraglide/messages";
 import { cx } from "@/utils/cx";
 import { createPublicChannel } from "./channels.functions";
-import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
+import { useCurrentWorkspaceId, useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { CreateChannelDialog } from "./create-channel-dialog";
+import { useChannelUnread } from "./conversation-unread";
 
 const messagesRoute = getRouteApi("/_app/messages");
 const ConversationListContext = createContext<{
@@ -18,14 +19,37 @@ const ConversationListContext = createContext<{
   detailVisible: boolean;
 } | null>(null);
 
+type UnreadControls = {
+  /** Per-channel unread counts, keyed by conversation id. */
+  counts: Readonly<Record<string, number>>;
+  /** Clears one conversation's badge and records the sequence it was read through. */
+  clear: (conversationId: string, readThroughSequence?: number) => void;
+};
+
+const UnreadContext = createContext<UnreadControls>({ counts: {}, clear: () => {} });
+
 export function useConversationDetailVisible() {
   return useContext(ConversationListContext)?.detailVisible ?? true;
+}
+
+/** The sidebar's live unread counts, seeded from the loader and updated by realtime. */
+export function useChannelUnreadCounts(): Readonly<Record<string, number>> {
+  return useContext(UnreadContext).counts;
+}
+
+/** Marks a conversation seen: clears its badge immediately and records the read boundary. */
+export function useMarkConversationSeen(): (
+  conversationId: string,
+  readThroughSequence?: number,
+) => void {
+  return useContext(UnreadContext).clear;
 }
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
   const { channels, projects } = messagesRoute.useLoaderData();
   const agents = useLiveAgents();
+  const workspaceId = useCurrentWorkspaceId();
   const desktop = useBreakpoint("lg");
   const router = useRouter();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -37,49 +61,69 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const showList = browsing || pathname === "/messages" || pathname === "/messages/";
   useEffect(() => router.subscribe("onResolved", () => setBrowsing(false)), [router]);
 
+  const visibleChannels = useMemo(() => channels.filter((listed) => !listed.archived), [channels]);
+  const unread = useChannelUnread({
+    workspaceId,
+    channels: visibleChannels,
+    openConversationId: channel?.channelId,
+  });
+  // Every loader refresh carries the server's own persisted counts; local arithmetic
+  // restarts from them (sequence boundaries survive, so no event double-counts).
+  const { counts } = unread;
+  const refresh = unread.replace;
+  useEffect(() => {
+    refresh(visibleChannels);
+  }, [refresh, visibleChannels]);
+  const controls = useMemo<UnreadControls>(
+    () => ({ counts, clear: unread.clear }),
+    [counts, unread.clear],
+  );
+
   return (
     <ConversationListContext
       value={{ showList: () => setBrowsing(true), detailVisible: desktop || !showList }}
     >
-      <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
-        <section
-          className={cx(
-            "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
-            showList ? "flex" : "hidden",
-          )}
-        >
-          <PageHeader heading={m.navigation_chat()} />
-          <div className="min-h-0 flex-1 overflow-y-auto py-4">
-            <ConversationDirectory
-              channels={channels.filter((channel) => !channel.archived)}
-              agents={agents}
-              selectedChannelId={channel?.channelId}
-              selectedAgentId={agent?.agentId}
-              onCreateChannel={() => setCreating(true)}
-            />
+      <UnreadContext value={controls}>
+        <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
+          <section
+            className={cx(
+              "min-h-0 flex-1 flex-col lg:flex lg:w-72 lg:flex-none lg:border-r lg:border-secondary",
+              showList ? "flex" : "hidden",
+            )}
+          >
+            <PageHeader heading={m.navigation_chat()} />
+            <div className="min-h-0 flex-1 overflow-y-auto py-4">
+              <ConversationDirectory
+                channels={visibleChannels}
+                agents={agents}
+                selectedChannelId={channel?.channelId}
+                selectedAgentId={agent?.agentId}
+                onCreateChannel={() => setCreating(true)}
+              />
+            </div>
+          </section>
+          <div
+            className={cx("min-h-0 min-w-0 flex-1 flex-col lg:flex", showList ? "hidden" : "flex")}
+          >
+            {children}
           </div>
-        </section>
-        <div
-          className={cx("min-h-0 min-w-0 flex-1 flex-col lg:flex", showList ? "hidden" : "flex")}
-        >
-          {children}
-        </div>
-      </main>
-      {creating && (
-        <CreateChannelDialog
-          open={creating}
-          onOpenChange={setCreating}
-          projects={projects}
-          onCreate={async (name, projectId) => {
-            const result = await create({ data: { name, projectId } });
-            await router.invalidate({ sync: true });
-            await router.navigate({
-              to: "/messages/channels/$channelId",
-              params: { channelId: result.id },
-            });
-          }}
-        />
-      )}
+        </main>
+        {creating && (
+          <CreateChannelDialog
+            open={creating}
+            onOpenChange={setCreating}
+            projects={projects}
+            onCreate={async (name, projectId) => {
+              const result = await create({ data: { name, projectId } });
+              await router.invalidate({ sync: true });
+              await router.navigate({
+                to: "/messages/channels/$channelId",
+                params: { channelId: result.id },
+              });
+            }}
+          />
+        )}
+      </UnreadContext>
     </ConversationListContext>
   );
 }

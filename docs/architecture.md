@@ -159,7 +159,11 @@ Agent status 与聊天订阅复用该连接。每个打开的会话使用受保�
 或是公开频道所属 Workspace 的成员后，签发 5 分钟、精确绑定该 channel 的 subscription JWT。
 Message mutation 仍通过已认证 HTTPS 完成；PostgreSQL 提交 canonical Message 后，backend
 通过 Centrifugo server API 发布不含正文的 versioned `message.available.v1` 信号，其中仅有
-conversation ID、message ID 和 canonical sequence。`chat` namespace 使用 Redis-backed
+conversation ID、message ID、canonical sequence，以及加法可选的 workspace ID 与线程锚点
+（`threadRootId`，仅线程回复携带）。同一事件同时发布到会话频道和 Workspace 级
+`chat:workspace:<workspace_id>` 信号频道；Chat 页对后者只持有一条订阅，用以为频道列表的
+未读徽标做实时 +1（见 [ADR 0046](adr/0046-member-read-cursor-channel-unread.md)）。
+`chat` namespace 使用 Redis-backed
 5 分钟 bounded history 和强制 recovery，作为短断线 hot replay，不是消息真相。
 
 浏览器收到信号后以自身最后一次 canonical HTTP cursor 调用 `afterSequence`，按 message ID
@@ -168,6 +172,12 @@ conversation ID、message ID 和 canonical sequence。`chat` namespace 使用 Re
 reconciliation。这样 publication 102 先于 101 到达时也不会跳过 101。MVP 明确保留 PostgreSQL
 commit 后、Centrifugo publication 前 backend 崩溃的窗口，不引入 transactional outbox；
 该窗口由前台 safety reconciliation 修复，因此不声称每个已提交消息都在 2 秒内被 push。
+
+公开频道的成员未读真相是 `ConversationMember.readThroughSequence`：人类成员对顶层消息的
+读取游标（ADR 0046）。频道列表的未读数由 backend 按该游标精确计数（排除本人发言与线程
+回复），打开会话后经 `PublicChannels.markRead` 单调推进并被钳制在会话当前最大 sequence；
+加入、被添加和 `#general` 注册都以频道当前末尾为种子，不为加入前的历史点亮徽标。
+Agent 仍使用独立的 `agentReadThroughSequence` 投递游标，两者不混用。
 
 Computer setup/attach 到 Web/backend 的 `workspace:get` 与 `computer:register` 使用
 `POST /api/computer/workspace` 与 `POST /api/computer/attach`，由 Bearer User access token

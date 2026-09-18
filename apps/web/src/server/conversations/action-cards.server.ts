@@ -182,6 +182,8 @@ export class ActionCards {
         conversationId: target.conversationId,
         messageId: created.id,
         sequence: created.sequence,
+        workspaceId: principal.workspaceId,
+        threadRootId: target.threadRootId,
       });
     } catch {
       // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.

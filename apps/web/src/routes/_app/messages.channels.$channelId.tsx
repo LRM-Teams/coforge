@@ -21,6 +21,7 @@ import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
 import { loadOwnConversationMessages } from "@/features/conversations/conversations.functions";
 import {
   joinPublicChannel,
+  markPublicChannelRead,
   markPublicChannelThreadRead,
   setPublicChannelThreadFollowed,
   setPublicChannelMuted,
@@ -32,6 +33,8 @@ import {
   agentProfileTabParamSchema,
 } from "@/features/agents/profile-panel/profile-panel-search";
 import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
+import { useMarkConversationSeen } from "@/features/conversations/conversation-navigation";
+import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
@@ -74,6 +77,25 @@ function ChannelPage() {
   const { router, showChat, showTasks, changeLayout, openTask } = useConversationView(
     page.ensureLoaded,
   );
+
+  // Opening the channel is reading it: the sidebar badge clears immediately, the read
+  // boundary advances server-side to the conversation's current end, and every event the
+  // badge had already counted is remembered so a late signal cannot re-raise it.
+  const markSeen = useMarkConversationSeen();
+  const advanceReadCursor = useServerFn(markPublicChannelRead);
+  const latestTopLevelSequence = conversation.messages.reduce(
+    (latest, message) => (message.threadRootId ? latest : Math.max(latest, message.sequence)),
+    0,
+  );
+  useEffect(() => {
+    markSeen(channelId, latestTopLevelSequence);
+  }, [markSeen, channelId, latestTopLevelSequence]);
+  useEffect(() => {
+    if (!latestTopLevelSequence || !conversation.senderMemberId) return;
+    void advanceReadCursor({ data: { channelId, throughSequence: latestTopLevelSequence } }).catch(
+      () => {},
+    );
+  }, [advanceReadCursor, channelId, latestTopLevelSequence, conversation.senderMemberId]);
 
   // Membership changes reach the sidebar through the layout loader and this page
   // through its query; both are refreshed.

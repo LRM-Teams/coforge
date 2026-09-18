@@ -64,6 +64,11 @@ export function useLiveAgents(): LiveAgent[] {
   return useContext(LiveAgentsContext);
 }
 
+/** The current Workspace id from the app shell's providers, when one is selected. */
+export function useCurrentWorkspaceId(): string | undefined {
+  return useContext(WorkspaceIdContext);
+}
+
 /** One Agent's live status and display snapshot, for pages open on that Agent. */
 export function useLiveAgent(agentId: string): LiveAgent | undefined {
   return useContext(LiveAgentsContext).find((agent) => agent.id === agentId);

@@ -43,6 +43,15 @@
   "channel_members_leave_confirm_action": "离开",
   "channel_members_leaving": "正在离开…",
   "channel_members_leave_error": "离开频道失败，请重试。",
+  "channel_unread_accessible": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条未读消息"
+      }
+    }
+  ],
   "messages_title": "消息",
   "messages_agent_list_label": "智能体会话",
   "messages_agents_action": "私聊",
