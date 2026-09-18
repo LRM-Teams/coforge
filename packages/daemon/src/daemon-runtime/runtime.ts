@@ -3439,6 +3439,7 @@ function safeRuntimeActivityMessage(activity: string, level: string, message: st
     return [...scrubActivityText(message)].slice(0, 100).join("");
   if (
     activity === AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED ||
+    activity === AGENT_ACTIVITY_DETAIL_KIND.CHECKING_MESSAGES ||
     activity === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING ||
     activity === AGENT_ACTIVITY_DETAIL_KIND.THINKING_END
   ) {

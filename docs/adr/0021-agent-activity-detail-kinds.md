@@ -104,6 +104,29 @@ Also two additions to `ActivityTrajectoryEntry`:
   the activity frame's own `detail`; absent (older daemons, stored rows),
   the row keeps using `detail` exactly as before.
 
+> **Amendment (2026-09-18):** the previous paragraph's "the row keeps using
+> `detail` exactly as before" described the daemon's `buildActivity` sending
+> the raw argument summary (a command, path, pattern or URL) as `detail`
+> itself, with `toolInput` merely a redundant copy for the ones that had one.
+> That let an older, entry-less heartbeat or activity-probe reply — which
+> resends the frame's `detail` with `entries: []` — leak the raw command into
+> the Agent status header. The daemon now always sends the generic,
+> argument-free `toolActivityLabel(toolName)` as `detail` (a known tool's
+> label, e.g. "Running command…"/"Reading file…", or "Using `<name>`…" for
+> one it does not recognize); the argument summary travels only in
+> `toolInput`. `TOOL_ALIASES`/`TOOL_LABELS`/`toolActivityLabel` now live once
+> in `packages/coforge-sdk/src/internal/tool-display.ts`, shared by the
+> daemon and the web tool row labels, replacing the two separate alias
+> tables this record originally described. A tool entry's row still prefers
+> `toolInput` over the frame's own `detail` exactly as above; an
+> entry-less `running_command`/`tool_started` frame from a not-yet-upgraded
+> daemon (`apps/web/src/features/agents/agent-activity-presentation.ts`'s
+> `activityAtoms`) keeps `detail` only when it already matches a label
+> `toolActivityLabel` could have produced, and otherwise falls back to
+> "Running command…"/"Working…" rather than showing that daemon's raw
+> `detail` as the header. See `docs/observability.md`'s "`running_command`
+> 与工具摘要" for the current wire contract.
+
 On the wire, `ActivityTrajectoryEntry`'s `content` oneof gains a new member
 (`ActivitySystemEntry system = 5`, a nested message carrying `title`/`text`)
 and the entry gains a sibling scalar field (`tool_input = 6`) outside the

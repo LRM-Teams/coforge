@@ -1,6 +1,12 @@
 import type { ActivityEntry } from "./agent-activity";
 import type { AgentDisplaySnapshot, ActivityTrajectoryEntry } from "@lrm/coforge-sdk/internal";
-import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
+import {
+  AGENT_ACTIVITY_DETAIL_KIND,
+  TOOL_LABELS,
+  canonicalToolName,
+  toolActivityLabel,
+  isToolActivityLabel,
+} from "@lrm/coforge-sdk/internal";
 import type { StatusTone } from "@/components/ui/status-dot";
 
 export type ActivityObservation = Pick<
@@ -46,64 +52,6 @@ const STATUS_SECONDARY_LABEL: Readonly<Record<string, string>> = {
   [AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED]: "Review finished",
 };
 
-const toolLabels: Readonly<Record<string, string>> = {
-  bash: "Running command",
-  read_file: "Reading file",
-  write_file: "Writing file",
-  edit_file: "Editing file",
-  glob: "Searching files",
-  grep: "Searching code",
-  web_fetch: "Fetching web",
-  web_search: "Searching web",
-  todo_write: "Updating tasks",
-  send_message: "Sending message",
-  check_messages: "Checking messages",
-  receive_message: "Checking messages",
-  wait_for_message: "Waiting for messages",
-  read_history: "Reading history",
-  search_messages: "Searching messages",
-  list_server: "Listing server",
-  list_tasks: "Listing tasks",
-  create_tasks: "Creating tasks",
-  claim_tasks: "Claiming tasks",
-  unclaim_task: "Unclaiming task",
-  update_task_status: "Updating task status",
-  add_channel_member: "Adding channel member",
-  join_channel: "Joining channel",
-  leave_channel: "Leaving channel",
-  upload_file: "Uploading file",
-  view_file: "Viewing file",
-  schedule_reminder: "Scheduling reminder",
-  list_reminders: "Listing reminders",
-  cancel_reminder: "Canceling reminder",
-  collab_tool_call: "Collaborating",
-};
-const toolAliases: Readonly<Record<string, string>> = {
-  read: "read_file",
-  readfile: "read_file",
-  file_read: "read_file",
-  write: "write_file",
-  writefile: "write_file",
-  file_write: "write_file",
-  edit: "edit_file",
-  editfile: "edit_file",
-  file_change: "edit_file",
-  strreplacefile: "edit_file",
-  apply_patch: "edit_file",
-  shell: "bash",
-  command_execution: "bash",
-  run_shell_command: "bash",
-  run_terminal_command: "bash",
-  search_files: "glob",
-  webfetch: "web_fetch",
-  fetch_url: "web_fetch",
-  fetchurl: "web_fetch",
-  websearch: "web_search",
-  searchweb: "web_search",
-  todowrite: "todo_write",
-  settodolist: "todo_write",
-};
-
 /** One atom of a presented activity frame: 0 or 1 visible row, plus (for text/thinking
  * atoms only) a `mergeGroup` naming the contiguous statement it belongs to. A hidden
  * `send_message` tool call has no row and no `mergeGroup` — it still occupies a slot in
@@ -117,21 +65,21 @@ function presentEntryItem(
   detail: string,
 ): ActivityAtom {
   if (item.kind === "tool_start") {
-    const name = item.toolName.replace(/^mcp__[^_]+__|^mcp_chat_/, "");
-    const canonical = toolAliases[name.toLowerCase()] ?? name;
+    const { canonical, name } = canonicalToolName(item.toolName);
     if (canonical === "send_message") return {};
-    const label = toolLabels[canonical] ?? name;
+    const label = TOOL_LABELS[canonical] ?? name;
     return {
       row: {
         label,
         // An already-redacted argument summary from the entry itself takes
-        // precedence; older daemons and stored rows have no toolInput, so
-        // this falls back to the activity frame's own detail as before.
-        detail: item.toolInput ?? detail,
+        // precedence; older daemons and stored rows have no toolInput. A
+        // current daemon's own `detail` is by then already this same generic
+        // label (see `toolActivityLabel`), so echoing it here as a "detail"
+        // would just repeat the label; only an older daemon's raw detail is
+        // worth showing.
+        detail: item.toolInput ?? (isToolActivityLabel(detail) ? "" : detail),
         recentLabel: label,
-        currentLabel: toolLabels[canonical]
-          ? `${label}…`
-          : `Using ${name.length > 20 ? name.slice(0, 20) + "…" : name}…`,
+        currentLabel: toolActivityLabel(item.toolName),
         tone: "working",
         recentTone: "working",
         pulse: false,
@@ -264,7 +212,19 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
                 ? "Review still running…"
                 : stalledRecovery
                   ? "Restarting stalled provider…"
-                  : detail || "Working…"
+                  : // These two kinds carry an argument-free `detail` from a current daemon
+                    // (see `toolActivityLabel`, kept as is), but an older, not-yet-upgraded
+                    // daemon's entry-less heartbeat/probe reply still resends its own last raw
+                    // `detail` (a command or path) here — never show that as the header label.
+                    kind === AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND
+                    ? isToolActivityLabel(detail)
+                      ? detail
+                      : "Running command…"
+                    : kind === AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED
+                      ? isToolActivityLabel(detail)
+                        ? detail
+                        : "Working…"
+                      : detail || "Working…"
       : tone === "thinking"
         ? "Thinking…"
         : tone === "idle"

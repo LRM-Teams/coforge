@@ -555,7 +555,7 @@ test("a subagent-scoped error activity keeps its error classification", async ()
 // A `tool-start` AgentRuntimeEvent carries only the provider's raw name/input;
 // the daemon core is the single place that turns it into an Activity, via the
 // same `toolActivity` allowlist every provider used to call for itself.
-test("a bash tool-start reports running_command with the command", async () => {
+test("a bash tool-start reports running_command with a generic detail label, the command in toolInput", async () => {
   const { runtime, activities, emitEvent } = await harness();
   try {
     activities.length = 0;
@@ -564,8 +564,8 @@ test("a bash tool-start reports running_command with the command", async () => {
     expect(activities[0]).toMatchObject({
       detailKind: "running_command",
       level: "info",
-      detail: "ls -la",
-      entries: [{ kind: "tool_start", toolName: "bash" }],
+      detail: "Running command…",
+      entries: [{ kind: "tool_start", toolName: "bash", toolInput: "ls -la" }],
     });
   } finally {
     await runtime.stop();
@@ -591,15 +591,15 @@ test("a Codex-shaped bash tool-start resolves `coforge message send` to send_mes
     expect(activities).toHaveLength(1);
     expect(activities[0]).toMatchObject({
       detailKind: "tool_started",
-      detail: "#x",
-      entries: [{ kind: "tool_start", toolName: "send_message" }],
+      detail: "Sending message…",
+      entries: [{ kind: "tool_start", toolName: "send_message", toolInput: "#x" }],
     });
   } finally {
     await runtime.stop();
   }
 });
 
-test("`coforge message check` reports checking_messages", async () => {
+test("`coforge message check` reports checking_messages with a generic detail label", async () => {
   const { runtime, activities, emitEvent } = await harness();
   try {
     activities.length = 0;
@@ -612,6 +612,7 @@ test("`coforge message check` reports checking_messages", async () => {
     expect(activities).toHaveLength(1);
     expect(activities[0]).toMatchObject({
       detailKind: "checking_messages",
+      detail: "Checking messages…",
       entries: [{ kind: "tool_start", toolName: "check_messages" }],
     });
   } finally {
@@ -619,7 +620,7 @@ test("`coforge message check` reports checking_messages", async () => {
   }
 });
 
-test("a file tool-start reports its path", async () => {
+test("a file tool-start reports a generic detail label, its path in toolInput", async () => {
   const { runtime, activities, emitEvent } = await harness();
   try {
     activities.length = 0;
@@ -632,15 +633,15 @@ test("a file tool-start reports its path", async () => {
     expect(activities).toHaveLength(1);
     expect(activities[0]).toMatchObject({
       detailKind: "tool_started",
-      detail: "src/a.ts",
-      entries: [{ kind: "tool_start", toolName: "read_file" }],
+      detail: "Reading file…",
+      entries: [{ kind: "tool_start", toolName: "read_file", toolInput: "src/a.ts" }],
     });
   } finally {
     await runtime.stop();
   }
 });
 
-test("an unrecognized tool-start reports its name only", async () => {
+test("an unrecognized tool-start reports a generic unknown-tool label built from its name alone", async () => {
   const { runtime, activities, emitEvent } = await harness();
   try {
     activities.length = 0;
@@ -653,9 +654,60 @@ test("an unrecognized tool-start reports its name only", async () => {
     expect(activities).toHaveLength(1);
     expect(activities[0]).toMatchObject({
       detailKind: "tool_started",
-      detail: "MysteryTool",
+      detail: "Using MysteryTool…",
       entries: [{ kind: "tool_start", toolName: "MysteryTool" }],
     });
+    expect(activities[0]!.entries![0]).not.toHaveProperty("toolInput");
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("the busy heartbeat and an activity probe reply re-send only the generic detail label, never the command", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  jest.useFakeTimers();
+  try {
+    activities.length = 0;
+    emitEvent({
+      type: "tool-start",
+      id: "1",
+      name: "Bash",
+      input: { command: 'mise exec -- bun test 2>&1 | grep -iE "error:|DATABASE_URL"' },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      detailKind: "running_command",
+      detail: "Running command…",
+    });
+    expect(activities[0]!.entries).toHaveLength(1);
+
+    jest.advanceTimersByTime(60_000);
+    expect(activities).toHaveLength(2);
+    expect(activities[1]).toMatchObject({
+      detailKind: "running_command",
+      detail: "Running command…",
+      isHeartbeat: true,
+    });
+    expect(activities[1]!.entries ?? []).toHaveLength(0);
+    expect(JSON.stringify(activities[1])).not.toContain("mise exec");
+    expect(JSON.stringify(activities[1])).not.toContain("DATABASE_URL");
+
+    await runtime.handleAgentActivityProbe({
+      protocolMajor: 1,
+      requestId: "probe-request-heartbeat-label",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-a",
+      probeId: "probe-heartbeat-label",
+    });
+    expect(activities).toHaveLength(3);
+    expect(activities[2]).toMatchObject({
+      detailKind: "running_command",
+      detail: "Running command…",
+      probeId: "probe-heartbeat-label",
+    });
+    expect(activities[2]!.entries ?? []).toHaveLength(0);
+    expect(JSON.stringify(activities[2])).not.toContain("mise exec");
   } finally {
     await runtime.stop();
   }
@@ -678,7 +730,10 @@ test("pending text is flushed before a tool-start's Activity", async () => {
     expect(activities[1]).toMatchObject({
       entries: [{ kind: "text", text: "Thinking about it" }],
     });
-    expect(activities[2]).toMatchObject({ detail: "ls" });
+    expect(activities[2]).toMatchObject({
+      detail: "Running command…",
+      entries: [{ kind: "tool_start", toolName: "bash", toolInput: "ls" }],
+    });
   } finally {
     await runtime.stop();
   }

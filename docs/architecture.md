@@ -850,7 +850,7 @@ Daemon 以 error 级别记录失败原因（沿用 Raft 1.0.32 的行为，线�
 
 目录检查发生在 provider discovery 前，但不是 OS sandbox，也不声称阻止同一 OS 用户在检查之后替换文件。实现依据为 Pi v0.84.3 的 [SessionManager](https://github.com/earendil-works/pi/blob/v0.84.3/packages/coding-agent/src/core/session-manager.ts)（`open` 接收文件路径，传入 `sessionDir` 不自动限制该路径）、[CLI session resolution](https://github.com/earendil-works/pi/blob/v0.84.3/packages/coding-agent/src/main.ts)，以及 [Claude CLI flags](https://code.claude.com/docs/en/cli-reference) 和 [Codex app-server](https://developers.openai.com/codex/app-server)。不通过修改 HOME 来实现 session 隔离，不改变 provider 安装或现有登录配置。
 
-`running_command` Activity 的 `message` 保留 provider 上报命令的前 100 个 Unicode 字符，超出部分由 Daemon 截断，然后通过云端持久化并展示。`reading_file`、`writing_file`、`editing_file` 和 `using_tool` 完整保留 adapter 上报的原始 `message`，不截断或替换。这些 Activity 不做参数脱敏，因此可能包含命令参数、文件路径、工具明细或其他敏感文本。
+`running_command`/`tool_started` Activity 的 `message`（`detail`）固定是一个不含参数的通用标签（`toolActivityLabel`，`packages/coforge-sdk/src/internal/tool-display.ts`），从不携带命令、路径或其他参数；provider 上报命令的前 100 个 Unicode 字符（超出部分由 Daemon 截断，非 CoForge CLI 命令还经过既有脱敏）改为只出现在同一帧 `tool_start` entry 的 `toolInput` 字段，展开的工具行据此展示，Agent 状态栏标题不读取它。`reading_file`、`writing_file`、`editing_file` 和 `using_tool` 完整保留 adapter 上报的原始 `message`，不截断或替换；这些历史类型和 `toolInput` 都不做参数脱敏之外的额外处理，因此仍可能包含命令参数、文件路径、工具明细或其他敏感文本，只是不再出现在当前状态标题里。
 
 Daemon 转发 Activity 的 error 文本时保留 adapter 上报原文，不做内容脱敏；Codex 的非重试 `error` 通知直接使用其 `message`。继续遵守现有 512 字符长度限制。界面只显示 `Error` 和错误文本，不添加重试前缀或展示内部错误分类。此显示策略不改变本地结构化日志的 secret 脱敏规则。
 

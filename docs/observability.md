@@ -68,7 +68,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | --- | --- |
 | `activity` | 稳定类型，例如 `running_command`、`reading_file`、`using_tool`、`error` |
 | `level` | `info`、`warning` 或 `error` |
-| `message` | `running_command` 保留命令前 100 个 Unicode 字符；文件读写、编辑和工具 Activity 完整保留 provider 消息；错误和警告使用 Daemon 核心处理后的诊断文本（provider 只上报原始事实，见下文） |
+| `message` | `running_command`/`tool_started` 固定为不含参数的通用标签（详见下文「`running_command` 与工具摘要」，例如「Running command…」「Reading file…」）；命令、路径等参数摘要只出现在 `tool_start` entry 的 `toolInput` 字段里，从不拼入 `message`；文件读写、编辑和工具 Activity 完整保留 provider 消息；错误和警告使用 Daemon 核心处理后的诊断文本（provider 只上报原始事实，见下文） |
 | `occurred_at` | daemon 记录的 UTC RFC 3339 时间 |
 | `launch_id` | 每次实际 OS process launch 的新身份；替换后不得复用 |
 | `client_seq` | 同一 `launch_id` 内从 1 开始严格递增的 daemon 序号 |
@@ -141,23 +141,33 @@ Agent 变回 online。Daemon 用一条普通 `agent:activity` 应答（重发最
 event: agent:activity
 activity: running_command
 level: info
-message: bun test packages/daemon/test/daemon-runtime.test.ts
+message: Running command…
+entries: [{ kind: "tool_start", toolName: "bash", toolInput: "bun test packages/daemon/test/daemon-runtime.test.ts" }]
 ```
 
-`activity=running_command` 表示 Agent runtime 正在执行命令；持久化的 `message` 使用
-provider 上报命令的前 100 个 Unicode 字符，超出部分由 Daemon 截断，不把 activity 类型
-和命令内容拼入 event name。非 CoForge CLI 的 shell 命令先复用 trajectory 文本相同的脱敏
-规则（`redactTrajectoryText`）再截断：命令中出现的第一个 `<<`（heredoc 起始）之前截断，
-heredoc 正文永远不进入 `message`，随后才截断到前 100 个字符；命令参数中能被规则识别的
+### `running_command` 与工具摘要
+
+`activity=running_command` 表示 Agent runtime 正在执行命令；持久化的 `message`（`detail`）
+固定是一个不含参数的通用标签（`toolActivityLabel`，`packages/coforge-sdk/src/internal/
+tool-display.ts`，Daemon 和 Web 共用同一张别名/标签表），例如「Running command…」「Reading
+file…」，已知工具取其标签，未知工具退化为「Using `<name>`…」（`name` 截断到 20 字符）；这个
+标签从不由参数推导，Agent 状态栏标题因此不可能泄漏原始命令或路径。命令、路径、pattern、URL
+等参数摘要改为只出现在同一帧 `tool_start` entry 的 `toolInput` 字段里，不再拼入 `message`。
+非 CoForge CLI 的 shell 命令，`toolInput` 先复用 trajectory 文本相同的脱敏规则
+（`redactTrajectoryText`）再截断：命令中出现的第一个 `<<`（heredoc 起始）之前截断，heredoc
+正文永远不进入 `toolInput`，随后才截断到前 100 个字符；命令参数中能被规则识别的
 token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是尽力而为的脱敏，不保证
-覆盖所有敏感文本。
+覆盖所有敏感文本。`toolInput` 还要满足 SDK 的 `validToolInput`（至多 200 个 Unicode
+字符、不含控制字符）：换行等控制字符先被替换为空格再合并空白，一条多行命令也不会因此
+无法解码。
 
 当命令的第一个 token 是 `coforge` 或以 `/coforge` 结尾的路径时，Daemon 把它解析为语义
-工具，只记录该工具预先约定的安全摘要字段，从不使用原始命令行或消息正文（`message send`
-之后的 heredoc 消息体同样不会出现在 `message` 里）；`message check`/`inbox check` 使用
-`checking_messages` 而不是 `running_command`/`tool_started`：
+工具，只记录该工具预先约定的安全摘要字段作为 `toolInput`，从不使用原始命令行或消息正文
+（`message send` 之后的 heredoc 消息体同样不会出现在 `message` 或 `toolInput` 里）；
+`message check`/`inbox check` 使用 `checking_messages` 而不是 `running_command`/
+`tool_started`：
 
-| CoForge CLI 子命令 | 语义工具 | 摘要 |
+| CoForge CLI 子命令 | 语义工具 | `toolInput` 摘要 |
 | --- | --- | --- |
 | `message send` | `send_message` | `--target` |
 | `message check` | `check_messages`（`checking_messages`） | 无 |
@@ -176,9 +186,9 @@ token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是
 | 其他 `coforge` 子命令 | `coforge_cli` | 无 |
 
 `glob`、`grep`、`web_fetch`、`web_search`、`todo_write` 等 Code Agent 工具同样只从一个预先
-约定的参数字段取摘要（`pattern`/`query`/`url`，均有长度上限），或在没有对应字段、以及未纳入
-统一分类的工具上只记录工具名；provider 上报的其他参数（例如 prompt、diff、密码等自由文本）
-永远不拼入 `message`。后续需要记录启动、工具
+约定的参数字段取 `toolInput` 摘要（`pattern`/`query`/`url`，均有长度上限），或在没有对应
+字段、以及未纳入统一分类的工具上不带 `toolInput`；provider 上报的其他参数（例如 prompt、
+diff、密码等自由文本）永远不拼入 `message` 或 `toolInput`。后续需要记录启动、工具
 调用或其他执行明细时，沿用 `agent:activity`，增加新的 discriminator 值和对应字段，
 不增加 Agent 业务状态。Code Agent 的文件工具调用必须记录，至少包括：
 
@@ -273,8 +283,13 @@ Web 在 `src/features/agents/` 内实现 activity timeline，按 `activity` 选�
 `reading_file`、`writing_file`、`editing_file` 使用对应文件操作语义；`warning` 和
 `error` 使用对应视觉级别。业务标签可以按当前界面语言本地化，安全的 provider 错误或
 警告文本保持原始语言与 wording。未知 activity 必须使用通用 activity 样式显示安全
-文案，不能丢弃整条记录；前端显示 Daemon 已截断的命令，并完整显示文件操作和工具
-Activity 的 `message`，但不得自行补充 provider 未上报的内容。
+文案，不能丢弃整条记录；`running_command`/`tool_started` 的当前状态标签只显示 Daemon
+发来的通用标签（`toolActivityLabel`），命令、路径等参数摘要只在展开的工具行里以
+entry 的 `toolInput` 展示，从不进入标题；前端不得把一个仍在发送原始 `message` 的旧版
+Daemon 的探测/心跳帧误当作参数摘要显示在标题上——`agent-activity-presentation.ts` 的
+`activityAtoms` 只在 `detail` 本身已经是这张标签表生成的字符串时才复用它，否则回退到
+「Running command…」/「Working…」。前端完整显示文件操作和工具 Activity 的 `message`，
+但不得自行补充 provider 未上报的内容。
 
 Daemon 按约 350ms 的静默间隔分批发送 provider 的文本/thinking 增量（每帧各自成为一条
 Activity），因此同一句发言可能拆成多条 Activity 帧；Web 在展示层把同一 launch、同一

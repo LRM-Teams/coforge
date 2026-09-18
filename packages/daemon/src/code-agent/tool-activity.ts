@@ -1,49 +1,16 @@
 import {
   AGENT_ACTIVITY_DETAIL_KIND,
+  TOOL_ALIASES,
+  toolActivityLabel,
   type AgentActivityDetailKind,
 } from "@lrm/coforge-sdk/internal";
 import { redactTrajectoryText } from "../agent-runtime/activity-trajectory";
 import { createAgentActivity } from "../agent-runtime/agent-activity";
 
-// Raft-verified aliases (case-insensitive; matches `toolAliases` in
-// apps/web/src/features/agents/agent-activity-presentation.ts so daemon and
-// browser agree) plus the lowercase Pi tools and explicit patch tool used by
-// our providers. Keys are lowercase; do not infer an operation by inspecting
-// arbitrary args.
-const TOOL_ALIASES: Readonly<Record<string, string>> = {
-  read: "read_file",
-  readfile: "read_file",
-  file_read: "read_file",
-  read_file: "read_file",
-  write: "write_file",
-  writefile: "write_file",
-  file_write: "write_file",
-  write_file: "write_file",
-  edit: "edit_file",
-  editfile: "edit_file",
-  file_change: "edit_file",
-  strreplacefile: "edit_file",
-  apply_patch: "edit_file",
-  edit_file: "edit_file",
-  bash: "bash",
-  shell: "bash",
-  command_execution: "bash",
-  run_shell_command: "bash",
-  run_terminal_command: "bash",
-  glob: "glob",
-  search_files: "glob",
-  grep: "grep",
-  web_fetch: "web_fetch",
-  webfetch: "web_fetch",
-  fetch_url: "web_fetch",
-  fetchurl: "web_fetch",
-  web_search: "web_search",
-  websearch: "web_search",
-  searchweb: "web_search",
-  todo_write: "todo_write",
-  todowrite: "todo_write",
-  settodolist: "todo_write",
-};
+// `TOOL_ALIASES` (shared with the web tool row labels — see
+// `packages/coforge-sdk/src/internal/tool-display.ts`) resolves a provider's tool name
+// to the canonical name this module allowlists an argument summary for. Keys are
+// lowercase; do not infer an operation by inspecting arbitrary args.
 
 // A canonical tool's summary is built from exactly one allowlisted argument
 // field; every other tool (including "bash", handled separately, and any
@@ -108,17 +75,42 @@ export function toolActivity(name: string, args: unknown, occurredAt?: string) {
   return buildActivity(AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED, summary, canonical, occurredAt);
 }
 
+/**
+ * `detail` is always the generic, argument-free label (`toolActivityLabel`) — never
+ * the command, path or other summary — so the Agent status header can never leak one
+ * (see `docs/observability.md`). The summary itself, when there is one, travels only
+ * in the entry's `toolInput`, sanitized to satisfy the SDK's `validToolInput` (at most
+ * 200 code points, no control characters).
+ */
 function buildActivity(
   detailKind: AgentActivityDetailKind,
   summary: string | undefined,
   toolName: string,
   occurredAt?: string,
 ) {
-  const result = createAgentActivity(detailKind, "info", summary ?? toolName, occurredAt);
+  const result = createAgentActivity(detailKind, "info", toolActivityLabel(toolName), occurredAt);
+  const toolInput = summary ? sanitizeToolInput(summary) : undefined;
   return {
     ...result,
-    entries: [{ kind: "tool_start" as const, toolName: sanitizeToolName(toolName) }],
+    entries: [
+      {
+        kind: "tool_start" as const,
+        toolName: sanitizeToolName(toolName),
+        ...(toolInput ? { toolInput } : {}),
+      },
+    ],
   };
+}
+
+// Collapses control characters (including newlines) to a space, then collapses
+// runs of whitespace and trims, so a multi-line or otherwise-invalid summary still
+// satisfies the SDK's `validToolInput` instead of failing to decode on the wire.
+function sanitizeToolInput(value: string): string {
+  const collapsed = value
+    .replace(/[\x00-\x1f\x7f]/g, " ")
+    .replace(/ {2,}/g, " ")
+    .trim();
+  return [...collapsed].slice(0, 200).join("");
 }
 
 function summarizeBash(command: unknown): {
