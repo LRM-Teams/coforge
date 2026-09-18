@@ -60,9 +60,12 @@ image digest alone.
    - A host pre-flight in `remote-deploy.sh` runs the same `checkconfig`
      subcommand, through the pinned image, against the file the workflow
      just shipped to the host - after the existing `compose config --quiet`
-     check and before anything is pulled or recreated. This catches a
-     configuration that only breaks in the shipped-and-rendered form, not
-     only what CI saw at commit time.
+     check and before anything is recreated. The pinned Centrifugo image is
+     pulled explicitly first with its own failure reason
+     (`failed: Centrifugo image pull failed`), so a registry problem is never
+     reported as a configuration problem. This catches a configuration that
+     only breaks in the shipped-and-rendered form, not only what CI saw at
+     commit time.
 2. **Snapshot the release, not just the digest.** Immediately before
    `remote-deploy.sh` records a deployment healthy, it copies
    `docker-compose.yml`, `caddy/Caddyfile`, and `centrifugo/config.yaml` into

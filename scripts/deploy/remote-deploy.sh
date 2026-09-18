@@ -385,6 +385,14 @@ fi
 # `compose up -d --wait` recreated the live container straight into that
 # failure. Centrifugo's own `checkconfig` subcommand parses the file exactly
 # as `centrifugo` itself would at start.
+#
+# Pull the pinned image first, with its own reason: the one-off container
+# below would otherwise pull it implicitly, and a registry failure must not
+# be reported as a configuration failure.
+if ! compose pull --quiet centrifugo >/dev/null; then
+	report "$current_image" "failed: Centrifugo image pull failed" "failed" ""
+	exit 0
+fi
 # shellcheck disable=SC2016 # single-quoted on purpose: the $(...) below must
 # expand inside the centrifugo container's shell, not this host shell.
 if ! compose run --rm --no-deps --entrypoint sh centrifugo \

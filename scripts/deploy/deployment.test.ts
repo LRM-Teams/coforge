@@ -527,7 +527,73 @@ exit 0
       expect(await Bun.file(join(root, "state.env")).text()).toBe(state);
       const calls = await Bun.file(join(root, "calls")).text();
       expect(calls).not.toMatch(/ up -d/);
-      expect(calls).not.toMatch(/ pull /);
+      expect(calls).toContain("pull --quiet centrifugo");
+      expect(calls).not.toContain("pull --quiet web");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a Centrifugo image the host cannot pull is reported as a pull failure, not a configuration failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-deploy-centrifugo-pull-"));
+    try {
+      await mkdir(join(root, "bin"));
+      await mkdir(join(root, "secrets"));
+      await mkdir(join(root, "centrifugo"));
+      await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n");
+      await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
+      for (const name of requiredSecretNames) {
+        await Bun.write(join(root, "secrets", name), "fixture-private-value");
+      }
+      const previous = `coforge/web@sha256:${"c".repeat(64)}`;
+      const state = `CURRENT_WEB_IMAGE=${previous}\nPREVIOUS_WEB_IMAGE=\n`;
+      await Bun.write(join(root, "state.env"), state);
+      await writeFile(
+        join(root, "bin/docker"),
+        `#!/bin/bash
+echo "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$1" = compose ]]; then
+  shift 5
+  if [[ "$1" = pull && "$*" == *centrifugo* ]]; then
+    exit 1
+  fi
+fi
+exit 0
+`,
+        { mode: 0o700 },
+      );
+      const proc = Bun.spawn(
+        [
+          "bash",
+          new URL("./remote-deploy.sh", import.meta.url).pathname,
+          "--image",
+          registryImage,
+          "--compose-file",
+          join(root, "docker-compose.yml"),
+          "--secrets-dir",
+          join(root, "secrets"),
+          "--state-file",
+          join(root, "state.env"),
+          "--web-health-url",
+          "http://127.0.0.1/health",
+          "--public-health-url",
+          "https://example.test/health",
+        ],
+        {
+          env: { ...Bun.env, PATH: `${join(root, "bin")}:${Bun.env.PATH}`, FIXTURE_ROOT: root },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      expect(code).toBe(0);
+      const outputs = parseRemoteOutputs(stdout);
+      expect(outputs.outcome).toBe("failed");
+      expect(outputs.healthResult).toBe("failed: Centrifugo image pull failed");
+      expect(await Bun.file(join(root, "state.env")).text()).toBe(state);
+      const calls = await Bun.file(join(root, "calls")).text();
+      expect(calls).not.toContain("checkconfig");
+      expect(calls).not.toMatch(/ up -d/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
