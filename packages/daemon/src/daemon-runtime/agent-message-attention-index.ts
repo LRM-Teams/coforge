@@ -25,6 +25,29 @@ export type MessageAttention = Readonly<{
  */
 const REMEMBERED_DELIVERIES = 4096;
 
+/**
+ * A sender name a notice may repeat: the server identity, or `@` plus a handle. Everything else is
+ * dropped rather than printed.
+ *
+ * The wire type allows any non-empty string here, and a notice is model-visible text, so an
+ * unchecked value could carry newlines and pass itself off as further instruction lines. One rule
+ * for recording attention and for rendering, so the two cannot disagree about what is printable.
+ */
+const NOTICE_SENDER = /^@[a-z0-9][a-z0-9_-]*$/i;
+
+function printableSender(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value === "system") return value;
+  return NOTICE_SENDER.test(value) ? value : undefined;
+}
+
+/** Distinct messages in a delivery list. The same message can appear more than once: a request
+ * retried while held is enqueued again so both attempts stay ACK-able, and a redelivery arriving
+ * after the dedupe window is a second delivery of one message. A notice counts messages. */
+function countDistinctMessages(deliveries: readonly AgentMessageDelivery[]): number {
+  return new Set(deliveries.map((delivery) => delivery.messageId)).size;
+}
+
 /** Daemon-owned volatile attention and model-visible sequence index. */
 export class AgentMessageAttentionIndex {
   readonly #generations = new Map<
@@ -63,6 +86,13 @@ export class AgentMessageAttentionIndex {
       shouldHold(agentId: string): boolean;
       enqueue(agentId: string, message: AgentMessageDelivery): void;
       busy(agentId: string): void;
+      /** The deliveries held for this Agent that it has not been shown yet. The notice counts
+       * these, so its number is always a count of messages the daemon is holding right now rather
+       * than a running total it would have to invalidate later. Concrete deliveries rather than a
+       * number because the same message can be enqueued more than once — one request retried
+       * while held keeps both attempts for ACK bookkeeping — and a notice must count messages,
+       * not attempts. Optional: a composition without a delivery queue holds nothing. */
+      queued?(agentId: string): readonly AgentMessageDelivery[];
     } = { shouldHold: () => false, enqueue: () => {}, busy: () => {} },
   ) {
     this.#workspaceId = workspaceId;
@@ -111,11 +141,7 @@ export class AgentMessageAttentionIndex {
       });
       return;
     }
-    const latestSender =
-      message.latestSender === "system" ||
-      (message.latestSender?.startsWith("@") && message.latestSender.length > 1)
-        ? message.latestSender
-        : undefined;
+    const latestSender = printableSender(message.latestSender);
     const byTarget = this.#attention.get(message.agentId) ?? new Map<string, MessageAttention>();
     const previous = byTarget.get(target);
     const pendingByTarget =
@@ -156,7 +182,9 @@ export class AgentMessageAttentionIndex {
   async flush(agentId: string, held: readonly AgentMessageDelivery[]): Promise<void> {
     if (!held.length) return;
     const generation = this.#generation(agentId);
-    await this.#notify(held[held.length - 1]!);
+    // One notice for the whole coalesced batch, carrying the batch itself: the queue is per Agent,
+    // so a batch legitimately spans channels, DMs and threads, and each target needs its own line.
+    await this.#notify(held[held.length - 1]!, undefined, held);
     if (this.#generations.get(agentId) !== generation) return;
     for (const message of held)
       await this.sendAck({ ...message, method: "agent:deliver:ack", requestId: message.requestId });
@@ -278,7 +306,66 @@ export class AgentMessageAttentionIndex {
     if (recoveredMessages.length) this.messageReceived(agentId);
   }
 
-  #notify(message: AgentMessageDelivery, attention?: MessageAttention): Promise<void> {
+  /**
+   * One line per target, in the order the targets first appear: what this notice announces (`new`)
+   * and what stays queued for this Agent (`held`). The delivery queue is per Agent (ADR 0048), so
+   * a coalesced flush can mix a channel, a DM and a thread; attributing the whole batch to the
+   * last delivery's target would hide the others.
+   *
+   * Both sets appear because the headline counts both. A headline that summed announced and queued
+   * while the lines showed only the announced ones left the reader unable to tell where the rest
+   * were, which is the same kind of unexplainable number this change exists to remove.
+   */
+  #localViewRows(
+    announced: readonly AgentMessageDelivery[],
+    queued: readonly AgentMessageDelivery[],
+  ): string[] {
+    const announcedIds = new Set(announced.map((delivery) => delivery.messageId));
+    const byTarget = new Map<
+      string,
+      { newIds: Set<string>; heldIds: Set<string>; latestSender?: string }
+    >();
+    const rowFor = (target: string) => {
+      const existing = byTarget.get(target);
+      if (existing) return existing;
+      const created: { newIds: Set<string>; heldIds: Set<string>; latestSender?: string } = {
+        newIds: new Set<string>(),
+        heldIds: new Set<string>(),
+      };
+      byTarget.set(target, created);
+      return created;
+    };
+    for (const delivery of announced) {
+      // `receive` rejects a delivery without a target before it can be held, so this only narrows
+      // the wire type; a targetless delivery has no line to appear on either way.
+      if (!delivery.target) continue;
+      const row = rowFor(delivery.target);
+      row.newIds.add(delivery.messageId);
+      row.latestSender = printableSender(delivery.latestSender) ?? row.latestSender;
+    }
+    for (const delivery of queued) {
+      if (!delivery.target || announcedIds.has(delivery.messageId)) continue;
+      const row = rowFor(delivery.target);
+      row.heldIds.add(delivery.messageId);
+      row.latestSender = printableSender(delivery.latestSender) ?? row.latestSender;
+    }
+    return [...byTarget].map(([target, row]) => {
+      const parts: string[] = [];
+      if (row.newIds.size)
+        parts.push(`new: ${row.newIds.size} message${row.newIds.size === 1 ? "" : "s"}`);
+      if (row.heldIds.size)
+        parts.push(`held: ${row.heldIds.size} message${row.heldIds.size === 1 ? "" : "s"}`);
+      if (row.latestSender) parts.push(`latest sender ${row.latestSender}`);
+      return `${target}  ${parts.join(" · ")}`;
+    });
+  }
+
+  #notify(
+    message: AgentMessageDelivery,
+    attention?: MessageAttention,
+    /** The messages this notice announces: one delivery, or a coalesced flush's whole batch. */
+    announced: readonly AgentMessageDelivery[] = [message],
+  ): Promise<void> {
     const generation = this.#generation(message.agentId);
     const session = this.#runtimes.session(message.agentId);
     if (!session?.notify)
@@ -288,18 +375,26 @@ export class AgentMessageAttentionIndex {
     // session — before the next queued input for this Agent can be drained and see a stale
     // "not busy yet" state.
     this.hold.busy(message.agentId);
-    const current = attention ?? this.#attention.get(message.agentId)?.get(message.target);
-    const pendingCount = current?.pendingCount ?? 1;
-    const totalPendingCount = [...(this.#attention.get(message.agentId)?.values() ?? [])].reduce(
-      (total, item) => total + item.pendingCount,
-      0,
-    );
-    const target = current?.target ?? message.target;
-    const latestSender = current?.latestSender ? ` · latest sender ${current.latestSender}` : "";
+    void attention;
+    // One source of truth. Every number here is a fact the daemon owns right now — the messages
+    // it is announcing, plus the ones still queued for this Agent — never a per-target total
+    // accumulated across earlier notices, because such a total outlived what the server would
+    // hand over and made an already-read message look lost.
+    //
+    // The wording is bounded by what the daemon can actually establish. It knows what it
+    // delivered and what it holds; it does not know the server's read cursor, so it must not say
+    // these messages are unread — a delivery notice can race a `check` or `read` that already
+    // advanced that cursor. Only those commands answer what is left, and either may answer
+    // "nothing".
+    const queued = this.hold.queued?.(message.agentId) ?? [];
+    const rows = this.#localViewRows(announced, queued);
+    const totalCount = countDistinctMessages([...announced, ...queued]);
     const notice = `[CoForge inbox notice:
-Inbox update: ${totalPendingCount} unread message${totalPendingCount === 1 ? "" : "s"} total; 1 changed target
-${target}  pending: ${pendingCount} message${pendingCount === 1 ? "" : "s"}${latestSender}
-Run \`coforge message check\` to read pending messages.]`;
+Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or held for you
+${rows.join("\n")}
+What the server still has for you is answered only by \`coforge message check\`, or
+\`coforge message read --target <target>\`; either may return nothing, because a message can
+already have been read. A notice you have not acted on does not establish that there is no work.]`;
     const notification = Promise.resolve()
       .then(() => session.notify!(notice))
       .then(() => {
@@ -312,9 +407,9 @@ Run \`coforge message check\` to read pending messages.]`;
           request_id: message.requestId,
           workspace_id: message.workspaceId,
           agent_id: message.agentId,
-          target_count: 1,
-          pending_count: pendingCount,
-          total_pending_count: totalPendingCount,
+          target_count: rows.length,
+          pending_count: countDistinctMessages(announced),
+          total_pending_count: totalCount,
           outcome: "ok",
         });
       })
@@ -324,9 +419,9 @@ Run \`coforge message check\` to read pending messages.]`;
           request_id: message.requestId,
           workspace_id: message.workspaceId,
           agent_id: message.agentId,
-          target_count: 1,
-          pending_count: pendingCount,
-          total_pending_count: totalPendingCount,
+          target_count: rows.length,
+          pending_count: countDistinctMessages(announced),
+          total_pending_count: totalCount,
           error_code: error instanceof Error ? error.name : "UnknownError",
           outcome: "failed",
         });

@@ -1550,6 +1550,10 @@ function heldSendCliError(
 function formatInboxCheck(result: unknown): string {
   if (!result || typeof result !== "object") return JSON.stringify(result);
   const response = result as { entries?: unknown[]; [key: string]: unknown };
+  // One JSON document, as before. The held message targets are already in `entries` (the daemon
+  // returns them next to the App Inbox items), so an Agent can read the local view from this
+  // output; a human-readable rendering would change machine output that callers parse today, and
+  // this command has no `--json` escape hatch to change it behind.
   return JSON.stringify({
     ...response,
     ...(response.entries

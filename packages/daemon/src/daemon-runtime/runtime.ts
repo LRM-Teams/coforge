@@ -561,6 +561,7 @@ export class DaemonRuntime {
       },
       {
         shouldHold: (agentId) => this.#deliveryQueue.shouldHold(agentId),
+        queued: (agentId) => this.#deliveryQueue.pending(agentId),
         enqueue: (agentId, message) => this.#deliveryQueue.enqueue(agentId, message),
         busy: (agentId) => this.#deliveryQueue.busy(agentId),
       },

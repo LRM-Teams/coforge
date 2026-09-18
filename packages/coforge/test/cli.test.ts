@@ -1994,6 +1994,54 @@ test("App Inbox hides message ordering fields from Agent output", async () => {
   expect(output).toContain('"pendingCount":2');
 });
 
+test("inbox check stays one JSON document and carries the held targets", async () => {
+  const output = await run(["inbox", "check"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+    inboxCheck: async () => ({
+      entries: [
+        {
+          kind: "message_target",
+          messageTarget: {
+            target: "#general",
+            pendingCount: 2,
+            latestSender: "@ada",
+            firstPendingSequence: 7,
+            latestSequence: 8,
+            flags: ["channel"],
+          },
+        },
+        { kind: "app", app: { itemId: "item-1", appId: "reminder" } },
+      ],
+    }),
+  });
+
+  // This command's output is machine-readable and there is no `--json` to switch behind, so it
+  // stays exactly one JSON document. The local view is legible from it: the held targets sit in
+  // `entries` next to the App Inbox items.
+  const parsed = JSON.parse(String(output)) as {
+    entries: {
+      kind: string;
+      messageTarget?: {
+        target: string;
+        pendingCount: number;
+        latestSender?: string;
+        flags?: string[];
+      };
+    }[];
+  };
+  const target = parsed.entries.find((entry) => entry.kind === "message_target");
+  expect(target?.messageTarget).toEqual({
+    target: "#general",
+    pendingCount: 2,
+    latestSender: "@ada",
+    flags: ["channel"],
+  });
+  expect(parsed.entries.some((entry) => entry.kind === "app")).toBe(true);
+});
+
 test("--reviewer-isolation is accepted only on send, claim, update and amend", () => {
   expect(parseArgs(["message", "send", "--target", "@ada", "--reviewer-isolation"])).toMatchObject({
     command: "send",
