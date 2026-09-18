@@ -17,6 +17,14 @@ export const agentApiRoutes = {
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
+    users: {
+      method: "GET",
+      path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
+    },
+    profile: {
+      get: { method: "GET", path: "/api/agent/v1/profile" },
+      update: { method: "POST", path: "/api/agent/v1/profile" },
+    },
   },
   local: {
     messages: { method: "POST", path: "/api/agent/v1/messages" },
@@ -50,6 +58,14 @@ export const agentApiRoutes = {
         path: (uploadId: string) =>
           `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
       },
+    },
+    users: {
+      method: "GET",
+      path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
+    },
+    profile: {
+      get: { method: "GET", path: "/api/agent/v1/profile" },
+      update: { method: "POST", path: "/api/agent/v1/profile" },
     },
   },
   cloud: {
@@ -165,6 +181,14 @@ export const agentApiRoutes = {
         path: (uploadId: string) =>
           `/api/agent/v1/attachment-upload-sessions/${encodeURIComponent(uploadId)}`,
       },
+    },
+    users: {
+      method: "GET",
+      path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
+    },
+    profile: {
+      get: { method: "GET", path: "/api/agent/v1/profile" },
+      update: { method: "POST", path: "/api/agent/v1/profile" },
     },
   },
   workspace: {

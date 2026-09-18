@@ -1,0 +1,212 @@
+import { afterAll, expect, mock, test } from "bun:test";
+
+const displaySnapshots = new Map<string, string>();
+mock.module("../src/server/agents/agent-display.server", () => ({
+  getAgentDisplay: () => ({
+    snapshot: async (scope: { workspaceId: string; computerId: string; agentId: string }) => {
+      const activityKind = displaySnapshots.get(scope.agentId);
+      if (!activityKind) throw new Error("no snapshot");
+      return {
+        protocolMajor: 1 as const,
+        workspaceId: scope.workspaceId,
+        computerId: scope.computerId,
+        agentId: scope.agentId,
+        revision: 1,
+        activityKind,
+        detailKind: activityKind === "online" ? "idle" : "",
+        detail: "",
+        entries: [],
+        expiresAt: null,
+      };
+    },
+  }),
+}));
+
+const { resolveAgentProfileShow, resolveAgentProfileUpdate } =
+  await import("../src/server/agents/agent-profile.server");
+
+afterAll(() => {
+  mock.restore();
+});
+
+const WORKSPACE_ID = "workspace-1";
+const CALLER_AGENT_ID = "agent-scout";
+
+const AGENT_SCOUT = {
+  id: "agent-scout",
+  workspaceId: WORKSPACE_ID,
+  name: "scout",
+  displayName: "Scout",
+  description: "Reviews pull requests.",
+  role: "member",
+  computerId: "computer-1",
+  stoppedAt: null as Date | null,
+  ownerId: "user-alice",
+  runtimeConfig: {
+    runtime: "claude-code",
+    provider: { kind: "default" },
+    model: "sonnet",
+    modelProvider: "",
+    reasoning: "",
+  },
+  computer: { name: "mac-1", displayName: "Alice's Mac" },
+};
+
+const USER_ALICE = {
+  id: "user-alice",
+  username: "alice",
+  displayName: "Alice Chen",
+  description: "Engineering lead.",
+};
+
+function baseDb(
+  overrides: {
+    agent?: unknown;
+    membership?: unknown;
+    ownedAgents?: unknown[];
+    update?: (data: Record<string, unknown>) => void;
+  } = {},
+) {
+  const agentRecord = overrides.agent !== undefined ? overrides.agent : AGENT_SCOUT;
+  return {
+    agent: {
+      findFirst: async ({ where }: { where: { workspaceId: string; name: string } }) =>
+        where.name === "scout" ? agentRecord : null,
+      findUnique: async ({ where }: { where: { id_workspaceId: { id: string } } }) =>
+        where.id_workspaceId.id === CALLER_AGENT_ID ? { name: "scout" } : null,
+      findMany: async () => overrides.ownedAgents ?? [],
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        overrides.update?.(data);
+        return { ...AGENT_SCOUT, ...data, name: "scout" };
+      },
+    },
+    workspaceMembership: {
+      findFirst: async ({ where }: { where: { user: { username: string } } }) =>
+        where.user.username === "alice" ? { role: "admin", user: USER_ALICE } : null,
+    },
+    user: {
+      findUnique: async ({ where }: { where: { id: string } }) =>
+        where.id === "user-alice" ? USER_ALICE : null,
+    },
+    conversation: { findMany: async () => [] },
+  };
+}
+
+test("profile show: defaults to the calling Agent's own profile when no target is given", async () => {
+  displaySnapshots.set("agent-scout", "online");
+  const outcome = await resolveAgentProfileShow(
+    baseDb() as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    undefined,
+  );
+  expect(outcome.status).toBe(200);
+  if (outcome.status !== 200) throw new Error("unreachable");
+  expect(outcome.body.profile).toMatchObject({
+    kind: "agent",
+    name: "scout",
+    isSelf: true,
+    status: "online",
+  });
+  if (outcome.body.profile.kind === "agent")
+    expect(outcome.body.profile.creator).toEqual({ name: "alice", displayName: "Alice Chen" });
+  displaySnapshots.delete("agent-scout");
+});
+
+test("profile show: a human target lists Agents they created", async () => {
+  displaySnapshots.set("agent-scout", "offline");
+  const outcome = await resolveAgentProfileShow(
+    baseDb({ ownedAgents: [AGENT_SCOUT] }) as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    "alice",
+  );
+  expect(outcome.status).toBe(200);
+  if (outcome.status !== 200) throw new Error("unreachable");
+  expect(outcome.body.profile).toMatchObject({ kind: "human", name: "alice", isSelf: false });
+  if (outcome.body.profile.kind === "human")
+    expect(outcome.body.profile.createdAgents).toEqual([
+      { name: "scout", displayName: "Scout", status: "offline" },
+    ]);
+  displaySnapshots.delete("agent-scout");
+});
+
+test("profile show: an unknown target 404s as user_not_found", async () => {
+  const outcome = await resolveAgentProfileShow(
+    baseDb({ agent: null, membership: null }) as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    "ghost",
+  );
+  expect(outcome.status).toBe(404);
+  if (outcome.status !== 404) throw new Error("unreachable");
+  expect(outcome.body.errorCode).toBe("user_not_found");
+});
+
+test("profile update: applies displayName and description to the calling Agent only", async () => {
+  let updateData: Record<string, unknown> | undefined;
+  const outcome = await resolveAgentProfileUpdate(
+    baseDb({ update: (data) => (updateData = data) }) as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    { displayName: "  Scout Bot  ", description: "Updated description." },
+  );
+  expect(outcome.status).toBe(200);
+  expect(updateData).toEqual({ displayName: "Scout Bot", description: "Updated description." });
+});
+
+test("profile update: rejects an empty displayName as profile_invalid", async () => {
+  const outcome = await resolveAgentProfileUpdate(
+    baseDb() as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    { displayName: "   " },
+  );
+  expect(outcome.status).toBe(400);
+  if (outcome.status !== 400) throw new Error("unreachable");
+  expect(outcome.body.errorCode).toBe("profile_invalid");
+  expect(outcome.body.error).toContain("must not be empty");
+});
+
+test("profile update: rejects a displayName over 80 characters", async () => {
+  const outcome = await resolveAgentProfileUpdate(
+    baseDb() as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    { displayName: "x".repeat(81) },
+  );
+  expect(outcome.status).toBe(400);
+  if (outcome.status !== 400) throw new Error("unreachable");
+  expect(outcome.body.errorCode).toBe("profile_invalid");
+  expect(outcome.body.error).toContain("80 characters");
+});
+
+test("profile update: rejects a description over 500 characters", async () => {
+  const outcome = await resolveAgentProfileUpdate(
+    baseDb() as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    { description: "x".repeat(501) },
+  );
+  expect(outcome.status).toBe(400);
+  if (outcome.status !== 400) throw new Error("unreachable");
+  expect(outcome.body.errorCode).toBe("profile_invalid");
+  expect(outcome.body.error).toContain("500 characters");
+});
+
+test("profile update: requires at least one field", async () => {
+  const outcome = await resolveAgentProfileUpdate(
+    baseDb() as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    {},
+  );
+  expect(outcome.status).toBe(400);
+  if (outcome.status !== 400) throw new Error("unreachable");
+  expect(outcome.body.errorCode).toBe("profile_invalid");
+});
+
+test("profile update: never accepts a name/Username field (the request type has none)", async () => {
+  let updateData: Record<string, unknown> | undefined;
+  await resolveAgentProfileUpdate(
+    baseDb({ update: (data) => (updateData = data) }) as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    // @ts-expect-error -- deliberately probing that an extraneous `name` field is ignored, not
+    // applied: `resolveAgentProfileUpdate`'s input type has no `name`/`username` field at all.
+    { displayName: "Scout Bot", name: "renamed-scout" },
+  );
+  expect(updateData).toEqual({ displayName: "Scout Bot" });
+  expect(updateData).not.toHaveProperty("name");
+});

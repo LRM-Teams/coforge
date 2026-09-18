@@ -183,6 +183,9 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           manualGet: async (...input) => requireRuntime().manualGet(...input),
           manualSearch: async (...input) => requireRuntime().manualSearch(...input),
           version: async (...input) => requireRuntime().version(...input),
+          userInfo: async (...input) => requireRuntime().userInfo(...input),
+          profileShow: async (...input) => requireRuntime().profileShow(...input),
+          profileUpdate: async (...input) => requireRuntime().profileUpdate(...input),
           issueAgentContext: (agentId) => requireRuntime().issueAgentContext(agentId),
           // Every proxy route must reach the runtime here: an unwired handler is a 404 for the
           // Agent's CLI, so a new `AgentProxyRuntime` member fails to compile until it is added.

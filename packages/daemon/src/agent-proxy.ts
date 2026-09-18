@@ -29,10 +29,18 @@ import {
   type AgentVersionResponse,
   type GitHubCredentialRequest,
   type GitHubCredentialResponse,
+  type AgentUserInfoRequest,
+  type AgentUserInfoResponse,
+  type AgentProfileShowRequest,
+  type AgentProfileShowResponse,
+  type AgentProfileUpdateRequest,
+  type AgentProfileUpdateResponse,
 } from "@lrm/coforge-sdk/agent";
 import { isAgentApiKey } from "./credentials/agent-api-key";
 import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
 import { AgentManualRequestError } from "./connection/agent-manual-request-error";
+import { AgentUserInfoRequestError } from "./connection/agent-user-info-request-error";
+import { AgentProfileRequestError } from "./connection/agent-profile-request-error";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentProxy = {
@@ -103,6 +111,21 @@ export type AgentProxyRuntime = {
     request: Record<string, never>,
     agentApiKey: string,
   ): Promise<AgentVersionResponse>;
+  userInfo?(
+    context: string,
+    request: AgentUserInfoRequest,
+    agentApiKey: string,
+  ): Promise<AgentUserInfoResponse>;
+  profileShow?(
+    context: string,
+    request: AgentProfileShowRequest,
+    agentApiKey: string,
+  ): Promise<AgentProfileShowResponse>;
+  profileUpdate?(
+    context: string,
+    request: AgentProfileUpdateRequest,
+    agentApiKey: string,
+  ): Promise<AgentProfileUpdateResponse>;
   githubCredential?(
     context: string,
     request: GitHubCredentialRequest,
@@ -133,6 +156,7 @@ const LOCAL_UPLOAD_SESSION_ROUTE_PREFIX =
   agentApiRoutes.local.attachmentUploadSessions.get.path("");
 const UPLOAD_SESSION_COMPLETE_SUFFIX = "/complete";
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
+const LOCAL_USER_ROUTE_PREFIX = LOCAL_PROXY_ROUTES.users.path("");
 const MAX_BODY_BYTES = 64 * 1024;
 const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
 
@@ -280,6 +304,38 @@ function manualDomainFailure(error: unknown): Response | undefined {
     { ok: false, errorCode: error.errorCode, error: error.message },
     { status: error.status },
   );
+}
+
+/** `user info` answers a domain error as JSON `{ ok: false, errorCode, error }` (same convention
+ * as the Manual routes; ADR 0036), so an `AgentUserInfoRequestError` is forwarded rather than
+ * classified. */
+function userInfoDomainFailure(error: unknown): Response | undefined {
+  if (!(error instanceof AgentUserInfoRequestError)) return undefined;
+  return Response.json(
+    { ok: false, errorCode: error.errorCode, error: error.message },
+    { status: error.status },
+  );
+}
+
+/** Same convention as `userInfoDomainFailure`, for `profile show`/`profile update`. */
+function profileDomainFailure(error: unknown): Response | undefined {
+  if (!(error instanceof AgentProfileRequestError)) return undefined;
+  return Response.json(
+    { ok: false, errorCode: error.errorCode, error: error.message },
+    { status: error.status },
+  );
+}
+
+function parseProfileUpdateFields(fields: JsonObject): AgentProfileUpdateRequest | Response {
+  if (
+    (fields.displayName !== undefined && typeof fields.displayName !== "string") ||
+    (fields.description !== undefined && typeof fields.description !== "string")
+  )
+    return badRequest();
+  return {
+    ...(fields.displayName !== undefined ? { displayName: fields.displayName as string } : {}),
+    ...(fields.description !== undefined ? { description: fields.description as string } : {}),
+  };
 }
 
 function parseChannelCommand(payload: JsonObject): ChannelCommand | Response {
@@ -478,6 +534,36 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     body: "none",
     handler: "version",
     parse: () => ({}),
+  }),
+  defineRoute({
+    family: "agent-api/user-info",
+    method: LOCAL_PROXY_ROUTES.users.method,
+    match: pathParam(LOCAL_USER_ROUTE_PREFIX),
+    body: "none",
+    handler: "userInfo",
+    parse: ({ param }) => {
+      const name = decodePathParam(param);
+      return name instanceof Response ? name : { name };
+    },
+    domainFailure: userInfoDomainFailure,
+  }),
+  defineRoute({
+    family: "agent-api/profile-show",
+    method: LOCAL_PROXY_ROUTES.profile.get.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.profile.get.path),
+    body: "none",
+    handler: "profileShow",
+    parse: ({ url }) => ({ target: url.searchParams.get("target") ?? undefined }),
+    domainFailure: profileDomainFailure,
+  }),
+  defineRoute({
+    family: "agent-api/profile-update",
+    method: LOCAL_PROXY_ROUTES.profile.update.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.profile.update.path),
+    body: "json-object",
+    handler: "profileUpdate",
+    parse: ({ fields }) => parseProfileUpdateFields(fields),
+    domainFailure: profileDomainFailure,
   }),
   defineRoute({
     family: "agent-api/attachment",

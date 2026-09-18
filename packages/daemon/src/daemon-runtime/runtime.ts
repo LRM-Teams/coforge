@@ -112,6 +112,12 @@ import type {
   AgentManualSearchRequest,
   AgentManualSearchResponse,
   AgentVersionResponse,
+  AgentUserInfoRequest,
+  AgentUserInfoResponse,
+  AgentProfileShowRequest,
+  AgentProfileShowResponse,
+  AgentProfileUpdateRequest,
+  AgentProfileUpdateResponse,
 } from "@lrm/coforge-sdk/agent";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
@@ -2704,6 +2710,36 @@ export class DaemonRuntime {
       daemonPid: process.pid,
       startedAt: this.#startedAt,
     };
+  }
+
+  async userInfo(
+    context: string,
+    request: AgentUserInfoRequest,
+    agentApiKey: string,
+  ): Promise<AgentUserInfoResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.userInfo) throw new Error("Agent user info endpoint is not configured");
+    return this.#transport.userInfo(request, agentApiKey);
+  }
+
+  async profileShow(
+    context: string,
+    request: AgentProfileShowRequest,
+    agentApiKey: string,
+  ): Promise<AgentProfileShowResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.profileShow) throw new Error("Agent profile endpoint is not configured");
+    return this.#transport.profileShow(request, agentApiKey);
+  }
+
+  async profileUpdate(
+    context: string,
+    request: AgentProfileUpdateRequest,
+    agentApiKey: string,
+  ): Promise<AgentProfileUpdateResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.profileUpdate) throw new Error("Agent profile endpoint is not configured");
+    return this.#transport.profileUpdate(request, agentApiKey);
   }
 
   async agentTask(context: string, command: TaskCommand, agentApiKey: string): Promise<TaskResult> {

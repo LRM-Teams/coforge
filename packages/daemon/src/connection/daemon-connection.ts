@@ -19,9 +19,19 @@ import type {
   AgentManualSearchRequest,
   AgentManualSearchResponse,
   AgentManualErrorCode,
+  AgentUserInfoRequest,
+  AgentUserInfoResponse,
+  AgentUserInfoErrorCode,
+  AgentProfileShowRequest,
+  AgentProfileShowResponse,
+  AgentProfileUpdateRequest,
+  AgentProfileUpdateResponse,
+  AgentProfileErrorCode,
 } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "./agent-message-request-error";
 import { AgentManualRequestError } from "./agent-manual-request-error";
+import { AgentUserInfoRequestError } from "./agent-user-info-request-error";
+import { AgentProfileRequestError } from "./agent-profile-request-error";
 import { AgentTransportError } from "./agent-transport-error";
 import {
   decodeAgentWorkspaceResetRequest,
@@ -186,6 +196,13 @@ export interface AgentMessageHttpClient {
   requestManualSearch?(
     input: AgentHttpInput<AgentManualSearchRequest>,
   ): Promise<AgentManualSearchResponse>;
+  requestUserInfo?(input: AgentHttpInput<AgentUserInfoRequest>): Promise<AgentUserInfoResponse>;
+  requestProfileShow?(
+    input: AgentHttpInput<AgentProfileShowRequest>,
+  ): Promise<AgentProfileShowResponse>;
+  requestProfileUpdate?(
+    input: AgentHttpInput<AgentProfileUpdateRequest>,
+  ): Promise<AgentProfileUpdateResponse>;
 }
 
 /**
@@ -334,6 +351,15 @@ export interface DaemonConnectionClient {
     request: AgentManualSearchRequest,
     agentApiKey: string,
   ): Promise<AgentManualSearchResponse>;
+  userInfo?(request: AgentUserInfoRequest, agentApiKey: string): Promise<AgentUserInfoResponse>;
+  profileShow?(
+    request: AgentProfileShowRequest,
+    agentApiKey: string,
+  ): Promise<AgentProfileShowResponse>;
+  profileUpdate?(
+    request: AgentProfileUpdateRequest,
+    agentApiKey: string,
+  ): Promise<AgentProfileUpdateResponse>;
   onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
   sendAgentControlResult?(result: AgentControlResult): Promise<void>;
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
@@ -601,6 +627,76 @@ async function getAgentManualJson<Result extends { ok: true }>(
   return data as Result;
 }
 
+/**
+ * Shared GET helper for a route whose JSON error body is always `{ ok: false, errorCode, error }`
+ * (the same convention `getAgentManualJson` implements for the Manual routes; `user info` and
+ * `profile show` reuse it here rather than duplicating the parsing). `makeError` turns a
+ * well-formed error body into the route family's own typed error; anything else is a genuine
+ * transport failure.
+ */
+async function getAgentEnvelopeJson<Result extends { ok: true }>(
+  fetcher: HttpFetch,
+  input: Omit<AgentHttpInput<never>, "request"> & {
+    query: Record<string, string | undefined>;
+    what: string;
+  },
+  makeError: (errorCode: string, message: string, status: number) => Error,
+): Promise<Result> {
+  const endpoint = new URL(input.url);
+  for (const [key, value] of Object.entries(input.query))
+    if (value !== undefined) endpoint.searchParams.set(key, value);
+  const response = await fetchAgentResponse(
+    fetcher,
+    endpoint,
+    { method: "GET", headers: agentHeaders(input) },
+    input.what,
+  );
+  return decodeAgentEnvelopeJson<Result>(response, input.what, makeError);
+}
+
+/** Same envelope convention as `getAgentEnvelopeJson`, for a POST route (`profile update`). */
+async function postAgentEnvelopeJson<Result extends { ok: true }>(
+  fetcher: HttpFetch,
+  input: Omit<AgentHttpInput<never>, "request"> & { body: unknown; what: string },
+  makeError: (errorCode: string, message: string, status: number) => Error,
+): Promise<Result> {
+  const response = await fetchAgentResponse(
+    fetcher,
+    input.url,
+    {
+      method: "POST",
+      headers: agentHeaders(input, true),
+      body: JSON.stringify(input.body),
+    },
+    input.what,
+  );
+  return decodeAgentEnvelopeJson<Result>(response, input.what, makeError);
+}
+
+async function decodeAgentEnvelopeJson<Result extends { ok: true }>(
+  response: Response,
+  what: string,
+  makeError: (errorCode: string, message: string, status: number) => Error,
+): Promise<Result> {
+  let data: unknown;
+  try {
+    data = await readAgentResponseText(response, what).then((text) => JSON.parse(text));
+  } catch {
+    throw AgentTransportError.protocolMismatch(
+      what,
+      response.status,
+      "response body is not valid JSON",
+    );
+  }
+  if (!response.ok) {
+    const body = data as { errorCode?: unknown; error?: unknown } | null;
+    if (body && typeof body.errorCode === "string" && typeof body.error === "string")
+      throw makeError(body.errorCode, body.error, response.status);
+    throw AgentTransportError.upstreamHttpResponse(what, response.status);
+  }
+  return data as Result;
+}
+
 const AGENT_SEND_STATES = new Set(["sent", "held", "denied"]);
 
 /** Validates the send route's response shape; the incident this module exists to prevent. */
@@ -768,6 +864,27 @@ export const createAgentMessageHttpClient = (
       what: "agent manual search",
       query: { query: request.query, intent: request.intent, reason: request.reason },
     }),
+  requestUserInfo: ({ request: _request, ...keys }) =>
+    getAgentEnvelopeJson<AgentUserInfoResponse>(
+      httpClient,
+      { ...keys, what: "agent user info", query: {} },
+      (errorCode, message, status) =>
+        new AgentUserInfoRequestError(errorCode as AgentUserInfoErrorCode, message, status),
+    ),
+  requestProfileShow: ({ request, ...keys }) =>
+    getAgentEnvelopeJson<AgentProfileShowResponse>(
+      httpClient,
+      { ...keys, what: "agent profile show", query: { target: request.target } },
+      (errorCode, message, status) =>
+        new AgentProfileRequestError(errorCode as AgentProfileErrorCode, message, status),
+    ),
+  requestProfileUpdate: ({ request, ...keys }) =>
+    postAgentEnvelopeJson<AgentProfileUpdateResponse>(
+      httpClient,
+      { ...keys, what: "agent profile update", body: request },
+      (errorCode, message, status) =>
+        new AgentProfileRequestError(errorCode as AgentProfileErrorCode, message, status),
+    ),
   async requestGitHubCredential({ url, request, ...keys }) {
     const response = await httpClient(url, {
       method: "POST",
@@ -1448,6 +1565,51 @@ export class DaemonConnection implements DaemonConnectionClient {
       throw new Error("Agent Manual HTTP client is unavailable");
     return this.agentMessageHttpClient.requestManualSearch({
       url: this.#serverEndpoint("Agent manual search", agentApiRoutes.cloud.manual.search.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async userInfo(
+    request: AgentUserInfoRequest,
+    agentApiKey: string,
+  ): Promise<AgentUserInfoResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent user info endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestUserInfo)
+      throw new Error("Agent user info HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestUserInfo({
+      url: this.#serverEndpoint("Agent user info", agentApiRoutes.cloud.users.path(request.name)),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async profileShow(
+    request: AgentProfileShowRequest,
+    agentApiKey: string,
+  ): Promise<AgentProfileShowResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent profile endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestProfileShow)
+      throw new Error("Agent profile HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestProfileShow({
+      url: this.#serverEndpoint("Agent profile show", agentApiRoutes.cloud.profile.get.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async profileUpdate(
+    request: AgentProfileUpdateRequest,
+    agentApiKey: string,
+  ): Promise<AgentProfileUpdateResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent profile endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestProfileUpdate)
+      throw new Error("Agent profile HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestProfileUpdate({
+      url: this.#serverEndpoint("Agent profile update", agentApiRoutes.cloud.profile.update.path),
       ...this.#agentKeys(agentApiKey),
       request,
     });

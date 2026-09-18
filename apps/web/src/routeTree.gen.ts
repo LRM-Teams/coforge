@@ -60,6 +60,7 @@ import { Route as ApiAgentV1EventsRouteImport } from './routes/api/agent/v1/even
 import { Route as ApiAgentV1GithubCredentialsRouteImport } from './routes/api/agent/v1/github-credentials'
 import { Route as ApiAgentV1ManualRouteImport } from './routes/api/agent/v1/manual'
 import { Route as ApiAgentV1MessagesRouteImport } from './routes/api/agent/v1/messages'
+import { Route as ApiAgentV1ProfileRouteImport } from './routes/api/agent/v1/profile'
 import { Route as ApiAgentV1RemindersRouteImport } from './routes/api/agent/v1/reminders'
 import { Route as ApiAgentV1TasksRouteImport } from './routes/api/agent/v1/tasks'
 import { Route as ApiAgentV1WeeklyReportsRouteImport } from './routes/api/agent/v1/weekly-reports'
@@ -80,6 +81,7 @@ import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/
 import { Route as ApiAgentV1ChannelsChannelRouteImport } from './routes/api/agent/v1/channels_.$channel'
 import { Route as ApiAgentV1ManualSearchRouteImport } from './routes/api/agent/v1/manual_.search'
 import { Route as ApiAgentV1MessagesSearchRouteImport } from './routes/api/agent/v1/messages_.search'
+import { Route as ApiAgentV1UsersNameRouteImport } from './routes/api/agent/v1/users/$name'
 import { Route as ApiProjectsProjectIdRawSplatRouteImport } from './routes/api/projects.$projectId.raw.$'
 import { Route as ApiAgentV1AttachmentUploadSessionsUploadIdCompleteRouteImport } from './routes/api/agent/v1/attachment-upload-sessions/$uploadId.complete'
 import { Route as ApiAgentV1ChannelsChannelArchiveRouteImport } from './routes/api/agent/v1/channels_.$channel.archive'
@@ -356,6 +358,11 @@ const ApiAgentV1MessagesRoute = ApiAgentV1MessagesRouteImport.update({
   path: '/api/agent/v1/messages',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentV1ProfileRoute = ApiAgentV1ProfileRouteImport.update({
+  id: '/api/agent/v1/profile',
+  path: '/api/agent/v1/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAgentV1RemindersRoute = ApiAgentV1RemindersRouteImport.update({
   id: '/api/agent/v1/reminders',
   path: '/api/agent/v1/reminders',
@@ -469,6 +476,11 @@ const ApiAgentV1MessagesSearchRoute =
     path: '/api/agent/v1/messages/search',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAgentV1UsersNameRoute = ApiAgentV1UsersNameRouteImport.update({
+  id: '/api/agent/v1/users/$name',
+  path: '/api/agent/v1/users/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiProjectsProjectIdRawSplatRoute =
   ApiProjectsProjectIdRawSplatRouteImport.update({
     id: '/api/projects/$projectId/raw/$',
@@ -599,6 +611,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
+  '/api/agent/v1/profile': typeof ApiAgentV1ProfileRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
   '/api/agent/v1/weekly-reports': typeof ApiAgentV1WeeklyReportsRoute
@@ -617,6 +630,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/channels/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/manual/search': typeof ApiAgentV1ManualSearchRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
+  '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
@@ -681,6 +695,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
+  '/api/agent/v1/profile': typeof ApiAgentV1ProfileRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
   '/api/agent/v1/weekly-reports': typeof ApiAgentV1WeeklyReportsRoute
@@ -699,6 +714,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/channels/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/manual/search': typeof ApiAgentV1ManualSearchRoute
   '/api/agent/v1/messages/search': typeof ApiAgentV1MessagesSearchRoute
+  '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/api/agent/v1/attachment-upload-sessions': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments': typeof ApiAgentV1AttachmentsIndexRoute
@@ -768,6 +784,7 @@ export interface FileRoutesById {
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
+  '/api/agent/v1/profile': typeof ApiAgentV1ProfileRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
   '/api/agent/v1/weekly-reports': typeof ApiAgentV1WeeklyReportsRoute
@@ -786,6 +803,7 @@ export interface FileRoutesById {
   '/api/agent/v1/channels_/$channel': typeof ApiAgentV1ChannelsChannelRouteWithChildren
   '/api/agent/v1/manual_/search': typeof ApiAgentV1ManualSearchRoute
   '/api/agent/v1/messages_/search': typeof ApiAgentV1MessagesSearchRoute
+  '/api/agent/v1/users/$name': typeof ApiAgentV1UsersNameRoute
   '/api/projects/$projectId/raw/$': typeof ApiProjectsProjectIdRawSplatRoute
   '/api/agent/v1/attachment-upload-sessions/': typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   '/api/agent/v1/attachments/': typeof ApiAgentV1AttachmentsIndexRoute
@@ -855,6 +873,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
     | '/api/agent/v1/messages'
+    | '/api/agent/v1/profile'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
     | '/api/agent/v1/weekly-reports'
@@ -873,6 +892,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/channels/$channel'
     | '/api/agent/v1/manual/search'
     | '/api/agent/v1/messages/search'
+    | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
     | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
@@ -937,6 +957,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
     | '/api/agent/v1/messages'
+    | '/api/agent/v1/profile'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
     | '/api/agent/v1/weekly-reports'
@@ -955,6 +976,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/channels/$channel'
     | '/api/agent/v1/manual/search'
     | '/api/agent/v1/messages/search'
+    | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
     | '/api/agent/v1/attachment-upload-sessions'
     | '/api/agent/v1/attachments'
@@ -1023,6 +1045,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
     | '/api/agent/v1/messages'
+    | '/api/agent/v1/profile'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
     | '/api/agent/v1/weekly-reports'
@@ -1041,6 +1064,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/channels_/$channel'
     | '/api/agent/v1/manual_/search'
     | '/api/agent/v1/messages_/search'
+    | '/api/agent/v1/users/$name'
     | '/api/projects/$projectId/raw/$'
     | '/api/agent/v1/attachment-upload-sessions/'
     | '/api/agent/v1/attachments/'
@@ -1089,6 +1113,7 @@ export interface RootRouteChildren {
   ApiAgentV1GithubCredentialsRoute: typeof ApiAgentV1GithubCredentialsRoute
   ApiAgentV1ManualRoute: typeof ApiAgentV1ManualRoute
   ApiAgentV1MessagesRoute: typeof ApiAgentV1MessagesRoute
+  ApiAgentV1ProfileRoute: typeof ApiAgentV1ProfileRoute
   ApiAgentV1RemindersRoute: typeof ApiAgentV1RemindersRoute
   ApiAgentV1TasksRoute: typeof ApiAgentV1TasksRoute
   ApiAgentV1WeeklyReportsRoute: typeof ApiAgentV1WeeklyReportsRoute
@@ -1105,6 +1130,7 @@ export interface RootRouteChildren {
   ApiAgentV1ChannelsChannelRoute: typeof ApiAgentV1ChannelsChannelRouteWithChildren
   ApiAgentV1ManualSearchRoute: typeof ApiAgentV1ManualSearchRoute
   ApiAgentV1MessagesSearchRoute: typeof ApiAgentV1MessagesSearchRoute
+  ApiAgentV1UsersNameRoute: typeof ApiAgentV1UsersNameRoute
   ApiProjectsProjectIdRawSplatRoute: typeof ApiProjectsProjectIdRawSplatRoute
   ApiAgentV1AttachmentUploadSessionsIndexRoute: typeof ApiAgentV1AttachmentUploadSessionsIndexRoute
   ApiAgentV1AttachmentsIndexRoute: typeof ApiAgentV1AttachmentsIndexRoute
@@ -1473,6 +1499,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1MessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v1/profile': {
+      id: '/api/agent/v1/profile'
+      path: '/api/agent/v1/profile'
+      fullPath: '/api/agent/v1/profile'
+      preLoaderRoute: typeof ApiAgentV1ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/reminders': {
       id: '/api/agent/v1/reminders'
       path: '/api/agent/v1/reminders'
@@ -1611,6 +1644,13 @@ declare module '@tanstack/react-router' {
       path: '/api/agent/v1/messages/search'
       fullPath: '/api/agent/v1/messages/search'
       preLoaderRoute: typeof ApiAgentV1MessagesSearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/users/$name': {
+      id: '/api/agent/v1/users/$name'
+      path: '/api/agent/v1/users/$name'
+      fullPath: '/api/agent/v1/users/$name'
+      preLoaderRoute: typeof ApiAgentV1UsersNameRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/projects/$projectId/raw/$': {
@@ -1886,6 +1926,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1GithubCredentialsRoute: ApiAgentV1GithubCredentialsRoute,
   ApiAgentV1ManualRoute: ApiAgentV1ManualRoute,
   ApiAgentV1MessagesRoute: ApiAgentV1MessagesRoute,
+  ApiAgentV1ProfileRoute: ApiAgentV1ProfileRoute,
   ApiAgentV1RemindersRoute: ApiAgentV1RemindersRoute,
   ApiAgentV1TasksRoute: ApiAgentV1TasksRoute,
   ApiAgentV1WeeklyReportsRoute: ApiAgentV1WeeklyReportsRoute,
@@ -1906,6 +1947,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1ChannelsChannelRoute: ApiAgentV1ChannelsChannelRouteWithChildren,
   ApiAgentV1ManualSearchRoute: ApiAgentV1ManualSearchRoute,
   ApiAgentV1MessagesSearchRoute: ApiAgentV1MessagesSearchRoute,
+  ApiAgentV1UsersNameRoute: ApiAgentV1UsersNameRoute,
   ApiProjectsProjectIdRawSplatRoute: ApiProjectsProjectIdRawSplatRoute,
   ApiAgentV1AttachmentUploadSessionsIndexRoute:
     ApiAgentV1AttachmentUploadSessionsIndexRoute,

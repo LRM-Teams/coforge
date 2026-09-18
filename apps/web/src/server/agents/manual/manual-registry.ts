@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 // loader or a generated TS module.
 import githubBody from "./topics/github.md?raw";
 import manualBody from "./topics/manual.md?raw";
+import profileBody from "./topics/profile.md?raw";
 import tasksBody from "./topics/tasks.md?raw";
 
 /** One Agent Manual topic (ADR 0036). `slug`/`title`/`summary` are a small typed registry here
@@ -31,6 +32,13 @@ export const MANUAL_TOPICS: readonly AgentManualTopic[] = [
     summary:
       "How to read a Manual topic or the topic index, search by keyword, and what --intent/--reason mean and must never contain.",
     body: manualBody,
+  },
+  {
+    slug: "profile",
+    title: "Looking up a profile and updating your own",
+    summary:
+      "coforge user info and profile show/update: visible facts, shared channels, live Agent status/availability, createdAgents/creator, and profile update's validation limits.",
+    body: profileBody,
   },
   {
     slug: "tasks",

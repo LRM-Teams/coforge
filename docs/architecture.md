@@ -1556,6 +1556,27 @@ Computer 版本号，因为 Computer 可执行文件同时打包了 Computer 与
 `COFORGE_DAEMON_VERSION`/`COFORGE_COMPUTER_VERSION` 相同的 `define` 机制内联
 （`scripts/release/compile-targets.ts`）。
 
+### 6.9 Agent User 与 Profile
+
+`coforge user info <name>` 与 `coforge profile show [<target>]`/`coforge profile update`（ADR
+0036 增补两行）沿用 Agent Manual 路由的错误信封 `{ ok: false, errorCode, error }`。契约位于
+`packages/coforge-sdk/src/agent/user-info.ts`、`profile.ts`；服务端路由是
+`GET /api/agent/v1/users/:name`（`apps/web/src/server/agents/agent-user-info.server.ts`）与
+`GET`/`POST /api/agent/v1/profile[?target=<name>]`
+（`agent-profile.server.ts`）。`user info` 的 Agent `status`（`online`/`offline`/`unknown`）
+与（仅在离线且 `Agent.stoppedAt` 已设置时出现的）`availability` 简短原因，取自 Workspace
+Agents 列表同一份 Redis 读模型（`agent-display.server.ts#snapshot` 经
+`features/agents/agent-activity-presentation.ts#agentDisplay` 归约），不是另起的机制；频道
+成员关系只统计调用方自己也是成员的频道，目标可见但调用方不可见的频道永不泄露。
+`profile show` 对人类目标额外返回 `createdAgents`（`Agent.ownerId` 指向该人类的 Agent 列表，
+各自带独立的实时状态）；对 Agent 目标返回 `creator`（其 `owner` 人类），但不返回
+`createdAgents`——CoForge 的 `Agent.ownerId` 只会指向人类 `User`，Agent 之间不存在互相拥有关系
+（ADR 0025）。`profile update` 只能修改调用方自身，字段限于 `displayName`（复用
+`agent.schemas.ts` 的 `AGENT_DISPLAY_NAME_MAX_LENGTH`=80、去空格后非空）与 `description`
+（上限 500 字符，允许清空），Username 创建后不可改、请求体也不接受该字段；没有头像相关字段或
+命令行参数——CoForge 的 schema 只有 `User.avatarObjectKey`/`avatarContentType`，`Agent` 没有
+对应列或上传入口。
+
 ## 7. 端到端链路
 
 ```text

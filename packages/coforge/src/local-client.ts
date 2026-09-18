@@ -26,11 +26,20 @@ import {
   decodeAgentManualGetResponse,
   decodeAgentManualSearchResponse,
   decodeAgentVersionResponse,
+  decodeAgentProfileErrorResponse,
+  decodeAgentProfileShowResponse,
+  decodeAgentProfileUpdateResponse,
+  decodeAgentUserInfoErrorResponse,
+  decodeAgentUserInfoResponse,
   decodeGitHubCredentialResponse,
   type ActionCardAction,
   type AgentManualGetResponse,
   type AgentManualSearchResponse,
   type AgentVersionResponse,
+  type AgentProfileShowResponse,
+  type AgentProfileUpdateRequest,
+  type AgentProfileUpdateResponse,
+  type AgentUserInfoResponse,
 } from "@lrm/coforge-sdk/agent";
 import {
   CliError,
@@ -272,6 +281,93 @@ async function versionRequest(
   return decodeAgentVersionResponse(await response.json().catch(() => undefined));
 }
 
+/**
+ * GETs a route that always answers a domain error as JSON `{ ok: false, errorCode, error }`
+ * (same convention as `manualRequest` above, generalized so `user info`/`profile show` do not
+ * duplicate it): `errorCode` becomes the `CliError` code directly.
+ */
+async function envelopeGetRequest<T>(
+  proxyEndpoint: (path: string) => URL,
+  context: string,
+  proxyUrl: string,
+  path: string,
+  query: Record<string, string>,
+  decode: (value: unknown) => T,
+  decodeError: (value: unknown) => { errorCode: string; error: string } | undefined,
+  operation: string,
+): Promise<T> {
+  if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
+  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+    throw preIssuanceError(operation, "coforge agent context is invalid");
+  if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
+  const endpoint = proxyEndpoint(path);
+  for (const [key, value] of Object.entries(query)) endpoint.searchParams.set(key, value);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "GET",
+      headers: { authorization: `Bearer ${context}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new CliError({
+      code: operationFailedCode(operation),
+      message: "agent proxy request failed (network or timeout)",
+      retryable: false,
+    });
+  }
+  const rawBody: unknown = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    const errorBody = decodeError(rawBody);
+    throw new CliError({
+      code: errorBody?.errorCode
+        ? errorBody.errorCode.toUpperCase()
+        : operationFailedCode(operation),
+      message: errorBody?.error ?? `HTTP ${response.status}`,
+      retryable: false,
+    });
+  }
+  return decode(rawBody);
+}
+
+/** Same envelope convention as `envelopeGetRequest`, for the one POST route (`profile update`). */
+async function callProfileUpdate(
+  proxyEndpoint: (path: string) => URL,
+  context: string,
+  proxyUrl: string,
+  input: AgentProfileUpdateRequest,
+): Promise<AgentProfileUpdateResponse> {
+  if (!context) throw preIssuanceError("profile-update", "coforge agent context is not configured");
+  if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+    throw preIssuanceError("profile-update", "coforge agent context is invalid");
+  if (!proxyUrl) throw preIssuanceError("profile-update", "coforge agent proxy is not configured");
+  let response: Response;
+  try {
+    response = await fetch(proxyEndpoint(agentApiRoutes.local.profile.update.path), {
+      method: agentApiRoutes.local.profile.update.method,
+      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    throw new CliError({
+      code: "PROFILE_UPDATE_FAILED",
+      message: "agent proxy request failed (network or timeout)",
+      retryable: false,
+    });
+  }
+  const rawBody: unknown = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    const errorBody = decodeAgentProfileErrorResponse(rawBody);
+    throw new CliError({
+      code: errorBody?.errorCode ? errorBody.errorCode.toUpperCase() : "PROFILE_UPDATE_FAILED",
+      message: errorBody?.error ?? `HTTP ${response.status}`,
+      retryable: false,
+    });
+  }
+  return decodeAgentProfileUpdateResponse(rawBody);
+}
+
 export function connectLocal(
   _socketPath: string,
   context: string,
@@ -435,6 +531,30 @@ export function connectLocal(
         decodeAgentManualSearchResponse,
       ),
     version: (): Promise<AgentVersionResponse> => versionRequest(proxyEndpoint, context, proxyUrl),
+    userInfo: (name: string): Promise<AgentUserInfoResponse> =>
+      envelopeGetRequest(
+        proxyEndpoint,
+        context,
+        proxyUrl,
+        agentApiRoutes.local.users.path(name),
+        {},
+        decodeAgentUserInfoResponse,
+        decodeAgentUserInfoErrorResponse,
+        "user-info",
+      ),
+    profileShow: (target?: string): Promise<AgentProfileShowResponse> =>
+      envelopeGetRequest(
+        proxyEndpoint,
+        context,
+        proxyUrl,
+        agentApiRoutes.local.profile.get.path,
+        target ? { target } : {},
+        decodeAgentProfileShowResponse,
+        decodeAgentProfileErrorResponse,
+        "profile-show",
+      ),
+    profileUpdate: (input: AgentProfileUpdateRequest): Promise<AgentProfileUpdateResponse> =>
+      callProfileUpdate(proxyEndpoint, context, proxyUrl, input),
     view: async (attachmentId: string) => {
       if (!context) throw new Error("coforge agent context is not configured");
       if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))

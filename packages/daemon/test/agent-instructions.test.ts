@@ -246,6 +246,19 @@ test("workspace and attachments introduces whoami and version as one bullet", ()
   expect(whoamiBulletIndex).toBeGreaterThan(workspaceAndAttachmentsIndex);
 });
 
+test("the Workspace and attachments section names user info and profile", () => {
+  expect(instructions).toContain("coforge user info @name");
+  expect(instructions).toContain("coforge profile show");
+  expect(instructions).toContain(
+    'coforge profile update --display-name "<text>" --description "<text>"',
+  );
+  expect(instructions).toContain("your Username never changes");
+  const bulletIndex = instructions.indexOf("coforge user info @name");
+  const workspaceAndAttachmentsIndex = instructions.indexOf("### Workspace and attachments");
+  expect(bulletIndex).toBeGreaterThan(-1);
+  expect(bulletIndex).toBeGreaterThan(workspaceAndAttachmentsIndex);
+});
+
 test("channel management authority is per channel and disclaims Agent role changes", () => {
   expect(instructions).toContain(
     "Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`, `add-member`, `remove-member`) are authorized per channel",

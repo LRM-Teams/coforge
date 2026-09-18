@@ -6,6 +6,7 @@ import { AgentTaskRequestError } from "../src/connection/agent-task-request-erro
 import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
 import { AgentTransportError } from "../src/connection/agent-transport-error";
 import { AgentManualRequestError } from "../src/connection/agent-manual-request-error";
+import { AgentUserInfoRequestError } from "../src/connection/agent-user-info-request-error";
 import type { AgentProxyFailureBody } from "../src/agent-proxy-failure";
 
 const proxies: Array<{ close(): void }> = [];
@@ -425,6 +426,178 @@ test("proxy 404s coforge version when the runtime has no handler", async () => {
     { headers: { authorization: `Bearer ${token}` } },
   );
   expect(response.status).toBe(404);
+});
+
+test("proxy forwards user info requests as a GET with the name in the path", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      issueAgentContext: (agentId: string) => agentId,
+      userInfo: async (context, request) => {
+        calls.push({ context, request });
+        return {
+          ok: true,
+          user: {
+            kind: "human",
+            id: "user-1",
+            name: "alice",
+            displayName: "Alice Chen",
+            description: "",
+            role: "admin",
+            isSelf: false,
+          },
+          memberships: [],
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const endpoint = new URL(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.users.path("alice")),
+  );
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ ok: true, user: { name: "alice" } });
+  expect(calls).toEqual([{ context: "agent-a", request: { name: "alice" } }]);
+});
+
+test("proxy forwards a user info not-found error unchanged, not the generic proxy-failure shape", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      userInfo: async () => {
+        throw new AgentUserInfoRequestError(
+          "user_not_found",
+          'No human or Agent named "ghost" in this Workspace.',
+          404,
+        );
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const endpoint = new URL(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.users.path("ghost")),
+  );
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({
+    ok: false,
+    errorCode: "user_not_found",
+    error: 'No human or Agent named "ghost" in this Workspace.',
+  });
+});
+
+test("proxy forwards profile show as a GET with an optional target query parameter", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      issueAgentContext: (agentId: string) => agentId,
+      profileShow: async (context, request) => {
+        calls.push({ context, request });
+        return {
+          ok: true,
+          profile: {
+            kind: "agent",
+            id: "agent-1",
+            name: "scout",
+            displayName: "Scout",
+            description: "",
+            role: "member",
+            isSelf: true,
+            runtime: "claude-code",
+            model: "sonnet",
+            status: "online",
+            creator: null,
+          },
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const endpoint = new URL(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.profile.get.path),
+  );
+  endpoint.searchParams.set("target", "scout");
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(response.status).toBe(200);
+  expect(calls).toEqual([{ context: "agent-a", request: { target: "scout" } }]);
+});
+
+test("proxy forwards profile update as a validated JSON POST", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      issueAgentContext: (agentId: string) => agentId,
+      profileUpdate: async (context, request) => {
+        calls.push({ context, request });
+        return {
+          ok: true,
+          profile: {
+            kind: "agent",
+            id: "agent-1",
+            name: "scout",
+            displayName: "Scout Bot",
+            description: "",
+            role: "member",
+            isSelf: true,
+            runtime: "claude-code",
+            model: "sonnet",
+            status: "online",
+            creator: null,
+          },
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const endpoint = new URL(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.profile.update.path),
+  );
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ displayName: "Scout Bot" }),
+  });
+  expect(response.status).toBe(200);
+  expect(calls).toEqual([{ context: "agent-a", request: { displayName: "Scout Bot" } }]);
+});
+
+test("proxy rejects a profile update whose displayName is not a string", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      profileUpdate: async () => {
+        throw new Error("should not be called");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const endpoint = new URL(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.profile.update.path),
+  );
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ displayName: 42 }),
+  });
+  expect(response.status).toBe(400);
 });
 
 test("proxy rejects unexpected GitHub credential fields before forwarding", async () => {
