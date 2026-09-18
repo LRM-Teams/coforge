@@ -11,38 +11,43 @@ const logger = getLogger(["coforge", "daemon", "code-agent", "cursor"]);
 
 // eslint-disable-next-line no-control-regex -- Strips ANSI escapes from `cursor-agent models`.
 const ANSI_ESCAPE_PATTERN = /\x1b\[[0-9;]*m/g;
-const TRAILING_MARKER_PATTERN = /\s*\((default|current|current,\s*default)\)\s*$/i;
-const SKIPPED_LINE_PREFIXES = ["Tip:", "No models available", "Failed to load models:"];
+const TRAILING_MARKERS_PATTERN = /\s+\(([^)]+)\)$/;
+const MODEL_LINE_PATTERN = /^(\S+)(?:\s+-\s+(.+))?$/;
+const SKIPPED_LINE_PATTERNS = [
+  /^available models$/i,
+  /^tip:/i,
+  /^no models available/i,
+  /^failed to load models:/i,
+];
 
 /**
- * Parses `cursor-agent models` plain-text output: one `id - Label` line per model, an optional
- * trailing ` (default)` / ` (current)` / ` (current, default)` marker, an `Available models`
- * header, blank lines, `Tip:` lines, and unavailable/failure lines to skip. Effort is baked into
- * Cursor's model ids - there is no separate reasoning control to report.
+ * Parses `cursor-agent models` plain-text output. Each model line is `<id>` optionally followed by
+ * ` - <label>` (the label falls back to the id). A trailing parenthesised marker list is removed
+ * only when every marker is `current` or `default`; the `default` marker makes that model the
+ * recommended one. The header, blank lines, `Tip:` lines, and unavailable/failure lines are
+ * skipped. Effort is baked into Cursor's model ids - there is no separate reasoning control.
  */
 export function parseCursorModelList(output: string): CodeAgentModelMetadata[] {
   const models: CodeAgentModelMetadata[] = [];
-  for (const rawLine of output.split(/\r?\n/)) {
-    const line = rawLine.replaceAll(ANSI_ESCAPE_PATTERN, "").trim();
-    if (!line || line === "Available models") continue;
-    if (SKIPPED_LINE_PREFIXES.some((prefix) => line.startsWith(prefix))) continue;
-    const separator = line.indexOf(" - ");
-    if (separator < 0) continue;
-    const id = line.slice(0, separator).trim();
-    let label = line.slice(separator + 3).trim();
-    if (!id || !label) continue;
-    const marker = TRAILING_MARKER_PATTERN.exec(label);
-    const isDefault = marker !== null && marker[1]!.toLowerCase().includes("default");
-    if (marker) label = label.slice(0, marker.index).trim();
-    if (!label) continue;
+  for (const rawLine of output.replaceAll(ANSI_ESCAPE_PATTERN, "").split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line || SKIPPED_LINE_PATTERNS.some((pattern) => pattern.test(line))) continue;
+    const markerMatch = TRAILING_MARKERS_PATTERN.exec(line);
+    const markers = markerMatch?.[1]?.split(",").map((part) => part.trim().toLowerCase()) ?? [];
+    const onlyKnownMarkers =
+      markers.length > 0 && markers.every((part) => part === "current" || part === "default");
+    if (onlyKnownMarkers) line = line.slice(0, markerMatch!.index).trim();
+    const match = MODEL_LINE_PATTERN.exec(line);
+    const id = match?.[1]?.trim();
+    if (!id || id.startsWith("-")) continue;
     models.push({
       id,
-      displayName: label,
+      displayName: match?.[2]?.trim() || id,
       description: "",
       modelProvider: "",
       reasoningEfforts: [],
       defaultReasoning: "",
-      recommended: isDefault,
+      recommended: markers.includes("default"),
     });
   }
   return models;

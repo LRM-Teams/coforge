@@ -317,10 +317,10 @@ class CursorAgentSession implements AgentSession {
     }
   }
 
-  /** Turn end is the process exit, not the `result` frame - `result` only records whether that
-   * exit will read as success or failure. A non-zero exit or one with no `result` frame at all
-   * (a crash, or the free-plan/named-model rejection observed with no `result`) fails the turn
-   * with the real exit code and recent stderr, so the failure explains itself. */
+  /** Turn end is the process exit, not the `result` frame - `result` only records whether the
+   * turn reported an error. A clean exit completes the turn; a non-zero or signal exit (such as
+   * the free-plan/named-model rejection, which prints its reason only on stderr) fails it with the
+   * exit summary and the recent stderr lines, so the failure explains itself. */
   #onTurnExit(turn: CursorTurnProcess, result: CursorTurnResult): void {
     if (this.#currentTurn !== turn) return;
     this.#currentTurn = undefined;
@@ -340,7 +340,8 @@ class CursorAgentSession implements AgentSession {
     } else if (outcome === "failed") {
       // The result frame already emitted the specific error above.
       status = "failed";
-    } else if (outcome === "success" && result.exitCode === 0) {
+    } else if (result.exitCode === 0) {
+      // A clean exit ends the turn successfully even when no `result` frame arrived.
       status = "completed";
       this.#everCompletedTurn = true;
       this.#setIdentity("resumable");
@@ -414,18 +415,12 @@ class CursorAgentSession implements AgentSession {
 }
 
 function exitFailureMessage(result: CursorTurnResult): string {
-  const tail = scrubStderrTail(result.stderrTail);
-  const exitCode = result.exitCode ?? "unknown";
-  return tail ? `exit code ${exitCode} | stderr: ${tail}` : `exit code ${exitCode}`;
-}
-
-/** A bounded, single-line excerpt of a turn's stderr; redacts anything that looks like a token or
- * credential before it ever reaches an Activity-visible error message. */
-function scrubStderrTail(tail: string): string {
-  return tail
-    .replaceAll(/\s+/g, " ")
-    .trim()
-    .replaceAll(/(?:sk|pk|api|token|key|secret)[_-]?[A-Za-z0-9_-]{8,}/gi, "[redacted]")
-    .replaceAll(/Bearer\s+\S+/gi, "Bearer [redacted]")
-    .slice(0, 800);
+  const summary =
+    result.exitCode === null ? "terminated by signal" : `exit code ${result.exitCode}`;
+  const stderrLines = result.stderrTail
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  // Raw facts only: the daemon core redacts and caps runtime error text before it becomes Activity.
+  return stderrLines.length ? `${summary} | stderr: ${stderrLines.join(" | ")}` : summary;
 }

@@ -71,12 +71,13 @@ and a bounded stderr tail once the process exits on its own.
 | `result` | `subtype` (default `"success"`) `!== "success"` or `is_error` → an `error` event whose message joins trimmed `errors[]` strings and a trimmed `result` string with `" | "` (or `"Execution failed"` if both are empty); otherwise records success. Either way this frame does not by itself end the turn. |
 | every other frame type | nothing |
 
-Turn end is the **process exit**, not the `result` frame — the `result` frame only records which
-way that exit will read. A non-zero exit, or a clean exit with no `result` frame at all (the
-observed free-plan/named-model failure: only `system/init` and `user` frames, then exit 1 with
-stderr `ActionRequiredError: Named models unavailable Free plans can only use Auto. …`, no `result`
-frame), fails the turn and emits an `error` event carrying the exit code and the recent stderr, so
-the failure states its real reason instead of a generic message.
+Turn end is the **process exit**, not the `result` frame — the `result` frame only records whether
+the turn reported an error. A clean exit completes the turn, with or without a `result` frame. A
+non-zero or signal exit fails the turn and emits an `error` event carrying the exit summary and the
+recent stderr lines as raw facts (`exit code 1 | stderr: <line> | <line>`); the daemon core redacts
+and caps that text like every other runtime failure. The observed free-plan/named-model failure is
+exactly this shape: only `system/init` and `user` frames, then exit 1 with stderr
+`ActionRequiredError: Named models unavailable Free plans can only use Auto. …`, no `result` frame.
 
 **Deliberately unmapped, even though measured:** the real `thinking` frame type (Cursor's actual
 thinking delivery is `{"type":"thinking","subtype":"delta"|"completed","text":…}` at the top level,
@@ -89,10 +90,11 @@ currently shows CoForge no tool activity, and a reconnect currently shows no `re
 Activity — both real, observed gaps, not omissions this ADR is unaware of.
 
 **Model catalog** (`cursor/catalog.ts`): `cursor-agent models`, 5 s timeout, `NO_COLOR=1`/
-`FORCE_COLOR=0`. Parses `id - Label` lines, stripping ANSI escapes and an optional trailing
-` (default)` / ` (current)` / ` (current, default)` marker (`recommended` reflects `default`); skips
-the `Available models` header, blank lines, `Tip:` lines, `No models available…`, and `Failed to
-load models:…`. A non-zero exit or a timeout returns no catalog rather than throwing. There is no
+`FORCE_COLOR=0`. Each model line is an id optionally followed by ` - <label>` (the label falls back to the id);
+ANSI escapes are stripped; a trailing parenthesised marker list is removed only when every marker is
+`current` or `default`, and `default` sets `recommended`; the `Available models` header, blank
+lines, `Tip:` lines, `No models available…`, and `Failed to load models:…` are skipped
+(case-insensitive), as are flag-like ids starting with `-`. A non-zero exit or a timeout returns no catalog rather than throwing. There is no
 reasoning control (Cursor bakes effort into the model id) and no `readUsage` — the Runtime usage
 popover shows the CLI's own model/version, empty request. Skills roots follow
 [Cursor's documented locations](https://cursor.com/docs/skills): project `.cursor/skills`, personal

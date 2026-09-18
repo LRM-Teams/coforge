@@ -6,6 +6,16 @@ import { discoverCursorCatalog, parseCursorModelList } from "../src/code-agent/c
 const FIXTURE = new URL("./fixtures/cursor-agent-fixture.ts", import.meta.url).pathname;
 const MODELS_FIXTURE_PATH = new URL("./fixtures/cursor-models.txt", import.meta.url).pathname;
 
+test("accepts a bare id, keeps unknown trailing markers in the label, and skips flag-like ids", () => {
+  const models = parseCursorModelList(
+    ["AVAILABLE MODELS", "tip: pick one", "bare-id", "gpt-x - GPT X (beta)", "--help"].join("\n"),
+  );
+  expect(models).toEqual([
+    expect.objectContaining({ id: "bare-id", displayName: "bare-id", recommended: false }),
+    expect.objectContaining({ id: "gpt-x", displayName: "GPT X (beta)", recommended: false }),
+  ]);
+});
+
 test("parses id - Label lines, skipping the header, blank lines, and the trailing Tip", async () => {
   const output = await readFile(MODELS_FIXTURE_PATH, "utf8");
   const models = parseCursorModelList(output);

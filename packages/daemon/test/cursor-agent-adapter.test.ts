@@ -197,7 +197,7 @@ test("queued sendMessage/notify while a turn runs coalesce into the next turn's 
   }
 });
 
-test("sendMessage while a turn is already running throws instead of queuing twice", async () => {
+test("input queued behind a running turn resolves once the next turn has been spawned", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cursor-busy-"));
   try {
     const session = await provider().createAgentSession({
@@ -348,7 +348,7 @@ test("a crash with no result frame surfaces the exit code and stderr reason", as
   }
 });
 
-test("a clean exit with no result frame at all still fails the turn", async () => {
+test("a clean exit with no result frame completes the turn", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cursor-silent-"));
   try {
     const session = await provider().createAgentSession({
@@ -362,8 +362,8 @@ test("a clean exit with no result frame at all still fails the turn", async () =
     try {
       await session.sendMessage("go");
       await nthCompleted(session, 1);
-      expect(events).toContainEqual({ type: "completed", status: "failed" });
-      expect(events.some((event) => event.type === "error")).toBe(true);
+      expect(events).toContainEqual({ type: "completed", status: "completed" });
+      expect(events.some((event) => event.type === "error")).toBe(false);
     } finally {
       await session.dispose();
     }
