@@ -151,9 +151,28 @@ const AGENT_STATUS_REFRESH_MS = 30_000;
 const COMPUTER_STATUS_REFRESH_MS = 30_000;
 const RECONNECT_READY_RETRY_MS = 1_000;
 const RECONNECT_READY_RETRY_MAX_MS = 60_000;
+/** Consecutive ready failures after which this stops being a transient hiccup: the connection is
+ * up and the Workspace is not recovered, so no Agent on this machine can be reached. Reached in
+ * about half a minute of backoff. */
+const READY_RETRY_ESCALATE_AFTER = 5;
+/** Once escalated, how often to repeat the error rather than logging all of them — at the capped
+ * delay this is roughly every ten minutes. */
+const READY_RETRY_ESCALATE_EVERY = 10;
 const REMEMBERED_REQUEST_IDS = 256;
 const AGENT_RPC_TIMEOUT_MS = 10_000;
 const logger = getLogger(["coforge", "daemon", "connection"]);
+
+/** The server's own name for the ready step that failed, when its rejection carries one.
+ *
+ * Only this exact shape is accepted, and only the stage token is kept: a rejection message is
+ * remote text, and the log must not become a place arbitrary server output is echoed. Anything else
+ * yields nothing, leaving the error code as the only detail — the behaviour before servers said
+ * which stage failed. */
+function readyFailureStage(error: unknown): string | undefined {
+  const message =
+    error && typeof error === "object" && "message" in error ? String(error.message) : "";
+  return /^daemon ready failed at ([a-z_]{1,40})$/.exec(message)?.[1];
+}
 
 export interface DaemonConnectionTiming {
   schedule(callback: () => void, delayMs: number): unknown;
@@ -1195,6 +1214,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   #readyRecoveryClient: CentrifugeWorkspaceClient | undefined;
   #readyRetryTimer: unknown;
   #readyRetryAttempts = 0;
+  /** When the current run of ready failures began, so a log line can say how long this machine has
+   * been connected without a recovered Workspace. Cleared the moment ready succeeds. */
+  #readyFailingSinceMs: number | undefined;
   readonly #pendingActivity = new Map<string, AgentActivity>();
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
   /** Latest-per-agent, like `#pendingActivity`. */
@@ -2420,15 +2442,33 @@ export class DaemonConnection implements DaemonConnectionClient {
         RECONNECT_READY_RETRY_MS * 2 ** this.#readyRetryAttempts,
       );
       this.#readyRetryAttempts += 1;
-      logger.warning("Daemon reconnect recovery will retry", {
+      this.#readyFailingSinceMs ??= Date.now();
+      const stage = readyFailureStage(error);
+      const details = {
         event: "daemon_ready:retry_scheduled",
         request_id: request.requestId,
         workspace_id: request.workspaceId,
         computer_id: request.computerId,
         error_code: diagnosticErrorCode(error),
+        // Which step of the server's ready the failure came from, when it said so. Named here so
+        // the failing machine's own log explains itself instead of requiring server logs.
+        ...(stage ? { server_stage: stage } : {}),
         retry_delay_ms: delayMs,
         attempt: this.#readyRetryAttempts,
-      });
+        failing_for_ms: Date.now() - this.#readyFailingSinceMs,
+      };
+      // Retrying forever at WARN hid a 13-hour outage on 2026-09-18: the connection stayed up, so
+      // nothing looked wrong, while no Agent on the machine could be reached.
+      if (
+        this.#readyRetryAttempts >= READY_RETRY_ESCALATE_AFTER &&
+        (this.#readyRetryAttempts === READY_RETRY_ESCALATE_AFTER ||
+          this.#readyRetryAttempts % READY_RETRY_ESCALATE_EVERY === 0)
+      )
+        logger.error(
+          "Daemon reconnect recovery keeps failing: this Computer is connected but its Workspace is not recovered, so its Agents cannot be reached",
+          details,
+        );
+      else logger.warning("Daemon reconnect recovery will retry", details);
       this.#readyRetryTimer = this.timing.schedule(() => {
         this.#readyRetryTimer = undefined;
         void this.#attemptReadyRecovery(client, createRequest);
@@ -2436,6 +2476,16 @@ export class DaemonConnection implements DaemonConnectionClient {
       return;
     }
     if (!recovering()) return;
+    if (this.#readyFailingSinceMs !== undefined)
+      logger.info("Daemon reconnect recovery succeeded after failing", {
+        event: "daemon_ready:recovered",
+        request_id: request.requestId,
+        workspace_id: request.workspaceId,
+        computer_id: request.computerId,
+        attempts: this.#readyRetryAttempts,
+        failed_for_ms: Date.now() - this.#readyFailingSinceMs,
+      });
+    this.#readyFailingSinceMs = undefined;
     this.#readyRetryAttempts = 0;
     this.#readyRecoveryClient = undefined;
     this.#dispatchReadyPublications();

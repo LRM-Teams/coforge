@@ -282,6 +282,10 @@ export const createDaemonRuntimeReadyMethod =
       return { code: 400, message: "invalid daemon runtime ready request" };
     const observation = computerObservationSchema.safeParse(request);
     if (!observation.success) return { code: 400, message: "invalid Computer metadata" };
+    // Every awaited step below sets this first, so a failure names the step that failed. It used to
+    // advance only before the last two, which made the four steps in between — capability record,
+    // identity check, Computer observation, Agent recovery — all report as `restart_recovery`; a
+    // 13-hour outage on 2026-09-18 was in Agent recovery and reported as restart recovery.
     let stage = "restart_recovery";
     try {
       await restarts?.ready(
@@ -293,21 +297,25 @@ export const createDaemonRuntimeReadyMethod =
         },
         request.recoveredRestartRequestIds,
       );
+      stage = "capability_record";
       await capabilities?.record(
         request.workspaceId,
         request.computerId,
         request.capabilities ?? [],
       );
+      stage = "identity_check";
       const current = await restarts?.identity?.({
         workspaceId: request.workspaceId,
         computerId: request.computerId,
       });
       if (current && current.workerInstanceId !== request.workerInstanceId)
         return { code: 409, message: "daemon runtime was superseded" };
+      stage = "computer_observation";
       await observe?.(
         { workspaceId: request.workspaceId, computerId: request.computerId },
         observation.data,
       );
+      stage = "agent_recovery";
       await recovery?.recoverWorkspace(
         request.workspaceId,
         request.computerId,
@@ -340,7 +348,11 @@ export const createDaemonRuntimeReadyMethod =
           error_type: error instanceof Error ? error.name : typeof error,
         }),
       );
-      return { code: 503, message: "Agent start recovery failed" };
+      // The stage travels in the error, not only in this server's console: the Daemon logs what it
+      // was told, and until now that was one fixed sentence for every possible failure, so the
+      // machine that is failing could not say why without someone reading server logs. A stage is
+      // a fixed internal token — never a message, name, or other request content.
+      return { code: 503, message: `daemon ready failed at ${stage}` };
     }
   };
 
