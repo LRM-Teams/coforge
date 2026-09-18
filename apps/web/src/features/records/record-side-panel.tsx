@@ -20,6 +20,7 @@ import {
   Paperclip,
   Pin01 as Pin,
   Plus,
+  RefreshCcw01 as Refresh,
   Send01 as Send,
   Trash01 as Trash,
 } from "@untitledui/icons";
@@ -40,7 +41,7 @@ import { cx } from "@/utils/cx";
 import { shouldSendOnEnter } from "../conversations/composer-behavior";
 import { useConversationRealtime } from "../conversations/conversation-realtime-client";
 import type { WeeklyReportAssistantSuggestion } from "../../server/records/weekly-report-assistant-suggestion.server";
-import type { ReportContent } from "./records-content";
+import type { KeyPointExtractionMeta, ReportContent } from "./records-content";
 import {
   addRecordComment,
   acceptMemberGenerateHelp,
@@ -132,6 +133,9 @@ export function RecordSidePanel({
   onOpenChange,
   onRequestSend,
   onBodyApplied,
+  keyPointExtraction,
+  keyPointRestartBusy,
+  onRestartKeyPointExtraction,
 }: {
   subjectType: "report" | "cycle";
   subjectId: string;
@@ -145,6 +149,10 @@ export function RecordSidePanel({
   onRequestSend?: () => void;
   /** After Confirm body-edit, parent syncs the open editor (draft + view). */
   onBodyApplied?: (reportId: string, content: ReportContent) => void;
+  /** Leader member-report: show personal key-point status + re-extract. */
+  keyPointExtraction?: KeyPointExtractionMeta;
+  keyPointRestartBusy?: boolean;
+  onRestartKeyPointExtraction?: () => void;
 }) {
   const router = useRouter();
   const countdown = useSendWindowCountdown(countdownUntil);
@@ -997,6 +1005,41 @@ export function RecordSidePanel({
                 </Button>
               </div>
             </div>
+          ) : null}
+          {keyPointExtraction &&
+          (keyPointExtraction.status === "ready" ||
+            keyPointExtraction.status === "failed" ||
+            keyPointExtraction.status === "pending_setup") ? (
+            <div className="space-y-3 rounded-xl border border-secondary bg-secondary_subtle p-3">
+              <div>
+                <p className="text-sm font-semibold text-primary">
+                  {keyPointExtraction.status === "ready"
+                    ? m.records_key_points_side_ready_title()
+                    : m.records_key_points_restart()}
+                </p>
+                <p className="mt-1 text-sm text-secondary">
+                  {keyPointExtraction.status === "ready"
+                    ? m.records_key_points_side_ready()
+                    : keyPointExtraction.status === "pending_setup"
+                      ? m.records_key_points_side_pending()
+                      : m.records_key_points_side_failed()}
+                </p>
+              </div>
+              {onRestartKeyPointExtraction ? (
+                <Button
+                  size="sm"
+                  color="secondary"
+                  iconLeading={Refresh}
+                  isDisabled={keyPointRestartBusy}
+                  onPress={() => onRestartKeyPointExtraction()}
+                >
+                  {m.records_key_points_restart()}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {keyPointExtraction?.status === "generating" ? (
+            <p className="text-sm text-tertiary">{m.records_key_points_generating()}</p>
           ) : null}
           {error ? <p className="text-sm text-error-primary">{error}</p> : null}
           {comments.length === 0 && assistantMessages.length === 0 ? (

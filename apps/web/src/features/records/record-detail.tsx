@@ -20,6 +20,7 @@ import { m } from "@/paraglide/messages";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { useAppToast } from "@/components/ui/toast";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import { KEY_POINT_EXTRACTION_TAB, KeyPointExtractionPanel } from "./key-point-extraction-panel";
 import { ReportTabsEditor } from "./report-tabs-editor";
 import type { UploadResult } from "./report-editor/types";
 import {
@@ -34,6 +35,7 @@ import {
   deleteMemberWeeklyReport,
   deleteRecordNote,
   markWeeklyAssignmentOpened,
+  restartPersonalKeyPointExtraction,
   saveRecordNote,
   saveWeeklyReportContent,
   sendWeeklyReportAssignments,
@@ -132,6 +134,7 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
   const removeReport = useServerFn(deleteMemberWeeklyReport);
   const markOpened = useServerFn(markWeeklyAssignmentOpened);
   const setFavorite = useServerFn(setWeeklyReportFavorite);
+  const restartKeyPoints = useServerFn(restartPersonalKeyPointExtraction);
   const editable = report.editable === true;
   const [content, setContent] = useState(() =>
     editable
@@ -164,6 +167,7 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
   const [saving, setSaving] = useState(false);
   const [favorited, setFavorited] = useState(Boolean(report.favorited));
   const [favoriteBusy, setFavoriteBusy] = useState(false);
+  const [keyPointRestartBusy, setKeyPointRestartBusy] = useState(false);
   const [status, setStatus] = useState(report.status);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const sent = status === "submitted" || status === "shared";
@@ -357,6 +361,27 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
     };
   }, [editable, report.id, save]);
 
+  useEffect(() => {
+    if (!leaderReading) return;
+    const status = content.keyPointExtraction?.status;
+    if (status !== "generating") return;
+    const timer = setInterval(() => {
+      void router.invalidate();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [leaderReading, content.keyPointExtraction?.status, router]);
+
+  async function restartPersonalKeyPoints() {
+    if (!leaderReading || keyPointRestartBusy) return;
+    setKeyPointRestartBusy(true);
+    try {
+      await restartKeyPoints({ data: { reportId: report.id } });
+      await router.invalidate({ sync: true });
+    } finally {
+      setKeyPointRestartBusy(false);
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1">
       <div
@@ -462,6 +487,20 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
           contentRevision={editorRevision}
           placeholder={m.records_report_body_placeholder()}
           onUploadFile={editable ? fileToDataUrlUpload : undefined}
+          trailingTabs={
+            leaderReading && sent
+              ? [{ id: KEY_POINT_EXTRACTION_TAB, label: KEY_POINT_EXTRACTION_TAB }]
+              : undefined
+          }
+          renderTrailingTab={(id) =>
+            id === KEY_POINT_EXTRACTION_TAB ? (
+              <KeyPointExtractionPanel
+                extraction={content.keyPointExtraction}
+                restartBusy={keyPointRestartBusy}
+                onRestart={() => void restartPersonalKeyPoints()}
+              />
+            ) : null
+          }
           onChange={schedulePersist}
           onBlur={() => {
             if (!editable) return;
@@ -479,6 +518,11 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
         open={sideOpen}
         onOpenChange={setSideOpen}
         onBodyApplied={applyAssistantBody}
+        keyPointExtraction={leaderReading ? content.keyPointExtraction : undefined}
+        keyPointRestartBusy={keyPointRestartBusy}
+        onRestartKeyPointExtraction={
+          leaderReading ? () => void restartPersonalKeyPoints() : undefined
+        }
       />
     </div>
   );

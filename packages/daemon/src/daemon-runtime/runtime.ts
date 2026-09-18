@@ -3314,6 +3314,20 @@ export class DaemonRuntime {
     return this.#transport.agentWeeklyReportCollect(command, agentApiKey);
   }
 
+  /** Forwards personal key-point extraction write-back over Agent HTTPS. */
+  async agentWeeklyReportKeyPoints(
+    context: string,
+    command: import("../connection/weekly-report-key-points").WeeklyReportKeyPointsCommand,
+    agentApiKey?: string,
+  ): Promise<import("../connection/weekly-report-key-points").WeeklyReportKeyPointsResult> {
+    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    this.#agentIdForContext(context);
+    if (!this.#transport.agentWeeklyReportKeyPoints)
+      throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.agentWeeklyReportKeyPoints(command, agentApiKey);
+  }
+
   async #canonicalAgentMessageTarget(
     agentId: string,
     target: string,

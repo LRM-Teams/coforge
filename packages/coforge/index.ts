@@ -172,6 +172,22 @@ export type WeeklyReportCollectInvocation = {
   /** When set, `run` loads this file into `collect.packMarkdown` before posting. */
   markdownPath?: string;
 };
+export type WeeklyReportKeyPointsCommand = {
+  requestId: string;
+  reportId: string;
+  markdown: string;
+};
+export type WeeklyReportKeyPointsResult = {
+  requestId: string;
+  reportId: string;
+  status: string;
+};
+export type WeeklyReportKeyPointsInvocation = {
+  command: "weekly-report-key-points";
+  keyPoints: WeeklyReportKeyPointsCommand;
+  /** When set, `run` loads this file into `keyPoints.markdown` before posting. */
+  markdownPath?: string;
+};
 export type ActionPrepareInvocation = { command: "action-prepare"; target: string };
 export type ActionPrepareResult = { messageId?: string; metadata?: { kind: string } };
 export type ManualInvocation =
@@ -230,6 +246,9 @@ export type MessageTransport = {
   workspaceInfo?(): Promise<WorkspaceInfoResult>;
   weeklyReport?(command: WeeklyReportCommand): Promise<WeeklyReportResponse>;
   weeklyReportCollect?(command: WeeklyReportCollectCommand): Promise<WeeklyReportCollectResult>;
+  weeklyReportKeyPoints?(
+    command: WeeklyReportKeyPointsCommand,
+  ): Promise<WeeklyReportKeyPointsResult>;
   githubCredential?(): Promise<GitHubCredentialResponse>;
   /** Server-decided `Co-authored-by` trailers for `coforge git prepare-commit-msg`; never built by
    * the CLI itself. */
@@ -265,6 +284,7 @@ export function parseArgs(
   | WorkspaceInfoInvocation
   | WeeklyReportInvocation
   | WeeklyReportCollectInvocation
+  | WeeklyReportKeyPointsInvocation
   | ActionPrepareInvocation
   | ManualInvocation
   | WhoamiInvocation
@@ -283,6 +303,7 @@ export function parseArgs(
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (args[0] === "task") return parseTaskArgs(args.slice(1));
   if (args[0] === "weekly-report-collect") return parseWeeklyReportCollectArgs(args.slice(1));
+  if (args[0] === "weekly-report-key-points") return parseWeeklyReportKeyPointsArgs(args.slice(1));
   if (args[0] === "weekly-report") return parseWeeklyReportArgs(args.slice(1));
   if (args[0] === "action" && args[1] === "prepare") return parseActionPrepareArgs(args.slice(2));
   if (
@@ -1087,6 +1108,17 @@ export async function run(args: readonly string[], transport: MessageTransport):
     const result = await transport.weeklyReportCollect(collect);
     return `Collect slot ${result.status} (run ${result.runId}; allTerminal=${result.allTerminal}; canSynthesize=${result.canSynthesize}).`;
   }
+  if (invocation.command === "weekly-report-key-points") {
+    if (!transport.weeklyReportKeyPoints)
+      throw new Error("Weekly report key-points transport is unavailable");
+    let keyPoints = invocation.keyPoints;
+    if (invocation.markdownPath) {
+      const markdown = await Bun.file(invocation.markdownPath).text();
+      keyPoints = { ...keyPoints, markdown };
+    }
+    const result = await transport.weeklyReportKeyPoints(keyPoints);
+    return `Key points ${result.status} (report ${result.reportId}).`;
+  }
   if (invocation.command === "action-prepare") {
     if (!transport.actionPrepare) throw new Error("Action transport is unavailable");
     const raw = await new Response(Bun.stdin.stream()).text();
@@ -1866,6 +1898,35 @@ function parseWeeklyReportCollectArgs(args: readonly string[]): WeeklyReportColl
   return {
     command: "weekly-report-collect",
     collect: { requestId, runId, outcome: "failed", failureReason: reason },
+  };
+}
+
+function parseWeeklyReportKeyPointsArgs(args: readonly string[]): WeeklyReportKeyPointsInvocation {
+  if (args[0] !== "submit") throw new Error("Usage:");
+  const values = new Map<string, string>();
+  for (let index = 1; index < args.length; index++) {
+    const name = args[index];
+    const value = args[++index];
+    if (!name?.startsWith("--") || !value || value.startsWith("--") || values.has(name))
+      throw new Error("Usage:");
+    values.set(name, value);
+  }
+  const reportId = values.get("--report-id");
+  const requestId = values.get("--request-id");
+  const markdownPath = values.get("--markdown");
+  if (
+    !reportId ||
+    !WEEKLY_REPORT_UUID.test(reportId) ||
+    !requestId ||
+    !WEEKLY_REPORT_UUID.test(requestId) ||
+    !markdownPath ||
+    values.size !== 3
+  )
+    throw new Error("Usage:");
+  return {
+    command: "weekly-report-key-points",
+    markdownPath,
+    keyPoints: { requestId, reportId, markdown: "" },
   };
 }
 

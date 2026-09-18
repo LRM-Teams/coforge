@@ -326,6 +326,57 @@ export const loadWeeklyTemplates = createServerFn({ method: "GET" })
     return recordCatalog(db).listTemplates({ workspaceId, userId: user.id });
   });
 
+export const loadKeyPointPrompts = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).loadKeyPointPrompts({ workspaceId, userId: user.id });
+  });
+
+export const saveKeyPointPrompts = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      slot: z.enum(["team", "personal"]),
+      text: z.string(),
+    }),
+  )
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).saveKeyPointPrompts({
+      workspaceId,
+      userId: user.id,
+      slot: data.slot,
+      text: data.text,
+    });
+  });
+
+export const deleteKeyPointPromptHistory = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      slot: z.enum(["team", "personal"]),
+      historyIndex: z.number().int().min(0),
+    }),
+  )
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).deleteKeyPointPromptHistory({
+      workspaceId,
+      userId: user.id,
+      slot: data.slot,
+      historyIndex: data.historyIndex,
+    });
+  });
+
+export const restartPersonalKeyPointExtraction = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ reportId: z.string().uuid() }))
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).restartPersonalKeyPointExtraction({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+    });
+  });
+
 export const applyWeeklyTemplate = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(z.object({ templateId: z.string().uuid() }))

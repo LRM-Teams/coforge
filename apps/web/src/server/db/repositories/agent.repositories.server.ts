@@ -118,7 +118,7 @@ export class PrismaAgentRepository implements AgentRepository {
 
   async listOwnedInWorkspace(workspaceId: string, ownerId: string) {
     const agents = await this.db.agent.findMany({
-      where: { workspaceId, ownerId, weeklyReportAssistant: null, ...ACTIVE_AGENT_WHERE },
+      where: { workspaceId, ownerId, ...ACTIVE_AGENT_WHERE },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     return agents.map(mapAgent);

@@ -48,6 +48,7 @@ import {
 import { ChangeAgentRuntimeCredential } from "../../server/agents/change-agent-runtime-credential.server";
 import { getAgentRuntimeLock } from "../../server/agents/agent-runtime-lock.server";
 import { agentRuntimeSelectionIsAvailable } from "../../server/agents/agent-runtime-availability.server";
+import { ensureWeeklyReportAssistant } from "../../server/records/weekly-report-assistant.server";
 import {
   parseAgentRuntimeConfig,
   publicAgentRuntimeConfig,
@@ -225,6 +226,17 @@ export const listAgents = createServerFn({ method: "GET" })
         };
       }),
     );
+  });
+
+/** Ensures the User's weekly-report assistant Agent exists for Members setup. */
+export const ensureWeeklyReportAssistantMember = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    const row = await ensureWeeklyReportAssistant(db, {
+      workspaceId,
+      userId: user.id,
+    });
+    return { agentId: row.agentId };
   });
 
 export const getAgentStatusSubscriptionToken = createServerFn({

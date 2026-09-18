@@ -1,69 +1,70 @@
-# ADR 0014: Assistant side chat and weekly highlight generation
+# ADR 0014: Personal key-point extraction (LLM) and assistant side chat
 
 Status: accepted
 Date: 2026-09-15
-Amends: [ADR 0009](0009-workspace-records-weekly-reports.md) (comments MVP-user-only;
-highlight create as a standalone “+” action), [ADR 0013](0013-weekly-highlight-prompt.md)
-(prompt used at generation time)
-
-Design M3–M6: a Leader asks the Records side chat to generate this week’s
-highlights from submitted member reports, optionally picking members. T2/T6:
-the format page side chat is assistant-led (preview / cancel-auto-send /
-send success), not a blank human comment thread.
+Updated: 2026-09-18
+Amends: [ADR 0009](0009-workspace-records-weekly-reports.md),
+[ADR 0013](0013-weekly-highlight-prompt.md) (prompts used at generation time)
 
 ## Decision
 
-1. **Authors**: The browser still only posts `authorType: user` comments.
-   Assistant (and system) rows are written by `RecordCatalog` on the server.
-   `payload` JSON carries structured cards (`offer-generate`, `pick-members`,
-   `offer-send`, `generating`, `generated`). Free-text assistant copy uses
-   `body` only.
-2. **Who may generate**: The viewer must own a `kind=template` report in that
-   ISO-week cycle (the Leader who sent / formatted that week). Generation reads
-   `submitted` | `shared` member assignments in the cycle. `memberIds: "all"`
-   means every submitted author; an explicit list must be a subset of those
-   authors.
-3. **One highlight per cycle** (unchanged schema). Generation upserts
-   `WeeklyReportHighlight` for the cycle. While running, `content.generating`
-   is true and `completedAt` is null (sidebar「正在生成」, empty body). On
-   success, `generating` is cleared, blocks are filled, `completedAt` is set.
-   No new Prisma column.
-4. **Extraction in this slice is deterministic**, not a cloud LLM. It uses the
-   latest saved format `content.highlightPrompt.text` only as recorded context
-   (not model input). Body comes from selected members’ Markdown: tabs whose
-   titles look like 进展/本周/Summary →「一、本周进展」; 计划/plan →「二、下周计划」.
-   Each item keeps `sources: [{ reportId, userId, displayName }]`. Clicking `@姓名`
-   opens that member report. A later LLM adapter can replace the extractor
-   without changing this catalog seam.
-5. **Side-chat subjects stay the open document**. Offers and pickers attach to
-   the member report (or format) the Leader is viewing. Completion comments
-   also attach to the new highlight.
-6. **Format page**: opening a live format auto-opens the side chat and seeds an
-   assistant intro when the thread is empty (preview countdown, cancelled
-   auto-send, or send-ready). Countdown renders next to the composer when the
-   stream is armed. Human comments remain allowed.
-7. **After explicit format save** (`askToSend`): if the edit newly cancelled
-   auto-send, the catalog posts a cancel assistant message; otherwise if the
-   Leader can still send this week, it posts `offer-send` asking whether to
-   send. The live format page does **not** autosave outline or highlight-prompt
-   edits (WR-13); only「保存」or the send confirm’s pre-send persist writes the
-   server. Member assignments and notes may still autosave.
+### A. Personal key-point extraction (this product path)
+
+1. **Trigger**: When a member report **first** enters `submitted` or `shared`,
+   `RecordCatalog.saveReportContent` starts personal extraction for that report
+   (idempotent: skip when `keyPointExtraction.status` is already `generating` or
+   `ready`). Member submit itself must not fail if extraction fails.
+2. **Who runs the assistant**: The **Leader** (source template / settings owner),
+   via `WeeklyReportAssistant` + `platformTurn`. Not the submitting member’s
+   assistant.
+3. **Engine**: Weekly-report assistant **LLM** (skill + HTTPS write-back).
+   Deterministic / rule-based highlight extraction and the removed
+   `WeeklyReportHighlight` product path are **deprecated** for this flow.
+4. **Persistence (no Prisma migrate)**: Result lives on the **member** report as
+   `content.keyPointExtraction`:
+   `{ status, promptSnapshot, markdown?, generatedAt?, error? }` with
+   `status ∈ generating | ready | failed | pending_setup`.
+5. **Prompt snapshot**: Uses Leader live-format `content.keyPointPrompts.personal`
+   at start time (ADR 0013).
+6. **Write-back**: Agent HTTPS `POST` personal key points (CLI
+   `weekly-report-key-points submit`); do **not** use Confirm `body-edit`.
+7. **UI**: Leader viewing a member report sees an injected trailing tab「要点提炼」
+   (prompt strip + markdown result; generating / pending_setup / failed / ready).
+   The member and non-Leaders do not see the tab.
+8. **Assistant not ready**: If Leader assistant lacks Computer/Runtime,
+   `status=pending_setup` (or `failed`); the tab shows setup guidance; submit
+   still succeeds.
+
+### B. Side chat (unchanged operational notes)
+
+1. Browser still posts `authorType: user` comments; assistant rows are written by
+   `RecordCatalog` on the server for format-page offers (preview / cancel-auto-send /
+   offer-send).
+2. Format page does **not** autosave outline edits (WR-13); only「保存」or send
+   confirm’s pre-send persist writes the server. Member assignments and notes may
+   still autosave.
+
+### C. Out of scope for this slice
+
+- Team / cycle-level key-point document generation and sidebar「周报要点」nodes.
+- Restoring `WeeklyReportHighlight` table or rule extractors.
+- New Prisma models/columns for prompts or extraction.
 
 ## Rejected alternatives
 
-- New highlight/job tables or Prisma enums: deferred; JSON + existing
-  `RecordComment.authorType` / `payload` is enough.
-- Calling Workspace Agent runtimes from Web/backend: out of scope; would mix
-  Records HTTPS with Daemon/ACP.
-- Sending the prompt to members as a document: still rejected (ADR 0013).
-- Asking to send after every keystroke: rejected; design T6 is after「保存」.
-  Format-page autosave was removed (WR-13).
+- Rule / heuristic extraction on member Markdown: rejected; product requires LLM.
+- Running the member’s own weekly-report assistant: rejected; Leader owns prompts
+  and review UX.
+- Requiring Leader to open the side chat to receive results: rejected; prefer
+  HTTPS write-back so results land while Leader is offline.
+- Calling Workspace Agent runtimes from ad-hoc Web paths outside the weekly-report
+  assistant seams: rejected; keep Daemon skill + authorized Agent HTTPS.
 
 ## Consequences
 
-- `createHighlight` “empty draft +” remains for compatibility; product path is
-  generate-from-side-chat.
-- Catalog `highlights[]` exposes `generating` for the sidebar.
-- Format `getSubject` may expose `sendSchedule` for the side-chat countdown.
-- Browser Server Functions: `ensureRecordAssistantIntro`, `postRecordSideChat`,
-  `generateWeeklyHighlights`; `saveWeeklyReportContent` accepts `askToSend`.
+- Catalog: `startPersonalKeyPointExtraction` / `applyPersonalKeyPointExtraction`;
+  submit hook in `saveReportContent`.
+- Daemon skill `weekly-report` wakes on `[weekly-report-key-points]` and submits
+  via CLI/HTTPS.
+- Settings edit both team and personal prompts; only **personal** auto-runs after
+  member submit in this slice.

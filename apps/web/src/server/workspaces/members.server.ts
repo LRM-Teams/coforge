@@ -34,7 +34,7 @@ export class WorkspaceMembers {
         orderBy: [{ username: "asc" }, { id: "asc" }],
       }),
       this.db.agent.findMany({
-        where: { workspaceId, weeklyReportAssistant: null, ...ACTIVE_AGENT_WHERE },
+        where: { workspaceId, ...ACTIVE_AGENT_WHERE },
         select: {
           id: true,
           name: true,

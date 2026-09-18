@@ -87,7 +87,6 @@ describe("WorkspaceMembers", () => {
     expect(queries.agents).toEqual({
       where: {
         workspaceId: "workspace-1",
-        weeklyReportAssistant: null,
         deletedAt: null,
       },
       select: {

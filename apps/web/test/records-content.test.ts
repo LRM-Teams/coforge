@@ -2,11 +2,13 @@ import { expect, test } from "bun:test";
 
 import {
   alignReportContentToTemplate,
+  applyKeyPointPromptText,
   clearReportContent,
   emptyReportContent,
   isAutoSendCancelled,
   memberReportTitle,
   normalizeReportContent,
+  removeKeyPointPromptHistoryEntry,
   reportContentToMarkdown,
   reportTabsEqual,
   withAssignmentUnread,
@@ -145,4 +147,69 @@ test("normalizeReportContent drops legacy highlightPrompt without preserving it"
   ).toEqual({
     tabs: { Summary: { markdown: "" } },
   });
+});
+
+test("normalizeReportContent preserves keyPointPrompts and keyPointExtraction", () => {
+  expect(
+    normalizeReportContent({
+      tabs: { Summary: { markdown: "body" } },
+      keyPointPrompts: {
+        team: { text: "team prompt", updatedAt: "2026-09-12T03:23:34.000Z", history: [] },
+        personal: {
+          text: "personal prompt",
+          history: [{ text: "older", updatedAt: "2026-09-11T00:00:00.000Z" }],
+        },
+      },
+      keyPointExtraction: {
+        status: "ready",
+        promptSnapshot: "personal prompt",
+        markdown: "- item",
+        generatedAt: "2026-09-18T08:00:00.000Z",
+      },
+    }),
+  ).toEqual({
+    tabs: { Summary: { markdown: "body" } },
+    keyPointPrompts: {
+      team: { text: "team prompt", updatedAt: "2026-09-12T03:23:34.000Z", history: [] },
+      personal: {
+        text: "personal prompt",
+        history: [{ text: "older", updatedAt: "2026-09-11T00:00:00.000Z" }],
+      },
+    },
+    keyPointExtraction: {
+      status: "ready",
+      promptSnapshot: "personal prompt",
+      markdown: "- item",
+      generatedAt: "2026-09-18T08:00:00.000Z",
+    },
+  });
+});
+
+test("applyKeyPointPromptText pushes the previous text onto history when it changes", () => {
+  const first = applyKeyPointPromptText(undefined, "v1", new Date("2026-09-12T03:23:34.000Z"));
+  expect(first).toEqual({
+    text: "v1",
+    updatedAt: "2026-09-12T03:23:34.000Z",
+    history: [],
+  });
+  const second = applyKeyPointPromptText(first, "v2", new Date("2026-09-13T01:00:00.000Z"));
+  expect(second).toEqual({
+    text: "v2",
+    updatedAt: "2026-09-13T01:00:00.000Z",
+    history: [{ text: "v1", updatedAt: "2026-09-12T03:23:34.000Z" }],
+  });
+});
+
+test("removeKeyPointPromptHistoryEntry drops one history row by index", () => {
+  const state = {
+    text: "current",
+    updatedAt: "2026-09-18T00:00:00.000Z",
+    history: [
+      { text: "old-a", updatedAt: "2026-09-17T00:00:00.000Z" },
+      { text: "old-b", updatedAt: "2026-09-16T00:00:00.000Z" },
+    ],
+  };
+  expect(removeKeyPointPromptHistoryEntry(state, 0).history).toEqual([
+    { text: "old-b", updatedAt: "2026-09-16T00:00:00.000Z" },
+  ]);
 });

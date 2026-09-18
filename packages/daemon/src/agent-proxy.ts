@@ -48,6 +48,11 @@ import {
   type WeeklyReportCollectCommand,
   type WeeklyReportCollectResult,
 } from "./connection/weekly-report-collect";
+import {
+  validateWeeklyReportKeyPointsCommand,
+  type WeeklyReportKeyPointsCommand,
+  type WeeklyReportKeyPointsResult,
+} from "./connection/weekly-report-key-points";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentProxy = {
@@ -153,6 +158,11 @@ export type AgentProxyRuntime = {
     request: WeeklyReportCollectCommand,
     agentApiKey: string,
   ): Promise<WeeklyReportCollectResult>;
+  agentWeeklyReportKeyPoints?(
+    context: string,
+    request: WeeklyReportKeyPointsCommand,
+    agentApiKey: string,
+  ): Promise<WeeklyReportKeyPointsResult>;
   issueAgentContext?: (agentId: string, context?: string) => string;
 };
 
@@ -724,6 +734,15 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     maxBodyBytes: WEEKLY_REPORT_COLLECT_MAX_BODY_BYTES,
     handler: "agentWeeklyReportCollect",
     parse: ({ fields }) => validateWeeklyReportCollectCommand(fields) ?? badRequest(),
+  }),
+  defineRoute({
+    family: "agent-api/weekly-report-key-points",
+    method: LOCAL_PROXY_ROUTES.weeklyReportKeyPoints.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.weeklyReportKeyPoints.path),
+    body: "json-object",
+    maxBodyBytes: WEEKLY_REPORT_COLLECT_MAX_BODY_BYTES,
+    handler: "agentWeeklyReportKeyPoints",
+    parse: ({ fields }) => validateWeeklyReportKeyPointsCommand(fields) ?? badRequest(),
   }),
   defineRoute({
     family: "agent-api/github-credential",
