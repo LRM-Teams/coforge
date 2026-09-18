@@ -1261,16 +1261,23 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           select: {
             body: true,
             threadRootId: true,
-            sender: { select: { user: { select: { username: true } } } },
+            sender: {
+              select: {
+                agentId: true,
+                user: { select: { username: true } },
+                agent: { select: { name: true } },
+              },
+            },
             mentions: MESSAGE_MENTIONS_SELECT,
           },
         },
       },
     });
     return deliveries.map((delivery) => {
-      const sender = delivery.message.sender
-        ? `@${delivery.message.sender.user?.username ?? ""}`
-        : "system";
+      // An Agent-authored message has no `user` on its sender row, so a `user.username`-only
+      // derivation produced a bare `@` and rejected every pending Agent message. Reuse the one
+      // sender-handle rule the other Agent read paths use (see `agentSenderHandle`).
+      const sender = agentSenderHandle(delivery.message.sender);
       const target = deliveryTarget(
         conversationTarget(delivery.conversation),
         delivery.message.threadRootId,
