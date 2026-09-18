@@ -117,9 +117,11 @@ and Workspace Files panels, which are also owner-only.
 - **Format drift in Claude Code shows as "cannot read composition"** (`unparsed`), with the stale
   previous report still visible until a later scan replaces it. No crash, no silent emptiness.
 - **The server must deploy before the Computer release that ships the daemon half.** An old server
-  rejects `agent:context_scan_result` with an unrecognized-method 404; the daemon logs it like
-  every other one-off unknown-method rejection, and no turn is blocked — the scan simply never
-  lands, and the popover keeps showing its previous state.
+  rejects `agent:context_scan_result` with an unrecognized-method 404; `sendAgentContextScanResult`
+  catches it and logs `agent_context_scan_result:rejected` once per connection lifetime (the same
+  suppression convention as `agent_session:invalidate_rejected`), and no turn is blocked — the
+  scan itself already completed on the Computer; only its delivery never lands, and the popover
+  keeps showing its previous state.
 - **Server-computed `collectedAt` falls back to receive time** when a report carries no usable
   `observedAt`, so staleness never reads as fresher than it is.
 - **Kiro/Pi/Codex/Cursor stay plain badges.** The wire and daemon-core surfaces are provider-

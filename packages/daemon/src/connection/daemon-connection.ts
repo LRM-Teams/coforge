@@ -1216,6 +1216,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   /** Same one-per-connection-lifetime log suppression as
    * `#loggedUnknownSessionInvalidateMethod`, for `agent:context:usage`. */
   #loggedUnknownContextUsageMethod = false;
+  /** Same one-per-connection-lifetime log suppression as
+   * `#loggedUnknownSessionInvalidateMethod`, for `agent:context_scan_result` (ADR 0051). */
+  #loggedUnknownContextScanResultMethod = false;
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
   readonly #upgradeRequestIds = new Set<string>();
@@ -2296,7 +2299,29 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   async sendAgentContextScanResult(response: AgentContextScanResponse): Promise<void> {
-    await this.#rpc(AGENT_CONTEXT_SCAN_RESULT_METHOD, encodeAgentContextScanResponse(response));
+    await this.#rpc(
+      AGENT_CONTEXT_SCAN_RESULT_METHOD,
+      encodeAgentContextScanResponse(response),
+    ).catch((error) => {
+      const errorCode = diagnosticErrorCode(error);
+      // An old server that has never heard of this RPC rejects every attempt the same way for
+      // as long as this process talks to it; logging that fact once per connection lifetime is
+      // enough (the same convention as `agent_session:invalidate_rejected`). The scan itself
+      // already completed on the Computer; only its delivery to the server failed.
+      const unknownMethod = errorCode === "404";
+      if (unknownMethod && this.#loggedUnknownContextScanResultMethod) return;
+      if (unknownMethod) this.#loggedUnknownContextScanResultMethod = true;
+      logger.warning("Agent context scan result was not accepted", {
+        event: "agent_context_scan_result:rejected",
+        request_id: response.requestId,
+        workspace_id: response.workspaceId,
+        computer_id: response.computerId,
+        agent_id: response.agentId,
+        status: response.status,
+        error_code: errorCode,
+        outcome: "failed",
+      });
+    });
   }
 
   async ready(createRequest: () => DaemonRuntimeReadyRequest): Promise<void> {

@@ -726,6 +726,46 @@ test("logs an old server's unknown-method rejection of context usage at most onc
   });
 });
 
+test("logs an old server's unknown-method rejection of a context scan result at most once per connection", async () => {
+  const fake = fakeClient();
+  fake.client.rpc = async (method) => {
+    if (method === AGENT_CONTEXT_SCAN_RESULT_METHOD)
+      throw Object.assign(new Error("unknown RPC method"), { code: 404 });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+
+  const scanResult = (requestId: string) => ({
+    protocolMajor: 1,
+    requestId,
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId: "agent-1",
+    provider: "claude-code" as const,
+    launchId: "launch-1",
+    sessionId: "native-session-1",
+    accepted: false,
+    status: "no_session" as const,
+  });
+  const { records } = await captureLogs(async () => {
+    await transport.sendAgentContextScanResult(scanResult("scan-1"));
+    await transport.sendAgentContextScanResult(scanResult("scan-2"));
+  });
+
+  const rejections = records.filter(
+    (record) => record.properties.event === "agent_context_scan_result:rejected",
+  );
+  expect(rejections).toHaveLength(1);
+  expect(rejections[0]?.properties).toMatchObject({
+    request_id: "scan-1",
+    agent_id: "agent-1",
+    status: "no_session",
+    error_code: "404",
+    outcome: "failed",
+  });
+});
+
 const config = {
   computerId: "computer-a",
   workspaceId: "workspace-a",
