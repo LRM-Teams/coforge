@@ -26,9 +26,11 @@ import {
   type ActionCardAction,
   type AgentManualGetResponse,
   type AgentManualSearchResponse,
+  type AgentVersionResponse,
   type GitHubCredentialResponse,
   type WorkspaceInfoRuntimeContext,
 } from "@lrm/coforge-sdk/agent";
+import { COFORGE_CLI_VERSION } from "./src/version";
 import { formatManualGet, formatManualSearchResults } from "./src/manual-format";
 import { parseActionCardInput, toActionCardAction } from "./src/action-prepare-input";
 import {
@@ -150,6 +152,8 @@ export type ActionPrepareResult = { messageId?: string; metadata?: { kind: strin
 export type ManualInvocation =
   | { command: "manual-get"; topic: string; intent: string; reason: string }
   | { command: "manual-search"; query: string; intent: string; reason: string };
+export type WhoamiInvocation = { command: "whoami"; json?: boolean };
+export type VersionInvocation = { command: "version"; json?: boolean };
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[]; hasMore?: boolean }>;
@@ -192,6 +196,8 @@ export type MessageTransport = {
   actionPrepare?(target: string, action: ActionCardAction): Promise<ActionPrepareResult>;
   manualGet?(topic: string, intent: string, reason: string): Promise<AgentManualGetResponse>;
   manualSearch?(query: string, intent: string, reason: string): Promise<AgentManualSearchResponse>;
+  /** `coforge version`'s local-only Daemon query (ADR 0036); never reaches Web/backend. */
+  version?(): Promise<AgentVersionResponse>;
 };
 
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
@@ -215,7 +221,11 @@ export function parseArgs(
   | WorkspaceInfoInvocation
   | WeeklyReportInvocation
   | ActionPrepareInvocation
-  | ManualInvocation {
+  | ManualInvocation
+  | WhoamiInvocation
+  | VersionInvocation {
+  if (args[0] === "whoami") return parseWhoamiArgs(args.slice(1));
+  if (args[0] === "version") return parseVersionArgs(args.slice(1));
   if (args[0] === "manual" && (args[1] === "get" || args[1] === "search"))
     return parseManualArgs(args.slice(1));
   if (args[0] === "workspace" && args[1] === "info") return parseWorkspaceInfoArgs(args.slice(2));
@@ -490,7 +500,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge action prepare --target <target> | coforge manual get <topic> --intent <text> --reason <text> | coforge manual search \"<keywords>\" --intent <text> --reason <text>",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge action prepare --target <target> | coforge manual get <topic> --intent <text> --reason <text> | coforge manual search \"<keywords>\" --intent <text> --reason <text> | coforge whoami [--json] | coforge version [--json]",
   );
 }
 
@@ -775,6 +785,27 @@ function validateManualIntentReasonArgs(intent: string | undefined, reason: stri
   });
 }
 
+const WHOAMI_USAGE = "Usage: coforge whoami [--json]";
+const VERSION_USAGE = "Usage: coforge version [--json]";
+
+function parseWhoamiArgs(args: readonly string[]): WhoamiInvocation {
+  let json = false;
+  for (const arg of args) {
+    if (arg === "--json") json = true;
+    else throw new Error(WHOAMI_USAGE);
+  }
+  return { command: "whoami", ...(json ? { json: true } : {}) };
+}
+
+function parseVersionArgs(args: readonly string[]): VersionInvocation {
+  let json = false;
+  for (const arg of args) {
+    if (arg === "--json") json = true;
+    else throw new Error(VERSION_USAGE);
+  }
+  return { command: "version", ...(json ? { json: true } : {}) };
+}
+
 function parseManualArgs(args: readonly string[]): ManualInvocation {
   const sub = args[0];
   let value: string | undefined;
@@ -818,6 +849,22 @@ function parseActionPrepareArgs(args: readonly string[]): ActionPrepareInvocatio
 
 export async function run(args: readonly string[], transport: MessageTransport): Promise<unknown> {
   const invocation = parseArgs(args);
+  if (invocation.command === "whoami") {
+    const result = buildWhoamiResult();
+    if (invocation.json) return JSON.stringify({ ok: true, data: result });
+    return formatWhoami(result);
+  }
+  if (invocation.command === "version") {
+    if (!transport.version) throw new Error("Version transport is unavailable");
+    const response = await transport.version();
+    const info = {
+      cli: COFORGE_CLI_VERSION,
+      daemon: response.daemonVersion,
+      ...(response.computerVersion ? { computer: response.computerVersion } : {}),
+    };
+    if (invocation.json) return JSON.stringify({ ok: true, data: info });
+    return formatVersionInfo(info);
+  }
   if (invocation.command === "manual-get") {
     if (!transport.manualGet) throw new Error("Manual transport is unavailable");
     const result = await transport.manualGet(
@@ -1049,6 +1096,92 @@ export async function run(args: readonly string[], transport: MessageTransport):
     hasNewer?: boolean;
   };
   return formatReadWindow(invocation.target, readResponse, { around: readOptions?.around });
+}
+
+export type WhoamiResult = {
+  agentId?: string;
+  agentName?: string;
+  workspaceId?: string;
+  workspaceSlug?: string;
+  workspaceName?: string;
+  computerId?: string;
+  computerName?: string;
+  computerHostname?: string;
+  agentWorkspacePath?: string;
+  proxyUrl?: string;
+  /** CoForge has only daemon-spawned Agents today (no self-hosted Agent client), so this is
+   * always `"daemon-managed"`; the field exists so a future client kind has somewhere to report. */
+  clientMode: "daemon-managed";
+  credential: {
+    source: "agent-context-env" | "none";
+    present: boolean;
+    /** First 4 characters (the fixed `sfp_` prefix) plus an ellipsis; never the token value. */
+    redacted?: string;
+  };
+};
+
+function trimmedEnv(value: string | undefined): string | undefined {
+  return value?.trim() || undefined;
+}
+
+/**
+ * `coforge whoami`: deliberately local (ADR 0036's placement-table rows) — it answers "what
+ * identity and endpoint would my next command use", read only from the process environment the
+ * Daemon already set for this Agent process (`code-agent/environment.ts`). It never makes a
+ * request. `COFORGE_DAEMON_SOCKET` is always set to `""` for an Agent launch (`daemon-runtime/
+ * runtime.ts`), so it carries no information and is not reported here.
+ */
+function buildWhoamiResult(): WhoamiResult {
+  const context = trimmedEnv(Bun.env.COFORGE_AGENT_CONTEXT);
+  return {
+    agentId: trimmedEnv(Bun.env.COFORGE_CURRENT_AGENT_ID),
+    agentName: trimmedEnv(Bun.env.COFORGE_CURRENT_AGENT_NAME),
+    workspaceId: trimmedEnv(Bun.env.COFORGE_CURRENT_WORKSPACE_ID),
+    workspaceSlug: trimmedEnv(Bun.env.COFORGE_CURRENT_WORKSPACE_SLUG),
+    workspaceName: trimmedEnv(Bun.env.COFORGE_CURRENT_WORKSPACE_NAME),
+    computerId: trimmedEnv(Bun.env.COFORGE_CURRENT_COMPUTER_ID),
+    computerName: trimmedEnv(Bun.env.COFORGE_CURRENT_COMPUTER_NAME),
+    computerHostname: trimmedEnv(Bun.env.COFORGE_CURRENT_COMPUTER_HOSTNAME),
+    agentWorkspacePath: trimmedEnv(Bun.env.COFORGE_CURRENT_AGENT_WORKSPACE_PATH),
+    proxyUrl: trimmedEnv(Bun.env.COFORGE_AGENT_PROXY_URL),
+    clientMode: "daemon-managed",
+    credential: {
+      source: context ? "agent-context-env" : "none",
+      present: Boolean(context),
+      ...(context ? { redacted: `${context.slice(0, 4)}…` } : {}),
+    },
+  };
+}
+
+function formatWhoami(result: WhoamiResult): string {
+  const lines = ["## Who am I", ""];
+  if (result.agentId) lines.push(`Agent ID: ${result.agentId}`);
+  if (result.agentName) lines.push(`Agent name: @${result.agentName}`);
+  if (result.workspaceId) lines.push(`Workspace ID: ${result.workspaceId}`);
+  if (result.workspaceSlug) lines.push(`Workspace slug: ${result.workspaceSlug}`);
+  if (result.workspaceName) lines.push(`Workspace name: ${result.workspaceName}`);
+  if (result.computerId) lines.push(`Computer ID: ${result.computerId}`);
+  if (result.computerName) lines.push(`Computer name: ${result.computerName}`);
+  if (result.computerHostname) lines.push(`Computer hostname: ${result.computerHostname}`);
+  if (result.agentWorkspacePath) lines.push(`Agent workspace: ${result.agentWorkspacePath}`);
+  if (result.proxyUrl) lines.push(`Agent proxy: ${result.proxyUrl}`);
+  lines.push(`Client mode: ${result.clientMode}`);
+  lines.push(
+    `Credential: source=${result.credential.source} present=${result.credential.present ? "yes" : "no"}` +
+      (result.credential.redacted ? ` redacted=${result.credential.redacted}` : ""),
+  );
+  return lines.join("\n");
+}
+
+type VersionInfo = { cli: string; daemon?: string; computer?: string };
+
+/** `coforge version`'s text output: `CLI:`/`Daemon:`/`Computer:` lines, in that order, each
+ * omitted only when unknown. `CLI` is always known; `Daemon`/`Computer` come from the live query. */
+function formatVersionInfo(info: VersionInfo): string {
+  const lines = [`CLI: ${info.cli}`];
+  if (info.daemon) lines.push(`Daemon: ${info.daemon}`);
+  if (info.computer) lines.push(`Computer: ${info.computer}`);
+  return lines.join("\n");
 }
 
 /**

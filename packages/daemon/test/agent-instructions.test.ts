@@ -232,6 +232,20 @@ test("the Agent Manual is introduced as a short capability pointer, not a restru
   expect(publicChannelsIndex - manualBulletIndex).toBeGreaterThan(200);
 });
 
+test("workspace and attachments introduces whoami and version as one bullet", () => {
+  expect(instructions).toContain(
+    "`coforge whoami` prints the identity and endpoint your commands run as",
+  );
+  expect(instructions).toContain("no request; the token is redacted");
+  expect(instructions).toContain(
+    "`coforge version` reports the CLI, Daemon, and Computer versions by querying the live Daemon.",
+  );
+  const workspaceAndAttachmentsIndex = instructions.indexOf("### Workspace and attachments");
+  const whoamiBulletIndex = instructions.indexOf("`coforge whoami` prints");
+  expect(workspaceAndAttachmentsIndex).toBeGreaterThan(-1);
+  expect(whoamiBulletIndex).toBeGreaterThan(workspaceAndAttachmentsIndex);
+});
+
 test("channel management authority is per channel and disclaims Agent role changes", () => {
   expect(instructions).toContain(
     "Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`, `add-member`, `remove-member`) are authorized per channel",

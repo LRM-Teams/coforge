@@ -2318,6 +2318,64 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
+  test("version answers coforge version's local-only query from the already-running process, without a transport call", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-version");
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+      credentials,
+      { create: () => ({ async start() {}, async ready() {}, async stop() {} }) },
+      undefined,
+      emptyCodeAgentDiscovery,
+      workspaceRoot,
+      {},
+      "9.8.7",
+    );
+    try {
+      await runtime.start(connection);
+      // `issueAgentContext` only needs the runtime started, not an actually-launched Agent
+      // process (`#agentIdForContext` reads the same map `#authorizedAgent` checks); `version()`
+      // never touches the Agent runtime itself.
+      const context = runtime.issueAgentContext("agent-a");
+      const response = await runtime.version(context, {}, `sk_agent_${"a".repeat(43)}`);
+      expect(response.ok).toBe(true);
+      expect(response.daemonVersion).toBeTruthy();
+      expect(response.computerVersion).toBe("9.8.7");
+      expect(response.daemonPid).toBe(process.pid);
+      expect(typeof response.startedAt).toBe("number");
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  test("version without a valid Agent API key is the AGENT_API_KEY_MISSING precondition", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-version-invalid");
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+      credentials,
+      { create: () => ({ async start() {}, async ready() {}, async stop() {} }) },
+      undefined,
+      emptyCodeAgentDiscovery,
+      workspaceRoot,
+      {},
+      "9.8.7",
+    );
+    try {
+      await runtime.start(connection);
+      const context = runtime.issueAgentContext("agent-a");
+      const rejected = await runtime
+        .version(context, {}, "not-an-agent-key")
+        .catch((error: unknown) => error);
+      expect(rejected).toBeInstanceOf(AgentPreflightError);
+      expect((rejected as AgentPreflightError).code).toBe("AGENT_API_KEY_MISSING");
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("message check drains multiple event pages, stops when hasMore is false, and clears attention only for returned targets", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

@@ -2786,3 +2786,198 @@ test("manual accepts flags before the positional and trims every value", () => {
     parseArgs(["manual", "get", "github", "extra", "--intent", intent, "--reason", reason]),
   ).toThrow();
 });
+
+const WHOAMI_ENV_KEYS = [
+  "COFORGE_CURRENT_AGENT_ID",
+  "COFORGE_CURRENT_AGENT_NAME",
+  "COFORGE_CURRENT_WORKSPACE_ID",
+  "COFORGE_CURRENT_WORKSPACE_SLUG",
+  "COFORGE_CURRENT_WORKSPACE_NAME",
+  "COFORGE_CURRENT_COMPUTER_ID",
+  "COFORGE_CURRENT_COMPUTER_NAME",
+  "COFORGE_CURRENT_COMPUTER_HOSTNAME",
+  "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
+  "COFORGE_AGENT_PROXY_URL",
+  "COFORGE_AGENT_CONTEXT",
+] as const;
+
+/** Sets (or deletes, for `undefined`) every whoami-relevant env var for the duration of `run`,
+ * restoring each previous value afterward — same pattern as `withAgentWorkspacePathEnv` above,
+ * generalized to the whole set `coforge whoami` reads. */
+function withWhoamiEnv<T>(
+  values: Partial<Record<(typeof WHOAMI_ENV_KEYS)[number], string>>,
+  run: () => T,
+): T {
+  const previous = Object.fromEntries(WHOAMI_ENV_KEYS.map((key) => [key, Bun.env[key]])) as Record<
+    (typeof WHOAMI_ENV_KEYS)[number],
+    string | undefined
+  >;
+  for (const key of WHOAMI_ENV_KEYS) {
+    const value = values[key];
+    if (value === undefined) delete Bun.env[key];
+    else Bun.env[key] = value;
+  }
+  try {
+    return run();
+  } finally {
+    for (const key of WHOAMI_ENV_KEYS) {
+      if (previous[key] === undefined) delete Bun.env[key];
+      else Bun.env[key] = previous[key];
+    }
+  }
+}
+
+const MINIMAL_TRANSPORT = {
+  check: async () => ({ messages: [] }),
+  read: async () => undefined,
+  send: async () => undefined,
+  view: async () => ({ bytes: new Uint8Array() }),
+};
+
+test("whoami rejects an unknown flag", () => {
+  expect(() => parseArgs(["whoami", "--bogus"])).toThrow("Usage:");
+});
+
+test("whoami is deliberately local: it reports every known Runtime Context env var and redacts the token to its fixed prefix", async () => {
+  const output = await withWhoamiEnv(
+    {
+      COFORGE_CURRENT_AGENT_ID: "agent-1",
+      COFORGE_CURRENT_AGENT_NAME: "scout",
+      COFORGE_CURRENT_WORKSPACE_ID: "workspace-1",
+      COFORGE_CURRENT_WORKSPACE_SLUG: "acme",
+      COFORGE_CURRENT_WORKSPACE_NAME: "Acme",
+      COFORGE_CURRENT_COMPUTER_ID: "computer-1",
+      COFORGE_CURRENT_COMPUTER_NAME: "Builder Box",
+      COFORGE_CURRENT_COMPUTER_HOSTNAME: "workstation-7",
+      COFORGE_CURRENT_AGENT_WORKSPACE_PATH: "/home/agent/workspace",
+      COFORGE_AGENT_PROXY_URL: "http://127.0.0.1:4123/api/agent/v1/messages",
+      COFORGE_AGENT_CONTEXT: "sfp_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG",
+    },
+    () => run(["whoami"], MINIMAL_TRANSPORT),
+  );
+  expect(output).toBe(
+    [
+      "## Who am I",
+      "",
+      "Agent ID: agent-1",
+      "Agent name: @scout",
+      "Workspace ID: workspace-1",
+      "Workspace slug: acme",
+      "Workspace name: Acme",
+      "Computer ID: computer-1",
+      "Computer name: Builder Box",
+      "Computer hostname: workstation-7",
+      "Agent workspace: /home/agent/workspace",
+      "Agent proxy: http://127.0.0.1:4123/api/agent/v1/messages",
+      "Client mode: daemon-managed",
+      "Credential: source=agent-context-env present=yes redacted=sfp_…",
+    ].join("\n"),
+  );
+});
+
+test("whoami with an empty environment omits every unset bullet and reports no credential", async () => {
+  const output = await withWhoamiEnv({}, () => run(["whoami"], MINIMAL_TRANSPORT));
+  expect(output).toBe(
+    ["## Who am I", "", "Client mode: daemon-managed", "Credential: source=none present=no"].join(
+      "\n",
+    ),
+  );
+});
+
+test("whoami --json emits { ok: true, data } and never the token value, only its 4-character prefix", async () => {
+  const output = await withWhoamiEnv(
+    { COFORGE_AGENT_CONTEXT: "sfp_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG" },
+    () => run(["whoami", "--json"], MINIMAL_TRANSPORT),
+  );
+  const parsed = JSON.parse(output as string);
+  expect(parsed).toEqual({
+    ok: true,
+    data: {
+      clientMode: "daemon-managed",
+      credential: { source: "agent-context-env", present: true, redacted: "sfp_…" },
+    },
+  });
+  expect(JSON.stringify(parsed)).not.toContain("abcdefghijklmnopqrstuvwxyz");
+});
+
+test("whoami never calls the transport: it is local by design", async () => {
+  const calls: string[] = [];
+  await withWhoamiEnv({}, () =>
+    run(["whoami"], {
+      ...MINIMAL_TRANSPORT,
+      check: async () => {
+        calls.push("check");
+        return { messages: [] };
+      },
+    }),
+  );
+  expect(calls).toEqual([]);
+});
+
+test("version rejects an unknown flag", () => {
+  expect(() => parseArgs(["version", "--bogus"])).toThrow("Usage:");
+});
+
+test("version parses --json", () => {
+  expect(parseArgs(["version"])).toEqual({ command: "version" });
+  expect(parseArgs(["version", "--json"])).toEqual({ command: "version", json: true });
+});
+
+test("version queries the live daemon and prints CLI/Daemon/Computer lines", async () => {
+  const output = await run(["version"], {
+    ...MINIMAL_TRANSPORT,
+    version: async () => ({
+      ok: true,
+      daemonVersion: "0.1.0-dev.38",
+      computerVersion: "0.1.0-dev.38",
+    }),
+  });
+  expect(output).toMatch(/^CLI: \S+\nDaemon: 0\.1\.0-dev\.38\nComputer: 0\.1\.0-dev\.38$/);
+});
+
+test("version omits the Computer line when the live daemon does not report one", async () => {
+  const output = await run(["version"], {
+    ...MINIMAL_TRANSPORT,
+    version: async () => ({ ok: true, daemonVersion: "0.1.0-dev.38" }),
+  });
+  expect(output).toMatch(/^CLI: \S+\nDaemon: 0\.1\.0-dev\.38$/);
+  expect(output).not.toContain("Computer:");
+});
+
+test("version --json wraps the same facts as { ok: true, data }", async () => {
+  const output = await run(["version", "--json"], {
+    ...MINIMAL_TRANSPORT,
+    version: async () => ({
+      ok: true,
+      daemonVersion: "0.1.0-dev.38",
+      computerVersion: "0.1.0-dev.38",
+    }),
+  });
+  const parsed = JSON.parse(output as string) as {
+    ok: boolean;
+    data: { cli: string; daemon: string; computer: string };
+  };
+  expect(parsed.ok).toBe(true);
+  expect(parsed.data.daemon).toBe("0.1.0-dev.38");
+  expect(parsed.data.computer).toBe("0.1.0-dev.38");
+  expect(typeof parsed.data.cli).toBe("string");
+});
+
+test("version surfaces the transport's CliError when the live daemon cannot be queried", async () => {
+  try {
+    await run(["version"], {
+      ...MINIMAL_TRANSPORT,
+      version: async () => {
+        throw new CliError({
+          code: "VERSION_FAILED",
+          message: "The live daemon could not be queried: agent proxy request failed.",
+          retryable: false,
+        });
+      },
+    });
+    throw new Error("expected a CliError");
+  } catch (error) {
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe("VERSION_FAILED");
+  }
+});

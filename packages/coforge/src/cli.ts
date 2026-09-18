@@ -3,8 +3,16 @@ import { run } from "../index";
 import { connectLocal } from "./local-client";
 import { CliError, renderCliError } from "./cli-error";
 import { runGitHubCli, runGitHubCredentialHelper } from "./github-credential";
+import { COFORGE_CLI_VERSION } from "./version";
 
 export async function runAgentCli(args: readonly string[]): Promise<void> {
+  // `coforge --version`/`-V` reports only the CLI carrier, unlike `coforge version`, which also
+  // queries the live daemon for its own and the Computer's version (ADR 0036).
+  if (args[0] === "--version" || args[0] === "-V") {
+    console.log(COFORGE_CLI_VERSION);
+    return;
+  }
+
   const transport = connectLocal(
     Bun.env.COFORGE_DAEMON_SOCKET ?? "",
     Bun.env.COFORGE_AGENT_CONTEXT ?? "",

@@ -79,6 +79,10 @@ export async function compileTargetArtifacts(
       "process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH": JSON.stringify("0"),
       "Bun.env.COFORGE_COMPUTER_VERSION": JSON.stringify(options.version),
       "process.env.COFORGE_DAEMON_VERSION": JSON.stringify(options.version),
+      // The `__agent-cli` dispatch bundles `@lrm/coforge/runner` (packages/coforge/src/cli.ts)
+      // into this same executable; `coforge version`/`coforge --version` need the real release
+      // version inlined the same way, not the package.json fallback (docs/adr/0036-agent-manual.md).
+      "Bun.env.COFORGE_CLI_VERSION": JSON.stringify(options.version),
       "process.env.COFORGE_DAEMON_SERVER_URL": JSON.stringify(serverUrl),
     },
   });

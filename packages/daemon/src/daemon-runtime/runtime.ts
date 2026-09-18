@@ -103,6 +103,7 @@ import type {
   AgentManualGetResponse,
   AgentManualSearchRequest,
   AgentManualSearchResponse,
+  AgentVersionResponse,
 } from "@lrm/coforge-sdk/agent";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
@@ -2620,6 +2621,28 @@ export class DaemonRuntime {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.manualSearch) throw new Error("Agent Manual endpoint is not configured");
     return this.#transport.manualSearch(request, agentApiKey);
+  }
+
+  /**
+   * `coforge version`'s local-only query (ADR 0036): answered entirely from this already-running
+   * Workspace child, never forwarded to Web/backend. `computerVersion` is the Computer executable
+   * version this Daemon was launched with (`runDaemon(args, computerVersion)`, `packages/computer/
+   * src/main.ts`'s `__workspace-daemon` dispatch); it bundles both the Computer and Daemon package
+   * roles into one executable (see `docs/architecture.md`), so this is not a second installation.
+   */
+  async version(
+    context: string,
+    _request: Record<string, never>,
+    agentApiKey: string,
+  ): Promise<AgentVersionResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    return {
+      ok: true,
+      daemonVersion: COFORGE_DAEMON_VERSION,
+      ...(this.computerVersion ? { computerVersion: this.computerVersion } : {}),
+      daemonPid: process.pid,
+      startedAt: this.#startedAt,
+    };
   }
 
   async agentTask(context: string, command: TaskCommand, agentApiKey: string): Promise<TaskResult> {

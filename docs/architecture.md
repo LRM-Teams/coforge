@@ -1544,6 +1544,18 @@ Raft 1.0.32 的 `raft manual` / `/knowledge`：standing prompt
 生成的 `index`；主题 markdown 存放在 `apps/web/src/server/agents/manual/topics/`，用 Vite 的
 `?raw` 后缀在构建期打包为字符串（`bun test` 下同样有效，无需额外 loader）。
 
+`coforge whoami`（ADR 0036）只读取当前 Agent 进程的环境变量（`COFORGE_CURRENT_*`、
+`COFORGE_AGENT_CONTEXT`、`COFORGE_AGENT_PROXY_URL`），不发起任何请求，token 只输出前 4 个字符
+（固定前缀 `sfp_`）加省略号。`coforge version` 则相反：它必须查询正在运行的 Daemon 才有意义，
+新增的 `GET /api/agent/v1/version` 是纯本地路由——与会转发到 Web/backend 的 `manual` 路由不同，
+这条路由的响应完全由 Daemon 自己回答，从不离开本机：`AgentProxyRuntime.version()` 分发到
+`DaemonRuntime.version()`，返回 `{ ok:true, daemonVersion, computerVersion?, daemonPid?,
+startedAt? }`（`packages/daemon/src/daemon-runtime/runtime.ts`）。`coforge version` 的输出额外包含
+Computer 版本号，因为 Computer 可执行文件同时打包了 Computer 与 Daemon 两个包角色（见 §2），三个
+版本号（CLI/Daemon/Computer）才是完整画像；CLI 自身版本号在发布构建时以与
+`COFORGE_DAEMON_VERSION`/`COFORGE_COMPUTER_VERSION` 相同的 `define` 机制内联
+（`scripts/release/compile-targets.ts`）。
+
 ## 7. 端到端链路
 
 ```text
