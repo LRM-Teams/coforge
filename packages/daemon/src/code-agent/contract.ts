@@ -1,8 +1,10 @@
 import type {
+  AgentContextReport,
   CodeAgentModelCatalog,
   RuntimeMetadata,
   RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
+export type { AgentContextReport } from "@lrm/coforge-sdk/internal";
 import type { AgentSession, AgentSessionOptions, UsageSnapshot } from "@coforge/agent";
 export type {
   AgentActivity,
@@ -25,6 +27,18 @@ export interface CodeAgentProvider {
     workingDirectory: string;
     timeoutMs?: number;
   }): Promise<UsageSnapshot | null>;
+  /**
+   * Reads a one-shot breakdown of the Agent's current context-window composition (ADR 0051),
+   * against the Agent's own already-running native session — never a fresh one. `undefined` means
+   * "ran, but no report could be made of it" (the caller reports this as `unparsed`), matching
+   * `readUsage`'s own `null`-means-no-signal convention. Only the Claude Code provider implements
+   * this today; a provider with no equivalent signal never offers it.
+   */
+  readContextReport?(options: {
+    workingDirectory: string;
+    sessionId: string;
+    timeoutMs?: number;
+  }): Promise<AgentContextReport | undefined>;
 }
 export type CodeAgentProviderFactory = (provider: RuntimeProvider) => CodeAgentProvider;
 export type ProviderDiscoveryOptions = Readonly<{
@@ -58,6 +72,15 @@ export const AGENT_RUNTIME_EVENT_TYPE = {
 export class UsageUnavailableError extends Error {
   constructor() {
     super("Provider usage is unavailable");
+  }
+}
+
+/** A `readContextReport` call did not finish before its timeout (ADR 0051); the caller reports
+ * this as `timeout`, distinct from `unparsed` (ran, produced nothing parseable) or a generic
+ * `error` (the CLI itself failed). */
+export class AgentContextReportTimeoutError extends Error {
+  constructor() {
+    super("Context scan timed out");
   }
 }
 

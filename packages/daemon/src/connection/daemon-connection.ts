@@ -75,6 +75,11 @@ import {
   type ComputerUpgradeResult,
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
+  decodeAgentContextScanRequest,
+  encodeAgentContextScanResponse,
+  AGENT_CONTEXT_SCAN_RESULT_METHOD,
+  type AgentContextScanRequest,
+  type AgentContextScanResponse,
   decodeAgentMessageDelivery,
   decodeComputerRestartIntent,
   decodeComputerUpgradeIntent,
@@ -413,6 +418,8 @@ export interface DaemonConnectionClient {
   sendWorkspaceFileReadResult?(result: AgentWorkspaceFileReadResult): Promise<void>;
   onUsageScan?(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void;
   sendUsageScanResult?(response: DaemonRuntimeUsageScanResponse): Promise<void>;
+  onAgentContextScan?(callback: (request: AgentContextScanRequest) => Promise<void>): () => void;
+  sendAgentContextScanResult?(response: AgentContextScanResponse): Promise<void>;
   sendUpgradeResult?(result: ComputerUpgradeResult): Promise<boolean>;
   stop(): Promise<void>;
   onReconnect?(callback: () => void): () => void;
@@ -1177,6 +1184,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   >();
   readonly #usageScan = new ListenerSlot<
     (request: DaemonRuntimeUsageScanRequest) => Promise<void>
+  >();
+  readonly #agentContextScan = new ListenerSlot<
+    (request: AgentContextScanRequest) => Promise<void>
   >();
   readonly #reconnect = new ListenerSlot<() => void>();
   /** Publications received between a ready request and its acknowledgement, in arrival order. */
