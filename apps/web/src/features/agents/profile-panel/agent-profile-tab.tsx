@@ -14,8 +14,10 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Select } from "@/components/base/select/select";
 import { RelativeTime } from "@/components/ui/relative-time";
+import { StatusDot } from "@/components/ui/status-dot";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
+import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
 import { RuntimeProviderMark } from "@/features/agents/runtime-provider-mark";
@@ -113,26 +115,12 @@ export function AgentProfileTab({
     <div className="min-h-0 flex-1 overflow-y-auto">
       <section className="border-b border-secondary px-6 py-5">
         <div className="flex items-center gap-4">
-          <span className="relative block shrink-0">
-            <Avatar
-              size="xl"
-              alt=""
-              initials={avatarInitial(profile.displayName)}
-              contentClassName={avatarToneClassName(profile.displayName)}
-            />
-            <span
-              aria-hidden="true"
-              className={`absolute -right-0.5 -bottom-0.5 size-3.5 rounded-full border-2 border-primary ${
-                view.tone === "idle"
-                  ? "bg-success-solid"
-                  : view.tone === "error"
-                    ? "bg-error-solid"
-                    : view.tone === "working" || view.tone === "thinking"
-                      ? "bg-amber-500"
-                      : "bg-offline"
-              }`}
-            />
-          </span>
+          <AgentDisplayAvatar
+            name={profile.displayName}
+            display={display}
+            stopped={profile.stopped}
+            size="xl"
+          />
           <div className="min-w-0">
             <p className="flex flex-wrap items-center gap-2 text-lg font-semibold text-primary">
               <span className="truncate">{profile.displayName}</span>
@@ -203,9 +191,9 @@ export function AgentProfileTab({
           </p>
           {profile.computer && (
             <p className="mt-1 flex items-center gap-1.5 text-xs text-tertiary">
-              <span
-                aria-hidden="true"
-                className={`size-1.5 rounded-full ${profile.computer.online ? "bg-online" : "bg-offline"}`}
+              <StatusDot
+                tone={profile.computer.online ? "online" : "offline"}
+                className="size-1.5"
               />
               {profile.computer.online
                 ? m.agent_profile_computer_connected()

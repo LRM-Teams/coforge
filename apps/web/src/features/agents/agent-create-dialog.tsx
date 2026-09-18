@@ -11,6 +11,7 @@ import { HintText } from "@/components/base/input/hint-text";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { TextArea } from "@/components/base/textarea/textarea";
+import { StatusDot } from "@/components/ui/status-dot";
 import { m } from "@/paraglide/messages";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
@@ -121,14 +122,14 @@ export function AgentCreateDialog({
                         label={computer.displayName}
                         aria-label={`${computer.displayName}, ${computer.online ? m.computer_status_online() : m.computer_status_offline()}`}
                         icon={
-                          <span
-                            role="img"
-                            aria-label={
+                          <StatusDot
+                            tone={computer.online ? "online" : "offline"}
+                            label={
                               computer.online
                                 ? m.computer_status_online()
                                 : m.computer_status_offline()
                             }
-                            className={`size-2 shrink-0 rounded-full ${computer.online ? "bg-online" : "bg-offline"}`}
+                            className="size-2"
                           />
                         }
                       />

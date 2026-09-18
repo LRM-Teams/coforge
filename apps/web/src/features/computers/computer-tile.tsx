@@ -2,6 +2,7 @@ import { ArrowUp } from "@untitledui/icons";
 
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { LoadingIndicator } from "@/components/ui/loading-indicator";
+import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { computerIcon, type ComputerIdentity } from "./computer-identity";
@@ -93,21 +94,11 @@ export function ComputerTile({
         )
       )}
       {online !== undefined && (
-        <>
-          <span
-            aria-hidden="true"
-            className={cn(
-              "absolute rounded-full border-primary",
-              dims.dot,
-              dims.dotBorder,
-              dims.dotOffset,
-              online ? "bg-online" : "bg-offline",
-            )}
-          />
-          <span className="sr-only">
-            {online ? m.computer_status_online() : m.computer_status_offline()}
-          </span>
-        </>
+        <StatusDot
+          tone={online ? "online" : "offline"}
+          label={online ? m.computer_status_online() : m.computer_status_offline()}
+          className={cn("absolute border-primary", dims.dot, dims.dotBorder, dims.dotOffset)}
+        />
       )}
     </span>
   );
