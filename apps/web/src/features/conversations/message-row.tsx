@@ -14,7 +14,8 @@ import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
-import { AttachmentPreview, attachmentPreviewKind } from "./attachment-preview";
+import { AttachmentPreview } from "./attachment-preview";
+import { attachmentPreviewKind } from "./attachment-preview-kind";
 import { MessageBody } from "./message-body";
 
 export type MessageView = {

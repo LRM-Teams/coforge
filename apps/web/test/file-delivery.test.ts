@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
   CdnTypeAFileDelivery,
@@ -109,4 +109,39 @@ test("encodes each object-key path segment consistently for the hash input and t
   expect(url).toBe(
     `https://files-staging.coforge.cn${encodedUri}?auth_key=1000-r-0-${expectedMd5}`,
   );
+});
+
+describe("delivery must not be the application's own origin", () => {
+  // A signed delivery URL can be framed as a document (a PDF in the browser's own viewer, which
+  // cannot be sandboxed). On the application's own host such a document would reach the session
+  // cookies, which is exactly what the inline-type refusal exists to prevent, so a deployment that
+  // points delivery at that host is refused rather than trusted.
+  test("a delivery origin different from the application origin is accepted", () => {
+    expect(
+      readFileDeliveryConfig({
+        COFORGE_FILE_DELIVERY_URL: "https://files.coforge.cn",
+        COFORGE_FILE_DELIVERY_KEY: "k".repeat(32),
+        AUTHING_REDIRECT_URI: "https://app.coforge.cn/auth/callback",
+      } as NodeJS.ProcessEnv),
+    ).toEqual({ baseUrl: "https://files.coforge.cn", key: "k".repeat(32) });
+  });
+
+  test("a delivery origin equal to the application origin is refused", () => {
+    expect(() =>
+      readFileDeliveryConfig({
+        COFORGE_FILE_DELIVERY_URL: "https://app.coforge.cn",
+        COFORGE_FILE_DELIVERY_KEY: "k".repeat(32),
+        AUTHING_REDIRECT_URI: "https://app.coforge.cn/auth/callback",
+      } as NodeJS.ProcessEnv),
+    ).toThrow("must not be the application's own origin");
+  });
+
+  test("without a configured application origin there is nothing to compare", () => {
+    expect(
+      readFileDeliveryConfig({
+        COFORGE_FILE_DELIVERY_URL: "https://files.coforge.cn",
+        COFORGE_FILE_DELIVERY_KEY: "k".repeat(32),
+      } as NodeJS.ProcessEnv),
+    ).toEqual({ baseUrl: "https://files.coforge.cn", key: "k".repeat(32) });
+  });
 });
