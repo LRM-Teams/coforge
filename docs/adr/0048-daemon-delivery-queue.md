@@ -208,10 +208,14 @@ target/pendingCount shape to begin with.
   already see the Agent as idle in that same synchronous handler, or it would itself steer into a
   turn that is, from the daemon's perspective, still nominally running.
 - `#steer(message)` calls `_session/steer` and resolves once Kiro answers `queued: true`, recording
-  `{messageId → {text: message, injected: false}}` in a new `#steeredMessages` map. It rejects —
-  never resolves — on anything else (a throw, an unrelated JSON-RPC error, or `queued: false`),
-  after emitting `notice-undelivered` with the exact text, so a delivery that was never truly
-  accepted is never mistaken for one that was (item 3 below).
+  `{messageId → {text: message, injected: false}}` in a new `#steeredMessages` map. On anything
+  else (a throw, `-32601`, or `queued: false`) it emits `notice-undelivered` with the exact text
+  and still resolves: the daemon has taken responsibility for the notice (it redelivers it once
+  the Agent is idle), so the delivery keeps its single ACK. Rejecting would leave the delivery
+  unacknowledged and the server would redeliver it on top of the fallback — two notices.
+  If the turn ended while Kiro was queueing the steer (`queued: true` but `#turn` already
+  cleared), no turn will read it: `_session/steer/clear` takes it back out of Kiro's buffer and the
+  same `notice-undelivered` fallback applies.
 - `#update()` gained two more `_meta.kiro.kind` branches: `steering_injected` marks the matching
   map entry's `injected: true`; `steering_cleared` deletes each cleared id from the map and — only
   for one whose `injected` was still `false` — emits `notice-undelivered` with its remembered text.
@@ -405,7 +409,7 @@ paths above was taken.
   test, which tested behavior this ADR revision removes); idle notify still sends an ordinary
   `session/prompt` even when the text matches a steer-only fixture keyword; `steer-inject-then-clear`
   produces no `notice-undelivered`; `steer-clear-without-inject` produces exactly one; `-32601` and
-  `queued: false` both reject `notify()` and produce exactly one `notice-undelivered` each, with no
+  `queued: false` both resolve `notify()` and produce exactly one `notice-undelivered` each, with no
   spurious `"completed"`.
 - `packages/daemon/test/kiro-native.integration.ts` (opt-in, requires a real authenticated Kiro v3
   engine — `mise exec -- bun test ./packages/daemon/test/kiro-native.integration.ts`; also fixed an

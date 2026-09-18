@@ -392,7 +392,7 @@ test("Kiro's idle notify still sends an ordinary session/prompt, even when the t
   }
 });
 
-test("Kiro's notify rejects and surfaces notice-undelivered when _session/steer is unavailable or dropped", async () => {
+test("Kiro's notify still accepts and surfaces notice-undelivered when _session/steer is unavailable or dropped", async () => {
   const cwd = await mkdtemp(join(tempRoot, "kiro-steer-fallback-"));
   const session = await new KiroProvider({ command }).createAgentSession({
     agentWorkspaceDirectory: cwd,
@@ -404,7 +404,7 @@ test("Kiro's notify rejects and surfaces notice-undelivered when _session/steer 
     await session.notify!("events"); // busy; the fixture leaves this turn open
 
     // -32601 method not found: an older/renamed Kiro without this extension.
-    await expect(session.notify!("steer-not-found MARKER-1")).rejects.toThrow();
+    await session.notify!("steer-not-found MARKER-1");
     expect(events).toContainEqual({
       type: "notice-undelivered",
       text: "steer-not-found MARKER-1",
@@ -412,7 +412,7 @@ test("Kiro's notify rejects and surfaces notice-undelivered when _session/steer 
 
     // queued: false: a turn boundary raced the steer request's own persistence
     // (dropped: "epoch_changed").
-    await expect(session.notify!("steer-queued-false MARKER-2")).rejects.toThrow();
+    await session.notify!("steer-queued-false MARKER-2");
     expect(events).toContainEqual({
       type: "notice-undelivered",
       text: "steer-queued-false MARKER-2",

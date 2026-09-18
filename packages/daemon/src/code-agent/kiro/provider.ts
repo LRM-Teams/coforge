@@ -276,7 +276,7 @@ class KiroSession implements AgentSession {
    * Idle sends a fresh `session/prompt`, exactly as before. Busy (`#turn` set) steers the live
    * turn through Kiro's own ACP `_session/steer` extension instead — CoForge's default `steer`
    * delivery mode (ADR 0048) now applies to Kiro too, matching Kiro CLI's own default steer
-   * behavior and Grok's ACP adapter (interject when busy, `session/prompt` when idle).
+   * behavior.
    */
   notify(message: string): Promise<void> {
     const accepted = this.#admissions.then(() =>
@@ -407,12 +407,20 @@ class KiroSession implements AgentSession {
     } catch {
       // Falls through to the shared "not accepted" handling below.
     }
-    if (response?.queued) {
+    if (response?.queued && this.#turn) {
       this.#steeredMessages.set(response.messageId, { text: message, injected: false });
       return;
     }
+    if (response?.queued)
+      // The turn ended while Kiro was queueing the steer: no turn will read it, so take it back
+      // out of Kiro's buffer before the daemon redelivers it as the next prompt.
+      await bounded(
+        this.#transport.connection.agent.request("_session/steer/clear", { sessionId }),
+      ).catch(() => {});
+    // Not steered, but still accepted: the daemon core redelivers this text once the Agent is
+    // idle (`notice-undelivered`). Resolving keeps the delivery's single ACK; rejecting would
+    // leave it unacknowledged and the server would redeliver it on top of the fallback.
     this.#emit({ type: "notice-undelivered", text: message });
-    throw new Error("Kiro could not steer the running turn");
   }
 
   #update(notification: SessionNotification) {

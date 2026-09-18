@@ -54,8 +54,7 @@ export class AgentMessageAttentionIndex {
      * whether this delivery must wait rather than reach `AgentSession.notify` now; `enqueue`
      * records it as held once this class has already updated its own attention/dedupe
      * bookkeeping for it. `busy` marks the Agent mid-turn — called synchronously, right before
-     * every `session.notify` call this class makes (matching Raft's `commitApmIdleState(...,
-     * false)` at every send site), so a second delivery decided upon before the runtime has
+     * every `session.notify` call this class makes, so a second delivery decided upon before the runtime has
      * emitted any event of its own still sees the Agent as busy. Defaults to never holding and a
      * no-op `busy`, so every existing caller and test observes the prior immediate-notify
      * behavior unchanged.
