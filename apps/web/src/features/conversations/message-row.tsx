@@ -281,7 +281,11 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
     );
   const extension = attachment.fileName.split(".").pop()?.toUpperCase();
   const iconType = fileIconType(attachment.fileName, attachment.contentType);
-  const previewKind = attachmentPreviewKind(attachment.fileName, attachment.contentType);
+  const previewKind = attachmentPreviewKind(
+    attachment.fileName,
+    attachment.contentType,
+    attachment.previewUrl,
+  );
   const card = (
     <>
       <FileTypeIcon className="size-10 shrink-0 dark:hidden" type={iconType} theme="light" />
@@ -345,6 +349,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
                         fileName={attachment.fileName}
                         kind={previewKind}
                         href={href}
+                        previewUrl={attachment.previewUrl}
                       />
                     </div>
                   </>
