@@ -16,6 +16,7 @@ import type {
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { agentEnvironment } from "../environment";
 import { AgentSessionRecoveryError } from "../contract";
+import { scrubRuntimeErrorText } from "../../agent-runtime/runtime-error-activity";
 import { bounded, KIRO_ACP_ARGS, KiroConnection, record } from "./connection";
 import { readKiroUsage } from "./usage";
 import { discoverKiroCatalog } from "./catalog";
@@ -33,6 +34,16 @@ const TOOL_KIND_NAMES: Readonly<Partial<Record<ToolKind, string>>> = {
   edit: "edit_file",
   search: "grep",
   fetch: "web_fetch",
+};
+
+// A stop reason outside the standard ACP `end_turn`/`cancelled` pair (Kiro's private "error"
+// value included) always ends the turn as a failure; these are the fixed, CoForge-worded
+// fallbacks used only when the turn carried no more specific reason of its own.
+const STOP_REASON_FAILURE_MESSAGES: Readonly<Partial<Record<string, string>>> = {
+  error: "Kiro ended the turn with an error",
+  max_tokens: "Kiro reached its token limit before finishing the turn",
+  max_turn_requests: "Kiro reached its turn request limit before finishing the turn",
+  refusal: "Kiro refused to continue the turn",
 };
 
 export class KiroProvider implements CodeAgentProvider {
@@ -127,6 +138,11 @@ class KiroSession implements AgentSession {
   #disposed = false;
   #dispose: Promise<void> | undefined;
   #interrupting = false;
+  // The most recent scrubbed error text Kiro has volunteered for the turn in progress (via
+  // `session_info_update`), already reported as its own `error` event the moment it arrived.
+  // The turn's outcome reuses only the FACT that a reason was already shown, never the text
+  // itself a second time, so a failed/cancelled turn never doubles up its one visible reason.
+  #turnErrorMessage: string | undefined;
 
   constructor(
     command: readonly string[],
@@ -258,6 +274,8 @@ class KiroSession implements AgentSession {
     if (this.#disposed || this.#interrupting || !this.#identity)
       throw new Error("Kiro cannot accept input");
     const generation = ++this.#generation;
+    // A reason volunteered mid-turn belongs to this turn only; a fresh prompt starts clean.
+    this.#turnErrorMessage = undefined;
     const admitted = Promise.withResolvers<void>();
     this.#pending = admitted;
     const turn = this.#transport.connection.agent
@@ -270,22 +288,58 @@ class KiroSession implements AgentSession {
           if (this.#pending === admitted)
             admitted.reject(new Error("Kiro ended a turn without accepting its input"));
           if (generation !== this.#generation || this.#disposed) return;
-          this.#emit({
-            type: "completed",
-            status:
-              response.stopReason === "cancelled"
-                ? "interrupted"
-                : response.stopReason === "end_turn"
-                  ? "completed"
-                  : "failed",
-          });
+          // ACP's standard `StopReason` union has no "error" member, but Kiro sends it; widen
+          // to `string` so every value the CLI can actually send is handled explicitly below.
+          const stopReason: string = response.stopReason;
+          const shownAlready = this.#turnErrorMessage !== undefined;
+          this.#turnErrorMessage = undefined;
+          if (stopReason === "end_turn") {
+            this.#emit({ type: "completed", status: "completed" });
+            return;
+          }
+          if (stopReason === "cancelled" && this.#interrupting) {
+            // A stop/restart we asked for; unchanged from today.
+            this.#emit({ type: "completed", status: "interrupted" });
+            return;
+          }
+          // Every other stop reason ends the turn as a failure. `session_info_update` already
+          // reported the real reason the moment it arrived (`shownAlready`); only a turn that
+          // never volunteered one gets this fixed, CoForge-worded fallback, so the Agent never
+          // shows two activities for the one failed turn.
+          if (!shownAlready)
+            this.#emit({
+              type: "error",
+              message:
+                stopReason === "cancelled"
+                  ? "Kiro cancelled the turn"
+                  : (STOP_REASON_FAILURE_MESSAGES[stopReason] ??
+                    `Kiro stopped the turn (${stopReason})`),
+            });
+          this.#emit({ type: "completed", status: "failed" });
         },
         (error: unknown) => {
           if (this.#pending === admitted) admitted.reject(new Error("Kiro rejected input"));
           if (generation === this.#generation && !this.#disposed) {
-            // Native errors may contain private provider data; never forward them as the
-            // fact (not even to the daemon core) — only this fixed, safe summary.
-            this.#emit({ type: "error", message: "Kiro request failed" });
+            // The JSON-RPC error's own message is a real, specific fact ("Instructions not
+            // selected", an upstream auth failure, …); scrub it the same way every other
+            // runtime error is before it ever becomes visible, instead of discarding it for a
+            // fixed summary.
+            const message =
+              error instanceof Error && error.message.trim()
+                ? scrubRuntimeErrorText(error.message)
+                : "Kiro request failed";
+            const jsonRpcCode =
+              error &&
+              typeof error === "object" &&
+              "code" in error &&
+              typeof error.code === "number"
+                ? String(error.code)
+                : undefined;
+            this.#emit({
+              type: "error",
+              message,
+              ...(jsonRpcCode !== undefined ? { providerErrorCode: jsonRpcCode } : {}),
+            });
             this.#emit({ type: "completed", status: "failed" });
           }
           void error;
@@ -377,12 +431,25 @@ class KiroSession implements AgentSession {
     if (
       update.sessionUpdate === "session_info_update" &&
       meta?.kind === "error" &&
-      typeof meta.message === "string"
-    )
-      // meta.message may carry private provider data; never forward it as the fact —
-      // only this fixed, safe summary (kept stricter than CoForge's redaction elsewhere:
-      // no attempt to scrub-and-forward Kiro's native text, it is dropped outright).
-      this.#emit({ type: "error", message: "Kiro reported a runtime error" });
+      typeof meta.message === "string" &&
+      meta.message.trim()
+    ) {
+      // meta.message is Kiro's own diagnostic (e.g. a raw TLS failure) and may carry private
+      // provider data; scrub it through the same redaction every other runtime error goes
+      // through, bound its length, and forward the real fact instead of a fixed placeholder.
+      // meta.errorType is a stable native error code (e.g.
+      // "ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC") when Kiro reports one; it never carries
+      // free text, so it is forwarded unscrubbed as the classification hint.
+      const scrubbed = scrubRuntimeErrorText(meta.message);
+      this.#turnErrorMessage = scrubbed;
+      this.#emit({
+        type: "error",
+        message: scrubbed,
+        ...(typeof meta.errorType === "string" && meta.errorType.trim()
+          ? { providerErrorCode: meta.errorType }
+          : {}),
+      });
+    }
   }
 
   async interrupt() {

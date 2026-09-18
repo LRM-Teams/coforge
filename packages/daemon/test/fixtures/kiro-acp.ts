@@ -174,8 +174,61 @@ async function handle(request: Message) {
         return;
       }
       if (JSON.stringify(request.params).includes("disconnect-before-admission")) process.exit(23);
+      if (JSON.stringify(request.params).includes("reject-with-secret")) {
+        write({
+          id: request.id,
+          error: { code: -32000, message: "Upstream rejected api_key=sk-should-be-redacted" },
+        });
+        return;
+      }
       if (active) replaced = active;
       active = request;
+      const admit = () =>
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: {
+            kiro: { kind: "user_message_id_assigned", userMessageId: `message-${++admissions}` },
+          },
+        });
+      if (JSON.stringify(request.params).includes("turn-error-with-reason")) {
+        // Kiro volunteers why before ending the turn with its private "error" stop reason
+        // (matches the 2026-09-18 incident: a session_info_update carrying the real cause,
+        // then stopReason "error").
+        admit();
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: {
+            kiro: {
+              kind: "error",
+              message: "connection failed token=sk-test-should-be-redacted",
+              errorType: "ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC",
+            },
+          },
+        });
+        result(request, { stopReason: "error" });
+        active = undefined;
+        break;
+      }
+      if (JSON.stringify(request.params).includes("turn-error-silent")) {
+        // Kiro ends the turn with its private "error" stop reason and never volunteers why.
+        admit();
+        result(request, { stopReason: "error" });
+        active = undefined;
+        break;
+      }
+      if (JSON.stringify(request.params).includes("turn-cancelled-unrequested")) {
+        // Kiro cancels its own turn without the client ever sending session/cancel.
+        admit();
+        result(request, { stopReason: "cancelled" });
+        active = undefined;
+        break;
+      }
+      if (JSON.stringify(request.params).includes("turn-max-tokens")) {
+        admit();
+        result(request, { stopReason: "max_tokens" });
+        active = undefined;
+        break;
+      }
       if (JSON.stringify(request.params).includes("events")) {
         if (replaced) {
           result(replaced, { stopReason: "end_turn" });

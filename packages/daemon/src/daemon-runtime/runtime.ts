@@ -2062,7 +2062,12 @@ export class DaemonRuntime {
         ),
       );
     // A turn outcome (of any status) resolves any error observed mid-turn; a crash wording only
-    // applies to a process exit with no such outcome in between.
+    // applies to a process exit with no such outcome in between. A failed turn that already
+    // showed its own runtime_error Activity this turn (`crashDetail` set by the `error` event
+    // above) keeps that as the one visible reason instead of layering this generic failure
+    // notice on top of it — every provider's `error`-then-`completed(failed)` pair reports
+    // exactly once.
+    const alreadyExplained = event.status === "failed" && launch.crashDetail !== undefined;
     launch.crashDetail = undefined;
     if (controlled)
       void runtime.session
@@ -2071,18 +2076,19 @@ export class DaemonRuntime {
           if (identity) await this.#agentSessions.update(agentId, launch.launchId, identity);
         })
         .catch(() => {});
-    this.#emitAgentActivity(
-      agentId,
-      launch,
-      event.status === "failed"
-        ? {
-            ...this.#runtimeErrorActivity(agentId, "Agent runtime failed."),
-            runtimeError: runtimeFailureDiagnostic("turn failure"),
-          }
-        : event.status === "interrupted"
-          ? this.#interruptedActivity(agentId)
-          : this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.IDLE, "info", ""),
-    );
+    if (!alreadyExplained)
+      this.#emitAgentActivity(
+        agentId,
+        launch,
+        event.status === "failed"
+          ? {
+              ...this.#runtimeErrorActivity(agentId, "Agent runtime failed."),
+              runtimeError: runtimeFailureDiagnostic("turn failure"),
+            }
+          : event.status === "interrupted"
+            ? this.#interruptedActivity(agentId)
+            : this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.IDLE, "info", ""),
+      );
     void this.drainAppInboxNotices(agentId).catch(() => {});
   }
 

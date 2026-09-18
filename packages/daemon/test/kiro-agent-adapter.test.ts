@@ -161,9 +161,124 @@ test("Kiro v3 injects native instructions and accepts input before its turn comp
     });
     await session.interrupt();
     expect(events).toContainEqual({ type: "completed", status: "interrupted" });
+    // A stop/restart we asked for stays a silent interruption; it is not reported as an error.
+    expect(events.some((event) => event.type === "error")).toBe(false);
   } finally {
     await session.dispose();
     expect(await readdir(join(cwd, ".kiro/agents"))).toEqual([]);
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Kiro forwards its own scrubbed reason for a turn that ends with its private error stop reason", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-turn-error-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.notify!("turn-error-with-reason");
+    // The session_info_update's message and errorType are Kiro's real, specific reason
+    // (matches the 2026-09-18 incident); a leaked-looking token is scrubbed before it is ever
+    // forwarded, the same way every other runtime error is scrubbed.
+    expect(events).toContainEqual({
+      type: "error",
+      message: "connection failed token=[REDACTED]",
+      providerErrorCode: "ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC",
+    });
+    expect(events).toContainEqual({ type: "completed", status: "failed" });
+    // Exactly one error for the one failed turn: the stop-reason handling does not repeat it.
+    expect(events.filter((event) => event.type === "error")).toHaveLength(1);
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Kiro reports a fixed fallback for a turn that ends with its private error stop reason and no observed cause", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-turn-error-silent-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.notify!("turn-error-silent");
+    expect(events).toContainEqual({
+      type: "error",
+      message: "Kiro ended the turn with an error",
+    });
+    expect(events).toContainEqual({ type: "completed", status: "failed" });
+    expect(events.filter((event) => event.type === "error")).toHaveLength(1);
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Kiro reports a cancellation it never asked for as a failed turn, not a silent interrupted", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-turn-cancelled-unrequested-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.notify!("turn-cancelled-unrequested");
+    expect(events).toContainEqual({ type: "error", message: "Kiro cancelled the turn" });
+    expect(events).toContainEqual({ type: "completed", status: "failed" });
+    expect(
+      events.some((event) => event.type === "completed" && event.status === "interrupted"),
+    ).toBe(false);
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Kiro names the stop reason for a turn that ends before finishing (max_tokens)", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-turn-max-tokens-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.notify!("turn-max-tokens");
+    expect(events).toContainEqual({
+      type: "error",
+      message: "Kiro reached its token limit before finishing the turn",
+    });
+    expect(events).toContainEqual({ type: "completed", status: "failed" });
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("Kiro forwards a scrubbed session/prompt rejection reason instead of a fixed summary", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-reject-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await expect(session.notify!("reject-with-secret")).rejects.toThrow();
+    expect(events).toContainEqual({
+      type: "error",
+      message: "Upstream rejected api_key=[REDACTED]",
+      providerErrorCode: "-32000",
+    });
+    expect(events).toContainEqual({ type: "completed", status: "failed" });
+  } finally {
+    await session.dispose();
     await rm(cwd, { recursive: true, force: true });
   }
 });
@@ -211,13 +326,11 @@ test("Kiro replaces busy input, suppresses late completion, and normalizes ACP e
       input: {},
     });
 
-    // The provider never forwards Kiro's native error text (it may carry private
-    // provider data) — only this fixed, safe summary, as a raw `error` event; the
-    // daemon core (agent-runtime/runtime-error-activity.ts) builds the Activity.
+    // The provider forwards Kiro's own diagnostic as a raw `error` event (scrubbed by the
+    // shared daemon-core redaction below, in the dedicated scrubbing test); the daemon core
+    // (agent-runtime/runtime-error-activity.ts) builds the visible Activity from it.
     expect(
-      events.some(
-        (event) => event.type === "error" && event.message === "Kiro reported a runtime error",
-      ),
+      events.some((event) => event.type === "error" && event.message === "provider unavailable"),
     ).toBe(true);
   } finally {
     await session.dispose();

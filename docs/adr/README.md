@@ -18,3 +18,4 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | ADR | Status | Topic |
 | --- | --- | --- |
 | [0032](0032-weekly-report-collectors-and-collect-run.md) | accepted | Weekly-report per-Computer collectors + narrow Collect Run |
+| [0047](0047-kiro-turn-errors-carry-their-reason.md) | accepted | Kiro turn errors carry their real reason, scrubbed; one Activity per failed turn |
