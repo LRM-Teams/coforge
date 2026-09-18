@@ -51,7 +51,14 @@ describe("AgentProcessManager", () => {
         return session;
       },
     };
-    const manager = new AgentProcessManager(() => adapter);
+    const probedPaths: (string | undefined)[] = [];
+    const manager = new AgentProcessManager(
+      () => adapter,
+      async (path) => {
+        probedPaths.push(path);
+        return { kind: "config-hook" };
+      },
+    );
 
     const workspace = join(testWorkspaceRoot, "a", "agents", "agent-1");
     const runtime = await manager.start("agent-1", config, workspace);
@@ -65,7 +72,11 @@ describe("AgentProcessManager", () => {
       instructions: expect.stringContaining(`- Agent workspace: ${workspace}`),
       sessionId: undefined,
       runtime: config,
+      gitHooks: { kind: "config-hook" },
     });
+    // The commit trailer hook is probed once per launch, against the Agent's own PATH.
+    expect(probedPaths).toHaveLength(1);
+    expect(probedPaths[0]).toBeTruthy();
     if (!startedOptions) throw new Error("provider was not started");
     expect(startedOptions.instructions.match(/^## Current Runtime Context$/gm)).toHaveLength(1);
     expect(startedOptions.instructions.match(/^- Agent workspace: /gm)).toHaveLength(1);

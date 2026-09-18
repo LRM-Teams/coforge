@@ -26,7 +26,8 @@ const result = await Bun.build({
              export function claudeStaticCatalog(){throw new Error("Lifecycle fixture must not query provider catalogs")}
              export function discoverCodexCatalog(){throw new Error("Lifecycle fixture must not query provider catalogs")}
              export function discoverCoforgeCatalog(){throw new Error("Lifecycle fixture must not query provider catalogs")}
-             export function discoverPiCatalog(){throw new Error("Lifecycle fixture must not query provider catalogs")}`,
+             export function discoverPiCatalog(){throw new Error("Lifecycle fixture must not query provider catalogs")}
+             export async function versionProbeOutput(){throw new Error("Lifecycle fixture must not probe git")}`,
         }));
       },
     },

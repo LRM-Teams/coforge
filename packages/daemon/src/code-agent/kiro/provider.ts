@@ -83,6 +83,7 @@ export class KiroProvider implements CodeAgentProvider {
     await assertKiroVersionSupported(this.options.command ?? ["kiro-cli"]);
     const environment = agentEnvironment(options.environment, Bun.env, undefined, {
       envVars: options.runtime?.envVars,
+      gitHooks: options.gitHooks,
     });
     const directory = resolve(options.agentWorkspaceDirectory, ".kiro/agents");
     await mkdir(directory, { recursive: true });

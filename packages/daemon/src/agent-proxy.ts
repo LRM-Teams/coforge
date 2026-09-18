@@ -29,6 +29,8 @@ import {
   type AgentVersionResponse,
   type GitHubCredentialRequest,
   type GitHubCredentialResponse,
+  type GitHubCommitTrailersRequest,
+  type GitHubCommitTrailersResponse,
   type AgentUserInfoRequest,
   type AgentUserInfoResponse,
   type AgentProfileShowRequest,
@@ -136,6 +138,11 @@ export type AgentProxyRuntime = {
     request: GitHubCredentialRequest,
     agentApiKey: string,
   ): Promise<GitHubCredentialResponse>;
+  githubCommitTrailers?(
+    context: string,
+    request: GitHubCommitTrailersRequest,
+    agentApiKey: string,
+  ): Promise<GitHubCommitTrailersResponse>;
   agentWeeklyReport?(
     context: string,
     request: WeeklyReportCommand,
@@ -396,6 +403,13 @@ function parseActionPrepareRequest(payload: JsonObject): AgentActionPrepareReque
 function parseGithubCredentialRequest(payload: JsonObject): GitHubCredentialRequest | Response {
   if (Object.keys(payload).length !== 0) return badRequest();
   return {};
+}
+
+function parseGithubCommitTrailersRequest(
+  payload: JsonObject,
+): GitHubCommitTrailersRequest | Response {
+  if (payload.repository !== null && typeof payload.repository !== "string") return badRequest();
+  return { repository: payload.repository };
 }
 
 function parseInboxRequest(
@@ -718,6 +732,15 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     body: "json-object",
     handler: "githubCredential",
     parse: ({ fields }) => parseGithubCredentialRequest(fields),
+    respond: (result) => Response.json(result, { headers: { "cache-control": "no-store" } }),
+  }),
+  defineRoute({
+    family: "agent-api/github-commit-trailers",
+    method: LOCAL_PROXY_ROUTES.githubCommitTrailers.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.githubCommitTrailers.path),
+    body: "json-object",
+    handler: "githubCommitTrailers",
+    parse: ({ fields }) => parseGithubCommitTrailersRequest(fields),
     respond: (result) => Response.json(result, { headers: { "cache-control": "no-store" } }),
   }),
   defineRoute({

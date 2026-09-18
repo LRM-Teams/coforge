@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { readGitHubConfig } from "../src/server/integrations/github-config.server";
+import {
+  readGitHubAppBotIdentity,
+  readGitHubConfig,
+} from "../src/server/integrations/github-config.server";
 
 test("GitHub stays unconfigured without secrets and rejects non-HTTPS or mismatched callback paths", async () => {
   expect(await readGitHubConfig({})).toBeNull();
@@ -29,4 +32,28 @@ test("GitHub stays unconfigured without secrets and rejects non-HTTPS or mismatc
   await expect(
     readGitHubConfig({ ...env, COFORGE_GITHUB_CLIENT_SECRET_FILE: "/tmp/secret" }),
   ).rejects.toThrow();
+});
+
+test("GitHub App bot identity needs both a valid slug and a positive bot user id", () => {
+  expect(readGitHubAppBotIdentity({})).toBeNull();
+  expect(readGitHubAppBotIdentity({ COFORGE_GITHUB_APP_SLUG: "coforge-staging" })).toBeNull();
+  expect(readGitHubAppBotIdentity({ COFORGE_GITHUB_APP_BOT_USER_ID: "328977087" })).toBeNull();
+  expect(
+    readGitHubAppBotIdentity({
+      COFORGE_GITHUB_APP_SLUG: "Not_Valid",
+      COFORGE_GITHUB_APP_BOT_USER_ID: "328977087",
+    }),
+  ).toBeNull();
+  expect(
+    readGitHubAppBotIdentity({
+      COFORGE_GITHUB_APP_SLUG: "coforge-staging",
+      COFORGE_GITHUB_APP_BOT_USER_ID: "not-a-number",
+    }),
+  ).toBeNull();
+  expect(
+    readGitHubAppBotIdentity({
+      COFORGE_GITHUB_APP_SLUG: "coforge-staging",
+      COFORGE_GITHUB_APP_BOT_USER_ID: "328977087",
+    }),
+  ).toEqual({ slug: "coforge-staging", botUserId: 328977087 });
 });

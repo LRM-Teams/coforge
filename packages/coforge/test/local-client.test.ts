@@ -79,6 +79,42 @@ test("requests GitHub credentials through the daemon-local proxy", async () => {
   });
 });
 
+test("requests GitHub commit trailers through the daemon-local proxy", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({
+      trailers: ["Co-authored-by: coforge-staging[bot] <1+bot@users.noreply.github.com>"],
+    }),
+  );
+  const trailers = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).githubCommitTrailers!("acme/widgets");
+
+  expect(trailers).toEqual([
+    "Co-authored-by: coforge-staging[bot] <1+bot@users.noreply.github.com>",
+  ]);
+  const [url, init] = fetch.mock.calls[0]!;
+  expect(url).toEqual(new URL(proxyUrl(agentApiRoutes.proxy.githubCommitTrailers.path)));
+  expect(init).toMatchObject({
+    method: "POST",
+    headers: {
+      authorization: `Bearer sfp_${"a".repeat(43)}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ repository: "acme/widgets" }),
+  });
+});
+
+test("rejects malformed GitHub commit trailers from the daemon-local proxy", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ trailers: [1] }));
+
+  await expect(
+    connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages))
+      .githubCommitTrailers!(null),
+  ).rejects.toThrow("invalid GitHub commit trailers response");
+});
+
 test("rejects malformed GitHub credentials from the daemon-local proxy", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json({

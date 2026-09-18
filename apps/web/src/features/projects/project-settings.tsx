@@ -5,6 +5,7 @@ import { ArrowLeft } from "@untitledui/icons";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/base/buttons/button";
 import { Select } from "@/components/base/select/select";
+import { Toggle } from "@/components/base/toggle/toggle";
 import { listAccessibleGitHubRepositories } from "@/features/integrations/github.functions";
 import { m } from "@/paraglide/messages";
 import {
@@ -27,6 +28,7 @@ export function ProjectSettingsPage({
   const repositories = useServerFn(listAccessibleGitHubRepositories);
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description);
+  const [commitCoAuthor, setCommitCoAuthor] = useState(project.commitCoAuthor);
   const [imageMessage, setImageMessage] = useState("");
   const [saved, setSaved] = useState(false);
   const [selection, setSelection] = useState("keep");
@@ -95,6 +97,7 @@ export function ProjectSettingsPage({
             id: project.id,
             name,
             description,
+            commitCoAuthor,
             ...(selection === "none"
               ? { repository: null }
               : repository
@@ -256,6 +259,18 @@ export function ProjectSettingsPage({
                   {m.project_github_settings()}
                 </Link>
               )}
+              <Toggle
+                size="md"
+                className="max-w-full"
+                label={m.project_commit_coauthor()}
+                hint={m.project_commit_coauthor_hint()}
+                isDisabled={busy}
+                isSelected={commitCoAuthor}
+                onChange={(isSelected) => {
+                  setCommitCoAuthor(isSelected);
+                  setSaved(false);
+                }}
+              />
             </>
           )}
           {error && (

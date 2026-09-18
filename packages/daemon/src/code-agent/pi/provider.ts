@@ -42,6 +42,7 @@ export class PiProvider implements CodeAgentProvider {
       throw new Error("Pi model provider is required for an Agent API key");
     const environment = agentEnvironment(options.environment, Bun.env, process.platform, {
       envVars: runtime?.envVars,
+      gitHooks: options.gitHooks,
     });
     const hostAgentDir = environment.PI_CODING_AGENT_DIR ?? getAgentDir();
     const created = await createSession({
@@ -106,6 +107,7 @@ export class CoforgeProvider implements CodeAgentProvider {
       instructions: options.instructions,
       environment: agentEnvironment(options.environment, Bun.env, process.platform, {
         envVars: runtime.envVars,
+        gitHooks: options.gitHooks,
       }),
     });
     try {

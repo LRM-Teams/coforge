@@ -201,3 +201,42 @@ test("source development resolves the CLI without a separately compiled daemon C
   expect(result.exitCode).toBe(1);
   expect(result.stderr.toString()).toContain("coforge agent context is not configured");
 });
+
+test("a config-hook plan appends the CoForge commit trailer hook after the GitHub credential helper", () => {
+  const environment = agentEnvironment(undefined, {}, "linux", {
+    gitHooks: { kind: "config-hook" },
+  });
+
+  expect(environment.GIT_CONFIG_COUNT).toBe("7");
+  expect(environment.GIT_CONFIG_KEY_5).toBe("hook.coforge-commit-trailers.event");
+  expect(environment.GIT_CONFIG_VALUE_5).toBe("prepare-commit-msg");
+  expect(environment.GIT_CONFIG_KEY_6).toBe("hook.coforge-commit-trailers.command");
+  expect(environment.GIT_CONFIG_VALUE_6).toBe(
+    `sh -c 'coforge git prepare-commit-msg "$@" || true' coforge-commit-trailers`,
+  );
+  expect(environment.COFORGE_GIT_CONFIG_BASE_COUNT).toBeUndefined();
+});
+
+test("a hooks-path plan points core.hooksPath at the shim directory and carries the pre-injection GIT_CONFIG_COUNT", () => {
+  const environment = agentEnvironment(
+    undefined,
+    { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.directory", GIT_CONFIG_VALUE_0: "/workspace" },
+    "linux",
+    { gitHooks: { kind: "hooks-path", hooksDir: "/var/coforge/daemon/git-hook-shims/abc" } },
+  );
+
+  expect(environment.GIT_CONFIG_COUNT).toBe("7");
+  expect(environment.GIT_CONFIG_KEY_6).toBe("core.hooksPath");
+  expect(environment.GIT_CONFIG_VALUE_6).toBe("/var/coforge/daemon/git-hook-shims/abc");
+  // The base count is the inherited count before this function's own entries - the GitHub
+  // credential helper included - so the shim can strip them all and recover the real hooks path.
+  expect(environment.COFORGE_GIT_CONFIG_BASE_COUNT).toBe("1");
+});
+
+test("an Agent's own tools cannot spoof COFORGE_GIT_CONFIG_BASE_COUNT through inherited or user-configured values", () => {
+  const environment = agentEnvironment(undefined, { COFORGE_GIT_CONFIG_BASE_COUNT: "0" }, "linux", {
+    envVars: { COFORGE_GIT_CONFIG_BASE_COUNT: "0" },
+  });
+
+  expect(environment.COFORGE_GIT_CONFIG_BASE_COUNT).toBeUndefined();
+});

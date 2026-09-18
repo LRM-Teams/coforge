@@ -296,6 +296,71 @@ test("proxy forwards validated GitHub credential requests without caching", asyn
   ]);
 });
 
+test("proxy forwards validated GitHub commit trailers requests without caching", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      githubCommitTrailers: async (context, request, agentApiKey) => {
+        calls.push({ context, request, agentApiKey });
+        return {
+          trailers: ["Co-authored-by: coforge-staging[bot] <1+bot@users.noreply.github.com>"],
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.githubCommitTrailers.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ repository: "acme/widgets" }),
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(await response.json()).toEqual({
+    trailers: ["Co-authored-by: coforge-staging[bot] <1+bot@users.noreply.github.com>"],
+  });
+  expect(calls).toEqual([
+    { context: "agent-a", request: { repository: "acme/widgets" }, agentApiKey },
+  ]);
+});
+
+test("proxy rejects a GitHub commit trailers request whose repository field is not a string or null", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      githubCommitTrailers: async () => ({ trailers: [] }),
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.githubCommitTrailers.path,
+    ),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ repository: 1 }),
+    },
+  );
+
+  expect(response.status).toBe(400);
+});
+
 test("proxy forwards Agent Manual get requests as a plain GET with query parameters", async () => {
   const calls: unknown[] = [];
   const proxy = startAgentProxy({
@@ -1417,6 +1482,10 @@ test("every route forwards the token-bound context and Agent API key to its runt
         calls.githubCredentials = { context, agentApiKey };
         return {} as never;
       },
+      githubCommitTrailers: async (context, _request, agentApiKey) => {
+        calls.githubCommitTrailers = { context, agentApiKey };
+        return { trailers: [] };
+      },
       manualGet: async (context, _request, agentApiKey) => {
         calls.manualGet = { context, agentApiKey };
         return {} as never;
@@ -1511,6 +1580,11 @@ test("every route forwards the token-bound context and Agent API key to its runt
       headers: jsonAuth,
       body: JSON.stringify({}),
     }),
+    fetch(at(agentApiRoutes.proxy.githubCommitTrailers.path), {
+      method: "POST",
+      headers: jsonAuth,
+      body: JSON.stringify({ repository: null }),
+    }),
     fetch(at(agentApiRoutes.proxy.inbox.path), {
       method: "POST",
       headers: jsonAuth,
@@ -1544,6 +1618,7 @@ test("every route forwards the token-bound context and Agent API key to its runt
     "actionPrepare",
     "weeklyReports",
     "githubCredentials",
+    "githubCommitTrailers",
     "manualGet",
     "manualSearch",
     "version",

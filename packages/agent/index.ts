@@ -25,6 +25,7 @@ export type {
   AgentRuntimeProviderConfig,
   AgentSession,
   AgentSessionIdentity,
+  AgentGitHookPlan,
   AgentSessionOptions,
   UsageSnapshot,
   UsageWindow,

@@ -85,6 +85,7 @@ export class ClaudeCodeProvider implements CodeAgentProvider {
           options.agentWorkspaceDirectory,
           agentEnvironment(options.environment, Bun.env, undefined, {
             envVars: options.runtime?.envVars,
+            gitHooks: options.gitHooks,
           }),
         );
       process = spawn(options.sessionId, initialFreshSessionId);

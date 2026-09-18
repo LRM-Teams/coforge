@@ -57,6 +57,7 @@ import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/
 import { Route as AppProjectsProjectSlugSettingsRouteImport } from './routes/_app/projects.$projectSlug_.settings'
 import { Route as ApiAgentV1ChannelsRouteImport } from './routes/api/agent/v1/channels'
 import { Route as ApiAgentV1EventsRouteImport } from './routes/api/agent/v1/events'
+import { Route as ApiAgentV1GithubCommitTrailersRouteImport } from './routes/api/agent/v1/github-commit-trailers'
 import { Route as ApiAgentV1GithubCredentialsRouteImport } from './routes/api/agent/v1/github-credentials'
 import { Route as ApiAgentV1ManualRouteImport } from './routes/api/agent/v1/manual'
 import { Route as ApiAgentV1MessagesRouteImport } from './routes/api/agent/v1/messages'
@@ -343,6 +344,12 @@ const ApiAgentV1EventsRoute = ApiAgentV1EventsRouteImport.update({
   path: '/api/agent/v1/events',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentV1GithubCommitTrailersRoute =
+  ApiAgentV1GithubCommitTrailersRouteImport.update({
+    id: '/api/agent/v1/github-commit-trailers',
+    path: '/api/agent/v1/github-commit-trailers',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1GithubCredentialsRoute =
   ApiAgentV1GithubCredentialsRouteImport.update({
     id: '/api/agent/v1/github-credentials',
@@ -615,6 +622,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
   '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
+  '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
@@ -700,6 +708,7 @@ export interface FileRoutesByTo {
   '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
   '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
+  '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
@@ -790,6 +799,7 @@ export interface FileRoutesById {
   '/_app/projects/$projectSlug_/settings': typeof AppProjectsProjectSlugSettingsRoute
   '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
+  '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
@@ -880,6 +890,7 @@ export interface FileRouteTypes {
     | '/projects/$projectSlug/settings'
     | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
+    | '/api/agent/v1/github-commit-trailers'
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
     | '/api/agent/v1/messages'
@@ -965,6 +976,7 @@ export interface FileRouteTypes {
     | '/projects/$projectSlug/settings'
     | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
+    | '/api/agent/v1/github-commit-trailers'
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
     | '/api/agent/v1/messages'
@@ -1054,6 +1066,7 @@ export interface FileRouteTypes {
     | '/_app/projects/$projectSlug_/settings'
     | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
+    | '/api/agent/v1/github-commit-trailers'
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
     | '/api/agent/v1/messages'
@@ -1123,6 +1136,7 @@ export interface RootRouteChildren {
   ApiWorkspacesSlugRoute: typeof ApiWorkspacesSlugRoute
   ApiAgentV1ChannelsRoute: typeof ApiAgentV1ChannelsRoute
   ApiAgentV1EventsRoute: typeof ApiAgentV1EventsRoute
+  ApiAgentV1GithubCommitTrailersRoute: typeof ApiAgentV1GithubCommitTrailersRoute
   ApiAgentV1GithubCredentialsRoute: typeof ApiAgentV1GithubCredentialsRoute
   ApiAgentV1ManualRoute: typeof ApiAgentV1ManualRoute
   ApiAgentV1MessagesRoute: typeof ApiAgentV1MessagesRoute
@@ -1490,6 +1504,13 @@ declare module '@tanstack/react-router' {
       path: '/api/agent/v1/events'
       fullPath: '/api/agent/v1/events'
       preLoaderRoute: typeof ApiAgentV1EventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/github-commit-trailers': {
+      id: '/api/agent/v1/github-commit-trailers'
+      path: '/api/agent/v1/github-commit-trailers'
+      fullPath: '/api/agent/v1/github-commit-trailers'
+      preLoaderRoute: typeof ApiAgentV1GithubCommitTrailersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/agent/v1/github-credentials': {
@@ -1944,6 +1965,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWorkspacesSlugRoute: ApiWorkspacesSlugRoute,
   ApiAgentV1ChannelsRoute: ApiAgentV1ChannelsRoute,
   ApiAgentV1EventsRoute: ApiAgentV1EventsRoute,
+  ApiAgentV1GithubCommitTrailersRoute: ApiAgentV1GithubCommitTrailersRoute,
   ApiAgentV1GithubCredentialsRoute: ApiAgentV1GithubCredentialsRoute,
   ApiAgentV1ManualRoute: ApiAgentV1ManualRoute,
   ApiAgentV1MessagesRoute: ApiAgentV1MessagesRoute,

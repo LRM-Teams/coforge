@@ -209,6 +209,7 @@ class CursorAgentSession implements AgentSession {
     const environment = {
       ...agentEnvironment(this.#options.environment, Bun.env, undefined, {
         envVars: this.#options.runtime?.envVars,
+        gitHooks: this.#options.gitHooks,
       }),
       NO_COLOR: "1",
     };

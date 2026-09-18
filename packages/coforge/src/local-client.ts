@@ -32,6 +32,7 @@ import {
   decodeAgentUserInfoErrorResponse,
   decodeAgentUserInfoResponse,
   decodeGitHubCredentialResponse,
+  decodeGitHubCommitTrailersResponse,
   type ActionCardAction,
   type AgentManualGetResponse,
   type AgentManualSearchResponse,
@@ -509,6 +510,20 @@ export function connectLocal(
       });
       if (!response.ok) throw new Error(`GitHub credential request failed (${response.status})`);
       return decodeGitHubCredentialResponse(await response.json());
+    },
+    githubCommitTrailers: async (repository: string | null): Promise<string[]> => {
+      if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+        throw new Error("coforge agent context is invalid");
+      if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+      const response = await fetch(proxyEndpoint(agentApiRoutes.proxy.githubCommitTrailers.path), {
+        method: agentApiRoutes.proxy.githubCommitTrailers.method,
+        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+        body: JSON.stringify({ repository }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok)
+        throw new Error(`GitHub commit trailers request failed (${response.status})`);
+      return decodeGitHubCommitTrailersResponse(await response.json()).trailers;
     },
     manualGet: (topic: string, intent: string, reason: string): Promise<AgentManualGetResponse> =>
       manualRequest(

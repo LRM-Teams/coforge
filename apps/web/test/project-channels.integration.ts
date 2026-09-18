@@ -66,6 +66,7 @@ test("one project owns multiple discussion channels without crossing Workspace b
         id: foreignProject.id,
         name: "Forbidden",
         description: "No access",
+        commitCoAuthor: true,
       }),
     ).rejects.toThrow("NOT_FOUND");
     await expect(
@@ -73,12 +74,14 @@ test("one project owns multiple discussion channels without crossing Workspace b
         id: foreignProject.id,
         name: "Forbidden",
         description: "Wrong workspace",
+        commitCoAuthor: true,
       }),
     ).rejects.toThrow("NOT_FOUND");
     await settings.update(workspace.id, user.id, {
       id: project.id,
       name: "Renamed launch",
       description: "Release planning",
+      commitCoAuthor: true,
     });
     expect(await db.project.findUnique({ where: { id: project.id } })).toMatchObject({
       name: "Renamed launch",
@@ -93,7 +96,12 @@ test("one project owns multiple discussion channels without crossing Workspace b
         return [{ ...repository, private: true, htmlUrl: "https://github.com/team/planning" }];
       },
     });
-    const update = { id: project.id, name: "Renamed launch", description: "Release planning" };
+    const update = {
+      id: project.id,
+      name: "Renamed launch",
+      description: "Release planning",
+      commitCoAuthor: true,
+    };
     for (const forged of [
       { ...repository, id: 904 },
       { ...repository, installationId: 72 },

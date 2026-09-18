@@ -53,4 +53,5 @@ export const updateProjectInput = z.object({
     })
     .nullable()
     .optional(),
+  commitCoAuthor: z.boolean(),
 });

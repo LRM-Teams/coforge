@@ -3,6 +3,16 @@ import { delimiter, dirname, resolve } from "node:path";
 
 type CredentialLookup = () => Promise<GitHubCredentialResponse>;
 
+/**
+ * Normalizes a GitHub path-like segment (a credential-helper `path` field, or the tail of a
+ * parsed remote URL - see `git-prepare-commit-msg.ts`) to its `owner/repo` shape, or `null` when
+ * it is not one.
+ */
+export function githubOwnerRepoName(candidate: string): string | null {
+  const path = candidate.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(path) ? path : null;
+}
+
 /** Implements Git's credential-helper protocol for HTTPS repositories on github.com. */
 export async function runGitHubCredentialHelper(
   operation: string | undefined,
@@ -18,12 +28,9 @@ export async function runGitHubCredentialHelper(
     if (separator > 0) fields.set(line.slice(0, separator), line.slice(separator + 1));
   }
   if (fields.get("protocol") !== "https" || fields.get("host") !== "github.com") return "";
-  const path = fields
-    .get("path")
-    ?.replace(/^\/+/, "")
-    .replace(/\.git$/i, "");
-  if (!path || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(path))
-    throw new Error("GitHub credential repository is invalid");
+  const rawPath = fields.get("path");
+  const path = rawPath ? githubOwnerRepoName(rawPath) : null;
+  if (!path) throw new Error("GitHub credential repository is invalid");
   const credential = await lookup();
   return `username=${credential.username}\npassword=${credential.password}\n\n`;
 }

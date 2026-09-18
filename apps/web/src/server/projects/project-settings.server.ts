@@ -19,6 +19,7 @@ export class ProjectSettings {
       name: string;
       description: string;
       repository?: { installationId: number; id: number; fullName: string } | null;
+      commitCoAuthor: boolean;
     },
   ) {
     const where = {
@@ -47,6 +48,7 @@ export class ProjectSettings {
       data: {
         name: input.name,
         description: input.description,
+        commitCoAuthor: input.commitCoAuthor,
         ...(repository !== undefined
           ? {
               githubInstallationId: repository?.installationId ?? null,

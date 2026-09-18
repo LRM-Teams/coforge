@@ -2,6 +2,8 @@ import { AppError } from "../../lib/app-error";
 import { requireDatabaseClient } from "../db/client.server";
 import { GitHubConnection, type GitHubConfig } from "./github-connection.server";
 
+const GITHUB_APP_SLUG = /^[a-z0-9-]+$/;
+
 export async function readGitHubConfig(
   env: Record<string, string | undefined> = Bun.env,
 ): Promise<GitHubConfig | null> {
@@ -19,7 +21,7 @@ export async function readGitHubConfig(
   if (
     !Number.isSafeInteger(appId) ||
     appId <= 0 ||
-    !/^[a-z0-9-]+$/.test(appSlug) ||
+    !GITHUB_APP_SLUG.test(appSlug) ||
     !/^[0-9a-f]{64}$/i.test(encryptionKey) ||
     callbackUrl.protocol !== "https:" ||
     callbackUrl.username ||
@@ -48,6 +50,26 @@ export async function configuredGitHub() {
     config,
     connection: new GitHubConnection(db, config),
   };
+}
+
+export type GitHubAppBotIdentity = { slug: string; botUserId: number };
+
+/**
+ * The CoForge GitHub App's own bot identity (its `[bot]` account), used only to build a commit
+ * `Co-authored-by` trailer (`github-commit-trailers.ts`). This is independent of `readGitHubConfig`
+ * above (no OAuth client secret or encryption key needed) and per-environment, not a secret:
+ * `COFORGE_GITHUB_APP_BOT_USER_ID` is the bot *user* id GitHub assigns the App (not the App id
+ * itself). Unset or malformed means the feature is unconfigured, not broken: callers get `null`
+ * and withhold the trailer rather than throwing.
+ */
+export function readGitHubAppBotIdentity(
+  env: Record<string, string | undefined> = Bun.env,
+): GitHubAppBotIdentity | null {
+  const slug = env.COFORGE_GITHUB_APP_SLUG?.trim() ?? "";
+  const botUserId = Number(env.COFORGE_GITHUB_APP_BOT_USER_ID);
+  if (!GITHUB_APP_SLUG.test(slug) || !Number.isSafeInteger(botUserId) || botUserId <= 0)
+    return null;
+  return { slug, botUserId };
 }
 
 async function secret(env: Record<string, string | undefined>, name: string) {

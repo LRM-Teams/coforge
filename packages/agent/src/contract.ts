@@ -54,6 +54,12 @@ export type AgentSessionIdentity = Readonly<{
   sessionId: string;
   state: "empty" | "resumable" | "unknown";
 }>;
+/** How a launch injects the commit co-author trailer hook into the Agent's git (ADR 0048):
+ * `config-hook` for git >= 2.54's config-based hooks, `hooks-path` for an older git pointed at the
+ * Daemon's forwarding shim directory. */
+export type AgentGitHookPlan =
+  | { readonly kind: "config-hook" }
+  | { readonly kind: "hooks-path"; readonly hooksDir: string };
 type AgentSessionCommonOptions = Readonly<{
   agentId?: string;
   runtimeId?: string;
@@ -65,6 +71,8 @@ type AgentSessionCommonOptions = Readonly<{
   onSessionId?(sessionId: string, replacedSessionId?: string): Promise<void>;
   runtime?: AgentRuntimeConfig;
   environment?: Readonly<Record<string, string>>;
+  /** Resolved once per launch by the Daemon; every process the session spawns reuses it. */
+  gitHooks?: AgentGitHookPlan;
 }>;
 export type AgentSessionOptions = AgentSessionCommonOptions;
 export type AgentRuntimeEvent =

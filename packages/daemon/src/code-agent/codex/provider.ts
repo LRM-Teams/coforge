@@ -64,6 +64,7 @@ export class CodexProvider implements CodeAgentProvider {
       agentEnvironment(options.environment, Bun.env, undefined, {
         envVars: options.runtime?.envVars,
         extraEnv: { NO_COLOR: "1" },
+        gitHooks: options.gitHooks,
       }),
     );
     try {

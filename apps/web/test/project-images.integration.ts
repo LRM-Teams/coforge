@@ -81,6 +81,7 @@ test("project images authorize members, validate uploads, replace bytes and clea
       id: project.id,
       name: "Renamed",
       description: "Metadata only",
+      commitCoAuthor: true,
     });
     expect(await new Response((await images.read(user.id, project.id)).body).bytes()).toEqual(
       new Uint8Array(await png(2).arrayBuffer()),

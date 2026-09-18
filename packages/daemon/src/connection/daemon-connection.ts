@@ -1,5 +1,9 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
-import { agentApiRoutes, decodeGitHubCredentialResponse } from "@lrm/coforge-sdk/agent";
+import {
+  agentApiRoutes,
+  decodeGitHubCredentialResponse,
+  decodeGitHubCommitTrailersResponse,
+} from "@lrm/coforge-sdk/agent";
 import type {
   AgentEventsResponse,
   AgentChannelAttentionResponse,
@@ -14,6 +18,8 @@ import type {
   AgentActionPrepareResponse,
   GitHubCredentialRequest,
   GitHubCredentialResponse,
+  GitHubCommitTrailersRequest,
+  GitHubCommitTrailersResponse,
   AgentManualGetRequest,
   AgentManualGetResponse,
   AgentManualSearchRequest,
@@ -202,6 +208,9 @@ export interface AgentMessageHttpClient {
   requestGitHubCredential?(
     input: AgentHttpInput<GitHubCredentialRequest>,
   ): Promise<GitHubCredentialResponse>;
+  requestGitHubCommitTrailers?(
+    input: AgentHttpInput<GitHubCommitTrailersRequest>,
+  ): Promise<GitHubCommitTrailersResponse>;
   requestManualGet?(input: AgentHttpInput<AgentManualGetRequest>): Promise<AgentManualGetResponse>;
   requestManualSearch?(
     input: AgentHttpInput<AgentManualSearchRequest>,
@@ -361,6 +370,10 @@ export interface DaemonConnectionClient {
     request: GitHubCredentialRequest,
     agentApiKey: string,
   ): Promise<GitHubCredentialResponse>;
+  githubCommitTrailers?(
+    request: GitHubCommitTrailersRequest,
+    agentApiKey: string,
+  ): Promise<GitHubCommitTrailersResponse>;
   manualGet?(request: AgentManualGetRequest, agentApiKey: string): Promise<AgentManualGetResponse>;
   manualSearch?(
     request: AgentManualSearchRequest,
@@ -921,6 +934,16 @@ export const createAgentMessageHttpClient = (
     });
     if (!response.ok) throw new Error(`GitHub credential request failed (${response.status})`);
     return decodeGitHubCredentialResponse(await response.json());
+  },
+  async requestGitHubCommitTrailers({ url, request, ...keys }) {
+    const response = await httpClient(url, {
+      method: "POST",
+      headers: agentHeaders(keys, true),
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`GitHub commit trailers request failed (${response.status})`);
+    return decodeGitHubCommitTrailersResponse(await response.json());
   },
   async requestReminder({ url, request, ...keys }) {
     let response: Response;
@@ -1606,6 +1629,21 @@ export class DaemonConnection implements DaemonConnectionClient {
       throw new Error("GitHub credential HTTP client is unavailable");
     return this.agentMessageHttpClient.requestGitHubCredential({
       url: this.#serverEndpoint("GitHub credential", agentApiRoutes.cloud.githubCredentials.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async githubCommitTrailers(request: GitHubCommitTrailersRequest, agentApiKey: string) {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("GitHub commit trailers endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestGitHubCommitTrailers)
+      throw new Error("GitHub commit trailers HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestGitHubCommitTrailers({
+      url: this.#serverEndpoint(
+        "GitHub commit trailers",
+        agentApiRoutes.cloud.githubCommitTrailers.path,
+      ),
       ...this.#agentKeys(agentApiKey),
       request,
     });

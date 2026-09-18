@@ -3,6 +3,7 @@ import { run } from "../index";
 import { connectLocal } from "./local-client";
 import { CliError, renderCliError } from "./cli-error";
 import { runGitHubCli, runGitHubCredentialHelper } from "./github-credential";
+import { runGitPrepareCommitMsg } from "./git-prepare-commit-msg";
 import { COFORGE_CLI_VERSION } from "./version";
 
 export async function runAgentCli(args: readonly string[]): Promise<void> {
@@ -31,6 +32,19 @@ export async function runAgentCli(args: readonly string[]): Promise<void> {
     }
     if (args[0] === "github" && args[1] === "gh") {
       process.exitCode = await runGitHubCli(args.slice(2), transport.githubCredential);
+      return;
+    }
+    if (args[0] === "git" && args[1] === "prepare-commit-msg") {
+      // This hook must never fail the Agent's commit: any failure is one plain-language stderr
+      // line, and the process always exits 0 regardless of what happened above.
+      try {
+        await runGitPrepareCommitMsg(args.slice(2), transport.githubCommitTrailers!);
+      } catch (error) {
+        console.error(
+          `coforge: CoForge co-author trailer skipped: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      process.exitCode = 0;
       return;
     }
     const result = await run(args, transport);
