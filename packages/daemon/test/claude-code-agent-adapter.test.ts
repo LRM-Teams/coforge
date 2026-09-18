@@ -812,7 +812,7 @@ test("Claude Code reports a liveness ping, not thinking_end, when a thinking con
       },
       { type: "stream_event", event: { type: "content_block_stop" } },
     );
-    await waitForDetailKind(events, "runtime_progress");
+    await waitForEvent(events, "progress");
     const kinds = events
       .filter((event) => event.type === "activity")
       .map((event) => event.activity.detailKind);
