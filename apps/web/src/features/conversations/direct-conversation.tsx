@@ -53,6 +53,12 @@ import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 import { AgentProfilePanel } from "@/features/agents/profile-panel/agent-profile-panel";
 import { resolveVisibleConversationSlot } from "@/features/agents/profile-panel/profile-panel-slot";
+import { useOpenConversationThread } from "./open-conversation-thread";
+import {
+  messageIdFromHash,
+  resolveConversationThreadRoot,
+  threadRootFromMessageAnchor,
+} from "./conversation-thread-search";
 import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-panel-search";
 
 const appRoute = getRouteApi("/_app");
@@ -302,10 +308,12 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     agentProfile,
     onAgentProfileTabChange,
     onCloseAgentProfile,
+    onLoadMessageAround,
     ...conversationProps
   } = props;
   const detailVisible = useConversationDetailVisible();
-  const [selected, setSelected] = useState<string>();
+  const { searchThreadRootId, openThread, openThreadFromHash, closeThread } =
+    useOpenConversationThread();
   const [visited, setVisited] = useState<string[]>([]);
   const [readThrough, setReadThrough] = useState<Record<string, number>>({});
   const reading = useRef(false);
@@ -325,21 +333,34 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     return byRoot;
   }, [conversation.messages]);
   const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
+  const selected = resolveConversationThreadRoot({
+    searchThreadRootId,
+    messages: conversation.messages,
+  });
   const selectedSequence = selected ? (repliesOf(selected).at(-1)?.sequence ?? 0) : 0;
 
-  // The conversation's shared right-hand slot: Thread (React state, above) and the Agent profile
-  // panel (URL state, `agentProfile`) can both be "open" at once; whichever was opened most
+  // The conversation's shared right-hand slot: Thread (`threadRootId` search) and the Agent
+  // profile panel (`profile` search) can both be "open" at once; whichever was opened most
   // recently is shown, the other keeps its own state. `lastOpened` only tracks fresh open actions
   // (`openThread` below, and a `profileAgentId` transition into "open"), not every re-render.
   const profileAgentId = agentProfile?.agentId;
   const [lastOpened, setLastOpened] = useState<"thread" | "profile">();
   const previousProfileAgentIdRef = useRef<string | undefined>(undefined);
+  const previousSelectedRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (profileAgentId && profileAgentId !== previousProfileAgentIdRef.current) {
       setLastOpened("profile");
     }
     previousProfileAgentIdRef.current = profileAgentId;
   }, [profileAgentId]);
+  useEffect(() => {
+    if (selected && selected !== previousSelectedRef.current) setLastOpened("thread");
+    previousSelectedRef.current = selected;
+  }, [selected]);
+  useEffect(() => {
+    if (!selected) return;
+    setVisited((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
+  }, [selected]);
   const visibleSlot = resolveVisibleConversationSlot({
     threadOpen: Boolean(selected),
     profileOpen: Boolean(profileAgentId),
@@ -389,30 +410,39 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       });
   }, [detailVisible, selected, selectedSequence, conversation, onReadThread, readThrough]);
 
-  function openThread(rootMessageId: string) {
-    setVisited((previous) =>
-      previous.includes(rootMessageId) ? previous : [...previous, rootMessageId],
-    );
-    setSelected(rootMessageId);
-    setLastOpened("thread");
-  }
+  // Hash-only deep links (notifications) still land on `#message-<id>`. Promote
+  // that into `threadRootId` search once, then leave the hash as a scroll target.
+  const attemptedHashLoad = useRef<string>();
+  const attemptedSearchLoad = useRef<string>();
   useLayoutEffect(() => {
-    const openAnchoredThread = () => {
-      const rootMessageId = anchoredThreadRoot(conversation.messages);
-      if (!rootMessageId || rootMessageId === selected) return;
-      setVisited((previous) =>
-        previous.includes(rootMessageId) ? previous : [...previous, rootMessageId],
-      );
-      setSelected(rootMessageId);
-      setLastOpened("thread");
-    };
-    window.addEventListener("hashchange", openAnchoredThread);
-    openAnchoredThread();
-    return () => window.removeEventListener("hashchange", openAnchoredThread);
-  }, [conversation.messages, selected]);
+    if (searchThreadRootId) return;
+    const hash = typeof window === "undefined" ? "" : window.location.hash;
+    const rootMessageId = threadRootFromMessageAnchor(conversation.messages, hash);
+    if (rootMessageId) openThreadFromHash(rootMessageId);
+  }, [conversation.messages, searchThreadRootId, openThreadFromHash]);
+  useEffect(() => {
+    if (searchThreadRootId) return;
+    const hash = typeof window === "undefined" ? "" : window.location.hash;
+    if (threadRootFromMessageAnchor(conversation.messages, hash)) return;
+    const messageId = messageIdFromHash(hash);
+    if (!messageId || attemptedHashLoad.current === hash) return;
+    attemptedHashLoad.current = hash;
+    void onLoadMessageAround?.(messageId);
+  }, [conversation.messages, searchThreadRootId, onLoadMessageAround]);
+  useEffect(() => {
+    if (!searchThreadRootId) {
+      attemptedSearchLoad.current = undefined;
+      return;
+    }
+    if (conversation.messages.some((message) => message.id === searchThreadRootId)) return;
+    if (attemptedSearchLoad.current === searchThreadRootId) return;
+    attemptedSearchLoad.current = searchThreadRootId;
+    void onLoadMessageAround?.(searchThreadRootId);
+  }, [searchThreadRootId, conversation.messages, onLoadMessageAround]);
   const conversationMainPane = (
     <ConversationPane
       {...conversationProps}
+      onLoadMessageAround={onLoadMessageAround}
       header={header}
       conversation={{ ...conversation, messages: mainMessages }}
       threadEntry={(message) => {
@@ -543,8 +573,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           >
             <ConversationPane
               {...conversationProps}
+              onLoadMessageAround={onLoadMessageAround}
               root={root}
-              onClose={() => setSelected(undefined)}
+              onClose={closeThread}
               emptyState={{
                 title: m.conversation_thread_empty_title(),
                 description: m.conversation_thread_empty(),
@@ -625,13 +656,6 @@ function attachmentFileNameSummary(attachments: { fileName: string }[]): string 
   const [first, ...rest] = attachments;
   if (!first) return undefined;
   return rest.length ? `${first.fileName} (+${rest.length} more)` : first.fileName;
-}
-
-function anchoredThreadRoot(messages: DirectConversationView["messages"]) {
-  if (typeof window === "undefined" || !window.location.hash.startsWith("#message-")) return;
-  const messageId = window.location.hash.slice("#message-".length);
-  const message = messages.find((candidate) => candidate.id === messageId);
-  return message?.threadRootId ?? message?.id;
 }
 
 export function ConversationPane({
