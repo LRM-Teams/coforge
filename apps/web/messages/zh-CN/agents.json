@@ -188,6 +188,8 @@
   "agent_profile_panel_tabs": "智能体",
   "agent_profile_section_info": "信息",
   "agent_profile_section_runtime": "运行时配置",
+  "agent_context_usage_badge": "上下文 {percent}%",
+  "agent_context_usage_tooltip": "{used} / {window} tokens · {time}",
   "agent_profile_section_actions": "操作",
   "agent_profile_role": "角色",
   "agent_profile_creator": "创建者",

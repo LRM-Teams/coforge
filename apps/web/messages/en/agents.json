@@ -188,6 +188,8 @@
   "agent_profile_panel_tabs": "Agent",
   "agent_profile_section_info": "Info",
   "agent_profile_section_runtime": "Runtime config",
+  "agent_context_usage_badge": "Context {percent}%",
+  "agent_context_usage_tooltip": "{used} / {window} tokens · {time}",
   "agent_profile_section_actions": "Actions",
   "agent_profile_role": "Role",
   "agent_profile_creator": "Creator",

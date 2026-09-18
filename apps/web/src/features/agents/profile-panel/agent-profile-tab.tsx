@@ -16,7 +16,9 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { formatDateForDisplay } from "@/lib/dates";
 import { m } from "@/paraglide/messages";
+import { getLocale } from "@/paraglide/runtime";
 import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
 import { RuntimeProviderMark } from "@/features/agents/runtime-provider-mark";
 import { computerIcon } from "@/features/computers/computer-identity";
@@ -54,6 +56,41 @@ function FactBadge({
 }
 
 /**
+ * The Agent's current context-window usage, next to the Runtime badge — display only (ADR 0047):
+ * nothing here triggers on any threshold, and it never colors by how full the window is. Hidden
+ * entirely by the caller when there is no reading. The tooltip's observed time uses the same
+ * `formatDateForDisplay` helper (workspace time zone, viewer locale) the Runtime usage popover's
+ * `RelativeTime` already renders through.
+ */
+function ContextUsageBadge({
+  contextUsage,
+  timeZone,
+}: {
+  contextUsage: { usedTokens: number; windowTokens: number; observedAtMs: number };
+  timeZone: string | null;
+}) {
+  const locale = getLocale();
+  const percent = Math.min(
+    100,
+    Math.max(0, Math.round((contextUsage.usedTokens / contextUsage.windowTokens) * 100)),
+  );
+  const numberFormat = new Intl.NumberFormat(locale);
+  return (
+    <Tooltip
+      title={m.agent_context_usage_tooltip({
+        used: numberFormat.format(contextUsage.usedTokens),
+        window: numberFormat.format(contextUsage.windowTokens),
+        time: formatDateForDisplay(new Date(contextUsage.observedAtMs), timeZone, locale),
+      })}
+    >
+      <TooltipTrigger>
+        <FactBadge>{m.agent_context_usage_badge({ percent })}</FactBadge>
+      </TooltipTrigger>
+    </Tooltip>
+  );
+}
+
+/**
  * The Agent profile panel's Profile tab body: label-over-value throughout, no left/right fact
  * rows, no leading row icons (`docs/ui-guidelines.md` §4's field-grid style, per the approved
  * prototype). Managers/owners get the pencils, INFO's Role editor, RUNTIME CONFIG's credential
@@ -73,9 +110,13 @@ export function AgentProfileTab({
   onLoadSkills,
   envVars,
   onStartDelete,
+  contextUsage,
 }: {
   profile: NonNullable<AgentProfile>;
   timeZone: string | null;
+  /** The Agent's current context-window usage (ADR 0047), or `null` when there is no reading —
+   * hidden entirely in that case. Display only; nothing triggers on it. */
+  contextUsage?: { usedTokens: number; windowTokens: number; observedAtMs: number } | null;
   /** `canManageAgentRole || ownedByCurrentUser` — gates every pencil, the ACTIONS section. */
   canManage: boolean;
   controls: AgentRuntimeControls;
@@ -229,7 +270,7 @@ export function AgentProfileTab({
         <div className="mt-3 flex flex-wrap gap-x-8 gap-y-4">
           <div>
             <p className={SUBFIELD_LABEL_CLASS}>{m.agent_runtime_field()}</p>
-            <p className="mt-1">
+            <p className="mt-1 flex flex-wrap items-center gap-2">
               {profile.runtimeUsageVisible && profile.computer ? (
                 <RuntimeUsage
                   computerId={profile.computer.id}
@@ -250,6 +291,9 @@ export function AgentProfileTab({
                 />
               ) : (
                 <FactBadge icon={runtimeIcon}>{runtimeLabel}</FactBadge>
+              )}
+              {contextUsage && (
+                <ContextUsageBadge contextUsage={contextUsage} timeZone={timeZone} />
               )}
             </p>
           </div>
