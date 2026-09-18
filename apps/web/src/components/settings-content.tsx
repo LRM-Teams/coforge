@@ -358,6 +358,19 @@ function AccountSettings({
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // Show the just-picked image immediately, before it is uploaded on Save. Without this the
+  // preview keeps showing the saved `profile.avatarUrl` until a save round-trips, which reads as
+  // "the avatar didn't change". Object URLs must be revoked to avoid leaking the blob.
+  const [pendingAvatarPreview, setPendingAvatarPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pendingAvatar) {
+      setPendingAvatarPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(pendingAvatar);
+    setPendingAvatarPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingAvatar]);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -447,7 +460,7 @@ function AccountSettings({
               <div className="flex flex-wrap items-center gap-4">
                 <Avatar
                   size="2xl"
-                  src={removeAvatar ? null : profile.avatarUrl}
+                  src={removeAvatar ? null : (pendingAvatarPreview ?? profile.avatarUrl)}
                   alt={profile.name}
                   initials={avatarInitial(profile.name)}
                   contentClassName={avatarToneClassName(profile.name)}
