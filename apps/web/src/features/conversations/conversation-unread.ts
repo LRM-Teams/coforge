@@ -115,17 +115,26 @@ export function latestTopLevelSequence(
  * A loader refresh replaced the server's own counts; local arithmetic restarts from them.
  * Sequence boundaries survive the refresh, so a stale event that raced the fetch cannot
  * double-count a message the server already counted.
+ *
+ * `suppressKeys` names the conversations the viewer is looking at right now (the open channel
+ * and the open DM). They keep their boundary but lose their count, exactly like
+ * `applyUnreadEvent`: without this, a refresh in the `newest-unread` preference — where the
+ * server cursor has deliberately not advanced yet — would re-raise the badge of the very
+ * conversation being read. Leaving the conversation re-seeds it from the server.
  */
 export function replaceUnreadCounts(
   current: UnreadCounts,
   entries: readonly UnreadChannel[],
+  suppressKeys: ReadonlySet<string> = new Set<string>(),
 ): UnreadCounts {
   const boundaries: UnreadCounts = {};
   for (const entry of entries) {
     const boundary = current[`${entry.id}:seq`];
     if (boundary !== undefined) boundaries[`${entry.id}:seq`] = boundary;
   }
-  return { ...seedUnreadCounts(entries), ...boundaries };
+  const seeded = seedUnreadCounts(entries);
+  for (const key of suppressKeys) delete seeded[key];
+  return { ...seeded, ...boundaries };
 }
 
 export type UnreadState = {
@@ -200,9 +209,15 @@ export function useChannelUnread({
       setCounts((current) => clearUnread(current, key, readThroughSequence)),
     [],
   );
-  const replace = useCallback(
-    (next: readonly UnreadChannel[]) => setCounts((current) => replaceUnreadCounts(current, next)),
-    [],
-  );
+  const replace = useCallback((next: readonly UnreadChannel[]) => {
+    // The conversation on screen keeps no badge, exactly like a live event for it: in
+    // `newest-unread` the server cursor deliberately lags, so seeding it here would
+    // re-raise the badge of the conversation being read.
+    const { openConversationId: open, openAgentId: openAgent } = refs.current;
+    const suppressed = new Set<string>();
+    if (open) suppressed.add(open);
+    if (openAgent) suppressed.add(openAgent);
+    setCounts((current) => replaceUnreadCounts(current, next, suppressed));
+  }, []);
   return { counts, clear, replace };
 }

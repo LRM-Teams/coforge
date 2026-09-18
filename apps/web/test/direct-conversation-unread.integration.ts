@@ -17,6 +17,8 @@ test("DM unread counts are keyed by the conversation's Agent member and survive 
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   const suffix = crypto.randomUUID();
   const alice = await db.user.create({ data: { username: `alice-${suffix}` } });
+  // A second user with no direct conversation at all: the badge read must return nothing.
+  const bob = await db.user.create({ data: { username: `bob-${suffix}` } });
   const workspace = await db.workspace.create({
     data: {
       slug: suffix,
@@ -80,14 +82,13 @@ test("DM unread counts are keyed by the conversation's Agent member and survive 
     ]);
 
     // A user with no direct conversation has no DM badges.
-    const bob = await db.user.create({ data: { username: `bob-${suffix}` } });
     await db.workspaceMembership.create({
       data: { workspaceId: workspace.id, userId: bob.id },
     });
     expect(await conversations.unreadCountsForUser(workspace.id, bob.id)).toEqual([]);
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
-    await db.user.deleteMany({ where: { id: { in: [alice.id] } } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
     await db.$disconnect();
   }
 });

@@ -724,7 +724,8 @@ export function ConversationPane({
   const pendingLatestRef = useRef(false);
   // The initial-position decision is made once per conversation open: with unread messages,
   // Slack's default lands on the first one and draws the divider; otherwise at the latest.
-  // Consumed by the mount effect below and never re-read on later updates.
+  // Consumed by the mount effect below (open positioning) and by the divider snapshot, and
+  // never re-read on later updates.
   const firstUnread = useMemo(() => {
     const cursor = conversation.readThroughSequence;
     if (cursor === undefined) return undefined;
@@ -737,12 +738,10 @@ export function ConversationPane({
   }, [conversation.conversationId]);
   const firstUnreadConsumedRef = useRef(false);
   // The divider is frozen at the boundary seen at open, so the mark-read effect (which
-  // advances the cursor server-side) never makes it jump or vanish mid-visit.
-  const openBoundaryRef = useRef<{ id: string; sequence: number } | undefined>(undefined);
-  if (openBoundaryRef.current === undefined && firstUnread && !firstUnreadConsumedRef.current) {
-    openBoundaryRef.current = firstUnread;
-  }
-  const openBoundary = openBoundaryRef.current;
+  // advances the cursor server-side) never makes it jump or vanish mid-visit. Captured once,
+  // by the first render's state initializer: a ref written during render could be left set by
+  // a render React then discards, showing a divider for a conversation never opened.
+  const [openBoundary] = useState(firstUnread);
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
   // Handles that recently sent a message here, most-recent first: the mention completion popup

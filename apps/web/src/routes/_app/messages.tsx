@@ -5,27 +5,27 @@ import { ConversationNavigation } from "@/features/conversations/conversation-na
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { listPublicChannels } from "@/features/conversations/channels.functions";
 import {
-  getViewerId,
-  loadDirectConversationUnread,
-  type DirectConversationUnread,
+  loadDirectConversationBadges,
+  type DirectConversationBadges,
 } from "@/features/conversations/conversations.functions";
 import { listProjects } from "@/features/projects/projects.functions";
 
-const EMPTY_DIRECT_UNREAD: DirectConversationUnread = {};
+const EMPTY_DIRECT_BADGES: DirectConversationBadges = { viewerId: "", unread: {} };
 
 export const Route = createFileRoute("/_app/messages")({
   loader: async () => {
-    const [channels, projects, directUnread, viewerId] = await Promise.all([
+    const [channels, projects, badges] = await Promise.all([
       listPublicChannels(),
       listProjects(),
-      loadDirectConversationUnread().catch(() => EMPTY_DIRECT_UNREAD),
-      getViewerId().catch(() => undefined),
+      loadDirectConversationBadges().catch(() => EMPTY_DIRECT_BADGES),
     ]);
     return {
       channels,
       projects,
-      directUnread,
-      viewerId,
+      directUnread: badges.unread,
+      // Absent when the badge read failed: the sidebar then holds no personal signal channel
+      // rather than subscribing to one keyed by an empty id.
+      viewerId: badges.viewerId || undefined,
     };
   },
   pendingMs: 300,

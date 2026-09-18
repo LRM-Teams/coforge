@@ -121,24 +121,30 @@ export const markDirectThreadRead = createServerFn({ method: "POST" })
  * the realtime publication carries, so no conversation→Agent alias map is needed (ADR 0046). */
 export type DirectConversationUnread = Record<string, number>;
 
-export const loadDirectConversationUnread = createServerFn({ method: "GET" })
+export type DirectConversationBadges = {
+  /** The signed-in user's id, for their own direct-message signal channel. */
+  viewerId: string;
+  /** Unread counts keyed by the Agent whose sidebar row owns the badge. */
+  unread: DirectConversationUnread;
+};
+
+/**
+ * Everything the Chat sidebar needs about direct messages in one round trip: the viewer's own
+ * id (their personal signal channel) and the per-Agent unread counts seeded into the badges.
+ */
+export const loadDirectConversationBadges = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
-  .handler(async ({ context }): Promise<DirectConversationUnread> => {
+  .handler(async ({ context }): Promise<DirectConversationBadges> => {
     const { user, db, workspaceId } = context;
     const rows =
       (await new PrismaDirectConversationRepository(db).unreadCountsForUser?.(
         workspaceId,
         user.id,
       )) ?? [];
-    const counts: DirectConversationUnread = {};
-    for (const row of rows) counts[row.agentId] = row.unread;
-    return counts;
+    const unread: DirectConversationUnread = {};
+    for (const row of rows) unread[row.agentId] = row.unread;
+    return { viewerId: user.id, unread };
   });
-
-/** The signed-in user's id, for their own direct-message signal channel (ADR 0046). */
-export const getViewerId = createServerFn({ method: "GET" })
-  .middleware([workspaceUserMiddleware])
-  .handler(async ({ context }) => context.user.id);
 
 /** Advances the DM read cursor for the sidebar badge; monotone and clamped (ADR 0046). */
 export const markDirectConversationRead = createServerFn({ method: "POST" })

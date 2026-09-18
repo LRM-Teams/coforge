@@ -201,6 +201,20 @@ describe("replaceUnreadCounts", () => {
     // `agent-1` had no server count (0 unread), so the stale local badge is dropped.
     expect(next).toEqual({ "channel-a": 1, "channel-a:seq": 8 });
   });
+
+  test("a suppressed conversation keeps its boundary but no badge", () => {
+    // `newest-unread`: the server cursor has deliberately not advanced for the open
+    // conversation, so a refresh must not re-raise the badge of what is on screen.
+    const next = replaceUnreadCounts(
+      { "channel-a": 0, "channel-a:seq": 8, "channel-b": 0 },
+      [
+        { id: "channel-a", unreadCount: 3 },
+        { id: "channel-b", unreadCount: 2 },
+      ],
+      new Set(["channel-a"]),
+    );
+    expect(next).toEqual({ "channel-b": 2, "channel-a:seq": 8 });
+  });
 });
 
 describe("latestTopLevelSequence", () => {
