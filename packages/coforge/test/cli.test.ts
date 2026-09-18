@@ -1994,6 +1994,52 @@ test("App Inbox hides message ordering fields from Agent output", async () => {
   expect(output).toContain('"pendingCount":2');
 });
 
+test("inbox check reads as the Computer's own view, with no claim about the server", async () => {
+  const output = await run(["inbox", "check"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+    inboxCheck: async () => ({
+      entries: [
+        {
+          kind: "message_target",
+          messageTarget: {
+            target: "#general",
+            pendingCount: 2,
+            latestSender: "@ada",
+            firstPendingSequence: 7,
+            latestSequence: 8,
+            flags: ["channel"],
+          },
+        },
+        { kind: "app", app: { itemId: "item-1", appId: "reminder" } },
+      ],
+    }),
+  });
+
+  // The word for this view is "held": these are messages the Computer has in hand. It must not
+  // read as unread-on-the-server, which only `coforge message check` can answer.
+  expect(output).toContain("#general  held: 2 messages · latest sender @ada · channel");
+  expect(output).toContain("App Inbox: 1 pending item");
+  expect(output).not.toContain("unread");
+  // The JSON payload is still there for an Agent that needs an item's own fields.
+  expect(output).toContain('"itemId":"item-1"');
+});
+
+test("inbox check says plainly when the Computer holds nothing", async () => {
+  const output = await run(["inbox", "check"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+    inboxCheck: async () => ({ entries: [] }),
+  });
+
+  expect(output).toContain("Nothing held locally");
+  expect(output).toContain("`coforge message check` is what asks the server");
+});
+
 test("--reviewer-isolation is accepted only on send, claim, update and amend", () => {
   expect(parseArgs(["message", "send", "--target", "@ada", "--reviewer-isolation"])).toMatchObject({
     command: "send",
