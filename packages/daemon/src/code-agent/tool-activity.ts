@@ -6,6 +6,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { redactTrajectoryText } from "../agent-runtime/activity-trajectory";
 import { createAgentActivity } from "../agent-runtime/agent-activity";
+import { collapseWhitespace } from "./agent-instructions";
 
 // `TOOL_ALIASES` (shared with the web tool row labels — see
 // `packages/coforge-sdk/src/internal/tool-display.ts`) resolves a provider's tool name
@@ -106,11 +107,7 @@ function buildActivity(
 // runs of whitespace and trims, so a multi-line or otherwise-invalid summary still
 // satisfies the SDK's `validToolInput` instead of failing to decode on the wire.
 function sanitizeToolInput(value: string): string {
-  const collapsed = value
-    .replace(/[\x00-\x1f\x7f]/g, " ")
-    .replace(/ {2,}/g, " ")
-    .trim();
-  return [...collapsed].slice(0, 200).join("");
+  return [...collapseWhitespace(value.replace(/[\x00-\x1f\x7f]/g, " "))].slice(0, 200).join("");
 }
 
 function summarizeBash(command: unknown): {

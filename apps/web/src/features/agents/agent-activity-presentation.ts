@@ -45,6 +45,11 @@ export type ActivityRow = {
  * POPOVER_EXCLUDED_DETAIL_KINDS in agent-activity.ts), so falling through to its empty raw
  * `detail` below (no secondary text at all) is correct for it too.
  */
+const ENTRYLESS_TOOL_LABEL: Readonly<Record<string, string>> = {
+  [AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND]: "Running command…",
+  [AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED]: "Working…",
+};
+
 const STATUS_SECONDARY_LABEL: Readonly<Record<string, string>> = {
   [AGENT_ACTIVITY_DETAIL_KIND.TOOL_END]: "Tool finished",
   [AGENT_ACTIVITY_DETAIL_KIND.THINKING_END]: "Thinking finished",
@@ -198,6 +203,10 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
                         : tone === "offline"
                           ? "Stopped"
                           : "Activity";
+  // A current daemon sends an argument-free label as a tool frame's `detail`; an older
+  // daemon's entry-less heartbeat/probe reply still resends its raw `detail` (a command or
+  // path), which must never become the header label.
+  const toolFallback = ENTRYLESS_TOOL_LABEL[kind];
   const recentLabel =
     tone === "working"
       ? starting
@@ -212,19 +221,11 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
                 ? "Review still running…"
                 : stalledRecovery
                   ? "Restarting stalled provider…"
-                  : // These two kinds carry an argument-free `detail` from a current daemon
-                    // (see `toolActivityLabel`, kept as is), but an older, not-yet-upgraded
-                    // daemon's entry-less heartbeat/probe reply still resends its own last raw
-                    // `detail` (a command or path) here — never show that as the header label.
-                    kind === AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND
+                  : toolFallback !== undefined
                     ? isToolActivityLabel(detail)
                       ? detail
-                      : "Running command…"
-                    : kind === AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED
-                      ? isToolActivityLabel(detail)
-                        ? detail
-                        : "Working…"
-                      : detail || "Working…"
+                      : toolFallback
+                    : detail || "Working…"
       : tone === "thinking"
         ? "Thinking…"
         : tone === "idle"
