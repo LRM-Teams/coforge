@@ -489,14 +489,27 @@ function AccountSettings({
               <p className="mt-2 text-xs text-tertiary">{m.settings_avatar_help()}</p>
 
               <div className="mt-6 grid gap-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
+                {/* Both identities are visible while editing, but only one is editable: the
+                 * display name is what teammates read, and the username is the fixed handle
+                 * mentions resolve against, so it is shown as a value rather than a field
+                 * nobody can submit. "Display name" replaces the old ambiguous "Name". */}
                 <Input
-                  label={m.settings_name()}
+                  label={m.settings_display_name()}
                   value={name}
                   maxLength={80}
                   isDisabled={saving}
                   hideRequiredIndicator
                   onChange={setName}
                 />
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-sm font-medium text-secondary">
+                    {m.settings_username()}
+                  </span>
+                  <p className="min-w-0 truncate text-sm font-medium text-primary">
+                    @{profile.username}
+                  </p>
+                  <p className="text-xs text-tertiary">{m.settings_username_fixed()}</p>
+                </div>
 
                 <div className="flex flex-col gap-1.5 md:col-span-2 xl:col-span-3">
                   <TextArea
@@ -552,7 +565,7 @@ function AccountSettings({
               </div>
             </div>
             <dl className="grid gap-x-8 gap-y-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
-              <ProfileValue label={m.settings_name()} value={profile.name} />
+              <ProfileValue label={m.settings_display_name()} value={profile.name} />
               <ProfileValue label={m.settings_email()} value={profile.email} />
               <ProfileValue label={m.settings_username()} value={`@${profile.username}`} />
               <ProfileValue
