@@ -1,8 +1,9 @@
-import { ChevronRight, Hash01 as Hash } from "@untitledui/icons";
+import { ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
 import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "@/features/agents/workspace-agents-realtime";
 import { cx } from "@/utils/cx";
@@ -68,25 +69,32 @@ function DirectorySection({
   label,
   expanded,
   onToggle,
+  action,
   children,
 }: {
   label: string;
   expanded: boolean;
   onToggle: () => void;
+  /** Optional trailing control on the header row, e.g. a "+" that creates a channel. It sits
+   * outside the toggle button so it is its own click target, not part of collapsing. */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   const listId = useId();
   return (
     <>
-      <div className="flex items-center justify-between pr-4 pl-1">
+      <div className="flex items-center gap-1 pr-2 pl-1">
+        {/* The whole caption row is the toggle (`w-full`), so the click target spans the sidebar
+            width like Slack's sections rather than just the short caption text. */}
         <Button
           color="tertiary"
           size="xs"
           aria-expanded={expanded}
           aria-controls={listId}
           onPress={onToggle}
-          /* `px-1` (not a height override) lands the caption on the same x the rows' icons use. */
-          className="min-w-0 px-1 text-quaternary hover:text-tertiary"
+          /* `justify-start px-1` lands the caption on the same x the rows' icons use while the
+             button still fills the row for a large hit area. */
+          className="w-full min-w-0 justify-start px-1 text-quaternary hover:text-tertiary"
           iconLeading={
             <ChevronRight
               aria-hidden="true"
@@ -99,6 +107,7 @@ function DirectorySection({
         >
           <span className="truncate text-[0.6875rem] tracking-wide uppercase">{label}</span>
         </Button>
+        {action}
       </div>
       {/* Kept mounted but hidden: collapsing must not throw away the rows' realtime state. */}
       <div id={listId} hidden={!expanded}>
@@ -114,11 +123,14 @@ export function ConversationDirectory({
   agents,
   selectedChannelId,
   selectedAgentId,
+  onCreateChannel,
 }: {
   channels: DirectoryChannel[];
   agents: LiveAgent[];
   selectedChannelId?: string;
   selectedAgentId?: string;
+  /** Opens the create-channel flow from the "+" next to the CHANNELS caption. */
+  onCreateChannel?: () => void;
 }) {
   const sortedChannels = [...channels].sort((left, right) =>
     left.joined === right.joined ? 0 : left.joined ? -1 : 1,
@@ -142,6 +154,19 @@ export function ConversationDirectory({
           label={m.channels_title()}
           expanded={!collapsed.includes("channels")}
           onToggle={() => toggle("channels")}
+          action={
+            onCreateChannel ? (
+              <ButtonUtility
+                icon={Plus}
+                size="xs"
+                color="tertiary"
+                tooltip={m.channel_create()}
+                aria-label={m.channel_create()}
+                onClick={onCreateChannel}
+                className="shrink-0"
+              />
+            ) : undefined
+          }
         >
           <ul aria-label={m.channels_title()} className="flex flex-col px-4">
             {sortedChannels.map((channel) => {
