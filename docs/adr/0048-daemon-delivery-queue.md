@@ -1,7 +1,7 @@
 # ADR 0048: Daemon-owned delivery queue with busy gating
 
 Status: accepted
-Date: 2026-09-18
+Date: 2026-09-18 (revised 2026-09-18: Kiro moved from `queue_until_idle` to its own `_session/steer`)
 
 ## Context
 
@@ -14,14 +14,70 @@ Claude holds a notice until a native boundary (`claude-code/provider.ts` `#waiti
 stream (`streamingBehavior: "steer"`) — all three tolerate a delivery arriving mid-turn without
 losing work. Cursor is a per-turn process; its own `#deliver` queues text at the provider layer and
 joins it into the next turn once the current process exits, so it also never loses work, even
-though it is not "steering" in the literal sense. Kiro (`kiro/provider.ts#notify`) has no such path:
-it always sends a fresh ACP `session/prompt`, and the measured Kiro v3 behavior (observed 3× on
-2026-09-18) is that this **cancels the running turn** (`turn_end` `stopReason: "cancelled"` in the
-same millisecond a second inbox notice arrived) — work in progress is lost.
+though it is not "steering" in the literal sense. Kiro (`kiro/provider.ts#notify`) had no such path:
+it always sent a fresh ACP `session/prompt`, and the measured Kiro v3 behavior (observed 3× on
+2026-09-18) was that this **cancelled the running turn** (`turn_end` `stopReason: "cancelled"` in the
+same millisecond a second inbox notice arrived) — work in progress was lost.
+
+This ADR's first revision fixed that by gating Kiro at the daemon layer (`queue_until_idle`: hold
+every notice until the turn ends). Frank's follow-up research found Kiro CLI ships its own ACP
+steering extension — `_session/steer`, undocumented but present since at least kiro-cli 2.22.0 —
+matching Kiro CLI's own default steer behavior and Raft's ACP Grok adapter (interject when busy,
+`session/prompt` when idle; bundle 838326–838350). The decision changed: Kiro now steers into the
+running turn like every other provider, using its own native protocol, and moves to `steer` mode.
+The `queue_until_idle` mode and its daemon-level hold/flush machinery stay in the codebase — no
+provider needs them today, but a future one might, and the fallback path below (steer accepted but
+never actually delivered) reuses this same module for a related but distinct purpose. See
+"Kiro's own busy delivery" below for the full design and "Divergences" for what changed.
 
 This PR is the spine three later PRs in the same series (error backoff, the 3-strike fence, crash
 restart, stall recovery) attach to, so its queue module is designed to hold state those PRs can
 read and pause, not just to fix Kiro.
+
+### Kiro's own busy delivery: `_session/steer` (measured evidence)
+
+Measured directly against a real, authenticated kiro-cli 2.22.0 engine on 2026-09-18 (this Mac),
+using a raw ACP session built on `KiroConnection` — `initialize` → `session/new` → select the
+`mode` config option → `session/prompt` with a slow shell tool (`sleep 12`) → `_session/steer`
+mid-turn while the tool ran. Frank separately confirmed the same contract from the kiro-cli
+2.22.0 ACP server source on another machine (`acp-server.js`); this section records what the wire
+actually showed here, cross-checked against those source facts:
+
+- Request: `_session/steer` with params `{sessionId, message}` (an optional `messageId` is
+  accepted but Kiro mints its own `steer-<uuid>` when omitted, which every capture here used).
+  Response on success:
+  ```json
+  {"queued": true, "messageId": "steer-f85e2256-4fb6-47fd-ae15-c1a48ab5982d"}
+  ```
+- On acceptance, Kiro immediately broadcasts a `session/update` `session_info_update` with
+  `_meta.kiro`:
+  ```json
+  {"kind": "steering_queued", "messageId": "steer-f85e2256-…", "content": "STEER-MARKER-ONE: …"}
+  ```
+- Once the model reaches a turn boundary and actually reads it, a second update follows with the
+  same shape, `kind: "steering_injected"` (same `messageId`, same `content`). Measured across two
+  independent captures, this fired within tens of milliseconds of the request in both cases —
+  Kiro injects eagerly, even right at the very start of a turn, not only at its natural end.
+- At turn end (`turn_end` `stopReason: "end_turn"`), Kiro broadcasts exactly one more
+  `session_info_update`:
+  ```json
+  {"kind": "steering_cleared", "messageIds": ["steer-f85e2256-…"]}
+  ```
+  `messageIds` is always an array, even for one id, and can include ids already confirmed by a
+  prior `steering_injected` (both captures here injected before clearing).
+- Not independently reproduced live (kept as source-derived facts from the same research, since
+  forcing the exact race deterministically proved impractical within this work's time budget —
+  documented honestly rather than guessed): `queued: false` with `dropped: "epoch_changed"` when a
+  turn boundary races the steer request's own persistence; a `steering_cleared` for an id with no
+  preceding `steering_injected`, when Kiro's own continuation-retry (up to 3 further turns,
+  `imu=3`) exhausts without ever reading it or the buffer clears on `session/cancel`; and a
+  JSON-RPC `-32601` "method not found" on a kiro-cli build without this extension. The fixture
+  script (`packages/daemon/test/fixtures/kiro-acp.ts`) simulates all three via message-text
+  keywords (`steer-queued-false`, `steer-clear-without-inject`, `steer-not-found`) built from
+  these facts, not from a live capture of the race itself.
+- Kiro throws on an unknown `sessionId` or an empty `message` (source fact; not separately
+  re-verified live here, since triggering it deterministically added no signal beyond the
+  documented contract).
 
 ### Reference behavior read (Raft Computer 1.0.32, `raft.cjs`)
 
@@ -49,9 +105,12 @@ read and pause, not just to fix Kiro.
 **New module** `packages/daemon/src/daemon-runtime/agent-delivery-queue.ts`, `AgentDeliveryQueue`:
 
 - Per-Agent delivery mode, from a `Record<RuntimeProvider, "steer" | "queue_until_idle">` table
-  (`AGENT_DELIVERY_MODE`): `steer` for CoForge, Pi, Codex, Claude Code, and Cursor (every provider
-  whose own `notify`/`sendMessage` already tolerates busy delivery without losing the turn);
-  `queue_until_idle` for Kiro only.
+  (`AGENT_DELIVERY_MODE`): every provider is `steer` today, including Kiro (its own `notify` now
+  steers a busy turn through its ACP `_session/steer` extension — see below). No provider is
+  `queue_until_idle` any more; the mode and the daemon-level hold/flush machinery it drives stay in
+  the module for a future provider that needs it, unused by this PR's own wiring — `setMode` (a new
+  primitive `setProvider` now calls through) is the only way to reach it, including from this
+  module's own tests, since no `RuntimeProvider` maps to it any more.
 - Per-Agent busy/idle state and an explicit `shouldHold(agentId)` predicate: true only when the
   provider is `queue_until_idle` **and** the Agent is currently busy, or an explicit hold (below)
   is in effect.
@@ -138,6 +197,60 @@ item's own `shouldHold` check sees idle and delivers immediately. This was simpl
 items into the coalesced delivery notice, and app items never shared that notice's wording or
 target/pendingCount shape to begin with.
 
+**Kiro's provider-level implementation** (`kiro/provider.ts`, `KiroSession`):
+
+- `#turn: Promise<void> | undefined` already tracked "a `session/prompt` RPC is outstanding"
+  before this change (set when issued, cleared once it settles). `notify()` now reads it directly:
+  idle (`#turn` undefined) sends `session/prompt` exactly as before; busy (`#turn` set) calls the
+  new `#steer()` instead. `#turn` is now cleared *inside* the `session/prompt` promise's own
+  `.then`/`.catch`, before emitting `"completed"`, not only in the outer `finally` block's safety
+  net — a listener reacting to `"completed"` (a held fallback notice's redelivery, below) must
+  already see the Agent as idle in that same synchronous handler, or it would itself steer into a
+  turn that is, from the daemon's perspective, still nominally running.
+- `#steer(message)` calls `_session/steer` and resolves once Kiro answers `queued: true`, recording
+  `{messageId → {text: message, injected: false}}` in a new `#steeredMessages` map. It rejects —
+  never resolves — on anything else (a throw, an unrelated JSON-RPC error, or `queued: false`),
+  after emitting `notice-undelivered` with the exact text, so a delivery that was never truly
+  accepted is never mistaken for one that was (item 3 below).
+- `#update()` gained two more `_meta.kiro.kind` branches: `steering_injected` marks the matching
+  map entry's `injected: true`; `steering_cleared` deletes each cleared id from the map and — only
+  for one whose `injected` was still `false` — emits `notice-undelivered` with its remembered text.
+  A cleared-and-already-injected id is silently dropped from the map; nothing is re-emitted for it.
+- `dispose()` clears `#steeredMessages`; a session that never sees its own `steering_cleared` (a
+  crash, a forced dispose) simply forgets those ids rather than leaking them.
+
+**The fallback: `notice-undelivered` and redelivery once idle.** `AgentRuntimeEvent` gained a new
+variant, `{ type: "notice-undelivered"; text }` (`packages/agent/src/contract.ts`) — provider-
+neutral, not Kiro-specific, for any `steer`-mode provider whose own busy-delivery protocol can
+accept a notice and later learn it never reached the model. `runtime.ts#observeRuntimeEvent` holds
+the text (`AgentDeliveryQueue.holdFallbackNotice`, a small separate `string[]` per Agent — *not*
+the `queue_until_idle` mode's `AgentMessageDelivery` hold list, since this text has no delivery
+identity of its own to ACK) and redelivers every held text at the next `"completed"` event
+(`#releaseFallbackNotices`, after the message-delivery flush and the app-item release in the same
+handler) as a bare `session.notify(text)` call — never through `AgentMessageAttentionIndex`, since
+whatever this text originally came from already settled its own ACK (or, for an App Inbox notice,
+never had one). If the Agent has gone busy again by the time this runs (its own steer of an earlier
+held text already started a fresh turn), that `notify` call steers this one into the new turn
+instead of losing it, exactly as an ordinary delivery would.
+
+Surviving fallback notices are handled exactly like held app items across a relaunch — always
+released, never dropped, regardless of whether that launch's `recover()` had content — because this
+module cannot tell whether a given held text came from a Message delivery `recover()`'s canonical
+unread state already covers, or from an App Inbox notice it never mentions; always releasing is the
+only choice that never silently drops one. `onProcessExit` keeps fallback notices, like deliveries
+and app items; explicit Stop (`clearAgent`) discards them.
+
+**ACK semantics (item 3): a notice counts as accepted exactly when `_session/steer` returns
+`queued: true`.** `#steer()`'s promise is what `AgentMessageAttentionIndex.receive()`/`recover()`
+(or `DaemonRuntime#notifyAppItem`) await to decide whether to ACK — resolving only on `queued: true`
+means the existing "ACK only after `AgentSession.notify` accepts the notice" invariant is completely
+unchanged by steering: a delivery is ACKed once, at the moment its own `notify()` call actually
+succeeds, whether that landed via `session/prompt` (idle) or `_session/steer` (busy, `queued: true`).
+The fallback redelivery path is the reason a second ACK for the same delivery can never happen: it
+calls `session.notify` directly, bypassing `AgentMessageAttentionIndex` (and `#notifyAppItem`'s own
+memo) entirely, so there is no ACK-producing code path anywhere near it to accidentally trigger
+twice.
+
 **ACK/generation semantics kept exactly as they are today**: ACK happens only after
 `AgentSession.notify` accepts the notice, never before (the architecture invariant in
 `AGENTS.md`/`daemon/AGENTS.md`). Holding a delivery is therefore indistinguishable, from the
@@ -193,9 +306,10 @@ The same "flush, treating the session as idle" call also runs from `#launch`'s o
 the rarer case where this launch enqueued no recovery item at all (a plain `startAgent` with no
 `recovery` argument), since `#recoverAttention` never runs in that case either.
 
-Held **app items** are simpler: `recover()` only ever concerns canonical Message unread state, never
-App Inbox content, so a held app item is unconditionally released (never dropped) at the same point,
-regardless of which of the two paths above was taken.
+Held **app items** and **fallback notices** are simpler: `recover()` only ever concerns canonical
+Message unread state, never App Inbox content or a steered-but-undelivered notice's text, so both
+are unconditionally released (never dropped) at the same point, regardless of which of the two
+paths above was taken.
 
 ## Divergences from Raft
 
@@ -216,50 +330,99 @@ regardless of which of the two paths above was taken.
   them, same as the attention index already does. This matches the existing architecture invariant
   that there is no local durable message inbox/outbox — canonical unread state remains the
   recovery boundary.
+- **`_session/steer` is an undocumented Kiro extension, not a published ACP method.** There is no
+  spec to cite beyond the measured evidence above and the source facts Frank supplied from the
+  kiro-cli 2.22.0 ACP server. A future Kiro release could rename or remove it; the `-32601`
+  ("method not found") branch of `#steer()`'s fallback exists specifically to degrade gracefully
+  rather than break Kiro delivery outright if that happens — every busy notice would simply fall
+  back to "redeliver once idle" instead of steering, until this ADR is revisited.
+- **`queued: false`/`epoch_changed` and "cleared without a prior injected" are not independently
+  reproduced live for this revision.** Every other frame shape in "Kiro's own busy delivery" above
+  came from a real capture on this machine; these two are taken from Frank's separately supplied
+  kiro-cli 2.22.0 source research and exercised in tests only through the fixture script's
+  keyword-driven simulation, not a forced real race. One live attempt to force it (steering right
+  at the start of a fast text-only turn) still injected before clearing — Kiro appears to inject
+  eagerly enough that forcing "cleared without injected" deterministically was impractical within
+  this work's time budget. A second attempt (steer immediately followed by `session/cancel`) hit an
+  unrelated bug in the capture script itself (calling `session/cancel` as a typed request instead
+  of the fire-and-forget notification the real adapter already uses) and produced no evidence
+  either way — recorded here so it is not mistaken for a finding.
 
 ## Consequences
 
 - A busy Kiro Agent no longer has its running turn cancelled by an ordinary channel message, DM, or
   app item arriving mid-turn — including one decided upon before the runtime has emitted a single
-  event of its own. Deliveries collect and produce exactly one coalesced notice at turn end,
-  identical in wording to what a single immediate delivery would have produced; a held app item is
-  released as its own separate notice right after, never lost across a turn boundary.
-- Every other provider's delivery behavior is unchanged — same call, same timing, same ACK.
-- A delivery still held when the Agent's process exits unexpectedly is never silently lost or stuck
-  forever: it is either flushed (nothing else told the Agent) or dropped-and-ACKed (the next
-  launch's `recover()` already told the Agent about the same canonical unread state) as soon as the
-  next launch's session is ready — never left to accumulate indefinitely waiting for a `"completed"`
-  event that a never-yet-run session cannot produce.
-- `AgentDeliveryQueue`'s `hold`/`release`/`pending`/`hasQueued` are unused by any wiring outside the
-  busy-gating path in this PR; they exist so the error-backoff, 3-strike-fence, crash-restart, and
-  stall-recovery PRs in this series have one already-reviewed place to attach to instead of adding
-  a fourth ad hoc per-Agent map to `runtime.ts`.
+  event of its own. It steers into the running turn through Kiro's own `_session/steer` extension,
+  matching Kiro CLI's own default steer behavior; the running tool is never interrupted by a
+  notice, only by an explicit `interrupt()`.
+- Every provider's delivery behavior is now the same shape at the daemon layer (`steer`): busy or
+  idle, a delivery reaches `AgentSession.notify()` immediately, and the provider decides how to
+  land it safely. The daemon-level `queue_until_idle` hold/flush machinery from this ADR's first
+  revision is unused today but stays in the codebase for a future provider without a safe busy
+  path, and its module now also carries the unrelated (but architecturally similar) fallback-notice
+  hold/release machinery below.
+- A steer that Kiro accepted (`queued: true`) but never actually delivered (its own buffer cleared
+  it before the model read it, per `steering_cleared` with no prior `steering_injected`) is
+  redelivered exactly once, right after the turn ends, without a second ACK — whether that
+  redelivery is itself a message notice or an App Inbox one. The same applies if `_session/steer`
+  fails outright (an older/renamed Kiro, `-32601`, or `queued: false`).
+- A fallback notice still held when the Agent's process exits unexpectedly is never silently lost:
+  it is released as soon as the next launch's session is ready, exactly like a held app item.
+- `AgentDeliveryQueue`'s `hold`/`release`/`pending`/`hasQueued`/`setMode`/`queue_until_idle` are
+  unused by any live provider's wiring; they exist so a future provider without a safe busy path,
+  and the error-backoff, 3-strike-fence, crash-restart, and stall-recovery PRs in this series, have
+  one already-reviewed place to attach to instead of adding another ad hoc per-Agent map to
+  `runtime.ts`.
 
 ## Validation and rollback
 
-- `packages/daemon/test/agent-delivery-queue.test.ts`: the queue's own contract in isolation
-  (mode/busy/idle, explicit hold/release, `discardPending` ignoring busy/hold,
-  `holdAppItem`/`releaseAppItems` as a separate id set, `onProcessExit` vs `clearAgent` for both
-  deliveries and app items, per-Agent isolation).
+- `packages/daemon/test/agent-delivery-queue.test.ts`: the queue's own contract in isolation,
+  including the `queue_until_idle` mode itself via the new `setMode` primitive (no live provider
+  reaches it through `setProvider` any more), `discardPending` ignoring busy/hold,
+  `holdAppItem`/`releaseAppItems` and `holdFallbackNotice`/`releaseFallbackNotices` as separate id
+  sets, `onProcessExit` vs `clearAgent` for deliveries/app items/fallback notices, per-Agent
+  isolation.
 - `packages/daemon/test/agent-message-attention-index.test.ts`: the `hold`/`flush` wiring — a held
   delivery updates attention but does not notify/ACK, a coalesced flush notifies once and ACKs
   every held delivery, `flush` with nothing held is a no-op, a not-yet-notified resend while held
-  stays held instead of notifying again, and — the fix in this revision — `receive`, `flush`, and
-  `recover` each mark busy synchronously, provably before the session's own `notify()` call
-  resolves (a controlled, ungated fake `notify` that never settles during the assertion). All prior
-  tests in this file are unchanged and still pass (the new constructor argument defaults to never
-  holding and a no-op `busy`).
-- `packages/daemon/test/daemon-runtime.test.ts` (`describe("Agent delivery queue (ADR 0048)")`): a
-  busy Kiro-mode Agent holds two deliveries and flushes exactly one coalesced notice with both ACKs
-  at turn end; an idle Kiro-mode Agent still delivers immediately; a busy steer-mode (Pi) Agent is
-  delivered to immediately, unchanged; a second delivery decided upon before the runtime has emitted
-  any event still finds the Agent busy (the exact race this revision fixes); an app-item notice
-  while busy is held and released at turn end; a held delivery survives an unexpected exit and is
-  delivered exactly once on the next launch.
+  stays held instead of notifying again, and `receive`, `flush`, and `recover` each mark busy
+  synchronously, provably before the session's own `notify()` call resolves (a controlled, ungated
+  fake `notify` that never settles during the assertion). All prior tests in this file are
+  unchanged and still pass (the new constructor argument defaults to never holding and a no-op
+  `busy`).
+- `packages/daemon/test/daemon-runtime.test.ts` (`describe("Agent delivery queue (ADR 0048)")`,
+  generic fake-session coverage, provider-agnostic): an idle Kiro-mode Agent delivers immediately; a
+  busy Kiro-mode Agent is now also delivered to immediately (steer mode, mirroring Pi); a busy
+  steer-mode (Pi) Agent is delivered to immediately, unchanged; a fallback notice (a provider's
+  `notice-undelivered`) is held and redelivered exactly once at turn end without a second ACK; a
+  fallback notice survives an unexpected exit and is redelivered exactly once on the next launch.
+  The `queue_until_idle` busy-race scenario from the first revision no longer has a live provider to
+  exercise it through `DaemonRuntime`'s public API and is removed from this level; it stays covered
+  in `agent-message-attention-index.test.ts` and `agent-delivery-queue.test.ts`.
+- `packages/daemon/test/kiro-agent-adapter.test.ts` (fixture-driven, `fixtures/kiro-acp.ts` extended
+  with a `_session/steer` case and three keyword scenarios): busy notify steers through
+  `_session/steer` instead of replacing the running turn (rewrite of the old "replaces busy input"
+  test, which tested behavior this ADR revision removes); idle notify still sends an ordinary
+  `session/prompt` even when the text matches a steer-only fixture keyword; `steer-inject-then-clear`
+  produces no `notice-undelivered`; `steer-clear-without-inject` produces exactly one; `-32601` and
+  `queued: false` both reject `notify()` and produce exactly one `notice-undelivered` each, with no
+  spurious `"completed"`.
+- `packages/daemon/test/kiro-native.integration.ts` (opt-in, requires a real authenticated Kiro v3
+  engine — `mise exec -- bun test ./packages/daemon/test/kiro-native.integration.ts`; also fixed an
+  unrelated pre-existing macOS tmpdir-symlink bug that made it fail before even reaching Kiro, using
+  the same `realpathSync(tmpdir())` pattern every other Kiro test file already uses): its last
+  scenario used to send a busy `notify()` and assert the running tool's file write never happened,
+  testing the pre-steer replace-and-cancel behavior; rewritten to send a busy `notify()` with a
+  distinct marker, assert the tool's file write *does* complete (steering never cancels in-flight
+  work) and the completion text contains the steered marker. **Actually run against a real,
+  authenticated kiro-cli 2.22.0 engine on this machine — passed** (`1 pass, 0 fail`, `37.83s`),
+  confirming the implementation end to end, not only in the fixture simulation.
 - `bun run --cwd packages/daemon check` (format/lint/typecheck) and the daemon test suite; see the
   PR body for exact commands and results, including pre-existing unrelated flakiness on this
-  machine.
+  machine, compared against a clean `origin/main` worktree.
 - Rollback is reverting the commit(s): the new constructor arguments on
-  `AgentMessageAttentionIndex` default to today's immediate-notify, no-op-busy behavior, so removing
-  the `AgentDeliveryQueue` wiring and the `#notifyAppItem`/`#recoverAttention` changes in
-  `runtime.ts` is sufficient to fully restore prior behavior.
+  `AgentMessageAttentionIndex` default to today's immediate-notify, no-op-busy behavior, and
+  `AGENT_DELIVERY_MODE[RUNTIME_PROVIDER.KIRO]` is a single-line change back to `queue_until_idle` if
+  `_session/steer` needs to be disabled without reverting the provider code; fully reverting removes
+  the `AgentDeliveryQueue`/`#notifyAppItem`/`#recoverAttention` wiring in `runtime.ts` and the
+  `#steer`/`#update` additions in `kiro/provider.ts`.

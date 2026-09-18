@@ -1353,6 +1353,7 @@ export class DaemonRuntime {
           else {
             this.#flushSurvivingDeliveryQueue(agentId);
             this.#releaseHeldAppItems(agentId);
+            this.#releaseFallbackNotices(agentId);
           }
           return runtime;
         },
@@ -1477,8 +1478,13 @@ export class DaemonRuntime {
     else this.#flushSurvivingDeliveryQueue(agentId);
     // App items (reminders, etc.) are a separate subsystem from canonical Message unread state
     // (`agent-app-inbox/`); `recover()` above never mentions them, so a held one is always
-    // released here regardless of `hasRecoveryContent`, never dropped.
+    // released here regardless of `hasRecoveryContent`, never dropped. A surviving fallback
+    // notice (Kiro's `notice-undelivered`) is treated the same way for the same reason: this
+    // in-memory queue does not know whether the text it held came from a Message delivery
+    // `recover()` already covers or an App Inbox notice it never mentions, so always releasing
+    // it is the only choice that never silently drops one.
     this.#releaseHeldAppItems(agentId);
+    this.#releaseFallbackNotices(agentId);
   }
 
   /** ADR 0048: drops whatever `AgentDeliveryQueue` held for `agentId` across an unexpected exit,
@@ -2125,6 +2131,15 @@ export class DaemonRuntime {
       );
       return;
     }
+    if (event.type === "notice-undelivered") {
+      // ADR 0048: a steer-mode provider accepted this notice but later learned it never reached
+      // the model (Kiro's own steering buffer discarded it, or the steer call itself was never
+      // accepted). Hold the exact text for redelivery once this Agent is next idle — no ACK
+      // bookkeeping here; whatever originally accepted this text already settled its own ACK (or
+      // never had one, for an App Inbox notice).
+      this.#deliveryQueue.holdFallbackNotice(agentId, event.text);
+      return;
+    }
     if (event.type !== "completed") return;
     // ADR 0048: release whatever a queue_until_idle provider held while this turn ran, as one
     // coalesced notice for the next turn — never blocking this turn-end Activity on it.
@@ -2143,6 +2158,7 @@ export class DaemonRuntime {
     // app item correctly re-holds itself (via `#notifyAppItem`'s own `shouldHold` check) for the
     // *next* turn end instead of racing the notice the flush just started sending.
     this.#releaseHeldAppItems(agentId);
+    this.#releaseFallbackNotices(agentId);
     // A turn ending means a still-open compaction is done; report that before the turn's own
     // idle/failed/interrupted Activity.
     if (this.#compactionTracker.finish(agentId) === "finished")
@@ -3417,6 +3433,30 @@ export class DaemonRuntime {
   #releaseHeldAppItems(agentId: string): void {
     for (const itemId of this.#deliveryQueue.releaseAppItems(agentId))
       void this.#notifyAppItem(agentId, itemId).catch(() => {});
+  }
+
+  /**
+   * ADR 0048: redelivers every fallback notice text `AgentDeliveryQueue` held for `agentId`
+   * (Kiro's `notice-undelivered` event) as a bare `session.notify` call — never through
+   * `AgentMessageAttentionIndex`, since the delivery or App Inbox item this text originally came
+   * from already settled its own ACK (or never had one); this call must never produce a second
+   * one. If the Agent has gone busy again by the time this runs (e.g. its own steer of another
+   * held text just started a fresh turn), `notify` steers this one into that turn instead of
+   * losing it.
+   */
+  #releaseFallbackNotices(agentId: string): void {
+    const texts = this.#deliveryQueue.releaseFallbackNotices(agentId);
+    if (!texts.length) return;
+    const session = this.#agentProcessManager.session(agentId);
+    if (!session?.notify) return;
+    for (const text of texts)
+      void session.notify(text).catch((error: unknown) => {
+        logger.warn("A steered notice could not be redelivered after its turn ended", {
+          event: "agent.delivery_queue.fallback_notice_rejected",
+          agent_id: agentId,
+          error_code: error instanceof Error ? error.name : "UnknownError",
+        });
+      });
   }
 
   #agentIdForContext(context: string): string {

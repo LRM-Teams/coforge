@@ -6244,20 +6244,19 @@ describe("Agent delivery queue (ADR 0048)", () => {
     };
   }
 
-  test("a busy Kiro-mode Agent holds deliveries and flushes exactly one coalesced notice at turn end", async () => {
-    const acks = ackGate(2);
+  test("a busy Kiro-mode Agent is delivered to immediately too, now that Kiro is steer mode", async () => {
+    // ADR 0048 (revised): Kiro's own AgentSession.notify steers a running turn through its ACP
+    // `_session/steer` extension instead of replacing it — see kiro-agent-adapter.test.ts for
+    // that provider-level behavior. At the daemon level this fake session stands in for any
+    // steer-mode provider, so `shouldHold` for "kiro" now behaves exactly like "pi" below.
+    const acks = ackGate(1);
     const { fake, deliver } = await deliveryQueueHarness("kiro", acks);
 
-    fake.emit({ type: "progress" }); // the bootstrap turn is running
-    await Promise.all([deliver(1), deliver(2)]);
-    expect(fake.notices).toEqual([]);
-    expect(acks.acks).toEqual([]);
-
-    fake.emit({ type: "completed", status: "completed" });
+    fake.emit({ type: "progress" });
+    await deliver(1);
     await acks.done;
     expect(fake.notices).toHaveLength(1);
-    expect(fake.notices[0]).toContain("2 unread message");
-    expect(acks.acks).toEqual(["delivery-1", "delivery-2"]);
+    expect(acks.acks).toEqual(["delivery-1"]);
   });
 
   test("an idle Kiro-mode Agent still delivers immediately", async () => {
@@ -6281,66 +6280,53 @@ describe("Agent delivery queue (ADR 0048)", () => {
     expect(acks.acks).toEqual(["delivery-1"]);
   });
 
-  test("a delivery decided before any provider event still finds the Agent busy", async () => {
-    const acks = ackGate(2);
+  // The daemon-level queue_until_idle busy-gating race (a delivery decided before the runtime
+  // emits any event) has no live provider to exercise it through DaemonRuntime's public API any
+  // more (Kiro moved to steer — see above); it stays covered at the unit level in
+  // agent-message-attention-index.test.ts ("marks busy synchronously … before the session
+  // accepts it") and agent-delivery-queue.test.ts ("a queue_until_idle mode only holds while
+  // busy", via the new setMode primitive that exists for exactly this).
+
+  test("a fallback notice (steer could not deliver it) is held and redelivered once at turn end, without a second ACK", async () => {
+    // ADR 0048 (revised): a steer-mode provider's own notify() can accept a notice and later
+    // learn it never actually reached the model - Kiro's own ACP `steering_cleared` without a
+    // prior `steering_injected`, or `_session/steer` failing outright (kiro-agent-adapter.test.ts
+    // covers when Kiro itself emits this). At the daemon level, `notice-undelivered` is a plain
+    // AgentRuntimeEvent any provider can raise; this fake session raises it directly to prove the
+    // daemon's own hold-and-redeliver-once-idle side, independent of Kiro's wire protocol.
+    const acks = ackGate(1);
     const { fake, deliver } = await deliveryQueueHarness("kiro", acks);
 
-    // Idle -> delivered immediately, and this alone must mark the Agent busy (ADR 0048) even
-    // though the runtime has not emitted a single event yet - this is exactly the race that used
-    // to cancel Kiro's running turn.
-    await deliver(1);
-    expect(fake.notices).toHaveLength(1);
+    await deliver(1); // ordinary idle delivery, ACKed immediately and unrelated to the fallback
+    await acks.done;
+    const delivered = fake.notices.length;
+    expect(acks.acks).toEqual(["delivery-1"]);
 
-    await deliver(2);
-    expect(fake.notices).toHaveLength(1); // #2 is held, not a second notice
+    fake.emit({ type: "notice-undelivered", text: "STEERED-BUT-NEVER-INJECTED" });
+    expect(fake.notices).toHaveLength(delivered); // held, not sent yet
 
     fake.emit({ type: "completed", status: "completed" });
-    await acks.done;
-    expect(fake.notices).toHaveLength(2);
-    expect(acks.acks).toEqual(["delivery-1", "delivery-2"]);
-  });
-
-  test("an app-item notice while busy is held and released at turn end", async () => {
-    const stateDirectory = join(tempRoot, `coforge-delivery-queue-app-item-${crypto.randomUUID()}`);
-    const { runtime, fake } = await deliveryQueueHarness("kiro", ackGate(0), stateDirectory);
-    try {
-      fake.emit({ type: "progress" }); // busy
-      await runtime.mintAppItem("agent-a", {
-        appId: "system.reminder",
-        notificationClass: "due",
-        sourceRef: { kind: "reminder", id: "123e4567-e89b-42d3-a456-426614174000", revision: "1" },
-        title: "Due",
-        summary: "Now",
-      });
-      expect(fake.notices).toEqual([]); // held while busy, not sent
-
-      fake.emit({ type: "completed", status: "completed" });
-      await fake.waitForNotices(1);
-      expect(fake.notices).toEqual(["New app item available. Run coforge inbox check."]);
-    } finally {
-      await runtime.stop();
-      await rm(stateDirectory, { recursive: true, force: true });
-    }
-  });
-
-  test("a held delivery survives an unexpected exit and is delivered exactly once on the next launch", async () => {
-    const acks = ackGate(1);
-    const { runtime, fake, deliver } = await deliveryQueueHarness("kiro", acks);
-
-    fake.emit({ type: "progress" }); // busy
-    await deliver(1);
-    expect(fake.notices).toEqual([]);
-    expect(acks.acks).toEqual([]);
-
-    fake.exit(); // an unexpected exit while the delivery is still held, unacked
-
-    // The next launch of the same Agent: a plain start, no recovery context, so nothing else
-    // tells the Agent about it - the surviving held delivery must be flushed once this launch's
-    // session is ready, treated as idle.
-    await runtime.startAgent("agent-a", { ...config, provider: "kiro" });
-    await acks.done;
-    expect(fake.notices).toHaveLength(1);
+    await fake.waitForNotices(delivered + 1);
+    expect(fake.notices.at(-1)).toBe("STEERED-BUT-NEVER-INJECTED");
+    // Redelivery is a bare notify(), never routed through AgentMessageAttentionIndex - no new ACK.
     expect(acks.acks).toEqual(["delivery-1"]);
+  });
+
+  test("a fallback notice survives an unexpected exit and is redelivered exactly once on the next launch", async () => {
+    const acks = ackGate(0);
+    const { runtime, fake } = await deliveryQueueHarness("kiro", acks);
+
+    fake.emit({ type: "notice-undelivered", text: "STEERED-BUT-NEVER-INJECTED" });
+    expect(fake.notices).toEqual([]);
+
+    fake.exit(); // an unexpected exit while the fallback notice is still held
+
+    // The next launch of the same Agent: a plain start, no recovery context (fallback notices
+    // are never dropped as "covered by recover" - a message-delivery notice might be, but this
+    // in-memory queue cannot tell the two apart, so it always redelivers - see runtime.ts).
+    await runtime.startAgent("agent-a", { ...config, provider: "kiro" });
+    await fake.waitForNotices(1);
+    expect(fake.notices).toEqual(["STEERED-BUT-NEVER-INJECTED"]);
   });
 });
 

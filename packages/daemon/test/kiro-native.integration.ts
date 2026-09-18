@@ -1,6 +1,7 @@
 // Opt-in: mise exec -- bun test ./packages/daemon/test/kiro-native.integration.ts
 // Requires a user-installed, authenticated Kiro v3 engine; consumes provider usage.
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +10,12 @@ import { KiroProvider } from "../src/code-agent/kiro/provider";
 import { discoverKiroCatalog } from "../src/code-agent/kiro/catalog";
 import { KIRO_ACP_ARGS } from "../src/code-agent/kiro/connection";
 
-test("native Kiro v3 instructions, permissions, recovery and busy admission", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "coforge-kiro-native-"));
+// macOS tmpdir lives under /var, a symlink; the Kiro provider rejects a linked
+// agent profile directory (comparing realpath to the literal resolved path).
+const tempRoot = realpathSync(tmpdir());
+
+test("native Kiro v3 instructions, permissions, recovery and busy steering", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "coforge-kiro-native-"));
   let session: AgentSession | undefined;
   let completed = Promise.withResolvers<string>();
   let tool = Promise.withResolvers<void>();
@@ -57,20 +62,24 @@ test("native Kiro v3 instructions, permissions, recovery and busy admission", as
     );
     expect(await completed.promise).toBe("completed");
     expect(text).toContain("VIOLET-683");
+    // ADR 0048: notify() while busy steers the live turn through Kiro's own ACP
+    // `_session/steer` extension instead of replacing it with a new prompt — the running tool
+    // keeps running (steering never cancels in-flight work; only interrupt() does that), and the
+    // steered text reaches the model at its next boundary.
     completed = Promise.withResolvers<string>();
     tool = Promise.withResolvers<void>();
     text = "";
     await session.notify!(
-      "Run sleep 30; printf OLD > delayed-marker.txt in the foreground shell now, and wait for completion.",
+      "Run sleep 8; printf DONE > delayed-marker.txt in the foreground shell now, and wait for completion.",
     );
     await tool.promise;
     await session.notify!(
-      "Cancel the previous work. Do not use tools. Reply exactly REPLACED-719.",
+      "Remember the steered marker EMBER-042 and mention it once the shell command finishes.",
     );
     expect(await completed.promise).toBe("completed");
-    expect(text).toContain("REPLACED-719");
+    expect(text).toContain("EMBER-042");
     await session.dispose();
-    expect(await Bun.file(join(cwd, "delayed-marker.txt")).exists()).toBe(false);
+    expect(await Bun.file(join(cwd, "delayed-marker.txt")).text()).toBe("DONE");
   } finally {
     await session?.dispose();
     await rm(cwd, { recursive: true, force: true });

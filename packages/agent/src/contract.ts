@@ -125,7 +125,16 @@ export type AgentRuntimeEvent =
       occurredAt?: string;
     }
   /** The provider is reconnecting to its upstream after a transient disconnect. */
-  | { type: "reconnecting"; attempt?: number; message?: string };
+  | { type: "reconnecting"; attempt?: number; message?: string }
+  /**
+   * A steer-mode provider accepted a notice into the live turn (`notify` resolved), but later
+   * learned it never actually reached the model — a native steer request the provider's own
+   * turn-boundary protocol failed to admit, or a queued one its native buffer discarded before
+   * injecting. `text` is the exact notice text `notify` was given; the daemon core is the only
+   * one that decides whether and how to redeliver it (ADR 0048's daemon-owned delivery queue) —
+   * the provider does not retry on its own and does not know about ACK/attention state.
+   */
+  | { type: "notice-undelivered"; text: string };
 export interface AgentSession {
   sendMessage(message: string): Promise<void>;
   readSessionIdentity?(): Promise<AgentSessionIdentity | undefined>;

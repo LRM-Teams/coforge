@@ -5,26 +5,28 @@ import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
  * How a provider's session accepts a delivery notice while a turn is already in progress.
  * - `steer`: the provider's own `AgentSession.notify()` safely handles busy delivery on its own
  *   (Claude holds it for a native boundary, Codex sends `turn/steer`, Pi/CoForge steer the live
- *   stream, Cursor queues text for its own next per-turn process) without losing the turn in
- *   progress. The daemon keeps calling `notify()` as soon as a delivery is accepted, exactly as
- *   before this module existed.
- * - `queue_until_idle`: the provider's `notify()` has no safe busy path — sending it mid-turn
- *   starts a brand-new prompt and ends the running one (observed for Kiro's ACP `session/prompt`,
- *   2026-09-18). This module holds the notice at the daemon layer instead, until the Agent is
- *   next idle.
+ *   stream, Cursor queues text for its own next per-turn process, Kiro sends its own ACP
+ *   `_session/steer` extension) without losing the turn in progress. The daemon keeps calling
+ *   `notify()` as soon as a delivery is accepted, exactly as before this module existed.
+ * - `queue_until_idle`: the provider's `notify()` has no safe busy path at all — sending it
+ *   mid-turn starts a brand-new prompt and ends the running one. No provider is in this mode
+ *   today (Kiro moved to `steer` once its own `_session/steer` extension was wired in); the mode
+ *   and the daemon-level hold/flush machinery it drives stay in place for a future provider that
+ *   needs it, and as the seam `notice-undelivered`'s fallback redelivery reuses (see
+ *   `holdFallbackNotice`/`releaseFallbackNotices` below).
  */
 export type AgentDeliveryMode = "steer" | "queue_until_idle";
 
 /** Scope decision (ADR 0048): moving Claude/Codex/Pi steering into the daemon itself, so this
  * table could eventually replace every provider's own busy handling, is a later cleanup. This PR
- * only gates the providers that have no safe busy path today. */
+ * only gates the providers that have no safe busy path today — none, right now. */
 export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDeliveryMode>> = {
   [RUNTIME_PROVIDER.COFORGE]: "steer",
   [RUNTIME_PROVIDER.PI]: "steer",
   [RUNTIME_PROVIDER.CODEX]: "steer",
   [RUNTIME_PROVIDER.CLAUDE_CODE]: "steer",
   [RUNTIME_PROVIDER.CURSOR]: "steer",
-  [RUNTIME_PROVIDER.KIRO]: "queue_until_idle",
+  [RUNTIME_PROVIDER.KIRO]: "steer",
 };
 
 /**
@@ -48,6 +50,12 @@ export class AgentDeliveryQueue {
    * app-inbox-owned notice, not an `AgentMessageDelivery`; kept apart from `#held` so the two
    * domains' storage never mixes. */
   readonly #heldAppItems = new Map<string, Set<string>>();
+  /** Fallback notice text held for redelivery after a `steer` provider's own busy-delivery
+   * protocol accepted a notice (`notify` resolved) but later learned it never actually reached
+   * the model (ADR 0048's `notice-undelivered` event) — raw text, not an `AgentMessageDelivery`,
+   * since the original delivery this text came from was already ACKed (or never had one, for an
+   * App Inbox notice); redelivering it must never touch ACK bookkeeping again. */
+  readonly #heldFallbackNotices = new Map<string, string[]>();
   /** An explicit hold from `hold()`, keyed by Agent; its value is an opaque marker a later PR
    * interprets (e.g. a backoff deadline). Presence alone means "held", regardless of busy/idle. */
   readonly #explicitHolds = new Map<string, unknown>();
@@ -55,7 +63,18 @@ export class AgentDeliveryQueue {
   /** Records which delivery mode this Agent's current launch uses; call at every launch, since a
    * runtime config change (or a provider switch) can change it. */
   setProvider(agentId: string, provider: RuntimeProvider): void {
-    this.#mode.set(agentId, AGENT_DELIVERY_MODE[provider]);
+    this.setMode(agentId, AGENT_DELIVERY_MODE[provider]);
+  }
+
+  /**
+   * The lower-level primitive `setProvider` calls through `AGENT_DELIVERY_MODE`. No
+   * `RuntimeProvider` maps to `queue_until_idle` today (Kiro moved to `steer` once its own
+   * `_session/steer` extension was wired in — ADR 0048), so this is also the only way to
+   * exercise that mode's gating directly, for a future provider that needs it and for this
+   * module's own tests.
+   */
+  setMode(agentId: string, mode: AgentDeliveryMode): void {
+    this.#mode.set(agentId, mode);
   }
 
   /** Marks the Agent's runtime as mid-turn. Only `queue_until_idle` providers gate on this. */
@@ -129,6 +148,24 @@ export class AgentDeliveryQueue {
     return items ? [...items] : [];
   }
 
+  /** Records a notice's text for redelivery once this Agent is next idle (ADR 0048,
+   * `notice-undelivered`). Order is not meaningful here (unlike `enqueue`'s deliveries) — each
+   * text is redelivered as its own independent `notify` call, never coalesced. */
+  holdFallbackNotice(agentId: string, text: string): void {
+    const list = this.#heldFallbackNotices.get(agentId) ?? [];
+    list.push(text);
+    this.#heldFallbackNotices.set(agentId, list);
+  }
+
+  /** Drains and returns the fallback notice texts held for the Agent — unconditionally, like
+   * `discardPending`/`releaseAppItems`; the caller (`DaemonRuntime`) only calls this once the
+   * Agent is genuinely idle (turn end), and redelivers each text as an ordinary `notify` call. */
+  releaseFallbackNotices(agentId: string): string[] {
+    const texts = this.#heldFallbackNotices.get(agentId);
+    this.#heldFallbackNotices.delete(agentId);
+    return texts ?? [];
+  }
+
   /**
    * Explicit hold seam for later PRs (error backoff, the 3-strike fence, stall recovery): while
    * held, `shouldHold` is true regardless of busy/idle state. `until` is an opaque marker a later
@@ -148,19 +185,20 @@ export class AgentDeliveryQueue {
   }
 
   /** An unexpected process exit: the running turn is gone, so busy no longer applies, but
-   * anything held (deliveries and app items alike) stays held for the next launch (ADR 0048) —
-   * only explicit Stop (`clearAgent`) discards it. */
+   * anything held (deliveries, app items, and fallback notices alike) stays held for the next
+   * launch (ADR 0048) — only explicit Stop (`clearAgent`) discards it. */
   onProcessExit(agentId: string): void {
     this.#busy.delete(agentId);
   }
 
-  /** Explicit Stop: discards this Agent's held deliveries and app items along with the rest of
-   * its state. */
+  /** Explicit Stop: discards this Agent's held deliveries, app items, and fallback notices along
+   * with the rest of its state. */
   clearAgent(agentId: string): void {
     this.#mode.delete(agentId);
     this.#busy.delete(agentId);
     this.#held.delete(agentId);
     this.#heldAppItems.delete(agentId);
+    this.#heldFallbackNotices.delete(agentId);
     this.#explicitHolds.delete(agentId);
   }
 

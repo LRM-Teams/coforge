@@ -16,9 +16,12 @@ const delivery = (id: string): AgentMessageDelivery => ({
   target: "@ada",
 });
 
-test("a queue_until_idle provider only holds while busy", () => {
+test("a queue_until_idle mode only holds while busy", () => {
+  // No RuntimeProvider maps to queue_until_idle today (ADR 0048: Kiro moved to steer once its
+  // own _session/steer extension was wired in); setMode exercises the mode directly, since
+  // setProvider alone cannot reach it any more.
   const queue = new AgentDeliveryQueue();
-  queue.setProvider("agent-1", "kiro");
+  queue.setMode("agent-1", "queue_until_idle");
   expect(queue.shouldHold("agent-1")).toBe(false);
   queue.busy("agent-1");
   expect(queue.shouldHold("agent-1")).toBe(true);
@@ -29,7 +32,7 @@ test("a queue_until_idle provider only holds while busy", () => {
 
 test("a steer provider never holds, even while busy", () => {
   const queue = new AgentDeliveryQueue();
-  for (const provider of ["pi", "codex", "claude-code", "cursor", "coforge"] as const) {
+  for (const provider of ["pi", "codex", "claude-code", "cursor", "coforge", "kiro"] as const) {
     queue.setProvider("agent-1", provider);
     queue.busy("agent-1");
     expect(queue.shouldHold("agent-1")).toBe(false);
@@ -39,7 +42,7 @@ test("a steer provider never holds, even while busy", () => {
 
 test("idle drains everything enqueued while busy, oldest first", () => {
   const queue = new AgentDeliveryQueue();
-  queue.setProvider("agent-1", "kiro");
+  queue.setMode("agent-1", "queue_until_idle");
   queue.busy("agent-1");
   queue.enqueue("agent-1", delivery("one"));
   queue.enqueue("agent-1", delivery("two"));
@@ -71,7 +74,7 @@ test("an explicit hold gates delivery independent of busy/idle and blocks idle d
 
 test("release while still busy clears the explicit hold but does not drain", () => {
   const queue = new AgentDeliveryQueue();
-  queue.setProvider("agent-1", "kiro");
+  queue.setMode("agent-1", "queue_until_idle");
   queue.busy("agent-1");
   queue.hold("agent-1");
   queue.enqueue("agent-1", delivery("one"));
@@ -84,7 +87,7 @@ test("release while still busy clears the explicit hold but does not drain", () 
 
 test("an unexpected process exit clears busy but keeps what was held for the next launch", () => {
   const queue = new AgentDeliveryQueue();
-  queue.setProvider("agent-1", "kiro");
+  queue.setMode("agent-1", "queue_until_idle");
   queue.busy("agent-1");
   queue.enqueue("agent-1", delivery("one"));
   queue.onProcessExit("agent-1");
@@ -96,7 +99,7 @@ test("an unexpected process exit clears busy but keeps what was held for the nex
 
 test("an explicit Stop discards everything held, unlike an unexpected exit", () => {
   const queue = new AgentDeliveryQueue();
-  queue.setProvider("agent-1", "kiro");
+  queue.setMode("agent-1", "queue_until_idle");
   queue.busy("agent-1");
   queue.enqueue("agent-1", delivery("one"));
   queue.clearAgent("agent-1");
@@ -107,7 +110,7 @@ test("an explicit Stop discards everything held, unlike an unexpected exit", () 
 
 test("discardPending unconditionally drains, ignoring busy and an explicit hold", () => {
   const queue = new AgentDeliveryQueue();
-  queue.setProvider("agent-1", "kiro");
+  queue.setMode("agent-1", "queue_until_idle");
   queue.busy("agent-1");
   queue.hold("agent-1");
   queue.enqueue("agent-1", delivery("one"));
@@ -121,7 +124,7 @@ test("discardPending unconditionally drains, ignoring busy and an explicit hold"
 
 test("holdAppItem/releaseAppItems track app-item ids separately from the message queue", () => {
   const queue = new AgentDeliveryQueue();
-  queue.setProvider("agent-1", "kiro");
+  queue.setMode("agent-1", "queue_until_idle");
   queue.holdAppItem("agent-1", "item-1");
   queue.holdAppItem("agent-1", "item-2");
   // Re-holding the same id is idempotent.
@@ -135,7 +138,7 @@ test("holdAppItem/releaseAppItems track app-item ids separately from the message
 
 test("an unexpected exit keeps held app items; explicit Stop discards them", () => {
   const queue = new AgentDeliveryQueue();
-  queue.setProvider("agent-1", "kiro");
+  queue.setMode("agent-1", "queue_until_idle");
   queue.holdAppItem("agent-1", "item-1");
   queue.onProcessExit("agent-1");
   expect(queue.releaseAppItems("agent-1")).toEqual(["item-1"]);
@@ -147,8 +150,8 @@ test("an unexpected exit keeps held app items; explicit Stop discards them", () 
 
 test("per-Agent state is independent", () => {
   const queue = new AgentDeliveryQueue();
-  queue.setProvider("agent-1", "kiro");
-  queue.setProvider("agent-2", "kiro");
+  queue.setMode("agent-1", "queue_until_idle");
+  queue.setMode("agent-2", "queue_until_idle");
   queue.busy("agent-1");
   queue.enqueue("agent-1", delivery("one"));
   expect(queue.shouldHold("agent-2")).toBe(false);
