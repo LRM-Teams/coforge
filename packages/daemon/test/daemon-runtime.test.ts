@@ -5053,6 +5053,7 @@ describe("DaemonRuntime", () => {
       await credentials.save(connection.workspaceId, connection.computerId, "token-a");
       const invalidations: import("@lrm/coforge-sdk/internal").AgentSessionInvalidate[] = [];
       const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+      const notices: string[] = [];
       let attempts = 0;
       const runtime = new DaemonRuntime(
         connection,
@@ -5061,7 +5062,12 @@ describe("DaemonRuntime", () => {
           async createAgentSession(options) {
             attempts++;
             if (options.sessionId) throw new AgentSessionRecoveryError(code);
-            return sessionSpy();
+            return {
+              ...sessionSpy(),
+              async notify(notice: string) {
+                notices.push(notice);
+              },
+            };
           },
         }),
         credentials,
@@ -5115,6 +5121,9 @@ describe("DaemonRuntime", () => {
         expect(
           activities.filter((activity) => activity.detailKind === "runtime_unavailable"),
         ).toHaveLength(1);
+        // The fresh session the retry creates opens with the startup turn.
+        await Bun.sleep(10);
+        expect(notices).toEqual([AGENT_STARTUP_TURN_TEXT]);
       } finally {
         await runtime.stop();
         await rm(stateDirectory, { recursive: true, force: true });
