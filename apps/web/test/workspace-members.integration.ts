@@ -108,6 +108,7 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           name: "assigned",
           displayName: "Assigned Agent",
           description: "Runs on the owner workstation",
+          computerId: computer.id,
           computerName: "Owner workstation",
         },
         {
@@ -115,6 +116,7 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           name: "unassigned",
           displayName: "Unassigned Agent",
           description: "Has no Computer",
+          computerId: null,
           computerName: null,
         },
       ],

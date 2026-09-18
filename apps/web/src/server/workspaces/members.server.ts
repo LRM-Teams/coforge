@@ -41,6 +41,7 @@ export class WorkspaceMembers {
           description: true,
           computer: {
             select: {
+              id: true,
               name: true,
               displayName: true,
               workspaces: {
@@ -68,6 +69,7 @@ export class WorkspaceMembers {
         name: agent.name,
         displayName: agent.displayName.trim() || agent.name,
         description: agent.description,
+        computerId: agent.computer?.workspaces.length ? agent.computer.id : null,
         computerName: agent.computer?.workspaces.length
           ? agent.computer.displayName.trim() || agent.computer.name.trim()
           : null,

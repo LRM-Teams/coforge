@@ -302,10 +302,10 @@ export const updateAgentRole = createServerFn({ method: "POST" })
   );
 
 /**
- * Shared by `getAgentDetail` (the full Agent detail page) and `getAgentProfile` (the
- * conversation-panel seam): identity, permissions, live display, runtime config summary and
- * Activity. Neither caller runs `listComputers`/`getUserPreferences` — those stay owned by the
- * route loaders that actually need a Computer picker or a User's time zone preference.
+ * Backs `getAgentProfile`, the one seam the Members page and every conversation panel share:
+ * identity, permissions, live display, runtime config summary and Activity. Does not run
+ * `listComputers`/`getUserPreferences` — those stay owned by the route loaders that actually need
+ * a Computer picker or a User's time zone preference.
  */
 async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: string) {
   const { user, db, workspaceId } = context;
@@ -407,19 +407,10 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
   };
 }
 
-export const getAgentDetail = createServerFn({ method: "GET" })
-  .middleware([workspaceUserMiddleware])
-  .validator(agentIdSchema)
-  .handler(async ({ data: agentId, context }) => {
-    const result = await loadAgentProfileDetail(context, agentId);
-    if (!result) throw new Error("Agent not found");
-    setResponseHeader("cache-control", "no-store");
-    return result;
-  });
-
-/** The Agent profile side panel's data seam (see `features/agents/profile-panel/`): the same
- * identity/permissions/runtime-config/Activity payload as `getAgentDetail`, under its own
- * function and query key so the panel never depends on the full page's route loader. */
+/** The Agent profile panel's data seam (see `features/agents/profile-panel/`): the Members page
+ * and every conversation panel share this one query, so there is no separate full-page detail
+ * loader any more (the old `/agents/$agentId` full page and its `getAgentDetail` were folded into
+ * this panel when the Members page became a list + `AgentProfilePanel` layout). */
 export const getAgentProfile = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)

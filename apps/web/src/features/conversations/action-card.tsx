@@ -241,7 +241,7 @@ export function ActionCard({ card }: { card: ActionCardView }) {
               <Link
                 to="/agents/$agentId"
                 params={{ agentId: view.result.agentId }}
-                search={{ tab: "profile", edit: false }}
+                search={{ agentTab: "profile" }}
                 className="text-brand-secondary hover:underline"
               >
                 {view.name}

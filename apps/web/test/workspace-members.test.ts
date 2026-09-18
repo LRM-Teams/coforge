@@ -54,6 +54,7 @@ describe("WorkspaceMembers", () => {
               ownerId: "another-user",
               runtimeConfig: { apiKey: "private" },
               computer: {
+                id: "office-mac-id",
                 name: "office-mac",
                 displayName: "  Team workstation  ",
                 workspaces: [{ id: "workspace-computer" }],
@@ -65,7 +66,7 @@ describe("WorkspaceMembers", () => {
               displayName: "Reviewer",
               description: "Reviews changes",
               ownerId: "another-user",
-              computer: { name: "other-workspace-machine", workspaces: [] },
+              computer: { id: "other-machine-id", name: "other-workspace-machine", workspaces: [] },
             },
           ];
         },
@@ -92,6 +93,7 @@ describe("WorkspaceMembers", () => {
         description: true,
         computer: {
           select: {
+            id: true,
             name: true,
             displayName: true,
             workspaces: {
@@ -120,6 +122,7 @@ describe("WorkspaceMembers", () => {
           name: "builder",
           displayName: "builder",
           description: "Builds releases",
+          computerId: "office-mac-id",
           computerName: "Team workstation",
         },
         {
@@ -127,6 +130,7 @@ describe("WorkspaceMembers", () => {
           name: "reviewer",
           displayName: "Reviewer",
           description: "Reviews changes",
+          computerId: null,
           computerName: null,
         },
       ],

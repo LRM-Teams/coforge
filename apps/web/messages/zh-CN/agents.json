@@ -202,5 +202,9 @@
   "agent_profile_loading": "正在加载资料…",
   "agent_role_admin": "管理员",
   "agent_role_member": "成员",
-  "agent_profile_resize": "调整资料面板宽度"
+  "agent_profile_resize": "调整资料面板宽度",
+  "member_agents_section": "智能体 {count}",
+  "member_humans_section": "成员 {count}",
+  "members_select_prompt_title": "选择一个成员",
+  "members_select_prompt_description": "从列表中选择一个智能体以查看其资料。"
 }

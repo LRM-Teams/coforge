@@ -202,5 +202,9 @@
   "agent_profile_loading": "Loading profile…",
   "agent_role_admin": "Admin",
   "agent_role_member": "Member",
-  "agent_profile_resize": "Resize profile"
+  "agent_profile_resize": "Resize profile",
+  "member_agents_section": "Agents {count}",
+  "member_humans_section": "Humans {count}",
+  "members_select_prompt_title": "Select a member",
+  "members_select_prompt_description": "Choose an Agent from the list to see its profile."
 }
