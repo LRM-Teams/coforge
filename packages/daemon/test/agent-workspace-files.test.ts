@@ -171,16 +171,16 @@ test("Workspace File read detects binary content by a NUL byte in the first 8KB"
   }
 });
 
-test("Workspace File read refuses a file over the 512KiB text cap", async () => {
+test("Workspace File read refuses a file over the 1MiB text cap", async () => {
   const root = await mkdtemp(join(tempRoot, "workspace-files-large-"));
   try {
-    const content = "a".repeat(512 * 1024 + 1);
+    const content = "a".repeat(1024 * 1024 + 1);
     await Bun.write(join(root, "big.txt"), content);
 
     const result = await readAgentWorkspaceFile({ agentWorkspaceDirectory: root, path: "big.txt" });
     expect(result.status).toBe("too_large");
     expect(result.text).toBe("");
-    expect(result.sizeBytes).toBe(512 * 1024 + 1);
+    expect(result.sizeBytes).toBe(1024 * 1024 + 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

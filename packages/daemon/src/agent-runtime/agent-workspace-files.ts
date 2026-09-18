@@ -23,7 +23,9 @@ export type AgentWorkspaceFileReadOutcome = {
   text: string;
 };
 
-const MAX_TEXT_BYTES = 512 * 1024;
+// Must stay under Centrifugo's websocket.message_size_limit (infra/*/centrifugo/config.yaml):
+// the whole text travels in one RPC message.
+const MAX_TEXT_BYTES = 1024 * 1024;
 const SNIFF_BYTES = 8192;
 // Directory names a workspace browse must never surface, matching the runtime's own reserved
 // storage (packages/agent/src/paths.ts). Resolved through the package's exported helpers rather
