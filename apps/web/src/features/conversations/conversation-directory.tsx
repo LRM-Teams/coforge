@@ -2,9 +2,8 @@ import { Hash01 as Hash } from "@untitledui/icons";
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
-import { Avatar } from "@/components/base/avatar/avatar";
+import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "@/features/agents/workspace-agents-realtime";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
 
@@ -114,13 +113,7 @@ export function ConversationDirectory({
                 target={{ agentId: agent.id }}
                 current={agent.id === selectedAgentId}
                 icon={
-                  <Avatar
-                    size="xs"
-                    alt={agent.displayName}
-                    initials={avatarInitial(agent.displayName)}
-                    contentClassName={avatarToneClassName(agent.displayName)}
-                    status={agent.status.value === "active" ? "online" : "offline"}
-                  />
+                  <AgentDisplayAvatar name={agent.displayName} display={agent.display} size="xs" />
                 }
               >
                 {agent.displayName}
