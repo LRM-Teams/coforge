@@ -1,11 +1,12 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { useEffect } from "react";
 import { z } from "zod";
 
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { AgentsContent } from "@/features/agents/agents-content";
 import { AgentsPending } from "@/features/agents/agents-pending";
-import { createAgent } from "@/features/agents/agents.functions";
+import { createAgent, ensureWeeklyReportAssistantMember } from "@/features/agents/agents.functions";
 import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
 import { inviteWorkspaceMember } from "@/features/workspaces/members.functions";
@@ -24,8 +25,14 @@ export const Route = createFileRoute("/_app/agents/")({
   }),
   // The Agent list itself comes from the layout loader and stays live there.
   loader: async () => {
-    const [computers, directory] = await Promise.all([listComputers(), listWorkspaceMembers()]);
-    return { computers, directory };
+    // Members is where Users configure the weekly-report assistant; ensure it exists here
+    // (not in the global `_app` listAgents loader, which must stay failure-isolated).
+    const [assistant, computers, directory] = await Promise.all([
+      ensureWeeklyReportAssistantMember(),
+      listComputers(),
+      listWorkspaceMembers(),
+    ]);
+    return { computers, directory, weeklyReportAssistantAgentId: assistant.agentId };
   },
   pendingMs: 300,
   pendingMinMs: 0,
@@ -35,7 +42,7 @@ export const Route = createFileRoute("/_app/agents/")({
 });
 
 function AgentsPage() {
-  const { computers, directory } = Route.useLoaderData();
+  const { computers, directory, weeklyReportAssistantAgentId } = Route.useLoaderData();
   const { memberType, profile, agentTab } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -43,6 +50,14 @@ function AgentsPage() {
   const loadRuntimeCatalog = useServerFn(getComputerRuntimeCatalog);
   const invite = useServerFn(inviteWorkspaceMember);
   const visibleAgents = useLiveAgents();
+
+  // Refresh the shell Agent list once so a just-ensured weekly-report assistant appears.
+  useEffect(() => {
+    if (!weeklyReportAssistantAgentId) return;
+    if (visibleAgents.some((agent) => agent.id === weeklyReportAssistantAgentId)) return;
+    void router.invalidate({ sync: true });
+  }, [weeklyReportAssistantAgentId, visibleAgents, router]);
+
   return (
     <AgentsContent
       directory={directory}

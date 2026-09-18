@@ -64,6 +64,16 @@ description: >-
 
 - Draft body text that preserves the template section structure when relevant.
 - Keep attributions and source report identities when summarizing others.
+- When the platform wakes you with a \`[weekly-report-key-points]\` turn after a
+  member submits their report, extract personal key points using the prompt in
+  that wake text. Read the member report sections as needed, then write the
+  markdown result with:
+
+\`\`\`
+coforge weekly-report-key-points submit --report-id <uuid> --request-id <uuid> --markdown <file>
+\`\`\`
+
+  Do **not** use a \`body-edit\` Confirm envelope for this write-back.
 - When the platform wakes you after a Collect Run with ready packs and a slot
   status board, synthesize from those packs plus the template outline into a
   body-edit suggestion for the current member report. Do not re-scan the OS.

@@ -550,10 +550,16 @@ export class RecordCatalog {
           sections: input.sections,
         });
       }
-      await this.db.weeklyReport.update({
+      const current = await this.db.weeklyReport.findFirst({
         where: { id: linked.id },
-        data: { title: input.settingsName },
+        select: { title: true },
       });
+      if (current && current.title !== input.settingsName) {
+        await this.db.weeklyReport.update({
+          where: { id: linked.id },
+          data: { title: input.settingsName },
+        });
+      }
       return linked;
     }
 
@@ -589,10 +595,24 @@ export class RecordCatalog {
       userId: input.userId,
       now: input.now,
     });
-    const content =
+    const baseContent =
       input.sections && input.sections.length > 0
         ? reportContentFromSections(input.sections)
         : emptyReportContent();
+    const prior = await this.db.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+        settingsId: input.settingsId,
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { content: true },
+    });
+    const priorPrompts = prior ? asReportContent(prior.content).keyPointPrompts : undefined;
+    const content = priorPrompts
+      ? { ...baseContent, keyPointPrompts: priorPrompts }
+      : baseContent;
     const created = await this.db.weeklyReport.create({
       data: {
         workspaceId: input.workspaceId,
@@ -1606,6 +1626,7 @@ export class RecordCatalog {
         id: true,
         authorId: true,
         kind: true,
+        status: true,
         settingsId: true,
         content: true,
         cycle: { select: { year: true, week: true } },
@@ -1625,6 +1646,12 @@ export class RecordCatalog {
     let content = normalizeReportContent(input.content);
     if (stored.schedule && !content.schedule) {
       content = { ...content, schedule: stored.schedule };
+    }
+    if (stored.keyPointPrompts && !content.keyPointPrompts) {
+      content = { ...content, keyPointPrompts: stored.keyPointPrompts };
+    }
+    if (stored.keyPointExtraction && !content.keyPointExtraction) {
+      content = { ...content, keyPointExtraction: stored.keyPointExtraction };
     }
     const now = input.now ?? new Date();
     const week = report.cycle ?? currentIsoWeek(zonedCalendarDate(now));
@@ -1712,6 +1739,25 @@ export class RecordCatalog {
       }
     }
 
+    // Member first submit/share → Leader personal key-point extraction (LLM).
+    if (
+      report.kind === "member" &&
+      input.status &&
+      (input.status === "submitted" || input.status === "shared") &&
+      report.status !== "submitted" &&
+      report.status !== "shared"
+    ) {
+      try {
+        const { startPersonalKeyPointExtraction } = await import("./weekly-report-key-points.server");
+        await startPersonalKeyPointExtraction(this.db, {
+          workspaceId: input.workspaceId,
+          memberReportId: report.id,
+        });
+      } catch {
+        // Extraction is best-effort; member submit must still succeed.
+      }
+    }
+
     return {
       id: updated.id,
       status: updated.status,
@@ -1769,6 +1815,153 @@ export class RecordCatalog {
         displayName: row.user.displayName ?? row.user.username,
       })),
     }));
+  }
+
+  /**
+   * Leader-owned team/personal key-point prompts (stored on a live format document).
+   * Uses the newest applied settings stream, else the newest owned settings row.
+   */
+  async loadKeyPointPrompts(input: { workspaceId: string; userId: string }) {
+    const { emptyKeyPointPrompts } = await import("../../features/records/records-content");
+    const format = await this.resolvePromptFormatDoc(input);
+    if (!format) return emptyKeyPointPrompts();
+    return asReportContent(format.content).keyPointPrompts ?? emptyKeyPointPrompts();
+  }
+
+  async saveKeyPointPrompts(input: {
+    workspaceId: string;
+    userId: string;
+    slot: "team" | "personal";
+    text: string;
+  }) {
+    const { emptyKeyPointPrompts, withKeyPointPrompts } =
+      await import("../../features/records/records-content");
+    const { mergeKeyPointPromptSlot } = await import("./weekly-report-key-points.server");
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const settings = await this.db.weeklyReportTemplate.findFirst({
+      where: { workspaceId: input.workspaceId, ownerId: input.userId },
+      orderBy: [{ applied: "desc" }, { updatedAt: "desc" }],
+      select: { id: true, name: true, dimensions: true },
+    });
+    if (!settings) throw new AppError("NOT_FOUND");
+    const format = await this.ensureFormatForSettings({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      settingsId: settings.id,
+      settingsName: settings.name,
+      sections: parseTemplateSections(settings.dimensions),
+    });
+    const row = await this.db.weeklyReport.findFirst({
+      where: { id: format.id },
+      select: { content: true },
+    });
+    if (!row) throw new AppError("NOT_FOUND");
+    const content = asReportContent(row.content);
+    const current = content.keyPointPrompts ?? emptyKeyPointPrompts();
+    // Preserve the caller's text exactly (including empty / trailing newlines).
+    const nextPrompts = mergeKeyPointPromptSlot(current, input.slot, input.text);
+    const next = withKeyPointPrompts(content, nextPrompts);
+    const updated = await this.db.weeklyReport.update({
+      where: { id: format.id },
+      data: { content: next as unknown as Prisma.InputJsonValue },
+      select: { content: true },
+    });
+    return asReportContent(updated.content).keyPointPrompts ?? nextPrompts;
+  }
+
+  async deleteKeyPointPromptHistory(input: {
+    workspaceId: string;
+    userId: string;
+    slot: "team" | "personal";
+    historyIndex: number;
+  }) {
+    const { emptyKeyPointPrompts, removeKeyPointPromptHistoryEntry, withKeyPointPrompts } =
+      await import("../../features/records/records-content");
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const settings = await this.db.weeklyReportTemplate.findFirst({
+      where: { workspaceId: input.workspaceId, ownerId: input.userId },
+      orderBy: [{ applied: "desc" }, { updatedAt: "desc" }],
+      select: { id: true, name: true, dimensions: true },
+    });
+    if (!settings) throw new AppError("NOT_FOUND");
+    const format = await this.ensureFormatForSettings({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      settingsId: settings.id,
+      settingsName: settings.name,
+      sections: parseTemplateSections(settings.dimensions),
+    });
+    const row = await this.db.weeklyReport.findFirst({
+      where: { id: format.id },
+      select: { content: true },
+    });
+    if (!row) throw new AppError("NOT_FOUND");
+    const content = asReportContent(row.content);
+    const current = content.keyPointPrompts ?? emptyKeyPointPrompts();
+    const nextPrompts = {
+      ...current,
+      [input.slot]: removeKeyPointPromptHistoryEntry(current[input.slot], input.historyIndex),
+    };
+    await this.db.weeklyReport.update({
+      where: { id: format.id },
+      data: {
+        content: withKeyPointPrompts(content, nextPrompts) as unknown as Prisma.InputJsonValue,
+      },
+    });
+    return nextPrompts;
+  }
+
+  /** Leader-only: force a new personal key-point extraction run for a member report. */
+  async restartPersonalKeyPointExtraction(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        kind: "member",
+      },
+      select: {
+        id: true,
+        status: true,
+        sourceTemplate: { select: { authorId: true } },
+      },
+    });
+    if (!report?.sourceTemplate) throw new AppError("NOT_FOUND");
+    if (report.sourceTemplate.authorId !== input.userId) throw new AppError("ACCESS_DENIED");
+    if (report.status !== "submitted" && report.status !== "shared") {
+      throw new AppError("INVALID_INPUT");
+    }
+    const { startPersonalKeyPointExtraction } = await import("./weekly-report-key-points.server");
+    return startPersonalKeyPointExtraction(this.db, {
+      workspaceId: input.workspaceId,
+      memberReportId: report.id,
+      force: true,
+    });
+  }
+
+  private async resolvePromptFormatDoc(input: { workspaceId: string; userId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const settings = await this.db.weeklyReportTemplate.findFirst({
+      where: { workspaceId: input.workspaceId, ownerId: input.userId },
+      orderBy: [{ applied: "desc" }, { updatedAt: "desc" }],
+      select: { id: true, name: true, dimensions: true },
+    });
+    if (!settings) return null;
+    const linked = await this.ensureFormatForSettings({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      settingsId: settings.id,
+      settingsName: settings.name,
+      sections: parseTemplateSections(settings.dimensions),
+    });
+    return this.db.weeklyReport.findFirst({
+      where: { id: linked.id },
+      select: { id: true, content: true },
+    });
   }
 
   /** Toggle whether this send-settings row is an active send stream (multiple allowed).

@@ -357,6 +357,11 @@ export interface AgentWeeklyReportCollectHttpClient {
     input: AgentHttpInput<import("./weekly-report-collect").WeeklyReportCollectCommand>,
   ): Promise<import("./weekly-report-collect").WeeklyReportCollectResult>;
 }
+export interface AgentWeeklyReportKeyPointsHttpClient {
+  execute(
+    input: AgentHttpInput<import("./weekly-report-key-points").WeeklyReportKeyPointsCommand>,
+  ): Promise<import("./weekly-report-key-points").WeeklyReportKeyPointsResult>;
+}
 
 type HttpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -447,6 +452,10 @@ export interface DaemonConnectionClient {
     request: import("./weekly-report-collect").WeeklyReportCollectCommand,
     agentApiKey: string,
   ): Promise<import("./weekly-report-collect").WeeklyReportCollectResult>;
+  agentWeeklyReportKeyPoints?(
+    request: import("./weekly-report-key-points").WeeklyReportKeyPointsCommand,
+    agentApiKey: string,
+  ): Promise<import("./weekly-report-key-points").WeeklyReportKeyPointsResult>;
   agentAttachment?(attachmentId: string, agentApiKey: string): Promise<Response>;
   agentAttachmentUpload?(request: Request, agentApiKey: string): Promise<Response>;
   agentAttachmentUploadSessionCreate?(body: unknown, agentApiKey: string): Promise<Response>;
@@ -1020,6 +1029,32 @@ export const defaultAgentWeeklyReportCollectHttpClient: AgentWeeklyReportCollect
       (await response.json()) as import("./weekly-report-collect").WeeklyReportCollectResult;
     if (result.requestId !== request.requestId)
       throw new Error("weekly-report-collect response request ID does not match request");
+    return result;
+  },
+};
+
+export const defaultAgentWeeklyReportKeyPointsHttpClient: AgentWeeklyReportKeyPointsHttpClient = {
+  async execute({ url, request, ...keys }) {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
+        headers: agentHeaders(keys, true),
+        body: JSON.stringify(request),
+      });
+    } catch (cause) {
+      throw AgentTransportError.preResponseTransport("Agent weekly-report-key-points", cause);
+    }
+    if (!response.ok)
+      throw AgentTransportError.upstreamHttpResponse(
+        "Agent weekly-report-key-points",
+        response.status,
+      );
+    const result =
+      (await response.json()) as import("./weekly-report-key-points").WeeklyReportKeyPointsResult;
+    if (result.requestId !== request.requestId)
+      throw new Error("weekly-report-key-points response request ID does not match request");
     return result;
   },
 };
@@ -1819,6 +1854,21 @@ export class DaemonConnection implements DaemonConnectionClient {
       url: this.#serverEndpoint(
         "Agent weekly-report-collect HTTP",
         agentApiRoutes.cloud.weeklyReportCollect.path,
+      ),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async agentWeeklyReportKeyPoints(
+    request: import("./weekly-report-key-points").WeeklyReportKeyPointsCommand,
+    agentApiKey: string,
+  ): Promise<import("./weekly-report-key-points").WeeklyReportKeyPointsResult> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    return defaultAgentWeeklyReportKeyPointsHttpClient.execute({
+      url: this.#serverEndpoint(
+        "Agent weekly-report-key-points HTTP",
+        agentApiRoutes.cloud.weeklyReportKeyPoints.path,
       ),
       ...this.#agentKeys(agentApiKey),
       request,

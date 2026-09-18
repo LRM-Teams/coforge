@@ -6,6 +6,7 @@ import {
   type ChangeEvent,
   type DragEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { ChevronLeft, ChevronRight, Plus, XClose as X } from "@untitledui/icons";
 
@@ -24,6 +25,8 @@ export function ReportTabsEditor({
   editableTabs = false,
   placeholder,
   contentRevision = 0,
+  trailingTabs,
+  renderTrailingTab,
   onChange,
   onBlur,
   onUploadFile,
@@ -34,23 +37,31 @@ export function ReportTabsEditor({
   placeholder: string;
   /** Bump to remount the active section editor (e.g. assistant insert). */
   contentRevision?: number;
+  /** Special tabs appended after content.tabs (e.g. Leader 要点提炼). */
+  trailingTabs?: readonly { id: string; label: string }[];
+  renderTrailingTab?: (id: string) => ReactNode;
   onChange: (content: ReportContent) => void;
   onBlur?: () => void;
   onUploadFile?: (file: File) => Promise<UploadResult | null>;
 }) {
   const pages = content.tabs ?? { Summary: { markdown: content.markdown ?? "" } };
   const tabNames = Object.keys(pages);
-  const [selectedTab, setSelectedTab] = useState(tabNames[0] ?? "");
+  const trailing = trailingTabs ?? [];
+  const allTabIds = [...tabNames, ...trailing.map((tab) => tab.id)];
+  const [selectedTab, setSelectedTab] = useState(tabNames[0] ?? trailing[0]?.id ?? "");
   const [editingTab, setEditingTab] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
-  const activeTab = tabNames.includes(selectedTab) ? selectedTab : (tabNames[0] ?? "");
+  const activeTab = allTabIds.includes(selectedTab)
+    ? selectedTab
+    : (tabNames[0] ?? trailing[0]?.id ?? "");
+  const trailingActive = trailing.some((tab) => tab.id === activeTab);
 
   useEffect(() => {
-    if (!tabNames.includes(selectedTab)) setSelectedTab(tabNames[0] ?? "");
-  }, [selectedTab, tabNames.join("\u0000")]);
+    if (!allTabIds.includes(selectedTab)) setSelectedTab(tabNames[0] ?? trailing[0]?.id ?? "");
+  }, [selectedTab, allTabIds.join("\u0000")]);
 
   function updateTabOverflow() {
     const scroller = scrollerRef.current;
@@ -251,6 +262,25 @@ export function ReportTabsEditor({
               ) : null}
             </div>
           ))}
+          {trailing.map((tab) => (
+            <div key={tab.id} className="flex shrink-0 items-center gap-0.5">
+              <Button
+                type="button"
+                size="sm"
+                color="link-gray"
+                aria-selected={tab.id === activeTab}
+                onPress={() => setSelectedTab(tab.id)}
+                className={cn(
+                  "rounded-md px-2.5 py-1.5",
+                  tab.id === activeTab
+                    ? "bg-primary text-primary shadow-xs ring-1 ring-secondary"
+                    : "bg-secondary_alt text-tertiary hover:bg-primary_hover hover:text-primary",
+                )}
+              >
+                {tab.label}
+              </Button>
+            </div>
+          ))}
         </nav>
         {tabOverflow.right ? (
           <ButtonUtility
@@ -276,7 +306,9 @@ export function ReportTabsEditor({
         ) : null}
       </div>
 
-      {editableTabs ? (
+      {trailingActive ? (
+        (renderTrailingTab?.(activeTab) ?? null)
+      ) : editableTabs ? (
         <LeaderFormatSectionsEditor
           key={`${activeTab}:${contentRevision}`}
           defaultValue={activeContent}

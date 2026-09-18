@@ -16,6 +16,7 @@ export const agentApiRoutes = {
     actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     weeklyReportCollect: { method: "POST", path: "/api/agent/v1/weekly-report-collect" },
+    weeklyReportKeyPoints: { method: "POST", path: "/api/agent/v1/weekly-report-key-points" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
@@ -36,6 +37,7 @@ export const agentApiRoutes = {
     actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     weeklyReportCollect: { method: "POST", path: "/api/agent/v1/weekly-report-collect" },
+    weeklyReportKeyPoints: { method: "POST", path: "/api/agent/v1/weekly-report-key-points" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
@@ -161,6 +163,7 @@ export const agentApiRoutes = {
     actionPrepare: { method: "POST", path: "/api/agent/v1/actions/prepare" },
     weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     weeklyReportCollect: { method: "POST", path: "/api/agent/v1/weekly-report-collect" },
+    weeklyReportKeyPoints: { method: "POST", path: "/api/agent/v1/weekly-report-key-points" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     attachments: {

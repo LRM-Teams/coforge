@@ -1801,3 +1801,311 @@ test("loadNavAttention stays quiet when the only armed stream was already sent",
 
   expect(result).toEqual({ preview: false });
 });
+
+test("loadKeyPointPrompts returns empty defaults when the Leader has no settings", async () => {
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
+    weeklyReportTemplate: { findFirst: async () => null },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).loadKeyPointPrompts({
+    workspaceId: "workspace-1",
+    userId: "leader",
+  });
+
+  expect(result.team.text.length).toBeGreaterThan(0);
+  expect(result.personal.text.length).toBeGreaterThan(0);
+  expect(result.team.history).toEqual([]);
+  expect(result.personal.history).toEqual([]);
+});
+
+test("saveKeyPointPrompts writes personal slot history onto the live format", async () => {
+  const contentUpdates: unknown[] = [];
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        name: "算法汇报",
+        dimensions: [{ title: "Summary", children: [] }],
+      }),
+    },
+    weeklyReport: {
+      findFirst: async (query: { select?: { content?: boolean; id?: boolean; title?: boolean } }) => {
+        if (query.select?.title) return { title: "算法汇报" };
+        if (query.select?.content) {
+          return {
+            id: "format-1",
+            content: {
+              tabs: { Summary: { markdown: "# Summary" } },
+              keyPointPrompts: {
+                team: { text: "team prompt", history: [] },
+                personal: {
+                  text: "old personal",
+                  updatedAt: "2026-09-10T00:00:00.000Z",
+                  history: [],
+                },
+              },
+            },
+          };
+        }
+        return { id: "format-1" };
+      },
+      update: async (query: {
+        data: { content?: unknown; title?: string };
+        select?: { content?: boolean };
+      }) => {
+        if (query.data.content !== undefined) contentUpdates.push(query.data.content);
+        if (query.select?.content) {
+          return { content: query.data.content };
+        }
+        return {};
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).saveKeyPointPrompts({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    slot: "personal",
+    text: "new personal\nextra line",
+  });
+
+  expect(result.personal.text).toBe("new personal\nextra line");
+  expect(result.personal.history[0]?.text).toBe("old personal");
+  expect(result.team.text).toBe("team prompt");
+  expect(contentUpdates).toHaveLength(1);
+  expect(contentUpdates[0]).toMatchObject({
+    keyPointPrompts: {
+      personal: { text: "new personal\nextra line" },
+      team: { text: "team prompt" },
+    },
+  });
+});
+
+test("saveKeyPointPrompts persists an emptied personal prompt", async () => {
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        name: "算法汇报",
+        dimensions: [{ title: "Summary", children: [] }],
+      }),
+    },
+    weeklyReport: {
+      findFirst: async (query: { select?: { content?: boolean; title?: boolean } }) => {
+        if (query.select?.title) return { title: "算法汇报" };
+        if (query.select?.content) {
+          return {
+            id: "format-1",
+            content: {
+              tabs: { Summary: { markdown: "# Summary" } },
+              keyPointPrompts: {
+                team: { text: "team", history: [] },
+                personal: {
+                  text: "saved once",
+                  updatedAt: "2026-09-10T00:00:00.000Z",
+                  history: [],
+                },
+              },
+            },
+          };
+        }
+        return { id: "format-1" };
+      },
+      update: async (query: {
+        data: { content?: unknown };
+        select?: { content?: boolean };
+      }) => {
+        if (query.select?.content) return { content: query.data.content };
+        return {};
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).saveKeyPointPrompts({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    slot: "personal",
+    text: "",
+  });
+
+  expect(result.personal.text).toBe("");
+  expect(result.personal.history[0]?.text).toBe("saved once");
+});
+
+test("saveKeyPointPrompts rejects when the Leader has no template settings", async () => {
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
+    weeklyReportTemplate: { findFirst: async () => null },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(db).saveKeyPointPrompts({
+      workspaceId: "workspace-1",
+      userId: "leader",
+      slot: "team",
+      text: "x",
+    }),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("saveReportContent first member submit starts personal key-point extraction", async () => {
+  const contentWrites: unknown[] = [];
+  let memberStatus: "draft" | "submitted" = "draft";
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    weeklyReport: {
+      findFirst: async (query: {
+        where?: { id?: string; kind?: string; settingsId?: string | null };
+        select?: { content?: boolean; author?: unknown; sourceTemplate?: unknown };
+      }) => {
+        if (query.where?.kind === "template" || query.where?.settingsId) {
+          return {
+            id: "format-1",
+            content: {
+              tabs: { Summary: { markdown: "# Summary" } },
+              keyPointPrompts: {
+                team: { text: "team", history: [] },
+                personal: { text: "personal prompt", history: [] },
+              },
+            },
+          };
+        }
+        if (query.select?.sourceTemplate || query.select?.author) {
+          return {
+            id: "assignment-1",
+            content: { tabs: { Summary: { markdown: "member body" } } },
+            status: memberStatus,
+            authorId: "member-a",
+            sourceTemplateId: "format-1",
+            author: { username: "member", displayName: "成员甲" },
+            cycle: { year: 2026, week: 38 },
+            sourceTemplate: { authorId: "leader", settingsId: "settings-1" },
+          };
+        }
+        return {
+          id: "assignment-1",
+          authorId: "member-a",
+          kind: "member",
+          status: memberStatus,
+          settingsId: null,
+          content: { tabs: { Summary: { markdown: "member body" } } },
+          cycle: { year: 2026, week: 38 },
+          submissions: [],
+        };
+      },
+      update: async (query: {
+        where: { id: string };
+        data: { content?: unknown; status?: "draft" | "submitted" };
+      }) => {
+        if (query.data.status) memberStatus = query.data.status;
+        if (query.data.content !== undefined) contentWrites.push(query.data.content);
+        return {
+          id: query.where.id,
+          status: memberStatus,
+          updatedAt: new Date("2026-09-18T08:00:00.000Z"),
+        };
+      },
+    },
+    weeklyReportAssistant: {
+      findUnique: async () => ({
+        id: "asst-1",
+        agentId: "agent-1",
+        workspaceId: "workspace-1",
+        userId: "leader",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    },
+    agent: {
+      findUnique: async () => ({
+        computerId: null,
+        runtimeConfig: {
+          runtime: "coforge",
+          provider: { kind: "default" },
+          model: "",
+          modelProvider: "",
+          reasoning: "",
+        },
+      }),
+      create: async () => ({ id: "agent-1" }),
+    },
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        weeklyReportAssistant: {
+          findUnique: async () => ({
+            id: "asst-1",
+            agentId: "agent-1",
+            workspaceId: "workspace-1",
+            userId: "leader",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }),
+        },
+      }),
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).saveReportContent({
+    workspaceId: "workspace-1",
+    userId: "member-a",
+    reportId: "assignment-1",
+    content: { tabs: { Summary: { markdown: "member body" } } },
+    status: "submitted",
+  });
+
+  expect(result.status).toBe("submitted");
+  expect(contentWrites.some((row) =>
+    Boolean(
+      row &&
+        typeof row === "object" &&
+        (row as { keyPointExtraction?: { status?: string } }).keyPointExtraction?.status ===
+          "pending_setup",
+    ),
+  )).toBe(true);
+});
+
+test("saveReportContent does not re-trigger key-point extraction when already submitted", async () => {
+  let extractionLookups = 0;
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    weeklyReport: {
+      findFirst: async (query: { select?: { sourceTemplate?: unknown } }) => {
+        if (query.select?.sourceTemplate) extractionLookups += 1;
+        return {
+          id: "assignment-1",
+          authorId: "member-a",
+          kind: "member",
+          status: "submitted",
+          settingsId: null,
+          content: {
+            tabs: { Summary: { markdown: "member body" } },
+            keyPointExtraction: {
+              status: "ready",
+              promptSnapshot: "personal prompt",
+              markdown: "- done",
+            },
+          },
+          cycle: { year: 2026, week: 38 },
+          submissions: [],
+        };
+      },
+      update: async () => ({
+        id: "assignment-1",
+        status: "submitted",
+        updatedAt: new Date("2026-09-18T08:00:00.000Z"),
+      }),
+    },
+  } as unknown as PrismaClient;
+
+  await new RecordCatalog(db).saveReportContent({
+    workspaceId: "workspace-1",
+    userId: "member-a",
+    reportId: "assignment-1",
+    content: { tabs: { Summary: { markdown: "member body edited" } } },
+    status: "submitted",
+  });
+
+  expect(extractionLookups).toBe(0);
+});

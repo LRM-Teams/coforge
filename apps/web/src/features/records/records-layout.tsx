@@ -4,7 +4,6 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   ChevronDown,
   ChevronLeft,
-  CpuChip01 as Bot,
   Edit01 as Edit,
   File02 as FileText,
   LineChartUp01 as LineChart,
@@ -20,16 +19,10 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
-import { useAppToast } from "@/components/ui/toast";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
-import {
-  createRecordNote,
-  loadWeeklyReportAssistantStatus,
-  type loadRecordsCatalog,
-} from "./records.functions";
+import { createRecordNote, type loadRecordsCatalog } from "./records.functions";
 import { sidebarPreview } from "./records-sidebar";
 import {
   formatSendWindowCountdown,
@@ -81,9 +74,7 @@ export function RecordsLayout({
 }) {
   const navigate = useNavigate();
   const router = useRouter();
-  const toast = useAppToast();
   const createNote = useServerFn(createRecordNote);
-  const loadAssistantStatus = useServerFn(loadWeeklyReportAssistantStatus);
   const recordOpen = detailOpen ?? Boolean(selectedRecordId || selectedPanel || selectedWeekKey);
   const [showMobileList, setShowMobileList] = useState(!recordOpen);
   const [query, setQuery] = useState("");
@@ -493,31 +484,10 @@ export function RecordsLayout({
                           }),
                         });
                       }
-                      if (key === "assistant") {
-                        setShowMobileList(false);
-                        void loadAssistantStatus()
-                          .then((status) =>
-                            navigate({
-                              to: "/agents",
-                              search: {
-                                profile: formatAgentProfileParam(status.agentId),
-                                agentTab: "profile",
-                              },
-                            }),
-                          )
-                          .catch(() => {
-                            toast.error(m.records_assistant_settings_failed());
-                          });
-                      }
                     }}
                   >
                     <Dropdown.Item id="stats" icon={LineChart} label={m.records_stats()} />
                     <Dropdown.Item id="settings" icon={Settings} label={m.records_settings()} />
-                    <Dropdown.Item
-                      id="assistant"
-                      icon={Bot}
-                      label={m.records_assistant_settings()}
-                    />
                   </Dropdown.Menu>
                 </Dropdown.Popover>
               </Dropdown.Root>

@@ -31,6 +31,17 @@ export function toPublicServerError(
           )
         : [],
   });
+  // Opt-in local diagnosis only — never enable in shared/prod logs by default.
+  if (Bun.env.COFORGE_LOG_SERVER_ERRORS === "1" && cause instanceof Error) {
+    console.error(
+      JSON.stringify({
+        event: "server_operation_failed_detail",
+        errorId,
+        name: cause.name,
+        message: cause.message,
+      }),
+    );
+  }
   return new AppError("INTERNAL_ERROR", { errorId });
 }
 
