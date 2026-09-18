@@ -9,6 +9,7 @@ const update = {
   id: "b445d915-bced-446a-815c-6c7e2fb57242",
   name: "Launch",
   description: "Release planning",
+  commitCoAuthor: true,
 };
 
 test("creating a project accepts a public GitHub full name without an installation", () => {
