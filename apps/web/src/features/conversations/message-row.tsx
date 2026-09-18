@@ -1,5 +1,6 @@
 import { useState, type ReactNode, type Ref } from "react";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import { useHydrated } from "@tanstack/react-router";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import { Download01, XClose } from "@untitledui/icons";
 
@@ -188,6 +189,11 @@ export function attachmentUrl(attachment: { id: string }) {
 
 /** An uploaded file on a message: images preview inline, other files show as a file card. */
 export function AttachmentCard({ attachment }: { attachment: MessageView["attachments"][number] }) {
+  // An unsandboxed PDF frame may exist only after hydration supplies the page's real origin.
+  // Server rendering and the first client render both stay download-only, so no frame can begin a
+  // same-origin request before the browser gate runs and hydration remains stable.
+  const hydrated = useHydrated();
+  const applicationOrigin = hydrated ? globalThis.location.origin : undefined;
   const href = attachmentUrl(attachment);
   // Prefer the signed CDN preview URL so the image never round-trips the backend; fall back to
   // the authenticated proxy once (it expires after a fixed TTL, or may not be configured).
@@ -286,6 +292,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
     attachment.fileName,
     attachment.contentType,
     attachment.previewUrl,
+    applicationOrigin,
   );
   const card = (
     <>

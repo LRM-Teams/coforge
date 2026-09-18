@@ -53,10 +53,12 @@ describe("a PDF is previewable only from a different origin", () => {
     ).toBe("pdf");
   });
 
-  test("during server rendering the server's own refusal is what protects the frame", () => {
-    // No page origin exists to compare against; the server has already refused to sign a delivery
-    // URL on its own origin, and the browser repeats this check on hydration.
-    expect(isFrameableDocumentUrl(`${DELIVERY_ORIGIN}/o/k`, undefined)).toBe(true);
+  test("server rendering refuses every PDF frame until the page origin is known", () => {
+    // An optional OAuth redirect URI means the server-side delivery gate may have no application
+    // origin to compare. SSR therefore emits no unsandboxed PDF iframe; the browser may enable a
+    // cross-origin preview only after hydration supplies its actual page origin.
+    expect(isFrameableDocumentUrl(`${DELIVERY_ORIGIN}/o/k`, undefined)).toBe(false);
+    expect(isFrameableDocumentUrl(`${APP_ORIGIN}/o/k`, undefined)).toBe(false);
     expect(isFrameableDocumentUrl("/api/attachments/abc", undefined)).toBe(false);
     expect(isFrameableDocumentUrl(undefined, undefined)).toBe(false);
   });

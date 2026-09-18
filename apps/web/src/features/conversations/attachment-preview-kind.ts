@@ -42,9 +42,9 @@ export function mediaMimeType(fileName: string): string | null {
  * enforced here rather than described in a comment, and it fails closed: an absent, relative,
  * unparseable or same-origin URL is not previewable, and the attachment stays a download.
  *
- * `applicationOrigin` is the page's own origin. It is absent during server rendering, where there
- * is nothing to compare against; the server has already refused to sign a delivery URL on its own
- * origin (`readFileDeliveryConfig`), and the browser re-checks on hydration.
+ * `applicationOrigin` is the page's own origin. Until hydration supplies it, framing fails closed:
+ * otherwise SSR could emit an unsandboxed same-origin iframe and the browser could start loading
+ * it with host cookies before the client-side check runs.
  */
 export function isFrameableDocumentUrl(
   previewUrl: string | undefined,
@@ -58,7 +58,7 @@ export function isFrameableDocumentUrl(
     return false;
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-  if (!applicationOrigin) return true;
+  if (!applicationOrigin) return false;
   return url.origin !== applicationOrigin;
 }
 
@@ -73,9 +73,10 @@ export function attachmentPreviewKind(
   contentType: string,
   /** The signed delivery URL, when the server supplied one. Required for a PDF, and only when it
    * is genuinely off this origin — see `isFrameableDocumentUrl`. */
-  previewUrl?: string,
-  /** The page's own origin; absent during server rendering. */
-  applicationOrigin: string | undefined = globalThis.location?.origin,
+  previewUrl: string | undefined,
+  /** The page's own origin. Absent during SSR and the first client render, which keeps PDF
+   * framing disabled until hydration supplies an origin that can be compared safely. */
+  applicationOrigin: string | undefined,
 ): AttachmentPreviewKind | null {
   const extension = extensionOf(fileName);
   if (extension === "pdf" || contentType === "application/pdf")
