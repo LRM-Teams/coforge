@@ -103,18 +103,3 @@ export function toolActivityLabel(rawName: string): string {
   const label = TOOL_LABELS[canonical];
   return label ? `${label}…` : `Using ${name.length > 20 ? `${name.slice(0, 20)}…` : name}…`;
 }
-
-const GENERATED_TOOL_LABELS: ReadonlySet<string> = new Set(
-  Object.values(TOOL_LABELS).map((label) => `${label}…`),
-);
-
-/**
- * Whether `text` is exactly a label `toolActivityLabel` could have produced — a known
- * tool's label or the unknown-tool "Using …" shape — as opposed to an arbitrary
- * daemon-supplied string (a raw command, path or argument). Lets a display fallback
- * recognize an already-generic label an up-to-date daemon sent, so it is kept as is;
- * it is a recognizer, not a sanitizer, and never applied to Activity before display.
- */
-export function isToolActivityLabel(text: string): boolean {
-  return GENERATED_TOOL_LABELS.has(text) || /^Using .+…$/.test(text);
-}

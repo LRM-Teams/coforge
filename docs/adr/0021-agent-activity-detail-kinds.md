@@ -110,8 +110,9 @@ Also two additions to `ActivityTrajectoryEntry`:
 > status header when the entry-less heartbeat or probe reply resent it. The
 > alias and label tables live once in
 > `packages/coforge-sdk/src/internal/tool-display.ts`. See
-> `docs/observability.md`, "`running_command` 与工具摘要", for the wire contract
-> and the web fallback for older daemons.
+> `docs/observability.md`, "`running_command` 与工具摘要", for the wire contract.
+> The web shows `detail` as the header and `toolInput` on the tool row, with
+> no fallback for daemons that still send a raw `detail`.
 
 On the wire, `ActivityTrajectoryEntry`'s `content` oneof gains a new member
 (`ActivitySystemEntry system = 5`, a nested message carrying `title`/`text`)

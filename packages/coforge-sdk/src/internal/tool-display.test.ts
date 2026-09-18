@@ -1,11 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  TOOL_ALIASES,
-  TOOL_LABELS,
-  canonicalToolName,
-  isToolActivityLabel,
-  toolActivityLabel,
-} from "./tool-display";
+import { TOOL_ALIASES, TOOL_LABELS, canonicalToolName, toolActivityLabel } from "./tool-display";
 
 test("a known canonical tool resolves through its aliases to the same label", () => {
   for (const name of ["read", "Read", "ReadFile", "file_read", "read_file"])
@@ -35,12 +29,4 @@ test("an MCP-style prefix is stripped before resolving the canonical name", () =
 test("every TOOL_ALIASES value is itself a key, so a canonical name is its own identity mapping", () => {
   for (const canonical of new Set(Object.values(TOOL_ALIASES)))
     expect(TOOL_ALIASES[canonical]).toBe(canonical);
-});
-
-test("isToolActivityLabel recognizes a generated label and rejects arbitrary daemon detail", () => {
-  for (const label of Object.values(TOOL_LABELS))
-    expect(isToolActivityLabel(`${label}…`)).toBe(true);
-  expect(isToolActivityLabel(toolActivityLabel("vendor__Mystery"))).toBe(true);
-  expect(isToolActivityLabel("src/secret/path.ts")).toBe(false);
-  expect(isToolActivityLabel('mise exec -- bun test 2>&1 | grep -iE "error:"')).toBe(false);
 });
