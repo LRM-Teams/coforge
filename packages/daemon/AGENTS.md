@@ -34,7 +34,7 @@ src/
 │   ├── claude-code/
 │   ├── cursor/
 │   ├── pi/
-│   ├── tool-activity.ts            # recognized tool aliases → existing semantic activities; safe input summaries
+│   ├── tool-activity.ts            # recognized tool aliases → a generic detail label; the argument summary goes only in the entry's toolInput
 │   ├── assigned-skills.ts          # CoForge-owned skill pack install before native discovery
 │   └── runtime-inventory.ts        # combines Provider runtime/catalog capabilities
 ├── persistence/                    # durable spool and local daemon state
