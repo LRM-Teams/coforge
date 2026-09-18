@@ -1,11 +1,18 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession, resolveAgentSessionFile } from "../src/runner";
 
+/** macOS `TMPDIR` is `/var/folders/...` and `/var` is a symlink to `/private/var`, while the Agent
+ * workspace is canonicalized with `realpath` before any path is compared or written. Create
+ * fixtures under an already-canonical root so the two agree. */
+async function createFixtureRoot(prefix: string): Promise<string> {
+  return mkdtemp(join(await realpath(tmpdir()), prefix));
+}
+
 test("session storage cannot escape through a supplied directory or symbolic link", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-session-"));
+  const root = await createFixtureRoot("coforge-session-");
   const cwd = join(root, "agent");
   const global = join(root, "home-sessions");
   await mkdir(cwd);
@@ -36,7 +43,7 @@ test("session storage cannot escape through a supplied directory or symbolic lin
 });
 
 test("session IDs are exact identities, not file paths or prefixes", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "coforge-session-"));
+  const cwd = await createFixtureRoot("coforge-session-");
   const options = { cwd, apiKey: "fixture-key", instructions: "Test instructions." };
   try {
     for (const sessionId of ["", "../other/session", "/global/session.jsonl", "..\\other"]) {
@@ -65,7 +72,7 @@ test("session IDs are exact identities, not file paths or prefixes", async () =>
 });
 
 test("fresh and resumed sessions use only the owning Agent workspace", async () => {
-  const root = await mkdtemp(join(tmpdir(), "coforge-session-"));
+  const root = await createFixtureRoot("coforge-session-");
   const cwd = join(root, "agent-a");
   await mkdir(cwd);
   const options = { cwd, apiKey: "fixture-key", instructions: "Test instructions." };
@@ -108,7 +115,7 @@ test("fresh and resumed sessions use only the owning Agent workspace", async () 
 });
 
 test("the strict resolver rejects a requested session absent from this Agent workspace", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "coforge-session-"));
+  const cwd = await createFixtureRoot("coforge-session-");
   try {
     await expect(
       resolveAgentSessionFile(cwd, join(cwd, ".builtin-sessions"), "another-agent-session"),
