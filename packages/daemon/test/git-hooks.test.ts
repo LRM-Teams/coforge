@@ -66,6 +66,12 @@ test("git < 2.54 resolves the hooks-path plan when the shim directory can be pre
   }
 });
 
+test("a pre-2.54 git on win32 injects nothing (the shim directory holds POSIX sh, not usable there)", async () => {
+  resetGitHookVersionProbeCacheForTests();
+  const gitDirectory = await fakeGit("2.43.0");
+  expect(await resolveGitHookInjectionForLaunch(gitDirectory, "win32")).toBeUndefined();
+});
+
 test("the version probe is cached per resolved git executable path", async () => {
   resetGitHookVersionProbeCacheForTests();
   const gitDirectory = await fakeGit("2.54.0");

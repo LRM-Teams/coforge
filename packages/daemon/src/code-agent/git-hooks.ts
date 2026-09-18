@@ -80,16 +80,19 @@ async function probeGitHookKind(gitPath: string): Promise<ProbedKind> {
  * Decides how (if at all) to inject the commit co-author trailer hook for an Agent about to
  * launch, given the exact `PATH` that Agent's git invocations will search. Missing git, an
  * unparseable `git --version`, or (for a pre-2.54 git) a shim directory that could not be
- * prepared all resolve to `undefined` - never inject anything rather than guess.
+ * prepared all resolve to `undefined` - never inject anything rather than guess. The shim
+ * directory holds POSIX `sh` scripts, so the `hooks-path` path is skipped on `win32` (a known
+ * gap: a pre-2.54 git on Windows gets no trailer; `config-hook` is unaffected).
  */
 export async function resolveGitHookInjectionForLaunch(
   path: string | undefined,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<GitHookInjectionPlan | undefined> {
   const gitPath = Bun.which("git", { PATH: path ?? "" });
   if (!gitPath) return undefined;
   const kind = await probeGitHookKind(gitPath);
   if (kind === "config-hook") return { kind: "config-hook" };
-  if (kind === "hooks-path") {
+  if (kind === "hooks-path" && platform !== "win32") {
     const hooksDir = await ensureGitHookShimDirectory();
     if (hooksDir) return { kind: "hooks-path", hooksDir };
   }

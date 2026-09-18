@@ -211,5 +211,5 @@ export async function resolveLaunchGitHooks(
   } = {},
 ): Promise<GitHookInjectionPlan | undefined> {
   const base = agentEnvironment(declared, inherited, platform, options);
-  return resolveGitHookInjectionForLaunch(base.PATH);
+  return resolveGitHookInjectionForLaunch(base.PATH, platform);
 }
