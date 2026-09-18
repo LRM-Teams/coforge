@@ -83,5 +83,13 @@
   "notifications_home_screen_open": "从主屏幕上的新图标打开 CoForge，然后返回此处开启通知。",
   "settings_save_error": "偏好设置保存失败，请重试。",
   "preferences_sidebar": "侧栏",
-  "preferences_rail_labels": "侧栏显示文字"
+  "preferences_rail_labels": "侧栏显示文字",
+  "preferences_text_size": "字号",
+  "preferences_text_size_small": "小",
+  "preferences_text_size_default": "默认",
+  "preferences_text_size_large": "大",
+  "preferences_text_size_extra_large": "特大",
+  "preferences_text_size_huge": "超大",
+  "preferences_text_size_percent": "默认字号的 {percent}%",
+  "preferences_text_size_default_hint": "设计原始大小"
 }

@@ -12,6 +12,7 @@ import {
   Sliders01 as SlidersHorizontal,
   Sun,
   SunSetting01 as SunMoon,
+  Type01 as TypeIcon,
   Upload01 as Upload,
   UserCircle as UserRound,
   Users01 as Users,
@@ -25,11 +26,13 @@ import { Input } from "@/components/base/input/input";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ComboBox } from "@/components/base/select/combobox";
+import { Select } from "@/components/base/select/select";
 import { SelectItem } from "@/components/base/select/select-item";
 import { Toggle } from "@/components/base/toggle/toggle";
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
 import { GitHubSettings } from "@/features/integrations/github-settings";
+import { TEXT_SIZE_OPTIONS, type TextSizeValue } from "@/features/settings/text-size";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { isAppError } from "@/lib/app-error";
@@ -76,6 +79,7 @@ interface SettingsContentProps {
   locale: Locale;
   theme: Theme;
   railLabels: boolean;
+  textSize: TextSizeValue;
   timeZone: string | null;
   browserNotificationsEnabled: boolean;
   browserNotificationPermission: NotificationPermission | "unsupported";
@@ -87,6 +91,7 @@ interface SettingsContentProps {
   onLocaleChange: (locale: Locale) => void;
   onThemeChange: (theme: Theme) => void;
   onRailLabelsChange: (show: boolean) => void;
+  onTextSizeChange: (size: TextSizeValue) => void;
   onTimeZoneChange: (timeZone: string) => void;
   onBrowserNotificationsChange: (enabled: boolean) => Promise<void>;
   onEnableBrowserNotifications: () => Promise<void>;
@@ -591,9 +596,18 @@ function Preferences({
   onThemeChange,
   railLabels,
   onRailLabelsChange,
+  textSize,
+  onTextSizeChange,
   onTimeZoneChange,
 }: SettingsContentProps) {
   const timeZoneOptions = getTimeZoneOptions(m.preferences_system());
+  const textSizeLabels: Record<TextSizeValue, string> = {
+    sm: m.preferences_text_size_small(),
+    default: m.preferences_text_size_default(),
+    lg: m.preferences_text_size_large(),
+    xl: m.preferences_text_size_extra_large(),
+    xxl: m.preferences_text_size_huge(),
+  };
 
   return (
     <div className="w-full px-4 pb-8 sm:px-6">
@@ -665,6 +679,33 @@ function Preferences({
               {m.preferences_dark()}
             </ButtonGroupItem>
           </ButtonGroup>
+        </PreferenceSection>
+
+        <PreferenceSection
+          icon={<TypeIcon aria-hidden="true" />}
+          heading={m.preferences_text_size()}
+        >
+          <Select
+            aria-label={m.preferences_text_size()}
+            className="max-w-sm"
+            value={textSize}
+            onChange={(key) => {
+              if (key !== null) onTextSizeChange(String(key) as TextSizeValue);
+            }}
+          >
+            {TEXT_SIZE_OPTIONS.map(({ value, percent }) => (
+              <SelectItem
+                key={value}
+                id={value}
+                label={textSizeLabels[value]}
+                supportingText={
+                  value === "default"
+                    ? m.preferences_text_size_default_hint()
+                    : m.preferences_text_size_percent({ percent })
+                }
+              />
+            ))}
+          </Select>
         </PreferenceSection>
 
         <PreferenceSection

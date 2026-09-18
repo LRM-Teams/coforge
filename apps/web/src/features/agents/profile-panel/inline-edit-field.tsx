@@ -12,7 +12,7 @@ import { m } from "@/paraglide/messages";
  * RUNTIME CONFIG, ACTIONS) and the two top-level editable field labels (Display name,
  * Description). */
 export const SECTION_CAPTION_CLASS =
-  "text-[11px] font-semibold tracking-wide text-quaternary uppercase";
+  "text-[0.6875rem] font-semibold tracking-wide text-quaternary uppercase";
 
 /** The secondary, non-uppercase field label used inside a fact column (Role, Computer, Created,
  * Creator, Runtime, Model, Reasoning) — smaller and quieter than the section caption above. */

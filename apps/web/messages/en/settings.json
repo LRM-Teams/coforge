@@ -83,5 +83,13 @@
   "notifications_home_screen_open": "Open CoForge from its new Home Screen icon, then return here to turn on notifications.",
   "settings_save_error": "The preference could not be saved. Try again.",
   "preferences_sidebar": "Sidebar",
-  "preferences_rail_labels": "Show labels in the sidebar"
+  "preferences_rail_labels": "Show labels in the sidebar",
+  "preferences_text_size": "Text size",
+  "preferences_text_size_small": "Small",
+  "preferences_text_size_default": "Default",
+  "preferences_text_size_large": "Large",
+  "preferences_text_size_extra_large": "Extra large",
+  "preferences_text_size_huge": "Huge",
+  "preferences_text_size_percent": "{percent}% of the default size",
+  "preferences_text_size_default_hint": "As designed"
 }

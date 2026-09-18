@@ -25,6 +25,7 @@ import {
 } from "@/features/workspaces/members.functions";
 import { getLocale, setLocale } from "@/paraglide/runtime";
 import { readRailLabels, writeRailLabels } from "@/features/settings/rail-labels";
+import { readTextSize, writeTextSize, type TextSizeValue } from "@/features/settings/text-size";
 import { m } from "@/paraglide/messages";
 
 type Theme = "system" | "light" | "dark";
@@ -77,6 +78,7 @@ export const Route = createFileRoute("/_app/settings")({
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
   const [railLabels, setRailLabels] = useState(true);
+  const [textSize, setTextSize] = useState<TextSizeValue>("default");
   const { section, github } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { timeZone: savedTimeZone, members } = Route.useLoaderData();
@@ -104,6 +106,7 @@ function SettingsPage() {
     setTheme(initialTheme);
     applyTheme(initialTheme);
     setRailLabels(readRailLabels());
+    setTextSize(readTextSize());
   }, []);
 
   useEffect(() => {
@@ -134,6 +137,11 @@ function SettingsPage() {
   function changeRailLabels(show: boolean) {
     setRailLabels(show);
     writeRailLabels(show);
+  }
+
+  function changeTextSize(next: TextSizeValue) {
+    setTextSize(next);
+    writeTextSize(next);
   }
 
   function changeTheme(nextTheme: Theme) {
@@ -239,6 +247,8 @@ function SettingsPage() {
       onThemeChange={changeTheme}
       railLabels={railLabels}
       onRailLabelsChange={changeRailLabels}
+      textSize={textSize}
+      onTextSizeChange={changeTextSize}
       onTimeZoneChange={changeTimeZone}
       onBrowserNotificationsChange={changeBrowserNotifications}
       onEnableBrowserNotifications={enableBrowserNotifications}

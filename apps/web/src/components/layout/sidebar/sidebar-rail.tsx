@@ -6,7 +6,8 @@ import { cx } from "@/utils/cx";
 // the demo hardcodes Untitled's own logo/account card with no override
 // props. Desktop keeps the rail visible; mobile uses a separate wide drawer.
 
-export const SIDEBAR_RAIL_WIDTH = 70;
+/** 70px at the default text size; rem so the rail grows with the Text size preference. */
+export const SIDEBAR_RAIL_WIDTH = "4.375rem";
 
 type RailItemType = NavItemType & { icon: FC<{ className?: string }>; current?: boolean };
 
@@ -40,7 +41,7 @@ function RailItem({ href, icon: Icon, label, current, badge }: RailItemType) {
       </span>
       <span
         className={cx(
-          "text-[10px] leading-3 font-medium tracking-normal whitespace-nowrap transition-colors duration-100 ease-linear [.rail-labels-hidden_&]:hidden",
+          "text-[0.625rem] leading-3 font-medium tracking-normal whitespace-nowrap transition-colors duration-100 ease-linear [.rail-labels-hidden_&]:hidden",
           current
             ? "font-semibold text-brand-secondary"
             : "text-tertiary group-hover:text-secondary",

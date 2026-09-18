@@ -72,7 +72,7 @@ export function ConversationDirectory({
     <>
       <div className="mt-2">
         <div className="flex h-7 items-center justify-between pr-4 pl-6">
-          <span className="text-[11px] font-semibold tracking-wide text-quaternary uppercase">
+          <span className="text-[0.6875rem] font-semibold tracking-wide text-quaternary uppercase">
             {m.channels_title()}
           </span>
         </div>
@@ -102,7 +102,7 @@ export function ConversationDirectory({
 
       <div className="mt-4">
         <div className="flex h-7 items-center pl-6">
-          <span className="text-[11px] font-semibold tracking-wide text-quaternary uppercase">
+          <span className="text-[0.6875rem] font-semibold tracking-wide text-quaternary uppercase">
             {m.messages_agents_action()}
           </span>
         </div>
