@@ -294,74 +294,73 @@ export function AgentProfilePanel({
             onLoadSkills={profile.ownedByCurrentUser ? onLoadSkills : undefined}
             environment={profile.ownedByCurrentUser ? environment : undefined}
             runtimeCredentialDialog={
-              <>
-                <ButtonUtility
-                  aria-label={m.agent_runtime_edit()}
-                  tooltip={m.agent_runtime_edit()}
-                  icon={Pencil}
-                  size="xs"
-                  color="tertiary"
-                  isDisabled={
-                    !profile.ownedByCurrentUser || profile.runtimeConfig.provider.kind !== "coforge"
-                  }
-                  onClick={() => {
-                    setRuntimeError("");
-                    setRuntimeDialogOpen(true);
-                  }}
-                />
-                {runtimeDialogOpen && (
-                  <AgentRuntimeCredentialDialog
-                    open={runtimeDialogOpen}
-                    onOpenChange={setRuntimeDialogOpen}
-                    saving={runtimeSaving}
-                    runtimeLabel={runtimeProviderLabel(profile.runtimeConfig.runtime)}
-                    providerId={
-                      profile.runtimeConfig.provider.kind === "coforge"
-                        ? profile.runtimeConfig.provider.providerId
-                        : ""
-                    }
-                    credentialHint={profile.runtimeCredential?.hint}
-                    error={runtimeError}
-                    modelFields={[
-                      {
-                        label: m.agent_form_model(),
-                        value: profile.runtimeConfig.model || m.agent_form_provider_default(),
-                      },
-                      {
-                        label: m.agent_form_reasoning(),
-                        value: profile.runtimeConfig.reasoning || m.agent_form_provider_default(),
-                      },
-                    ]}
-                    onSave={(apiKey) =>
-                      guardRuntime(async () => {
-                        setRuntimeError("");
-                        try {
-                          await saveCredential({ data: { agentId, apiKey } });
-                          setRuntimeDialogOpen(false);
-                          await invalidate();
-                        } catch {
-                          setRuntimeError(m.agent_runtime_save_error());
-                        }
-                      })
-                    }
-                    onDelete={
-                      profile.runtimeCredential
-                        ? () =>
-                            guardRuntime(async () => {
-                              setRuntimeError("");
-                              try {
-                                await deleteCredential({ data: agentId });
-                                setRuntimeDialogOpen(false);
-                                await invalidate();
-                              } catch {
-                                setRuntimeError(m.agent_runtime_delete_error());
-                              }
-                            })
-                        : undefined
-                    }
+              profile.ownedByCurrentUser && profile.runtimeConfig.provider.kind === "coforge" ? (
+                <>
+                  <ButtonUtility
+                    aria-label={m.agent_runtime_edit()}
+                    tooltip={m.agent_runtime_edit()}
+                    icon={Pencil}
+                    size="xs"
+                    color="tertiary"
+                    onClick={() => {
+                      setRuntimeError("");
+                      setRuntimeDialogOpen(true);
+                    }}
                   />
-                )}
-              </>
+                  {runtimeDialogOpen && (
+                    <AgentRuntimeCredentialDialog
+                      open={runtimeDialogOpen}
+                      onOpenChange={setRuntimeDialogOpen}
+                      saving={runtimeSaving}
+                      runtimeLabel={runtimeProviderLabel(profile.runtimeConfig.runtime)}
+                      providerId={
+                        profile.runtimeConfig.provider.kind === "coforge"
+                          ? profile.runtimeConfig.provider.providerId
+                          : ""
+                      }
+                      credentialHint={profile.runtimeCredential?.hint}
+                      error={runtimeError}
+                      modelFields={[
+                        {
+                          label: m.agent_form_model(),
+                          value: profile.runtimeConfig.model || m.agent_form_provider_default(),
+                        },
+                        {
+                          label: m.agent_form_reasoning(),
+                          value: profile.runtimeConfig.reasoning || m.agent_form_provider_default(),
+                        },
+                      ]}
+                      onSave={(apiKey) =>
+                        guardRuntime(async () => {
+                          setRuntimeError("");
+                          try {
+                            await saveCredential({ data: { agentId, apiKey } });
+                            setRuntimeDialogOpen(false);
+                            await invalidate();
+                          } catch {
+                            setRuntimeError(m.agent_runtime_save_error());
+                          }
+                        })
+                      }
+                      onDelete={
+                        profile.runtimeCredential
+                          ? () =>
+                              guardRuntime(async () => {
+                                setRuntimeError("");
+                                try {
+                                  await deleteCredential({ data: agentId });
+                                  setRuntimeDialogOpen(false);
+                                  await invalidate();
+                                } catch {
+                                  setRuntimeError(m.agent_runtime_delete_error());
+                                }
+                              })
+                          : undefined
+                      }
+                    />
+                  )}
+                </>
+              ) : null
             }
           />
         )}

@@ -16,7 +16,6 @@ import {
   directConversationUpdates,
   useConversationQuery,
 } from "@/features/conversations/conversation-queries";
-import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
 import { useConversationView } from "@/features/conversations/use-conversation-view";
 import { TaskBoard } from "@/features/tasks/task-board";
 import { useTaskLayout } from "@/features/tasks/task-workflow";
@@ -62,7 +61,6 @@ function DirectConversationPage() {
   const send = useServerFn(sendDirectConversationMessage);
   const markRead = useServerFn(markDirectThreadRead);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
-  const loadNotices = useServerFn(loadReminderNotices);
   const page = useConversationQuery({
     query: directConversationQuery(agentId),
     loadUpdates: directConversationUpdates(agentId),
@@ -109,14 +107,6 @@ function DirectConversationPage() {
       key={conversation.agent.id}
       conversation={conversation}
       agentStatus={agentStatus}
-      reminderRefreshKey={page.reminderRefreshKey}
-      onLoadReminderNotices={async (threadRootId) =>
-        (
-          await loadNotices({
-            data: { conversationId: conversation.conversationId, threadRootId },
-          })
-        ).notices
-      }
       tasks={taskView.tasks}
       onShowTasks={showTasks}
       onCreateTask={async (title, requestId, attachmentId) => {

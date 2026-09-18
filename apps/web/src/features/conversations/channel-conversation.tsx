@@ -18,7 +18,6 @@ import {
   type OwnMessageIndexEntry,
 } from "./direct-conversation";
 import { m } from "@/paraglide/messages";
-import type { ReminderNoticeView } from "./reminder-notice";
 import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-panel-search";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
@@ -150,8 +149,6 @@ export function ChannelConversation({
   onLoadOwnMessages,
   onLoadMessageAround,
   onShowLatest,
-  onLoadReminderNotices,
-  reminderRefreshKey,
   onReadThread,
   onThreadFollowedChange,
   tasks,
@@ -186,8 +183,6 @@ export function ChannelConversation({
   }>;
   onLoadMessageAround?: (messageId: string) => Promise<void>;
   onShowLatest?: () => Promise<void>;
-  onLoadReminderNotices?: (threadRootId?: string) => Promise<ReminderNoticeView[]>;
-  reminderRefreshKey?: number;
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
   onThreadFollowedChange?: (rootMessageId: string, followed: boolean) => Promise<void>;
   tasks?: TaskView[];
@@ -220,8 +215,6 @@ export function ChannelConversation({
       onLoadOwnMessages={onLoadOwnMessages}
       onLoadMessageAround={onLoadMessageAround}
       onShowLatest={onShowLatest}
-      onLoadReminderNotices={onLoadReminderNotices}
-      reminderRefreshKey={reminderRefreshKey}
       onReadThread={onReadThread}
       onOpenAgentProfile={onOpenAgentProfile}
       agentProfile={agentProfile}
