@@ -1,6 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Badge } from "@/components/base/badges/badges";
+import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
+import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
@@ -10,6 +12,10 @@ import type { Mentionable } from "./mention-text";
  * The @-completion popup above the composer textarea: a listbox of the channel's mentionable
  * members filtered to the in-progress query. Each row shows the member's avatar, display name,
  * handle and (for people who have one) profile description, plus an "Agent" badge for Agents.
+ * An Agent's avatar carries the same online/working/thinking/error/offline dot the sidebar and
+ * conversation header use, so you can see whether an Agent is around before mentioning it; the
+ * snapshot comes from the app shell's one subscription through `useLiveAgents`. People have no
+ * presence in the product, so a person's avatar stays plain.
  * Pointer selection happens on `pointerdown` so the textarea never blurs mid-pick; keyboard
  * interaction lives in `useMentionCompletion`.
  */
@@ -29,6 +35,11 @@ export function MentionSuggestionList({
   onHighlight: (index: number) => void;
 }) {
   const activeOptionRef = useRef<HTMLLIElement>(null);
+  const liveAgents = useLiveAgents();
+  const displayByAgentId = useMemo(
+    () => new Map(liveAgents.map((agent) => [agent.id, agent.display])),
+    [liveAgents],
+  );
 
   // Keep the highlighted row visible while arrowing past the popup's own scroll window.
   useEffect(() => {
@@ -63,13 +74,21 @@ export function MentionSuggestionList({
                 active && "bg-secondary",
               )}
             >
-              <Avatar
-                size="sm"
-                alt=""
-                src={item.avatarUrl}
-                initials={avatarInitial(item.label)}
-                contentClassName={avatarToneClassName(item.label)}
-              />
+              {item.kind === "agent" ? (
+                <AgentDisplayAvatar
+                  name={item.label}
+                  display={displayByAgentId.get(item.id)}
+                  size="sm"
+                />
+              ) : (
+                <Avatar
+                  size="sm"
+                  alt=""
+                  src={item.avatarUrl}
+                  initials={avatarInitial(item.label)}
+                  contentClassName={avatarToneClassName(item.label)}
+                />
+              )}
               <div className="min-w-0 flex-1">
                 <p className="flex items-baseline gap-1.5 text-sm">
                   <span className="min-w-0 truncate font-medium text-primary">{item.label}</span>
