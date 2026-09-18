@@ -851,6 +851,12 @@ export function ConversationPane({
       scrollToLatest("instant");
       setNewMessageCount(0);
       setFollowingLatest(true);
+      // TanStack's scroll restoration rewrites this container's scrollTop in the router's
+      // `onRendered` pass, which runs after this child's layout effect. Reassert the
+      // open-at-latest contract one frame later, after that write has landed.
+      requestAnimationFrame(() => {
+        if (followingLatestRef.current) scrollToLatest("instant");
+      });
     } else if (receivedMessageCount > 0) {
       setNewMessageCount((count) => count + receivedMessageCount);
     }
