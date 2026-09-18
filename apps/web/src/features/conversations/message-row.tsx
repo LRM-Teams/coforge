@@ -351,6 +351,48 @@ export function MessageRow({
       }
     />
   );
+  // A system message (task/membership notices, etc.) is not a person talking: it carries no
+  // avatar and no sender heading, and renders as a compact, muted line in the stream — like
+  // Slack's channel notices. The body still goes through `MessageBody` so a `@handle` mention in
+  // it stays a resolved chip. The virtualizer wrapper (`li` with `data-index`/`measureRef` and
+  // the transform) is kept identical so row measurement and scrolling are unaffected.
+  if (message.senderKind === "system") {
+    return (
+      <li
+        data-message-id={message.id}
+        data-index={index}
+        ref={measureRef}
+        className="absolute top-0 left-0 flex w-full flex-col"
+        style={{ transform: `translateY(${offset}px)` }}
+      >
+        {dayChanged && (
+          <div className="flex items-center gap-3 px-4 py-2 md:px-6">
+            <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
+            <span className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums">
+              {dayLabel(message.createdAt, dateLocale)}
+            </span>
+            <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
+          </div>
+        )}
+        <div
+          id={`message-${message.id}`}
+          data-message="system"
+          className="group/message flex scroll-m-6 items-baseline gap-2 px-4 py-1 text-xs text-tertiary md:px-6"
+        >
+          {/* System bodies are short plain text (task/membership notices, authored with a plain
+              `@handle`, not a mention token), so they render as a single muted line rather than
+              full Markdown. */}
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{message.body}</span>
+          <time
+            dateTime={new Date(message.createdAt).toISOString()}
+            className="shrink-0 tabular-nums opacity-0 group-hover/message:opacity-100"
+          >
+            {clockLabel(message.createdAt, dateLocale)}
+          </time>
+        </div>
+      </li>
+    );
+  }
   return (
     <li
       data-message-id={message.id}
