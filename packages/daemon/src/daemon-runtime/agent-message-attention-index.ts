@@ -53,13 +53,18 @@ export class AgentMessageAttentionIndex {
      * The daemon-owned delivery queue (ADR 0048, `agent-delivery-queue.ts`). `shouldHold` decides
      * whether this delivery must wait rather than reach `AgentSession.notify` now; `enqueue`
      * records it as held once this class has already updated its own attention/dedupe
-     * bookkeeping for it. Defaults to never holding, so every existing caller and test observes
-     * the prior immediate-notify behavior unchanged.
+     * bookkeeping for it. `busy` marks the Agent mid-turn — called synchronously, right before
+     * every `session.notify` call this class makes (matching Raft's `commitApmIdleState(...,
+     * false)` at every send site), so a second delivery decided upon before the runtime has
+     * emitted any event of its own still sees the Agent as busy. Defaults to never holding and a
+     * no-op `busy`, so every existing caller and test observes the prior immediate-notify
+     * behavior unchanged.
      */
     private readonly hold: {
       shouldHold(agentId: string): boolean;
       enqueue(agentId: string, message: AgentMessageDelivery): void;
-    } = { shouldHold: () => false, enqueue: () => {} },
+      busy(agentId: string): void;
+    } = { shouldHold: () => false, enqueue: () => {}, busy: () => {} },
   ) {
     this.#workspaceId = workspaceId;
     this.#runtimes = runtimes;
@@ -253,6 +258,8 @@ export class AgentMessageAttentionIndex {
     const concrete = lines.length
       ? `${lines.length === 1 ? "New message received:" : "New messages received:"}\n\n${lines.join("\n")}\n\nRespond as appropriate. Complete all your work before stopping.`
       : "New messages received:";
+    // ADR 0048: same synchronous-busy rule as `#notify` — this is also a `session.notify` call.
+    this.hold.busy(agentId);
     await session.notify(
       `${concrete}${instructions.length ? `\n\n${instructions.join("\n")}` : ""}`,
     );
@@ -278,6 +285,10 @@ export class AgentMessageAttentionIndex {
     if (!session?.notify)
       return Promise.reject(new Error("Agent session cannot receive a wakeup notice"));
     if (!message.target) return Promise.reject(new Error("delivery target is missing"));
+    // ADR 0048: mark busy synchronously, in the same tick as this decision to write to the
+    // session — before the next queued input for this Agent can be drained and see a stale
+    // "not busy yet" state.
+    this.hold.busy(message.agentId);
     const current = attention ?? this.#attention.get(message.agentId)?.get(message.target);
     const pendingCount = current?.pendingCount ?? 1;
     const totalPendingCount = [...(this.#attention.get(message.agentId)?.values() ?? [])].reduce(

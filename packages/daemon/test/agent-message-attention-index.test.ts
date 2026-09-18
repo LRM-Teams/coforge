@@ -381,6 +381,35 @@ test("recovery directs every target with messages beyond the batch to canonical 
   expect(index.modelSeenSequence("agent-1", "@ada")).toBe(1);
 });
 
+test("recover also marks busy — it is a session.notify call like any other (ADR 0048)", async () => {
+  const queue = heldQueue();
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session() },
+    async () => {},
+    () => {},
+    queue.hold,
+  );
+
+  await index.recover(
+    "agent-1",
+    [
+      {
+        messageId: "message-1",
+        deliveryId: "delivery-1",
+        conversationId: "conversation-1",
+        sequence: 1,
+        target: "@ada",
+        latestSender: "@ada",
+        body: "Please resume this work",
+      },
+    ],
+    {},
+  );
+
+  expect(queue.busyCalls).toEqual(["agent-1"]);
+});
+
 test("recovery rejected by the model remains unseen and retryable", async () => {
   let reject = true;
   const notices: string[] = [];
@@ -475,17 +504,20 @@ test("latestThreadReadUnderParent finds the most recently read thread rooted und
 });
 
 // ADR 0048: a fake `hold` collaborator standing in for `AgentDeliveryQueue`, matching the seam
-// `AgentMessageAttentionIndex`'s constructor consumes (`shouldHold`/`enqueue`) and what
+// `AgentMessageAttentionIndex`'s constructor consumes (`shouldHold`/`enqueue`/`busy`) and what
 // `flush` expects back (the drained list).
 function heldQueue() {
   const held: AgentMessageDelivery[] = [];
   let holding = false;
+  const busyCalls: string[] = [];
   return {
     setHolding: (value: boolean) => (holding = value),
     drain: () => held.splice(0),
+    busyCalls,
     hold: {
       shouldHold: () => holding,
       enqueue: (_agentId: string, message: AgentMessageDelivery) => held.push(message),
+      busy: (agentId: string) => busyCalls.push(agentId),
     },
   };
 }
@@ -528,6 +560,47 @@ test("flush is a no-op when nothing was held", async () => {
   );
   await index.flush("agent-1", []);
   expect(notices).toEqual([]);
+});
+
+test("receive marks busy synchronously, before the session accepts the notice it sends", async () => {
+  const queue = heldQueue();
+  let releaseNotify!: () => void;
+  const gate = new Promise<void>((resolve) => (releaseNotify = resolve));
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => ({ ...session(), notify: async () => gate }) },
+    async () => {},
+    () => {},
+    queue.hold,
+  );
+
+  // Not held (queue.setHolding was never called), so this delivers immediately: `#notify` marks
+  // busy before its own `session.notify()` call has even resolved. A second delivery decided
+  // upon in this same tick — before the runtime has emitted any event of its own — must already
+  // see the Agent as busy (ADR 0048); this is what `receive`'s pre-existing serialized draining
+  // guarantees, and what this assertion protects.
+  const receiving = index.receive(delivery("one"));
+  expect(queue.busyCalls).toEqual(["agent-1"]);
+  releaseNotify();
+  await receiving;
+});
+
+test("flush also marks busy synchronously, before the coalesced notice it sends resolves", async () => {
+  const queue = heldQueue();
+  let releaseNotify!: () => void;
+  const gate = new Promise<void>((resolve) => (releaseNotify = resolve));
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => ({ ...session(), notify: async () => gate }) },
+    async () => {},
+    () => {},
+    queue.hold,
+  );
+
+  const flushing = index.flush("agent-1", [delivery("one")]);
+  expect(queue.busyCalls).toEqual(["agent-1"]);
+  releaseNotify();
+  await flushing;
 });
 
 test("a not-yet-notified resend while held stays held instead of notifying again", async () => {

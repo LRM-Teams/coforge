@@ -69,14 +69,16 @@ read and pause, not just to fix Kiro.
 
 - `#launchAgent` calls `#deliveryQueue.setProvider(agentId, config.provider)` once the launch's
   `config` is known.
-- `#observeRuntimeEvent` marks busy on every event except `"session"`, `"usage"`, and `"completed"`
-  (activity, tool-start/-end, compaction-*, a content-free `"progress"` ping, `"error"`,
-  `"reconnecting"` — i.e. anything meaning the runtime is mid-turn), and marks idle exactly on
-  `"completed"`, then flushes whatever was held.
+- `#observeRuntimeEvent` also marks busy on every event except `"session"`, `"usage"`, and
+  `"completed"` (activity, tool-start/-end, compaction-*, a content-free `"progress"` ping,
+  `"error"`, `"reconnecting"`) — a backstop, not the primary mechanism; see "Busy is marked at
+  every send site" below for why the primary mechanism is elsewhere. Marks idle exactly on
+  `"completed"`, then flushes whatever was held (message deliveries, then held app items — see
+  "App items" below).
 
 **Wiring in `AgentMessageAttentionIndex`:** a new, optional constructor collaborator
-(`{ shouldHold, enqueue }`, defaulting to "never hold" so every existing caller and test is
-unaffected) and a new `flush(agentId, held)` method.
+(`{ shouldHold, enqueue, busy }`, defaulting to "never hold, no-op busy" so every existing caller
+and test is unaffected) and a new `flush(agentId, held)` method.
 
 - `receive()` still does its dedupe/attention/pendingSequences bookkeeping unconditionally for
   every delivery, held or not — only the `session.notify()` call (and therefore the ACK) is
@@ -89,6 +91,52 @@ unaffected) and a new `flush(agentId, held)` method.
   `pendingCount`/`totalPendingCount` off the attention state `receive()` kept updating the whole
   time it was held — then ACKs every held delivery once that single notice is accepted, never on
   failure.
+
+**Busy is marked at every send site, synchronously, not derived from provider events.** An
+earlier version of this PR only marked busy from the next provider event after a delivery, which
+left a real race: `receive()`'s per-Agent input queue drains deliveries serially, but each
+`#notify()` call only *awaits* until the provider *accepts* the notice (e.g. Kiro's ACP admission),
+not until the turn it starts actually finishes — so a second delivery could be drained, and decided
+upon, before the runtime had emitted a single event of its own, and would see a stale "not busy"
+state. Matching Raft's `commitApmIdleState(agentId, ap, false)` at every send site, every place this
+class (or `runtime.ts`, for app items) calls `session.notify` now calls the injected `hold.busy(agentId)`
+synchronously, in the same tick, *before* constructing the notice or awaiting anything:
+
+- `#notify()` — covers every ordinary delivery and every coalesced `flush`.
+- `recover()` — covers the wake/restart summary notice (`session.notify(...)` around what was line
+  218 before this change).
+
+Because JavaScript is single-threaded and `busy()` runs synchronously as part of evaluating the
+`#notify(...)`/`recover(...)` call, by the time the daemon's serialized per-Agent input queue drains
+the *next* item — even microseconds later, even before the provider has said anything — `shouldHold`
+already sees the Agent as busy. This closes the race for every delivery. For Kiro specifically (the
+only `queue_until_idle` provider today) it also closes the previously-noted "launch bootstrap"
+gap: `KiroSession#open` (`kiro/provider.ts`) never sends a turn during session creation — the
+standing instructions are injected as a native profile/config selection
+(`session/set_config_option`), not a prompt — so a fresh Kiro session is genuinely idle until the
+first `#notify`/`recover`/app-item call this class makes, all three of which now mark busy
+themselves. (A provider that *did* send an actual first turn as part of its own bootstrap, outside
+any call this class makes, would still have a narrow gap here — but no `queue_until_idle` provider
+does that today, so this is not a live gap; a future `queue_until_idle` provider that bootstraps
+with a real first turn would need to mark busy itself, e.g. via a `session`-identity event, or this
+module would need a fourth send site.)
+
+**App items** (`DaemonRuntime#notifyAppItem`, "New app item available…") used to call
+`session.notify` unconditionally, bypassing this queue entirely. It now runs the same
+`shouldHold`/`busy` check as an ordinary delivery: held, it records the item id via
+`AgentDeliveryQueue.holdAppItem`/`releaseAppItems` (a small separate id set, not an
+`AgentMessageDelivery`, since app items are a different subsystem — `agent-app-inbox/` — with their
+own identity and retention) and returns `false` (not yet delivered — `#notifyAppItem`'s existing
+"not accepted, memo cleared" bookkeeping already handles a retry correctly, unchanged). Release
+happens at turn end, **after** the message-delivery flush, not joined into the same notice: the
+flush's own `#notify()` call marks busy again synchronously if it actually had something to send,
+so checking `shouldHold` again for a held app item — inside `#notifyAppItem`'s own fresh
+re-evaluation — correctly re-holds it for the *next* turn end instead of racing a second
+`session.notify` call against the turn the flush just started (which would reproduce the exact bug
+this PR fixes, between the flush and the app item). When the flush had nothing to send, the app
+item's own `shouldHold` check sees idle and delivers immediately. This was simpler than joining app
+items into the coalesced delivery notice, and app items never shared that notice's wording or
+target/pendingCount shape to begin with.
 
 **ACK/generation semantics kept exactly as they are today**: ACK happens only after
 `AgentSession.notify` accepts the notice, never before (the architecture invariant in
@@ -114,11 +162,40 @@ concept; it only changes *when*, not *whether*, a delivery reaches `#notify`.
 - A relaunch (the `#launch` pre-launch clear at ~1298) does **not** clear the delivery queue either
   — it only clears attention state, for the same reason.
 
-This PR does **not** wire an automatic flush of surviving held deliveries at the next launch — that
-is the crash-restart PR's job, via `pending`/`hasQueued`. Today, a delivery that survives a crash
-this way is redundant with (not yet load-bearing over) the server's own unread-based recovery,
-since it was never ACKed; it is kept, not discarded, purely so the later PR can consult it without
-this module needing to change again.
+**Surviving held deliveries are released at the next launch, not left to a later PR.** A held,
+unacked delivery that survives an unexpected exit has no other trigger that would ever flush it:
+`AgentDeliveryQueue.idle()` only fires on a `"completed"` event, and a Kiro session that has not yet
+run any turn on its new launch never produces one. Left alone, it would sit in memory forever,
+never ACKed, so the server would keep believing it undelivered indefinitely. `#recoverAttention`
+(called once per launch, from the per-Agent input queue, so it only runs once the new launch's
+session actually exists) now settles this queue in the same place it settles `recover()`, choosing
+one of two paths per launch rather than trying to reconcile per target:
+
+- **If this launch's recovery context had any content** (`wakeMessage`/`resumeMessages`/
+  `unreadSummary` non-empty — `recover()` therefore actually sent a notice): the surviving held
+  deliveries are **dropped and ACKed** (`AgentDeliveryQueue.discardPending` +
+  `#ackHeldDelivery` for each), never separately flushed. The server's own unread ledger, not this
+  in-memory queue, is what a crashed-and-relaunched Agent's `resumeMessages`/`unreadSummary` are
+  built from (architecture.md §6.1, point 7) — since these held deliveries were never ACKed, the
+  server still considered them canonically unread and this same recovery pass already carries
+  them (up to its own 100-message cap and target-summary rules, identical to how it already covers
+  everything else the server considers outstanding for this Agent). A second, separate notice for
+  the exact same content would be redundant, and — worse — would itself be a coalesced-`flush`
+  `session.notify()` call landing on a session that `recover()` may have *just* made busy, risking
+  the very race this PR closes.
+- **If this launch's recovery context was empty** (no wake message, no resume messages, no unread
+  summary at all — `recover()` never ran): nothing else has told the Agent, so the surviving held
+  deliveries are **flushed** through the ordinary `AgentMessageAttentionIndex.flush` path
+  (`AgentDeliveryQueue.idle()`, treating the freshly launched, genuinely-idle session exactly like
+  any other idle-to-busy transition).
+
+The same "flush, treating the session as idle" call also runs from `#launch`'s own continuation for
+the rarer case where this launch enqueued no recovery item at all (a plain `startAgent` with no
+`recovery` argument), since `#recoverAttention` never runs in that case either.
+
+Held **app items** are simpler: `recover()` only ever concerns canonical Message unread state, never
+App Inbox content, so a held app item is unconditionally released (never dropped) at the same point,
+regardless of which of the two paths above was taken.
 
 ## Divergences from Raft
 
@@ -131,18 +208,6 @@ this module needing to change again.
 - **No compaction/review boundary gating, no runtime-profile control messages, no thread-join
   context rendering.** Raft's gated-steering effect system covers all of these; this PR only gates
   turn busy/idle for `queue_until_idle` providers.
-- **Busy is derived from provider events, not marked synchronously at send time.** Raft calls
-  `commitApmIdleState(..., false)` at every send site. This PR instead marks busy from the next
-  provider event (`progress`, `activity`, `tool-start`, …) after `#launchAgent` subscribes. This
-  leaves a narrow gap: a delivery that lands in the window between a fresh launch's first turn
-  starting (the launch's own instructions-as-first-prompt, which is not a `session.sendMessage`
-  call this daemon core ever issues today — see below) and that turn's first observed event would
-  still be delivered immediately even for a `queue_until_idle` provider. This is a real, known,
-  narrower version of the bug this PR fixes (it only affects the launch-bootstrap window, not every
-  busy period), left open deliberately rather than instrumented ad hoc; closing it fully would mean
-  marking busy the moment a provider spawns/bootstraps, which no current call site in `runtime.ts`
-  does explicitly (every provider's first turn is embedded in its own spawn/bootstrap, not sent
-  through a `sendMessage`/`notify` call this module observes).
 - **Explicit `hold`/`release` do not themselves schedule expiry.** Raft's backoff/fence machinery
   computes and enforces its own deadlines; this PR's seam only stores an opaque `until` marker for
   a later PR to interpret.
@@ -154,10 +219,17 @@ this module needing to change again.
 
 ## Consequences
 
-- A busy Kiro Agent no longer has its running turn cancelled by an ordinary channel message or DM
-  arriving mid-turn; deliveries collect and produce exactly one coalesced notice at turn end,
-  identical in wording to what a single immediate delivery would have produced.
+- A busy Kiro Agent no longer has its running turn cancelled by an ordinary channel message, DM, or
+  app item arriving mid-turn — including one decided upon before the runtime has emitted a single
+  event of its own. Deliveries collect and produce exactly one coalesced notice at turn end,
+  identical in wording to what a single immediate delivery would have produced; a held app item is
+  released as its own separate notice right after, never lost across a turn boundary.
 - Every other provider's delivery behavior is unchanged — same call, same timing, same ACK.
+- A delivery still held when the Agent's process exits unexpectedly is never silently lost or stuck
+  forever: it is either flushed (nothing else told the Agent) or dropped-and-ACKed (the next
+  launch's `recover()` already told the Agent about the same canonical unread state) as soon as the
+  next launch's session is ready — never left to accumulate indefinitely waiting for a `"completed"`
+  event that a never-yet-run session cannot produce.
 - `AgentDeliveryQueue`'s `hold`/`release`/`pending`/`hasQueued` are unused by any wiring outside the
   busy-gating path in this PR; they exist so the error-backoff, 3-strike-fence, crash-restart, and
   stall-recovery PRs in this series have one already-reviewed place to attach to instead of adding
@@ -166,19 +238,28 @@ this module needing to change again.
 ## Validation and rollback
 
 - `packages/daemon/test/agent-delivery-queue.test.ts`: the queue's own contract in isolation
-  (mode/busy/idle, explicit hold/release, `onProcessExit` vs `clearAgent`, per-Agent isolation).
+  (mode/busy/idle, explicit hold/release, `discardPending` ignoring busy/hold,
+  `holdAppItem`/`releaseAppItems` as a separate id set, `onProcessExit` vs `clearAgent` for both
+  deliveries and app items, per-Agent isolation).
 - `packages/daemon/test/agent-message-attention-index.test.ts`: the `hold`/`flush` wiring — a held
   delivery updates attention but does not notify/ACK, a coalesced flush notifies once and ACKs
-  every held delivery, `flush` with nothing held is a no-op, and a not-yet-notified resend while
-  held stays held instead of notifying again. All prior tests in this file are unchanged and still
-  pass (the new constructor argument defaults to never holding).
+  every held delivery, `flush` with nothing held is a no-op, a not-yet-notified resend while held
+  stays held instead of notifying again, and — the fix in this revision — `receive`, `flush`, and
+  `recover` each mark busy synchronously, provably before the session's own `notify()` call
+  resolves (a controlled, ungated fake `notify` that never settles during the assertion). All prior
+  tests in this file are unchanged and still pass (the new constructor argument defaults to never
+  holding and a no-op `busy`).
 - `packages/daemon/test/daemon-runtime.test.ts` (`describe("Agent delivery queue (ADR 0048)")`): a
   busy Kiro-mode Agent holds two deliveries and flushes exactly one coalesced notice with both ACKs
   at turn end; an idle Kiro-mode Agent still delivers immediately; a busy steer-mode (Pi) Agent is
-  delivered to immediately, unchanged.
+  delivered to immediately, unchanged; a second delivery decided upon before the runtime has emitted
+  any event still finds the Agent busy (the exact race this revision fixes); an app-item notice
+  while busy is held and released at turn end; a held delivery survives an unexpected exit and is
+  delivered exactly once on the next launch.
 - `bun run --cwd packages/daemon check` (format/lint/typecheck) and the daemon test suite; see the
   PR body for exact commands and results, including pre-existing unrelated flakiness on this
   machine.
-- Rollback is reverting the commit(s): the new constructor argument on
-  `AgentMessageAttentionIndex` defaults to today's immediate-notify behavior, so removing the
-  `AgentDeliveryQueue` wiring in `runtime.ts` alone is sufficient to fully restore prior behavior.
+- Rollback is reverting the commit(s): the new constructor arguments on
+  `AgentMessageAttentionIndex` default to today's immediate-notify, no-op-busy behavior, so removing
+  the `AgentDeliveryQueue` wiring and the `#notifyAppItem`/`#recoverAttention` changes in
+  `runtime.ts` is sufficient to fully restore prior behavior.

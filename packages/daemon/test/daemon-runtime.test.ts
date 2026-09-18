@@ -6127,20 +6127,32 @@ describe("DaemonRuntime", () => {
  * end) without a real provider process. */
 function deliveryQueueSession() {
   const listeners = new Set<(event: AgentRuntimeEvent) => void>();
+  const exitListeners = new Set<() => void>();
   const notices: string[] = [];
+  const waiters: Array<{ length: number; resolve: () => void }> = [];
   return {
     session: {
       async sendMessage() {},
       async notify(notice: string) {
         notices.push(notice);
+        // Iterate backward while splicing so removing an earlier waiter never shifts a not-yet-
+        // visited one out from under the loop.
+        for (let index = waiters.length - 1; index >= 0; index--) {
+          const waiter = waiters[index]!;
+          if (notices.length >= waiter.length) {
+            waiters.splice(index, 1);
+            waiter.resolve();
+          }
+        }
       },
       subscribe(listener: (event: AgentRuntimeEvent) => void) {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
       async interrupt() {},
-      onExit() {
-        return () => undefined;
+      onExit(listener: () => void) {
+        exitListeners.add(listener);
+        return () => exitListeners.delete(listener);
       },
       async dispose() {},
     } satisfies AgentSession,
@@ -6148,6 +6160,17 @@ function deliveryQueueSession() {
     emit: (event: AgentRuntimeEvent) => {
       for (const listener of listeners) listener(event);
     },
+    /** Simulates the runtime process exiting unexpectedly (a crash), firing every `onExit`
+     * listener DaemonRuntime has registered across every launch that used this session. */
+    exit: () => {
+      for (const listener of exitListeners) listener();
+    },
+    /** Resolves once at least `length` notices have been sent — the observable completion of a
+     * fire-and-forget release, rather than a timer-based wait (docs/agents/testing.md). */
+    waitForNotices: (length: number) =>
+      notices.length >= length
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => waiters.push({ length, resolve })),
   };
 }
 
@@ -6168,7 +6191,11 @@ function ackGate(count: number) {
 }
 
 describe("Agent delivery queue (ADR 0048)", () => {
-  async function deliveryQueueHarness(provider: AgentRuntimeConfig["provider"], acks = ackGate(0)) {
+  async function deliveryQueueHarness(
+    provider: AgentRuntimeConfig["provider"],
+    acks = ackGate(0),
+    stateDirectory?: string,
+  ) {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const fake = deliveryQueueSession();
@@ -6190,6 +6217,9 @@ describe("Agent delivery queue (ADR 0048)", () => {
           },
         }),
       },
+      undefined,
+      undefined,
+      stateDirectory,
     );
     await runtime.start(connection);
     await runtime.startAgent("agent-a", { ...config, provider });
@@ -6246,6 +6276,68 @@ describe("Agent delivery queue (ADR 0048)", () => {
 
     fake.emit({ type: "progress" });
     await deliver(1);
+    await acks.done;
+    expect(fake.notices).toHaveLength(1);
+    expect(acks.acks).toEqual(["delivery-1"]);
+  });
+
+  test("a delivery decided before any provider event still finds the Agent busy", async () => {
+    const acks = ackGate(2);
+    const { fake, deliver } = await deliveryQueueHarness("kiro", acks);
+
+    // Idle -> delivered immediately, and this alone must mark the Agent busy (ADR 0048) even
+    // though the runtime has not emitted a single event yet - this is exactly the race that used
+    // to cancel Kiro's running turn.
+    await deliver(1);
+    expect(fake.notices).toHaveLength(1);
+
+    await deliver(2);
+    expect(fake.notices).toHaveLength(1); // #2 is held, not a second notice
+
+    fake.emit({ type: "completed", status: "completed" });
+    await acks.done;
+    expect(fake.notices).toHaveLength(2);
+    expect(acks.acks).toEqual(["delivery-1", "delivery-2"]);
+  });
+
+  test("an app-item notice while busy is held and released at turn end", async () => {
+    const stateDirectory = join(tempRoot, `coforge-delivery-queue-app-item-${crypto.randomUUID()}`);
+    const { runtime, fake } = await deliveryQueueHarness("kiro", ackGate(0), stateDirectory);
+    try {
+      fake.emit({ type: "progress" }); // busy
+      await runtime.mintAppItem("agent-a", {
+        appId: "system.reminder",
+        notificationClass: "due",
+        sourceRef: { kind: "reminder", id: "123e4567-e89b-42d3-a456-426614174000", revision: "1" },
+        title: "Due",
+        summary: "Now",
+      });
+      expect(fake.notices).toEqual([]); // held while busy, not sent
+
+      fake.emit({ type: "completed", status: "completed" });
+      await fake.waitForNotices(1);
+      expect(fake.notices).toEqual(["New app item available. Run coforge inbox check."]);
+    } finally {
+      await runtime.stop();
+      await rm(stateDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("a held delivery survives an unexpected exit and is delivered exactly once on the next launch", async () => {
+    const acks = ackGate(1);
+    const { runtime, fake, deliver } = await deliveryQueueHarness("kiro", acks);
+
+    fake.emit({ type: "progress" }); // busy
+    await deliver(1);
+    expect(fake.notices).toEqual([]);
+    expect(acks.acks).toEqual([]);
+
+    fake.exit(); // an unexpected exit while the delivery is still held, unacked
+
+    // The next launch of the same Agent: a plain start, no recovery context, so nothing else
+    // tells the Agent about it - the surviving held delivery must be flushed once this launch's
+    // session is ready, treated as idle.
+    await runtime.startAgent("agent-a", { ...config, provider: "kiro" });
     await acks.done;
     expect(fake.notices).toHaveLength(1);
     expect(acks.acks).toEqual(["delivery-1"]);

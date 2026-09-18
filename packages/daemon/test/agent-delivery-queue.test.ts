@@ -105,6 +105,46 @@ test("an explicit Stop discards everything held, unlike an unexpected exit", () 
   expect(queue.shouldHold("agent-1")).toBe(false);
 });
 
+test("discardPending unconditionally drains, ignoring busy and an explicit hold", () => {
+  const queue = new AgentDeliveryQueue();
+  queue.setProvider("agent-1", "kiro");
+  queue.busy("agent-1");
+  queue.hold("agent-1");
+  queue.enqueue("agent-1", delivery("one"));
+  queue.enqueue("agent-1", delivery("two"));
+  const dropped = queue.discardPending("agent-1");
+  expect(dropped.map((message) => message.deliveryId)).toEqual(["delivery-one", "delivery-two"]);
+  expect(queue.hasQueued("agent-1")).toBe(false);
+  // Both the busy gate and the explicit hold are untouched — only the held list was drained.
+  expect(queue.shouldHold("agent-1")).toBe(true);
+});
+
+test("holdAppItem/releaseAppItems track app-item ids separately from the message queue", () => {
+  const queue = new AgentDeliveryQueue();
+  queue.setProvider("agent-1", "kiro");
+  queue.holdAppItem("agent-1", "item-1");
+  queue.holdAppItem("agent-1", "item-2");
+  // Re-holding the same id is idempotent.
+  queue.holdAppItem("agent-1", "item-1");
+  expect(queue.releaseAppItems("agent-1").sort()).toEqual(["item-1", "item-2"]);
+  // Draining clears it.
+  expect(queue.releaseAppItems("agent-1")).toEqual([]);
+  // Never affects the message-delivery held list.
+  expect(queue.hasQueued("agent-1")).toBe(false);
+});
+
+test("an unexpected exit keeps held app items; explicit Stop discards them", () => {
+  const queue = new AgentDeliveryQueue();
+  queue.setProvider("agent-1", "kiro");
+  queue.holdAppItem("agent-1", "item-1");
+  queue.onProcessExit("agent-1");
+  expect(queue.releaseAppItems("agent-1")).toEqual(["item-1"]);
+
+  queue.holdAppItem("agent-1", "item-2");
+  queue.clearAgent("agent-1");
+  expect(queue.releaseAppItems("agent-1")).toEqual([]);
+});
+
 test("per-Agent state is independent", () => {
   const queue = new AgentDeliveryQueue();
   queue.setProvider("agent-1", "kiro");

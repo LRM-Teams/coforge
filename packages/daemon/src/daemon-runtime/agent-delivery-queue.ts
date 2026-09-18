@@ -44,6 +44,10 @@ export class AgentDeliveryQueue {
   readonly #mode = new Map<string, AgentDeliveryMode>();
   readonly #busy = new Set<string>();
   readonly #held = new Map<string, AgentMessageDelivery[]>();
+  /** App-item ids held while busy (ADR 0048, `DaemonRuntime#notifyAppItem`) — a separate,
+   * app-inbox-owned notice, not an `AgentMessageDelivery`; kept apart from `#held` so the two
+   * domains' storage never mixes. */
+  readonly #heldAppItems = new Map<string, Set<string>>();
   /** An explicit hold from `hold()`, keyed by Agent; its value is an opaque marker a later PR
    * interprets (e.g. a backoff deadline). Presence alone means "held", regardless of busy/idle. */
   readonly #explicitHolds = new Map<string, unknown>();
@@ -99,6 +103,33 @@ export class AgentDeliveryQueue {
   }
 
   /**
+   * Unconditionally drains and returns everything held for the Agent, ignoring busy/idle and any
+   * explicit hold — for a caller that has already decided these held deliveries are redundant
+   * (ADR 0048: a relaunch's `recover()` pass already told the Agent about the same canonical
+   * unread state) and only needs them back to ACK each one, never to notify with them.
+   */
+  discardPending(agentId: string): AgentMessageDelivery[] {
+    return this.#drain(agentId);
+  }
+
+  /** Records an app-item notice (`DaemonRuntime#notifyAppItem`) as held while busy. */
+  holdAppItem(agentId: string, itemId: string): void {
+    const items = this.#heldAppItems.get(agentId) ?? new Set<string>();
+    items.add(itemId);
+    this.#heldAppItems.set(agentId, items);
+  }
+
+  /** Drains and returns the app-item ids held for the Agent, for the caller to re-attempt
+   * delivery of each — unconditionally, like `discardPending`; the caller re-checks `shouldHold`
+   * itself for each item before actually notifying, so one still-busy item (e.g. a coalesced
+   * delivery flush that just re-armed busy) re-holds itself rather than being lost. */
+  releaseAppItems(agentId: string): string[] {
+    const items = this.#heldAppItems.get(agentId);
+    this.#heldAppItems.delete(agentId);
+    return items ? [...items] : [];
+  }
+
+  /**
    * Explicit hold seam for later PRs (error backoff, the 3-strike fence, stall recovery): while
    * held, `shouldHold` is true regardless of busy/idle state. `until` is an opaque marker a later
    * PR interprets; this PR only stores and clears it — it does not itself schedule an automatic
@@ -117,17 +148,19 @@ export class AgentDeliveryQueue {
   }
 
   /** An unexpected process exit: the running turn is gone, so busy no longer applies, but
-   * anything held stays held for the next launch (ADR 0048) — only explicit Stop (`clearAgent`)
-   * discards it. */
+   * anything held (deliveries and app items alike) stays held for the next launch (ADR 0048) —
+   * only explicit Stop (`clearAgent`) discards it. */
   onProcessExit(agentId: string): void {
     this.#busy.delete(agentId);
   }
 
-  /** Explicit Stop: discards this Agent's held deliveries along with the rest of its state. */
+  /** Explicit Stop: discards this Agent's held deliveries and app items along with the rest of
+   * its state. */
   clearAgent(agentId: string): void {
     this.#mode.delete(agentId);
     this.#busy.delete(agentId);
     this.#held.delete(agentId);
+    this.#heldAppItems.delete(agentId);
     this.#explicitHolds.delete(agentId);
   }
 

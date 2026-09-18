@@ -541,6 +541,7 @@ export class DaemonRuntime {
       {
         shouldHold: (agentId) => this.#deliveryQueue.shouldHold(agentId),
         enqueue: (agentId, message) => this.#deliveryQueue.enqueue(agentId, message),
+        busy: (agentId) => this.#deliveryQueue.busy(agentId),
       },
     );
     this.#reminders = new ReminderScheduler(
@@ -1346,6 +1347,13 @@ export class DaemonRuntime {
           if (recoveryCompletion) await recoveryCompletion;
           // The startup turn is not awaited: the launch (and the Start result reported from
           // it) completes when the process is up, never after a whole model turn.
+          // ADR 0048: no recovery item was enqueued for this launch at all (so
+          // `#recoverAttention` never ran), yet the session is ready — flush anything
+          // AgentDeliveryQueue held across an unexpected exit now.
+          else {
+            this.#flushSurvivingDeliveryQueue(agentId);
+            this.#releaseHeldAppItems(agentId);
+          }
           return runtime;
         },
         (error: unknown) => {
@@ -1446,8 +1454,9 @@ export class DaemonRuntime {
       ...(context.wakeMessage ? [context.wakeMessage] : []),
       ...(context.resumeMessages ?? []),
     ];
+    const hasRecoveryContent = recoveryHasContent(context);
     try {
-      if (recoveryHasContent(context))
+      if (hasRecoveryContent)
         await this.#messageAttention.recover(agentId, messages, context.unreadSummary ?? {});
     } catch (error) {
       logger.warn("Agent recovery notice was not accepted; canonical unread state remains", {
@@ -1457,6 +1466,53 @@ export class DaemonRuntime {
       });
       throw error;
     }
+    // ADR 0048: reconcile whatever AgentDeliveryQueue held across an unexpected exit now that
+    // this launch's recovery pass has run. `recover()` above already told the Agent about the
+    // same canonical unread state (the server's own unread ledger, not this in-memory queue, is
+    // what a crashed-and-relaunched Agent's `resumeMessages`/`unreadSummary` are built from) —
+    // drop and ACK the surviving held deliveries instead of a second, redundant notice for them.
+    // When there was no recovery content, nothing else has told the Agent, so flush them now,
+    // treating the freshly launched session as idle.
+    if (hasRecoveryContent) this.#dropSurvivingDeliveryQueue(agentId);
+    else this.#flushSurvivingDeliveryQueue(agentId);
+    // App items (reminders, etc.) are a separate subsystem from canonical Message unread state
+    // (`agent-app-inbox/`); `recover()` above never mentions them, so a held one is always
+    // released here regardless of `hasRecoveryContent`, never dropped.
+    this.#releaseHeldAppItems(agentId);
+  }
+
+  /** ADR 0048: drops whatever `AgentDeliveryQueue` held for `agentId` across an unexpected exit,
+   * ACKing each one — used when this launch's `recover()` pass already covered the same unread
+   * state, so notifying about them again would be redundant. */
+  #dropSurvivingDeliveryQueue(agentId: string): void {
+    for (const message of this.#deliveryQueue.discardPending(agentId))
+      void this.#ackHeldDelivery(message).catch(() => {});
+  }
+
+  /** ADR 0048: flushes whatever `AgentDeliveryQueue` held for `agentId` across an unexpected
+   * exit, treating the (fresh or just-recovered) session as idle — used when nothing else has
+   * told the Agent about it. */
+  #flushSurvivingDeliveryQueue(agentId: string): void {
+    const held = this.#deliveryQueue.idle(agentId);
+    if (!held.length) return;
+    void this.#messageAttention.flush(agentId, held).catch((error: unknown) => {
+      logger.warn("Held Agent deliveries were not accepted at launch", {
+        event: "agent.delivery_queue.flush_rejected",
+        agent_id: agentId,
+        held_count: held.length,
+        error_code: error instanceof Error ? error.name : "UnknownError",
+      });
+    });
+  }
+
+  #ackHeldDelivery(message: AgentMessageDelivery): Promise<void> {
+    return (
+      this.#transport.sendAgentDeliveryAck?.({
+        ...message,
+        method: "agent:deliver:ack",
+        requestId: message.requestId,
+      }) ?? Promise.resolve()
+    );
   }
 
   /** Opens a freshly created session's first turn with a fixed prompt so its standing "Startup
@@ -2082,6 +2138,11 @@ export class DaemonRuntime {
           error_code: error instanceof Error ? error.name : "UnknownError",
         });
       });
+    // Checked after the flush call above, not before: `flush` (via `#notify`) marks busy again
+    // synchronously, in the same tick, whenever it actually has something to deliver — so a held
+    // app item correctly re-holds itself (via `#notifyAppItem`'s own `shouldHold` check) for the
+    // *next* turn end instead of racing the notice the flush just started sending.
+    this.#releaseHeldAppItems(agentId);
     // A turn ending means a still-open compaction is done; report that before the turn's own
     // idle/failed/interrupted Activity.
     if (this.#compactionTracker.finish(agentId) === "finished")
@@ -3327,6 +3388,14 @@ export class DaemonRuntime {
         ).session;
       }
       if (!session.notify) return false;
+      // ADR 0048: a queue_until_idle provider's session/notify has no safe busy path, same as an
+      // ordinary message delivery — hold this app-item notice instead of sending it now, and
+      // release it (re-attempting this same call) at the next turn end.
+      if (this.#deliveryQueue.shouldHold(agentId)) {
+        this.#deliveryQueue.holdAppItem(agentId, itemId);
+        return false;
+      }
+      this.#deliveryQueue.busy(agentId);
       await session.notify("New app item available. Run coforge inbox check.");
       return true;
     });
@@ -3339,6 +3408,15 @@ export class DaemonRuntime {
       if (notified.get(itemId) === pending) notified.delete(itemId);
       throw error;
     }
+  }
+
+  /** ADR 0048: re-attempts every app-item notice `AgentDeliveryQueue` held for `agentId` — each
+   * one re-checks `shouldHold` itself inside `#notifyAppItem`, so one that is still busy (e.g. a
+   * coalesced delivery flush that just re-armed busy) simply re-holds itself for the next
+   * release rather than being lost or sent too early. */
+  #releaseHeldAppItems(agentId: string): void {
+    for (const itemId of this.#deliveryQueue.releaseAppItems(agentId))
+      void this.#notifyAppItem(agentId, itemId).catch(() => {});
   }
 
   #agentIdForContext(context: string): string {
