@@ -130,6 +130,7 @@ export const getProject = createServerFn({ method: "GET" })
         iconObjectKey: true,
         githubFullName: true,
         githubHtmlUrl: true,
+        commitCoAuthor: true,
         conversations: {
           select: {
             id: true,

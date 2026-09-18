@@ -59,6 +59,8 @@
   "project_image_error": "图片上传失败，请使用不超过 5 MB 的 PNG、JPEG 或 WebP 图片后重试。",
   "project_saved": "更改已保存",
   "project_description": "描述",
+  "project_commit_coauthor": "添加 CoForge 为共同作者",
+  "project_commit_coauthor_hint": "Agent 在此仓库的提交会带上 CoForge 的 Co-authored-by 行。",
   "project_save": "保存更改",
   "project_settings_error": "无法保存更改，请检查仓库访问权限或仓库是否已关联其他项目。",
   "project_repository_keep": "保留当前仓库",

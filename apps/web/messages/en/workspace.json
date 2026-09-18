@@ -59,6 +59,8 @@
   "project_image_error": "Could not upload the image. Use a PNG, JPEG or WebP image up to 5 MB and try again.",
   "project_saved": "Changes saved",
   "project_description": "Description",
+  "project_commit_coauthor": "Add CoForge as co-author",
+  "project_commit_coauthor_hint": "Agent commits in this repository include a Co-authored-by line for CoForge.",
   "project_save": "Save changes",
   "project_settings_error": "Could not save changes. Check repository access or whether it is already linked to another project.",
   "project_repository_keep": "Keep current repository",

@@ -176,6 +176,7 @@ jobs:
           COFORGE_WEB_PUSH_PUBLIC_KEY: ${{ vars.COFORGE_WEB_PUSH_PUBLIC_KEY }}
           COFORGE_WEB_PUSH_PRIVATE_KEY: ${{ secrets.COFORGE_WEB_PUSH_PRIVATE_KEY }}
           COFORGE_GITHUB_APP_SLUG: ${{ vars.COFORGE_GITHUB_APP_SLUG }}
+          COFORGE_GITHUB_APP_BOT_USER_ID: ${{ vars.COFORGE_GITHUB_APP_BOT_USER_ID }}
           COFORGE_GITHUB_CLIENT_SECRET: ${{ secrets.COFORGE_GITHUB_CLIENT_SECRET }}
           COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY }}
           COFORGE_GITHUB_WEBHOOK_SECRET: ${{ secrets.COFORGE_GITHUB_WEBHOOK_SECRET }}
@@ -200,7 +201,7 @@ jobs:
           printf '%s' "$COFORGE_WEB_PUSH_PUBLIC_KEY" > "$tar_dir/coforge_web_push_public_key"
           printf '%s' "$COFORGE_WEB_PUSH_PRIVATE_KEY" > "$tar_dir/coforge_web_push_private_key"
           printf '%s' "$COFORGE_FILE_DELIVERY_KEY" > "$tar_dir/coforge_file_delivery_key"
-          for name in COFORGE_GITHUB_APP_SLUG COFORGE_GITHUB_CLIENT_SECRET COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY COFORGE_GITHUB_WEBHOOK_SECRET; do
+          for name in COFORGE_GITHUB_APP_SLUG COFORGE_GITHUB_APP_BOT_USER_ID COFORGE_GITHUB_CLIENT_SECRET COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY COFORGE_GITHUB_WEBHOOK_SECRET; do
             printf '%s' "${!name}" > "$tar_dir/${name,,}"
           done
           tar -czf "$payload" -C "$tar_dir" .

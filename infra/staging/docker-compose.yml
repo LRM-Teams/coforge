@@ -45,6 +45,7 @@ services:
       COFORGE_GITHUB_APP_ID: "4937758"
       COFORGE_GITHUB_CLIENT_ID: Iv23lip3Ca7BRl50L2O4
       COFORGE_GITHUB_APP_SLUG: ${COFORGE_GITHUB_APP_SLUG:-}
+      COFORGE_GITHUB_APP_BOT_USER_ID: ${COFORGE_GITHUB_APP_BOT_USER_ID:-}
       COFORGE_GITHUB_CALLBACK_URL: https://staging.coforge.cn/api/integrations/github/callback
       COFORGE_GITHUB_CLIENT_SECRET_FILE: /run/secrets/coforge_github_client_secret
       COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/coforge_github_credential_encryption_key
