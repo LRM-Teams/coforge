@@ -5,6 +5,7 @@ import {
   findAgentApiKey,
   isAgentApiKeyBoundToComputer,
 } from "#/server/agents/agent-api-key.server";
+import { ACTIVE_AGENT_WHERE } from "#/server/agents/active-agent.server";
 import { PrismaAgentApiKeyRepository } from "#/server/db/repositories/agent-api-key.repositories.server";
 import { getDatabaseClient } from "#/server/db/client.server";
 import { verifyDaemonApiKey } from "#/server/auth/daemon-api-key.server";
@@ -113,6 +114,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
             id: input.agentId,
             workspaceId: input.workspaceId,
             computerId: principal.computerId,
+            ...ACTIVE_AGENT_WHERE,
             owner: {
               memberships: { some: { workspaceId: input.workspaceId } },
             },

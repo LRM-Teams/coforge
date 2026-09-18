@@ -11,6 +11,7 @@ import {
   type TaskStatus,
   type TaskView,
 } from "@lrm/coforge-sdk/internal";
+import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { ConversationRealtime } from "../conversations/conversation-realtime.server";
@@ -455,7 +456,7 @@ export class TaskBoard {
       };
     }
     const agent = await this.db.agent.findFirst({
-      where: { id: principal.agentId, workspaceId: principal.workspaceId },
+      where: { id: principal.agentId, workspaceId: principal.workspaceId, ...ACTIVE_AGENT_WHERE },
       select: { id: true },
     });
     if (!agent) throw new AppError("ACCESS_DENIED");
@@ -1393,6 +1394,7 @@ export class TaskBoard {
           workspaceId,
           name: receipt.teardownOwner.slice(1),
           computerId: { not: null },
+          ...ACTIVE_AGENT_WHERE,
           conversations: { some: { conversationId } },
         },
         select: { id: true, computerId: true, name: true },

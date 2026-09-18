@@ -275,6 +275,76 @@ test.each([2, 3])(
   },
 );
 
+test("a deleted Agent has no user-initiated control, but an internal Stop still reconciles it", async () => {
+  let agent: AgentControlAgent = {
+    id: "agent-a",
+    workspaceId: "workspace-a",
+    computerId: "computer-a",
+    ownerId: "owner-a",
+    deletedAt: new Date("2026-09-18T04:00:00Z"),
+    runtimeConfig: {
+      runtime: "pi",
+      provider: { kind: "default" },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    },
+    state: null,
+  };
+  const published: string[] = [];
+  const store: AgentControlStore = {
+    memberRole: async () => "owner",
+    async get() {
+      return structuredClone(agent);
+    },
+    async replace(before, state) {
+      if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
+      agent = { ...agent, state };
+      return true;
+    },
+  };
+  const control = new AgentControl(
+    store,
+    {
+      async publish(_channel, bytes) {
+        const stop = decodeAgentStopIntent(bytes);
+        published.push("stop");
+        await control.result(stop, {
+          ...stop,
+          provider: stop.provider!,
+          epoch: stop.controlEpoch!,
+          phase: "stopped",
+          sequence: 1,
+        });
+      },
+    },
+    { run: async (_id, work) => work() },
+  );
+
+  // ADR 0044: every user-initiated action is refused, including Start, before anything publishes.
+  for (const action of ["start", "stop", "restart", "reset-session", "full-reset"] as const) {
+    await expect(
+      control.execute({
+        userId: "owner-a",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        requestId: `request-${action}`,
+        action,
+        ...(action === "full-reset" ? { confirmed: true } : {}),
+      }),
+    ).rejects.toThrow("Agent is deleted");
+  }
+  expect(published).toEqual([]);
+
+  // The internal Stop path is deliberately untouched: it is what reconciles a deleted Agent the
+  // Daemon still reports as running.
+  await control.publishStop(
+    { agentId: "agent-a", workspaceId: "workspace-a", requestId: "reconcile-stop" },
+    "owner-a",
+  );
+  expect(published).toEqual(["stop"]);
+});
+
 test("reset is one confirmed-stop then fresh-start operation and retains no old binding", async () => {
   let agent: AgentControlAgent = {
     id: "agent-a",

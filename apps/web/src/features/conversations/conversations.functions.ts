@@ -3,6 +3,7 @@ import {
   workspaceUserMiddleware,
   type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
+import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
 import {
   agentConversationPageInputSchema,
   agentConversationUpdatesInputSchema,
@@ -21,13 +22,23 @@ import { PrismaDirectConversationRepository } from "../../server/db/repositories
 import { withMessageSendTrace } from "../../server/observability/tracing.server";
 import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
 
-/** The caller's own direct conversation repository, or a failure when the Agent is not theirs. */
+/**
+ * The caller's own direct conversation repository, or a failure when the Agent is not theirs.
+ * `canSend` distinguishes writing from reading: a deleted Agent's DM stays readable (ADR 0044
+ * keeps its history, rendered with a `DELETED` sender), but no new message may be sent to it.
+ */
 async function ownedConversations(
   { db, workspaceId, user }: WorkspaceUserContext,
   agentId: string,
+  options: { canSend?: boolean } = {},
 ) {
   const agent = await db.agent.findFirst({
-    where: { id: agentId, workspaceId, ownerId: user.id },
+    where: {
+      id: agentId,
+      workspaceId,
+      ownerId: user.id,
+      ...(options.canSend ? ACTIVE_AGENT_WHERE : {}),
+    },
     select: { id: true },
   });
   if (!agent) throw new Error("conversation scope is not authorized");
@@ -114,7 +125,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
       { "coforge.agent_id": data.agentId },
       async (sendTrace) => {
         const conversations = await sendTrace.measure("message.context", () =>
-          ownedConversations(context, data.agentId),
+          ownedConversations(context, data.agentId, { canSend: true }),
         );
         const opened = await conversations.memberForUser(workspaceId, user.id, data.agentId);
         const message = await sendTrace.measure("message.persist_and_publish", () => {
@@ -146,8 +157,9 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           senderKind: "user" as const,
           senderMemberId: opened.senderMemberId,
           senderName: `@${user.username}`,
-          // A human-sent echo never carries an Agent id.
+          // A human-sent echo never carries an Agent id, and a human sender is never deleted.
           senderAgentId: undefined,
+          senderDeleted: false,
           senderAvatarUrl: workspaceUserAvatarUrl(
             workspaceId,
             user.id,

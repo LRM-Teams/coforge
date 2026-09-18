@@ -519,6 +519,14 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   runtime selection, credential-aware restart decisions, and public response redaction.
   `AgentRuntimeCredentials` owns Agent/provider-bound encryption; repositories only persist
   the completed runtime config, and Server Function composition supplies encryption lazily.
+- `server/agents/agent-deletion.server.ts` owns Agent deletion (ADR 0044): Raft's
+  `deleteAgents` capability (Workspace owner/admin only), the runtime lock, the durable
+  `deletedAt` write, and the best-effort Stop. `PrismaAgentDeletionStore`
+  (`server/db/repositories/agent-deletion.repositories.server.ts`) is the one transaction that
+  makes a deleted Agent inert cloud-side; `server/agents/active-agent.server.ts`'s
+  `ACTIVE_AGENT_WHERE` is the predicate every live-view Agent query applies. Messages, Tasks and
+  Action cards are preserved, so a deleted sender still renders (greyed, with a `DELETED` badge)
+  through `senderDeleted` on the message projections.
 - `features/agents/agent-reminders.functions.ts` and `server/agents/agent-reminders.server.ts`
   own the owner-only, Workspace-scoped browser read model for bounded Reminder lists and
   expose scheduled Reminders only. Reminder lifecycle and history persistence remain in

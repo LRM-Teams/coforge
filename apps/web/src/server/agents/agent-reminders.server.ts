@@ -1,4 +1,5 @@
 import type { PrismaClient } from "../../../generated/client";
+import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 
 export const AGENT_REMINDER_PAGE_SIZE = 50;
 
@@ -70,6 +71,7 @@ export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderRea
             workspaceId: viewer.workspaceId,
             ownerId: viewer.userId,
             workspace: { members: { some: { userId: viewer.userId } } },
+            ...ACTIVE_AGENT_WHERE,
           },
           select: { id: true },
         }),

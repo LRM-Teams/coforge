@@ -9,6 +9,7 @@ import {
   REMINDER_FIRE_METHOD,
   REMINDER_SNAPSHOT_METHOD,
 } from "@lrm/coforge-sdk/internal";
+import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 import { createAgentSkillsListResultMethod } from "./agent-skills-cache.server";
 import {
   createAgentWorkspaceFileReadResultMethod,
@@ -222,7 +223,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
           {
             snapshotAssigned: async (workspaceId, computerId) => {
               const agents = await db.agent.findMany({
-                where: { workspaceId, computerId },
+                where: { workspaceId, computerId, ...ACTIVE_AGENT_WHERE },
                 select: { id: true, ownerId: true },
               });
               await Promise.all(

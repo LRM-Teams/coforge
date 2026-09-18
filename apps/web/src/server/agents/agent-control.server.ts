@@ -99,6 +99,10 @@ export type AgentControlAgent = {
   identity?: SessionIdentity;
   /** Set when a user stopped this Agent (ADR 0038); read model only, not part of the CAS fence. */
   stoppedAt?: Date | null;
+  /** Set when a user deleted this Agent (ADR 0044); read model only, not part of the CAS fence.
+   * The internal paths (`recover`, `publishStop`) still operate on a deleted Agent so a Stop can
+   * reconcile one the Daemon still runs; the user-initiated `execute()` refuses it outright. */
+  deletedAt?: Date | null;
 };
 /** get/replace both require current owner membership and Workspace–Computer assignment. */
 export interface AgentControlStore {
@@ -351,6 +355,10 @@ export class AgentControl {
     const agent = await this.store.get(agentId);
     if (!agent || agent.workspaceId !== workspaceId)
       throw new Error("Agent is not authorized or assigned");
+    // ADR 0044: a deleted Agent has no user-initiated control surface at all — not even Start.
+    // Only the internal `recover`/`publishStop` paths may still touch one, to reconcile a process
+    // the Daemon reports as running.
+    if (agent.deletedAt) throw new Error("Agent is deleted");
     const role = await this.store.memberRole(workspaceId, userId);
     if (!role) throw new Error("Agent is not authorized or assigned");
     assertHasAgentControlCapability(role, EXECUTE_CAPABILITY[action]);

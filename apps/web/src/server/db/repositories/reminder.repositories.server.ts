@@ -6,6 +6,7 @@ import {
   type ReminderFireRequest,
   type ReminderFireResponse,
 } from "@lrm/coforge-sdk/internal";
+import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import {
   MAX_ACTIVE_REMINDERS,
@@ -64,6 +65,7 @@ export class PrismaReminderRepository implements ReminderRepository {
           workspaceId: scope.workspaceId,
           ownerId: scope.userId,
           computerId: scope.computerId,
+          ...ACTIVE_AGENT_WHERE,
           workspace: { members: { some: { userId: scope.userId } } },
           computer: { workspaces: { some: { workspaceId: scope.workspaceId } } },
         },
@@ -79,6 +81,7 @@ export class PrismaReminderRepository implements ReminderRepository {
         workspaceId: scope.workspaceId,
         computerId: scope.computerId,
         owner: { memberships: { some: { workspaceId: scope.workspaceId } } },
+        ...ACTIVE_AGENT_WHERE,
         computer: { workspaces: { some: { workspaceId: scope.workspaceId } } },
       },
       select: { ownerId: true },

@@ -10,6 +10,7 @@ import {
   resolveActorServerRole,
   resolveChannelAuthority,
 } from "./channel-authority.server";
+import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
 import {
@@ -78,7 +79,7 @@ const CHANNEL_MESSAGE_SELECT = {
   sender: {
     select: {
       agentId: true,
-      agent: { select: { name: true } },
+      agent: { select: { name: true, deletedAt: true } },
       user: { select: { id: true, username: true, avatarObjectKey: true } },
     },
   },
@@ -99,7 +100,7 @@ export type ChannelMessageRow = {
   createdAt: Date;
   sender: {
     agentId: string | null;
-    agent: { name: string } | null;
+    agent: { name: string; deletedAt: Date | null } | null;
     user: { id: string; username: string; avatarObjectKey: string | null } | null;
   } | null;
   attachments: {
@@ -136,6 +137,9 @@ export function channelMessageView(message: ChannelMessageRow, workspaceId: stri
     /** The Agent identity behind an agent-sent message, so the browser can open that Agent's
      * profile panel from the row (message-row.tsx). `undefined` for a user or system message. */
     senderAgentId: message.sender?.agentId ?? undefined,
+    /** True when the sending Agent has since been deleted (ADR 0044): the row renders its sender
+     * greyed with a `DELETED` marker, and no longer opens that Agent's profile. */
+    senderDeleted: Boolean(message.sender?.agent?.deletedAt),
     senderAvatarUrl: message.sender?.user
       ? workspaceUserAvatarUrl(
           workspaceId,
@@ -182,7 +186,7 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
     skipDuplicates: true,
   });
   const agents = await db.agent.findMany({
-    where: { workspaceId },
+    where: { workspaceId, ...ACTIVE_AGENT_WHERE },
     select: { id: true },
   });
   await db.conversationMember.createMany({
@@ -359,7 +363,7 @@ export class PublicChannels {
   private async authorizeActor(workspaceId: string, actor: ChannelActor) {
     if ("userId" in actor) return this.authorize(workspaceId, actor.userId);
     const agent = await this.db.agent.findFirst({
-      where: { id: actor.agentId, workspaceId },
+      where: { id: actor.agentId, workspaceId, ...ACTIVE_AGENT_WHERE },
       select: { id: true },
     });
     if (!agent) throw new AppError("ACCESS_DENIED");
@@ -578,7 +582,7 @@ export class PublicChannels {
         orderBy: [{ username: "asc" }, { id: "asc" }],
       }),
       this.db.agent.findMany({
-        where: { workspaceId, weeklyReportAssistant: null },
+        where: { workspaceId, weeklyReportAssistant: null, ...ACTIVE_AGENT_WHERE },
         select: { id: true, name: true, displayName: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
@@ -710,7 +714,7 @@ export class PublicChannels {
     }
     if (agentIds.length) {
       const validAgents = await this.db.agent.count({
-        where: { workspaceId, id: { in: agentIds } },
+        where: { workspaceId, id: { in: agentIds }, ...ACTIVE_AGENT_WHERE },
       });
       if (validAgents !== agentIds.length) throw new AppError("INVALID_INPUT");
     }

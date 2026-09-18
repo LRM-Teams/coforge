@@ -112,9 +112,10 @@ export async function resolveAgentProfileShow(
     // Self is looked up by id, not by name (an Agent's own Username is always known already).
     const selfAgent = await db.agent.findUnique({
       where: { id_workspaceId: { id: principal.agentId, workspaceId: principal.workspaceId } },
-      select: { name: true },
+      select: { name: true, deletedAt: true },
     });
-    if (!selfAgent)
+    // ADR 0044: a deleted Agent has no profile; its key is already refused at authentication.
+    if (!selfAgent || selfAgent.deletedAt)
       return {
         status: 404,
         body: {

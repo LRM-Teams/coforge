@@ -5,6 +5,7 @@ import {
   Play,
   RefreshCcw01 as RotateCcw,
   StopSquare,
+  Trash01,
 } from "@untitledui/icons";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
@@ -77,6 +78,7 @@ export function AgentProfileTab({
   onStartRuntimeEdit,
   onLoadSkills,
   environment,
+  onStartDelete,
 }: {
   profile: NonNullable<AgentProfile>;
   display?: AgentDisplaySnapshot;
@@ -97,6 +99,9 @@ export function AgentProfileTab({
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   /** Owner-only, same as the old Agent detail page's Environment section. */
   environment?: AgentEnvironmentEditorProps;
+  /** Opens the container's `AgentDeleteDialog` (ADR 0044). Present only when the viewer holds
+   * Raft's `deleteAgents` capability and this Agent is a delete target at all. */
+  onStartDelete?: () => void;
 }) {
   const view = agentDisplay(display, { stopped: profile.stopped });
   const { runtime, model, reasoning } = profile.runtimeConfig;
@@ -321,6 +326,16 @@ export function AgentProfileTab({
             >
               {m.agent_control_restart_reset_tooltip()}
             </Button>
+            {onStartDelete && (
+              <Button
+                color="secondary-destructive"
+                className="w-full justify-center"
+                iconLeading={Trash01}
+                onPress={onStartDelete}
+              >
+                {m.agent_profile_action_delete()}
+              </Button>
+            )}
           </div>
         </section>
       )}

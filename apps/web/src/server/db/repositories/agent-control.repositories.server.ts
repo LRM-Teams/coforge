@@ -75,6 +75,7 @@ export class PrismaAgentControlStore implements AgentControlStore {
         runtimeSession: true,
         controlState: true,
         stoppedAt: true,
+        deletedAt: true,
         currentSessionId: true,
         currentSession: true,
         owner: { select: { memberships: { select: { workspaceId: true } } } },
@@ -122,6 +123,7 @@ export class PrismaAgentControlStore implements AgentControlStore {
       storedControlState: agent.controlState,
       currentSessionId: agent.currentSessionId,
       stoppedAt: agent.stoppedAt,
+      deletedAt: agent.deletedAt,
       state,
       ...(identity ? { identity } : {}),
     };

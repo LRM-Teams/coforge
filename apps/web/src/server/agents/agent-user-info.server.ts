@@ -4,6 +4,7 @@ import type {
   AgentUserInfoResponse,
   AgentUserStatus,
 } from "@lrm/coforge-sdk/agent";
+import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import type { PrismaClient } from "../../../generated/client";
 import { agentDisplay } from "../../features/agents/agent-activity-presentation";
 import { getAgentDisplay } from "./agent-display.server";
@@ -76,7 +77,7 @@ export async function findWorkspaceUser(
   name: string,
 ): Promise<ResolvedWorkspaceUser | undefined> {
   const agent = await db.agent.findFirst({
-    where: { workspaceId, name },
+    where: { workspaceId, name, ...ACTIVE_AGENT_WHERE },
     select: {
       id: true,
       name: true,

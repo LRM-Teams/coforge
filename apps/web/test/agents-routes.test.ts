@@ -32,7 +32,11 @@ test("legacy Agent detail redirects to Members with the profile panel open", () 
   if (!isRedirect(thrown)) return;
   expect(thrown.options.to).toBe("/agents");
   expect(thrown.options.replace).toBe(true);
-  expect(thrown.options.search).toEqual({
+  // `redirect({ search })` is typed as a union that also includes `true` (keep the current
+  // search) and a reducer function; narrow to the plain-object form this route actually passes so
+  // the comparison below stays exact.
+  const search = thrown.options.search as unknown as { profile: string; agentTab?: string };
+  expect(search).toEqual({
     profile: formatAgentProfileParam(agentId),
     agentTab: "activity",
   });
@@ -55,7 +59,8 @@ test("legacy Agent detail maps the old tab search param onto agentTab", () => {
 
   expect(isRedirect(thrown)).toBe(true);
   if (!isRedirect(thrown)) return;
-  expect(thrown.options.search).toEqual({
+  const search = thrown.options.search as unknown as { profile: string; agentTab?: string };
+  expect(search).toEqual({
     profile: formatAgentProfileParam(agentId),
     agentTab: "workspace",
   });

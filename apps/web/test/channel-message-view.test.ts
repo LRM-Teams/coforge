@@ -28,7 +28,7 @@ test("an Agent-sent channel message carries senderAgentId", () => {
     row({
       sender: {
         agentId: "agent-builder",
-        agent: { name: "builder" },
+        agent: { name: "builder", deletedAt: null },
         user: null,
       },
     }),

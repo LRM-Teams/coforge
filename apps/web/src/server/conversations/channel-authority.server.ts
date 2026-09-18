@@ -2,6 +2,7 @@ import type { PrismaClient } from "../../../generated/client";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import type { ChannelActor } from "./public-channels.server";
 import { isAdminLike, isWorkspaceMemberRole } from "../workspaces/member-role.server";
+import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 
 /**
  * Channel-level roles and capability computation (ADR 0030, superseding ADR 0024's
@@ -106,7 +107,7 @@ export async function resolveActorServerRole(
     return membership?.role;
   }
   const agent = await db.agent.findFirst({
-    where: { id: actor.agentId, workspaceId },
+    where: { id: actor.agentId, workspaceId, ...ACTIVE_AGENT_WHERE },
     select: { role: true },
   });
   return agent?.role;

@@ -25,6 +25,9 @@ export type MessageView = {
   /** The sender's Agent id, present only when `senderKind === "agent"`; opens the Agent profile
    * panel (`features/agents/profile-panel/`) from the avatar or the sender name. */
   senderAgentId?: string;
+  /** True when the sending Agent has since been deleted (ADR 0044): the sender renders greyed
+   * with a `DELETED` marker, and no longer opens that Agent's profile. */
+  senderDeleted?: boolean;
   senderAvatarUrl?: string | null;
   body: string;
   createdAt: Date | string;
@@ -316,10 +319,26 @@ export function MessageRow({
   viewerHandle?: string;
 }) {
   const displayName = own ? m.conversation_you() : message.senderName;
+  const deleted = Boolean(message.senderDeleted);
   const openableAgentId =
-    !own && message.senderKind === "agent" && message.senderAgentId && onOpenAgentProfile
+    !own &&
+    !deleted &&
+    message.senderKind === "agent" &&
+    message.senderAgentId &&
+    onOpenAgentProfile
       ? message.senderAgentId
       : undefined;
+  // A deleted sender is inert and visually muted: no profile affordance, a grey avatar tone, and
+  // a `DELETED` badge beside the name (ADR 0044).
+  const avatar = (
+    <Avatar
+      size="sm"
+      alt=""
+      src={message.senderAvatarUrl}
+      initials={avatarInitial(message.senderName)}
+      contentClassName={deleted ? "bg-offline text-white" : avatarToneClassName(message.senderName)}
+    />
+  );
   return (
     <li
       data-message-id={message.id}
@@ -361,22 +380,10 @@ export function MessageRow({
               onPress={() => onOpenAgentProfile?.(openableAgentId)}
               className="h-auto w-auto min-w-0 rounded-full p-0 hover:bg-transparent"
             >
-              <Avatar
-                size="sm"
-                alt=""
-                src={message.senderAvatarUrl}
-                initials={avatarInitial(message.senderName)}
-                contentClassName={avatarToneClassName(message.senderName)}
-              />
+              {avatar}
             </Button>
           ) : (
-            <Avatar
-              size="sm"
-              alt={message.senderName}
-              src={message.senderAvatarUrl}
-              initials={avatarInitial(message.senderName)}
-              contentClassName={avatarToneClassName(message.senderName)}
-            />
+            avatar
           )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -395,6 +402,11 @@ export function MessageRow({
                 <span className="min-w-0 truncate text-sm font-semibold text-primary">
                   {displayName}
                 </span>
+              )}
+              {deleted && (
+                <Badge size="sm" color="gray" className="shrink-0 font-semibold tracking-wide">
+                  {m.agent_deleted_badge()}
+                </Badge>
               )}
               <time
                 dateTime={new Date(message.createdAt).toISOString()}

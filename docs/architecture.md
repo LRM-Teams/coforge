@@ -708,6 +708,25 @@ Daemon 以 error 级别记录失败原因（沿用 Raft 1.0.32 的行为：Raft 
 Full Reset 已删除的用户文件不可因随后 Start 失败而自动还原。重新启动可重新生成必要的
 运行目录；“清空”不是要求运行中的 Agent workspace 永久为空。
 
+**Delete Agent**（ADR 0044）：删除是软删除，`Agent.deletedAt` 是唯一的删除标记，
+`ACTIVE_AGENT_WHERE`（`{ deletedAt: null }`）是所有“该 Agent 是否存活”查询使用的谓词。
+硬删除对任何产生过内容的 Agent 都不可行：`Message.sender`、`Task.creator`/`owner` 与
+`ActionCard.preparedByAgent` 均为 `onDelete: Restrict`，且删除 Agent 行会级联删除其
+`ConversationMember` 行；这与 ADR 0024/0031 用 `leftAt` 解决频道成员关系的原因相同，也
+符合“PostgreSQL canonical Message 是消息恢复边界”的不变量。删除在 Agent runtime lock 下
+执行，`PrismaAgentDeletionStore` 在单个事务中写入 `deletedAt`、软离开全部频道成员关系
+（`leftAt`，真正终止投递与唤醒，因为投递与唤醒都读 `ACTIVE_MEMBER_WHERE`）、取消
+scheduled Reminder、撤销 Agent API key；Message、Task、Action card、Thread read 与 Activity
+一律保留。授权对齐 Raft 的 `deleteAgents` capability：仅 Workspace owner/admin，与
+`assertCanCreateAgents` 同一门禁，绝不因 Agent 所有权而放宽；删除需输入 Agent 用户名确认，
+服务端在删除调用内重新核对当前行，重命名无法绕过确认。删除意图先落库、再尽力发布 Stop：
+Computer 离线不得阻塞用户要求的操作，`WorkspaceAgentRecovery` 单独读取已删除 Agent，若
+Daemon 仍报告其运行则用 Stop 收敛，绝不启动已删除 Agent。周报助手不是删除目标
+（`Records` 按 `(workspaceId, userId)` 按需供给，删除只会被重新创建），store 以
+`outcome: "protected"` 拒绝。删除后 Agent 仍渲染其历史消息，发送者置灰并带 `DELETED` 标识，
+且不再提供资料入口；Members 目录、Chat 私聊列表、`@` mention 目标、频道成员选择器、Task
+分配、Reminder 与 Agent profile 查询均不再返回该 Agent。当前不提供恢复（un-delete）入口。
+
 应用层 `AgentControl` 以固定 command chain 组合上述操作：Stop → Start、Stop →
 Clear Session → Start、Stop → Reset Workspace → Clear Session → Start。前端不编排
 步骤，Daemon 不接收单独的 `full-reset` 命令。Chain 表达顺序，持久化状态机以成功

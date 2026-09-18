@@ -189,5 +189,6 @@ test("Members owned-agent listing excludes the weekly-report assistant", async (
     workspaceId: "workspace-1",
     ownerId: "user-1",
     weeklyReportAssistant: null,
+    deletedAt: null,
   });
 });
