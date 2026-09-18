@@ -620,6 +620,27 @@ test("`coforge message check` reports checking_messages with a generic detail la
   }
 });
 
+test("`coforge inbox check` presents the local inbox view as checking inbox", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({
+      type: "tool-start",
+      id: "1",
+      name: "bash",
+      input: { command: "coforge inbox check" },
+    });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      detailKind: "checking_messages",
+      detail: "Checking inbox…",
+      entries: [{ kind: "tool_start", toolName: "check_inbox" }],
+    });
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("a file tool-start reports a generic detail label, its path in toolInput", async () => {
   const { runtime, activities, emitEvent } = await harness();
   try {

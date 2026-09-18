@@ -6,6 +6,8 @@ test("a known canonical tool resolves through its aliases to the same label", ()
     expect(toolActivityLabel(name)).toBe("Reading file…");
   expect(toolActivityLabel("bash")).toBe("Running command…");
   expect(toolActivityLabel("Shell")).toBe("Running command…");
+  expect(TOOL_LABELS.check_inbox).toBe("Checking inbox");
+  expect(toolActivityLabel("check_inbox")).toBe("Checking inbox…");
 });
 
 test("an unrecognized tool falls back to a generic, name-based label", () => {
