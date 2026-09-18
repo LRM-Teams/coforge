@@ -13,12 +13,12 @@ provenance" as separate work; this ADR is that work for provenance. The human Ag
 the git author - that boundary is unchanged - but a commit an Agent made carries no marker that
 CoForge was involved.
 
-Community practice for AI coding tools already answers this the same way. Amp adds
-`Co-authored-by: Amp <amp@ampcode.com>` plus an `Amp-Thread-ID` trailer
+Community practice for AI coding tools already answers this the same way. Amp adds a
+`Co-authored-by: Amp` trailer plus an `Amp-Thread-ID` trailer
 ([docs](https://ampcode.com/docs/github)). Claude Code has an `attribution` setting that adds a
-similar trailer. Cursor adds `Co-authored-by: Cursor <cursor@cursor.com>` with a setting to turn
-it off. All three write the trailer with tooling, not a model instruction, and default it on with
-an escape hatch. GitHub documents the trailer format itself for any multi-author commit
+similar trailer. Cursor adds a `Co-authored-by: Cursor` trailer with a setting to turn it off. All
+three write the trailer with tooling, not a model instruction, and default it on with an escape
+hatch. GitHub documents the trailer format itself for any multi-author commit
 ([creating a commit with multiple authors](https://docs.github.com/en/pull-requests/committing-changes-to-your-project/creating-and-editing-commits/creating-a-commit-with-multiple-authors)),
 including the `<bot-id>+<login>@users.noreply.github.com` form GitHub Apps' own bot accounts use.
 Raft Computer has no commit identity or trailer code at all, so there is nothing to align with
@@ -102,8 +102,9 @@ with a one-line hint.
 
 - **A prompt instruction telling the Agent to add the trailer.** Unreliable across providers: some
   compact their own system prompt, some paraphrase instructions in their own commit-message
-  generation, and none can be forced to run a fixed git command exactly as written. Community tools
-  that tried this (early Cursor guidance) moved to tooling-written trailers for the same reason.
+  generation, and none can be forced to run a fixed git command exactly as written. Amp, Claude
+  Code, and Cursor all write their own trailer with tooling rather than a prompt instruction (see
+  Context), which is the pattern this ADR follows.
 - **Rewriting `git commit` inside the Agent's own shell tool**, as Amp's CLI does (its Bash tool
   rewrites a `git commit` invocation to add `-c trailer.*` and `--trailer` flags). CoForge does not
   own any provider's shell tool - Claude Code, Codex, Kiro, Pi, and Cursor each run their own,
