@@ -1,41 +1,30 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import {
-  ArrowLeft,
-  ChevronRight,
-  Copy01,
-  Eye,
-  EyeOff,
-  File02,
-  Folder,
-  RefreshCw01,
-} from "@untitledui/icons";
-import {
-  Button as AriaButton,
-  Collection,
-  Tree,
-  TreeItem,
-  TreeItemContent,
-} from "react-aria-components";
+import { ArrowLeft, Copy01, Eye, EyeOff, RefreshCw01 } from "@untitledui/icons";
+import { Collection, Tree, TreeItem, TreeItemContent } from "react-aria-components";
 import type {
   AgentWorkspaceFileEntry,
   AgentWorkspaceFileReadResult,
   AgentWorkspaceFilesListResult,
 } from "@lrm/coforge-sdk/internal";
 
+import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { useResizeObserver } from "@/hooks/use-resize-observer";
+import { ContentEditor } from "@/features/records/report-editor/content-editor";
 import { copyText } from "@/features/records/report-editor/lib/clipboard";
-import { ProjectFileView, ProjectFileViewSkeleton } from "@/features/projects/project-file-view";
+import { formatFileSize, getFileExtension } from "@/features/records/report-editor/utils/file-meta";
 import { m } from "@/paraglide/messages";
+import { getLocale } from "@/paraglide/runtime";
 import { cn } from "@/lib/utils";
+import {
+  FILE_TREE_CURRENT_ITEM_CLASS,
+  FILE_TREE_ITEM_CLASS,
+  FileTreeRow,
+  fileTreeIndent,
+} from "@/components/ui/file-tree";
 import { SECTION_CAPTION_CLASS } from "./inline-edit-field";
 
-/** The container width, in CSS px, at and above which the tree and the open file split
- * side-by-side (the wide Members-page pane). Below it, the file replaces the tree and a
- * breadcrumb + back button return to it (the panel's own narrow width) — a single breakpoint,
- * simpler than a true three-way responsive layout and acceptable per the brief. */
-const SPLIT_BREAKPOINT_PX = 900;
+const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 
 export type AgentWorkspaceFilesLoadResult =
   | { status: "ready"; result: AgentWorkspaceFilesListResult }
@@ -118,21 +107,11 @@ export function AgentWorkspaceTab({
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const [fileState, setFileState] = useState<FileState | undefined>(undefined);
   const [rootPath, setRootPath] = useState<string | undefined>(undefined);
-  const [containerWidth, setContainerWidth] = useState(0);
 
   const cacheRef = useRef<Record<string, DirState>>({});
   const [, forceRender] = useReducer((n: number) => n + 1, 0);
   const dirSeq = useRef<Record<string, number>>({});
   const fileSeq = useRef(0);
-
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  useResizeObserver({
-    ref: containerRef,
-    onResize: () => setContainerWidth(containerRef.current?.clientWidth ?? 0),
-  });
-  useEffect(() => {
-    setContainerWidth(containerRef.current?.clientWidth ?? 0);
-  }, []);
 
   const setDirState = useCallback((dirPath: string, state: DirState) => {
     cacheRef.current = { ...cacheRef.current, [dirPath]: state };
@@ -227,13 +206,12 @@ export function AgentWorkspaceTab({
   }
 
   const rootState = cacheRef.current[""];
-  const showSplit = containerWidth >= SPLIT_BREAKPOINT_PX;
-  const narrowShowingFile = !showSplit && selected !== undefined;
 
+  // One column at every width: the tree, or the open file in its place with a way back.
   return (
-    <div ref={containerRef} className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-secondary px-5 py-3">
-        <span className="min-w-0 truncate font-mono text-xs text-tertiary">{rootPath ?? " "}</span>
+        <span className="min-w-0 truncate font-mono text-xs text-tertiary">{rootPath ?? " "}</span>
         {rootPath && (
           <ButtonUtility
             icon={Copy01}
@@ -245,51 +223,25 @@ export function AgentWorkspaceTab({
         )}
       </div>
 
-      {!showSplit && (
-        <div className="flex items-center justify-between gap-2 border-b border-secondary px-5 py-2.5">
-          <p className={SECTION_CAPTION_CLASS}>{m.agent_workspace_section()}</p>
-          <HiddenAndRefreshButtons
-            includeHidden={includeHidden}
-            onToggleHidden={toggleHidden}
-            onRefresh={refresh}
-          />
-        </div>
-      )}
-
-      {narrowShowingFile ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center gap-1.5 border-b border-secondary px-3 py-2">
-            <ButtonUtility
-              icon={ArrowLeft}
-              size="xs"
-              color="tertiary"
-              tooltip={m.agent_workspace_back()}
-              onClick={() => setSelected(undefined)}
-            />
-            <span className="min-w-0 truncate font-mono text-xs text-tertiary">{selected}</span>
-          </div>
-          <div className="min-h-0 flex-1">
-            <FilePane state={fileState} onRetry={() => selected && loadFile(selected)} />
-          </div>
-        </div>
+      {selected !== undefined ? (
+        <FilePane
+          key={selected}
+          path={selected}
+          state={fileState}
+          onBack={() => setSelected(undefined)}
+          onRetry={() => loadFile(selected)}
+        />
       ) : (
-        <div className="flex min-h-0 flex-1">
-          <div
-            className={cn(
-              "min-h-0 overflow-y-auto",
-              showSplit ? "w-72 shrink-0 border-r border-secondary" : "flex-1",
-            )}
-          >
-            {showSplit && (
-              <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
-                <p className={SECTION_CAPTION_CLASS}>{m.agent_workspace_section()}</p>
-                <HiddenAndRefreshButtons
-                  includeHidden={includeHidden}
-                  onToggleHidden={toggleHidden}
-                  onRefresh={refresh}
-                />
-              </div>
-            )}
+        <>
+          <div className="flex items-center justify-between gap-2 border-b border-secondary px-5 py-2.5">
+            <p className={SECTION_CAPTION_CLASS}>{m.agent_workspace_section()}</p>
+            <HiddenAndRefreshButtons
+              includeHidden={includeHidden}
+              onToggleHidden={toggleHidden}
+              onRefresh={refresh}
+            />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto pt-2">
             <TreeRoot
               state={rootState}
               cache={cacheRef.current}
@@ -300,18 +252,7 @@ export function AgentWorkspaceTab({
               onRetry={() => loadDir("", includeHidden)}
             />
           </div>
-          {showSplit && (
-            <div className="min-h-0 flex-1">
-              {selected ? (
-                <FilePane state={fileState} onRetry={() => selected && loadFile(selected)} />
-              ) : (
-                <p className="px-5 py-16 text-center text-sm text-tertiary">
-                  {m.agent_workspace_select_file()}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
+        </>
       )}
     </div>
   );
@@ -470,9 +411,10 @@ function WorkspaceTree({
           <TreeItemContent>
             {({ level }) => (
               <div
-                className="flex min-w-0 items-center gap-1.5 py-1.5 pr-2 text-xs text-tertiary"
-                style={{ paddingLeft: 4 + (level - 1) * 16 }}
+                className="flex min-w-0 items-center gap-1 py-1.5 pr-1 text-xs text-tertiary"
+                style={{ paddingLeft: fileTreeIndent(level) }}
               >
+                {/* Under the chevron column, so the text lines up with the folder's entries. */}
                 <span aria-hidden="true" className="size-6 shrink-0" />
                 {row.loading ? (
                   <span className="block h-3 w-2/3 animate-pulse rounded bg-secondary motion-reduce:animate-none" />
@@ -496,47 +438,17 @@ function WorkspaceTree({
         textValue={entry.name}
         hasChildItems={isDir}
         onAction={() => (isDir ? toggleExpandPath(path) : onSelectFile(path))}
-        className={cn(
-          "cursor-pointer rounded-md outline-none data-focus-visible:outline-2 data-focus-visible:-outline-offset-2 data-focus-visible:outline-focus-ring data-hovered:bg-primary_hover",
-          isCurrent && "bg-secondary",
-        )}
+        className={cn(FILE_TREE_ITEM_CLASS, isCurrent && FILE_TREE_CURRENT_ITEM_CLASS)}
       >
         <TreeItemContent>
           {({ level, isExpanded }) => (
-            <div
-              className="flex min-w-0 items-center gap-1.5 pr-2"
-              style={{ paddingLeft: 4 + (level - 1) * 16 }}
-            >
-              {isDir ? (
-                <AriaButton
-                  slot="chevron"
-                  className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-quaternary outline-focus-ring hover:text-tertiary focus-visible:outline-2"
-                >
-                  <ChevronRight
-                    aria-hidden="true"
-                    className={cn(
-                      "size-3.5 transition-transform motion-reduce:transition-none",
-                      isExpanded && "rotate-90",
-                    )}
-                  />
-                </AriaButton>
-              ) : (
-                <span aria-hidden="true" className="size-6 shrink-0" />
-              )}
-              {isDir ? (
-                <Folder aria-hidden="true" className="size-4 shrink-0 text-quaternary" />
-              ) : (
-                <File02 aria-hidden="true" className="size-4 shrink-0 text-quaternary" />
-              )}
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate py-1.5 text-sm text-primary",
-                  isCurrent && "font-medium",
-                )}
-              >
-                {entry.name}
-              </span>
-            </div>
+            <FileTreeRow
+              level={level}
+              name={entry.name}
+              isDirectory={isDir}
+              isExpanded={isExpanded}
+              isCurrent={isCurrent}
+            />
           )}
         </TreeItemContent>
         {/* Collapsed directories contribute no rows; files pass an always-empty list. */}
@@ -577,30 +489,103 @@ function TreeMessage({ text, onRetry }: { text: string; onRetry?: () => void }) 
   );
 }
 
-function FilePane({ state, onRetry }: { state: FileState | undefined; onRetry: () => void }) {
-  if (!state || state.status === "loading") {
-    const name = state?.path.split("/").pop() ?? "";
-    return <ProjectFileViewSkeleton name={name} />;
-  }
-  const name = state.path.split("/").pop() ?? state.path;
+/**
+ * The open file in place of the tree: back + name, a Raw/Preview switch for Markdown, the
+ * content, and its size and modification time.
+ */
+function FilePane({
+  path,
+  state,
+  onBack,
+  onRetry,
+}: {
+  path: string;
+  state: FileState | undefined;
+  onBack: () => void;
+  onRetry: () => void;
+}) {
+  const [mode, setMode] = useState<"preview" | "raw">("preview");
+  const name = path.split("/").pop() ?? path;
+  const ready = state?.status === "ready" && state.path === path ? state : undefined;
+  const text = ready?.result.text;
+  const isMarkdown = MARKDOWN_EXTENSIONS.has(getFileExtension(name));
 
-  if (state.status === "ready")
-    return (
-      <ProjectFileView
-        key={state.path}
-        path={state.path}
-        name={name}
-        byteSize={state.result.sizeBytes}
-        text={state.result.text}
-        githubUrl={undefined}
-      />
-    );
-  if (state.status === "offline") return <EmptyFileState text={m.agent_workspace_offline()} />;
-  if (state.status === "timeout")
-    return <EmptyFileState text={m.agent_workspace_timeout()} onRetry={onRetry} />;
-  if (state.status === "binary") return <EmptyFileState text={m.agent_workspace_binary()} />;
-  if (state.status === "too_large") return <EmptyFileState text={m.agent_workspace_too_large()} />;
-  return <EmptyFileState text={m.agent_workspace_file_error()} onRetry={onRetry} />;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-1.5 border-b border-secondary py-2 pr-5 pl-3">
+        <ButtonUtility
+          icon={ArrowLeft}
+          size="xs"
+          color="tertiary"
+          tooltip={m.agent_workspace_back()}
+          onClick={onBack}
+        />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-secondary">{path}</span>
+        {isMarkdown && text !== undefined && (
+          <ButtonGroup
+            aria-label={m.agent_workspace_view_mode()}
+            size="sm"
+            selectedKeys={[mode]}
+            disallowEmptySelection
+            onSelectionChange={(keys) => {
+              const next = [...keys][0];
+              if (next === "preview" || next === "raw") setMode(next);
+            }}
+          >
+            <ButtonGroupItem id="raw">{m.agent_workspace_raw()}</ButtonGroupItem>
+            <ButtonGroupItem id="preview">{m.agent_workspace_preview()}</ButtonGroupItem>
+          </ButtonGroup>
+        )}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        {!state || state.status === "loading" || state.path !== path ? (
+          <div className="space-y-2 px-5 py-4" aria-busy="true">
+            {[0, 1, 2, 3, 4].map((index) => (
+              <div
+                key={index}
+                className="h-3 animate-pulse rounded bg-secondary motion-reduce:animate-none"
+                style={{ width: `${80 - index * 10}%` }}
+              />
+            ))}
+          </div>
+        ) : text !== undefined ? (
+          isMarkdown && mode === "preview" ? (
+            <div className="px-5 py-4">
+              <ContentEditor key={path} editable={false} defaultValue={text} />
+            </div>
+          ) : (
+            <pre className="px-5 py-4 font-mono text-xs/5 break-words whitespace-pre-wrap text-primary">
+              {text}
+            </pre>
+          )
+        ) : state.status === "offline" ? (
+          <EmptyFileState text={m.agent_workspace_offline()} />
+        ) : state.status === "timeout" ? (
+          <EmptyFileState text={m.agent_workspace_timeout()} onRetry={onRetry} />
+        ) : state.status === "binary" ? (
+          <EmptyFileState text={m.agent_workspace_binary()} />
+        ) : state.status === "too_large" ? (
+          <EmptyFileState text={m.agent_workspace_too_large()} />
+        ) : (
+          <EmptyFileState text={m.agent_workspace_file_error()} onRetry={onRetry} />
+        )}
+      </div>
+
+      {ready && (
+        <div className="border-t border-secondary px-5 py-2 font-mono text-xs text-tertiary tabular-nums">
+          {formatFileSize(ready.result.sizeBytes)} ·{" "}
+          {new Date(ready.result.modifiedAtMs).toLocaleString(getLocale(), {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function EmptyFileState({ text, onRetry }: { text: string; onRetry?: () => void }) {
