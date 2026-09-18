@@ -26,7 +26,7 @@ export function createCommand(input: {
       await input.daemon.ensureRunning();
       await input.daemon.command("start", await scope(workspace));
       input.logger?.info("Computer start completed", { event: "computer:started" });
-      write("CoForge started. Your Workspaces are online.");
+      write("CoForge Computer is online.");
     },
     async stop(workspace) {
       input.logger?.info("Computer stop requested", { event: "computer:stopping" });
@@ -43,7 +43,7 @@ export function createCommand(input: {
       write(
         workspace
           ? `Workspace ${workspace} restarted and is back online.`
-          : "CoForge restarted. Your Workspaces are back online.",
+          : "CoForge Computer is back online.",
       );
       return runtimes;
     },

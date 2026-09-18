@@ -66,9 +66,9 @@ test("start and restart announce their progress so the terminal is not silent", 
   await command.restart();
   expect(progress.lines).toEqual([
     "Starting CoForge...",
-    "CoForge started. Your Workspaces are online.",
+    "CoForge Computer is online.",
     "Restarting CoForge...",
-    "CoForge restarted. Your Workspaces are back online.",
+    "CoForge Computer is back online.",
   ]);
 });
 
