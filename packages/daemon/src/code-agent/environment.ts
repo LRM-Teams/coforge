@@ -159,7 +159,12 @@ export function agentEnvironment(
   if (options.gitHooks?.kind === "config-hook") {
     entries.push(
       ["hook.coforge-commit-trailers.event", "prepare-commit-msg"],
-      ["hook.coforge-commit-trailers.command", "coforge git prepare-commit-msg"],
+      // Git appends the hook arguments after `$0`; `|| true` keeps a missing or removed
+      // `coforge` launcher from aborting the Agent's commit.
+      [
+        "hook.coforge-commit-trailers.command",
+        `sh -c 'coforge git prepare-commit-msg "$@" || true' coforge-commit-trailers`,
+      ],
     );
   } else if (options.gitHooks?.kind === "hooks-path") {
     entries.push(["core.hooksPath", options.gitHooks.hooksDir]);

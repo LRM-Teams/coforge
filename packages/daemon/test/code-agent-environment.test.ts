@@ -232,7 +232,9 @@ test("a config-hook plan appends the CoForge commit trailer hook after the GitHu
   expect(environment.GIT_CONFIG_KEY_5).toBe("hook.coforge-commit-trailers.event");
   expect(environment.GIT_CONFIG_VALUE_5).toBe("prepare-commit-msg");
   expect(environment.GIT_CONFIG_KEY_6).toBe("hook.coforge-commit-trailers.command");
-  expect(environment.GIT_CONFIG_VALUE_6).toBe("coforge git prepare-commit-msg");
+  expect(environment.GIT_CONFIG_VALUE_6).toBe(
+    `sh -c 'coforge git prepare-commit-msg "$@" || true' coforge-commit-trailers`,
+  );
   expect(environment.COFORGE_GIT_CONFIG_BASE_COUNT).toBeUndefined();
 });
 
