@@ -63,6 +63,11 @@ export class AgentMessageAttentionIndex {
       shouldHold(agentId: string): boolean;
       enqueue(agentId: string, message: AgentMessageDelivery): void;
       busy(agentId: string): void;
+      /** How many deliveries are held for this Agent and have not been shown to it yet. The
+       * notice reports this, so its number is always a count of messages the daemon is holding
+       * right now rather than a running total it would have to invalidate later. Optional: a
+       * composition without a delivery queue holds nothing, and says so. */
+      queuedCount?(agentId: string): number;
     } = { shouldHold: () => false, enqueue: () => {}, busy: () => {} },
   ) {
     this.#workspaceId = workspaceId;
@@ -156,7 +161,9 @@ export class AgentMessageAttentionIndex {
   async flush(agentId: string, held: readonly AgentMessageDelivery[]): Promise<void> {
     if (!held.length) return;
     const generation = this.#generation(agentId);
-    await this.#notify(held[held.length - 1]!);
+    // One notice for the whole coalesced batch, counting all of it: these are exactly the
+    // messages being handed over now.
+    await this.#notify(held[held.length - 1]!, undefined, held.length);
     if (this.#generations.get(agentId) !== generation) return;
     for (const message of held)
       await this.sendAck({ ...message, method: "agent:deliver:ack", requestId: message.requestId });
@@ -278,7 +285,12 @@ export class AgentMessageAttentionIndex {
     if (recoveredMessages.length) this.messageReceived(agentId);
   }
 
-  #notify(message: AgentMessageDelivery, attention?: MessageAttention): Promise<void> {
+  #notify(
+    message: AgentMessageDelivery,
+    attention?: MessageAttention,
+    /** How many messages this notice announces: one delivery, or the size of a coalesced flush. */
+    announcedCount = 1,
+  ): Promise<void> {
     const generation = this.#generation(message.agentId);
     const session = this.#runtimes.session(message.agentId);
     if (!session?.notify)
@@ -289,17 +301,23 @@ export class AgentMessageAttentionIndex {
     // "not busy yet" state.
     this.hold.busy(message.agentId);
     const current = attention ?? this.#attention.get(message.agentId)?.get(message.target);
-    const pendingCount = current?.pendingCount ?? 1;
-    const totalPendingCount = [...(this.#attention.get(message.agentId)?.values() ?? [])].reduce(
-      (total, item) => total + item.pendingCount,
-      0,
-    );
-    const target = current?.target ?? message.target;
+    // One source of truth. The numbers here describe messages the daemon has in hand — this
+    // delivery, plus the ones still queued for this Agent — and never a per-target total
+    // accumulated across earlier notices. Whether the *server* still holds anything unread is a
+    // question only `coforge message check` answers, and the wording below promises nothing
+    // about what that call will return: a notice that made such a promise could be contradicted
+    // (the two were tracked separately, and the accumulated count outlived what the server would
+    // hand over), which is what made a stale count look like a lost message.
+    const pendingCount = announcedCount;
+    const totalPendingCount = announcedCount + (this.hold.queuedCount?.(message.agentId) ?? 0);
+    const target = message.target;
     const latestSender = current?.latestSender ? ` · latest sender ${current.latestSender}` : "";
     const notice = `[CoForge inbox notice:
-Inbox update: ${totalPendingCount} unread message${totalPendingCount === 1 ? "" : "s"} total; 1 changed target
-${target}  pending: ${pendingCount} message${pendingCount === 1 ? "" : "s"}${latestSender}
-Run \`coforge message check\` to read pending messages.]`;
+Inbox update: ${totalPendingCount} message${totalPendingCount === 1 ? "" : "s"} waiting for you
+${target}  new: ${pendingCount} message${pendingCount === 1 ? "" : "s"}${latestSender}
+These messages have not been read. Read them with \`coforge message check\`, or
+\`coforge message read --target <target>\`; leaving them unread does not establish that there is
+no work.]`;
     const notification = Promise.resolve()
       .then(() => session.notify!(notice))
       .then(() => {

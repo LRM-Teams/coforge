@@ -121,7 +121,7 @@ test("updates attention, sends only a body-free notice, and ACKs takeover", asyn
     expect.objectContaining({ target: "@ada", pendingCount: 1, latestSender: "@ada" }),
   ]);
   expect(notices).toEqual([
-    "[CoForge inbox notice:\nInbox update: 1 unread message total; 1 changed target\n@ada  pending: 1 message · latest sender @ada\nRun `coforge message check` to read pending messages.]",
+    "[CoForge inbox notice:\nInbox update: 1 message waiting for you\n@ada  new: 1 message · latest sender @ada\nThese messages have not been read. Read them with `coforge message check`, or\n`coforge message read --target <target>`; leaving them unread does not establish that there is\nno work.]",
   ]);
   expect(notices[0]).not.toContain("private body");
   expect(acks).toEqual(["delivery-one"]);
@@ -547,7 +547,8 @@ test("a held delivery updates attention but does not notify or ACK until flush",
   expect(held.map((message) => message.deliveryId)).toEqual(["delivery-one", "delivery-two"]);
   await index.flush("agent-1", held);
   expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("2 unread message");
+  expect(notices[0]).toContain("Inbox update: 2 messages waiting for you");
+  expect(notices[0]).toContain("new: 2 messages");
   expect(acks).toEqual(["delivery-one", "delivery-two"]);
 });
 
@@ -634,4 +635,66 @@ test("clearAgent forgets an Agent's read-context state", () => {
   index.clearAgent("agent-1");
   expect(index.readOrder("agent-1", "#general:11111111")).toBeUndefined();
   expect(index.latestThreadReadUnderParent("agent-1", "#general")).toBeUndefined();
+});
+
+/**
+ * The notice counts messages the daemon is holding — this delivery, plus whatever is still
+ * queued for the Agent — and never a per-target total accumulated across earlier notices. A
+ * count that outlives the notice is a second source of truth about "is there mail", and it used
+ * to keep growing against a server that had already handed everything over, so the Agent was
+ * told to run `check` and got nothing back (see the empty-drain case below).
+ */
+test("a later delivery is announced on its own, not added to an earlier notice's count", async () => {
+  const notices: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async () => {},
+  );
+
+  await index.receive({ ...delivery("first", "@ada"), sequence: 1, target: "#general" });
+  await index.receive({ ...delivery("second", "@ada"), sequence: 2, target: "#general" });
+
+  expect(notices).toHaveLength(2);
+  for (const notice of notices) {
+    expect(notice).toContain("Inbox update: 1 message waiting for you");
+    expect(notice).toContain("#general  new: 1 message");
+  }
+});
+
+test("the notice's total includes deliveries still queued for a busy Agent", async () => {
+  const notices: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async () => {},
+    () => {},
+    {
+      shouldHold: () => false,
+      enqueue: () => {},
+      busy: () => {},
+      queuedCount: () => 2,
+    },
+  );
+
+  await index.receive({ ...delivery("with-queue", "@ada"), target: "#general" });
+
+  expect(notices[0]).toContain("Inbox update: 3 messages waiting for you");
+  expect(notices[0]).toContain("#general  new: 1 message");
+});
+
+test("a notice never promises what `coforge message check` will return", async () => {
+  const notices: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async () => {},
+  );
+
+  await index.receive({ ...delivery("wording"), target: "#general" });
+
+  // The old wording ("Run `coforge message check` to read pending messages") read as a
+  // guarantee, so an empty drain looked like a lost message rather than an already-read one.
+  expect(notices[0]).not.toContain("to read pending messages");
+  expect(notices[0]).toContain("leaving them unread does not establish that there is");
 });

@@ -3110,7 +3110,7 @@ describe("DaemonRuntime", () => {
     });
     expect(starts).toBe(2);
     expect(notices).toEqual([
-      "[CoForge inbox notice:\nInbox update: 1 unread message total; 1 changed target\n@agent  pending: 1 message\nRun `coforge message check` to read pending messages.]",
+      "[CoForge inbox notice:\nInbox update: 1 message waiting for you\n@agent  new: 1 message\nThese messages have not been read. Read them with `coforge message check`, or\n`coforge message read --target <target>`; leaving them unread does not establish that there is\nno work.]",
     ]);
     expect(acknowledgements).toEqual(["delivery-1"]);
 
