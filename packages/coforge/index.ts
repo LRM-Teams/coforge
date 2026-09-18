@@ -27,11 +27,16 @@ import {
   type AgentManualGetResponse,
   type AgentManualSearchResponse,
   type AgentVersionResponse,
+  type AgentProfileShowResponse,
+  type AgentProfileUpdateRequest,
+  type AgentProfileUpdateResponse,
+  type AgentUserInfoResponse,
   type GitHubCredentialResponse,
   type WorkspaceInfoRuntimeContext,
 } from "@lrm/coforge-sdk/agent";
 import { COFORGE_CLI_VERSION } from "./src/version";
 import { formatManualGet, formatManualSearchResults } from "./src/manual-format";
+import { formatProfile, formatUserInfo } from "./src/user-format";
 import { parseActionCardInput, toActionCardAction } from "./src/action-prepare-input";
 import {
   formatAttachmentDownloadSuccess,
@@ -154,6 +159,18 @@ export type ManualInvocation =
   | { command: "manual-search"; query: string; intent: string; reason: string };
 export type WhoamiInvocation = { command: "whoami"; json?: boolean };
 export type VersionInvocation = { command: "version"; json?: boolean };
+export type UserInfoInvocation = { command: "user-info"; name: string; json?: boolean };
+export type ProfileShowInvocation = {
+  command: "profile-show";
+  target?: string;
+  json?: boolean;
+};
+export type ProfileUpdateInvocation = {
+  command: "profile-update";
+  displayName?: string;
+  description?: string;
+  json?: boolean;
+};
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[]; hasMore?: boolean }>;
@@ -198,6 +215,9 @@ export type MessageTransport = {
   manualSearch?(query: string, intent: string, reason: string): Promise<AgentManualSearchResponse>;
   /** `coforge version`'s local-only Daemon query (ADR 0036); never reaches Web/backend. */
   version?(): Promise<AgentVersionResponse>;
+  userInfo?(name: string): Promise<AgentUserInfoResponse>;
+  profileShow?(target?: string): Promise<AgentProfileShowResponse>;
+  profileUpdate?(input: AgentProfileUpdateRequest): Promise<AgentProfileUpdateResponse>;
 };
 
 /** Eight-hex-character prefix or a full UUID; the server stores ids lowercase. */
@@ -223,11 +243,17 @@ export function parseArgs(
   | ActionPrepareInvocation
   | ManualInvocation
   | WhoamiInvocation
-  | VersionInvocation {
+  | VersionInvocation
+  | UserInfoInvocation
+  | ProfileShowInvocation
+  | ProfileUpdateInvocation {
   if (args[0] === "whoami") return parseWhoamiArgs(args.slice(1));
   if (args[0] === "version") return parseVersionArgs(args.slice(1));
   if (args[0] === "manual" && (args[1] === "get" || args[1] === "search"))
     return parseManualArgs(args.slice(1));
+  if (args[0] === "user" && args[1] === "info") return parseUserInfoArgs(args.slice(2));
+  if (args[0] === "profile" && args[1] === "show") return parseProfileShowArgs(args.slice(2));
+  if (args[0] === "profile" && args[1] === "update") return parseProfileUpdateArgs(args.slice(2));
   if (args[0] === "workspace" && args[1] === "info") return parseWorkspaceInfoArgs(args.slice(2));
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (args[0] === "task") return parseTaskArgs(args.slice(1));
@@ -500,7 +526,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge action prepare --target <target> | coforge manual get <topic> --intent <text> --reason <text> | coforge manual search \"<keywords>\" --intent <text> --reason <text> | coforge whoami [--json] | coforge version [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|highlight|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge action prepare --target <target> | coforge manual get <topic> --intent <text> --reason <text> | coforge manual search \"<keywords>\" --intent <text> --reason <text> | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
   );
 }
 
@@ -831,6 +857,83 @@ function parseManualArgs(args: readonly string[]): ManualInvocation {
     : { command: "manual-search", query: value.trim(), ...context };
 }
 
+/** `@handle` and `handle` are both accepted; the leading `@` is stripped before the CLI sends
+ * the name to the server (Usernames themselves never carry one). */
+function stripHandlePrefix(value: string): string {
+  return value.startsWith("@") ? value.slice(1) : value;
+}
+
+const USER_INFO_USAGE = "Usage: coforge user info <name> [--json]";
+
+function parseUserInfoArgs(args: readonly string[]): UserInfoInvocation {
+  let name: string | undefined;
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--json") json = true;
+    else if (arg !== undefined && !arg.startsWith("--") && name === undefined) name = arg;
+    else throw new Error(USER_INFO_USAGE);
+  }
+  const trimmed = name?.trim();
+  if (!trimmed) throw new Error(USER_INFO_USAGE);
+  return {
+    command: "user-info",
+    name: stripHandlePrefix(trimmed),
+    ...(json ? { json: true } : {}),
+  };
+}
+
+const PROFILE_SHOW_USAGE = "Usage: coforge profile show [<target>] [--json]";
+
+function parseProfileShowArgs(args: readonly string[]): ProfileShowInvocation {
+  let target: string | undefined;
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--json") json = true;
+    else if (arg !== undefined && !arg.startsWith("--") && target === undefined) target = arg;
+    else throw new Error(PROFILE_SHOW_USAGE);
+  }
+  const trimmed = target?.trim();
+  return {
+    command: "profile-show",
+    ...(trimmed ? { target: stripHandlePrefix(trimmed) } : {}),
+    ...(json ? { json: true } : {}),
+  };
+}
+
+const PROFILE_UPDATE_USAGE =
+  'Usage: coforge profile update [--display-name "<text>"] [--description "<text>"] [--json]';
+
+function parseProfileUpdateArgs(args: readonly string[]): ProfileUpdateInvocation {
+  let displayName: string | undefined;
+  let description: string | undefined;
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    if (arg === "--display-name" || arg === "--description") {
+      const value = args[index + 1];
+      if (value === undefined) throw new Error(PROFILE_UPDATE_USAGE);
+      if (arg === "--display-name") displayName = value;
+      else description = value;
+      index += 1;
+      continue;
+    }
+    throw new Error(PROFILE_UPDATE_USAGE);
+  }
+  if (displayName === undefined && description === undefined) throw new Error(PROFILE_UPDATE_USAGE);
+  return {
+    command: "profile-update",
+    ...(displayName !== undefined ? { displayName } : {}),
+    ...(description !== undefined ? { description } : {}),
+    ...(json ? { json: true } : {}),
+  };
+}
+
 function parseActionPrepareArgs(args: readonly string[]): ActionPrepareInvocation {
   let target: string | undefined;
   for (let index = 0; index < args.length; index++) {
@@ -882,6 +985,24 @@ export async function run(args: readonly string[], transport: MessageTransport):
       invocation.reason,
     );
     return formatManualSearchResults(result.results);
+  }
+  if (invocation.command === "user-info") {
+    if (!transport.userInfo) throw new Error("User info transport is unavailable");
+    const result = await transport.userInfo(invocation.name);
+    return invocation.json ? result : formatUserInfo(result);
+  }
+  if (invocation.command === "profile-show") {
+    if (!transport.profileShow) throw new Error("Profile transport is unavailable");
+    const result = await transport.profileShow(invocation.target);
+    return invocation.json ? result : formatProfile(result);
+  }
+  if (invocation.command === "profile-update") {
+    if (!transport.profileUpdate) throw new Error("Profile transport is unavailable");
+    const result = await transport.profileUpdate({
+      displayName: invocation.displayName,
+      description: invocation.description,
+    });
+    return invocation.json ? result : formatProfile(result);
   }
   if (invocation.command === "workspace.info") {
     const client = createAgentApiClient(createMessageTransportAgentApiTransport(transport));

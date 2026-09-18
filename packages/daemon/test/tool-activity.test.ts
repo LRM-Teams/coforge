@@ -352,6 +352,30 @@ test("CoForge CLI invocations resolve to a semantic tool and allowlisted summary
       detail: "github pull request",
     },
     {
+      command: "coforge user info @alice",
+      detailKind: "tool_started",
+      toolName: "get_user_info",
+      detail: "@alice",
+    },
+    {
+      command: "coforge profile show @scout",
+      detailKind: "tool_started",
+      toolName: "get_profile",
+      detail: "@scout",
+    },
+    {
+      command: "coforge profile show",
+      detailKind: "tool_started",
+      toolName: "get_profile",
+      detail: "get_profile",
+    },
+    {
+      command: "coforge profile update --display-name Scout",
+      detailKind: "tool_started",
+      toolName: "update_profile",
+      detail: "update_profile",
+    },
+    {
       command: "/usr/local/bin/coforge message check",
       detailKind: "checking_messages",
       toolName: "check_messages",

@@ -215,6 +215,13 @@ function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation 
     return { tool: "whoami" };
   } else if (category === "version") {
     return { tool: "get_version" };
+  } else if (category === "user" && sub === "info") {
+    return { tool: "get_user_info", summary: allowlistedString(tokens[3], 60) };
+  } else if (category === "profile" && sub === "show") {
+    const target = tokens[3] && !tokens[3].startsWith("--") ? tokens[3] : undefined;
+    return { tool: "get_profile", summary: allowlistedString(target, 60) };
+  } else if (category === "profile" && sub === "update") {
+    return { tool: "update_profile" };
   }
   return { tool: "coforge_cli" };
 }

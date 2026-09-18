@@ -2875,6 +2875,54 @@ test("whoami is deliberately local: it reports every known Runtime Context env v
   );
 });
 
+test("user info parses a name, strips a leading @, and dispatches to the transport", () => {
+  expect(parseArgs(["user", "info", "@alice"])).toEqual({ command: "user-info", name: "alice" });
+  expect(parseArgs(["user", "info", "alice", "--json"])).toEqual({
+    command: "user-info",
+    name: "alice",
+    json: true,
+  });
+  expect(() => parseArgs(["user", "info"])).toThrow();
+});
+
+test("user info formats a human's card and shared channel memberships", async () => {
+  const calls: string[] = [];
+  const output = await run(["user", "info", "@alice"], {
+    ...MINIMAL_TRANSPORT,
+    userInfo: async (name) => {
+      calls.push(name);
+      return {
+        ok: true,
+        user: {
+          kind: "human",
+          id: "user-1",
+          name: "alice",
+          displayName: "Alice Chen",
+          description: "Engineering lead.",
+          role: "admin",
+          isSelf: false,
+        },
+        memberships: [{ channel: "#general", role: "member" }],
+      };
+    },
+  });
+  expect(calls).toEqual(["alice"]);
+  expect(output).toBe(
+    [
+      "## User",
+      "",
+      "Username: @alice",
+      "Kind: human",
+      "Display name: Alice Chen",
+      "Role: admin",
+      "Description: Engineering lead.",
+      "",
+      "### Visible Channel Memberships",
+      "- #general",
+    ].join("\n"),
+  );
+});
+
 test("whoami with an empty environment omits every unset bullet and reports no credential", async () => {
   const output = await withWhoamiEnv({}, () => run(["whoami"], MINIMAL_TRANSPORT));
   expect(output).toBe(
@@ -2980,4 +3028,150 @@ test("version surfaces the transport's CliError when the live daemon cannot be q
     expect(error).toBeInstanceOf(CliError);
     expect((error as CliError).code).toBe("VERSION_FAILED");
   }
+});
+
+test("user info --json returns the raw response object", async () => {
+  const response = {
+    ok: true as const,
+    user: {
+      kind: "agent" as const,
+      id: "agent-1",
+      name: "scout",
+      displayName: "Scout",
+      description: "",
+      role: "member",
+      isSelf: false,
+      status: "online" as const,
+    },
+    memberships: [],
+  };
+  const output = await run(["user", "info", "scout", "--json"], {
+    ...MINIMAL_TRANSPORT,
+    userInfo: async () => response,
+  });
+  expect(output).toEqual(response);
+});
+
+test("profile show parses an optional target and defaults to self when omitted", () => {
+  expect(parseArgs(["profile", "show"])).toEqual({ command: "profile-show" });
+  expect(parseArgs(["profile", "show", "@scout", "--json"])).toEqual({
+    command: "profile-show",
+    target: "scout",
+    json: true,
+  });
+});
+
+test("profile show formats an Agent card with creator", async () => {
+  const output = await run(["profile", "show"], {
+    ...MINIMAL_TRANSPORT,
+    profileShow: async (target) => {
+      expect(target).toBeUndefined();
+      return {
+        ok: true,
+        profile: {
+          kind: "agent",
+          id: "agent-1",
+          name: "scout",
+          displayName: "Scout",
+          description: "",
+          role: "member",
+          isSelf: true,
+          runtime: "claude-code",
+          model: "sonnet",
+          status: "online",
+          creator: { name: "alice", displayName: "Alice Chen" },
+        },
+      };
+    },
+  });
+  expect(output).toBe(
+    [
+      "## Profile",
+      "",
+      "Username: @scout",
+      "Kind: agent",
+      "Display name: Scout",
+      "Role: member",
+      "Status: online",
+      "Provider: claude-code",
+      "Model: sonnet",
+      "Self: yes",
+      "",
+      "Creator: @alice (Alice Chen)",
+    ].join("\n"),
+  );
+});
+
+test("profile show formats a human card with created Agents", async () => {
+  const output = await run(["profile", "show", "@alice"], {
+    ...MINIMAL_TRANSPORT,
+    profileShow: async () => ({
+      ok: true,
+      profile: {
+        kind: "human",
+        id: "user-1",
+        name: "alice",
+        displayName: "Alice Chen",
+        description: "",
+        role: "admin",
+        isSelf: false,
+        createdAgents: [{ name: "scout", displayName: "Scout", status: "online" }],
+      },
+    }),
+  });
+  expect(output).toBe(
+    [
+      "## Profile",
+      "",
+      "Username: @alice",
+      "Kind: human",
+      "Display name: Alice Chen",
+      "Role: admin",
+      "",
+      "### Created Agents",
+      "- @scout (online)",
+    ].join("\n"),
+  );
+});
+
+test("profile update requires at least one flag and dispatches displayName/description", () => {
+  expect(() => parseArgs(["profile", "update"])).toThrow();
+  expect(parseArgs(["profile", "update", "--display-name", "Scout Bot"])).toEqual({
+    command: "profile-update",
+    displayName: "Scout Bot",
+  });
+  expect(parseArgs(["profile", "update", "--description", "Reviews PRs.", "--json"])).toEqual({
+    command: "profile-update",
+    description: "Reviews PRs.",
+    json: true,
+  });
+});
+
+test("profile update posts the update and formats the returned profile", async () => {
+  const calls: unknown[] = [];
+  const output = await run(["profile", "update", "--display-name", "Scout Bot"], {
+    ...MINIMAL_TRANSPORT,
+    profileUpdate: async (input) => {
+      calls.push(input);
+      return {
+        ok: true,
+        profile: {
+          kind: "agent",
+          id: "agent-1",
+          name: "scout",
+          displayName: "Scout Bot",
+          description: "",
+          role: "member",
+          isSelf: true,
+          runtime: "claude-code",
+          model: "sonnet",
+          status: "offline",
+          creator: null,
+        },
+      };
+    },
+  });
+  expect(calls).toEqual([{ displayName: "Scout Bot", description: undefined }]);
+  expect(output).toContain("Display name: Scout Bot");
+  expect(output).toContain("Creator: (unknown)");
 });

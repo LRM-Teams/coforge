@@ -6,3 +6,5 @@ export * from "./channels";
 export * from "./action-cards";
 export * from "./manual";
 export * from "./version";
+export * from "./user-info";
+export * from "./profile";
