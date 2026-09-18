@@ -26,7 +26,13 @@ import {
 } from "../centrifugo/server-api.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import { normalizeMentionBody } from "@lrm/coforge-sdk/internal";
-import { agentReadableBody, mentionAffinityScores } from "./mentions";
+import {
+  agentReadableBody,
+  BROWSER_MESSAGE_MENTIONS_SELECT,
+  browserMessageMention,
+  mentionAffinityScores,
+  type BrowserMessageMentionRow,
+} from "./mentions";
 import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
@@ -90,7 +96,7 @@ const CHANNEL_MESSAGE_SELECT = {
     select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
     orderBy: { position: "asc" },
   },
-  mentions: { select: { kind: true, actorId: true, handle: true } },
+  mentions: BROWSER_MESSAGE_MENTIONS_SELECT,
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
@@ -118,8 +124,8 @@ export type ChannelMessageRow = {
     sizeBytes: number;
     objectKey: string;
   }[];
-  /** Resolved mention rows: translates a body token (`<@kind:actorId>`) back to its `@handle`. */
-  mentions: { kind: string; actorId: string; handle: string }[];
+  /** Browser mention rows retain the immutable handle and resolve the current profile label. */
+  mentions: BrowserMessageMentionRow[];
   reactions: MessageReactionRow[];
 };
 
@@ -158,11 +164,7 @@ export function channelMessageView(message: ChannelMessageRow, workspaceId: stri
       : null,
     body: message.body,
     createdAt: message.createdAt,
-    mentions: message.mentions.map((mention) => ({
-      kind: mention.kind as "user" | "agent",
-      actorId: mention.actorId,
-      handle: mention.handle,
-    })),
+    mentions: message.mentions.map(browserMessageMention),
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),
     actionCard: undefined as ActionCardView | undefined,

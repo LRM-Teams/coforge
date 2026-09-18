@@ -155,18 +155,24 @@ test("an Agent candidate ranks and sorts the same way as a person candidate", ()
 const AGENT_UUID = "bf69603b-642b-40d7-b877-0080e29f4306";
 const USER_UUID = "11111111-2222-4333-8444-555555555555";
 
-test("makeMentionBodyFormatter rewrites an Agent token to its @handle", () => {
-  const format = makeMentionBodyFormatter([{ kind: "agent", id: AGENT_UUID, handle: "kiro" }]);
-  expect(format?.(`hi <@agent:${AGENT_UUID}> there`)).toBe("hi @kiro there");
+test("makeMentionBodyFormatter rewrites an Agent token to its display label", () => {
+  const format = makeMentionBodyFormatter([
+    { kind: "agent", id: AGENT_UUID, handle: "kiro", label: "Kiro Reviewer" },
+  ]);
+  expect(format?.(`hi <@agent:${AGENT_UUID}> there`)).toBe("hi @Kiro Reviewer there");
 });
 
-test("makeMentionBodyFormatter resolves a human token and is case-insensitive on the uuid", () => {
-  const format = makeMentionBodyFormatter([{ kind: "user", id: USER_UUID, handle: "ada" }]);
-  expect(format?.(`<@human:${USER_UUID.toUpperCase()}>`)).toBe("@ada");
+test("makeMentionBodyFormatter resolves a human label and is case-insensitive on the uuid", () => {
+  const format = makeMentionBodyFormatter([
+    { kind: "user", id: USER_UUID, handle: "ada", label: "Ada Lovelace" },
+  ]);
+  expect(format?.(`<@human:${USER_UUID.toUpperCase()}>`)).toBe("@Ada Lovelace");
 });
 
 test("makeMentionBodyFormatter leaves an unknown token intact rather than dropping it", () => {
-  const format = makeMentionBodyFormatter([{ kind: "agent", id: AGENT_UUID, handle: "kiro" }]);
+  const format = makeMentionBodyFormatter([
+    { kind: "agent", id: AGENT_UUID, handle: "kiro", label: "Kiro Reviewer" },
+  ]);
   const other = "e14e9498-e145-4686-9999-000000000000";
   expect(format?.(`<@agent:${other}>`)).toBe(`<@agent:${other}>`);
 });
