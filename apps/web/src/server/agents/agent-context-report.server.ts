@@ -1,14 +1,10 @@
-import {
-  encodeAgentContextScanRequest,
-  RUNTIME_PROVIDER,
-  type AgentContextScanRequest,
-} from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "../../../generated/client";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
 import {
+  createAgentContextScan,
   createCentrifugoServerApi,
-  daemonControlChannel,
   type CentrifugoServerApi,
 } from "../centrifugo/server-api.server";
 import {
@@ -75,28 +71,21 @@ export async function scanAgentContextReport(
   if (!assignment) return { status: "unavailable" };
   if (!(await online({ workspaceId: viewer.workspaceId, computerId: assignment.computerId })))
     return { status: "offline" };
-  const request: AgentContextScanRequest = {
-    protocolMajor: 1,
-    requestId: crypto.randomUUID(),
-    workspaceId: viewer.workspaceId,
-    computerId: assignment.computerId,
-    agentId,
-    provider: RUNTIME_PROVIDER.CLAUDE_CODE,
-    launchId: assignment.launchId,
-    sessionId: assignment.sessionId,
-  };
-  await cache.putScan({
-    workspaceId: viewer.workspaceId,
-    computerId: assignment.computerId,
-    agentId,
-    scanId: request.requestId,
-    status: "pending",
-  });
-  await events.publish(
-    daemonControlChannel(viewer.workspaceId, assignment.computerId),
-    encodeAgentContextScanRequest(request),
+  // `createAgentContextScan` is the one owner of "put pending + publish the request"; this module
+  // only owns the Agent's authorization and its persisted launch/session scope.
+  const scanId = await createAgentContextScan(
+    events,
+    {
+      workspaceId: viewer.workspaceId,
+      computerId: assignment.computerId,
+      agentId,
+      provider: RUNTIME_PROVIDER.CLAUDE_CODE,
+      launchId: assignment.launchId,
+      sessionId: assignment.sessionId,
+    },
+    cache,
   );
-  return { scanId: request.requestId };
+  return { scanId };
 }
 
 /** Ownership + scope: the Agent must be live in the viewer's Workspace, owned by the viewer, and

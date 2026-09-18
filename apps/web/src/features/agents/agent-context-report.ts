@@ -15,8 +15,11 @@ export type AgentContextReadResult = Awaited<ReturnType<typeof getAgentContextRe
  * everything else. `AgentContextPopoverContent` is the only consumer; it owns rendering every
  * non-available state (`unsupported`, `no_session`, `unparsed`, `timeout`, `error`) inline.
  */
-export function useAgentContextReport(agentId: string, options: { enabled: boolean }) {
-  const { enabled } = options;
+export function useAgentContextReport(
+  agentId: string,
+  options: { enabled: boolean; computerOnline?: boolean },
+) {
+  const { enabled, computerOnline } = options;
   const queryClient = useQueryClient();
   const queryKey = agentContextReportQueryKey(agentId);
   const query = useQuery({
@@ -41,12 +44,12 @@ export function useAgentContextReport(agentId: string, options: { enabled: boole
   // to read from) without firing again, and must reset only when the target itself changes.
   const autoScanned = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!enabled || !query.data) return;
+    if (!enabled || !query.data || computerOnline === false) return;
     if (query.data.state === "fresh") return;
     if (autoScanned.current === agentId) return;
     autoScanned.current = agentId;
     scan.mutate();
-  }, [enabled, query.data, agentId, scan.mutate]);
+  }, [enabled, query.data, computerOnline, agentId, scan.mutate]);
 
   return {
     data: query.data,

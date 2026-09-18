@@ -7,6 +7,7 @@ import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { AgentProfileTab } from "@/features/agents/profile-panel/agent-profile-tab";
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "@/features/agents/agents.functions";
+import { formatDateForDisplay } from "@/lib/dates";
 import { m } from "@/paraglide/messages";
 
 type AgentProfile = NonNullable<Awaited<ReturnType<typeof getAgentProfile>>>;
@@ -394,5 +395,13 @@ test("a Claude Code Agent's context badge becomes the breakdown popover trigger"
     />,
   );
   expect(markup).toContain("Context 12%");
-  expect(markup).toContain(m.agent_context_title());
+  // The popover trigger's accessible label IS the badge's own tooltip line (used / window · time),
+  // which is also the popover's header line — the runtime-usage twin's pattern.
+  expect(markup).toContain(
+    `aria-label="${m.agent_context_usage_tooltip({
+      used: "24,900",
+      window: "200,000",
+      time: formatDateForDisplay(new Date("2026-09-18T12:00:00.000Z"), "UTC", "en"),
+    })}"`,
+  );
 });

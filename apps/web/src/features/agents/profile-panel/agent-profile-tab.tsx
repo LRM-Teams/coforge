@@ -97,7 +97,10 @@ function ContextUsageBadge({
     window: numberFormat.format(contextUsage.windowTokens),
     time: formatDateForDisplay(new Date(contextUsage.observedAtMs), timeZone, locale),
   });
-  const context = useAgentContextReport(agentId, { enabled: supportsContextReport });
+  const context = useAgentContextReport(agentId, {
+    enabled: supportsContextReport,
+    computerOnline,
+  });
   const [openCount, setOpenCount] = useState(0);
   const refreshButtonWrapRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -114,7 +117,11 @@ function ContextUsageBadge({
 
   return (
     <HoverPopover
-      label={`${m.agent_context_title()} · ${m.agent_context_usage_badge({ percent })}`}
+      label={m.agent_context_usage_tooltip({
+        used: numberFormat.format(contextUsage.usedTokens),
+        window: numberFormat.format(contextUsage.windowTokens),
+        time: formatDateForDisplay(new Date(contextUsage.observedAtMs), timeZone, locale),
+      })}
       trigger={badge}
       triggerClassName="-m-1 inline-flex rounded-lg p-1 outline-none hover:bg-primary_hover data-focus-visible:ring-2 data-focus-visible:ring-brand"
       className="p-4 text-sm"
@@ -122,6 +129,7 @@ function ContextUsageBadge({
       onOpen={() => setOpenCount((count) => count + 1)}
     >
       <AgentContextPopoverContent
+        header={tooltipText}
         data={context.data}
         scanning={context.scanning}
         scanFailed={context.scanFailed}

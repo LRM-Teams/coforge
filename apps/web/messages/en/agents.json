@@ -198,7 +198,6 @@
   "agent_context_stale": "This reading is older than 30 minutes and may be out of date.",
   "agent_context_stale_refreshing": "This reading is older than 30 minutes; refreshing…",
   "agent_context_no_response": "The Computer did not answer in time. Try again.",
-  "agent_context_free_space": "Free space",
   "agent_context_categories": "By category",
   "agent_context_memory_files": "Memory files",
   "agent_context_skills": "Skills",

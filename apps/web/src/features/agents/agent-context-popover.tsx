@@ -63,7 +63,12 @@ export function AgentContextPopoverContent({
   timeZone = null,
   onRefresh,
   refreshButtonWrapRef,
+  /** The trigger badge's own tooltip line (`used / window tokens · time`); shown as the popover's
+   * header line, exactly the runtime-usage twin's header pattern. */
+  header = m.agent_context_title(),
 }: {
+  /** The trigger badge's own tooltip line; shown as the popover's header. */
+  header?: string;
   data?: {
     state: "fresh" | "stale" | "missing";
     result?: {
@@ -98,7 +103,7 @@ export function AgentContextPopoverContent({
   return (
     <div>
       <div className="border-b border-secondary pb-3">
-        <h2 className="min-w-0 font-medium text-primary">{m.agent_context_title()}</h2>
+        <h2 className="min-w-0 font-medium text-primary">{header}</h2>
       </div>
 
       {reading ? (
@@ -110,15 +115,8 @@ export function AgentContextPopoverContent({
               {scanning ? m.agent_context_stale_refreshing() : m.agent_context_stale()}
             </p>
           )}
-          {report ? (
-            <AgentContextReportBody report={report} />
-          ) : (
-            data?.result && (
-              <p className="mt-3 text-tertiary">
-                {contextFailureDescription(data.result.status, scanning)}
-              </p>
-            )
-          )}
+          {report && <AgentContextReportBody report={report} />}
+          {/* A failed status's reason is stated once, in the footer, like the runtime-usage twin. */}
         </>
       )}
 
@@ -324,17 +322,17 @@ function footerStatusText(
   if (computerOnline === false) return m.agent_profile_computer_offline();
   if (scanFailed) return m.agent_context_no_response();
   return data?.result && !data.result.report
-    ? contextFailureDescription(data.result.status, false)
+    ? contextFailureDescription(data.result.status)
     : undefined;
 }
 
-function contextFailureDescription(status: string, scanning: boolean): string {
+function contextFailureDescription(status: string): string {
   if (status === "unsupported") return m.agent_context_status_unsupported();
   if (status === "no_session") return m.agent_context_status_no_session();
   if (status === "unparsed") return m.agent_context_status_unparsed();
   if (status === "timeout") return m.agent_context_status_timeout();
   if (status === "error") return m.agent_context_status_error();
-  return scanning ? m.agent_context_scanning() : m.agent_context_status_error();
+  return m.agent_context_status_error();
 }
 
 function navigatorLocale(): string {
