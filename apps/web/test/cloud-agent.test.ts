@@ -68,6 +68,7 @@ describe("PublishAgentRuntimeControl", () => {
           throw new Error("not used");
         },
         listForComputer: async () => agents.map((agent) => structuredClone(agent)),
+        listDeletedForComputer: async () => [],
       },
       {
         readAgentRecoveryContext: async (_workspaceId, agentId) => {
@@ -198,6 +199,7 @@ describe("PublishAgentRuntimeControl", () => {
         listOwnedInWorkspace: async () => [],
         listInWorkspace: async () => [],
         listForComputer: async () => [structuredClone(current)],
+        listDeletedForComputer: async () => [],
         create: async () => current,
         update: async () => current,
       },
@@ -260,6 +262,7 @@ describe("PublishAgentRuntimeControl", () => {
           throw new Error("not used");
         },
         listForComputer: async () => agents.map((agent) => structuredClone(agent)),
+        listDeletedForComputer: async () => [],
       },
       {
         readAgentRecoveryContext: async (_workspaceId, agentId) => {
@@ -359,6 +362,7 @@ describe("PublishAgentRuntimeControl", () => {
           throw new Error("not used");
         },
         listForComputer: async () => agents.map((agent) => structuredClone(agent)),
+        listDeletedForComputer: async () => [],
       },
       {
         readAgentRecoveryContext: async () => ({ resumeMessages: [], unreadSummary: {} }),

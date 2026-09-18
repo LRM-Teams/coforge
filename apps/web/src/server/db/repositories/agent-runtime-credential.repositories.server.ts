@@ -2,6 +2,7 @@ import type { PrismaClient } from "../../../../generated/client";
 import { parseAgentRuntimeConfig } from "../../agents/agent-runtime-config.server";
 import type { AgentRuntimeCredentialRepository } from "../../agents/agent-runtime-credentials.server";
 import type { AgentEnvironmentRepository } from "../../agents/agent-environment.server";
+import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
 
 export class PrismaAgentRuntimeCredentialRepository
   implements AgentRuntimeCredentialRepository, AgentEnvironmentRepository
@@ -10,7 +11,7 @@ export class PrismaAgentRuntimeCredentialRepository
 
   async findOwnedAgent(agentId: string, workspaceId: string, ownerId: string) {
     const agent = await this.db.agent.findFirst({
-      where: { id: agentId, workspaceId, ownerId },
+      where: { id: agentId, workspaceId, ownerId, ...ACTIVE_AGENT_WHERE },
       select: { runtimeConfig: true },
     });
     if (!agent) return undefined;

@@ -21,7 +21,7 @@ const browserMessageFields = {
       userId: true,
       agentId: true,
       user: { select: { username: true, avatarObjectKey: true } },
-      agent: { select: { name: true, displayName: true } },
+      agent: { select: { name: true, displayName: true, deletedAt: true } },
     },
   },
   mentions: { select: { kind: true, actorId: true, handle: true } },
@@ -60,6 +60,9 @@ export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: strin
     /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
      * panel from a message row (`features/agents/profile-panel/`). */
     senderAgentId: message.sender?.agentId ?? undefined,
+    /** True when the sending Agent has since been deleted (ADR 0044): the row renders its sender
+     * greyed with a `DELETED` marker, and no longer opens that Agent's profile. */
+    senderDeleted: Boolean(message.sender?.agent?.deletedAt),
     senderAvatarUrl: message.sender?.userId
       ? workspaceUserAvatarUrl(
           workspaceId,

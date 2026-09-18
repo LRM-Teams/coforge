@@ -109,7 +109,7 @@ const BROWSER_MESSAGE_SELECT = {
       userId: true,
       agentId: true,
       user: { select: { username: true, avatarObjectKey: true } },
-      agent: { select: { name: true, displayName: true } },
+      agent: { select: { name: true, displayName: true, deletedAt: true } },
     },
   },
   mentions: MESSAGE_MENTIONS_SELECT,
@@ -231,6 +231,9 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
     /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
      * panel from a message row (`features/agents/profile-panel/`). */
     senderAgentId: message.sender?.agentId ?? undefined,
+    /** True when the sending Agent has since been deleted (ADR 0044): the row renders its sender
+     * greyed with a `DELETED` marker, and no longer opens that Agent's profile. */
+    senderDeleted: Boolean(message.sender?.agent?.deletedAt),
     senderAvatarUrl: message.sender?.userId
       ? workspaceUserAvatarUrl(
           workspaceId,
@@ -537,7 +540,7 @@ export type DirectConversationRepository = {
     conversationId: string;
     senderMemberId: string;
     threadReadThrough?: Record<string, number>;
-    agent: { id: string; name: string; displayName: string };
+    agent: { id: string; name: string; displayName: string; deletedAt: Date | null };
     hasOlder: boolean;
     hasNewer?: boolean;
     messages: Array<{
@@ -849,6 +852,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
+    // Deliberately *not* filtered by `ACTIVE_AGENT_WHERE`: a deleted Agent's direct conversation
+    // stays readable (ADR 0044 keeps history), and `ownedConversations` decides per operation
+    // whether reading or writing is allowed. Starting a new conversation with a deleted Agent is
+    // unreachable anyway — the DM list and profile affordances no longer offer one.
     const agent = await this.db.agent.findFirst({
       where: { id: agentId, workspaceId, workspace: { members: { some: { userId } } } },
       select: { id: true },
@@ -910,7 +917,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
               select: { rootMessageId: true, readThroughSequence: true },
             },
             user: { select: { username: true } },
-            agent: { select: { id: true, name: true, displayName: true } },
+            agent: { select: { id: true, name: true, displayName: true, deletedAt: true } },
           },
         },
         messages: {

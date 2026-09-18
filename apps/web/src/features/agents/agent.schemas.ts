@@ -103,6 +103,14 @@ export const updateAgentInputSchema = z
 export type UpdateAgentInput = z.infer<typeof updateAgentInputSchema>;
 
 export const agentIdSchema = z.uuid();
+/** ADR 0044: deleting an Agent is name-confirmed, the same guard `ProjectSettings.delete` uses —
+ * the server re-checks the typed name against the current row in the delete itself, so a
+ * concurrent rename cannot bypass confirmation. */
+export const deleteAgentInputSchema = z.object({
+  agentId: agentIdSchema,
+  confirmation: z.string().trim().min(1).max(64),
+});
+export type DeleteAgentInput = z.infer<typeof deleteAgentInputSchema>;
 export const updateAgentRoleInputSchema = z.object({
   agentId: agentIdSchema,
   role: z.enum(["admin", "member"]),

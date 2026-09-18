@@ -12,6 +12,7 @@ import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.re
 import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
 import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
 import { CentrifugoRpcAuthenticationError } from "../centrifugo/rpc-handler.server";
+import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import { PrismaReminderRepository } from "../db/repositories/reminder.repositories.server";
 import { Reminders } from "../reminders/reminders.server";
 import { getReminderCapabilityLease } from "../reminders/reminder-capability.server";
@@ -70,7 +71,7 @@ export function createAgentReminderService(
 }
 
 export async function authenticateAgentHttpRequest(request: Request, db: PrismaClient) {
-  return authenticateAgentMessageRequest(request, {
+  const principal = await authenticateAgentMessageRequest(request, {
     agentApiKeys: new PrismaAgentApiKeyRepository(db),
     verifyDaemonApiKey: (token) => verifyDaemonApiKey(token, new PrismaDaemonApiKeyRepository(db)),
     computerBelongsToWorkspace: async (workspaceId, computerId) =>
@@ -81,4 +82,16 @@ export async function authenticateAgentHttpRequest(request: Request, db: PrismaC
         }),
       ),
   });
+  // ADR 0044: deleting an Agent revokes its keys, but a key minted before the delete could still
+  // be in flight; check the Agent itself so a deleted Agent can never act through the HTTP API.
+  const agent = await db.agent.findFirst({
+    where: {
+      id: principal.agentId,
+      workspaceId: principal.workspaceId,
+      ...ACTIVE_AGENT_WHERE,
+    },
+    select: { id: true },
+  });
+  if (!agent) throw new CentrifugoRpcAuthenticationError();
+  return principal;
 }

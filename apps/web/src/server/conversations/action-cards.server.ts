@@ -5,6 +5,7 @@ import {
   type ActionCardKind,
   type ResolvedActionCardPayload,
 } from "@lrm/coforge-sdk/agent";
+import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { ActionCardError } from "./action-card-error.server";
@@ -691,8 +692,14 @@ export class ActionCards {
   private async resolveAgent(workspaceId: string, value: string, field: string): Promise<string> {
     const bare = bareHandle(value);
     const agent = UUID_PATTERN.test(bare)
-      ? await this.db.agent.findFirst({ where: { id: bare, workspaceId }, select: { id: true } })
-      : await this.db.agent.findFirst({ where: { name: bare, workspaceId }, select: { id: true } });
+      ? await this.db.agent.findFirst({
+          where: { id: bare, workspaceId, ...ACTIVE_AGENT_WHERE },
+          select: { id: true },
+        })
+      : await this.db.agent.findFirst({
+          where: { name: bare, workspaceId, ...ACTIVE_AGENT_WHERE },
+          select: { id: true },
+        });
     if (!agent)
       throw new ActionCardError(422, "INVALID_HANDLE", `unknown agent handle: ${value}`, { field });
     return agent.id;

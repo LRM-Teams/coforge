@@ -39,7 +39,9 @@ import {
   deleteAgentRuntimeCredential,
   getAgentEnvironment,
   saveAgentEnvironment,
+  deleteAgent,
 } from "@/features/agents/agents.functions";
+import { AgentDeleteDialog } from "@/features/agents/agent-delete-dialog";
 import { AgentProfileHeader } from "./agent-profile-header";
 import { AgentProfileTabs } from "./agent-profile-tabs";
 import { AgentProfileTab } from "./agent-profile-tab";
@@ -149,6 +151,8 @@ export function AgentProfilePanel({
   const updateRole = useServerFn(updateAgentRole);
   const saveCredential = useServerFn(saveAgentRuntimeCredential);
   const deleteCredential = useServerFn(deleteAgentRuntimeCredential);
+  const removeAgent = useServerFn(deleteAgent);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [runtimeSaving, guardRuntime] = useSubmitGuard();
   const [runtimeError, setRuntimeError] = useState("");
@@ -309,6 +313,7 @@ export function AgentProfilePanel({
             onStartRuntimeEdit={onStartRuntimeEdit}
             onLoadSkills={profile.ownedByCurrentUser ? onLoadSkills : undefined}
             environment={profile.ownedByCurrentUser ? environment : undefined}
+            onStartDelete={profile.canDeleteAgent ? () => setDeleteDialogOpen(true) : undefined}
             runtimeCredentialDialog={
               profile.ownedByCurrentUser && profile.runtimeConfig.provider.kind === "coforge" ? (
                 <>
@@ -400,6 +405,23 @@ export function AgentProfilePanel({
         />
       )}
       <AgentControlDialogs agentName={knownName} control={controls} />
+      {profile && (
+        <AgentDeleteDialog
+          agentName={profile.name}
+          open={deleteDialogOpen}
+          onOpenChange={setDeleteDialogOpen}
+          onDelete={async (confirmation) => {
+            const result = await removeAgent({ data: { agentId, confirmation } });
+            // A protected Agent is never a delete target, so this is only reachable if the state
+            // changed under the viewer; keep the panel open instead of pretending it worked.
+            if (result.outcome === "protected") throw new Error("Agent is not deletable");
+            setDeleteDialogOpen(false);
+            // The Agent is gone from every live view, so the panel has nothing left to show.
+            onClose();
+            await invalidate();
+          }}
+        />
+      )}
     </div>
   );
 }

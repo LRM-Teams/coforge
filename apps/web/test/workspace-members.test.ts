@@ -85,7 +85,11 @@ describe("WorkspaceMembers", () => {
       orderBy: [{ username: "asc" }, { id: "asc" }],
     });
     expect(queries.agents).toEqual({
-      where: { workspaceId: "workspace-1", weeklyReportAssistant: null },
+      where: {
+        workspaceId: "workspace-1",
+        weeklyReportAssistant: null,
+        deletedAt: null,
+      },
       select: {
         id: true,
         name: true,

@@ -212,9 +212,19 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     expect(history.messages.map((m) => [m.sequence, m.senderName, m.body])).toEqual([
       [1, `@${alice.username}`, "Hello Bob"],
       [2, `@${alice.username}`, "Muted ordinary message"],
-      [3, `@${alice.username}`, `@${bob.username} please review this`],
+      // A resolved mention is stored as an embedded-UUID token (ADR 0022 / PR #338) and carries a
+      // MessageMention row; the browser renders the handle from that row, never by re-parsing
+      // prose. `agentReadableBody` is what turns the token back into `@handle` for Agents.
+      [3, `@${alice.username}`, `<@human:${bob.id}> please review this`],
       [4, `@${bob.username}`, "Hello Alice"],
     ]);
+    // The token is resolved, not orphaned: the viewer gets the mention row it renders from. The
+    // projection's `kind` is `user` (the browser's sender vocabulary); the token's prefix is
+    // `human`.
+    expect(history.messages[2]?.mentions).toEqual([
+      { kind: "user", actorId: bob.id, handle: bob.username },
+    ]);
+    expect(history.messages[0]?.mentions).toEqual([]);
     expect(history.messages[0]?.senderMemberId).toBe(history.senderMemberId);
     expect(history.messages[3]?.senderMemberId).not.toBe(history.senderMemberId);
     await Promise.all([send(alice.id, "Concurrent A"), send(bob.id, "Concurrent B")]);
@@ -232,7 +242,8 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     ).toEqual([
       "Hello Bob",
       "Muted ordinary message",
-      `@${bob.username} please review this`,
+      // Same stored-token contract as above.
+      `<@human:${bob.id}> please review this`,
       "Concurrent A",
     ]);
     await expect(

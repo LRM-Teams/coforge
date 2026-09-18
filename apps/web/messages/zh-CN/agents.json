@@ -221,5 +221,17 @@
   "agent_profile_loading": "正在加载资料…",
   "agent_role_admin": "管理员",
   "agent_role_member": "成员",
-  "agent_profile_resize": "调整资料面板宽度"
+  "agent_profile_resize": "调整资料面板宽度",
+  "agent_deleted_badge": "已删除",
+  "agent_profile_action_delete": "删除智能体",
+  "agent_delete_dialog_title": "删除 {name}？",
+  "agent_delete_dialog_description": "该智能体将停止运行，并从成员列表和聊天中消失。它的消息、任务和历史记录仍可查看，并标记为已删除。",
+  "agent_delete_confirm": "输入该智能体的用户名以确认：",
+  "agent_delete_placeholder": "智能体用户名",
+  "agent_delete_submit": "删除智能体",
+  "agent_delete_pending": "正在删除…",
+  "agent_delete_error": "无法删除该智能体，请重试。",
+  "agent_delete_access_denied": "只有 Workspace 所有者或管理员可以删除智能体。",
+  "agent_delete_protected": "该智能体由 CoForge 管理，无法删除。",
+  "agent_deleted_conversation_notice": "该智能体已被删除。你仍可查看历史消息，但无法再发送新消息。"
 }

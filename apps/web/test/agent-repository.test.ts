@@ -32,6 +32,7 @@ function repository(): AgentRepository {
       records.filter(
         (agent) => agent.workspaceId === workspaceId && agent.computerId === computerId,
       ),
+    listDeletedForComputer: async () => [],
     listOwnedInWorkspace: async (workspaceId, ownerId) =>
       records.filter((agent) => agent.workspaceId === workspaceId && agent.ownerId === ownerId),
     create: async (input) => {

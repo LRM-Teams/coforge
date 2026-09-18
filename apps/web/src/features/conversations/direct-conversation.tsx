@@ -17,6 +17,7 @@ import { conversationLayoutStorage } from "@/features/conversations/layout-stora
 import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { Avatar } from "@/components/base/avatar/avatar";
+import { Badge } from "@/components/base/badges/badges";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -65,7 +66,7 @@ export type DirectConversationView = {
   threadReadThrough?: Record<string, number>;
   hasOlder?: boolean;
   hasNewer?: boolean;
-  agent: { id: string; name: string; displayName: string };
+  agent: { id: string; name: string; displayName: string; deletedAt?: Date | null };
   /** The viewing user's `@handle`; powers the stronger "mentioned me" chip. Channels only. */
   viewerHandle?: string;
   /** The composer's @-completion source: every active member's public handle. Channels only. */
@@ -78,6 +79,8 @@ export type DirectConversationView = {
     senderMemberId?: string | null;
     senderName: string;
     senderAgentId?: string;
+    /** True when the sending Agent has since been deleted (ADR 0044). */
+    senderDeleted?: boolean;
     senderAvatarUrl?: string | null;
     body: string;
     createdAt: Date | string;
@@ -155,9 +158,10 @@ export function DirectConversationHeader({
   const display = useLiveAgent(conversation.agent.id)?.display;
   const timeZone = appRoute.useLoaderData().timeZone;
   const displayLabel = agentDisplay(display).label;
-  const openProfile = onOpenAgentProfile
-    ? () => onOpenAgentProfile(conversation.agent.id)
-    : undefined;
+  // ADR 0044: a deleted Agent's DM stays readable, but offers no profile and no new messages.
+  const deleted = Boolean(conversation.agent.deletedAt);
+  const openProfile =
+    onOpenAgentProfile && !deleted ? () => onOpenAgentProfile(conversation.agent.id) : undefined;
   return (
     <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
       <div className="-mx-3 flex h-12 items-center gap-2 border-b border-secondary px-3 sm:-mx-5 sm:gap-3 sm:px-5">
@@ -208,6 +212,8 @@ export function DirectConversationHeader({
 
 export function DirectConversation(props: ConversationProps) {
   const { conversation } = props;
+  // ADR 0044: a deleted Agent's DM stays readable, but nothing new can be sent to it.
+  const deleted = Boolean(conversation.agent.deletedAt);
   return (
     <ThreadedConversation
       {...props}
@@ -219,6 +225,13 @@ export function DirectConversation(props: ConversationProps) {
           onShowTasks={props.onShowTasks}
           onOpenAgentProfile={props.onOpenAgentProfile}
         />
+      }
+      readOnlyNotice={
+        deleted ? (
+          <div className="mx-4 mb-4 rounded-lg border border-secondary bg-secondary p-4 md:mx-6 md:mb-6">
+            <p className="text-sm text-tertiary">{m.agent_deleted_conversation_notice()}</p>
+          </div>
+        ) : undefined
       }
       emptyState={{
         title: m.conversation_empty_title({ name: conversation.agent.displayName }),
@@ -905,7 +918,11 @@ export function ConversationPane({
                   alt={root.senderName}
                   src={root.senderAvatarUrl}
                   initials={avatarInitial(root.senderName)}
-                  contentClassName={avatarToneClassName(root.senderName)}
+                  contentClassName={
+                    root.senderDeleted
+                      ? "bg-offline text-white"
+                      : avatarToneClassName(root.senderName)
+                  }
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -913,6 +930,11 @@ export function ConversationPane({
                   <span className="text-sm font-semibold text-primary">
                     {isOwn(root) ? m.conversation_you() : root.senderName}
                   </span>
+                  {root.senderDeleted && (
+                    <Badge size="sm" color="gray" className="shrink-0 font-semibold tracking-wide">
+                      {m.agent_deleted_badge()}
+                    </Badge>
+                  )}
                   <time
                     dateTime={new Date(root.createdAt).toISOString()}
                     className="text-xs text-tertiary tabular-nums"

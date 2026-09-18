@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { assertCanInvite, type WorkspaceMemberRole } from "../workspaces/member-role.server";
+import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 
 export type SetAgentRoleInput = {
   workspaceId: string;
@@ -28,7 +29,7 @@ export async function setAgentRole(
   if (!membership) throw new AppError("ACCESS_DENIED");
   const role = assertCanInvite(membership.role as WorkspaceMemberRole, input.role);
   const agent = await db.agent.findFirst({
-    where: { id: input.agentId, workspaceId: input.workspaceId },
+    where: { id: input.agentId, workspaceId: input.workspaceId, ...ACTIVE_AGENT_WHERE },
     select: { id: true },
   });
   if (!agent) throw new AppError("NOT_FOUND");

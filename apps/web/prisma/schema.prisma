@@ -198,6 +198,12 @@ model Agent {
   /// Set when a user stopped this Agent (ADR 0038): nothing may start or wake it except an
   /// explicit user Start, Restart, Reset session or Full reset. Independent of `controlState`.
   stoppedAt                 DateTime?
+  /// Soft delete (ADR 0044): a deleted Agent is hidden from every directory, list, wake and
+  /// profile lookup, but its Messages, Tasks and Action cards are kept so history stays
+  /// readable. Never hard-deleted: `Message.sender`, `Task.creator/owner` and
+  /// `ActionCard.preparedByAgent` are `onDelete: Restrict`, the same blocker `leftAt` solved
+  /// for channel membership (ADR 0024/0031).
+  deletedAt                 DateTime?
   currentSessionId          String?                    @db.Uuid
   currentSession            AgentSession?              @relation("CurrentAgentSession", fields: [currentSessionId], references: [id], onDelete: SetNull)
   sessions                  AgentSession[]             @relation("AgentSessions")

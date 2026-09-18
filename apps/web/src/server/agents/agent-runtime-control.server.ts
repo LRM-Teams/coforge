@@ -112,6 +112,25 @@ export class WorkspaceAgentRecovery {
   ) {
     const runningAgents = new Set(runningAgentIds);
     const agents = await this.agents.listForComputer(workspaceId, computerId);
+    // ADR 0044: a deleted Agent is never recovered — but if the Daemon still reports one running
+    // (its Stop never reached an offline Daemon, or its result was lost), reconcile with a Stop.
+    // Deleted Agents are listed separately because `listForComputer` only returns live ones.
+    const control = this.control;
+    if (control) {
+      const deleted = await this.agents.listDeletedForComputer(workspaceId, computerId);
+      await Promise.all(
+        deleted
+          .filter((agent) => runningAgents.has(agent.id))
+          .map((agent) =>
+            control
+              .publishStop(
+                { agentId: agent.id, workspaceId, requestId: crypto.randomUUID() },
+                agent.ownerId,
+              )
+              .catch(() => {}),
+          ),
+      );
+    }
     // Each Agent recovers under its own lock, so all of them recover at once.
     await Promise.all(
       agents.map((listedAgent) =>

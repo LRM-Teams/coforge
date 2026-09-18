@@ -4,12 +4,15 @@ import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
   agentIdSchema,
   createAgentInputSchema,
+  deleteAgentInputSchema,
   saveAgentRuntimeCredentialInputSchema,
   saveAgentEnvironmentInputSchema,
   updateAgentInputSchema,
   updateAgentRoleInputSchema,
 } from "./agent.schemas";
 import { setAgentRole } from "../../server/agents/agent-role.server";
+import { AppError } from "../../lib/app-error";
+import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
 import { isAdminLike, type WorkspaceMemberRole } from "../../server/workspaces/member-role.server";
 import { requireDatabaseClient } from "../../server/db/client.server";
 import {
@@ -17,6 +20,8 @@ import {
   RepositoryAgentAuthorization,
 } from "../../server/db/repositories/agent.repositories.server";
 import { ManageAgents } from "../../server/agents/manage-agents.server";
+import { AgentDeletion } from "../../server/agents/agent-deletion.server";
+import { PrismaAgentDeletionStore } from "../../server/db/repositories/agent-deletion.repositories.server";
 import { PublishAgentRuntimeControl } from "../../server/agents/agent-runtime-control.server";
 import { AgentControl } from "../../server/agents/agent-control.server";
 import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
@@ -163,6 +168,16 @@ function agentEnvironment(db: Database) {
     runtimeControl(db, agents),
     getAgentRuntimeLock(),
     readAgentRuntimeCredentialEncryptionKey(process.env),
+  );
+}
+
+function agentDeletion(db: Database) {
+  const agents = new PrismaAgentRepository(db);
+  return new AgentDeletion(
+    agents,
+    new PrismaAgentDeletionStore(db),
+    runtimeControl(db, agents),
+    getAgentRuntimeLock(),
   );
 }
 
@@ -319,6 +334,9 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
               id,
               workspaceId,
               workspace: { members: { some: { userId } } },
+              // ADR 0044: a deleted Agent has no profile to open; its history stays readable
+              // through the conversation views instead.
+              ...ACTIVE_AGENT_WHERE,
             },
             select: {
               id: true,
@@ -372,6 +390,10 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
   // `resetAgentWorkspace` (Full reset) is owner/admin only, same role check as agent-role
   // management. Server-side authorization lives in AgentControl.execute(); this is UI gating.
   const canFullResetAgent = canManageAgentRole;
+  // ADR 0044: Raft's `deleteAgents` is owner/admin only, the same gate as `createAgents`. The
+  // weekly-report assistant is provisioned by Records on demand, so it is never a delete target
+  // even for an owner/admin viewer. Server-side authorization lives in `AgentDeletion.delete()`.
+  const canDeleteAgent = canManageAgentRole && !result.isWeeklyReportAssistant;
   // Best-effort: the Agent profile panel's Computer meta line ("Connected · v0.1.0-dev.35"). Redis
   // unavailability degrades to "unknown" (`undefined`), never a false "offline".
   const computerOnline = result.computer
@@ -398,6 +420,7 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
     runtimeCredential,
     canManageAgentRole,
     canFullResetAgent,
+    canDeleteAgent,
     runtimeUsageVisible: Boolean(ownedRuntime),
     runtimeVersion: ownedRuntime?.version,
     // Always the same shape (`online` present, possibly `undefined`) whether or not a Computer is
@@ -437,6 +460,26 @@ export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
   .handler(async ({ data: agentId, context }) => {
     const { user, db, workspaceId } = context;
     return changeRuntimeCredential(db).delete({ workspaceId, userId: user.id }, agentId);
+  });
+
+/**
+ * Deletes an Agent (ADR 0044): Raft's `deleteAgents` capability, Workspace owner/admin only. The
+ * typed name is re-checked against the Agent's current `name` here, inside the same call that
+ * performs the delete, so a concurrent rename cannot bypass confirmation — the same guard
+ * `ProjectSettings.delete` uses. Deleting the Agent's own runtime credential is a separate
+ * concern; `AgentDeletion` revokes Agent API keys and cancels Reminders itself.
+ */
+export const deleteAgent = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(deleteAgentInputSchema)
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    const agent = await db.agent.findFirst({
+      where: { id: data.agentId, workspaceId },
+      select: { name: true },
+    });
+    if (!agent || agent.name !== data.confirmation) throw new AppError("INVALID_INPUT");
+    const role = await workspaceMemberRole(db, workspaceId, user.id);
+    return agentDeletion(db).delete({ userId: user.id, workspaceId, role }, data.agentId);
   });
 
 export const getAgentEnvironment = createServerFn({ method: "GET" })

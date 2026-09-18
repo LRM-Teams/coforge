@@ -221,5 +221,17 @@
   "agent_profile_loading": "Loading profile…",
   "agent_role_admin": "Admin",
   "agent_role_member": "Member",
-  "agent_profile_resize": "Resize profile"
+  "agent_profile_resize": "Resize profile",
+  "agent_deleted_badge": "DELETED",
+  "agent_profile_action_delete": "Delete agent",
+  "agent_delete_dialog_title": "Delete {name}?",
+  "agent_delete_dialog_description": "The Agent stops and disappears from Members and Chat. Its messages, tasks and history stay readable, marked as deleted.",
+  "agent_delete_confirm": "Type the Agent's username to confirm:",
+  "agent_delete_placeholder": "Agent username",
+  "agent_delete_submit": "Delete agent",
+  "agent_delete_pending": "Deleting…",
+  "agent_delete_error": "Could not delete this Agent. Try again.",
+  "agent_delete_access_denied": "Only a Workspace owner or admin can delete an Agent.",
+  "agent_delete_protected": "This Agent is managed by CoForge and cannot be deleted.",
+  "agent_deleted_conversation_notice": "This Agent was deleted. You can read its history, but new messages cannot be sent."
 }

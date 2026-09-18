@@ -3,6 +3,7 @@ import type {
   AgentSkillsListResult,
   RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
+import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import type { PrismaClient } from "../../../generated/client";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
 
@@ -95,6 +96,7 @@ export async function findOwnedSkillsAssignment(
       ownerId: viewer.userId,
       workspace: { members: { some: { userId: viewer.userId } } },
       computer: { workspaces: { some: { workspaceId: viewer.workspaceId } } },
+      ...ACTIVE_AGENT_WHERE,
     },
     select: { computerId: true, runtimeConfig: true },
   });

@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { WorkspaceMemberRole } from "./member-role.server";
+import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 
 /** The actor's Workspace role; ACCESS_DENIED when the user is not a member. */
 export async function workspaceMemberRole(
@@ -33,7 +34,7 @@ export class WorkspaceMembers {
         orderBy: [{ username: "asc" }, { id: "asc" }],
       }),
       this.db.agent.findMany({
-        where: { workspaceId, weeklyReportAssistant: null },
+        where: { workspaceId, weeklyReportAssistant: null, ...ACTIVE_AGENT_WHERE },
         select: {
           id: true,
           name: true,

@@ -3,6 +3,7 @@ import { setResponseHeader } from "@tanstack/react-start/server";
 import { workspaceUserMiddleware } from "@/server/auth/function-auth";
 import { AgentActivityRepository } from "@/server/db/repositories/agent-activity.repositories.server";
 import { agentIdSchema } from "./agent.schemas";
+import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
 
 export const getWorkspaceActivity = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
@@ -26,7 +27,12 @@ export const getAgentActivityFeed = createServerFn({ method: "GET" })
   .handler(async ({ data: agentId, context }) => {
     const { user, db, workspaceId } = context;
     const agent = await db.agent.findFirst({
-      where: { id: agentId, workspaceId, workspace: { members: { some: { userId: user.id } } } },
+      where: {
+        id: agentId,
+        workspaceId,
+        workspace: { members: { some: { userId: user.id } } },
+        ...ACTIVE_AGENT_WHERE,
+      },
       select: { id: true },
     });
     if (!agent) throw new Error("Agent not found");
