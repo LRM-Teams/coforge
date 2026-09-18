@@ -1,8 +1,9 @@
-import { ChevronRight, Hash01 as Hash } from "@untitledui/icons";
+import { ChevronRight, Hash01 as Hash, Plus } from "@untitledui/icons";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
 import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "@/features/agents/workspace-agents-realtime";
 import { cx } from "@/utils/cx";
@@ -61,32 +62,35 @@ function ConversationRow({
 
 /**
  * A collapsible sidebar group (CHANNELS, DIRECT MESSAGES). The caption itself is the toggle,
- * like Slack's sidebar sections; the chevron sits in a 20px gutter so the caption keeps the exact
- * x position it has without a toggle, and the list below stays aligned with it.
+ * like Slack's sidebar sections: it stretches across the whole header row so the hit area is the
+ * row rather than just the few characters of the label, and `pl-0` keeps the caption on the same x
+ * the rows' icons use. `action` is an optional trailing control (the channels' create button),
+ * outside the toggle so it stays independently clickable.
  */
 function DirectorySection({
   label,
   expanded,
   onToggle,
+  action,
   children,
 }: {
   label: string;
   expanded: boolean;
   onToggle: () => void;
+  action?: ReactNode;
   children: ReactNode;
 }) {
   const listId = useId();
   return (
     <>
-      <div className="flex items-center justify-between pr-4 pl-1">
+      <div className="flex items-center gap-1 pr-2 pl-1">
         <Button
           color="tertiary"
-          size="xs"
+          size="sm"
           aria-expanded={expanded}
           aria-controls={listId}
           onPress={onToggle}
-          /* `px-1` (not a height override) lands the caption on the same x the rows' icons use. */
-          className="min-w-0 px-1 text-quaternary hover:text-tertiary"
+          className="min-w-0 flex-1 justify-start pr-2 pl-0 text-quaternary hover:text-tertiary"
           iconLeading={
             <ChevronRight
               aria-hidden="true"
@@ -99,6 +103,7 @@ function DirectorySection({
         >
           <span className="truncate text-[0.6875rem] tracking-wide uppercase">{label}</span>
         </Button>
+        {action}
       </div>
       {/* Kept mounted but hidden: collapsing must not throw away the rows' realtime state. */}
       <div id={listId} hidden={!expanded}>
@@ -114,11 +119,15 @@ export function ConversationDirectory({
   agents,
   selectedChannelId,
   selectedAgentId,
+  onCreateChannel,
 }: {
   channels: DirectoryChannel[];
   agents: LiveAgent[];
   selectedChannelId?: string;
   selectedAgentId?: string;
+  /** Opens the container's `CreateChannelDialog`; the CHANNELS caption's `+` is the only
+   * entry point for it now that the page header no longer carries a create button. */
+  onCreateChannel: () => void;
 }) {
   const sortedChannels = [...channels].sort((left, right) =>
     left.joined === right.joined ? 0 : left.joined ? -1 : 1,
@@ -142,6 +151,16 @@ export function ConversationDirectory({
           label={m.channels_title()}
           expanded={!collapsed.includes("channels")}
           onToggle={() => toggle("channels")}
+          action={
+            <ButtonUtility
+              size="xs"
+              color="tertiary"
+              icon={Plus}
+              aria-label={m.channel_create()}
+              tooltip={m.channel_create()}
+              onClick={onCreateChannel}
+            />
+          }
         >
           <ul aria-label={m.channels_title()} className="flex flex-col px-4">
             {sortedChannels.map((channel) => {
