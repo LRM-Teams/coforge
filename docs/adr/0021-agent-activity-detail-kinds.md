@@ -63,8 +63,8 @@ nothing will ever emit.
 | --- | --- | --- | --- |
 | `tool_end` | Claude: `tool_result` block; Codex: `item/completed` for a `commandExecution` item; Kiro: `tool_call_update` reaching `completed`/`failed`; Pi: `tool_execution_end` — all four providers already emitted the underlying `tool-end` `AgentRuntimeEvent`, unconsumed by `runtime.ts` until this change | working | liveness only: never stored in history, dropped from the popover, filler for the display lease like `runtime_progress` |
 | `thinking_end` | **Amended, see below.** Derived by the daemon from the normalized event stream (`ActivityTrajectory`, `packages/daemon/src/agent-runtime/activity-trajectory.ts`) for every provider, not signaled by individual providers | working | same as `tool_end` |
-| `compacting_context` | Claude: the `system`/`status` "compacting" notification (previously misreported as `runtime_progress`); Kiro: ACP `CompactionUpdate.status === "in_progress"`. Codex has no compaction notification and is skipped | working | visible, label "Compacting context…", stored |
-| `compaction_finished` | Claude: `compact_boundary`; Kiro: `CompactionUpdate.status` transitioning away from `in_progress`. Both wired providers have an explicit end signal, so no generic "next non-compaction event" fallback was implemented in `runtime.ts` | working | liveness only, like `tool_end` |
+| `compacting_context` | Claude: the `system`/`status` "compacting" notification (previously misreported as `runtime_progress`); Kiro: ACP `CompactionUpdate.status === "in_progress"`; Pi/CoForge: the SDK's `compaction_start` event. Codex has no compaction notification and is skipped. Since 2026-09-18 (see "Centralized compaction/progress" below) this is decided by the daemon core, not authored by the provider | working | visible, label "Compacting context…", stored |
+| `compaction_finished` | Claude: `compact_boundary`; Kiro: `CompactionUpdate.status` transitioning away from `in_progress`; Pi/CoForge: the SDK's `compaction_end` event (when not aborted). Since 2026-09-18 the daemon core also *infers* this when a still-open compaction is followed by resumed text/thinking, a started tool, or a turn ending, ahead of "the generic 'next non-compaction event' fallback was rejected" note below, which this supersedes | working | liveness only, like `tool_end` |
 | `subagent_activity` | Any `activity` event whose entries carry a subagent scope (Claude `parent_tool_use_id`); only Claude ever sets that field, so this kind is Claude-only in practice even though the reclassification itself is provider-agnostic | working | visible, label "Subagent working…", stored |
 | `message_received` | The existing `AgentMessageAttentionIndex` observer that already reports "Message received" after a delivery/wake now uses this kind instead of the generic `model_request_started` it used before | working | visible, stored |
 | `runtime_crashed` | At the time of this record: Claude and Codex only, on an unexpected process exit (the shared `JsonlProcess` wrapper's `"code agent process exited unexpectedly"` failure). Kiro and Pi had no provider-level crash signal distinct from an ordinary process exit and kept reporting `stopped`. **Superseded** — see "Amendment" below: every provider now reports the same raw `error`/`completed` facts, and the daemon core alone decides `runtime_crashed` vs. `idle` for all four | error | visible, stored |
@@ -156,6 +156,40 @@ sibling branch owns wiring it.
   instead sourced from the daemon's own knowledge that a stop was requested
   while a turn was busy.
 
+## Centralized compaction/progress (2026-09-18)
+
+Compaction and `runtime_progress` were originally built inside individual
+providers (this record's own tables above described that). That meant
+behaviour differed per provider with no shared reasoning: Claude Code and
+Kiro each carried their own local "report compacting once, then finished"
+de-dup flag, and only Claude Code and Codex ever produced `runtime_progress`
+at all.
+
+Providers now report normalized `AgentRuntimeEvent`s instead of building
+Activities themselves — `compaction-started`, `compaction-finished`,
+`compaction-interrupted`, and `progress` (`packages/agent/src/contract.ts`).
+The daemon core decides what, if anything, each becomes:
+`packages/daemon/src/agent-runtime/compaction-tracker.ts` owns the "started
+once, finished once" de-dup (previously duplicated per provider), a 5-minute
+stale watchdog per Agent, and inferred completion when a still-open
+compaction is followed by resumed output, a started tool, or a turn ending;
+`packages/daemon/src/agent-runtime/runtime-progress.ts` owns whether a
+`progress` ping is worth announcing — only while the Agent does not already
+look busy (`#lastBusyActivity` for the current launch), replacing the earlier
+fixed 10-second rate limit.
+
+Every provider that has a real, already-parsed signal is now wired:
+
+| Provider | Compaction | Progress |
+| --- | --- | --- |
+| Claude Code | `system`/`status` "compacting" → `compact_boundary` | a partial `stream_event` with no renderable text |
+| Kiro | ACP `CompactionUpdate.status`: `in_progress` → `completed`/`failed`/`cancelled` (the latter two report `compaction-interrupted`) | ACP `tool_call_update` (`status: "in_progress"`, no new content), `plan`/`plan_update`, `usage_update` |
+| Codex | none - Codex's app-server protocol has no compaction notification (unchanged from this record's original table) | `item/reasoning/textDelta` (unchanged from this record's original table, now reported as `progress` instead of a provider-built Activity) |
+| Pi / CoForge | the `@earendil-works/pi-coding-agent` SDK's `compaction_start`/`compaction_end` events (`aborted: true` reports `compaction-interrupted`) | `turn_start`/`message_start`, and the content-free `message_update` sub-events (`start`, `text_start`, `thinking_start`, `toolcall_start`, `toolcall_delta`) - previously nothing |
+
+Pi/CoForge gaining both signals corrects this record's original "Pi gets
+nothing" note (ADR 0016) and the Kiro compaction-only row above.
+
 ## Consequences
 
 - `packages/coforge-sdk/src/internal/index.ts` gains eight `AGENT_ACTIVITY_DETAIL_KIND`
@@ -176,7 +210,10 @@ sibling branch owns wiring it.
   required a new `AgentRuntimeEvent` variant in `packages/agent/src/contract.ts`
   because `tool-end` already existed and `thinking_end`/`compacting_context`/
   `compaction_finished` are authored directly as `activity` events, the same
-  way `runtime_progress` already was.
+  way `runtime_progress` already was. (Superseded for compaction/progress by
+  "Centralized compaction/progress" above: providers now report
+  `compaction-started`/`compaction-finished`/`compaction-interrupted`/`progress`
+  events instead of authoring `activity` events for these two directly.)
 - `apps/web/src/server/agents/agent-display.server.ts`: `workingKinds` drops
   `working`/`runtime_starting` and gains the five new working-classified
   kinds; a shared `LIVENESS_ONLY_DETAIL_KINDS` set replaces the single
@@ -295,10 +332,9 @@ place that can tell, provider-agnostically, when a thinking run has ended.
   that branch also unconditionally set `renderedText = true`; without it, a
   thinking block's `content_block_stop` now falls through to the same
   content-free `runtime_progress` liveness ping any other partial stream
-  event gets. This is harmless: `runtime.ts` already rate-limits
-  `runtime_progress` to one per 10 seconds per Agent
-  (`RUNTIME_PROGRESS_RATE_LIMIT_MS`), and `thinking_end` renews the same
-  busy lease, so the net liveness behavior across the turn is unchanged.
+  event gets. This is harmless: the daemon announces `runtime_progress` only
+  while the Agent does not already look busy, and `thinking_end` renews the
+  same busy lease, so the net liveness behavior across the turn is unchanged.
 - `git grep -n THINKING_END packages/daemon/src` confirms
   `packages/daemon/src/agent-runtime/activity-trajectory.ts` is the only
   emitter left; the two remaining references in `runtime.ts` are the

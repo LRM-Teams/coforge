@@ -752,7 +752,10 @@ test("Claude Code retains notifications during compaction until the compact boun
   }
 });
 
-test("Claude Code reports compacting_context once and compaction_finished at the boundary", async () => {
+test("Claude Code reports a compaction-started event per status=compacting line, and compaction-finished at the boundary", async () => {
+  // The adapter relays the raw signal as-is; de-duping repeated "compacting" lines into a
+  // single reported episode is the daemon core's job now (agent-runtime/compaction-tracker.ts,
+  // exercised in activity-heartbeat.test.ts), not the adapter's.
   const fixture = await controlledClaude();
   const { session, emit } = fixture;
   const events: AgentRuntimeEvent[] = [];
@@ -763,20 +766,19 @@ test("Claude Code reports compacting_context once and compaction_finished at the
       { type: "system", subtype: "status", status: "compacting" },
       { type: "system", subtype: "status", status: "compacting" },
     );
-    await waitForDetailKind(events, "compacting_context");
+    await waitForEvent(events, "compaction-started");
     await emit({ type: "system", subtype: "compact_boundary" });
-    await waitForDetailKind(events, "compaction_finished");
-    const kinds = events
-      .filter((event) => event.type === "activity")
-      .map((event) => event.activity.detailKind);
-    expect(kinds.filter((kind) => kind === "compacting_context")).toHaveLength(1);
-    expect(kinds.filter((kind) => kind === "compaction_finished")).toHaveLength(1);
+    await waitForEvent(events, "compaction-finished");
+    expect(events.filter((event) => event.type === "compaction-started")).toHaveLength(2);
+    expect(events.filter((event) => event.type === "compaction-finished")).toHaveLength(1);
   } finally {
     await fixture.dispose();
   }
 });
 
-test("Claude Code does not report compaction_finished without an open compaction", async () => {
+test("Claude Code reports compaction-finished on compact_boundary even without an open compaction", async () => {
+  // Whether an unmatched finish is visible is the daemon core's guard now (dedup lives there),
+  // not the adapter's - the adapter always relays the raw boundary signal.
   const fixture = await controlledClaude();
   const { session, emit } = fixture;
   const events: AgentRuntimeEvent[] = [];
@@ -784,11 +786,8 @@ test("Claude Code does not report compaction_finished without an open compaction
   try {
     await session.sendMessage("wait");
     await emit({ type: "system", subtype: "compact_boundary" });
-    await emit({ type: "stream_event", event: { type: "message_stop" } });
-    const kinds = events
-      .filter((event) => event.type === "activity")
-      .map((event) => event.activity.detailKind);
-    expect(kinds).not.toContain("compaction_finished");
+    await waitForEvent(events, "compaction-finished");
+    expect(events.filter((event) => event.type === "compaction-started")).toHaveLength(0);
   } finally {
     await fixture.dispose();
   }
@@ -812,7 +811,7 @@ test("Claude Code reports a liveness ping, not thinking_end, when a thinking con
       },
       { type: "stream_event", event: { type: "content_block_stop" } },
     );
-    await waitForDetailKind(events, "runtime_progress");
+    await waitForEvent(events, "progress");
     const kinds = events
       .filter((event) => event.type === "activity")
       .map((event) => event.activity.detailKind);
@@ -841,7 +840,7 @@ test("Claude Code does not report thinking_end for a content block stop without 
       .filter((event) => event.type === "activity")
       .map((event) => event.activity.detailKind);
     expect(kinds).not.toContain("thinking_end");
-    expect(kinds).toContain("runtime_progress");
+    expect(events.some((event) => event.type === "progress")).toBe(true);
   } finally {
     await fixture.dispose();
   }
@@ -1195,15 +1194,4 @@ async function waitForEvent(
     await Bun.sleep(5);
   }
   throw new Error(`timed out waiting for ${type}`);
-}
-
-async function waitForDetailKind(events: AgentRuntimeEvent[], detailKind: string): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (
-      events.some((event) => event.type === "activity" && event.activity.detailKind === detailKind)
-    )
-      return;
-    await Bun.sleep(5);
-  }
-  throw new Error(`timed out waiting for detailKind ${detailKind}`);
 }

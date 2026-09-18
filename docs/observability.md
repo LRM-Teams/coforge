@@ -93,8 +93,8 @@ ADR 0021 在 `detailKind` 上新增了以下值，只在对应 provider 确有�
 | --- | --- | --- |
 | `tool_end` | Claude 的 `tool_result`、Codex 的 `item/completed`（命令）、Kiro 的 `tool_call_update` 终态、Pi 的 `tool_execution_end`；detail 固定为 “Tool finished” | 可见，写入历史，Activity timeline 展示为一行状态行（主标题 Working，副标题“Tool finished”），不出现在头像 popover（ADR 0021 amendment） |
 | `thinking_end` | 由 Daemon 从归一化事件流中统一推导（`ActivityTrajectory`）：一次 thinking 运行开始后，下一个 text-delta、tool-start、tool-end、compaction activity、turn 结束或 error 到来时上报一次；对每个 provider 都成立，不依赖各 provider 的专属信号；detail 固定为 “Thinking finished” | 同 `tool_end`，副标题“Thinking finished” |
-| `compacting_context` | Claude 的 `system/status=compacting`（原先误报为 `runtime_progress`）；Kiro 的 ACP `compaction_update`（`status=in_progress`）；Codex 无对应信号 | 可见，写入历史，文案“Compacting context…” |
-| `compaction_finished` | 上述两个 provider 各自的结束信号（Claude 的 `compact_boundary`；Kiro 的 `compaction_update` 转为非 `in_progress`） | 同 `tool_end`，副标题“Compaction finished”（ADR 0021 amendment；此前仅续租、不写入历史） |
+| `compacting_context` | Claude 的 `system/status=compacting`（原先误报为 `runtime_progress`）；Kiro 的 ACP `compaction_update`（`status=in_progress`）；Pi/CoForge 的 SDK `compaction_start` 事件；Codex 无对应信号。自 2026-09-18 起，provider 只上报归一化的 `compaction-started`/`compaction-finished`/`compaction-interrupted`/`progress` 信号（`packages/agent/src/contract.ts`），由 Daemon core（`packages/daemon/src/agent-runtime/compaction-tracker.ts`）统一去重（同一次压缩只报一次“开始”）并决定是否上报 Activity | 可见，写入历史，文案“Compacting context…” |
+| `compaction_finished` | 上述 provider 各自的结束信号（Claude 的 `compact_boundary`；Kiro 的 `compaction_update` 转为 `completed`；Pi/CoForge 的 `compaction_end`，未被中止时）。Daemon core 还会在压缩仍处于打开状态时，从恢复输出（文本/thinking）、新工具调用或 turn 结束推断出压缩已结束，并在这些信号自身的 Activity 之前上报 | 同 `tool_end`，副标题“Compaction finished”（ADR 0021 amendment；此前仅续租、不写入历史） |
 | `subagent_activity` | 任意携带 subagent 归属（Claude `parent_tool_use_id`）的 trajectory entry；只有 Claude 产生这类归属 | 可见，写入历史，文案“Subagent working…” |
 | `message_received` | 消息投递/唤醒后既有的“Message received”上报，改用这个 kind 而不是通用的 `model_request_started` | 可见，写入历史 |
 | `runtime_crashed` | 四个 provider 一致：进程在非主动停止下意外退出，且退出前最近一次 `error` 事实还没有被 `completed` 事件解决（`errorClass`/`errorReason`/`fingerprint` 由 Daemon 核心统一分类，见下文「错误与重连的单一转换点」）；否则报 `idle` | 可见，写入历史，视为错误 |
@@ -111,9 +111,13 @@ ADR 0021 在 `detailKind` 上新增了以下值，只在对应 provider 确有�
 仅用于把展示租约 `WORKING_LEASE_MS` 续期到 90 秒，并保持 `working`/`thinking`；不写入
 `agent_activities` 历史，也不计入前端“最近活动”列表；只有可见状态真的变化时才推进
 `agent:display` 的 revision。`runtime_progress` 是新增的 discriminator，用于 provider
-产生的、没有可渲染文本的 stream/system 事件（例如 Claude Code 的压缩状态通知、Codex 的
-原始 reasoning 增量、Kiro 的压缩进度通知）；Daemon 按 Agent 把它限流到最多每 10 秒一条，
-同样不产生新的 Agent 业务状态。
+产生的、没有可渲染文本的 stream/system 事件（例如 Claude Code 的部分 stream 帧、Codex 的
+原始 reasoning 增量、Kiro 的 `tool_call_update`/`plan`/`usage_update` 通知、Pi/CoForge 的
+turn/message 生命周期事件）；这些信号自 2026-09-18 起统一上报为归一化的 `progress` 事件
+（`packages/agent/src/contract.ts`），由 Daemon core（`packages/daemon/src/agent-runtime/
+runtime-progress.ts`）决定是否上报——不再是固定的“每 10 秒最多一条”限流，而是只在 Agent
+当前这次 launch 尚未显示为忙碌（working/thinking）时才上报一次；一旦已经忙碌，同样的信号
+只刷新存活时间戳，不重复产生 Activity，同样不产生新的 Agent 业务状态。
 
 心跳只覆盖续租，不覆盖租约已经到期之后的情形：租约一旦到期，服务端没有可信来源，只能在
 下一次读写时把 Agent 惰性投影为 `online`。为此服务端自己运行一个 liveness sweep（ADR

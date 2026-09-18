@@ -293,21 +293,167 @@ test("an activity probe for an unknown Agent sends nothing", async () => {
   }
 });
 
-test("rate-limits runtime_progress to at most one every 10s per Agent", async () => {
-  const { runtime, activities, emit } = await harness();
+test("a progress event announces runtime_progress while the Agent is not yet visibly busy", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({ type: "progress" });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ detailKind: "runtime_progress", detail: "" });
+    // A second ping before anything else makes the Agent look busy still announces: the first
+    // progress activity itself is now the Agent's last busy signal, so this is the "already
+    // working" case exercised by the next test, not a rate-limit window.
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a progress event is suppressed once the Agent already looks busy, but keeps refreshing liveness", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({ type: "tool-start", id: "tool-1", name: "Bash" });
+    emitEvent({
+      type: "activity",
+      activity: {
+        detailKind: "tool_started",
+        level: "info",
+        detail: "ls",
+        observedAtMs: Date.now(),
+      },
+    });
+    activities.length = 0;
+    emitEvent({ type: "progress" });
+    emitEvent({ type: "progress" });
+    // Suppressed: the Agent's last announced activity is already a visible busy kind.
+    expect(activities).toHaveLength(0);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a progress event never flushes buffered text or ends thinking", async () => {
+  const { runtime, activities, emitEvent } = await harness();
   jest.useFakeTimers();
   try {
     activities.length = 0;
-    emit({ detailKind: "runtime_progress", level: "info", detail: "" });
-    emit({ detailKind: "runtime_progress", level: "info", detail: "" });
-    jest.advanceTimersByTime(9_999);
-    emit({ detailKind: "runtime_progress", level: "info", detail: "" });
-    expect(activities.filter((a) => !a.isHeartbeat)).toHaveLength(1);
+    emitEvent({ type: "progress" });
+    // Not yet busy: the ping announces runtime_progress.
+    expect(activities.map((a) => a.detailKind)).toEqual(["runtime_progress"]);
+    emitEvent({ type: "text-delta", text: "still writing" });
+    emitEvent({ type: "progress" });
+    // Already busy (the run-start frame): the ping announces nothing and flushes nothing.
+    expect(activities.map((a) => a.detailKind)).toEqual([
+      "runtime_progress",
+      "model_response_started",
+    ]);
+    jest.advanceTimersByTime(350);
+    expect(activities.map((a) => a.detailKind)).toEqual([
+      "runtime_progress",
+      "model_response_started",
+      "model_response_started",
+    ]);
+    expect(activities[2]?.entries).toMatchObject([{ kind: "text", text: "still writing" }]);
+  } finally {
+    await runtime.stop();
+  }
+});
 
-    jest.advanceTimersByTime(1);
-    emit({ detailKind: "runtime_progress", level: "info", detail: "" });
-    expect(activities.filter((a) => !a.isHeartbeat)).toHaveLength(2);
-    expect(activities[0]).toMatchObject({ detailKind: "runtime_progress", detail: "" });
+test("compaction-started reports Compacting context once, and a repeat is deduped", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({ type: "compaction-started" });
+    emitEvent({ type: "compaction-started" });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ detailKind: "compacting_context" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("compaction-finished ends an open compaction, and without one is a no-op", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    activities.length = 0;
+    emitEvent({ type: "compaction-finished" });
+    expect(activities).toHaveLength(0);
+    emitEvent({ type: "compaction-started" });
+    activities.length = 0;
+    emitEvent({ type: "compaction-finished" });
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ detailKind: "compaction_finished" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("resumed text after an open compaction infers it finished, reported before the resumed text", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  jest.useFakeTimers();
+  try {
+    emitEvent({ type: "compaction-started" });
+    activities.length = 0;
+    emitEvent({ type: "text-delta", text: "back to work" });
+    jest.advanceTimersByTime(350);
+    // Inferred finish, then the run-start frame, then the text.
+    expect(activities.map((a) => a.detailKind)).toEqual([
+      "compaction_finished",
+      "model_response_started",
+      "model_response_started",
+    ]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a started tool after an open compaction infers it finished, reported before the tool", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    emitEvent({ type: "compaction-started" });
+    activities.length = 0;
+    emitEvent({ type: "tool-start", id: "tool-1", name: "Bash", input: { command: "ls" } });
+    expect(activities.map((a) => a.detailKind)).toEqual(["compaction_finished", "running_command"]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a turn ending after an open compaction infers it finished, reported before idle", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    emitEvent({ type: "compaction-started" });
+    activities.length = 0;
+    emitEvent({ type: "completed", status: "completed" });
+    expect(activities.map((a) => a.detailKind)).toEqual(["compaction_finished", "idle"]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("compaction-interrupted silently clears an open compaction with no visible Activity", async () => {
+  const { runtime, activities, emitEvent } = await harness();
+  try {
+    emitEvent({ type: "compaction-started" });
+    activities.length = 0;
+    emitEvent({ type: "compaction-interrupted" });
+    expect(activities).toHaveLength(0);
+    // Cleared: a later explicit finish is now a no-op too.
+    emitEvent({ type: "compaction-finished" });
+    expect(activities).toHaveLength(0);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("stopping the Agent's launch clears its compaction watchdog without leaking a timer", async () => {
+  const { runtime, emitEvent } = await harness();
+  jest.useFakeTimers();
+  try {
+    emitEvent({ type: "compaction-started" });
+    expect(jest.getTimerCount()).toBeGreaterThan(0);
+    await runtime.stopAgent("agent-a");
+    expect(jest.getTimerCount()).toBe(0);
   } finally {
     await runtime.stop();
   }

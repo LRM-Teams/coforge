@@ -95,6 +95,8 @@ export class ActivityTrajectory {
       this.#timer = setTimeout(() => this.flush(), 350);
       return;
     }
+    // Compaction boundaries flush pending text first, like a tool call or a turn ending.
+    // A bare "progress" ping never flushes.
     // "error" flushing here (rather than in the runtime-error-activity conversion itself) is
     // also what lets a separate in-flight change treat `error` as a thinking-end trigger: by the
     // time that trajectory entry exists, any pending thinking/text is already flushed ahead of it.
@@ -102,6 +104,9 @@ export class ActivityTrajectory {
       event.type === "tool-start" ||
       event.type === "activity" ||
       event.type === "completed" ||
+      event.type === "compaction-started" ||
+      event.type === "compaction-finished" ||
+      event.type === "compaction-interrupted" ||
       event.type === "error" ||
       event.type === "reconnecting"
     )

@@ -13,10 +13,9 @@ import type {
   NewSessionRequest,
   ToolKind,
 } from "@agentclientprotocol/sdk";
-import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { agentEnvironment } from "../environment";
 import { AgentSessionRecoveryError } from "../contract";
-import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { bounded, KIRO_ACP_ARGS, KiroConnection, record } from "./connection";
 import { readKiroUsage } from "./usage";
 import { discoverKiroCatalog } from "./catalog";
@@ -128,8 +127,6 @@ class KiroSession implements AgentSession {
   #disposed = false;
   #dispose: Promise<void> | undefined;
   #interrupting = false;
-  // Edge-triggers compacting_context/compaction_finished from CompactionUpdate.status.
-  #compacting = false;
 
   constructor(
     command: readonly string[],
@@ -353,23 +350,29 @@ class KiroSession implements AgentSession {
         });
     }
     if (update.sessionUpdate === "compaction_update") {
-      // Edge-triggered on CompactionUpdate.status: "in_progress" starts a
-      // compaction pass, any other status ends it. Content-free either way;
-      // a status re-sent while already compacting must not repeat the entry.
-      const active = update.status === "in_progress";
-      if (active && !this.#compacting) {
-        this.#compacting = true;
-        this.#emit({
-          type: "activity",
-          activity: createAgentActivity(AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT, "info", ""),
-        });
-      } else if (!active && this.#compacting) {
-        this.#compacting = false;
-        this.#emit({
-          type: "activity",
-          activity: createAgentActivity(AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED, "info", ""),
-        });
-      }
+      // Report the raw CompactionUpdate.status transition every time; the daemon core de-dupes
+      // repeated "in_progress" updates into a single reported episode
+      // (agent-runtime/compaction-tracker.ts). "failed"/"cancelled" are a provider-observed
+      // interruption, distinct from a normal "completed" finish.
+      if (update.status === "in_progress") this.#emit({ type: "compaction-started" });
+      else if (update.status === "completed") this.#emit({ type: "compaction-finished" });
+      else if (update.status === "failed" || update.status === "cancelled")
+        this.#emit({ type: "compaction-interrupted" });
+    }
+    if (
+      update.sessionUpdate === "tool_call_update" &&
+      update.status === "in_progress" &&
+      !update.content?.length
+    ) {
+      // A still-running tool with no new content this notification: content-free liveness.
+      this.#emit({ type: "progress", source: "kiro_tool_call_update" });
+    }
+    if (update.sessionUpdate === "plan" || update.sessionUpdate === "plan_update") {
+      // Task-plan bookkeeping carries no message content; still shows the turn is live.
+      this.#emit({ type: "progress", source: "kiro_plan_update" });
+    }
+    if (update.sessionUpdate === "usage_update") {
+      this.#emit({ type: "progress", source: "kiro_usage_update" });
     }
     if (
       update.sessionUpdate === "session_info_update" &&

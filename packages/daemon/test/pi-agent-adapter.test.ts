@@ -160,6 +160,45 @@ function piRuntime(agentDir: string) {
   };
 }
 
+test("embedded Pi reports progress for content-free turn/message lifecycle frames", async () => {
+  // Verified against the SDK's own AgentSessionEvent/AssistantMessageEvent types
+  // (turn_start/message_start, and the content-free "start"/"*_start"/"toolcall_delta"
+  // sub-events of message_update); this exercises the same union through a real exchange.
+  const root = await mkdtemp(join(tmpdir(), "coforge-pi-progress-"));
+  const workspace = join(root, "workspace");
+  const agentDir = join(root, "host-pi-agent");
+  await mkdir(workspace);
+  const server = Bun.serve({
+    port: 0,
+    fetch: () => completionStream({ role: "assistant", content: "done" }, "stop"),
+  });
+  await writeOpenAiHost(agentDir, `${server.url}v1`);
+  const events: AgentRuntimeEvent[] = [];
+  const session = await new PiProvider().createAgentSession({
+    agentWorkspaceDirectory: workspace,
+    instructions: TEST_AGENT_INSTRUCTIONS,
+    ...piRuntime(agentDir),
+  });
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("hello");
+    const sources = new Set(
+      events.filter((event) => event.type === "progress").map((event) => event.source),
+    );
+    expect(sources.has("pi_turn_lifecycle")).toBe(true);
+    // No raw runtime_progress activity is built by the provider - the daemon core decides.
+    expect(
+      events.some(
+        (event) => event.type === "activity" && event.activity.detailKind === "runtime_progress",
+      ),
+    ).toBe(false);
+  } finally {
+    await session.dispose();
+    server.stop(true);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("CoForge retains its isolated resources and required managed key", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "coforge-builtin-"));
   try {

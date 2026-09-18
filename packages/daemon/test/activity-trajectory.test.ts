@@ -100,6 +100,38 @@ test("flushes kind and explicit lineage switches, termination and disposal exact
   replacement.dispose();
 });
 
+test("compaction-started/-finished/-interrupted flush pending text first; a progress event never does", () => {
+  jest.useFakeTimers();
+  const output: AgentRuntimeEvent[] = [];
+  const trajectory = new ActivityTrajectory((event) => output.push(event));
+  const kinds = () =>
+    output.map((event) =>
+      event.type === "activity"
+        ? `${event.activity.detailKind}${event.activity.entries ? ":text" : ""}`
+        : event.type,
+    );
+  trajectory.accept({ type: "text-delta", text: "before compaction" });
+  trajectory.accept({ type: "compaction-started" });
+  expect(kinds()).toEqual([
+    "model_response_started",
+    "model_response_started:text",
+    "compaction-started",
+  ]);
+  trajectory.accept({ type: "text-delta", text: "mid" });
+  trajectory.accept({ type: "compaction-finished" });
+  expect(kinds().slice(3)).toEqual(["model_response_started:text", "compaction-finished"]);
+  trajectory.accept({ type: "text-delta", text: "more" });
+  trajectory.accept({ type: "compaction-interrupted" });
+  expect(kinds().slice(5)).toEqual(["model_response_started:text", "compaction-interrupted"]);
+  // A progress event does not flush: the buffered text is still pending afterward.
+  trajectory.accept({ type: "text-delta", text: "still buffering" });
+  trajectory.accept({ type: "progress" });
+  expect(kinds().slice(7)).toEqual(["progress"]);
+  jest.advanceTimersByTime(350);
+  expect(output.slice(8)).toMatchObject([{ activity: { entries: [{ text: "still buffering" }] } }]);
+  trajectory.dispose();
+});
+
 test("redacts assembled split secrets, keeps Unicode/ellipsis within bound and flushes before errors", () => {
   jest.useFakeTimers();
   const output: AgentRuntimeEvent[] = [];

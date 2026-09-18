@@ -9,9 +9,8 @@ import type { CodeAgentProvider } from "../contract";
 import { readCodexUsage } from "./usage";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess, JsonlRequestError } from "../jsonl-process";
-import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { COFORGE_DAEMON_VERSION } from "../../version";
-import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
 import { discoverCodexCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
 import type { ProviderDiscoveryOptions } from "../contract";
@@ -357,13 +356,9 @@ class CodexAgentSession implements AgentSession {
     }
     if (record.method === "item/reasoning/textDelta" && typeof params?.delta === "string") {
       this.#emit({
-        type: "activity",
-        activity: createAgentActivity(
-          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
-          "info",
-          "",
-          eventTime(record),
-        ),
+        type: "progress",
+        source: "codex_reasoning_text_delta",
+        occurredAt: eventTime(record),
       });
       return;
     }

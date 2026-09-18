@@ -7,8 +7,7 @@ import {
 import type { AgentSession, AgentSessionIdentity, AgentSessionOptions } from "@coforge/agent";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
-import { createAgentActivity } from "../../agent-runtime/agent-activity";
-import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { readClaudeCodeUsage } from "./usage";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -436,35 +435,15 @@ class ClaudeCodeAgentSession implements AgentSession {
     }
     if (record.type === "system" && record.parent_tool_use_id == null) {
       if (record.subtype === "status" && record.status === "compacting") {
-        // Edge-triggered: only the transition into compaction is visible.
-        // Repeated "compacting" status lines while already compacting must
-        // not flood history with duplicate entries.
-        if (!this.#compacting) {
-          this.#emit({
-            type: "activity",
-            activity: createAgentActivity(
-              AGENT_ACTIVITY_DETAIL_KIND.COMPACTING_CONTEXT,
-              "info",
-              "",
-              eventTime(record),
-            ),
-          });
-        }
+        // Report the raw signal every time; the daemon core de-dupes repeated "compacting"
+        // status lines into a single reported episode (agent-runtime/compaction-tracker.ts).
+        // This flag only gates queued notification delivery below.
         this.#compacting = true;
+        this.#emit({ type: "compaction-started", occurredAt: eventTime(record) });
       }
       if (record.subtype === "compact_boundary") {
-        if (this.#compacting) {
-          this.#emit({
-            type: "activity",
-            activity: createAgentActivity(
-              AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
-              "info",
-              "",
-              eventTime(record),
-            ),
-          });
-        }
         this.#compacting = false;
+        this.#emit({ type: "compaction-finished", occurredAt: eventTime(record) });
         this.#flushNotices();
       }
     }
@@ -548,13 +527,9 @@ class ClaudeCodeAgentSession implements AgentSession {
       // start-stop, an input_json_delta, ...) still shows the turn is live.
       if (!renderedText && typeof event?.type === "string" && record.parent_tool_use_id == null) {
         this.#emit({
-          type: "activity",
-          activity: createAgentActivity(
-            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
-            "info",
-            "",
-            eventTime(record),
-          ),
+          type: "progress",
+          source: "claude_stream_event",
+          occurredAt: eventTime(record),
         });
       }
       return;

@@ -154,6 +154,25 @@ class AgentSessionImpl implements AgentSession {
           type: "thinking-delta",
           text: event.assistantMessageEvent.delta,
         });
+      // Content-free lifecycle frames (a new turn/message beginning, or a streamed block
+      // opening/continuing before it carries renderable text/thinking) still show the turn is
+      // live, without duplicating the text/thinking deltas already handled above.
+      if (event.type === "turn_start" || event.type === "message_start")
+        this.#emit({ type: "progress", source: "pi_turn_lifecycle" });
+      if (
+        event.type === "message_update" &&
+        (event.assistantMessageEvent.type === "start" ||
+          event.assistantMessageEvent.type === "text_start" ||
+          event.assistantMessageEvent.type === "thinking_start" ||
+          event.assistantMessageEvent.type === "toolcall_start" ||
+          event.assistantMessageEvent.type === "toolcall_delta")
+      )
+        this.#emit({ type: "progress", source: "pi_message_event" });
+      if (event.type === "compaction_start") this.#emit({ type: "compaction-started" });
+      if (event.type === "compaction_end")
+        this.#emit(
+          event.aborted ? { type: "compaction-interrupted" } : { type: "compaction-finished" },
+        );
       if (event.type === "tool_execution_start") {
         this.#emit({
           type: "tool-start",

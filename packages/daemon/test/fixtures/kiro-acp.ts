@@ -252,12 +252,44 @@ async function handle(request: Message) {
         }
         break;
       }
+      if (JSON.stringify(request.params).includes("compaction-failed")) {
+        update({ sessionUpdate: "compaction_update", compactionId: "c2", status: "in_progress" });
+        update({ sessionUpdate: "compaction_update", compactionId: "c2", status: "failed" });
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: {
+            kiro: { kind: "user_message_id_assigned", userMessageId: `message-${++admissions}` },
+          },
+        });
+        break;
+      }
       if (JSON.stringify(request.params).includes("compaction")) {
-        // A repeated in_progress update must not re-trigger compacting_context;
-        // only the edge into and out of compaction is a real signal.
+        // Every in_progress/completed update is relayed as-is; de-duping a repeated
+        // in_progress into a single reported episode is the daemon core's job now.
         update({ sessionUpdate: "compaction_update", compactionId: "c1", status: "in_progress" });
         update({ sessionUpdate: "compaction_update", compactionId: "c1", status: "in_progress" });
         update({ sessionUpdate: "compaction_update", compactionId: "c1", status: "completed" });
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: {
+            kiro: { kind: "user_message_id_assigned", userMessageId: `message-${++admissions}` },
+          },
+        });
+        break;
+      }
+      if (JSON.stringify(request.params).includes("progress-updates")) {
+        // Content-free session updates: a still-running tool call, a plan revision, and a
+        // usage snapshot - none of these carry new message content.
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "tool-progress",
+          status: "in_progress",
+        });
+        update({
+          sessionUpdate: "plan",
+          entries: [{ content: "Investigate", priority: "high", status: "in_progress" }],
+        });
+        update({ sessionUpdate: "usage_update", used: 100, size: 1000 });
         update({
           sessionUpdate: "session_info_update",
           _meta: {
