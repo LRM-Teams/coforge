@@ -2,71 +2,14 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
+import { mediaMimeType, type AttachmentPreviewKind } from "./attachment-preview-kind";
 import { MessageBody } from "./message-body";
-
-/** What an attachment can be shown as without leaving the conversation. */
-export type AttachmentPreviewKind = "markdown" | "html" | "video" | "audio" | "pdf";
 
 /** Text previews are for a look, and the bytes travel through the authenticated backend route. */
 const TEXT_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
 /** Media has no range requests here (see `MediaPreview`), so the whole file is held in memory;
  * past this the reader is better served by the download. */
 const MEDIA_PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
-
-const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdown", "mkd"]);
-const HTML_EXTENSIONS = new Set(["html", "htm"]);
-
-/**
- * The media types we are willing to hand to a `<video>`/`<audio>` element, and the exact MIME
- * type used for each. The element is fed a Blob we build ourselves with one of these types, so
- * the browser never sniffs an attachment's bytes into something else.
- */
-const MEDIA_TYPES = new Map<string, { kind: "video" | "audio"; mimeType: string }>([
-  ["mp4", { kind: "video", mimeType: "video/mp4" }],
-  ["m4v", { kind: "video", mimeType: "video/mp4" }],
-  ["webm", { kind: "video", mimeType: "video/webm" }],
-  ["ogv", { kind: "video", mimeType: "video/ogg" }],
-  ["mp3", { kind: "audio", mimeType: "audio/mpeg" }],
-  ["m4a", { kind: "audio", mimeType: "audio/mp4" }],
-  ["wav", { kind: "audio", mimeType: "audio/wav" }],
-  ["oga", { kind: "audio", mimeType: "audio/ogg" }],
-  ["ogg", { kind: "audio", mimeType: "audio/ogg" }],
-]);
-
-function extensionOf(fileName: string): string {
-  return fileName.includes(".") ? fileName.split(".").pop()!.toLowerCase() : "";
-}
-
-/**
- * Which preview one attachment supports, or `null` for the rest (which stay download-only).
- *
- * The file name decides first: an upload's stored content type is whatever the sender's browser
- * guessed, and a `.md` file routinely arrives as `text/plain` or `application/octet-stream`.
- */
-export function attachmentPreviewKind(
-  fileName: string,
-  contentType: string,
-  /** The signed delivery URL, when the server supplied one. A PDF is previewable only with it:
-   * the browser's viewer needs a real URL with a real content type, and we only ever give it one
-   * on the delivery origin (see `isDeliveryInlinePreview` on the server). Without it — a
-   * deployment with no file delivery configured — a PDF stays a download. */
-  previewUrl?: string,
-): AttachmentPreviewKind | null {
-  const extension = extensionOf(fileName);
-  if ((extension === "pdf" || contentType === "application/pdf") && previewUrl) return "pdf";
-  if (MARKDOWN_EXTENSIONS.has(extension)) return "markdown";
-  if (HTML_EXTENSIONS.has(extension)) return "html";
-  const media = MEDIA_TYPES.get(extension);
-  if (media) return media.kind;
-  if (contentType === "text/markdown") return "markdown";
-  if (contentType === "text/html") return "html";
-  return null;
-}
-
-/** The MIME type a previewable media attachment is played as, from our own allowlist. */
-function mediaMimeType(fileName: string): string | null {
-  return MEDIA_TYPES.get(extensionOf(fileName))?.mimeType ?? null;
-}
 
 /**
  * The CSP prepended to a previewed HTML document. `sandbox` already blocks scripts, so this is
@@ -184,6 +127,11 @@ export function AttachmentPreview({
  * signed URL is on the delivery origin, which holds none of our cookies, so a document the sender
  * controls is loaded outside our session's origin. `referrerpolicy` keeps the signed URL out of
  * outbound referrers.
+ *
+ * That boundary is not a promise made in this comment: `attachmentPreviewKind` only reports `pdf`
+ * for a URL it has parsed and found to be off this origin (`isFrameableDocumentUrl`), and the
+ * server refuses to sign delivery URLs on its own origin at all, so a misconfigured deployment
+ * gets the plain download card instead of a framed document.
  */
 function PdfPreview({ fileName, previewUrl }: { fileName: string; previewUrl: string }) {
   return (

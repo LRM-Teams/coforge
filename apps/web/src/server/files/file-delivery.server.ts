@@ -46,6 +46,7 @@ export function readFileDeliveryConfig(env: NodeJS.ProcessEnv): FileDeliveryConf
   const rawUrl = env.COFORGE_FILE_DELIVERY_URL?.trim();
   if (!rawUrl) return null;
   const baseUrl = normalizeBaseUrl(rawUrl);
+  assertNotApplicationOrigin(baseUrl, env);
   const key = readEnvSecret(env, "COFORGE_FILE_DELIVERY_KEY", (message) => {
     throw new FileDeliveryConfigError(message);
   });
@@ -55,6 +56,36 @@ export function readFileDeliveryConfig(env: NodeJS.ProcessEnv): FileDeliveryConf
     );
   }
   return { baseUrl, key };
+}
+
+/**
+ * Delivery must be a different origin from the application.
+ *
+ * Signed delivery URLs carry attachment bytes the sender chose, and some of them are rendered as
+ * documents rather than images (a PDF in the browser's own viewer). On a separate origin such a
+ * document reaches none of this application's cookies; on this application's own origin it would
+ * reach all of them, which inverts the reason those types are refused inline from here. A
+ * deployment that points delivery at the app's own host is therefore refused rather than trusted:
+ * `getFileDelivery` turns this error into the disabled state, so attachments fall back to the
+ * authenticated backend route, which serves every non-image as an opaque download.
+ *
+ * The application origin is taken from the configured OAuth redirect URI, the one setting that
+ * already has to name this deployment's public origin. Without it there is nothing to compare, and
+ * the browser makes the same check again before it frames anything (`attachmentPreviewKind`).
+ */
+function assertNotApplicationOrigin(baseUrl: string, env: NodeJS.ProcessEnv): void {
+  const redirectUri = env.AUTHING_REDIRECT_URI?.trim();
+  if (!redirectUri) return;
+  let applicationOrigin: string;
+  try {
+    applicationOrigin = new URL(redirectUri).origin;
+  } catch {
+    return;
+  }
+  if (new URL(baseUrl).origin !== applicationOrigin) return;
+  throw new FileDeliveryConfigError(
+    "COFORGE_FILE_DELIVERY_URL must not be the application's own origin",
+  );
 }
 
 function normalizeBaseUrl(rawUrl: string): string {
