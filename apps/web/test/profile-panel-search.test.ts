@@ -29,10 +29,11 @@ describe("agentProfileParamSchema", () => {
 });
 
 describe("agentProfileTabParamSchema", () => {
-  test("accepts the two phase-1 tabs and rejects anything else", () => {
+  test("accepts the panel's three tabs and rejects anything else", () => {
     expect(agentProfileTabParamSchema.parse("profile")).toBe("profile");
+    expect(agentProfileTabParamSchema.parse("reminders")).toBe("reminders");
     expect(agentProfileTabParamSchema.parse("activity")).toBe("activity");
-    expect(agentProfileTabParamSchema.parse("reminders")).toBeUndefined();
+    expect(agentProfileTabParamSchema.parse("nonsense")).toBeUndefined();
     expect(agentProfileTabParamSchema.parse(undefined)).toBeUndefined();
   });
 });
@@ -62,5 +63,10 @@ describe("resolveAgentProfileTab", () => {
   test("honors activity only when the viewer may see it", () => {
     expect(resolveAgentProfileTab("activity", true)).toBe("activity");
     expect(resolveAgentProfileTab("activity", false)).toBe("profile");
+  });
+
+  test("honors reminders only when the viewer may see it", () => {
+    expect(resolveAgentProfileTab("reminders", true)).toBe("reminders");
+    expect(resolveAgentProfileTab("reminders", false)).toBe("profile");
   });
 });
