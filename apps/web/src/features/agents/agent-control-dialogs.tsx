@@ -118,8 +118,8 @@ export function AgentControlDialogs({
                       className={`h-auto flex-col items-start whitespace-normal rounded-xl p-4 text-left ${control.action === option.action ? "border-brand bg-primary ring-1 ring-brand hover:bg-primary" : "hover:bg-secondary"}`}
                       onPress={() => control.setAction(option.action)}
                     >
-                      <span className="font-semibold">{option.label}</span>
-                      <span className="mt-1 text-sm font-normal leading-6 text-tertiary">
+                      <span className="block font-semibold">{option.label}</span>
+                      <span className="mt-1 block text-sm font-normal leading-6 text-tertiary">
                         {option.description}
                       </span>
                     </Button>
