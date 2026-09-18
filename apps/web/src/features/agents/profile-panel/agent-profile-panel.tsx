@@ -20,6 +20,10 @@ import { AgentActivityTimeline } from "@/features/agents/agent-activity-timeline
 import { AgentReminders } from "@/features/agents/agent-reminders";
 import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
 import { getAgentSkills } from "@/features/agents/agent-skills.functions";
+import {
+  listAgentWorkspaceFiles,
+  readAgentWorkspaceFile,
+} from "@/features/agents/agent-workspace-files.functions";
 import { useAgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import { runtimeProviderLabel } from "@/features/agents/runtime-provider-display";
 import { executeAgentControl } from "@/features/agents/agent-control.functions";
@@ -39,6 +43,7 @@ import {
 import { AgentProfileHeader } from "./agent-profile-header";
 import { AgentProfileTabs } from "./agent-profile-tabs";
 import { AgentProfileTab } from "./agent-profile-tab";
+import { AgentWorkspaceTab } from "./agent-workspace-tab";
 import {
   resolveAgentProfileTab,
   type AgentProfileTab as ProfileTabId,
@@ -96,7 +101,8 @@ export function AgentProfilePanel({
 
   const knownName = profile?.displayName ?? liveAgent?.displayName ?? "";
   const canManage = profile ? profile.canManageAgentRole || profile.ownedByCurrentUser : false;
-  const tab = resolveAgentProfileTab(requestedTab, canManage);
+  const canSeeWorkspace = profile ? profile.ownedByCurrentUser : false;
+  const tab = resolveAgentProfileTab(requestedTab, canManage, canSeeWorkspace);
 
   const loadReminders = useServerFn(listAgentReminders);
   const onLoadReminders = useCallback(
@@ -107,6 +113,18 @@ export function AgentProfilePanel({
 
   const loadSkills = useServerFn(getAgentSkills);
   const onLoadSkills = useCallback(() => loadSkills({ data: agentId }), [agentId, loadSkills]);
+
+  const listWorkspaceFiles = useServerFn(listAgentWorkspaceFiles);
+  const onListWorkspaceDir = useCallback(
+    (dirPath: string, includeHidden: boolean) =>
+      listWorkspaceFiles({ data: { agentId, dirPath, includeHidden } }),
+    [agentId, listWorkspaceFiles],
+  );
+  const readWorkspaceFile = useServerFn(readAgentWorkspaceFile);
+  const onReadWorkspaceFile = useCallback(
+    (path: string) => readWorkspaceFile({ data: { agentId, path } }),
+    [agentId, readWorkspaceFile],
+  );
 
   const loadEnvironment = useServerFn(getAgentEnvironment);
   const saveEnvironment = useServerFn(saveAgentEnvironment);
@@ -240,7 +258,12 @@ export function AgentProfilePanel({
         backHref={backHref}
       />
       <div className="flex h-11 shrink-0 items-center border-b border-secondary px-3">
-        <AgentProfileTabs active={tab} showManagerTabs={canManage} onSelect={onTabChange} />
+        <AgentProfileTabs
+          active={tab}
+          showManagerTabs={canManage}
+          showWorkspaceTab={canSeeWorkspace}
+          onSelect={onTabChange}
+        />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!profile ? (
@@ -266,6 +289,12 @@ export function AgentProfilePanel({
               onLoad={onLoadReminders}
             />
           </div>
+        ) : tab === "workspace" ? (
+          <AgentWorkspaceTab
+            agentId={agentId}
+            onListDir={onListWorkspaceDir}
+            onReadFile={onReadWorkspaceFile}
+          />
         ) : (
           <AgentProfileTab
             profile={profile}

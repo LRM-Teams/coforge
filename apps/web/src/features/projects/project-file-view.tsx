@@ -94,7 +94,8 @@ export function ProjectFileView({
   /** Omitted for entries with no meaningful size (symlinks, submodules). */
   byteSize?: number;
   text: string | null;
-  githubUrl: string;
+  /** Omitted where there is no source-hosting link to offer (e.g. an Agent's workspace file). */
+  githubUrl?: string;
   /** Omitted for entries that can't be downloaded (symlinks, submodules). */
   downloadUrl?: string;
 }) {
@@ -327,17 +328,19 @@ export function ProjectFileView({
               />
             </Tooltip>
           )}
-          <Tooltip title={m.project_open_on_github()}>
-            <Button
-              size="sm"
-              color="tertiary"
-              aria-label={m.project_open_on_github()}
-              iconLeading={ArrowUpRight}
-              href={githubUrl}
-              target="_blank"
-              rel="noreferrer"
-            />
-          </Tooltip>
+          {githubUrl !== undefined && (
+            <Tooltip title={m.project_open_on_github()}>
+              <Button
+                size="sm"
+                color="tertiary"
+                aria-label={m.project_open_on_github()}
+                iconLeading={ArrowUpRight}
+                href={githubUrl}
+                target="_blank"
+                rel="noreferrer"
+              />
+            </Tooltip>
+          )}
         </div>
       </div>
       {/* The find bar docks to this frame, not to the scroller, so it stays put while scrolling. */}
@@ -406,7 +409,7 @@ function NotPreviewable({
   downloadUrl,
   name,
 }: {
-  githubUrl: string;
+  githubUrl?: string;
   downloadUrl?: string;
   name: string;
 }) {
@@ -414,16 +417,18 @@ function NotPreviewable({
     <div className="flex flex-col items-center gap-3 px-5 py-16 text-center">
       <p className="text-sm text-tertiary">{m.project_file_not_previewable()}</p>
       <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          color="secondary"
-          href={githubUrl}
-          target="_blank"
-          rel="noreferrer"
-          iconTrailing={ArrowUpRight}
-        >
-          {m.project_open_on_github()}
-        </Button>
+        {githubUrl !== undefined && (
+          <Button
+            size="sm"
+            color="secondary"
+            href={githubUrl}
+            target="_blank"
+            rel="noreferrer"
+            iconTrailing={ArrowUpRight}
+          >
+            {m.project_open_on_github()}
+          </Button>
+        )}
         {downloadUrl !== undefined && (
           <Button
             size="sm"

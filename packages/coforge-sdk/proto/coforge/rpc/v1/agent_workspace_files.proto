@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package coforge.rpc.v1;
+
+message AgentWorkspaceFilesListRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string dir_path = 6;
+  bool include_hidden = 7;
+  string message_type = 8;
+}
+
+message AgentWorkspaceFilesListResult {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string dir_path = 6;
+  bool include_hidden = 7;
+  string message_type = 8;
+  string status = 9;
+  string root_path = 10;
+  repeated AgentWorkspaceFileEntry entries = 11;
+}
+
+message AgentWorkspaceFileEntry {
+  string name = 1;
+  string type = 2;
+  uint64 size_bytes = 3;
+  uint64 modified_at_ms = 4;
+}
+
+message AgentWorkspaceFileReadRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string path = 6;
+  string message_type = 7;
+}
+
+message AgentWorkspaceFileReadResult {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string path = 6;
+  string message_type = 7;
+  string status = 8;
+  uint64 size_bytes = 9;
+  uint64 modified_at_ms = 10;
+  string text = 11;
+}

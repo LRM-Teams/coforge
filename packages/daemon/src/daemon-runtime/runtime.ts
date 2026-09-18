@@ -81,6 +81,10 @@ import {
   threadParentTarget,
   mentionsInContent,
   parseUpgradeErrorCode,
+  type AgentWorkspaceFilesListRequest,
+  type AgentWorkspaceFilesListResult,
+  type AgentWorkspaceFileReadRequest,
+  type AgentWorkspaceFileReadResult,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -88,6 +92,10 @@ import { AgentSessions } from "../agent-runtime/agent-session";
 import { AgentRuntimeState } from "../agent-runtime/agent-runtime-state";
 import { FileAgentRuntimeStateStore } from "../persistence/agent-runtime-state-store";
 import { listAgentSkills } from "../code-agent/agent-skills";
+import {
+  listAgentWorkspaceFiles,
+  readAgentWorkspaceFile,
+} from "../agent-runtime/agent-workspace-files";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
 import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
@@ -385,6 +393,8 @@ export class DaemonRuntime {
   readonly #agentControl: AgentControl;
   readonly #agentSessions: AgentSessions;
   #skillsScanning = false;
+  /** One Workspace Files list/read at a time per daemon, mirroring `#skillsScanning`. */
+  #workspaceFilesScanning = false;
   readonly #messageAttention: AgentMessageAttentionIndex;
   readonly #reminders: ReminderScheduler;
   readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
@@ -757,6 +767,32 @@ export class DaemonRuntime {
         }),
       );
       this.#subscribe(
+        transport.onWorkspaceFilesList?.(async (request) => {
+          if (
+            this.#stopping ||
+            request.workspaceId !== connection.workspaceId ||
+            request.computerId !== connection.computerId
+          )
+            return;
+          const result = await this.#listWorkspaceFiles(connection, request);
+          if (!this.#stopping && this.#transport === transport)
+            await transport.sendWorkspaceFilesListResult?.({ ...request, ...result });
+        }),
+      );
+      this.#subscribe(
+        transport.onWorkspaceFileRead?.(async (request) => {
+          if (
+            this.#stopping ||
+            request.workspaceId !== connection.workspaceId ||
+            request.computerId !== connection.computerId
+          )
+            return;
+          const result = await this.#readWorkspaceFile(connection, request);
+          if (!this.#stopping && this.#transport === transport)
+            await transport.sendWorkspaceFileReadResult?.({ ...request, ...result });
+        }),
+      );
+      this.#subscribe(
         this.#transport.onUsageScan?.(async (request) => {
           if (request.computerId !== connection.computerId) return;
           const result = await this.scanUsage(request.provider);
@@ -990,6 +1026,55 @@ export class DaemonRuntime {
       return { global: unavailable, workspace: unavailable };
     } finally {
       this.#skillsScanning = false;
+    }
+  }
+
+  async #listWorkspaceFiles(
+    connection: DaemonConfig,
+    request: Pick<AgentWorkspaceFilesListRequest, "agentId" | "dirPath" | "includeHidden">,
+  ): Promise<Pick<AgentWorkspaceFilesListResult, "status" | "rootPath" | "entries">> {
+    const unavailable = { status: "error" as const, rootPath: "", entries: [] };
+    if (this.#workspaceFilesScanning) return unavailable;
+    this.#workspaceFilesScanning = true;
+    try {
+      return await listAgentWorkspaceFiles({
+        agentWorkspaceDirectory: agentWorkspaceDirectory(
+          connection.workspaceRoot,
+          connection.workspaceId,
+          request.agentId,
+        ),
+        dirPath: request.dirPath,
+        includeHidden: request.includeHidden,
+      });
+    } catch {
+      // Return safe diagnostics, never file contents or raw filesystem errors.
+      return unavailable;
+    } finally {
+      this.#workspaceFilesScanning = false;
+    }
+  }
+
+  async #readWorkspaceFile(
+    connection: DaemonConfig,
+    request: Pick<AgentWorkspaceFileReadRequest, "agentId" | "path">,
+  ): Promise<Pick<AgentWorkspaceFileReadResult, "status" | "sizeBytes" | "modifiedAtMs" | "text">> {
+    const unavailable = { status: "error" as const, sizeBytes: 0, modifiedAtMs: 0, text: "" };
+    if (this.#workspaceFilesScanning) return unavailable;
+    this.#workspaceFilesScanning = true;
+    try {
+      return await readAgentWorkspaceFile({
+        agentWorkspaceDirectory: agentWorkspaceDirectory(
+          connection.workspaceRoot,
+          connection.workspaceId,
+          request.agentId,
+        ),
+        path: request.path,
+      });
+    } catch {
+      // Return safe diagnostics, never file contents or raw filesystem errors.
+      return unavailable;
+    } finally {
+      this.#workspaceFilesScanning = false;
     }
   }
 
