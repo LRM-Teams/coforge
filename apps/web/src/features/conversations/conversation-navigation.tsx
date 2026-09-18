@@ -1,8 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Plus } from "@untitledui/icons";
-import { Button } from "@/components/base/buttons/button";
+import { ArrowLeft } from "@untitledui/icons";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { PageHeader } from "@/components/layout/page-header";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
@@ -49,25 +48,14 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
             showList ? "flex" : "hidden",
           )}
         >
-          <PageHeader
-            heading={m.navigation_chat()}
-            actions={
-              <Button
-                size="sm"
-                color="secondary"
-                iconLeading={Plus}
-                onPress={() => setCreating(true)}
-              >
-                {m.channel_create()}
-              </Button>
-            }
-          />
+          <PageHeader heading={m.navigation_chat()} />
           <div className="min-h-0 flex-1 overflow-y-auto py-4">
             <ConversationDirectory
               channels={channels.filter((channel) => !channel.archived)}
               agents={agents}
               selectedChannelId={channel?.channelId}
               selectedAgentId={agent?.agentId}
+              onCreateChannel={() => setCreating(true)}
             />
           </div>
         </section>
