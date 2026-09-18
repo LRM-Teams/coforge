@@ -1,0 +1,240 @@
+import { expect, test } from "bun:test";
+
+import {
+  MENTION_CHIP_CLASS,
+  MENTION_CHIP_SELF_CLASS,
+  escapeLiteralHtml,
+  mentionHandlesByToken,
+  rehypeMentionChips,
+} from "../src/features/conversations/message-markdown";
+
+const UUID = "550e8400-e29b-41d4-a716-446655440000";
+const OTHER_UUID = "11111111-2222-4333-8444-555555555555";
+const AGENT_TOKEN = `<@agent:${UUID}>`;
+const HUMAN_TOKEN = `<@human:${OTHER_UUID}>`;
+
+/** Runs the chip plugin over a tree shaped like the one `rehype-sanitize` leaves behind. */
+function chipify(
+  children: unknown[],
+  options: { handles?: Map<string, string>; viewerHandle?: string } = {},
+) {
+  const tree = { type: "root", children } as never;
+  rehypeMentionChips({
+    handles: options.handles ?? new Map(),
+    viewerHandle: options.viewerHandle,
+  })(tree);
+  return tree as { children: Array<Record<string, unknown>> };
+}
+
+function text(value: string) {
+  return { type: "text", value };
+}
+
+function paragraph(children: unknown[]) {
+  return { type: "element", tagName: "p", properties: {}, children };
+}
+
+test("an HTML-looking tag outside code is escaped so it renders as literal text", () => {
+  expect(escapeLiteralHtml(`<div class="x">raw</div>`)).toBe(`&lt;div class="x">raw&lt;/div>`);
+});
+
+test("a closing or unknown tag is escaped rather than dropped", () => {
+  expect(escapeLiteralHtml("</div>")).toBe("&lt;/div>");
+  expect(escapeLiteralHtml("<3 heart")).toBe("&lt;3 heart");
+});
+
+test("a lone less-than in ordinary prose is escaped", () => {
+  expect(escapeLiteralHtml("a < b and 3 < 4")).toBe("a &lt; b and 3 &lt; 4");
+});
+
+test("an ampersand is left as written so bare URL query strings survive", () => {
+  expect(escapeLiteralHtml("AT&T")).toBe("AT&T");
+});
+
+test("an ampersand inside a URL is not escaped into the link text", () => {
+  const body = "https://example.com/path?a=1&b=2";
+  expect(escapeLiteralHtml(body)).toBe(body);
+});
+
+test("a GFM autolink keeps its angle brackets so it still links", () => {
+  expect(escapeLiteralHtml("see <https://example.com> now")).toBe("see <https://example.com> now");
+});
+
+test("a mailto autolink keeps its angle brackets", () => {
+  expect(escapeLiteralHtml("<mailto:ada@example.com>")).toBe("<mailto:ada@example.com>");
+});
+
+test("a mention token keeps its angle brackets so it can still become a chip", () => {
+  expect(escapeLiteralHtml(`hi ${AGENT_TOKEN} there`)).toBe(`hi ${AGENT_TOKEN} there`);
+});
+
+test("an inline code span passes through byte-for-byte", () => {
+  const body = "inline `<b>x</b> & AT&T` here";
+  expect(escapeLiteralHtml(body)).toBe(body);
+});
+
+test("a fenced code block passes through byte-for-byte", () => {
+  const body = "```html\n<div>in fence</div> & <span>\n```";
+  expect(escapeLiteralHtml(body)).toBe(body);
+});
+
+test("escaping outside code never disturbs the code span inside the same body", () => {
+  expect(escapeLiteralHtml("`a < b` but <div>")).toBe("`a < b` but &lt;div>");
+});
+
+test("a bare URL keeps its query string intact for GFM autolinking", () => {
+  const body = "see https://example.com/path?a=1&b=2#frag for details";
+  expect(escapeLiteralHtml(body)).toBe(body);
+});
+
+test("escaping leaves a code span inside the same body untouched", () => {
+  const body = "<div>a</div>\n\n`code <x>`\n\ntext";
+  expect(escapeLiteralHtml(body)).toContain("`code <x>`");
+});
+
+test("mention rows are keyed by the token spelling, lower-cased", () => {
+  const handles = mentionHandlesByToken([
+    { kind: "agent", actorId: UUID.toUpperCase(), handle: "scout" },
+    { kind: "user", actorId: OTHER_UUID, handle: "ada" },
+  ]);
+  expect(handles.get(`agent:${UUID.toLowerCase()}`)).toBe("scout");
+  expect(handles.get(`user:${OTHER_UUID.toLowerCase()}`)).toBe("ada");
+});
+
+test("a resolved token becomes a chip carrying the handle", () => {
+  const tree = chipify([paragraph([text(`hi ${AGENT_TOKEN} there`)])], {
+    handles: new Map([[`agent:${UUID}`, "scout"]]),
+  });
+  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
+  expect(children[0]).toEqual(text("hi "));
+  expect(children[1]).toMatchObject({ tagName: "span", children: [text("@scout")] });
+  expect(children[2]).toEqual(text(" there"));
+});
+
+test("a chip uses the ordinary brand fill by default", () => {
+  const tree = chipify([paragraph([text(AGENT_TOKEN)])], {
+    handles: new Map([[`agent:${UUID}`, "scout"]]),
+  });
+  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  expect((chip.properties as { className: string[] }).className).toEqual(
+    MENTION_CHIP_CLASS.split(" "),
+  );
+});
+
+test("a mention of the viewing user gets the stronger treatment", () => {
+  const tree = chipify([paragraph([text(HUMAN_TOKEN)])], {
+    handles: new Map([[`user:${OTHER_UUID}`, "ada"]]),
+    viewerHandle: "ada",
+  });
+  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  expect((chip.properties as { className: string[] }).className).toEqual(
+    MENTION_CHIP_SELF_CLASS.split(" "),
+  );
+});
+
+test("a mention of someone else does not get the viewer treatment", () => {
+  const tree = chipify([paragraph([text(HUMAN_TOKEN)])], {
+    handles: new Map([[`user:${OTHER_UUID}`, "ada"]]),
+    viewerHandle: "grace",
+  });
+  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  expect((chip.properties as { className: string[] }).className).toEqual(
+    MENTION_CHIP_CLASS.split(" "),
+  );
+});
+
+test("an unresolvable token degrades to its raw text rather than a phantom chip", () => {
+  const tree = chipify([paragraph([text(AGENT_TOKEN)])], { handles: new Map() });
+  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
+  expect(children).toEqual([text(AGENT_TOKEN)]);
+});
+
+test("a token inside an inline code element is never chipped", () => {
+  const tree = chipify(
+    [
+      paragraph([
+        {
+          type: "element",
+          tagName: "code",
+          properties: {},
+          children: [text(AGENT_TOKEN)],
+        },
+      ]),
+    ],
+    { handles: new Map([[`agent:${UUID}`, "scout"]]) },
+  );
+  const code = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  expect(code.children).toEqual([text(AGENT_TOKEN)]);
+});
+
+test("a token inside a fenced code block is never chipped", () => {
+  const tree = chipify(
+    [
+      {
+        type: "element",
+        tagName: "pre",
+        properties: {},
+        children: [
+          {
+            type: "element",
+            tagName: "code",
+            properties: {},
+            children: [text(AGENT_TOKEN)],
+          },
+        ],
+      },
+    ],
+    { handles: new Map([[`agent:${UUID}`, "scout"]]) },
+  );
+  const pre = tree.children[0]!;
+  const code = (pre.children as Array<Record<string, unknown>>)[0]!;
+  expect(code.children).toEqual([text(AGENT_TOKEN)]);
+});
+
+test("chips are found in nested structures such as a list item", () => {
+  const tree = chipify(
+    [
+      {
+        type: "element",
+        tagName: "ul",
+        properties: {},
+        children: [
+          {
+            type: "element",
+            tagName: "li",
+            properties: {},
+            children: [paragraph([text(AGENT_TOKEN)])],
+          },
+        ],
+      },
+    ],
+    { handles: new Map([[`agent:${UUID}`, "scout"]]) },
+  );
+  const item = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  const p = (item.children as Array<Record<string, unknown>>)[0]!;
+  expect((p.children as Array<Record<string, unknown>>)[0]).toMatchObject({ tagName: "span" });
+});
+
+test("two tokens in one text node both become chips with their own handles", () => {
+  const tree = chipify([paragraph([text(`${AGENT_TOKEN} and ${HUMAN_TOKEN}`)])], {
+    handles: new Map([
+      [`agent:${UUID}`, "scout"],
+      [`user:${OTHER_UUID}`, "ada"],
+    ]),
+  });
+  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
+  expect(children).toEqual([
+    expect.objectContaining({ tagName: "span", children: [text("@scout")] }),
+    text(" and "),
+    expect.objectContaining({ tagName: "span", children: [text("@ada")] }),
+  ]);
+});
+
+test("text without any token is left untouched", () => {
+  const tree = chipify([paragraph([text("nothing to see")])], {
+    handles: new Map([[`agent:${UUID}`, "scout"]]),
+  });
+  expect((tree.children[0]!.children as Array<Record<string, unknown>>)[0]).toEqual(
+    text("nothing to see"),
+  );
+});
