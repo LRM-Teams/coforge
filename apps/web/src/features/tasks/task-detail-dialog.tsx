@@ -231,7 +231,7 @@ export function TaskDetailDialog({
                 <Button
                   type="button"
                   size="sm"
-                  color="tertiary-destructive"
+                  color="secondary-destructive"
                   onPress={() => setConfirmDelete(true)}
                 >
                   {m.tasks_delete()}

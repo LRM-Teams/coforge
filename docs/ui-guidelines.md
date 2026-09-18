@@ -118,9 +118,11 @@
 
 ### 危险操作
 
-- 一个危险操作面里只允许一处实心红：确认键 `color="primary-destructive"`；有等待态用 `isLoading` + `showTextWhileLoading`。
+- 危险操作分两步：入口键打开流程，确认键完成它。两者用哪种红，取决于"它是不是一个按钮"，不取决于它有多危险。
+- 确认键（最后那一下，不可撤销）：`color="primary-destructive"`（实心红）。一个危险操作面里只允许一处实心红；有等待态用 `isLoading` + `showTextWhileLoading`。
+- 入口键（打开删除 / 重置 / 移除流程的那个按钮）：`color="secondary-destructive"`（描边红字）。它本身就是一个按钮，就要长得像按钮；纯红字放在页脚、设置分区或竖排操作区里会读成一段文字，而不是可点的东西。
+- `color="tertiary-destructive"`（纯红字）只用在本来就没有按钮形态的位置：列表行的 hover 操作、下拉菜单项、图标按钮。正文里的真链接用 `link-destructive`。
 - 说明文字不装进红色警示框，用 `FeaturedIcon` + 灰色描述（参照 `weekly-send-confirm-dialog.tsx`）。
-- 打开危险流程的入口键用 `color="tertiary-destructive"`（纯红字）；但当它和其他描边按钮同处一个竖排操作区（如 Agent 面板的 ACTIONS）时改用 `color="secondary-destructive"`，否则纯红字在描边按钮之间读起来不像按钮。实心红仍然只在确认弹窗里出现一次。
 - 选中项卡片不用红色，和非危险选项同款。
 - 按钮图标一律走 `iconLeading`，不作子元素，否则图标会挤到文字上方。
 
