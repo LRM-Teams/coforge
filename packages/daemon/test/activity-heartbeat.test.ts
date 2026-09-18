@@ -121,23 +121,32 @@ async function harness() {
 }
 
 test("re-sends the last busy Activity every heartbeat interval while the Agent stays busy", async () => {
-  const { runtime, activities, emit } = await harness();
+  const { runtime, activities, emitEvent } = await harness();
   jest.useFakeTimers();
   try {
     activities.length = 0;
-    emit({ detailKind: "tool_started", level: "info", detail: "Read" });
+    // A real tool-start frame carries its trajectory entry; the heartbeat re-sends
+    // the frame verbatim (minus isHeartbeat), keeping the entry so the cloud's
+    // display snapshot never degrades into an entry-less tool frame.
+    emitEvent({
+      type: "tool-start",
+      id: "tool-1",
+      name: "bash",
+      input: { command: "bun test" },
+    });
     expect(activities).toHaveLength(1);
+    expect(activities[0]!.entries).toEqual([{ kind: "tool_start", toolName: "bash" }]);
     const seqAfterFirst = activities[0]!.clientSeq;
 
     jest.advanceTimersByTime(60_000);
     expect(activities).toHaveLength(2);
-    expect(activities[1]).toMatchObject({ detailKind: "tool_started", isHeartbeat: true });
+    expect(activities[1]).toMatchObject({ detailKind: "running_command", isHeartbeat: true });
     expect(activities[1]!.clientSeq).toBeGreaterThan(seqAfterFirst);
-    expect(activities[1]!.entries ?? []).toHaveLength(0);
+    expect(activities[1]!.entries).toEqual([{ kind: "tool_start", toolName: "bash" }]);
 
     jest.advanceTimersByTime(60_000);
     expect(activities).toHaveLength(3);
-    expect(activities[2]).toMatchObject({ detailKind: "tool_started", isHeartbeat: true });
+    expect(activities[2]).toMatchObject({ detailKind: "running_command", isHeartbeat: true });
     expect(activities[2]!.clientSeq).toBeGreaterThan(activities[1]!.clientSeq);
   } finally {
     await runtime.stop();
@@ -211,11 +220,18 @@ test("no heartbeat is scheduled once Activity is disabled", async () => {
 });
 
 test("busy Agent replies to an activity probe with the remembered activity and re-arms the heartbeat", async () => {
-  const { runtime, activities, emit } = await harness();
+  const { runtime, activities, emitEvent } = await harness();
   jest.useFakeTimers();
   try {
     activities.length = 0;
-    emit({ detailKind: "tool_started", level: "info", detail: "Read" });
+    // A real tool-start frame carries its trajectory entry; the probe reply
+    // re-sends that frame as evidence, keeping the entry (see the heartbeat test).
+    emitEvent({
+      type: "tool-start",
+      id: "tool-1",
+      name: "bash",
+      input: { command: "bun test" },
+    });
     expect(activities).toHaveLength(1);
 
     jest.advanceTimersByTime(30_000);
@@ -230,11 +246,11 @@ test("busy Agent replies to an activity probe with the remembered activity and r
 
     expect(activities).toHaveLength(2);
     expect(activities[1]).toMatchObject({
-      detailKind: "tool_started",
+      detailKind: "running_command",
       probeId: "probe-1",
       isHeartbeat: false,
     });
-    expect(activities[1]!.entries ?? []).toHaveLength(0);
+    expect(activities[1]!.entries).toEqual([{ kind: "tool_start", toolName: "bash" }]);
 
     // The original 60s heartbeat (armed at t=0) would have fired at t=60_000; the probe reply at
     // t=30_000 re-arms it, so nothing more is due until t=90_000.
@@ -243,7 +259,7 @@ test("busy Agent replies to an activity probe with the remembered activity and r
 
     jest.advanceTimersByTime(1);
     expect(activities).toHaveLength(3);
-    expect(activities[2]).toMatchObject({ detailKind: "tool_started", isHeartbeat: true });
+    expect(activities[2]).toMatchObject({ detailKind: "running_command", isHeartbeat: true });
   } finally {
     await runtime.stop();
   }

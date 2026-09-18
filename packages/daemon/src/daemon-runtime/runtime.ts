@@ -2146,7 +2146,10 @@ export class DaemonRuntime {
       this.#emitAgentActivity(probe.agentId, launch, {
         ...remembered.activity,
         probeId: probe.probeId,
-        entries: [],
+        // Entries stay: the reply re-sends the exact busy frame as evidence, and the
+        // cloud's display snapshot takes the latest accepted frame verbatim — stripping
+        // entries here would leave an entry-less tool frame whose raw `detail` leaks
+        // into the header/status label (see #scheduleActivityHeartbeat).
         isHeartbeat: false,
       });
       return;
@@ -2410,7 +2413,11 @@ export class DaemonRuntime {
   }
 
   /** Re-sends the last busy Activity frame every ACTIVITY_HEARTBEAT_MS so a long silent
-   * turn (a shell command or a quiet model call) never lets the display lease lapse. */
+   * turn (a shell command or a quiet model call) never lets the display lease lapse.
+   * The frame keeps its trajectory `entries`: the cloud's display snapshot takes the
+   * latest accepted frame verbatim, and stripping them would turn a tool frame into an
+   * entry-less shell whose raw `detail` (a command line, a file path) leaks into the
+   * header/status label instead of staying on the timeline's tool row. */
   #scheduleActivityHeartbeat(agentId: string, launch: ActivityLaunch): void {
     const existing = this.#activityHeartbeatTimers.get(agentId);
     if (existing !== undefined) clearTimeout(existing);
@@ -2421,7 +2428,6 @@ export class DaemonRuntime {
       this.#emitAgentActivity(agentId, launch, {
         ...remembered.activity,
         isHeartbeat: true,
-        entries: [],
       });
     }, ACTIVITY_HEARTBEAT_MS);
     this.#activityHeartbeatTimers.set(agentId, timer);
