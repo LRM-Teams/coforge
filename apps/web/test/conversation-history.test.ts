@@ -172,6 +172,7 @@ describe("ConversationHistory", () => {
               agentId: null,
               user: {
                 username: "alice",
+                displayName: "Alice Chen",
                 avatarObjectKey: "users/user-1/avatars/avatar-1/original",
               },
               agent: null,
@@ -236,10 +237,13 @@ describe("ConversationHistory", () => {
       undefined,
       "agent-builder",
     ]);
+    // The browser is attributed by display name now (Slack's convention): the previous
+    // "@alice"/"@builder" expectation encoded the old rule, where a person read as a handle
+    // beside an Agent reading as its display name. `@handle` still goes to Agent reads.
     expect(page.messages.map(({ senderName }) => senderName)).toEqual([
-      "@alice",
-      "@alice",
-      "@builder",
+      "Alice Chen",
+      "Alice Chen",
+      "Build Assistant",
     ]);
     expect(page.messages.map(({ senderAvatarUrl }) => senderAvatarUrl)).toEqual([
       "/api/workspaces/workspace-1/users/user-1/avatar?v=avatar-1",

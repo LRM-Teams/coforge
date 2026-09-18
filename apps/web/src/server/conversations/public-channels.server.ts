@@ -11,6 +11,7 @@ import {
   resolveChannelAuthority,
 } from "./channel-authority.server";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { browserSenderHandle, browserSenderName } from "./sender-display.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
 import {
@@ -79,8 +80,10 @@ const CHANNEL_MESSAGE_SELECT = {
   sender: {
     select: {
       agentId: true,
-      agent: { select: { name: true, deletedAt: true } },
-      user: { select: { id: true, username: true, avatarObjectKey: true } },
+      agent: { select: { name: true, displayName: true, deletedAt: true } },
+      user: {
+        select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+      },
     },
   },
   attachments: {
@@ -100,8 +103,13 @@ export type ChannelMessageRow = {
   createdAt: Date;
   sender: {
     agentId: string | null;
-    agent: { name: string; deletedAt: Date | null } | null;
-    user: { id: string; username: string; avatarObjectKey: string | null } | null;
+    agent: { name: string; displayName: string | null; deletedAt: Date | null } | null;
+    user: {
+      id: string;
+      username: string;
+      displayName: string | null;
+      avatarObjectKey: string | null;
+    } | null;
   } | null;
   attachments: {
     id: string;
@@ -131,9 +139,10 @@ export function channelMessageView(message: ChannelMessageRow, workspaceId: stri
       : message.sender.agentId
         ? ("agent" as const)
         : ("user" as const),
-    senderName: !message.sender
-      ? "System"
-      : `@${message.sender.agent?.name ?? message.sender.user!.username}`,
+    senderName: browserSenderName(message.sender),
+    /** The handle behind that name: what you type to mention this sender, and what the
+     * composer's recency ranking matches on. `undefined` for a server-authored message. */
+    senderHandle: browserSenderHandle(message.sender),
     /** The Agent identity behind an agent-sent message, so the browser can open that Agent's
      * profile panel from the row (message-row.tsx). `undefined` for a user or system message. */
     senderAgentId: message.sender?.agentId ?? undefined,
@@ -1071,7 +1080,11 @@ export class PublicChannels {
       },
       select: {
         ...CHANNEL_MESSAGE_SELECT,
-        sender: { select: { user: { select: { username: true, avatarObjectKey: true } } } },
+        sender: {
+          select: {
+            user: { select: { username: true, displayName: true, avatarObjectKey: true } },
+          },
+        },
         deliveries: {
           select: { deliveryId: true, agentId: true, agent: { select: { computerId: true } } },
         },

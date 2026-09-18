@@ -78,6 +78,9 @@ export type DirectConversationView = {
     senderKind: "user" | "agent" | "system";
     senderMemberId?: string | null;
     senderName: string;
+    /** The handle behind `senderName`: what you type to mention this sender. Absent for a
+     * server-authored message. */
+    senderHandle?: string;
     senderAgentId?: string;
     /** True when the sending Agent has since been deleted (ADR 0044). */
     senderDeleted?: boolean;
@@ -442,10 +445,15 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
               });
         const lastReply = threadReplies.at(-1)!;
         // Carry each replier's deleted flag alongside its name so the preview stack greys a
-        // deleted Agent (ADR 0044) instead of losing the distinction when it dedupes by name.
+        // deleted Agent (ADR 0044) instead of losing the distinction when it dedupes.
+        // Dedupe on the handle, which is unique, rather than the display name, which is not:
+        // two people may both be called "Alex" and must still both appear here.
         const repliers: { name: string; deleted: boolean }[] = [];
+        const seenRepliers = new Set<string>();
         for (const reply of [...threadReplies].reverse()) {
-          if (repliers.some((replier) => replier.name === reply.senderName)) continue;
+          const key = reply.senderHandle ?? reply.senderName;
+          if (seenRepliers.has(key)) continue;
+          seenRepliers.add(key);
           repliers.push({ name: reply.senderName, deleted: Boolean(reply.senderDeleted) });
           if (repliers.length === 3) break;
         }
@@ -657,7 +665,10 @@ export function ConversationPane({
       (left, right) => right.sequence - left.sequence,
     )) {
       if (message.senderKind === "system") continue;
-      const handle = message.senderName.replace(/^@+/, "");
+      // The projection's own handle, not the displayed name: `senderName` is a display name now,
+      // and `filterMentionables` matches recency against `Mentionable.handle`.
+      const handle = message.senderHandle;
+      if (!handle) continue;
       const key = handle.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);

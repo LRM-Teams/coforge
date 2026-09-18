@@ -235,7 +235,11 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       threadRootId: message.threadRootId ?? undefined,
       senderMemberId: message.senderMemberId,
       senderKind: "user" as const,
-      senderName: `@${username}`,
+      // The echo must read exactly like the same message after a reload: a display name, with
+      // the handle carried separately (see `sender-display.server.ts`). `username` from the
+      // session is the fallback when this person has set no display name.
+      senderName: message.sender?.user?.displayName?.trim() || username,
+      senderHandle: username,
       // A human-sent echo never carries an Agent id, and a human sender is never deleted.
       senderAgentId: undefined,
       senderDeleted: false,

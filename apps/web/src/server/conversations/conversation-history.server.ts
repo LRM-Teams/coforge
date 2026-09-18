@@ -3,6 +3,7 @@ import { AppError } from "../../lib/app-error";
 import { attachmentView } from "../attachments/attachment-view.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions.server";
+import { browserSenderHandle, browserSenderName } from "./sender-display.server";
 import type { ActionCardView } from "./action-cards.server";
 
 const browserMessageFields = {
@@ -20,7 +21,7 @@ const browserMessageFields = {
     select: {
       userId: true,
       agentId: true,
-      user: { select: { username: true, avatarObjectKey: true } },
+      user: { select: { username: true, displayName: true, avatarObjectKey: true } },
       agent: { select: { name: true, displayName: true, deletedAt: true } },
     },
   },
@@ -52,11 +53,8 @@ export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: strin
       : message.sender.userId
         ? ("user" as const)
         : ("agent" as const),
-    senderName: !message.sender
-      ? "System"
-      : message.sender.userId
-        ? `@${message.sender.user?.username}`
-        : `@${message.sender.agent?.name}`,
+    senderName: browserSenderName(message.sender),
+    senderHandle: browserSenderHandle(message.sender),
     /** The sender's Agent id, present only for an Agent-sent message; opens the Agent profile
      * panel from a message row (`features/agents/profile-panel/`). */
     senderAgentId: message.sender?.agentId ?? undefined,
