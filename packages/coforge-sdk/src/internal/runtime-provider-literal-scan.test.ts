@@ -36,6 +36,8 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
   "packages/daemon/src/code-agent/codex/usage.ts":
     'the Codex CLI executable/subcommand ("codex", "app-server")',
   "packages/daemon/src/code-agent/kiro/catalog.ts": "a logger category",
+  "packages/daemon/src/code-agent/cursor/catalog.ts": "a logger category",
+  "packages/daemon/src/code-agent/cursor/turn-process.ts": "a logger category",
 };
 
 const LITERAL_PATTERN = new RegExp(
