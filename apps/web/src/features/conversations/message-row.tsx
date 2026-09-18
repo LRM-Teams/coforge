@@ -186,6 +186,23 @@ export function attachmentUrl(attachment: { id: string }) {
   return `/api/attachments/${attachment.id}`;
 }
 
+/**
+ * The short kind shown before a file's size: its extension, or the media type when the name has no
+ * usable one (`LICENSE`, `Dockerfile`, a dotfile) so such a file still says what it is rather than
+ * showing a bare size. `application/octet-stream` is the upload default for "unknown", so it names
+ * nothing. Exported for its own test; not a general-purpose MIME formatter.
+ */
+export function attachmentTypeLabel(fileName: string, contentType: string): string | undefined {
+  const dot = fileName.lastIndexOf(".");
+  const suffix = dot > 0 ? fileName.slice(dot + 1) : "";
+  // A long tail is part of the name rather than an extension ("notes.final version").
+  if (suffix && suffix.length <= 8 && !suffix.includes(" ")) return suffix.toUpperCase();
+  const subtype = contentType.split(";")[0]?.split("/")[1]?.trim() ?? "";
+  const named = subtype.replace(/^(x-|vnd\.)/, "");
+  if (!named || named === "octet-stream") return undefined;
+  return named.slice(0, 12).toUpperCase();
+}
+
 /** An uploaded file on a message: images preview inline, other files show as a file card. */
 export function AttachmentCard({ attachment }: { attachment: MessageView["attachments"][number] }) {
   const href = attachmentUrl(attachment);
@@ -194,27 +211,27 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
   const [previewFailed, setPreviewFailed] = useState(false);
   const previewSrc = !previewFailed && attachment.previewUrl ? attachment.previewUrl : href;
   const handlePreviewError = () => setPreviewFailed(true);
-  const download = (
+  const downloadButton = (className?: string) => (
     <ButtonUtility
       icon={Download01}
       size="xs"
       color="secondary"
       tooltip={m.conversation_attachment_download()}
       href={`${href}?download`}
-      className="shrink-0"
+      className={cn("shrink-0", className)}
     />
   );
-  // Over an image the same control is an overlay, so it stays out of the way until the pointer is
-  // on the image; a pointer that cannot hover keeps it visible.
-  const downloadOverlay = (
-    <ButtonUtility
-      icon={Download01}
-      size="xs"
-      color="secondary"
-      tooltip={m.conversation_attachment_download()}
-      href={`${href}?download`}
-      className="shrink-0 opacity-0 transition-opacity group-hover/attachment:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-    />
+  /** Inside a file row the control is part of the row, so it stays visible. */
+  const download = downloadButton();
+  /** Over an image thumbnail it covers content, so it waits for the pointer — unless the pointer
+   * cannot hover, where there is nothing to wait for. */
+  const downloadOverlay = downloadButton(
+    "opacity-0 transition-opacity group-hover/attachment:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+  );
+  /** Separates the file from its actions. Both row variants carry it, so a previewable file and a
+   * download-only one are the same shape. */
+  const actionDivider = (
+    <span className="mx-1 h-8 w-px shrink-0 bg-border-secondary" aria-hidden="true" />
   );
   /** One bordered row holding the file and its actions: an IM file row rather than a wide banner.
    * Bounded width so a long name cannot stretch the bubble, and the name truncates inside it. */
@@ -296,7 +313,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
         <div className="absolute top-2 right-2">{downloadOverlay}</div>
       </div>
     );
-  const extension = attachment.fileName.split(".").pop()?.toUpperCase();
+  const typeLabel = attachmentTypeLabel(attachment.fileName, attachment.contentType);
   const iconType = fileIconType(attachment.fileName, attachment.contentType);
   const previewKind = attachmentPreviewKind(
     attachment.fileName,
@@ -314,7 +331,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
           {attachment.fileName}
         </span>
         <span className="block truncate text-xs text-tertiary">
-          {extension && extension !== attachment.fileName.toUpperCase() ? `${extension} · ` : ""}
+          {typeLabel ? `${typeLabel} · ` : ""}
           {getReadableFileSize(attachment.sizeBytes)}
           {previewKind ? ` · ${m.conversation_attachment_preview_hint()}` : ""}
         </span>
@@ -383,13 +400,14 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             </Modal>
           </ModalOverlay>
         </DialogTrigger>
-        <span className="mx-1 h-8 w-px shrink-0 bg-border-secondary" aria-hidden="true" />
+        {actionDivider}
         <div className="shrink-0 pr-2">{download}</div>
       </div>
     );
   return (
     <div className={attachmentRowClassName}>
       <div className="min-w-0 flex-1 p-3">{card}</div>
+      {actionDivider}
       <div className="shrink-0 pr-2">{download}</div>
     </div>
   );
