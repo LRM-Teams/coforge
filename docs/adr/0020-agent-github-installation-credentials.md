@@ -65,7 +65,7 @@ permissions. The previous `COFORGE_GITHUB_PRIVATE_KEY` deployment secret is remo
 The host must have the GitHub CLI installed for `gh` commands. CoForge installs a launcher earlier in
 the Agent `PATH`; that launcher finds the host binary outside its own immutable version directory to
 avoid recursion. Commit author and signing key remain separate work; explicit CoForge provenance is
-[ADR 0047](0047-commit-coauthor-trailer.md), which reuses this ADR's environment-injection channel
+[ADR 0048](0048-commit-coauthor-trailer.md), which reuses this ADR's environment-injection channel
 for a `Co-authored-by` trailer without changing the commit author decided here.
 
 ## Validation and rollback

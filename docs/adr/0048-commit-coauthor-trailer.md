@@ -1,4 +1,4 @@
-# ADR 0047: Commit co-author trailer for Agent git commits
+# ADR 0048: Commit co-author trailer for Agent git commits
 
 Status: accepted
 Date: 2026-09-18
