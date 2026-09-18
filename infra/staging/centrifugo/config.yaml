@@ -7,13 +7,6 @@ engine:
   redis:
     address: "redis:6379"
 
-# A Daemon's Code Agent inventory carries every runtime's model catalog in one
-# RPC (~145 KB of JSON with six runtimes). Above this limit Centrifugo closes the
-# socket with "message too big", which the client treats as final and never
-# reconnects, so the Computer silently stops receiving Agent control.
-websocket:
-  message_size_limit: 1048576
-
 health:
   enabled: true
 
@@ -23,9 +16,14 @@ admin:
 log:
   level: info
 
-# Largest single client message. The Computer returns a Workspace File read (up to 1 MiB of text,
-# packages/daemon/src/agent-runtime/agent-workspace-files.ts) in one RPC; over this limit
-# Centrifugo closes the connection. 2 MiB leaves room for the envelope.
+# Largest single message received from a client (websocket.message_size_limit, default 64 KiB).
+# Two RPC replies from the Computer exceed the default: a Workspace File read (up to 1 MiB of
+# text, packages/daemon/src/agent-runtime/agent-workspace-files.ts) and the Code Agent inventory
+# (every runtime's model catalog, ~145 KB with six runtimes). Over the limit Centrifugo closes
+# the socket with "message too big", which the client treats as final and never reconnects, so
+# the Computer silently stops receiving Agent control. 2 MiB leaves room for the envelope.
+# Keep this the only `websocket:` key: a duplicate top-level key is a YAML error and Centrifugo
+# exits at start.
 websocket:
   message_size_limit: 2097152
 
