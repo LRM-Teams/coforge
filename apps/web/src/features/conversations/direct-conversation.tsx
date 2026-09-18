@@ -1106,7 +1106,7 @@ export function ConversationPane({
                 {newMessageCount > 0 && (
                   <span
                     aria-hidden="true"
-                    className="absolute -top-0.5 -right-0.5 size-2 rounded-full border border-primary bg-brand-solid"
+                    className="absolute -top-1 -right-1 size-2.5 rounded-full border border-primary bg-brand-solid"
                   />
                 )}
               </span>
