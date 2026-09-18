@@ -94,12 +94,11 @@ export const readUsage = createServerFn({ method: "GET" })
       !(await visibility.isOwner({ workspaceId, userId: user.id }, data.computerId, data.provider))
     )
       throw new Error("runtime is not available");
-    const record = await getUsageCache().get({
+    return getUsageCache().read({
       workspaceId,
       computerId: data.computerId,
       provider: data.provider,
     });
-    return record;
   });
 
 export const listComputers = createServerFn({ method: "GET" })

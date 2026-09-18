@@ -459,7 +459,7 @@ export function createDaemonRuntimeUsageScanResultMethod(
       : undefined;
     if (response.snapshotJson && !snapshot)
       return { code: 400, message: "invalid usage scan result" };
-    await (usageCache ?? getUsageCache()).put({
+    await (usageCache ?? getUsageCache()).putResult({
       workspaceId: response.workspaceId,
       computerId: response.computerId,
       provider: response.provider,
@@ -467,6 +467,9 @@ export function createDaemonRuntimeUsageScanResultMethod(
       status: usageStatus(response.status),
       message: response.message,
       snapshot,
+      // The snapshot's own observation time when the Computer reported one, otherwise this
+      // result is only as fresh as the moment the server received it.
+      collectedAt: snapshot?.collectedAt ?? new Date().toISOString(),
     });
     return new Uint8Array();
   };
@@ -517,6 +520,14 @@ function decodeUsageSnapshot(
       ? { used: amounts.used, limit: amounts.limit, overage: amounts.overage }
       : undefined;
   if (snapshot.creditUsage !== undefined && (!creditUsage || !primary)) return undefined;
+  const collectedAt = snapshot.collectedAt;
+  if (
+    collectedAt !== undefined &&
+    (typeof collectedAt !== "string" || Number.isNaN(Date.parse(collectedAt)))
+  )
+    return undefined;
+  const accountLabel = snapshot.accountLabel;
+  if (accountLabel !== undefined && !isValidAccountLabel(accountLabel)) return undefined;
   return {
     provider: expectedProvider,
     ...(typeof planType === "string" ? { planType } : {}),
@@ -524,7 +535,22 @@ function decodeUsageSnapshot(
     ...(secondary ? { secondary } : {}),
     ...(parsedCredits ? { credits: parsedCredits } : {}),
     ...(creditUsage ? { creditUsage } : {}),
+    ...(typeof collectedAt === "string" ? { collectedAt } : {}),
+    ...(typeof accountLabel === "string" ? { accountLabel } : {}),
   };
+}
+
+/** A masked account email: at most 80 characters, no control characters, and containing at
+ * least one `*` — a raw, unmasked address never passes this check. */
+function isValidAccountLabel(value: unknown): value is string {
+  // oxlint-disable-next-line no-control-regex
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 80 &&
+    value.includes("*") &&
+    !/[ -]/u.test(value)
+  );
 }
 
 function usageWindow(value: unknown): UsageSnapshot["primary"] | undefined {

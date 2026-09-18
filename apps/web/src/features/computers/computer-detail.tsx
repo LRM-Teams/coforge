@@ -29,7 +29,7 @@ import {
   type UpgradeFailureView,
 } from "./upgrade-failure";
 import { ComputerTile } from "./computer-tile";
-import { RuntimeIdentity, RuntimeUsage, type UsageView } from "./runtime-usage";
+import { RuntimeIdentity, RuntimeUsage } from "./runtime-usage";
 import type { ComputerRestartStatus, ComputerUpgradeStatus } from "./computer.schemas";
 
 export const RESTART_POLL_INTERVAL_MS = 2_000;
@@ -51,7 +51,6 @@ export type ComputerDetailView = ComputerIdentity & {
     displayName: string;
     isPublic: boolean;
   }[];
-  usage?: Record<string, UsageView>;
 };
 
 /** One failure-recovery command, in the app's mono command style, with a copy-to-clipboard
@@ -83,7 +82,6 @@ function UpgradeCommand({ command }: { command: string }) {
 export function ComputerDetail({
   computer,
   timeZone = null,
-  onScanUsage,
   onSetRuntimePublic,
   onUpdateDisplayName,
   onRestart,
@@ -96,7 +94,6 @@ export function ComputerDetail({
 }: {
   computer: ComputerDetailView;
   timeZone?: string | null;
-  onScanUsage: (provider: RuntimeProvider) => Promise<void>;
   onSetRuntimePublic: (runtimeId: string, isPublic: boolean) => Promise<void>;
   onUpdateDisplayName?: (displayName: string) => Promise<void>;
   onRestart?: (requestId: string) => Promise<ComputerRestartStatus>;
@@ -460,10 +457,10 @@ export function ComputerDetail({
                     >
                       {computer.ownedByCurrentUser ? (
                         <RuntimeUsage
+                          computerId={computer.id}
                           runtime={runtime}
-                          usage={computer.usage?.[runtime.provider]}
+                          computerOnline={computer.online}
                           timeZone={timeZone}
-                          onScan={() => onScanUsage(runtime.provider)}
                         />
                       ) : (
                         <RuntimeIdentity runtime={runtime} />

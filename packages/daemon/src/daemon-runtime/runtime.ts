@@ -630,6 +630,11 @@ export class DaemonRuntime {
       ...(snapshot ? { snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)) } : {}),
       ...(message ? { message } : {}),
     });
+    // The one place a scan result gets its `collectedAt`: a fresh reading is stamped "now"; an
+    // observed snapshot reused from `#currentObservedUsage` already carries the time it was
+    // observed (`#rememberUsage` stamps that), which this must not overwrite.
+    const stamp = (snapshot: UsageSnapshot): UsageSnapshot =>
+      snapshot.collectedAt ? snapshot : { ...snapshot, collectedAt: new Date().toISOString() };
     if (!RUNTIME_PROVIDER_USES_EXTERNAL_CLI[provider])
       return result("unsupported", undefined, "Pi usage scanning is unsupported");
     const codeAgentProvider = this.#createProvider(provider);
@@ -641,11 +646,11 @@ export class DaemonRuntime {
           timeoutMs: 10_000,
         })) ?? this.#currentObservedUsage(provider);
       return snapshot
-        ? result("available", snapshot)
+        ? result("available", stamp(snapshot))
         : result("reauth", undefined, "Provider usage is unavailable");
     } catch (error) {
       const snapshot = this.#currentObservedUsage(provider);
-      if (snapshot) return result("available", snapshot);
+      if (snapshot) return result("available", stamp(snapshot));
       return error instanceof UsageUnavailableError
         ? result("unavailable", undefined, "Provider usage is unavailable")
         : result("error", undefined, "Usage scan failed");
@@ -1942,6 +1947,9 @@ export class DaemonRuntime {
       ...snapshot,
       primary: snapshot.primary ?? current?.primary,
       secondary: snapshot.secondary ?? current?.secondary,
+      // Stamped at observation time, not when `scanUsage` later reuses this snapshot as its
+      // fallback — a passively observed reading is never as fresh as "now".
+      collectedAt: snapshot.collectedAt ?? new Date().toISOString(),
     });
   }
 

@@ -96,7 +96,13 @@ test("directs a runtime usage scan to the selected Computer's Daemon", async () 
       },
     },
     { workspaceId: "workspace-1", computerId: "computer-1", provider: "codex" },
-    { async put() {}, async get() {} },
+    {
+      async putScan() {},
+      async putResult() {},
+      async read() {
+        return { state: "missing" as const };
+      },
+    },
   );
 
   expect(publication?.channel).toBe("daemon:workspace-1:computer-1");

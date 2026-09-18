@@ -379,13 +379,27 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
         .get({ workspaceId, computerId: result.computer.id })
         .catch(() => undefined)
     : undefined;
+  const runtimeConfig = parseAgentRuntimeConfig(result.runtimeConfig);
+  // Same rule `scanUsage`/`readUsage` enforce (`computers.functions.ts`): the Runtime badge only
+  // offers the usage popover when a scan against this Computer's runtime would actually be
+  // honoured, so the Profile tab never renders a control the server would refuse. One lookup
+  // (`ownedRuntime`) answers both that gate and the CLI `version` its popover header shows.
+  const ownedRuntime = result.computer
+    ? await new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db)).ownedRuntime(
+        { workspaceId, userId: user.id },
+        result.computer.id,
+        runtimeConfig.runtime,
+      )
+    : undefined;
   return {
     ...result,
-    runtimeConfig: publicAgentRuntimeConfig(parseAgentRuntimeConfig(result.runtimeConfig)),
+    runtimeConfig: publicAgentRuntimeConfig(runtimeConfig),
     ownedByCurrentUser,
     runtimeCredential,
     canManageAgentRole,
     canFullResetAgent,
+    runtimeUsageVisible: Boolean(ownedRuntime),
+    runtimeVersion: ownedRuntime?.version,
     // Always the same shape (`online` present, possibly `undefined`) whether or not a Computer is
     // assigned, so callers never have to narrow a union between "has computer without online" and
     // "has computer with online".

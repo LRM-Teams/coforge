@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { createFileRoute, notFound, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 import { ComputerDetail } from "@/features/computers/computer-detail";
 import { ComputerNotFound } from "@/features/computers/computer-not-found";
@@ -17,8 +15,6 @@ import {
   updateComputerDisplayName,
   upgradeComputer,
 } from "@/features/computers/computers.functions";
-import { scanRuntimeUsage } from "@/features/computers/usage-scan";
-import type { UsageView } from "@/features/computers/runtime-usage";
 
 export const Route = createFileRoute("/_app/computers/$computerId")({
   // The list the parent already loaded is the whole truth about which
@@ -52,26 +48,12 @@ function ComputerDetailPage() {
   const readRestart = useServerFn(readComputerRestartStatus);
   const requestUpgrade = useServerFn(upgradeComputer);
   const readUpgrade = useServerFn(readComputerUpgradeStatus);
-  // The route component survives a change of `$computerId`, so a snapshot is
-  // held against the Computer it was scanned for, never the mounted component.
-  const [usage, setUsage] = useState<Record<string, Record<string, UsageView>>>({});
-
-  const scan = async (provider: RuntimeProvider) => {
-    const view = await scanRuntimeUsage(computerId, provider).catch((): UsageView => ({
-      status: "error",
-    }));
-    setUsage((current) => ({
-      ...current,
-      [computerId]: { ...current[computerId], [provider]: view },
-    }));
-  };
 
   return (
     <ComputerDetail
       key={computerId}
-      computer={{ ...computer, usage: usage[computerId] }}
+      computer={computer}
       timeZone={timeZone}
-      onScanUsage={scan}
       onRestart={(requestId) => requestRestart({ data: { computerId, requestId } })}
       onReadRestartStatus={(requestId) => readRestart({ data: { computerId, requestId } })}
       latestComputerVersion={latestComputerVersion}

@@ -60,7 +60,7 @@ export function createUsageScan(
 ): Promise<string> {
   const requestId = crypto.randomUUID();
   return (async () => {
-    await cache.put({ ...input, scanId: requestId, status: "pending" });
+    await cache.putScan({ ...input, scanId: requestId, status: "pending" });
     await api.publish(
       daemonControlChannel(input.workspaceId, input.computerId),
       encodeDaemonRuntimeUsageScanRequest({ protocolMajor: 1, requestId, ...input }),

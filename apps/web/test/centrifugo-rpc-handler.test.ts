@@ -656,11 +656,12 @@ describe("CentrifugoRpcHandler", () => {
   test("stores an available Daemon usage result as available", async () => {
     const records: unknown[] = [];
     const method = createDaemonRuntimeUsageScanResultMethod({
-      async put(record) {
+      async putScan() {},
+      async putResult(record) {
         records.push(record);
       },
-      async get() {
-        return undefined;
+      async read() {
+        return { state: "missing" };
       },
     });
     const snapshot = {
@@ -693,18 +694,138 @@ describe("CentrifugoRpcHandler", () => {
         status: "available",
         message: undefined,
         snapshot,
+        collectedAt: expect.any(String),
       },
     ]);
+  });
+
+  test("a snapshot's own collectedAt becomes the stored result's collectedAt", async () => {
+    const records: unknown[] = [];
+    const method = createDaemonRuntimeUsageScanResultMethod({
+      async putScan() {},
+      async putResult(record) {
+        records.push(record);
+      },
+      async read() {
+        return { state: "missing" };
+      },
+    });
+    const snapshot = { provider: "codex", collectedAt: "2026-09-16T12:00:00.000Z" };
+    const payload = encodeDaemonRuntimeUsageScanResponse({
+      protocolMajor: 1,
+      requestId: "usage-collected-at",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      provider: "codex",
+      accepted: true,
+      status: "available",
+      snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)),
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(records).toMatchObject([{ collectedAt: "2026-09-16T12:00:00.000Z" }]);
+  });
+
+  test("an old Daemon's snapshot without collectedAt still gets a result timestamp", async () => {
+    const records: unknown[] = [];
+    const method = createDaemonRuntimeUsageScanResultMethod({
+      async putScan() {},
+      async putResult(record) {
+        records.push(record);
+      },
+      async read() {
+        return { state: "missing" };
+      },
+    });
+    const payload = encodeDaemonRuntimeUsageScanResponse({
+      protocolMajor: 1,
+      requestId: "usage-no-collected-at",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      provider: "codex",
+      accepted: true,
+      status: "available",
+      snapshotJson: new TextEncoder().encode(JSON.stringify({ provider: "codex" })),
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(records).toMatchObject([{ collectedAt: expect.any(String) }]);
+  });
+
+  test.each([
+    ["is not a string", { provider: "codex", collectedAt: 1234 }],
+    ["does not parse as a date", { provider: "codex", collectedAt: "not-a-date" }],
+    ["has no asterisk", { provider: "codex", accountLabel: "me@gmail.com" }],
+    ["is too long", { provider: "codex", accountLabel: `${"m".repeat(80)}*@gmail.com` }],
+    ["has a control character", { provider: "codex", accountLabel: "me* *@gmail.com" }],
+  ])(
+    "rejects a Daemon usage snapshot whose collectedAt/accountLabel %s",
+    async (_case, snapshot) => {
+      const records: unknown[] = [];
+      const method = createDaemonRuntimeUsageScanResultMethod({
+        async putScan() {},
+        async putResult(record) {
+          records.push(record);
+        },
+        async read() {
+          return { state: "missing" };
+        },
+      });
+      const payload = encodeDaemonRuntimeUsageScanResponse({
+        protocolMajor: 1,
+        requestId: "usage-rejected",
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        provider: "codex",
+        accepted: true,
+        status: "available",
+        snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)),
+      });
+
+      expect(await method(payload, { principal: principal() })).toEqual({
+        code: 400,
+        message: "invalid usage scan result",
+      });
+      expect(records).toEqual([]);
+    },
+  );
+
+  test("accepts a masked accountLabel that keeps only the first characters of the local part", async () => {
+    const records: unknown[] = [];
+    const method = createDaemonRuntimeUsageScanResultMethod({
+      async putScan() {},
+      async putResult(record) {
+        records.push(record);
+      },
+      async read() {
+        return { state: "missing" };
+      },
+    });
+    const snapshot = { provider: "codex", accountLabel: "me****@gmail.com" };
+    const payload = encodeDaemonRuntimeUsageScanResponse({
+      protocolMajor: 1,
+      requestId: "usage-account-label",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      provider: "codex",
+      accepted: true,
+      status: "available",
+      snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)),
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(records).toMatchObject([{ snapshot: { accountLabel: "me****@gmail.com" } }]);
   });
 
   test("preserves numeric credits and rejects invalid credit amounts at the usage boundary", async () => {
     const records: unknown[] = [];
     const method = createDaemonRuntimeUsageScanResultMethod({
-      async put(record) {
+      async putScan() {},
+      async putResult(record) {
         records.push(record);
       },
-      async get() {
-        return undefined;
+      async read() {
+        return { state: "missing" };
       },
     });
     const send = (creditUsage: unknown, includePrimary = true) =>
@@ -759,11 +880,12 @@ describe("CentrifugoRpcHandler", () => {
   test("rejects an invalid Daemon usage snapshot", async () => {
     const records: unknown[] = [];
     const method = createDaemonRuntimeUsageScanResultMethod({
-      async put(record) {
+      async putScan() {},
+      async putResult(record) {
         records.push(record);
       },
-      async get() {
-        return undefined;
+      async read() {
+        return { state: "missing" };
       },
     });
     const payload = encodeDaemonRuntimeUsageScanResponse({

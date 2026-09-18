@@ -8,7 +8,11 @@ if (mode === "logged-out") {
   const isAuth = process.argv.includes("--json");
   if (isAuth)
     console.log(
-      JSON.stringify({ loggedIn: mode !== "username" || Bun.env.USER === "usage-test-user" }),
+      JSON.stringify({
+        loggedIn: mode !== "username" || Bun.env.USER === "usage-test-user",
+        email: "frank.an@Example.com",
+        subscriptionType: "max",
+      }),
     );
   else if (Bun.env.CLAUDE_USAGE_REPORT)
     console.log(JSON.stringify({ result: Bun.env.CLAUDE_USAGE_REPORT }));

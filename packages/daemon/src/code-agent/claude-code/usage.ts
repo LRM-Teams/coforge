@@ -36,7 +36,8 @@ export async function readClaudeCodeUsage(
   );
   if (usage.timedOut) throw new ClaudeUsageTimeoutError();
   if (usage.exitCode !== 0) return null;
-  return parseUsage(usage.stdout);
+  const snapshot = parseUsage(usage.stdout);
+  return snapshot ? { ...snapshot, ...account(auth.stdout) } : null;
 }
 
 export class ClaudeUsageTimeoutError extends Error {
@@ -52,6 +53,30 @@ function loggedIn(output: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** The plan and the signed-in address the sign-in report already carries. The address is masked
+ * here so the full one never leaves this Computer. */
+function account(output: string): Pick<UsageSnapshot, "planType" | "accountLabel"> {
+  try {
+    const value = JSON.parse(output) as Record<string, unknown>;
+    const accountLabel = typeof value.email === "string" ? maskEmail(value.email) : undefined;
+    return {
+      ...(typeof value.subscriptionType === "string" && value.subscriptionType
+        ? { planType: value.subscriptionType }
+        : {}),
+      ...(accountLabel ? { accountLabel } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/** `frank.an@example.com` → `fr****@example.com`; anything that is not one plain address is dropped. */
+function maskEmail(email: string): string | undefined {
+  const match = /^([^\s@]+)@([^\s@]+\.[^\s@]+)$/.exec(email.trim());
+  if (!match || email.length > 70) return undefined;
+  return `${match[1]!.slice(0, 2)}****@${match[2]!.toLowerCase()}`;
 }
 
 function parseUsage(output: string): UsageSnapshot | null {

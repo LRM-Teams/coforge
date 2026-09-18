@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
@@ -2985,7 +2985,10 @@ describe("DaemonRuntime", () => {
 
     const result = await runtime.scanUsage("claude-code");
     expect(result.status).toBe("available");
-    expect(JSON.parse(new TextDecoder().decode(result.snapshotJson))).toEqual({
+    const { collectedAt, ...snapshot } = JSON.parse(new TextDecoder().decode(result.snapshotJson));
+    // Stamped when the usage event was observed, not "now" when this later scan reused it.
+    expect(typeof collectedAt).toBe("string");
+    expect(snapshot).toEqual({
       provider: "claude-code",
       primary: {
         status: "available",
@@ -2994,6 +2997,67 @@ describe("DaemonRuntime", () => {
       },
     });
     await runtime.stop();
+  });
+
+  test("an observed usage snapshot keeps the time it was observed, not the later scan time", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const listeners = new Set<(event: AgentRuntimeEvent) => void>();
+    const adapter: CodeAgentProvider = {
+      provider: "claude-code",
+      async readUsage() {
+        return null;
+      },
+      async createAgentSession() {
+        return {
+          ...sessionSpy(),
+          subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        };
+      },
+    };
+    const runtime = new DaemonRuntime(connection, () => adapter, credentials, {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async requestAgentLaunchConfig() {
+          return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+        },
+        async stop() {},
+      }),
+    });
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", {
+        provider: "claude-code",
+        model: "claude-sonnet-5",
+        reasoning: "high",
+      });
+      setSystemTime(new Date("2026-09-17T00:00:00.000Z"));
+      for (const listener of listeners)
+        listener({
+          type: AGENT_RUNTIME_EVENT_TYPE.USAGE,
+          snapshot: {
+            provider: "claude-code",
+            primary: {
+              status: "available",
+              windowDurationMinutes: 300,
+              resetsAt: "2099-09-04T03:00:00.000Z",
+            },
+          },
+        });
+      // The scan itself happens an hour later; the reused snapshot must still report when it was
+      // actually observed, not this later moment.
+      setSystemTime(new Date("2026-09-17T01:00:00.000Z"));
+      const result = await runtime.scanUsage("claude-code");
+      const { collectedAt } = JSON.parse(new TextDecoder().decode(result.snapshotJson));
+      expect(collectedAt).toBe("2026-09-17T00:00:00.000Z");
+    } finally {
+      setSystemTime();
+      await runtime.stop();
+    }
   });
 
   test("scans Kiro quota and distinguishes an unrepresentable window from expired authentication", async () => {
@@ -3028,7 +3092,9 @@ describe("DaemonRuntime", () => {
     try {
       const result = await runtime.scanUsage("kiro");
       expect(result.status).toBe("available");
-      expect(JSON.parse(new TextDecoder().decode(result.snapshotJson))).toEqual(snapshot);
+      const { collectedAt, ...decoded } = JSON.parse(new TextDecoder().decode(result.snapshotJson));
+      expect(typeof collectedAt).toBe("string");
+      expect(decoded).toEqual(snapshot);
       outcome = "unavailable";
       expect((await runtime.scanUsage("kiro")).status).toBe("unavailable");
       outcome = "reauth";

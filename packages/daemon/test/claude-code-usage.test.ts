@@ -49,6 +49,13 @@ test("reads Claude Code session and week usage windows", async () => {
   expect(result?.secondary?.resetsAt).toBe("2027-01-05T00:00:00.000Z");
 });
 
+test("reports the plan and a masked account, never the full address", async () => {
+  const result = await readClaudeCodeUsage(await directory(), { command: command() });
+  expect(result?.planType).toBe("max");
+  expect(result?.accountLabel).toBe("fr****@example.com");
+  expect(JSON.stringify(result)).not.toContain("frank.an");
+});
+
 test.each([
   ["2026-12-31T23:00:00Z", "Jan 2 at 3:00pm", "2027-01-02T15:00:00.000Z"],
   ["2027-01-01T00:00:00Z", "Dec 31 at 11:59pm", "2026-12-31T23:59:00.000Z"],

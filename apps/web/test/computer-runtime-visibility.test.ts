@@ -115,6 +115,24 @@ describe("ComputerRuntimeVisibility", () => {
     ).toBe(false);
   });
 
+  test("ownedRuntime returns the row itself to its owner, and undefined to anyone else", async () => {
+    const { visibility } = fixture();
+
+    const owned = await visibility.ownedRuntime(
+      { userId: "user-2", workspaceId: "workspace-1" },
+      "computer-2",
+      "claude-code",
+    );
+    expect(owned).toMatchObject({ id: "shared-public", version: "2" });
+    expect(
+      await visibility.ownedRuntime(
+        { userId: "user-3", workspaceId: "workspace-1" },
+        "computer-2",
+        "claude-code",
+      ),
+    ).toBeUndefined();
+  });
+
   test("only the Computer owner can change visibility", async () => {
     const { visibility } = fixture();
 
