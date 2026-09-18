@@ -15,7 +15,13 @@ import {
   type DirectorySectionId,
 } from "./directory-sections";
 
-type DirectoryChannel = { id: string; name: string; joined: boolean };
+type DirectoryChannel = {
+  id: string;
+  name: string;
+  joined: boolean;
+  /** The member muted this channel; its unread badge degrades to a bare dot. */
+  muted?: boolean;
+};
 
 /** Slack-style badge: the count up to 99, then "99+". Hidden from AT by the row's label. */
 function UnreadBadge({ count }: { count: number }) {
@@ -205,7 +211,7 @@ export function ConversationDirectory({
                   <ConversationRow
                     target={{ channelId: channel.id }}
                     current={current}
-                    muted={!channel.joined}
+                    muted={!channel.joined || channel.muted}
                     unreadCount={unreadCounts[channel.id]}
                     icon={
                       <Hash
@@ -235,6 +241,7 @@ export function ConversationDirectory({
                 <ConversationRow
                   target={{ agentId: agent.id }}
                   current={agent.id === selectedAgentId}
+                  unreadCount={unreadCounts[agent.id]}
                   icon={
                     <AgentDisplayAvatar
                       name={agent.displayName}

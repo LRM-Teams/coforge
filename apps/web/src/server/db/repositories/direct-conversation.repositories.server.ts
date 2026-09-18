@@ -507,6 +507,26 @@ export type DirectConversationRepository = {
     target: string,
     seenUpToSequence: number,
   ): Promise<number>;
+  /** Per-DM unread for the sidebar: other-authored top-level messages past the member's
+   * cursor, with the conversation id so realtime events can be routed to the Agent row
+   * (ADR 0046). One grouped query for the whole Workspace. */
+  unreadCountsForUser?(
+    workspaceId: string,
+    userId: string,
+  ): Promise<
+    Array<{
+      agentId: string;
+      conversationId: string;
+      unread: number;
+    }>
+  >;
+  /** Advances the human member's DM read cursor; monotone and clamped like the channel one. */
+  markReadForUser?(
+    workspaceId: string,
+    userId: string,
+    agentId: string,
+    throughSequence: number,
+  ): Promise<void>;
   sendAgentMessage?(
     conversationId: string,
     agentId: string,
@@ -977,6 +997,67 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       select: BROWSER_MESSAGE_SELECT,
     });
     return messages.map((message) => toBrowserMessage(message, workspaceId));
+  }
+
+  async unreadCountsForUser(workspaceId: string, userId: string) {
+    // One grouped scan over the user's own DM memberships: other-authored top-level messages
+    // past the member's cursor. Direct conversations only (`directKey` is not null, no
+    // channelName); served by the (workspaceId, threadRootId, sequence) index. The
+    // conversationId rides along so realtime events (which carry only the conversation id)
+    // can be routed to the Agent row the sidebar renders.
+    const rows = await this.db.$queryRaw<
+      {
+        agentId: string;
+        conversationId: string;
+        unread: number;
+      }[]
+    >`
+      SELECT cm."agentId" AS "agentId", m."conversationId" AS "conversationId",
+        COUNT(*)::int AS "unread"
+      FROM "messages" m
+      JOIN "conversations" c ON c."id" = m."conversationId" AND c."directKey" IS NOT NULL
+      JOIN "conversation_members" cm
+        ON cm."conversationId" = m."conversationId"
+       AND cm."userId" = ${userId}::uuid
+       AND cm."leftAt" IS NULL
+      WHERE m."workspaceId" = ${workspaceId}::uuid
+        AND cm."workspaceId" = ${workspaceId}::uuid
+        AND m."threadRootId" IS NULL
+        AND m."senderMemberId" IS NOT NULL
+        AND (m."senderMemberId" IS DISTINCT FROM cm."id")
+        AND m."sequence" > cm."readThroughSequence"
+      GROUP BY cm."agentId", m."conversationId"
+    `;
+    return rows;
+  }
+
+  async markReadForUser(
+    workspaceId: string,
+    userId: string,
+    agentId: string,
+    throughSequence: number,
+  ) {
+    if (!Number.isSafeInteger(throughSequence) || throughSequence < 1)
+      throw new AppError("INVALID_INPUT");
+    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    await this.db.$transaction(async (tx) => {
+      const latest = await tx.message.findFirst({
+        where: { conversationId: conversation.id },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      });
+      const boundary = Math.min(throughSequence, latest?.sequence ?? 0);
+      if (boundary < 1) return;
+      await tx.conversationMember.updateMany({
+        where: {
+          conversationId: conversation.id,
+          userId,
+          readThroughSequence: { lt: boundary },
+          leftAt: null,
+        },
+        data: { readThroughSequence: boundary },
+      });
+    });
   }
 
   async markThreadReadForUser(

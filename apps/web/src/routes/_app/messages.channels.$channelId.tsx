@@ -34,6 +34,7 @@ import {
 } from "@/features/agents/profile-panel/profile-panel-search";
 import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
 import { useMarkConversationSeen } from "@/features/conversations/conversation-navigation";
+import { latestTopLevelSequence } from "@/features/conversations/conversation-unread";
 import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
@@ -83,19 +84,14 @@ function ChannelPage() {
   // badge had already counted is remembered so a late signal cannot re-raise it.
   const markSeen = useMarkConversationSeen();
   const advanceReadCursor = useServerFn(markPublicChannelRead);
-  const latestTopLevelSequence = conversation.messages.reduce(
-    (latest, message) => (message.threadRootId ? latest : Math.max(latest, message.sequence)),
-    0,
-  );
+  const topLevelEnd = latestTopLevelSequence(conversation.messages);
   useEffect(() => {
-    markSeen(channelId, latestTopLevelSequence);
-  }, [markSeen, channelId, latestTopLevelSequence]);
+    markSeen(channelId, topLevelEnd);
+  }, [markSeen, channelId, topLevelEnd]);
   useEffect(() => {
-    if (!latestTopLevelSequence || !conversation.senderMemberId) return;
-    void advanceReadCursor({ data: { channelId, throughSequence: latestTopLevelSequence } }).catch(
-      () => {},
-    );
-  }, [advanceReadCursor, channelId, latestTopLevelSequence, conversation.senderMemberId]);
+    if (!topLevelEnd || !conversation.senderMemberId) return;
+    void advanceReadCursor({ data: { channelId, throughSequence: topLevelEnd } }).catch(() => {});
+  }, [advanceReadCursor, channelId, topLevelEnd, conversation.senderMemberId]);
 
   // Membership changes reach the sidebar through the layout loader and this page
   // through its query; both are refreshed.

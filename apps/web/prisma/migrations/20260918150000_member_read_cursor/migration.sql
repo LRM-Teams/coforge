@@ -9,3 +9,9 @@ UPDATE "conversation_members" SET "readThroughSequence" = COALESCE(
       AND m."threadRootId" IS NULL),
   0
 );
+
+-- Unread-count reads filter messages by workspace and top-level-ness with a
+-- sequence range; the existing (conversationId, ...) indexes cannot serve them
+-- across a whole Workspace's conversations at once.
+CREATE INDEX "messages_workspaceId_threadRootId_sequence_idx"
+  ON "messages"("workspaceId", "threadRootId", "sequence");

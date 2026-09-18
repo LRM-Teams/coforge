@@ -986,6 +986,103 @@ describe("PrismaDirectConversationRepository", () => {
     ]);
   });
 
+  test("unread counts group per DM conversation and carry the conversation→Agent alias", async () => {
+    const queries: { sql: string; values: unknown[] }[] = [];
+    const db = {
+      $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        queries.push({ sql: strings.join(""), values: flattenSqlValues(values) });
+        return [
+          { agentId: "agent-1", conversationId: "conversation-1", unread: 3 },
+          { agentId: "agent-2", conversationId: "conversation-2", unread: 1 },
+        ];
+      },
+    } as unknown as PrismaClient;
+
+    const rows = await new PrismaDirectConversationRepository(db).unreadCountsForUser(
+      "workspace-1",
+      "user-1",
+    );
+    expect(rows).toEqual([
+      { agentId: "agent-1", conversationId: "conversation-1", unread: 3 },
+      { agentId: "agent-2", conversationId: "conversation-2", unread: 1 },
+    ]);
+    const statement = queries[0]!;
+    expect(statement.sql).toContain('"directKey" IS NOT NULL');
+    expect(statement.sql).toContain('"threadRootId" IS NULL');
+    expect(statement.sql).toContain('> cm."readThroughSequence"');
+    expect(statement.values).toContain("workspace-1");
+    expect(statement.values).toContain("user-1");
+  });
+
+  test("markRead clamps the boundary to the conversation end and stays monotone", async () => {
+    let updated: { where: object; data: object } | undefined;
+    const db = {
+      agent: {
+        findFirst: async () => ({ id: "agent-1" }),
+      },
+      conversation: {
+        findUnique: async () => ({ id: "conversation-1" }),
+      },
+      $transaction: async (callback: (tx: object) => Promise<void>) =>
+        callback({
+          message: {
+            findFirst: async () => ({ sequence: 7 }),
+          },
+          conversationMember: {
+            updateMany: async (input: { where: object; data: object }) => {
+              updated = input;
+            },
+          },
+        }),
+    } as unknown as PrismaClient;
+
+    // An over-eager client is clamped to the conversation's current end.
+    await new PrismaDirectConversationRepository(db).markReadForUser(
+      "workspace-1",
+      "user-1",
+      "agent-1",
+      10_000,
+    );
+    expect(updated).toEqual({
+      where: {
+        conversationId: "conversation-1",
+        userId: "user-1",
+        readThroughSequence: { lt: 7 },
+        leftAt: null,
+      },
+      data: { readThroughSequence: 7 },
+    });
+
+    // An empty conversation refuses to move the cursor to a non-positive boundary.
+    updated = undefined;
+    const emptyDb = {
+      agent: {
+        findFirst: async () => ({ id: "agent-1" }),
+      },
+      conversation: {
+        findUnique: async () => ({ id: "conversation-1" }),
+      },
+      $transaction: async (callback: (tx: object) => Promise<void>) =>
+        callback({
+          message: {
+            findFirst: async () => undefined,
+          },
+          conversationMember: {
+            updateMany: async (input: { where: object; data: object }) => {
+              updated = input;
+            },
+          },
+        }),
+    } as unknown as PrismaClient;
+    await new PrismaDirectConversationRepository(emptyDb).markReadForUser(
+      "workspace-1",
+      "user-1",
+      "agent-1",
+      5,
+    );
+    expect(updated).toBeUndefined();
+  });
+
   test("rejects a pending delivery without a valid public username target", async () => {
     const db = {
       agentMessageDelivery: {

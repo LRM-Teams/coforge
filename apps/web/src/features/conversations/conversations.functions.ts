@@ -1,10 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 import {
   workspaceUserMiddleware,
   type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
 import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
 import {
+  agentConversationInputSchema,
   agentConversationPageInputSchema,
   agentConversationUpdatesInputSchema,
   conversationAroundInputSchema,
@@ -113,6 +115,41 @@ export const markDirectThreadRead = createServerFn({ method: "POST" })
       data.threadRootId,
       data.throughSequence,
     );
+  });
+
+/** Per-DM unread for the sidebar: counts keyed by conversation id plus the conversation→Agent
+ * alias map realtime events need, one grouped query for the whole Workspace (ADR 0046). */
+export type DirectConversationUnread = {
+  counts: Record<string, number>;
+  conversationAgentIds: Record<string, string>;
+};
+
+export const loadDirectConversationUnread = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }): Promise<DirectConversationUnread> => {
+    const { user, db, workspaceId } = context;
+    const rows =
+      (await new PrismaDirectConversationRepository(db).unreadCountsForUser?.(
+        workspaceId,
+        user.id,
+      )) ?? [];
+    const counts: Record<string, number> = {};
+    const conversationAgentIds: Record<string, string> = {};
+    for (const row of rows) {
+      counts[row.conversationId] = row.unread;
+      conversationAgentIds[row.conversationId] = row.agentId;
+    }
+    return { counts, conversationAgentIds };
+  });
+
+/** Advances the DM read cursor for the sidebar badge; monotone and clamped (ADR 0046). */
+export const markDirectConversationRead = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(agentConversationInputSchema.extend({ throughSequence: z.number().int().positive() }))
+  .handler(async ({ context, data }) => {
+    const { user, workspaceId } = context;
+    const conversations = await ownedConversations(context, data.agentId);
+    await conversations.markReadForUser?.(workspaceId, user.id, data.agentId, data.throughSequence);
   });
 
 export const sendDirectConversationMessage = createServerFn({ method: "POST" })

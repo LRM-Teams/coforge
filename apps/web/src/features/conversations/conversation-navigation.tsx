@@ -47,7 +47,7 @@ export function useMarkConversationSeen(): (
 
 /** Keep both panels mounted so returning to the list preserves scroll and drafts. */
 export function ConversationNavigation({ children }: { children: ReactNode }) {
-  const { channels, projects } = messagesRoute.useLoaderData();
+  const { channels, projects, directUnread } = messagesRoute.useLoaderData();
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
   const desktop = useBreakpoint("lg");
@@ -76,6 +76,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const unread = useChannelUnread({
     workspaceId,
     channels: visibleChannels,
+    directUnread,
     openConversationId: channel?.channelId,
   });
   // Every loader refresh carries the server's own persisted counts; local arithmetic
@@ -83,8 +84,14 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const { counts } = unread;
   const refresh = unread.replace;
   useEffect(() => {
-    refresh(visibleChannels);
-  }, [refresh, visibleChannels]);
+    refresh([
+      ...visibleChannels,
+      ...Object.entries(directUnread.conversationAgentIds).map(([conversationId, agentId]) => ({
+        id: agentId,
+        unreadCount: directUnread.counts[conversationId],
+      })),
+    ]);
+  }, [refresh, visibleChannels, directUnread]);
   const controls = useMemo<UnreadControls>(
     () => ({ counts, clear: unread.clear }),
     [counts, unread.clear],

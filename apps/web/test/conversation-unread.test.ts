@@ -5,6 +5,7 @@ import {
   clearUnread,
   seedUnreadCounts,
   replaceUnreadCounts,
+  latestTopLevelSequence,
 } from "../src/features/conversations/conversation-unread";
 import {
   decodeMessageAvailableEvent,
@@ -12,6 +13,7 @@ import {
 } from "../src/features/conversations/conversation-realtime";
 
 const channels = new Set(["channel-a", "channel-b"]);
+const noAliases = {};
 
 describe("seedUnreadCounts", () => {
   test("seeds from the server payload and skips zero counts", () => {
@@ -27,12 +29,20 @@ describe("seedUnreadCounts", () => {
 
 describe("applyUnreadEvent", () => {
   test("bumps only listed, not-open channels on a top-level message", () => {
-    const next = applyUnreadEvent({}, { conversationId: "channel-a", sequence: 5 }, { channels });
+    const next = applyUnreadEvent(
+      {},
+      { conversationId: "channel-a", sequence: 5 },
+      { conversations: channels, conversationAgentIds: noAliases },
+    );
     expect(next).toEqual({ "channel-a": 1, "channel-a:seq": 5 });
   });
 
-  test("ignores events for conversations outside the channel list", () => {
-    const next = applyUnreadEvent({}, { conversationId: "dm-x", sequence: 5 }, { channels });
+  test("ignores events for conversations outside the known set", () => {
+    const next = applyUnreadEvent(
+      {},
+      { conversationId: "dm-x", sequence: 5 },
+      { conversations: channels, conversationAgentIds: noAliases },
+    );
     expect(next).toEqual({});
   });
 
@@ -40,16 +50,20 @@ describe("applyUnreadEvent", () => {
     const next = applyUnreadEvent(
       {},
       { conversationId: "channel-a", sequence: 5 },
-      { channels, openConversationId: "channel-a" },
+      {
+        conversations: channels,
+        conversationAgentIds: noAliases,
+        openConversationId: "channel-a",
+      },
     );
     expect(next).toEqual({});
   });
 
-  test("never counts thread replies into channel unread", () => {
+  test("never counts thread replies into conversation unread", () => {
     const next = applyUnreadEvent(
       {},
       { conversationId: "channel-a", sequence: 5, threadRootId: "root-1" },
-      { channels },
+      { conversations: channels, conversationAgentIds: noAliases },
     );
     expect(next).toEqual({});
   });
@@ -58,29 +72,67 @@ describe("applyUnreadEvent", () => {
     const afterFirst = applyUnreadEvent(
       {},
       { conversationId: "channel-a", sequence: 5 },
-      { channels },
+      { conversations: channels, conversationAgentIds: noAliases },
     );
     const afterDuplicate = applyUnreadEvent(
       afterFirst,
       { conversationId: "channel-a", sequence: 5 },
-      { channels },
+      { conversations: channels, conversationAgentIds: noAliases },
     );
     const afterOlder = applyUnreadEvent(
       afterDuplicate,
       { conversationId: "channel-a", sequence: 3 },
-      { channels },
+      { conversations: channels, conversationAgentIds: noAliases },
     );
+    expect(afterFirst).toEqual({ "channel-a": 1, "channel-a:seq": 5 });
     expect(afterDuplicate).toEqual({ "channel-a": 1, "channel-a:seq": 5 });
     expect(afterOlder).toEqual({ "channel-a": 1, "channel-a:seq": 5 });
   });
 
-  test("increments per new sequence across channels", () => {
-    let state = applyUnreadEvent({}, { conversationId: "channel-a", sequence: 1 }, { channels });
-    state = applyUnreadEvent(state, { conversationId: "channel-a", sequence: 2 }, { channels });
-    state = applyUnreadEvent(state, { conversationId: "channel-b", sequence: 9 }, { channels });
+  test("increments per new sequence across conversations", () => {
+    let state = applyUnreadEvent(
+      {},
+      { conversationId: "channel-a", sequence: 1 },
+      { conversations: channels, conversationAgentIds: noAliases },
+    );
+    state = applyUnreadEvent(
+      state,
+      { conversationId: "channel-a", sequence: 2 },
+      { conversations: channels, conversationAgentIds: noAliases },
+    );
+    state = applyUnreadEvent(
+      state,
+      { conversationId: "channel-b", sequence: 9 },
+      { conversations: channels, conversationAgentIds: noAliases },
+    );
     expect(state["channel-a"]).toBe(2);
     expect(state["channel-b"]).toBe(1);
     expect(state["channel-a:seq"]).toBe(2);
+  });
+
+  test("routes a DM event to the Agent-keyed badge through the alias map", () => {
+    const next = applyUnreadEvent(
+      {},
+      { conversationId: "dm-conversation", sequence: 4 },
+      {
+        conversations: new Set(["dm-conversation"]),
+        conversationAgentIds: { "dm-conversation": "agent-1" },
+      },
+    );
+    expect(next).toEqual({ "agent-1": 1, "agent-1:seq": 4 });
+  });
+
+  test("does not double-count a DM event replayed after the alias map learned the conversation", () => {
+    const seeded = { "agent-1": 1, "agent-1:seq": 4 };
+    const next = applyUnreadEvent(
+      seeded,
+      { conversationId: "dm-conversation", sequence: 4 },
+      {
+        conversations: new Set(["dm-conversation"]),
+        conversationAgentIds: { "dm-conversation": "agent-1" },
+      },
+    );
+    expect(next).toEqual({ "agent-1": 1, "agent-1:seq": 4 });
   });
 });
 
@@ -102,6 +154,12 @@ describe("clearUnread", () => {
     const next = clearUnread(state, "channel-a", 5);
     expect(next).toEqual({ "channel-a:seq": 12 });
   });
+
+  test("clears an Agent-keyed DM badge by Agent id", () => {
+    const state = { "agent-1": 2, "agent-1:seq": 8 };
+    const next = clearUnread(state, "agent-1", 9);
+    expect(next).toEqual({ "agent-1:seq": 9 });
+  });
 });
 
 describe("replaceUnreadCounts", () => {
@@ -109,14 +167,31 @@ describe("replaceUnreadCounts", () => {
     const local = {
       "channel-a": 2,
       "channel-a:seq": 8,
-      "channel-b": 5,
+      "agent-1": 5,
     };
     const next = replaceUnreadCounts(local, [
       { id: "channel-a", unreadCount: 1 },
-      { id: "channel-b" },
+      { id: "agent-1" },
     ]);
-    // `channel-b` had no server count (0 unread), so the stale local badge is dropped.
+    // `agent-1` had no server count (0 unread), so the stale local badge is dropped.
     expect(next).toEqual({ "channel-a": 1, "channel-a:seq": 8 });
+  });
+});
+
+describe("latestTopLevelSequence", () => {
+  test("ignores thread replies", () => {
+    expect(
+      latestTopLevelSequence([
+        { sequence: 1 },
+        { sequence: 2, threadRootId: "root" },
+        { sequence: 3 },
+        { sequence: 4, threadRootId: "root" },
+      ]),
+    ).toBe(3);
+  });
+
+  test("is zero for an empty page", () => {
+    expect(latestTopLevelSequence([])).toBe(0);
   });
 });
 

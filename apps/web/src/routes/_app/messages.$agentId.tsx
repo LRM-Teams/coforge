@@ -31,6 +31,10 @@ import {
   agentProfileTabParamSchema,
 } from "@/features/agents/profile-panel/profile-panel-search";
 import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
+import { useMarkConversationSeen } from "@/features/conversations/conversation-navigation";
+import { latestTopLevelSequence } from "@/features/conversations/conversation-unread";
+import { markDirectConversationRead } from "@/features/conversations/conversations.functions";
+import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
@@ -69,6 +73,19 @@ function DirectConversationPage() {
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
   const { showChat, showTasks, changeLayout, openTask } = useConversationView(page.ensureLoaded);
+
+  // Opening the DM is reading it: same badge contract as channels — the sidebar badge (keyed
+  // by Agent id) clears immediately and the read cursor advances server-side, clamped.
+  const markSeen = useMarkConversationSeen();
+  const advanceReadCursor = useServerFn(markDirectConversationRead);
+  const topLevelEnd = latestTopLevelSequence(conversation.messages);
+  useEffect(() => {
+    markSeen(agentId, topLevelEnd);
+  }, [markSeen, agentId, topLevelEnd]);
+  useEffect(() => {
+    if (!topLevelEnd) return;
+    void advanceReadCursor({ data: { agentId, throughSequence: topLevelEnd } }).catch(() => {});
+  }, [advanceReadCursor, agentId, topLevelEnd]);
 
   if (view === "tasks")
     return (

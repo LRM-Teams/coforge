@@ -692,6 +692,9 @@ model Message {
   @@unique([conversationId, sequence])
   @@index([conversationId, threadRootId, sequence])
   @@index([conversationId, createdAt])
+  /// Serves workspace-wide top-level message scans with sequence ranges — the
+  /// sidebar's unread counts (ADR 0046) and future inbox-style reads.
+  @@index([workspaceId, threadRootId, sequence])
   @@map("messages")
 }
 
