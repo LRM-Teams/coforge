@@ -18,6 +18,7 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | ADR | Status | Topic |
 | --- | --- | --- |
 | [0032](0032-weekly-report-collectors-and-collect-run.md) | accepted | Weekly-report per-Computer collectors + narrow Collect Run |
+| [0051](0051-agent-context-breakdown.md) | accepted | Agent context-window composition breakdown (Claude Code only) |
 | [0050](0050-agent-context-usage-display.md) | accepted | Agent context-window usage display (Claude Code only) |
 | [0049](0049-rollback-unit-is-the-release.md) | accepted | The rollback unit is the release, not the image |
 | [0048](0048-daemon-delivery-queue.md) | accepted | Daemon-owned delivery queue with busy gating |

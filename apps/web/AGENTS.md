@@ -625,6 +625,17 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   stores short-lived request-scoped results, not inventory or canonical data.
   The Profile displays Global/Workspace metadata, never skill bodies or a claim
   that a running session has loaded each entry.
+- `features/agents/agent-context-report.functions.ts` owns the authenticated
+  context-composition query/scan (ADR 0051). `server/agents/
+agent-context-report.server.ts` authorizes through the Agent owner's
+  assignment (the Skills/Workspace Files ownership rule) and resolves the
+  launch/session from the persisted session reference; `server/centrifugo/
+agent-context-cache.server.ts` stores the last validated report per Agent with
+  the usage cache's 24h/60s/30-min rules; `rpc-handler.server.ts`'
+  `createAgentContextScanResultMethod` validates report bytes at the boundary.
+  `features/agents/agent-context-popover.tsx` renders the breakdown display-only:
+  no thresholds, no toast, and every non-available daemon status shown inline
+  with what to do.
 - `src/features/agents/agent-status-realtime.ts` consumes backend display snapshots from the
   initial server response and the existing realtime status channel. It accepts revisions and,
   at display expiry, refreshes the backend and retries on failure without implementing a

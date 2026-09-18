@@ -80,7 +80,8 @@ function ContextUsageBadge({
   agentId: string;
   contextUsage: { usedTokens: number; windowTokens: number; observedAtMs: number };
   timeZone: string | null;
-  /** `runtime === "claude-code"` at the call site; only Claude Code has a composition to read. */
+  /** `runtime === RUNTIME_PROVIDER.CLAUDE_CODE` at the call site; only Claude Code has a
+   * composition to read. */
   supportsContextReport: boolean;
   computerOnline?: boolean;
 }) {
