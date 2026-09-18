@@ -688,8 +688,8 @@ function Preferences({
           <Select
             aria-label={m.preferences_text_size()}
             className="max-w-sm"
-            selectedKey={textSize}
-            onSelectionChange={(key) => {
+            value={textSize}
+            onChange={(key) => {
               if (key !== null) onTextSizeChange(String(key) as TextSizeValue);
             }}
           >
