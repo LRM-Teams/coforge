@@ -312,7 +312,7 @@ export function AgentProfilePanel({
             // Realtime once a display snapshot has arrived, the initial `getAgentProfile` load
             // until then — trusting `liveAgent.display`'s own (possibly explicitly null)
             // `contextUsage` once present, never falling back past it to a stale initial read.
-            // Display-only (ADR 0047): nothing here triggers on any threshold.
+            // Display-only (ADR 0049): nothing here triggers on any threshold.
             contextUsage={
               liveAgent?.display
                 ? (liveAgent.display.contextUsage ?? null)

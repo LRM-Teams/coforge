@@ -156,7 +156,7 @@ class ClaudeCodeAgentSession implements AgentSession {
     private expectedSessionId?: string,
     private readonly spawnFresh?: () => { process: JsonlProcess; sessionId: string },
     initialFreshSessionId?: string,
-    /** The Agent's configured model, if any (ADR 0047): matched against `result.modelUsage`'s
+    /** The Agent's configured model, if any (ADR 0049): matched against `result.modelUsage`'s
      * keys/`canonicalModel` to select the context-window reading's window size. */
     private readonly configuredModel?: string,
   ) {
@@ -597,7 +597,7 @@ class ClaudeCodeAgentSession implements AgentSession {
         return;
       }
       this.#reportIdentity();
-      // ADR 0047: a context-window reading is a session fact observed at every top-level
+      // ADR 0049: a context-window reading is a session fact observed at every top-level
       // result, independent of the turn's own running/interrupting/idle state below.
       const contextUsage = claudeContextUsage(record, this.configuredModel);
       if (contextUsage)
@@ -737,7 +737,7 @@ function claudeRateLimitWindow(info: Record<string, unknown> | undefined):
 }
 
 /**
- * The context-window reading a top-level `result` record carries (ADR 0047), or `undefined`
+ * The context-window reading a top-level `result` record carries (ADR 0049), or `undefined`
  * when this Claude Code build reports neither `usage.iterations` nor a matched
  * `modelUsage[...].contextWindow` — never guessed. `usedTokens` is the last `"message"`-typed
  * iteration's `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`.

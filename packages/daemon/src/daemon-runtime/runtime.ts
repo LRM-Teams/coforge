@@ -452,7 +452,7 @@ export class DaemonRuntime {
   readonly #currentActivityLaunches = new Map<string, ActivityLaunch>();
   readonly #agentStatusSequences = new Map<string, number>();
   readonly #observedUsage = new Map<RuntimeProvider, UsageSnapshot>();
-  /** The last (usedTokens, windowTokens) reading sent per Agent (ADR 0047), so an unchanged
+  /** The last (usedTokens, windowTokens) reading sent per Agent (ADR 0049), so an unchanged
    * reading is not re-sent. Forgotten on launch end/dispose, alongside `#compactionTracker`. */
   readonly #lastContextUsage = new Map<string, { usedTokens: number; windowTokens: number }>();
   readonly #agentProxy?: AgentProxy;
@@ -2650,7 +2650,7 @@ export class DaemonRuntime {
   }
 
   /**
-   * ADR 0047: fire-and-forget, never blocking or failing the turn it observed. Skipped when the
+   * ADR 0049: fire-and-forget, never blocking or failing the turn it observed. Skipped when the
    * Agent's current native session id is not yet known (the daemon has not yet reported this
    * launch's first identity) or the reading is unchanged from the last one sent for this launch
    * — `#lastContextUsage` is forgotten on launch end/dispose alongside `#compactionTracker`, so a

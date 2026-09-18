@@ -9,7 +9,7 @@ import type { CentrifugoRpcMethod } from "./rpc-handler.server";
  * Fire-and-forget from the daemon's side (never awaited or retried there), gated exactly like
  * `agent:session:invalidate` (`agent-session-receiver.server.ts`): accepted only when
  * `AgentControlState.launchId === message.launchId` for the Agent, so a dead or superseded
- * launch's reading never paints the badge (ADR 0047). Every domain-level mismatch (unknown
+ * launch's reading never paints the badge (ADR 0049). Every domain-level mismatch (unknown
  * Agent, foreign scope, non-matching provider, stale launch) is its own idempotent no-op — the
  * daemon must never treat this observation as something to retry — matching the invalidate
  * receiver's own contract. A malformed payload or foreign transport principal is the only 403.

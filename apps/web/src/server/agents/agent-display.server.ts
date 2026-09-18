@@ -151,7 +151,7 @@ local function snapshot(state, workspace_id, computer_id, agent_id, now)
         if state.activity.expiresAt < expires_at then expires_at = state.activity.expiresAt end
       end
     end
-    -- ADR 0047: AgentStatus carries no launch id, so the strongest fence available here is
+    -- ADR 0049: AgentStatus carries no launch id, so the strongest fence available here is
     -- "the same daemon instance the active process reports" plus "not a launch OBSERVE_ACTIVITY
     -- has since retired" — the same bounded, best-effort fence retiredLaunchId already is, not a
     -- database race fence. A dead/superseded launch's reading never paints the badge.
@@ -198,7 +198,7 @@ local preserve_provisional = not current and state.activityVisible and state.act
   state.activity.daemonInstanceId == ARGV[6]
 local reset_activity = (current and (not same_instance or current.status == "inactive")) or ARGV[5] == "inactive"
 if reset_activity or (not preserve_provisional and not current) then state.activityVisible = false end
--- ADR 0047: the process going inactive, or a different daemon instance taking over, makes any
+-- ADR 0049: the process going inactive, or a different daemon instance taking over, makes any
 -- stored context-window reading stale.
 if reset_activity then state.contextUsage = nil end
 state.process = {
@@ -242,7 +242,7 @@ if previous then
     -- Retain one retired launch only. Cross-launch observedAt ordering is a bounded
     -- best-effort fence, not permanent history or a database race fence.
     state.retiredLaunchId = previous.launchId
-    -- ADR 0047: a context-window reading from the launch just retired is stale.
+    -- ADR 0049: a context-window reading from the launch just retired is stale.
     if state.contextUsage and state.contextUsage.launchId == previous.launchId then
       state.contextUsage = nil
     end
@@ -399,7 +399,7 @@ export interface AgentDisplay {
     activity: AgentActivity & { computerId: string },
     fence: { daemonInstanceId: string; launchId: string },
   ): Promise<AgentDisplaySnapshot | undefined>;
-  /** ADR 0047: sets the Agent's current context-window reading, guarded by the same
+  /** ADR 0049: sets the Agent's current context-window reading, guarded by the same
    * daemonInstanceId/clientSeq ordering rule `observeStatus` uses. */
   putContextUsage(message: AgentContextUsage): Promise<AgentDisplaySnapshot | undefined>;
   snapshot(scope: Scope): Promise<AgentDisplaySnapshot>;

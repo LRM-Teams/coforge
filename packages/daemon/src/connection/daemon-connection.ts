@@ -428,7 +428,7 @@ export interface DaemonConnectionClient {
   /** Fire-and-forget: never blocks or fails a launch. Buffered latest-per-agent while
    * disconnected and flushed on reconnect, like `sendAgentActivity`. */
   sendSessionInvalidate?(message: AgentSessionInvalidate): void;
-  /** Fire-and-forget: never blocks or fails a turn (ADR 0047). Buffered latest-per-agent while
+  /** Fire-and-forget: never blocks or fails a turn (ADR 0049). Buffered latest-per-agent while
    * disconnected and flushed on reconnect, like `sendSessionInvalidate`. */
   sendAgentContextUsage?(message: AgentContextUsage): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
@@ -1164,7 +1164,7 @@ export class DaemonConnection implements DaemonConnectionClient {
    * been logged; suppresses repeats for the rest of this connection's lifetime (fix for a log
    * line that used to repeat on every rejected attempt). */
   #loggedUnknownSessionInvalidateMethod = false;
-  /** Latest-per-agent, like `#pendingSessionInvalidate` (ADR 0047). No launch-observation drop
+  /** Latest-per-agent, like `#pendingSessionInvalidate` (ADR 0049). No launch-observation drop
    * rule here: the server's own launch-fence gate already rejects a stale one, and a context
    * reading is superseded by the next one anyway. */
   readonly #pendingContextUsage = new Map<string, AgentContextUsage>();
@@ -1340,7 +1340,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#publishSessionInvalidate(this.#client, message);
   }
 
-  /** Fire-and-forget; never awaited by a caller and never fails a turn (ADR 0047). */
+  /** Fire-and-forget; never awaited by a caller and never fails a turn (ADR 0049). */
   sendAgentContextUsage(message: AgentContextUsage): void {
     if (!this.#connected || !this.#client) {
       this.#pendingContextUsage.set(message.agentId, message);
