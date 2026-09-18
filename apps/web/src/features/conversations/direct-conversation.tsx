@@ -732,6 +732,17 @@ export function ConversationPane({
   );
   /** The full-height sizer the rows' window sits in; its top is where row offsets start. */
   const listRef = useRef<HTMLDivElement>(null);
+  /** Message ids whose very long body the reader has opened in full. Kept here rather than in the
+   * row: a row unmounts as soon as it leaves the virtualizer's window, and an expanded message
+   * must not re-collapse behind the reader. */
+  const [expandedMessages, setExpandedMessages] = useState<ReadonlySet<string>>(new Set());
+  const toggleExpandedMessage = useCallback((messageId: string) => {
+    setExpandedMessages((current) => {
+      const next = new Set(current);
+      if (!next.delete(messageId)) next.add(messageId);
+      return next;
+    });
+  }, []);
   const messagesRef = useRef(conversation.messages);
   messagesRef.current = conversation.messages;
   // Content above the list inside the scroll container (thread root, load-older control).
@@ -1079,6 +1090,8 @@ export function ConversationPane({
                       own={own}
                       dayChanged={dayChanged}
                       grouped={grouped}
+                      expanded={expandedMessages.has(message.id)}
+                      onToggleExpanded={() => toggleExpandedMessage(message.id)}
                       dateLocale={dateLocale}
                       measureRef={messageVirtualizer.measureElement}
                       threadEntry={threadEntry}
