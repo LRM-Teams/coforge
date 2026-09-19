@@ -709,6 +709,8 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
         (row) => row.agentId,
       ),
     ).toEqual([scout.id]);
+    // Eligibility for Agent attention rests on the delivery row, not on the sender's kind, so an
+    // Agent-authored handoff is admitted here and every Agent-facing projection names its author.
     expect(
       (await repo.readPendingAgentDeliveries(workspace.id, scout.id)).find(
         (message) => message.messageId === handoff.id,

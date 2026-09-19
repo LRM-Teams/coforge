@@ -578,7 +578,7 @@ describe("PrismaDirectConversationRepository", () => {
       deliveryId: "delivery",
       senderUsername: "alice",
       channelName: null,
-      userUsername: "alice",
+      otherUsername: "alice",
       unreadCount: 120,
       globalRank: 1,
       ...overrides,
@@ -609,7 +609,7 @@ describe("PrismaDirectConversationRepository", () => {
         conversationId: "conversation-1",
         senderMemberId: "member-bob",
         senderUsername: "bob",
-        userUsername: "bob",
+        otherUsername: "bob",
         unreadCount: 75,
         globalRank: 124,
       }),
@@ -667,7 +667,7 @@ describe("PrismaDirectConversationRepository", () => {
           deliveryId: "delivery-1",
           senderUsername: "carol",
           channelName: "general",
-          userUsername: "ada",
+          otherUsername: "ada",
           unreadCount: 2,
           globalRank: 1,
         },
@@ -681,7 +681,7 @@ describe("PrismaDirectConversationRepository", () => {
           deliveryId: "delivery-2",
           senderUsername: null,
           channelName: "general",
-          userUsername: "ada",
+          otherUsername: "ada",
           unreadCount: 2,
           globalRank: 2,
         },
@@ -714,7 +714,7 @@ describe("PrismaDirectConversationRepository", () => {
           deliveryId: null,
           senderUsername: "alice",
           channelName: null,
-          userUsername: "alice",
+          otherUsername: "alice",
           unreadCount: 1,
           globalRank: 1,
         },
@@ -726,7 +726,7 @@ describe("PrismaDirectConversationRepository", () => {
     ).rejects.toThrow("has no delivery");
   });
 
-  test("rejects recovery for a conversation without a public target", async () => {
+  test("rejects recovery for a direct conversation with no other member to target", async () => {
     const db = {
       messageMention: { findMany: async () => [] },
       $queryRaw: async () => [
@@ -740,7 +740,7 @@ describe("PrismaDirectConversationRepository", () => {
           deliveryId: "delivery-1",
           senderUsername: null,
           channelName: null,
-          userUsername: null,
+          otherUsername: null,
           unreadCount: 1,
           globalRank: 1,
         },
@@ -749,7 +749,79 @@ describe("PrismaDirectConversationRepository", () => {
 
     await expect(
       new PrismaDirectConversationRepository(db).readAgentRecoveryContext("workspace-1", "agent-1"),
-    ).rejects.toThrow("no public user target");
+    ).rejects.toThrow("no other member to target");
+  });
+
+  test("reads a direct message's sender from the message and its target from the other member", async () => {
+    // The two are different values and must not be confused: the sender is the message's author,
+    // while a DM's target is the conversation's *other* member — the one the Agent replies to.
+    const db = {
+      messageMention: { findMany: async () => [] },
+      $queryRaw: async () => [
+        {
+          id: "message-1",
+          sequence: 1,
+          body: "handoff",
+          conversationId: "conversation-1",
+          threadRootId: null,
+          senderMemberId: "member-author",
+          deliveryId: "delivery-1",
+          senderUsername: "author-agent",
+          channelName: null,
+          otherUsername: "recipient-agent",
+          unreadCount: 1,
+          globalRank: 1,
+        },
+      ],
+    } as unknown as PrismaClient;
+
+    const recovery = await new PrismaDirectConversationRepository(db).readAgentRecoveryContext(
+      "workspace-1",
+      "agent-1",
+    );
+    expect(recovery.resumeMessages).toEqual([
+      {
+        messageId: "message-1",
+        deliveryId: "delivery-1",
+        conversationId: "conversation-1",
+        sequence: 1,
+        target: "@recipient-agent",
+        latestSender: "@author-agent",
+        body: "handoff",
+      },
+    ]);
+    expect(recovery.unreadSummary).toEqual({ "@recipient-agent": 1 });
+  });
+
+  test("falls back to a usable handle rather than a NULL sender", async () => {
+    // Mirrors `agentSenderHandle`'s `?? "agent"`: an author row the database cannot produce
+    // (both `users.username` and `agents.name` are NOT NULL) must still not put `@null` on the
+    // wire, which is the shape that poisoned daemon ready recovery.
+    const db = {
+      messageMention: { findMany: async () => [] },
+      $queryRaw: async () => [
+        {
+          id: "message-1",
+          sequence: 1,
+          body: "handoff",
+          conversationId: "conversation-1",
+          threadRootId: null,
+          senderMemberId: "member-author",
+          deliveryId: "delivery-1",
+          senderUsername: null,
+          channelName: null,
+          otherUsername: "recipient",
+          unreadCount: 1,
+          globalRank: 1,
+        },
+      ],
+    } as unknown as PrismaClient;
+
+    const recovery = await new PrismaDirectConversationRepository(db).readAgentRecoveryContext(
+      "workspace-1",
+      "agent-1",
+    );
+    expect(recovery.resumeMessages[0]?.latestSender).toBe("@agent");
   });
 
   test("reads all scoped unacknowledged deliveries oldest-first", async () => {

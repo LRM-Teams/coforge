@@ -255,7 +255,13 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
   };
 }
 
-/** Messages an Agent has not yet consumed: from users, or delivered explicitly to it. */
+/**
+ * Messages an Agent has not yet consumed: from a user, or delivered explicitly to it — and in a
+ * channel *only* when delivered, because a channel message the Agent was not addressed by is not
+ * its attention to owe. The clause is not redundant with the `OR`: `(human ∨ delivered)` narrowed
+ * by `delivered` is exactly `delivered`, so it is what keeps the channel case strict while the
+ * direct case stays permissive (a DM's Agent-authored handoff carries a delivery row).
+ */
 function unreadForAgentWhere(agentId: string, isChannel: boolean) {
   return {
     OR: [{ sender: { userId: { not: null } } }, { deliveries: { some: { agentId } } }],
@@ -264,18 +270,25 @@ function unreadForAgentWhere(agentId: string, isChannel: boolean) {
 }
 
 /**
- * Messages the Agent owes attention to: above its per-target read boundary, sent by a user, or
+ * Messages the Agent owes attention to: above its per-target read boundary, from a user, or
  * explicitly delivered to it; channels only count with a delivery row. Shared by
  * `readAgentRecoveryContext` and `drainAgentEvents` so the rule cannot drift between them.
+ *
+ * `senderUsername` is the message's own author (an Agent's name, else a human's username) and
+ * `otherUsername` is the *recipient* — the conversation's other active member, which a DM target
+ * needs and a message's sender cannot supply.
  */
 function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
   return Prisma.sql`
     SELECT m."id", m."sequence", m."body", m."conversationId", m."threadRootId",
       m."senderMemberId", COALESCE(r."sequence", 0) AS "rootSequence",
       d."deliveryId", COALESCE(sa."name", su."username") AS "senderUsername", c."channelName",
-      (SELECT uu."username" FROM "conversation_members" um
-        JOIN "users" uu ON uu."id" = um."userId"
-        WHERE um."conversationId" = c."id" ORDER BY uu."username" LIMIT 1) AS "userUsername"
+      (SELECT COALESCE(ou."username", oa."name")
+        FROM "conversation_members" om
+        LEFT JOIN "users" ou ON ou."id" = om."userId"
+        LEFT JOIN "agents" oa ON oa."id" = om."agentId"
+        WHERE om."conversationId" = c."id" AND om."id" <> am."id" AND om."leftAt" IS NULL
+        ORDER BY ou."username" NULLS LAST LIMIT 1) AS "otherUsername"
     FROM "messages" m
     JOIN "conversation_members" am ON am."conversationId" = m."conversationId"
       AND am."workspaceId" = ${workspaceId}::uuid AND am."agentId" = ${agentId}::uuid
@@ -318,7 +331,8 @@ type AgentRecoveryRow = {
   deliveryId: string | null;
   senderUsername: string | null;
   channelName: string | null;
-  userUsername: string | null;
+  /** The conversation's other active member: the address a DM reply targets. */
+  otherUsername: string | null;
   unreadCount: number;
   globalRank: number;
 };
@@ -1440,7 +1454,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         FROM unread u
       )
       SELECT "id", "sequence", "body", "conversationId", "threadRootId", "senderMemberId",
-        "deliveryId", "senderUsername", "channelName", "userUsername", "unreadCount", "globalRank"
+        "deliveryId", "senderUsername", "channelName", "otherUsername", "unreadCount", "globalRank"
       FROM ranked
       WHERE "globalRank" <= ${AGENT_RECOVERY_MESSAGE_LIMIT} OR "targetRank" = 1
       ORDER BY "globalRank"`;
@@ -1464,10 +1478,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       mentionsByMessage.set(mention.messageId, list);
     }
     for (const row of rows) {
-      if (!row.channelName && !row.userUsername)
-        throw new Error("Agent conversation has no public user target");
+      if (!row.channelName && !row.otherUsername)
+        throw new Error("Agent conversation has no other member to target");
       const target = deliveryTarget(
-        row.channelName ? `#${row.channelName}` : `@${row.userUsername}`,
+        row.channelName ? `#${row.channelName}` : `@${row.otherUsername}`,
         row.threadRootId,
       );
       unreadSummary[target] ??= row.unreadCount;
@@ -1479,10 +1493,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         conversationId: row.conversationId,
         sequence: row.sequence,
         target,
-        latestSender:
-          row.senderMemberId === null
-            ? "system"
-            : `@${row.channelName ? row.senderUsername : row.userUsername}`,
+        // The author, read from the message in every conversation kind. A DM's other member is
+        // its *recipient*, so deriving the sender from the conversation attributes the message
+        // to the wrong side — and, in a conversation with no user member, to nothing at all.
+        // `?? "agent"` mirrors `agentSenderHandle`'s fallback so no NULL handle reaches the daemon.
+        latestSender: row.senderMemberId === null ? "system" : `@${row.senderUsername ?? "agent"}`,
         body: agentReadableBody(row.body, mentionsByMessage.get(row.id) ?? []),
       });
     }
