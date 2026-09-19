@@ -507,6 +507,25 @@ export type DirectConversationRepository = {
     target: string,
     seenUpToSequence: number,
   ): Promise<number>;
+  /** Per-DM unread for the sidebar: other-authored top-level messages past the member's
+   * cursor, keyed by the Agent whose row the badge belongs to (ADR 0046). One grouped query
+   * for the whole Workspace; the agent member row is the join, never the viewer's own row. */
+  unreadCountsForUser?(
+    workspaceId: string,
+    userId: string,
+  ): Promise<
+    Array<{
+      agentId: string;
+      unread: number;
+    }>
+  >;
+  /** Advances the human member's DM read cursor; monotone and clamped like the channel one. */
+  markReadForUser?(
+    workspaceId: string,
+    userId: string,
+    agentId: string,
+    throughSequence: number,
+  ): Promise<void>;
   sendAgentMessage?(
     conversationId: string,
     agentId: string,
@@ -542,6 +561,8 @@ export type DirectConversationRepository = {
   ): Promise<{
     conversationId: string;
     senderMemberId: string;
+    /** The viewer's conversation-level read cursor over top-level messages (ADR 0046). */
+    readThroughSequence?: number;
     threadReadThrough?: Record<string, number>;
     agent: { id: string; name: string; displayName: string; deletedAt: Date | null };
     hasOlder: boolean;
@@ -916,6 +937,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             id: true,
             userId: true,
             agentId: true,
+            // The viewer's own conversation-level read cursor: the client positions the
+            // initial view at the first unread message and draws the divider there (ADR 0046).
+            readThroughSequence: true,
             threadReads: {
               select: { rootMessageId: true, readThroughSequence: true },
             },
@@ -950,6 +974,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return {
       conversationId: conversation.id,
       senderMemberId: sender.id,
+      // The viewer's conversation-level read boundary: first unread = first top-level
+      // message past this. Thread replies are positioned by their thread instead.
+      readThroughSequence: sender.readThroughSequence,
       threadReadThrough: Object.fromEntries(
         sender.threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),
@@ -977,6 +1004,71 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       select: BROWSER_MESSAGE_SELECT,
     });
     return messages.map((message) => toBrowserMessage(message, workspaceId));
+  }
+
+  async unreadCountsForUser(workspaceId: string, userId: string) {
+    // One grouped scan over the user's own DM memberships: other-authored top-level messages
+    // past the member's cursor. Direct conversations only (`directKey` is not null). The badge
+    // key is the *agent* member of the conversation, not the viewer's own row: a DM's two
+    // member rows are separate (one `userId`, one `agentId`), so `cm."agentId"` on the viewer's
+    // row is always null. Driven from the viewer's memberships so the sequence range is an
+    // index condition against `messages(conversationId, threadRootId, sequence)`.
+    const rows = await this.db.$queryRaw<
+      {
+        agentId: string;
+        unread: number;
+      }[]
+    >`
+      SELECT am."agentId" AS "agentId", COUNT(m."id")::int AS "unread"
+      FROM "conversation_members" cm
+      JOIN "conversations" c
+        ON c."id" = cm."conversationId" AND c."directKey" IS NOT NULL
+      JOIN "conversation_members" am
+        ON am."conversationId" = cm."conversationId"
+       AND am."agentId" IS NOT NULL
+       AND am."leftAt" IS NULL
+      LEFT JOIN "messages" m
+        ON m."conversationId" = cm."conversationId"
+       AND m."threadRootId" IS NULL
+       AND m."senderMemberId" IS NOT NULL
+       AND m."senderMemberId" IS DISTINCT FROM cm."id"
+       AND m."sequence" > cm."readThroughSequence"
+      WHERE cm."userId" = ${userId}::uuid
+        AND cm."leftAt" IS NULL
+        AND cm."workspaceId" = ${workspaceId}::uuid
+        AND c."workspaceId" = ${workspaceId}::uuid
+      GROUP BY am."agentId"
+    `;
+    return rows;
+  }
+
+  async markReadForUser(
+    workspaceId: string,
+    userId: string,
+    agentId: string,
+    throughSequence: number,
+  ) {
+    if (!Number.isSafeInteger(throughSequence) || throughSequence < 1)
+      throw new AppError("INVALID_INPUT");
+    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    await this.db.$transaction(async (tx) => {
+      const latest = await tx.message.findFirst({
+        where: { conversationId: conversation.id },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      });
+      const boundary = Math.min(throughSequence, latest?.sequence ?? 0);
+      if (boundary < 1) return;
+      await tx.conversationMember.updateMany({
+        where: {
+          conversationId: conversation.id,
+          userId,
+          readThroughSequence: { lt: boundary },
+          leftAt: null,
+        },
+        data: { readThroughSequence: boundary },
+      });
+    });
   }
 
   async markThreadReadForUser(
@@ -1169,16 +1261,23 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           select: {
             body: true,
             threadRootId: true,
-            sender: { select: { user: { select: { username: true } } } },
+            sender: {
+              select: {
+                agentId: true,
+                user: { select: { username: true } },
+                agent: { select: { name: true } },
+              },
+            },
             mentions: MESSAGE_MENTIONS_SELECT,
           },
         },
       },
     });
     return deliveries.map((delivery) => {
-      const sender = delivery.message.sender
-        ? `@${delivery.message.sender.user?.username ?? ""}`
-        : "system";
+      // An Agent-authored message has no `user` on its sender row, so a `user.username`-only
+      // derivation produced a bare `@` and rejected every pending Agent message. Reuse the one
+      // sender-handle rule the other Agent read paths use (see `agentSenderHandle`).
+      const sender = agentSenderHandle(delivery.message.sender);
       const target = deliveryTarget(
         conversationTarget(delivery.conversation),
         delivery.message.threadRootId,

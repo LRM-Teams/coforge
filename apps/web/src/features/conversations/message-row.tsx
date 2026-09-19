@@ -370,6 +370,23 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
   );
 }
 
+/** The "new messages" divider (Slack-style): a brand rule naming where unread begins. */
+function UnreadDivider() {
+  return (
+    <div
+      role="separator"
+      aria-label={m.conversation_unread_divider()}
+      className="flex items-center gap-3 px-4 py-2 md:px-6"
+    >
+      <span aria-hidden="true" className="h-px flex-1 bg-brand-solid/40" />
+      <span className="shrink-0 bg-primary px-2 text-xs font-semibold text-brand-secondary">
+        {m.conversation_unread_divider()}
+      </span>
+      <span aria-hidden="true" className="h-px flex-1 bg-brand-solid/40" />
+    </div>
+  );
+}
+
 /** One virtualized history row: optional day divider, then the message with its hover actions.
  *
  * The row is an ordinary flow item. Its vertical position comes from the rows above it inside the
@@ -384,6 +401,7 @@ export function MessageRow({
   expanded,
   onToggleExpanded,
   agentDisplay,
+  unreadStartsHere,
   dateLocale,
   measureRef,
   threadEntry,
@@ -404,6 +422,8 @@ export function MessageRow({
   /** The live display snapshot for one Agent, from the app shell's subscription. Absent where the
    * surface has no access to it; the avatar then renders without a dot rather than as a wrong one. */
   agentDisplay?: (agentId: string) => AgentDisplaySnapshot | undefined;
+  /** The conversation's unread run begins at this row (ADR 0046): draws the divider above. */
+  unreadStartsHere?: boolean;
   dateLocale?: string;
   measureRef: Ref<HTMLLIElement>;
   threadEntry?: (message: MessageView) => ReactNode;
@@ -496,6 +516,7 @@ export function MessageRow({
   }
   return (
     <li data-message-id={message.id} data-index={index} ref={measureRef} className="flex flex-col">
+      {unreadStartsHere && <UnreadDivider />}
       {dayChanged && (
         <div className="flex items-center gap-3 px-4 py-2 md:px-6">
           <span aria-hidden="true" className="h-px flex-1 bg-secondary" />

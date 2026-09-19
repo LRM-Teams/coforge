@@ -4,6 +4,7 @@ import { agentStatusChannel } from "../../features/agents/agent-status-realtime"
 import { agentActivityChannel } from "../../features/agents/agent-activity";
 import {
   conversationRealtimeChannel,
+  userConversationChannel,
   workspaceConversationChannel,
 } from "../../features/conversations/conversation-realtime";
 
@@ -78,6 +79,21 @@ export async function issueWorkspaceConversationSubscriptionToken(
   return browserRealtimeSigner(
     environment,
     { channel: workspaceConversationChannel(input.workspaceId) },
+    input.userId,
+  );
+}
+
+/**
+ * The caller's own direct-message signal channel. It is issued to the viewer themselves and
+ * bound to their own user id, so it can only ever carry that user's direct-message signals.
+ */
+export async function issueUserConversationSubscriptionToken(
+  input: { userId: string },
+  environment: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  return browserRealtimeSigner(
+    environment,
+    { channel: userConversationChannel(input.userId) },
     input.userId,
   );
 }

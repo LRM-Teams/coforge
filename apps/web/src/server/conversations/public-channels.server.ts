@@ -404,7 +404,7 @@ export class PublicChannels {
             select: {
               id: true,
               channelMuted: true,
-              // Slack-style unread cursor (ADR 0043). Thread replies belong to their thread
+              // Slack-style unread cursor (ADR 0046). Thread replies belong to their thread
               // target and never advance it, so they never count in the channel badge.
               readThroughSequence: true,
             },
@@ -413,25 +413,26 @@ export class PublicChannels {
       }),
       // One query for every channel's unread: other-authored top-level messages past the
       // member's own read cursor. System messages (no sender member) and the viewer's own
-      // messages are already-read by definition; a soft-left membership has no badge.
+      // messages are already-read by definition; a soft-left membership has no badge. Driven
+      // from the viewer's own channel memberships so the sequence range is an index condition
+      // against `messages(conversationId, threadRootId, sequence)`, never a workspace-wide scan.
       this.db.$queryRaw<{ conversationId: string; unread: number }[]>`
-        SELECT m."conversationId" AS "conversationId", COUNT(*)::int AS "unread"
-        FROM "messages" m
-        JOIN "conversation_members" cm
-          ON cm."conversationId" = m."conversationId"
-         AND cm."userId" = ${userId}::uuid
-         AND cm."leftAt" IS NULL
+        SELECT cm."conversationId" AS "conversationId", COUNT(m."id")::int AS "unread"
+        FROM "conversation_members" cm
+        JOIN "conversations" c
+          ON c."id" = cm."conversationId"
+         AND c."workspaceId" = ${workspaceId}::uuid
+         AND c."channelName" IS NOT NULL
+        LEFT JOIN "messages" m
+          ON m."conversationId" = cm."conversationId"
+         AND m."threadRootId" IS NULL
+         AND m."senderMemberId" IS NOT NULL
+         AND m."senderMemberId" IS DISTINCT FROM cm."id"
          AND m."sequence" > cm."readThroughSequence"
-        WHERE m."workspaceId" = ${workspaceId}::uuid
-          AND m."threadRootId" IS NULL
-          AND m."senderMemberId" IS NOT NULL
-          AND (m."senderMemberId" IS DISTINCT FROM cm."id")
-          AND EXISTS (
-            SELECT 1 FROM "conversations" c
-            WHERE c."id" = m."conversationId" AND c."workspaceId" = ${workspaceId}::uuid
-              AND c."channelName" IS NOT NULL
-          )
-        GROUP BY m."conversationId"
+        WHERE cm."userId" = ${userId}::uuid
+          AND cm."leftAt" IS NULL
+          AND cm."workspaceId" = ${workspaceId}::uuid
+        GROUP BY cm."conversationId"
       `,
     ]);
     const unreadByConversation = new Map(unread.map((row) => [row.conversationId, row.unread]));
@@ -546,7 +547,7 @@ export class PublicChannels {
     // (Re-)joining starts already-read at the channel's current top-level end: the badge
     // counts what arrives *after* you joined, never the backlog that existed before.
     await this.db.$transaction(async (tx) => {
-      await this.db.conversationMember.upsert({
+      await tx.conversationMember.upsert({
         where: { conversationId_userId: { conversationId: channelId, userId } },
         create: { workspaceId, userId, conversationId: channelId },
         update: { leftAt: null },
@@ -564,7 +565,7 @@ export class PublicChannels {
   }
 
   /**
-   * Advances the human member's top-level read cursor (ADR 0043). Monotone and clamped to the
+   * Advances the human member's top-level read cursor (ADR 0046). Monotone and clamped to the
    * conversation's current maximum sequence: a stale client cannot move the boundary backwards,
    * and an over-eager client cannot push it past the conversation (which would swallow future
    * messages into "already read").
@@ -842,24 +843,29 @@ export class PublicChannels {
     );
 
     // (Re-)added members start already-read at the channel's current end: the badge counts
-    // what arrives after the add, never the backlog that existed before (mirrors `join`).
+    // what arrives after the add, never the backlog that existed before (mirrors `join`). An
+    // already-active member keeps the read position they had — re-adding is a no-op.
     const cursor = await this.db.message.findFirst({
       where: { conversationId: channelId },
       orderBy: { sequence: "desc" },
       select: { sequence: true },
     });
+    const readThroughSequence = cursor?.sequence ?? 0;
+    const alreadyActiveUserIds = new Set(alreadyMemberUserIds);
     await Promise.all([
       ...userIds.map((userId) =>
-        this.db.conversationMember.upsert({
-          where: { conversationId_userId: { conversationId: channelId, userId } },
-          create: {
-            workspaceId,
-            conversationId: channelId,
-            userId,
-            readThroughSequence: cursor?.sequence ?? 0,
-          },
-          update: { leftAt: null, readThroughSequence: cursor?.sequence ?? 0 },
-        }),
+        alreadyActiveUserIds.has(userId)
+          ? Promise.resolve()
+          : this.db.conversationMember.upsert({
+              where: { conversationId_userId: { conversationId: channelId, userId } },
+              create: {
+                workspaceId,
+                conversationId: channelId,
+                userId,
+                readThroughSequence,
+              },
+              update: { leftAt: null, readThroughSequence },
+            }),
       ),
       ...agentIds.map((agentId) =>
         this.db.conversationMember.upsert({
@@ -950,6 +956,10 @@ export class PublicChannels {
       senderMemberId: member?.id ?? "",
       viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
+      // The viewer's conversation-level read cursor over top-level messages (ADR 0046):
+      // the client positions the initial view at the first unread message and draws the
+      // divider there. Undefined for a non-member (nothing is "unread for them").
+      readThroughSequence: member?.readThroughSequence,
       threadReadThrough: Object.fromEntries(
         (member?.threadReads ?? []).map((read) => [read.rootMessageId, read.readThroughSequence]),
       ),

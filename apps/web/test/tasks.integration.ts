@@ -844,14 +844,26 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
         assignee: `@${assigned!.name}`,
       }),
     ).rejects.toThrow("ACCESS_DENIED");
+    // An Agent message with no Agent mention never wakes another Agent; an explicit Agent
+    // mention is a directed handoff and does (PR #338's Agent-to-Agent wake).
     const beforeAgentSend = await repo.readPendingAgentDeliveries(workspace.id, unrelated!.id);
+    await repo.sendAgentMessage(channel.id, assigned!.id, "ordinary Agent message, no mention");
+    expect(await repo.readPendingAgentDeliveries(workspace.id, unrelated!.id)).toEqual(
+      beforeAgentSend,
+    );
     await repo.sendAgentMessage(
       channel.id,
       assigned!.id,
-      `@${unrelated!.name} ordinary Agent mention`,
+      `@${unrelated!.name} directed Agent handoff`,
     );
-    expect(await repo.readPendingAgentDeliveries(workspace.id, unrelated!.id)).toEqual(
-      beforeAgentSend,
+    const afterAgentMention = await repo.readPendingAgentDeliveries(workspace.id, unrelated!.id);
+    expect(afterAgentMention).toHaveLength(beforeAgentSend.length + 1);
+    expect(afterAgentMention).toContainEqual(
+      expect.objectContaining({
+        latestSender: `@${assigned!.name}`,
+        target,
+        body: `@${unrelated!.name} directed Agent handoff`,
+      }),
     );
 
     const mine = await board.execute(agentPrincipal, {

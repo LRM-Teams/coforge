@@ -35,6 +35,7 @@ export const Route = createFileRoute("/_app")({
       notifications,
       agents,
       timeZone: preferences.timeZone,
+      conversationOpenMode: preferences.conversationOpenMode,
       recordsPreview: recordsNav.preview,
     };
   },

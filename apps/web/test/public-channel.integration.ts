@@ -220,15 +220,19 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     ]);
     await send(bob.id, "Hello Alice");
     const history = await channels.open(workspace.id, alice.id, engineering.id);
-    expect(history.messages.map((m) => [m.sequence, m.senderName, m.body])).toEqual([
-      [1, `@${alice.username}`, "Hello Bob"],
-      [2, `@${alice.username}`, "Muted ordinary message"],
-      // A resolved mention is stored as an embedded-UUID token (ADR 0022 / PR #338) and carries a
-      // MessageMention row; the browser renders the handle from that row, never by re-parsing
-      // prose. `agentReadableBody` is what turns the token back into `@handle` for Agents.
-      [3, `@${alice.username}`, `<@human:${bob.id}> please review this`],
-      [4, `@${bob.username}`, "Hello Alice"],
-    ]);
+    // `senderName` is the display name a person reads (falling back to the username), not the
+    // `@handle` — the handle travels beside it as `senderHandle`, which is what a mention types.
+    expect(history.messages.map((m) => [m.sequence, m.senderName, m.senderHandle, m.body])).toEqual(
+      [
+        [1, alice.username, alice.username, "Hello Bob"],
+        [2, alice.username, alice.username, "Muted ordinary message"],
+        // A resolved mention is stored as an embedded-UUID token (ADR 0022 / PR #338) and carries a
+        // MessageMention row; the browser renders the handle from that row, never by re-parsing
+        // prose. `agentReadableBody` is what turns the token back into `@handle` for Agents.
+        [3, alice.username, alice.username, `<@human:${bob.id}> please review this`],
+        [4, bob.username, bob.username, "Hello Alice"],
+      ],
+    );
     // The token is resolved, not orphaned: the viewer gets the mention row it renders from. The
     // projection's `kind` is `user` (the browser's sender vocabulary); the token's prefix is
     // `human`.
@@ -517,7 +521,8 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     const opened = await channels.open(workspace.id, user.id, general.id);
     expect(opened.messages.at(-1)).toMatchObject({
       senderKind: "agent",
-      senderName: "@helper",
+      senderName: "Helper",
+      senderHandle: "helper",
       id: reply.messageId,
     });
     expect(
@@ -2085,7 +2090,7 @@ test("Agent channel info exposes a bound Project (ADR 0026) scoped to the Agent'
   }
 });
 
-test("channel unread (ADR 0043): list counts other-authored top-level messages past the cursor, markRead advances monotonically, threads never count, join/addMembers seed the cursor", async () => {
+test("channel unread (ADR 0046): list counts other-authored top-level messages past the cursor, markRead advances monotonically, threads never count, join/addMembers seed the cursor", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -2164,6 +2169,23 @@ test("channel unread (ADR 0043): list counts other-authored top-level messages p
     });
     list = await channels.list(workspace.id, carol.id);
     expect(list.find((c) => c.id === engineering.id)?.unreadCount).toBe(0);
+
+    // Re-adding an already-active member is a no-op: it must not reset a cursor they had
+    // advanced, or an admin re-running `channel add-member` would re-badge read history.
+    await channels.markRead(workspace.id, carol.id, engineering.id, 10_000);
+    await send(alice.id, "unread for carol");
+    expect(
+      (await channels.list(workspace.id, carol.id)).find((c) => c.id === engineering.id)
+        ?.unreadCount,
+    ).toBe(1);
+    await channels.addMembers(workspace.id, { userId: alice.id }, engineering.id, {
+      userIds: [carol.id],
+      agentIds: [],
+    });
+    expect(
+      (await channels.list(workspace.id, carol.id)).find((c) => c.id === engineering.id)
+        ?.unreadCount,
+    ).toBe(1);
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });

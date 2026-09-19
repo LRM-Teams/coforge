@@ -82,6 +82,10 @@ model User {
   avatarContentType           String?
   timeZone                    String?
   browserNotificationsEnabled Boolean                         @default(false)
+  /// Slack's "When I view a channel" behavior: newest-read (open at the newest message and
+  /// mark read), first-unread (open at the oldest unread), newest-unread (open at the newest
+  /// but keep unseen messages unread until scrolled through).
+  conversationOpenMode        String                          @default("newest-read")
   createdAt                   DateTime                        @default(now())
   identities                  UserIdentity[]
   gitHubConnection            GitHubConnection?
@@ -633,7 +637,7 @@ model ConversationMember {
   /// conversation. Agents keep their own delivery cursor above; a human's
   /// channel-list unread count is `top-level messages with sequence > this`
   /// excluding their own messages. Thread replies never advance it: reading a
-  /// thread does not consume unread in the channel's main target (see ADR 0043).
+  /// thread does not consume unread in the channel's main target (see ADR 0046).
   readThroughSequence      Int               @default(0)
   channelMuted             Boolean           @default(false)
   /// Soft leave marker. Member rows can never be deleted once they own a Message/Task
@@ -692,6 +696,9 @@ model Message {
   @@unique([conversationId, sequence])
   @@index([conversationId, threadRootId, sequence])
   @@index([conversationId, createdAt])
+  /// Serves workspace-wide top-level message scans with sequence ranges — the
+  /// sidebar's unread counts (ADR 0046) and future inbox-style reads.
+  @@index([workspaceId, threadRootId, sequence])
   @@map("messages")
 }
 

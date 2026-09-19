@@ -5,6 +5,7 @@ import { AppError } from "../../lib/app-error";
 import {
   issueBrowserRealtimeToken,
   issueConversationRealtimeToken,
+  issueUserConversationSubscriptionToken,
   issueWorkspaceConversationSubscriptionToken,
 } from "../../server/auth/browser-realtime-token.server";
 import { workspaceUserMiddleware } from "../../server/auth/function-auth";
@@ -51,4 +52,14 @@ export const getWorkspaceConversationSubscriptionToken = createServerFn({ method
   .handler(async ({ context }) => {
     const { user, workspaceId } = context;
     return issueWorkspaceConversationSubscriptionToken({ userId: user.id, workspaceId });
+  });
+
+/**
+ * Subscription token for the caller's own direct-message signal channel. It is issued for the
+ * authenticated user only, so it can never subscribe to another user's DM signals.
+ */
+export const getUserConversationSubscriptionToken = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => {
+    return issueUserConversationSubscriptionToken({ userId: context.user.id });
   });

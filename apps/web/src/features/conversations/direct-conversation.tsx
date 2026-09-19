@@ -25,7 +25,12 @@ import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents/deleted-agent";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { ConversationListButton, useConversationDetailVisible } from "./conversation-navigation";
+import {
+  ConversationListButton,
+  useConversationDetailVisible,
+  useConversationOpenMode,
+} from "./conversation-navigation";
+import { latestTopLevelSequence } from "./conversation-unread";
 import { ConversationPending } from "./conversation-pending";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import {
@@ -87,6 +92,10 @@ const measureConversationElement: typeof measureElement = (element, entry, insta
 export type DirectConversationView = {
   conversationId: string;
   senderMemberId: string;
+  /** The viewer's conversation-level read cursor over top-level messages (ADR 0046).
+   * The first top-level message past it is the first unread; the initial view positions
+   * there and draws the divider. Absent for a non-member or a fully-read fresh seed. */
+  readThroughSequence?: number;
   threadReadThrough?: Record<string, number>;
   hasOlder?: boolean;
   hasNewer?: boolean;
@@ -148,6 +157,13 @@ type ConversationProps = {
   onLoadMessageAround?: (messageId: string) => Promise<void>;
   onShowLatest?: () => Promise<void>;
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
+  /**
+   * The main pane reached the latest message by the user's own scrolling. Only the main pane
+   * receives it (thread panes are separate `ConversationPane` instances and must never advance
+   * the conversation cursor), and it is never fired by open positioning. Used by the
+   * `newest-unread` open mode, where the cursor advances only through this callback.
+   */
+  onReadLatest?: (throughSequence: number) => void;
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   onShowTasks?: () => void;
@@ -309,6 +325,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     onAgentProfileTabChange,
     onCloseAgentProfile,
     onLoadMessageAround,
+    // Held out of `conversationProps` so the thread panes (which spread it) never receive it:
+    // only the main pane may advance the conversation-level read cursor.
+    onReadLatest,
     ...conversationProps
   } = props;
   const detailVisible = useConversationDetailVisible();
@@ -443,6 +462,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     <ConversationPane
       {...conversationProps}
       onLoadMessageAround={onLoadMessageAround}
+      onReadLatest={onReadLatest}
       header={header}
       conversation={{ ...conversation, messages: mainMessages }}
       threadEntry={(message) => {
@@ -674,6 +694,7 @@ export function ConversationPane({
   onLoadOwnMessages,
   onLoadMessageAround,
   onShowLatest,
+  onReadLatest,
   onCreateTask,
   onOpenAgentProfile,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
@@ -688,6 +709,7 @@ export function ConversationPane({
   threadHeaderAction?: React.ReactNode;
   messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
 }) {
+  const openMode = useConversationOpenMode();
   const [dateLocale, setDateLocale] = useState<string>();
   useEffect(() => setDateLocale(getLocale()), []);
   const toast = useAppToast();
@@ -700,6 +722,26 @@ export function ConversationPane({
   const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
   const pendingLatestRef = useRef(false);
+  // The initial-position decision is made once per conversation open: with unread messages,
+  // Slack's default lands on the first one and draws the divider; otherwise at the latest.
+  // Consumed by the mount effect below (open positioning) and by the divider snapshot, and
+  // never re-read on later updates.
+  const firstUnread = useMemo(() => {
+    const cursor = conversation.readThroughSequence;
+    if (cursor === undefined) return undefined;
+    const firstUnreadMessage = conversation.messages.find(
+      (message) => !message.threadRootId && message.sequence > cursor,
+    );
+    return firstUnreadMessage
+      ? { id: firstUnreadMessage.id, sequence: firstUnreadMessage.sequence }
+      : undefined;
+  }, [conversation.conversationId]);
+  const firstUnreadConsumedRef = useRef(false);
+  // The divider is frozen at the boundary seen at open, so the mark-read effect (which
+  // advances the cursor server-side) never makes it jump or vanish mid-visit. Captured once,
+  // by the first render's state initializer: a ref written during render could be left set by
+  // a render React then discards, showing a divider for a conversation never opened.
+  const [openBoundary] = useState(firstUnread);
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
   // Handles that recently sent a message here, most-recent first: the mention completion popup
@@ -848,9 +890,35 @@ export function ConversationPane({
     previousLastSequenceRef.current = lastSequence;
 
     if (firstRender || changedConversation || followingLatestRef.current) {
-      scrollToLatest("instant");
       setNewMessageCount(0);
+      // The user's "When I view a conversation" preference decides the open position:
+      // - first-unread: land on the oldest unread (divider above it).
+      // - newest-read / newest-unread: land at the latest. `newest-unread` differs only in
+      //   when the cursor advances: it waits for `onReadLatest` below, never for the open.
+      // A message hash (deep link, task jump) still wins over both — the anchor effect
+      // handles it and has already cleared `followingLatest` by the time this runs.
+      const initial =
+        openMode === "first-unread" && !firstUnreadConsumedRef.current ? firstUnread : undefined;
+      firstUnreadConsumedRef.current = true;
+      if (initial && !window.location.hash) {
+        const index = conversation.messages.findIndex((message) => message.id === initial.id);
+        if (index >= 0) {
+          setFollowingLatest(false);
+          messageVirtualizer.scrollToIndex(index, { align: "start" });
+          requestAnimationFrame(() => {
+            document.getElementById(`message-${initial.id}`)?.scrollIntoView({ block: "start" });
+          });
+          return undefined;
+        }
+      }
+      scrollToLatest("instant");
       setFollowingLatest(true);
+      // TanStack's scroll restoration rewrites this container's scrollTop in the router's
+      // `onRendered` pass, which runs after this child's layout effect. Reassert the
+      // open-at-latest contract one frame later, after that write has landed.
+      requestAnimationFrame(() => {
+        if (followingLatestRef.current) scrollToLatest("instant");
+      });
     } else if (receivedMessageCount > 0) {
       setNewMessageCount((count) => count + receivedMessageCount);
     }
@@ -926,8 +994,16 @@ export function ConversationPane({
     if (!history) return;
     if (history.scrollTop <= 80) void loadOlder();
     const followingLatest = history.scrollHeight - history.scrollTop - history.clientHeight <= 48;
+    const wasFollowingLatest = followingLatestRef.current;
     setFollowingLatest(followingLatest);
     if (followingLatest) setNewMessageCount(0);
+    // A genuine scroll transition into the latest run is the only signal that the user read
+    // it. Open positioning sets `followingLatest` directly and never passes through here, so
+    // it cannot mark a conversation read (ADR 0046's `newest-unread` mode).
+    if (followingLatest && !wasFollowingLatest && !root) {
+      const through = latestTopLevelSequence(conversation.messages);
+      if (through > 0) onReadLatest?.(through);
+    }
   }
 
   async function loadOlder() {
@@ -1137,6 +1213,9 @@ export function ConversationPane({
                     previous ? isOwn(previous) : false,
                     dateLocale,
                   );
+                  // The unread divider is anchored to the snapshot taken at open: once the
+                  // mark-read effect has advanced the cursor, the divider must not jump.
+                  const unreadStartsHere = openBoundary?.sequence === message.sequence;
                   return (
                     <MessageRow
                       key={key}
@@ -1145,6 +1224,7 @@ export function ConversationPane({
                       own={own}
                       dayChanged={dayChanged}
                       grouped={grouped}
+                      unreadStartsHere={unreadStartsHere}
                       expanded={expandedMessages.has(message.id)}
                       onToggleExpanded={() => toggleExpandedMessage(message.id)}
                       agentDisplay={agentDisplayFor}

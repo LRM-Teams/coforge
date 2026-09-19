@@ -17,7 +17,7 @@ import {
 } from "./public-channels.server";
 import { ConversationHistory } from "./conversation-history.server";
 import { allocateSequence } from "../db/repositories/direct-conversation.repositories.server";
-import type { ConversationRealtime } from "./conversation-realtime.server";
+import { messageSignalScope, type ConversationRealtime } from "./conversation-realtime.server";
 import { isAdminLike } from "../workspaces/member-role.server";
 import { workspaceMemberRole } from "../workspaces/members.server";
 
@@ -182,7 +182,7 @@ export class ActionCards {
         conversationId: target.conversationId,
         messageId: created.id,
         sequence: created.sequence,
-        workspaceId: principal.workspaceId,
+        ...(await messageSignalScope(this.db, target.conversationId, principal.workspaceId)),
         threadRootId: target.threadRootId,
       });
     } catch {
@@ -414,13 +414,17 @@ export class ActionCards {
     try {
       const message = await this.db.message.findUnique({
         where: { id: messageId },
-        select: { sequence: true },
+        select: { sequence: true, threadRootId: true, workspaceId: true },
       });
       if (message)
         await this.realtime?.messageAvailable({
           conversationId,
           messageId,
           sequence: message.sequence,
+          // A card prepared inside a thread stays a thread reply here: republishing it without
+          // its anchor would let the browser count it as a channel message (ADR 0046).
+          ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
+          ...(await messageSignalScope(this.db, conversationId, message.workspaceId)),
         });
     } catch {
       // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.

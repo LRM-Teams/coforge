@@ -31,6 +31,13 @@ import {
   agentProfileTabParamSchema,
 } from "@/features/agents/profile-panel/profile-panel-search";
 import { useOpenAgentProfile } from "@/features/agents/profile-panel/open-agent-profile";
+import {
+  useConversationReadRequiresScroll,
+  useMarkConversationSeen,
+} from "@/features/conversations/conversation-navigation";
+import { latestTopLevelSequence } from "@/features/conversations/conversation-unread";
+import { markDirectConversationRead } from "@/features/conversations/conversations.functions";
+import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
@@ -69,6 +76,24 @@ function DirectConversationPage() {
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
   const { showChat, showTasks, changeLayout, openTask } = useConversationView(page.ensureLoaded);
+
+  // Opening the DM is reading it — except in the `newest-unread` preference, which keeps
+  // unseen messages unread until the latest is actually viewed: the badge clears
+  // immediately, but the server-side cursor only advances through `onReadLatest` below.
+  const markSeen = useMarkConversationSeen();
+  const advanceReadCursor = useServerFn(markDirectConversationRead);
+  const readRequiresScroll = useConversationReadRequiresScroll();
+  const topLevelEnd = latestTopLevelSequence(conversation.messages);
+  useEffect(() => {
+    markSeen(agentId, topLevelEnd);
+  }, [markSeen, agentId, topLevelEnd]);
+  useEffect(() => {
+    if (!topLevelEnd || readRequiresScroll) return;
+    void advanceReadCursor({ data: { agentId, throughSequence: topLevelEnd } }).catch(() => {});
+  }, [advanceReadCursor, agentId, topLevelEnd, readRequiresScroll]);
+  const readLatest = (throughSequence: number) => {
+    void advanceReadCursor({ data: { agentId, throughSequence } }).catch(() => {});
+  };
 
   if (view === "tasks")
     return (
@@ -131,6 +156,7 @@ function DirectConversationPage() {
       }
       onLoadMessageAround={page.loadMessageAround}
       onShowLatest={page.showLatest}
+      onReadLatest={readLatest}
       onLoadOlder={page.loadOlder}
       onOpenAgentProfile={openAgentProfile}
       agentProfile={{ agentId: profileAgentId, tab: agentTab }}

@@ -18,7 +18,11 @@ import {
   sendTestBrowserNotification,
   subscribeBrowserPush,
 } from "@/features/notifications/notifications.functions";
-import { getUserPreferences, saveUserTimeZone } from "@/features/settings/settings.functions";
+import {
+  getUserPreferences,
+  saveConversationOpenMode,
+  saveUserTimeZone,
+} from "@/features/settings/settings.functions";
 import {
   loadMyWorkspaceInvitations,
   loadWorkspaceMembers,
@@ -26,6 +30,10 @@ import {
 import { getLocale, setLocale } from "@/paraglide/runtime";
 import { readRailLabels, writeRailLabels } from "@/features/settings/rail-labels";
 import { readTextSize, writeTextSize, type TextSizeValue } from "@/features/settings/text-size";
+import {
+  conversationOpenMode,
+  type ConversationOpenMode,
+} from "@/features/settings/conversation-open-mode";
 import { m } from "@/paraglide/messages";
 
 type Theme = "system" | "light" | "dark";
@@ -81,13 +89,18 @@ function SettingsPage() {
   const [textSize, setTextSize] = useState<TextSizeValue>("default");
   const { section, github } = Route.useSearch();
   const navigate = Route.useNavigate();
-  const { timeZone: savedTimeZone, members } = Route.useLoaderData();
+  const {
+    timeZone: savedTimeZone,
+    conversationOpenMode: savedOpenMode,
+    members,
+  } = Route.useLoaderData();
   const { user: profile, notifications } = appRoute.useLoaderData();
   const [notificationPermission, setNotificationPermission] = useState<
     NotificationPermission | "unsupported"
   >("unsupported");
   const [showAddToHomeScreenGuide, setShowAddToHomeScreenGuide] = useState(false);
   const saveTimeZone = useServerFn(saveUserTimeZone);
+  const saveOpenMode = useServerFn(saveConversationOpenMode);
   const saveNotificationPreference = useServerFn(saveBrowserNotificationPreference);
   const subscribePush = useServerFn(subscribeBrowserPush);
   const sendTestNotification = useServerFn(sendTestBrowserNotification);
@@ -153,6 +166,15 @@ function SettingsPage() {
   async function changeTimeZone(nextTimeZone: string) {
     try {
       await saveTimeZone({ data: { timeZone: nextTimeZone || null } });
+      await router.invalidate({ sync: true });
+    } catch (cause) {
+      toast.error(m.settings_save_error(), cause);
+    }
+  }
+
+  async function changeConversationOpenMode(nextMode: ConversationOpenMode) {
+    try {
+      await saveOpenMode({ data: { mode: nextMode } });
       await router.invalidate({ sync: true });
     } catch (cause) {
       toast.error(m.settings_save_error(), cause);
@@ -250,6 +272,8 @@ function SettingsPage() {
       textSize={textSize}
       onTextSizeChange={changeTextSize}
       onTimeZoneChange={changeTimeZone}
+      conversationOpenMode={conversationOpenMode(savedOpenMode)}
+      onConversationOpenModeChange={changeConversationOpenMode}
       onBrowserNotificationsChange={changeBrowserNotifications}
       onEnableBrowserNotifications={enableBrowserNotifications}
       onTestBrowserNotification={testBrowserNotification}
