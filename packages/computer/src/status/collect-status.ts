@@ -22,7 +22,7 @@ export async function collectComputerStatus(ports: StatusPorts): Promise<Compute
   const supervisor = await collectSupervisor(ports, snapshot);
   const bindingsLoad = await ports.loadBindings();
   const agents = await collectAgents(ports, bindingsLoad);
-  const workspaces = collectWorkspaces(bindingsLoad, snapshot, agents, ports.now());
+  const workspaces = await collectWorkspaces(ports, bindingsLoad, snapshot, agents, ports.now());
   const leftoverJobs = await collectLeftoverJobs(ports);
   const supervisorLockOwnerPid = await ports.readSupervisorLockOwner();
   return {
@@ -90,12 +90,13 @@ async function collectSupervisor(
   };
 }
 
-function collectWorkspaces(
+async function collectWorkspaces(
+  ports: StatusPorts,
   bindingsLoad: Awaited<ReturnType<StatusPorts["loadBindings"]>>,
   snapshot: DaemonSnapshotProbe,
   agents: AgentsStatus,
   now: Date,
-): WorkspacesStatus {
+): Promise<WorkspacesStatus> {
   if (!bindingsLoad.ok) return { readable: false, error: bindingsLoad.error };
   const runtimeByWorkspace = new Map(
     snapshot.reachable ? snapshot.runtimes.map((runtime) => [runtime.workspaceId, runtime]) : [],
@@ -105,29 +106,32 @@ function collectWorkspaces(
   );
   return {
     readable: true,
-    workspaces: bindingsLoad.bindings.map((binding) => {
-      const runtime = runtimeByWorkspace.get(binding.workspaceId);
-      const snapshotPid = runtime && runtime.processId > 0 ? runtime.processId : null;
-      // The Coordinator's snapshot can report 0 for a Workspace whose OS job it lost track of
-      // (e.g. launchd's KeepAlive restarted it after the Coordinator last observed it) even
-      // though the Workspace daemon is genuinely running. The OS job's own PID, read from the
-      // same job listing Agents already uses, is a reliable fallback - and the report says which
-      // source it came from rather than silently picking one.
-      const osJobPid = osJobPidByWorkspace.get(binding.workspaceId) ?? null;
-      const pid = snapshotPid ?? osJobPid;
-      const pidSource =
-        snapshotPid !== null ? "daemon-snapshot" : osJobPid !== null ? "os-job" : null;
-      return {
-        workspaceId: binding.workspaceId,
-        serverHttpUrl: binding.serverHttpUrl ?? null,
-        enabled: binding.enabled,
-        running: pid !== null,
-        pid,
-        pidSource,
-        pending: pendingRequestsFor(binding),
-        unsettledUpgrades: unsettledUpgradesFor(binding, now),
-      };
-    }),
+    workspaces: await Promise.all(
+      bindingsLoad.bindings.map(async (binding) => {
+        const runtime = runtimeByWorkspace.get(binding.workspaceId);
+        const snapshotPid = runtime && runtime.processId > 0 ? runtime.processId : null;
+        // The Coordinator's snapshot can report 0 for a Workspace whose OS job it lost track of
+        // (e.g. launchd's KeepAlive restarted it after the Coordinator last observed it) even
+        // though the Workspace daemon is genuinely running. The OS job's own PID, read from the
+        // same job listing Agents already uses, is a reliable fallback - and the report says which
+        // source it came from rather than silently picking one.
+        const osJobPid = osJobPidByWorkspace.get(binding.workspaceId) ?? null;
+        const pid = snapshotPid ?? osJobPid;
+        const pidSource =
+          snapshotPid !== null ? "daemon-snapshot" : osJobPid !== null ? "os-job" : null;
+        return {
+          workspaceId: binding.workspaceId,
+          serverHttpUrl: binding.serverHttpUrl ?? null,
+          enabled: binding.enabled,
+          running: pid !== null,
+          pid,
+          pidSource,
+          pending: pendingRequestsFor(binding),
+          unsettledUpgrades: unsettledUpgradesFor(binding, now),
+          health: await ports.readWorkspaceHealth(binding.workspaceId),
+        };
+      }),
+    ),
   };
 }
 

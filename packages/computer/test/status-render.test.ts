@@ -35,6 +35,7 @@ const REPORT: ComputerStatusReport = {
         unsettledUpgrades: [
           { requestId: "req-2", expectedVersion: "1.6.0", state: "failed", ageMs: 65_000 },
         ],
+        health: { status: "ok" },
       },
     ],
   },
@@ -125,12 +126,52 @@ test("renderStatusHuman shows which source a Workspace's pid came from", () => {
           pidSource: "os-job",
           pending: [],
           unsettledUpgrades: [],
+          health: { status: "ok" },
         },
       ],
     },
   });
 
   expect(lines.join("\n")).toContain("pid=9001 (os-job)");
+});
+
+test("renderStatusHuman states a degraded Workspace's real reason and the recovery command", () => {
+  const lines = renderStatusHuman({
+    ...REPORT,
+    workspaces: {
+      readable: true,
+      workspaces: [
+        {
+          workspaceId: "ws-1",
+          serverHttpUrl: "https://coforge.cn",
+          enabled: true,
+          running: false,
+          pid: null,
+          pidSource: null,
+          pending: [],
+          unsettledUpgrades: [],
+          health: {
+            status: "degraded",
+            reason: "this Workspace exited unexpectedly 3 times within 60s",
+            crashCount: 3,
+            since: "2026-01-01T00:00:00.000Z",
+          },
+        },
+      ],
+    },
+  });
+  const text = lines.join("\n");
+
+  expect(text).toContain(
+    "degraded: this Workspace exited unexpectedly 3 times within 60s  crashes=3  since=2026-01-01T00:00:00.000Z",
+  );
+  expect(text).toContain("recover: coforge-computer restart --workspace ws-1");
+});
+
+test("renderStatusHuman prints nothing extra for a healthy Workspace's health", () => {
+  const lines = renderStatusHuman(REPORT);
+
+  expect(lines.join("\n")).not.toContain("degraded:");
 });
 
 test("renderStatusHuman never crashes on control characters embedded in untrusted strings", () => {
@@ -148,6 +189,7 @@ test("renderStatusHuman never crashes on control characters embedded in untruste
           pidSource: null,
           pending: [],
           unsettledUpgrades: [],
+          health: { status: "ok" },
         },
       ],
     },

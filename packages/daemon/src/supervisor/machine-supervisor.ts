@@ -96,6 +96,12 @@ export interface WorkspaceProcesses {
   /** Lifts a hold on a daemon that, against expectations, survived: only called when the OS stop
    * after a hold failed, so the still-running daemon does not sit held with nobody to lift it. */
   release?(binding: ManagedBinding, reason: string): Promise<unknown>;
+  /** Clears this Workspace's crash/terminal health latch. Called only for an explicit operator
+   * `start`/`restart` through `command()` - never from automatic recovery on Coordinator startup,
+   * and never from `stop` - so an OS-level crash-loop restart (which never reaches `command()`)
+   * cannot clear its own latch. Optional: a `WorkspaceProcesses` with no health journal to clear
+   * simply never latches. */
+  clearHealth?(binding: ManagedBinding): Promise<void>;
 }
 
 /** Test seam for the bounded restart hold; production takes every default. */
@@ -176,6 +182,9 @@ export class MachineSupervisor {
           await this.#stop(binding);
           continue;
         }
+        // Reached only for "start" and "restart": an explicit operator lifecycle command, the one
+        // seam that is allowed to clear the health latch (see `WorkspaceProcesses.clearHealth`).
+        await this.processes.clearHealth?.(binding);
         if (operation === "restart") {
           const id = requestId ?? crypto.randomUUID();
           const result = binding.restartResults?.find((entry) => entry.requestId === id);
