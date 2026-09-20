@@ -13,6 +13,7 @@ import { useCurrentWorkspaceId, useLiveAgents } from "@/features/agents/workspac
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { useChannelUnread } from "./conversation-unread";
 import {
+  DEFAULT_CONVERSATION_OPEN_MODE,
   conversationOpenMode,
   type ConversationOpenMode,
 } from "@/features/settings/conversation-open-mode";
@@ -32,7 +33,7 @@ type UnreadControls = {
 };
 
 const UnreadContext = createContext<UnreadControls>({ counts: {}, clear: () => {} });
-const OpenModeContext = createContext<ConversationOpenMode>("newest-read");
+const OpenModeContext = createContext<ConversationOpenMode>(DEFAULT_CONVERSATION_OPEN_MODE);
 
 export function useConversationDetailVisible() {
   return useContext(ConversationListContext)?.detailVisible ?? true;

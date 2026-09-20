@@ -11,8 +11,6 @@ import type { ConversationOpenMode } from "../settings/conversation-open-mode";
 /** The unread boundary: the oldest message the viewer has not read in this pane. */
 export type UnreadBoundary = { id: string; sequence: number };
 
-export type PositionedMessage = { id: string; sequence: number };
-
 /**
  * The oldest message past `readThroughSequence`, or `undefined` when the pane has nothing
  * unread — or no cursor at all.
@@ -24,17 +22,17 @@ export type PositionedMessage = { id: string; sequence: number };
  * first time.
  */
 export function unreadBoundary(
-  messages: readonly PositionedMessage[],
+  messages: readonly UnreadBoundary[],
   readThroughSequence: number | undefined,
 ): UnreadBoundary | undefined {
   if (readThroughSequence === undefined) return undefined;
-  const first = messages.find((message) => message.sequence > readThroughSequence);
-  return first ? { id: first.id, sequence: first.sequence } : undefined;
+  return messages.find((message) => message.sequence > readThroughSequence);
 }
 
 /**
- * The open position for a pane: the unread boundary under Slack's "start where you left off",
- * the latest message under either "start at the newest" mode.
+ * The message a pane opens on, or `undefined` for the latest: the unread boundary under
+ * Slack's "start where you left off", the latest message under either "start at the newest"
+ * mode.
  *
  * `newest-unread` differs from `newest-read` only in when the read cursor advances, which the
  * pane's mark-read effect owns — not in where the pane lands.
@@ -42,7 +40,6 @@ export function unreadBoundary(
 export function conversationOpenPosition(
   mode: ConversationOpenMode,
   boundary: UnreadBoundary | undefined,
-): { kind: "message"; id: string } | { kind: "latest" } {
-  if (mode === "first-unread" && boundary) return { kind: "message", id: boundary.id };
-  return { kind: "latest" };
+): string | undefined {
+  return mode === "first-unread" ? boundary?.id : undefined;
 }
