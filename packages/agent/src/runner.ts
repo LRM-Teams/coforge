@@ -112,7 +112,7 @@ export async function createSession(options: {
     options.modelProvider && options.model
       ? modelRuntime.getModel(options.modelProvider, options.model)
       : undefined;
-  if (options.model && !model) throw new Error("Pi model is unavailable");
+  if (options.model && !model) throw new Error(`Pi model not found: ${options.model}`);
   const extensionDefinesBash = services.resourceLoader
     .getExtensions()
     .extensions.some((extension) => extension.tools.has("bash"));

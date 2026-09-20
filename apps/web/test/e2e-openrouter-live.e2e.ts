@@ -58,7 +58,7 @@ class DiagnosticPiProvider extends PiProvider {
       this.creationFailure = error instanceof Error ? error.constructor.name : typeof error;
       diagnostic("pi_session_create_failed", {
         errorType: this.creationFailure,
-        modelUnavailable: error instanceof Error && error.message === "Pi model is unavailable",
+        modelUnavailable: error instanceof Error && error.message.startsWith("Pi model not found:"),
       });
       throw error;
     }
