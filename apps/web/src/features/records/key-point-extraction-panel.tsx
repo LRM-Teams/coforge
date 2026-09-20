@@ -7,6 +7,7 @@ import { m } from "@/paraglide/messages";
 import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
 import type { KeyPointExtractionMeta } from "./records-content";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import { RecordsReadingColumn } from "./records-reading-column";
 
 export const KEY_POINT_EXTRACTION_TAB = "✨ 要点提炼";
 
@@ -20,6 +21,8 @@ export function KeyPointExtractionPanel({
   /** Settings deep-link for the prompt editor (personal or team slot). */
   editPrompt,
   className,
+  /** When false, skip the centered reading column (already nested in one). */
+  framed = true,
 }: {
   extraction: KeyPointExtractionMeta | undefined;
   assistantAgentId?: string | null;
@@ -31,6 +34,7 @@ export function KeyPointExtractionPanel({
     returnTo: string;
   };
   className?: string;
+  framed?: boolean;
 }) {
   const status = extraction?.status;
   const canRestart =
@@ -43,13 +47,8 @@ export function KeyPointExtractionPanel({
       status === "awaiting_confirm");
   const showActions = Boolean(editPrompt) || canRestart;
 
-  return (
-    <div
-      className={cn(
-        "min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6",
-        className,
-      )}
-    >
+  const body = (
+    <>
       {showActions ? (
         <div className="flex flex-wrap items-center justify-end gap-3">
           {editPrompt ? (
@@ -127,6 +126,16 @@ export function KeyPointExtractionPanel({
           {waitingLabel ?? m.records_key_points_waiting_submit()}
         </p>
       ) : null}
+    </>
+  );
+
+  if (!framed) {
+    return <div className={cn("space-y-4", className)}>{body}</div>;
+  }
+
+  return (
+    <div className={cn("min-h-0 flex-1 overflow-y-auto", className)}>
+      <RecordsReadingColumn className="space-y-4">{body}</RecordsReadingColumn>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import { ReportSectionEditor } from "./report-editor/report-section-editor";
 import type { ReportContent } from "./records-content";
 import { cn } from "@/lib/utils";
 import type { UploadResult } from "./report-editor/types";
+import { RecordsReadingColumn } from "./records-reading-column";
 
 export function ReportTabsEditor({
   content,
@@ -316,17 +317,19 @@ export function ReportTabsEditor({
           onBlur={onBlur}
         />
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-          <ReportSectionEditor
-            key={`${activeTab}:${contentRevision}`}
-            defaultValue={activeContent}
-            placeholder={placeholder}
-            className="min-h-[55vh] pb-[30vh]"
-            editable={editable}
-            onUploadFile={onUploadFile}
-            onUpdate={updateMarkdown}
-            onBlur={onBlur}
-          />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <RecordsReadingColumn>
+            <ReportSectionEditor
+              key={`${activeTab}:${contentRevision}`}
+              defaultValue={activeContent}
+              placeholder={placeholder}
+              className="min-h-[55vh] pb-[45vh]"
+              editable={editable}
+              onUploadFile={onUploadFile}
+              onUpdate={updateMarkdown}
+              onBlur={onBlur}
+            />
+          </RecordsReadingColumn>
         </div>
       )}
     </div>

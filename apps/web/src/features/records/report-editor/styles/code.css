@@ -23,8 +23,15 @@
 }
 
 /* Code blocks */
+.rich-text-editor .code-block-wrapper {
+  max-width: 100%;
+}
+
 .rich-text-editor .code-block-frame {
+  max-width: 100%;
   border: 1px solid color-mix(in srgb, var(--color-text-primary) 7%, transparent);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
 }
 
 .rich-text-editor .code-block-frame.code-block-frame-mermaid-diagram-only {
@@ -46,6 +53,9 @@
   border-radius: 0;
   margin: 0;
   padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 }
 
 .rich-text-editor .code-block-frame .mermaid-diagram-toolbar {
@@ -63,16 +73,20 @@ pre.rich-text-editor {
   font-variant-ligatures: none;
   font-feature-settings: "liga" 0;
   background: var(--color-bg-secondary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   padding: 0.75rem 1rem;
   margin: 0.75rem 0;
-  /* LRM-268: Slack-style long code — scroll inside the block, not the bubble. */
+  /* LRM-268: Slack-style long code — scroll inside the block, not the page. */
   max-height: 300px;
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: auto;
 }
 
-.rich-text-editor .code-block-source {
+/* Framed NodeView owns the card chrome; keep the inner <pre> flush. */
+.rich-text-editor .code-block-frame > pre,
+.rich-text-editor .code-block-frame .code-block-source {
+  background: transparent;
   border-radius: 0;
   margin: 0;
 }

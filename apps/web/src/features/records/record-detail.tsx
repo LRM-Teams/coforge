@@ -59,6 +59,7 @@ import {
   WeekBadge,
   useFormatEditHint,
 } from "./records-layout";
+import { RecordsReadingColumn } from "./records-reading-column";
 import { RecordSidePanel } from "./record-side-panel";
 import { readSidePanelPinned } from "./record-side-panel-pin";
 import { TemplateChildrenTable, type TemplateChild } from "./template-children-table";
@@ -874,16 +875,18 @@ function TemplateReportDetail({
         )}
 
         {isOverview ? (
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-            <TemplateChildrenTable children={report.children ?? []} />
-            {isOverviewLeader ? (
-              <TeamKeyPointSection
-                overviewReportId={report.id}
-                extraction={content.keyPointExtraction}
-                busy={teamKeyPointBusy}
-                onStart={() => void onStartTeamKeyPoints()}
-              />
-            ) : null}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <RecordsReadingColumn>
+              <TemplateChildrenTable children={report.children ?? []} />
+              {isOverviewLeader ? (
+                <TeamKeyPointSection
+                  overviewReportId={report.id}
+                  extraction={content.keyPointExtraction}
+                  busy={teamKeyPointBusy}
+                  onStart={() => void onStartTeamKeyPoints()}
+                />
+              ) : null}
+            </RecordsReadingColumn>
           </div>
         ) : (
           <ReportTabsEditor
@@ -1048,56 +1051,58 @@ function NoteDetail({ note }: { note: NoteSubject["note"] }) {
           }
         />
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-          {editingTitle ? (
-            <input
-              autoFocus
-              value={title}
-              aria-label={m.records_note_title()}
-              onChange={(event) => {
-                const next = event.target.value;
-                setTitle(next);
-                titleRef.current = next;
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <RecordsReadingColumn>
+            {editingTitle ? (
+              <input
+                autoFocus
+                value={title}
+                aria-label={m.records_note_title()}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setTitle(next);
+                  titleRef.current = next;
+                }}
+                onBlur={() => void commitTitle()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void commitTitle();
+                  }
+                  if (event.key === "Escape") {
+                    setTitle(note.title);
+                    titleRef.current = note.title;
+                    setEditingTitle(false);
+                  }
+                }}
+                className="mb-6 w-full bg-transparent text-3xl font-semibold tracking-tight text-primary outline-none md:text-4xl"
+              />
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                color="tertiary"
+                onPress={() => setEditingTitle(true)}
+                className="mb-6 h-auto w-full justify-start px-0 py-0 text-left text-3xl font-semibold tracking-tight text-primary md:text-4xl"
+              >
+                {title}
+              </Button>
+            )}
+            <ReportSectionEditor
+              key={note.id}
+              defaultValue={body}
+              placeholder={m.records_note_body_placeholder()}
+              className="min-h-[55vh] pb-[45vh]"
+              onUploadFile={fileToDataUrlUpload}
+              onUpdate={(markdown) => {
+                schedulePersist(markdown);
               }}
-              onBlur={() => void commitTitle()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void commitTitle();
-                }
-                if (event.key === "Escape") {
-                  setTitle(note.title);
-                  titleRef.current = note.title;
-                  setEditingTitle(false);
-                }
+              onBlur={() => {
+                if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+                void persist({ body: bodyRef.current });
               }}
-              className="mb-6 w-full bg-transparent text-3xl font-semibold tracking-tight text-primary outline-none md:text-4xl"
             />
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              color="tertiary"
-              onPress={() => setEditingTitle(true)}
-              className="mb-6 h-auto w-full justify-start px-0 py-0 text-left text-3xl font-semibold tracking-tight text-primary md:text-4xl"
-            >
-              {title}
-            </Button>
-          )}
-          <ReportSectionEditor
-            key={note.id}
-            defaultValue={body}
-            placeholder={m.records_note_body_placeholder()}
-            className="min-h-[55vh] pb-[30vh]"
-            onUploadFile={fileToDataUrlUpload}
-            onUpdate={(markdown) => {
-              schedulePersist(markdown);
-            }}
-            onBlur={() => {
-              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-              void persist({ body: bodyRef.current });
-            }}
-          />
+          </RecordsReadingColumn>
         </div>
       </div>
     </div>

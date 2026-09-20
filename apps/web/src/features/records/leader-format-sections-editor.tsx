@@ -10,6 +10,7 @@ import {
   serializeLevel2Blocks,
   type Level2Block,
 } from "./template-outline-sections";
+import { RecordsReadingColumn } from "./records-reading-column";
 
 type BlockRow = Level2Block & { id: number };
 
@@ -53,62 +54,64 @@ export function LeaderFormatSectionsEditor({
   }
 
   return (
-    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-      {blocks.length === 0 ? (
-        <Button
-          type="button"
-          size="sm"
-          color="link-gray"
-          iconLeading={Plus}
-          onPress={() => addAfter(-1)}
-        >
-          {m.records_template_add_heading_level_two()}
-        </Button>
-      ) : null}
-      {blocks.map((block, index) => (
-        <section key={block.id} className="group rounded-xl bg-secondary px-4 py-3">
-          <div className="mb-2 flex items-center gap-2">
-            <ButtonUtility
-              size="xs"
-              color="tertiary"
-              icon={Plus}
-              aria-label={m.records_template_add_heading_level_two()}
-              onClick={() => addAfter(index)}
-              className="size-6 shrink-0 p-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-            />
-            <input
-              aria-label={m.records_template_heading_level_two()}
-              value={block.title}
-              onChange={(event) => updateAt(index, { title: event.target.value })}
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <RecordsReadingColumn className="space-y-3">
+        {blocks.length === 0 ? (
+          <Button
+            type="button"
+            size="sm"
+            color="link-gray"
+            iconLeading={Plus}
+            onPress={() => addAfter(-1)}
+          >
+            {m.records_template_add_heading_level_two()}
+          </Button>
+        ) : null}
+        {blocks.map((block, index) => (
+          <section key={block.id} className="group rounded-xl bg-secondary px-4 py-3">
+            <div className="mb-2 flex items-center gap-2">
+              <ButtonUtility
+                size="xs"
+                color="tertiary"
+                icon={Plus}
+                aria-label={m.records_template_add_heading_level_two()}
+                onClick={() => addAfter(index)}
+                className="size-6 shrink-0 p-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+              />
+              <input
+                aria-label={m.records_template_heading_level_two()}
+                value={block.title}
+                onChange={(event) => updateAt(index, { title: event.target.value })}
+                onBlur={onBlur}
+                className="min-w-0 flex-1 bg-transparent text-base font-semibold text-primary outline-none"
+              />
+              <span className="shrink-0 text-xs text-tertiary">
+                {m.records_template_heading_level_two()}
+              </span>
+              <ButtonUtility
+                size="xs"
+                color="tertiary"
+                icon={Minus}
+                aria-label={`${m.records_template_delete_heading()}: ${block.title}`}
+                onClick={() => removeAt(index)}
+                className="size-6 shrink-0 p-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+              />
+            </div>
+            <textarea
+              aria-label={m.records_template_body_label()}
+              value={block.body}
+              placeholder={m.records_format_section_body_placeholder()}
+              onChange={(event) => updateAt(index, { body: event.target.value })}
               onBlur={onBlur}
-              className="min-w-0 flex-1 bg-transparent text-base font-semibold text-primary outline-none"
+              rows={3}
+              className={cn(
+                "w-full resize-y bg-transparent text-sm leading-6 text-primary outline-none",
+                "placeholder:text-placeholder",
+              )}
             />
-            <span className="shrink-0 text-xs text-tertiary">
-              {m.records_template_heading_level_two()}
-            </span>
-            <ButtonUtility
-              size="xs"
-              color="tertiary"
-              icon={Minus}
-              aria-label={`${m.records_template_delete_heading()}: ${block.title}`}
-              onClick={() => removeAt(index)}
-              className="size-6 shrink-0 p-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-            />
-          </div>
-          <textarea
-            aria-label={m.records_template_body_label()}
-            value={block.body}
-            placeholder={m.records_format_section_body_placeholder()}
-            onChange={(event) => updateAt(index, { body: event.target.value })}
-            onBlur={onBlur}
-            rows={3}
-            className={cn(
-              "w-full resize-y bg-transparent text-sm leading-6 text-primary outline-none",
-              "placeholder:text-placeholder",
-            )}
-          />
-        </section>
-      ))}
+          </section>
+        ))}
+      </RecordsReadingColumn>
     </div>
   );
 }

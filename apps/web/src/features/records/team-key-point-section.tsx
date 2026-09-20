@@ -85,7 +85,7 @@ export function TeamKeyPointSection({
           extraction={extraction}
           assistantAgentId={assistantAgentId}
           waitingLabel={m.records_key_points_team_waiting()}
-          className="px-0 py-0 sm:px-0 sm:py-0"
+          framed={false}
         />
       ) : (
         <p className="text-sm text-tertiary">{m.records_key_points_team_waiting()}</p>
