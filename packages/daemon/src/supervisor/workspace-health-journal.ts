@@ -37,8 +37,20 @@ const EMPTY_RECORD: PersistedWorkspaceHealth = { schemaVersion: 1, live: false, 
  * refusal to start a degraded Workspace) and the Workspace child itself (its own exit message)
  * name this same command, so an operator sees one consistent instruction wherever the latch is
  * reported. */
-export function workspaceHealthRecoveryCommand(workspaceId: string): string {
-  return `coforge-computer restart --workspace ${workspaceId}`;
+export function workspaceHealthRecoveryCommand(workspaceId?: string): string {
+  return workspaceId
+    ? `coforge-computer restart --workspace ${workspaceId}`
+    : "coforge-computer restart";
+}
+
+/** The one sentence every surface uses to report a latched Workspace: what is wrong, that nothing
+ * will retry it on its own, and the command that clears the latch. Composed here, next to the
+ * latch itself, so the Coordinator's refusal, the child's own exit, and `coforge-computer status`
+ * cannot drift into three different wordings of the same fact. `workspaceId` is omitted only
+ * where the child cannot identify itself yet, which still recovers as part of every binding. */
+export function workspaceDegradedMessage(reason: string, workspaceId?: string): string {
+  const subject = workspaceId ? `Workspace ${workspaceId}` : "This Workspace";
+  return `${subject} is degraded (${reason}); it will not restart automatically. Run '${workspaceHealthRecoveryCommand(workspaceId)}' after fixing it.`;
 }
 
 /** Where one Workspace's durable health record lives under its own state directory (the same

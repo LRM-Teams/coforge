@@ -23,8 +23,8 @@ import { LaunchdWorkspaceInstance } from "./launchd-workspace-instance";
 import { workspaceStateDirectory, type WorkspaceInstance } from "./workspace-instance";
 import {
   WorkspaceHealthJournal,
+  workspaceDegradedMessage,
   workspaceHealthJournalPath,
-  workspaceHealthRecoveryCommand,
 } from "./workspace-health-journal";
 import { answeredWithin } from "./runner-hold";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
@@ -331,7 +331,7 @@ async function runWithSupervisorLock(
           workspaceHealthJournalPath(directory),
         ).state();
         if (health.status === "degraded") {
-          const message = `Workspace ${binding.workspaceId} is degraded (${health.reason}); it will not restart automatically. Run '${workspaceHealthRecoveryCommand(binding.workspaceId)}' after fixing it.`;
+          const message = workspaceDegradedMessage(health.reason, binding.workspaceId);
           supervisorLogger.error(message, {
             event: "workspace:degraded_start_refused",
             workspace_id: binding.workspaceId,
