@@ -87,7 +87,6 @@ function harness(launch: (attempt: number) => Promise<SessionIdentity | undefine
   const launches: number[] = [];
   const state = new AgentRuntimeState({
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -214,7 +213,6 @@ test("each retry keeps the managed scope and launchId of the operation it is rec
   const results: AgentControlResult[] = [];
   const state = new AgentRuntimeState({
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);

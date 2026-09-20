@@ -30,7 +30,6 @@ export type AgentRuntimeRecord = {
 };
 export interface AgentRuntimeStateStore {
   listAgentIds(): Promise<string[]>;
-  workspaceExists(agentId: string): Promise<boolean>;
   read(agentId: string): Promise<AgentRuntimeRecord | undefined>;
   write(agentId: string, record: AgentRuntimeRecord): Promise<void>;
   clearWorkspace(agentId: string): Promise<void>;

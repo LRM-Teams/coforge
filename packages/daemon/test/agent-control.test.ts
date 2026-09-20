@@ -86,7 +86,6 @@ test.each([true, false])(
     const results: AgentControlResult[] = [];
     const state = new AgentRuntimeState({
       listAgentIds: async () => [],
-      workspaceExists: async () => false,
       async read() {
         return record && structuredClone(record);
       },
@@ -149,7 +148,6 @@ test("classified recovery retries once without restoring resume mode and reports
   const attempts: Array<{ intent: AgentStartIntent; replacedSessionId?: string }> = [];
   const state = new AgentRuntimeState({
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -204,7 +202,6 @@ test.each([
     }> = [];
     const state = new AgentRuntimeState({
       listAgentIds: async () => [],
-      workspaceExists: async () => false,
       read: async () => record && structuredClone(record),
       write: async (_id, value) => {
         record = structuredClone(value);
@@ -254,7 +251,6 @@ test("reports the invalidated session even when the fresh launch that follows it
   const invalidations: string[] = [];
   const state = new AgentRuntimeState({
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -298,7 +294,6 @@ test("session_in_use retries without invoking invalidateSession or carrying a re
   const attempts: Array<{ replacedSessionId?: string; reason?: string }> = [];
   const state = new AgentRuntimeState({
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -346,7 +341,6 @@ test("duplicate fenced start wakes an existing runtime without replacing it", as
   const wakes: AgentStartIntent[] = [];
   const state = new AgentRuntimeState({
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -403,7 +397,6 @@ test("stop then workspace reset then start persists primitive receipts", async (
   const effects: string[] = [];
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => true,
     async read() {
       return record && structuredClone(record);
     },
@@ -493,7 +486,6 @@ test("workspace reset requires a successful stop and a failed stop blocks reset 
   let launches = 0;
   const state = new AgentRuntimeState({
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -574,7 +566,6 @@ test("unconfirmed launch cleanup keeps the record starting; the launch retry own
   let creates = 0;
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => (record ? ["a"] : []),
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, next) => {
       record = structuredClone(next);
@@ -661,7 +652,6 @@ function replacedRecordFixture(options: {
   const results: AgentControlResult[] = [];
   const state = new AgentRuntimeState({
     listAgentIds: async () => ["a"],
-    workspaceExists: async () => true,
     read: async () => structuredClone(record),
     write: async (_id, next) => {
       record = structuredClone(next);
@@ -682,6 +672,53 @@ function replacedRecordFixture(options: {
   });
   return { scope, control, results, record: () => record, launches: () => launches };
 }
+
+test("the phase invariant assertion logs instead of throwing when record and process disagree", async () => {
+  // A record whose phase disagrees with the live process is a bug in the transition that wrote
+  // it. Here the fake runtime reports the process NOT running while start() just wrote phase
+  // "running": the assertion watches that boundary at error level and never becomes a second
+  // failure path — start() completes, the disagreement is logged, no throw.
+  const { records: logs } = await captureLogs(async () => {
+    const store: AgentRuntimeStateStore = {
+      listAgentIds: async () => [],
+      read: async () => undefined,
+      write: async () => {},
+      clearWorkspace: async () => {
+        throw new Error("must not clear");
+      },
+    };
+    const state = new AgentRuntimeState(store);
+    const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+      running: () => false,
+      rebind: async () => undefined,
+      stop: async () => undefined,
+      launch: async () => ({ sessionId: "native-1", state: "resumable" }),
+      result: async () => {},
+    });
+    await control.start({
+      protocolMajor: 1,
+      requestId: "r",
+      agentId: "a",
+      workspaceId: "w",
+      computerId: "c",
+      provider: "pi",
+      model: "",
+      reasoning: "",
+      controlEpoch: 1,
+      launchId: "launch-1",
+    });
+  });
+  const violation = logs.find(
+    (entry) => entry.properties.event === "agent_control:invariant_violation",
+  );
+  expect(violation?.level).toBe("error");
+  expect(violation?.properties).toMatchObject({
+    agent_id: "a",
+    phase: "running",
+    process_running: false,
+    daemon_instance_id: "daemon",
+  });
+});
 
 test("a newer Start cannot bypass an in-progress (clearing) workspace deletion", async () => {
   const { scope, control, launches } = replacedRecordFixture({ phase: "clearing" });
@@ -762,7 +799,6 @@ test("a delayed old exit cannot stop a replacement launch while waiting for the 
   };
   const state = new AgentRuntimeState({
     listAgentIds: async () => ["a"],
-    workspaceExists: async () => true,
     read: async () => structuredClone(record),
     write: async (_id, next) => {
       record = structuredClone(next);
@@ -808,7 +844,6 @@ test("a stale stop-failed record from a gone daemon instance is repaired so a ne
   let record: AgentRuntimeRecord | undefined = legacyStopFailedRecord();
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => (record ? [record.scope.agentId] : []),
-    workspaceExists: async () => true,
     read: async () => record && structuredClone(record),
     write: async (_id, next) => {
       record = structuredClone(next);
@@ -869,7 +904,6 @@ test("a stale stop-failed record from a gone daemon instance is repaired so a ne
   let record: AgentRuntimeRecord | undefined = legacyStopFailedRecord();
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => (record ? [record.scope.agentId] : []),
-    workspaceExists: async () => true,
     read: async () => record && structuredClone(record),
     write: async (_id, next) => {
       record = structuredClone(next);
@@ -934,7 +968,6 @@ test("a newer Start over a running record whose process is gone launches fresh",
   };
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => (record ? [record.scope.agentId] : []),
-    workspaceExists: async () => true,
     read: async () => record && structuredClone(record),
     write: async (_id, next) => {
       record = structuredClone(next);
@@ -991,7 +1024,6 @@ test("a reset-workspace in progress is not repaired away by a concurrent daemon 
   let clears = 0;
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => (record ? [record.scope.agentId] : []),
-    workspaceExists: async () => true,
     read: async () => record && structuredClone(record),
     write: async (_id, next) => {
       record = structuredClone(next);
@@ -1027,7 +1059,6 @@ test("a workspace clear failure is non-fatal: it reports workspace-reset with a 
   let sentSessions = 0;
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => true,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -1115,7 +1146,6 @@ test("a workspace clear failure does not weaken confirmed_stop_required: a later
   let active = true;
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => true,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -1197,7 +1227,6 @@ test("a Start that meets an already-running process under an older, terminal ope
   const results: AgentControlResult[] = [];
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -1298,7 +1327,6 @@ test("an equal-epoch replay after a rebind re-sends the rebound result without r
   const results: AgentControlResult[] = [];
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -1345,7 +1373,6 @@ test("a lower epoch is still rejected as stale even while the process is running
   let record: AgentRuntimeRecord | undefined;
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -1377,7 +1404,6 @@ test("a running record with a different provider is not rebound", async () => {
   const results: AgentControlResult[] = [];
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -1422,7 +1448,6 @@ test("record phase starting still rejects with previous_control_not_completed ev
   let record: AgentRuntimeRecord | undefined;
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -1469,7 +1494,6 @@ test("a running process with no matching running record sends a failed result in
   const results: AgentControlResult[] = [];
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -1507,7 +1531,6 @@ test("back-to-back Starts for the same Agent serialize through state.run: exactl
   const results: AgentControlResult[] = [];
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
@@ -1552,7 +1575,6 @@ test("a managed Start intent with no launchId sends a failed result instead of m
   let launches = 0;
   const store: AgentRuntimeStateStore = {
     listAgentIds: async () => [],
-    workspaceExists: async () => false,
     read: async () => record && structuredClone(record),
     write: async (_id, value) => {
       record = structuredClone(value);
