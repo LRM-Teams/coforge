@@ -9,6 +9,7 @@ import type {
 } from "@lrm/coforge-sdk/internal";
 import { AgentSessionRecoveryError } from "../code-agent/contract";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import { launchFailureTrace } from "./launch-failure";
 import type { AgentRuntimeRecord, AgentRuntimeState } from "./agent-runtime-state";
 import type { AgentSessions } from "./agent-session";
 
@@ -425,6 +426,7 @@ export class AgentControl {
           event: "agent_control:launch_failed",
           agent_id: intent.agentId,
           error_code: diagnosticErrorCode(launchError),
+          ...launchFailureTrace(launchError),
         });
         await this.store.write(intent.agentId, record);
       }

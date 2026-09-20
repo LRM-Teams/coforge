@@ -27,6 +27,7 @@ import {
   type AgentRuntime,
 } from "../agent-runtime/agent-process-manager";
 import { parseAssignedSkillPacks } from "../code-agent/assigned-skills";
+import { launchCategoryText, launchFailureTrace } from "../agent-runtime/launch-failure";
 import { agentRuntimeContextEnvironment } from "../code-agent/environment";
 import { toolActivity } from "../code-agent/tool-activity";
 export type DaemonConfig = {
@@ -2794,9 +2795,13 @@ export class DaemonRuntime {
 
   #launchFailureMessage(agentId: string, stage: "credential" | "runtime", error: unknown): string {
     if (this.#cleanupUnconfirmed(agentId, error)) return CLEANUP_UNCONFIRMED;
-    return stage === "credential"
-      ? "Agent authorization could not be prepared."
-      : "Agent runtime could not be started.";
+    const base =
+      stage === "credential"
+        ? "Agent authorization could not be prepared."
+        : "Agent runtime could not be started.";
+    const detail = launchFailureTrace(error).launchCategory;
+    const category = launchCategoryText(detail);
+    return category ? `${base} Reason: ${category}.` : base;
   }
 
   /**
