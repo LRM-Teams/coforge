@@ -348,11 +348,23 @@ describe("candidate failure diagnostics", () => {
         const previous = `coforge/web@sha256:${"b".repeat(64)}`;
         const state = `CURRENT_WEB_IMAGE=${previous}\nPREVIOUS_WEB_IMAGE=\n`;
         await Bun.write(join(root, "state.env"), state);
+        // The shim must not depend on a host `timeout`: macOS ships none (GNU coreutils is not
+        // guaranteed), so `Bun.which` returns undefined. When there is no real timeout, run the
+        // command directly, dropping timeout's own options and duration — remote-deploy.sh always
+        // invokes it as `<options> <duration> <command>`. The fixture commands are instant, so no
+        // deadline is needed; the call recording is unaffected.
+        const realTimeout = Bun.which("timeout");
         await writeFile(
           join(root, "bin/timeout"),
           `#!/bin/bash
 echo "timeout $*" >> "$FIXTURE_ROOT/calls"
-exec ${JSON.stringify(Bun.which("timeout"))} "$@"
+${
+  realTimeout
+    ? `exec ${JSON.stringify(realTimeout)} "$@"`
+    : `while [[ "$1" == -* ]]; do shift; done
+shift
+exec "$@"`
+}
 `,
           { mode: 0o700 },
         );
