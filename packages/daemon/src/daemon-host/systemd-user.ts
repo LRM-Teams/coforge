@@ -152,7 +152,7 @@ function systemctlFailure(verb: string, unit: string, result: NativeCommandResul
 
 async function runCommand(command: string[]): Promise<NativeCommandResult> {
   const child = Bun.spawn(command, {
-    env: { ...Bun.env, LC_ALL: "C" },
+    env: { ...process.env, LC_ALL: "C" },
     stdin: "ignore",
     stdout: "ignore",
     stderr: "pipe",
