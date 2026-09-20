@@ -1,6 +1,6 @@
 # ADR 0052: LearnedSkill evolution loop — standalone Group Memory substrate on main
 
-Status: accepted (implemented — slices 1–6 landed 2026-09-20; the real-LLM smoke (slice 6) runs via `mise run test:e2e:group-memory` and skips cleanly without credentials)
+Status: accepted (implemented — slices 1–6 landed and verified 2026-09-20; the real-LLM smoke (slice 6) passed end-to-end against a live glm-5.2 endpoint: outcome → critique (8 insights) → proposer (1 skill lineage) → cross-layer recall → offer → fence. Runs via `mise run test:e2e:group-memory`; skips cleanly without credentials)
 Date: 2026-09-20 (design session: grill-with-docs, decisions Q1–Q13)
 
 > Numbering note: `feat/group-memory` holds ADRs 0052–0055 for the Group Memory
