@@ -1,5 +1,4 @@
 import { RPC_METHODS } from "./rpc-methods";
-export { LEGACY_RPC_METHOD_NAMES, currentRpcMethodName } from "./rpc-methods";
 /** TypeScript boundary approved by ADR 0004; codec/transport remains an adapter concern. */
 export const COMPUTER_REGISTER_METHOD = RPC_METHODS.computerRegister;
 export const COMPUTER_REGISTER_PROTOCOL_MAJOR = 1 as const;

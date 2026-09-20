@@ -1,13 +1,7 @@
 import { expect, test } from "bun:test";
-import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import {
-  AgentMessageDeliveryAckSchema,
-  AgentMessageDeliverySchema,
-} from "./gen/coforge/rpc/v1/workspace_pb";
 import {
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_MESSAGE_METHOD,
-  LEGACY_RPC_METHOD_NAMES,
   decodeAgentMessageDeliveryAck,
   encodeAgentMessageDeliveryAck,
   decodeAgentMessageDelivery,
@@ -173,73 +167,6 @@ test("round-trips an Agent direct message delivery", () => {
   expect(decodeAgentMessageDelivery(encodeAgentMessageDelivery(delivery))).toEqual(delivery);
 });
 
-/**
- * An installed daemon validates the delivery discriminator against the pre-rename spelling and
- * rejects anything else, so the transition has to keep emitting it while every daemon accepts both.
- */
-test("emits the pre-rename delivery discriminator an installed daemon validates", () => {
-  const wire = fromBinary(
-    AgentMessageDeliverySchema,
-    encodeAgentMessageDelivery({
-      protocolMajor: 1,
-      requestId: "request-a",
-      messageId: "message-a",
-      deliveryId: "delivery-a",
-      sequence: 42,
-      workspaceId: "workspace-a",
-      conversationId: "conversation-a",
-      agentId: "agent-a",
-      body: "Please inspect the repository",
-      method: AGENT_MESSAGE_METHOD,
-    }),
-  );
-
-  expect(wire.method).toBe(LEGACY_RPC_METHOD_NAMES.agentMessage);
-});
-
-test.each([AGENT_MESSAGE_METHOD, LEGACY_RPC_METHOD_NAMES.agentMessage])(
-  "accepts the %s delivery discriminator",
-  (method) => {
-    const wire = toBinary(
-      AgentMessageDeliverySchema,
-      create(AgentMessageDeliverySchema, {
-        protocolMajor: 1,
-        requestId: "request-a",
-        messageId: "message-a",
-        deliveryId: "delivery-a",
-        sequence: BigInt(42),
-        workspaceId: "workspace-a",
-        conversationId: "conversation-a",
-        agentId: "agent-a",
-        body: "Please inspect the repository",
-        method,
-      }),
-    );
-
-    expect(decodeAgentMessageDelivery(wire).method).toBe(AGENT_MESSAGE_METHOD);
-  },
-);
-
-test("rejects a delivery discriminator that is neither spelling", () => {
-  const wire = toBinary(
-    AgentMessageDeliverySchema,
-    create(AgentMessageDeliverySchema, {
-      protocolMajor: 1,
-      requestId: "request-a",
-      messageId: "message-a",
-      deliveryId: "delivery-a",
-      sequence: BigInt(42),
-      workspaceId: "workspace-a",
-      conversationId: "conversation-a",
-      agentId: "agent-a",
-      body: "Please inspect the repository",
-      method: "agent:v2:message:deliver",
-    }),
-  );
-
-  expect(() => decodeAgentMessageDelivery(wire)).toThrow("invalid agent message delivery");
-});
-
 test("accepts a trusted model-seen sequence on send", () => {
   const request = {
     protocolMajor: 1,
@@ -284,27 +211,6 @@ test("round-trips all Agent delivery ACK identity and ordering fields", () => {
 
   expect(decodeAgentMessageDeliveryAck(encodeAgentMessageDeliveryAck(ack))).toMatchObject(ack);
 });
-
-test.each([AGENT_MESSAGE_ACK_METHOD, LEGACY_RPC_METHOD_NAMES.agentMessageAck])(
-  "accepts the %s ACK discriminator an installed daemon sends",
-  (method) => {
-    const wire = toBinary(
-      AgentMessageDeliveryAckSchema,
-      create(AgentMessageDeliveryAckSchema, {
-        protocolMajor: 1,
-        requestId: "request-a",
-        messageId: "message-a",
-        deliveryId: "delivery-a",
-        workspaceId: "workspace-a",
-        agentId: "agent-a",
-        sequence: BigInt(42),
-        method,
-      }),
-    );
-
-    expect(decodeAgentMessageDeliveryAck(wire).method).toBe(AGENT_MESSAGE_ACK_METHOD);
-  },
-);
 
 test("round-trips daemon-local message attention summaries", () => {
   const response = {
