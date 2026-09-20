@@ -47,18 +47,15 @@ describe("conversationOpenPosition", () => {
   const boundary = { id: "m-2", sequence: 2 };
 
   test("lands on the unread boundary where the viewer left off", () => {
-    expect(conversationOpenPosition("first-unread", boundary)).toEqual({
-      kind: "message",
-      id: "m-2",
-    });
+    expect(conversationOpenPosition("first-unread", boundary)).toBe("m-2");
   });
 
   test("lands at the latest when nothing is unread", () => {
-    expect(conversationOpenPosition("first-unread", undefined)).toEqual({ kind: "latest" });
+    expect(conversationOpenPosition("first-unread", undefined)).toBeUndefined();
   });
 
   test("lands at the latest under both newest modes, unread or not", () => {
-    expect(conversationOpenPosition("newest-read", boundary)).toEqual({ kind: "latest" });
-    expect(conversationOpenPosition("newest-unread", boundary)).toEqual({ kind: "latest" });
+    expect(conversationOpenPosition("newest-read", boundary)).toBeUndefined();
+    expect(conversationOpenPosition("newest-unread", boundary)).toBeUndefined();
   });
 });
