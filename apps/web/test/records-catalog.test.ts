@@ -1162,9 +1162,12 @@ test("loadCatalog exposes one chip per applied settings stream", async () => {
     },
   } as unknown as PrismaClient;
 
+  // The fixture seeds 2026 W38 and expects that week's alreadySent state; pin `now` to W38
+  // (mid-week, noon UTC) so the test is deterministic instead of breaking every week rollover.
   const catalog = await new RecordCatalog(db).loadCatalog({
     workspaceId: "workspace-1",
     userId: "leader-b",
+    now: new Date("2026-09-17T12:00:00.000Z"),
   });
 
   expect(catalog.formatChips).toEqual([

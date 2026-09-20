@@ -197,7 +197,7 @@ export class RecordCatalog {
     return (await this.loadFormatSendState(input)).canSend;
   }
 
-  async loadCatalog(input: { workspaceId: string; userId: string }) {
+  async loadCatalog(input: { workspaceId: string; userId: string; now?: Date }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const [cycles, favorites, notes, me] = await Promise.all([
       this.db.weeklyReportCycle.findMany({
@@ -241,6 +241,7 @@ export class RecordCatalog {
       }),
     ]);
 
+    const now = input.now ?? new Date();
     const templateEntries = cycles
       .flatMap((cycle) =>
         cycle.reports
@@ -249,7 +250,6 @@ export class RecordCatalog {
       )
       .sort((left, right) => right.report.createdAt.getTime() - left.report.createdAt.getTime());
 
-    const now = new Date();
     const currentWeek = currentIsoWeek(zonedCalendarDate(now));
     const classified = templateEntries.map(({ cycle, report }) => ({
       year: cycle.year,
