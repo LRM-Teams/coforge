@@ -1,5 +1,6 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { parseActivityEntries, type ActivityTrajectoryEntry } from "./activity-entries";
+import { LEGACY_RPC_METHOD_NAMES, RPC_METHODS } from "./rpc-methods";
 import {
   ComputerRegisterRequestSchema,
   ComputerRegisterResponseSchema,
@@ -849,6 +850,30 @@ function parseAgentRuntimeProviderConfig(
   throw new Error("invalid Agent runtime provider config");
 }
 
+/**
+ * The `method` discriminator the cloud writes into a delivery. Installed daemons validate it
+ * strictly against the pre-rename `agent:deliver` spelling, so the transition emits that spelling
+ * for every daemon; `decodeAgentMessageDelivery` below accepts both spellings, so a daemon built
+ * after the rename reads either one.
+ *
+ * TODO(legacy-rpc-methods): emit `AGENT_MESSAGE_METHOD` and drop the legacy acceptance in
+ * `decodeAgentMessageDelivery`/`decodeAgentMessageDeliveryAck` once every Computer has been
+ * upgraded.
+ */
+const AGENT_MESSAGE_DELIVERY_METHOD = LEGACY_RPC_METHOD_NAMES.agentMessage;
+
+/** The delivery discriminator a current or pre-rename daemon accepts. */
+const AGENT_MESSAGE_DELIVERY_METHODS: readonly string[] = [
+  RPC_METHODS.agentMessage,
+  AGENT_MESSAGE_DELIVERY_METHOD,
+];
+
+/** The ACK discriminator a current or pre-rename daemon sends. */
+const AGENT_MESSAGE_ACK_METHODS: readonly string[] = [
+  RPC_METHODS.agentMessageAck,
+  LEGACY_RPC_METHOD_NAMES.agentMessageAck,
+];
+
 export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Array {
   assertUint(value.sequence, Number.MAX_SAFE_INTEGER, "Agent message sequence");
   return toBinary(
@@ -863,7 +888,7 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
       conversationId: value.conversationId,
       agentId: value.agentId,
       body: value.body,
-      method: value.method,
+      method: AGENT_MESSAGE_DELIVERY_METHOD,
       target: value.target,
       latestSender: value.latestSender,
     }),
@@ -872,7 +897,7 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
 export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDelivery {
   const value = fromBinary(AgentMessageDeliverySchema, bytes);
   if (
-    value.method !== AGENT_MESSAGE_METHOD ||
+    !AGENT_MESSAGE_DELIVERY_METHODS.includes(value.method) ||
     !value.requestId ||
     !value.messageId ||
     !value.workspaceId ||
@@ -906,7 +931,7 @@ export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): U
 export function decodeAgentMessageDeliveryAck(bytes: Uint8Array): AgentMessageDeliveryAck {
   const v = fromBinary(AgentMessageDeliveryAckSchema, bytes);
   if (
-    v.method !== AGENT_MESSAGE_ACK_METHOD ||
+    !AGENT_MESSAGE_ACK_METHODS.includes(v.method) ||
     !v.requestId ||
     !v.deliveryId ||
     !v.messageId ||
