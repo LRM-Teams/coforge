@@ -40,7 +40,24 @@ model Workspace {
   weeklyTemplates        WeeklyReportTemplate[]
   recordNotes            RecordNote[]
   recordComments         RecordComment[]
-  createdAt              DateTime                @default(now())
+  memoryEpisodes           MemoryEpisode[]
+  memoryInteractionLinks   MemoryInteractionLink[]
+  memoryInsights           MemoryInsight[]
+  memoryInsightEpisodeLinks MemoryInsightEpisodeLink[]
+  memoryScoreEvents        MemoryScoreEvent[]
+  modelConfigurations      WorkspaceModelConfiguration[]
+  modelUsages              WorkspaceModelUsage[]
+  memoryDistillationRuns   MemoryDistillationRun[]
+  memoryAgentDesignation   MemoryAgentDesignation?
+  memoryExplorations       MemoryExplorationSession[]
+  memoryOfferDeliveries    MemoryOfferDelivery[]
+  learnedSkills            LearnedSkill[]
+  learnedSkillRevisions    LearnedSkillRevision[]
+  learnedSkillScoreEvents  LearnedSkillScoreEvent[]
+  skillProposals           SkillProposal[]
+  skillProposalGroundings  SkillProposalGrounding[]
+  skillProposalLedger      SkillProposalLedgerEntry[]
+  createdAt                DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   projects               Project[]
 
@@ -229,6 +246,9 @@ model Agent {
   manualEvents              AgentManualEvent[]
   reminders                 Reminder[]
   reminderOperationReceipts ReminderOperationReceipt[]
+  memoryAgentDesignation    MemoryAgentDesignation?
+  memoryExplorations        MemoryExplorationSession[]
+  memoryOfferDeliveries     MemoryOfferDelivery[]
   preparedActionCards       ActionCard[]
   weeklyReportAssistant         WeeklyReportAssistant?
   weeklyReportCollectorBinding  WeeklyReportCollectorBinding?
@@ -616,6 +636,8 @@ model Conversation {
   attachmentUploadSessions AttachmentUploadSession[]
   tasks          Task[]
   actionCards    ActionCard[]
+  memoryEpisodes MemoryEpisode[]
+  memoryInteractionLinks MemoryInteractionLink[]
   project        Project?               @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, directKey])
@@ -659,6 +681,7 @@ model ConversationMember {
   threadFollows            ThreadFollow[]
   reactions                MessageReaction[]
   mentions                 MessageMention[]
+  interactionLinksReceived MemoryInteractionLink[]
   ownedTasks               Task[]            @relation("TaskOwner")
   createdTasks             Task[]            @relation("TaskCreator")
 
@@ -691,6 +714,9 @@ model Message {
   mentions       MessageMention[]
   task           Task?
   actionCard     ActionCard?
+  interactionLinksFrom MemoryInteractionLink[] @relation("InteractionLinkFrom")
+  interactionLinksTo   MemoryInteractionLink[] @relation("InteractionLinkTo")
+  memoryOfferDeliveries MemoryOfferDelivery[]
 
   @@unique([id, conversationId])
   @@unique([conversationId, sequence])
@@ -1164,4 +1190,487 @@ model RecordComment {
   @@index([cycleId])
   @@index([assistantSessionId])
   @@map("record_comments")
+}
+
+// ---------------------------------------------------------------------------
+// Group Memory + LearnedSkill evolution loop (ADR 0052). Vocabulary is shared
+// one-to-one with the feat/group-memory branch so a later merge is
+// terminological, not conceptual. DirectConversation content never reaches any
+// of these tables. All knowledge rows are immutable + append-only; live values
+// are always derived (chain sums), never mutable columns.
+// ---------------------------------------------------------------------------
+
+/// Per-Workspace model configuration for the memory workers (ADR 0052-G).
+model WorkspaceModelConfiguration {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @unique @db.Uuid
+  providerId  String
+  baseUrl     String
+  model       String
+  reasoning   String   @default("")
+  /// Credential blob resolved by the daemon-side model provider; never returned whole.
+  apiKey      Json?
+  /// Daily LLM call budget shared by the distill→propose sweep chain.
+  dailyBudget Int      @default(50)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_model_configurations")
+}
+
+model WorkspaceModelUsage {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  /// Allow-listed worker purpose, v1: group_memory_distillation | group_memory_proposer.
+  purpose     String
+  /// UTC day the counter belongs to.
+  day         DateTime @db.Date
+  calls       Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, purpose, day])
+  @@index([workspaceId])
+  @@map("workspace_model_usages")
+}
+
+model MemoryEpisode {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid
+  conversationId String    @db.Uuid
+  /// null for quiet_window episodes; the Task's message id for task episodes.
+  taskMessageId  String?   @db.Uuid
+  /// task | quiet_window
+  kind           String
+  /// Inclusive message-sequence bounds of the admitted window.
+  startSequence  Int
+  endSequence    Int
+  /// Provisional label set at admission; the distillation pass may enrich it.
+  title          String    @default("")
+  /// Transcript snapshot for the window; immutable after admission. The message
+  /// bodies live on `messages`; this snapshot is the evidence copy (ADR 0052-C).
+  body           String
+  /// sha256 over the canonical admission payload: byte-replays accepted,
+  /// content drift under the same window key rejected.
+  contentHash    String
+  /// Structured participants snapshot: [{kind: agent|human, id, handle}],
+  /// normalized (sorted, deduplicated) into the content hash.
+  participants   Json      @default("[]")
+  /// success | failure — LLM-inferred by the distillation pass; null until then.
+  outcome        String?
+  outcomeReason  String?
+  /// Digest of the decisive steps from the outcome pass; critique replays it.
+  keySteps       String?
+  distilledAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  conversation   Conversation               @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace      Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  insightLinks   MemoryInsightEpisodeLink[]
+  groundings     SkillProposalGrounding[]
+
+  @@unique([workspaceId, conversationId, kind, startSequence, endSequence])
+  @@index([workspaceId, taskMessageId])
+  @@index([workspaceId, distilledAt])
+  @@map("memory_episodes")
+}
+
+model MemoryInteractionLink {
+  id             String   @id @default(uuid()) @db.Uuid
+  workspaceId    String   @db.Uuid
+  conversationId String   @db.Uuid
+  /// The message the fact is about — always inside the ingested window.
+  fromMessageId  String   @db.Uuid
+  /// mentions | responds_to | delegates_to
+  kind           String
+  /// Normalized uniqueness target: "message:<uuid>" | "member:<uuid>". Keeps the
+  /// idempotency key NULL-free so replays can never duplicate an edge.
+  targetKey      String
+  /// Set for responds_to: the thread root message (may predate the window).
+  toMessageId    String?  @db.Uuid
+  /// Set for mentions and delegates_to: the mentioned/assigned member.
+  toMemberId     String?  @db.Uuid
+  createdAt      DateTime @default(now())
+
+  workspace      Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  fromMessage    Message            @relation("InteractionLinkFrom", fields: [fromMessageId], references: [id], onDelete: Cascade)
+  toMessage      Message?           @relation("InteractionLinkTo", fields: [toMessageId], references: [id], onDelete: Cascade)
+  toMember       ConversationMember? @relation(fields: [toMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([fromMessageId, kind, targetKey])
+  @@index([workspaceId, conversationId])
+  @@index([toMemberId])
+  @@index([toMessageId])
+  @@map("memory_interaction_links")
+}
+
+model MemoryInsight {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid
+  /// The distilled rule or lesson. Revisions are new rows; old rows keep their
+  /// statement and point forward through `supersededById` (EDIT/merge).
+  statement      String
+  /// Head of a revision/merge chain: supersededById IS NULL. Superseded rows
+  /// stay for audit and provenance but are excluded from retrieval.
+  supersededById String?   @db.Uuid
+  supersededBy   MemoryInsight?              @relation("InsightRevision", fields: [supersededById], references: [id], onDelete: Restrict)
+  supersedes     MemoryInsight[]             @relation("InsightRevision")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace      Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  episodeLinks   MemoryInsightEpisodeLink[]
+  scoreEvents    MemoryScoreEvent[]
+  groundings     SkillProposalGrounding[]
+  offerDeliveries MemoryOfferDelivery[]
+
+  @@index([workspaceId, supersededById])
+  @@map("memory_insights")
+}
+
+/// Provenance edge: an Episode supports (positive) or contradicts (negative)
+/// an Insight (ADR 0052-I). Authoritative record, written by critique passes.
+model MemoryInsightEpisodeLink {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @db.Uuid
+  insightId   String        @db.Uuid
+  episodeId   String        @db.Uuid
+  /// positive | negative — supports or contradicts.
+  polarity    String
+  createdAt   DateTime      @default(now())
+
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  insight     MemoryInsight  @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  episode     MemoryEpisode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@unique([insightId, episodeId])
+  @@index([workspaceId, episodeId])
+  @@map("memory_insight_episode_links")
+}
+
+model MemoryScoreEvent {
+  id           String        @id @default(uuid()) @db.Uuid
+  workspaceId  String        @db.Uuid
+  insightId    String        @db.Uuid
+  /// Signed adjustment; the live score is the sum of all events for the insight
+  /// head. Never stored as a mutable column.
+  delta        Int
+  /// seed | task_success | task_failure | critique_add | critique_agree | critique_edit | critique_remove | merge
+  reason       String
+  detail       String?
+  /// Caller-supplied idempotency key; byte-replays map to the same event row.
+  operationKey String
+  /// Provenance when the delta comes from a task outcome; else null.
+  taskId       String?       @db.Uuid
+  createdAt    DateTime      @default(now())
+
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  insight      MemoryInsight @relation(fields: [insightId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, operationKey])
+  @@index([workspaceId, insightId])
+  @@map("memory_score_events")
+}
+
+model MemoryDistillationRun {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @db.Uuid
+  /// critique | merge | propose — one pass per cadence trigger.
+  kind          String
+  /// The distilled-episode count at trigger time (critique: /5, merge: /20, propose: chained after the sweep).
+  triggerCount  Int
+  llmCalls      Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, kind, triggerCount])
+  @@index([workspaceId])
+  @@map("memory_distillation_runs")
+}
+
+model MemoryAgentDesignation {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @unique @db.Uuid
+  agentId     String   @unique @db.Uuid
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@map("memory_agent_designations")
+}
+
+model MemoryExplorationSession {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @db.Uuid
+  agentId       String    @db.Uuid
+  query         String
+  /// Budgets fixed at start; stepsUsed/resultsServed advance monotonically.
+  maxSteps      Int
+  maxResults    Int
+  stepsUsed     Int       @default(0)
+  resultsServed Int       @default(0)
+  /// active | closed | expired
+  state         String    @default("active")
+  found         Boolean?
+  summary       String?
+  /// Caller idempotency key; a replayed start maps to this row.
+  startKey      String
+  closedAt      DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspace  Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent      Agent                        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  citations  MemoryExplorationCitation[]
+  operations MemoryExplorationOperation[]
+
+  @@unique([workspaceId, startKey])
+  @@index([workspaceId, agentId])
+  @@map("memory_exploration_sessions")
+}
+
+model MemoryExplorationCitation {
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @db.Uuid
+  /// episode | insight | skill (targetId = revision id for skills).
+  kind      String
+  /// Bare uuid by design: the citation is polymorphic, integrity is app-level.
+  targetId  String   @db.Uuid
+  snippet   String
+  /// Session step counter at serve time; 0 = the start seeds.
+  step      Int
+  createdAt DateTime @default(now())
+
+  session MemoryExplorationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, kind, targetId])
+  @@index([sessionId])
+  @@map("memory_exploration_citations")
+}
+
+model MemoryExplorationOperation {
+  id          String   @id @default(uuid()) @db.Uuid
+  sessionId   String   @db.Uuid
+  operationId String
+  /// sha256 over the canonical request payload; drives replay-vs-drift.
+  requestHash String
+  response    Json
+  createdAt   DateTime @default(now())
+
+  session MemoryExplorationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, operationId])
+  @@index([sessionId])
+  @@map("memory_exploration_operations")
+}
+
+model MemoryOfferDelivery {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @db.Uuid
+  /// The Agent the offer named (the mention target).
+  agentId         String   @db.Uuid
+  /// insight | skill — what this delivery carried.
+  targetKind      String
+  /// "insight:<uuid>" | "skill:<revisionId>" — idempotency + cooldown key.
+  targetRef       String
+  /// FK companions to targetRef for join integrity (exactly one is set,
+  /// matching targetKind — enforced by the publish path, not by the schema).
+  insightId       String?  @db.Uuid
+  skillRevisionId String?  @db.Uuid
+  conversationId  String   @db.Uuid
+  messageId       String   @db.Uuid
+  /// Whether this delivery was permitted by an explicit @-ask (cooldown
+  /// bypass) — kept for auditability of exemptions.
+  explicitAsk     Boolean  @default(false)
+  /// Caller idempotency key; replays map to the same offer's rows.
+  operationKey    String
+  deliveredAt     DateTime @default(now())
+
+  workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent          Agent                @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  insight        MemoryInsight?       @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  skillRevision  LearnedSkillRevision? @relation(fields: [skillRevisionId], references: [id], onDelete: Cascade)
+  message        Message              @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, operationKey, targetRef])
+  @@index([workspaceId, agentId, targetRef])
+  @@map("memory_offer_deliveries")
+}
+
+/// A LearnedSkill lineage (ADR 0052-F). Kind never changes across revisions.
+model LearnedSkill {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @db.Uuid
+  /// Stable slug identifying the lineage within the Workspace.
+  key               String
+  name              String
+  /// step_guidance | procedure
+  kind              String
+  /// The lineage head: the revision Memory Offers render. Null before the
+  /// first accepted revision and after the head retires without a successor.
+  currentRevisionId String?  @unique @db.Uuid
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace        Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  currentRevision  LearnedSkillRevision?   @relation("SkillHead", fields: [currentRevisionId], references: [id], onDelete: SetNull)
+  revisions        LearnedSkillRevision[]  @relation("SkillRevisions")
+  proposals        SkillProposal[]
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
+  @@map("learned_skills")
+}
+
+model LearnedSkillRevision {
+  id               String   @id @default(uuid()) @db.Uuid
+  workspaceId      String   @db.Uuid
+  skillId          String   @db.Uuid
+  /// Monotonic lineage version; assigned at acceptance, never reused.
+  version          Int
+  /// Canonical artifact body per kind (closed schema, validated before
+  /// admission): step_guidance {causal_context, branches} | procedure
+  /// {preconditions, instructions, postconditions}. Evidence lives in the
+  /// proposal grounding edges, not duplicated in the body.
+  body             Json
+  /// sha256 over the canonical body JSON — exact content identity.
+  contentDigest    String
+  /// The supersedes provenance edge (ADR 0052-I): this revision replaces its
+  /// parent. Immutable audit history; never deleted.
+  parentRevisionId String?  @db.Uuid
+  /// active | retired — retirement is the only removal path (shadow gating).
+  state            String   @default("active")
+  /// The admitted proposal that produced this revision (audit chain).
+  proposalId       String?  @db.Uuid
+  /// Denormalized retrieval text (name + branch conditions / instructions) for
+  /// the trigram similarity seam; maintained by the acceptance path.
+  searchText       String   @default("")
+  createdAt        DateTime @default(now())
+
+  workspace        Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  skill            LearnedSkill             @relation("SkillRevisions", fields: [skillId], references: [id], onDelete: Cascade)
+  parent           LearnedSkillRevision?    @relation("RevisionSupersedes", fields: [parentRevisionId], references: [id], onDelete: Restrict)
+  children         LearnedSkillRevision[]   @relation("RevisionSupersedes")
+  headOf           LearnedSkill?            @relation("SkillHead")
+  proposal         SkillProposal?           @relation("RevisionAcceptedFrom", fields: [proposalId], references: [id], onDelete: Restrict)
+  proposalChildren SkillProposal[]          @relation("ProposalParent")
+  scoreEvents      LearnedSkillScoreEvent[]
+  offerDeliveries  MemoryOfferDelivery[]
+  ledgerEntries    SkillProposalLedgerEntry[]
+
+  @@unique([skillId, version])
+  @@index([workspaceId, state])
+  @@index([workspaceId, parentRevisionId])
+  @@map("learned_skill_revisions")
+}
+
+model LearnedSkillScoreEvent {
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceId     String    @db.Uuid
+  revisionId      String    @db.Uuid
+  /// Signed adjustment; the live skill score is the sum (retire at <= 0).
+  delta           Int
+  /// seed | offer_signal_success | offer_signal_failure | revision_retire
+  reason          String
+  detail          String?
+  operationKey    String
+  /// The offer delivery the signal came from (shadow-gate provenance).
+  offerDeliveryId String?   @db.Uuid
+  taskId          String?   @db.Uuid
+  createdAt       DateTime  @default(now())
+
+  workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  skillRevision   LearnedSkillRevision  @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, operationKey])
+  @@index([workspaceId, revisionId])
+  @@map("learned_skill_score_events")
+}
+
+model SkillProposal {
+  id               String    @id @default(uuid()) @db.Uuid
+  workspaceId      String    @db.Uuid
+  /// create | revise | no_action — one atomic proposal per proposer pass.
+  action           String
+  targetSkillId    String?   @db.Uuid
+  /// For revise: the revision the proposal builds on.
+  parentRevisionId String?   @db.Uuid
+  /// Canonical artifact body for create/revise; null for no_action.
+  proposedBody     Json?
+  /// proposed → admitted | rejected (schema/admission invalid) | bound (revision created).
+  status           String    @default("proposed")
+  rejectionReason  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  targetSkill      LearnedSkill?             @relation(fields: [targetSkillId], references: [id], onDelete: Cascade)
+  parentRevision   LearnedSkillRevision?     @relation("ProposalParent", fields: [parentRevisionId], references: [id], onDelete: Restrict)
+  /// The revision an admitted proposal produced (exactly one; found via the
+  /// revision's own `proposalId` back-relation, not a second FK).
+  createdRevisions LearnedSkillRevision[]    @relation("RevisionAcceptedFrom")
+  groundings       SkillProposalGrounding[]
+  ledgerEntries    SkillProposalLedgerEntry[]
+
+  @@index([workspaceId, status, createdAt])
+  @@index([targetSkillId])
+  @@map("skill_proposals")
+}
+
+/// Provenance edge: the proposal's grounding (ADR 0052-I). Kind-agnostic —
+/// procedure proposals ground in the successful traces they were distilled
+/// from, step_guidance proposals in traces and/or insights; admission requires
+/// at least one episode grounding for every kind.
+model SkillProposalGrounding {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @db.Uuid
+  proposalId  String        @db.Uuid
+  /// insight | episode
+  kind        String
+  /// "insight:<uuid>" | "episode:<uuid>" — uniqueness key.
+  targetKey   String
+  insightId   String?       @db.Uuid
+  episodeId   String?       @db.Uuid
+  createdAt   DateTime      @default(now())
+
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  proposal    SkillProposal   @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  insight     MemoryInsight?  @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  episode     MemoryEpisode?  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, targetKey])
+  @@index([workspaceId, insightId])
+  @@index([workspaceId, episodeId])
+  @@map("skill_proposal_groundings")
+}
+
+/// The Proposal Ledger (ADR 0052-D): append-only record of every proposal,
+/// verdict, and outcome. Rejected and retired proposals remain in full — the
+/// proposer must read it before proposing (the skill-impact discipline).
+model SkillProposalLedgerEntry {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  /// proposed | no_action | admitted | rejected | bound | signal | retired
+  kind        String
+  proposalId  String?   @db.Uuid
+  revisionId  String?   @db.Uuid
+  /// Verdict reason / signal summary / diff digest — bounded JSON summary.
+  payload     Json
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  proposal    SkillProposal?   @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  revision    LearnedSkillRevision? @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([proposalId])
+  @@map("skill_proposal_ledger_entries")
 }

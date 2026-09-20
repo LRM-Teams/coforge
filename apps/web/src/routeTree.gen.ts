@@ -60,6 +60,7 @@ import { Route as ApiAgentV1EventsRouteImport } from './routes/api/agent/v1/even
 import { Route as ApiAgentV1GithubCommitTrailersRouteImport } from './routes/api/agent/v1/github-commit-trailers'
 import { Route as ApiAgentV1GithubCredentialsRouteImport } from './routes/api/agent/v1/github-credentials'
 import { Route as ApiAgentV1ManualRouteImport } from './routes/api/agent/v1/manual'
+import { Route as ApiAgentV1MemoryRouteImport } from './routes/api/agent/v1/memory'
 import { Route as ApiAgentV1MessagesRouteImport } from './routes/api/agent/v1/messages'
 import { Route as ApiAgentV1ProfileRouteImport } from './routes/api/agent/v1/profile'
 import { Route as ApiAgentV1RemindersRouteImport } from './routes/api/agent/v1/reminders'
@@ -362,6 +363,11 @@ const ApiAgentV1ManualRoute = ApiAgentV1ManualRouteImport.update({
   path: '/api/agent/v1/manual',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentV1MemoryRoute = ApiAgentV1MemoryRouteImport.update({
+  id: '/api/agent/v1/memory',
+  path: '/api/agent/v1/memory',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAgentV1MessagesRoute = ApiAgentV1MessagesRouteImport.update({
   id: '/api/agent/v1/messages',
   path: '/api/agent/v1/messages',
@@ -632,6 +638,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
+  '/api/agent/v1/memory': typeof ApiAgentV1MemoryRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/profile': typeof ApiAgentV1ProfileRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
@@ -719,6 +726,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
+  '/api/agent/v1/memory': typeof ApiAgentV1MemoryRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/profile': typeof ApiAgentV1ProfileRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
@@ -811,6 +819,7 @@ export interface FileRoutesById {
   '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
+  '/api/agent/v1/memory': typeof ApiAgentV1MemoryRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/profile': typeof ApiAgentV1ProfileRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
@@ -903,6 +912,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/github-commit-trailers'
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
+    | '/api/agent/v1/memory'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/profile'
     | '/api/agent/v1/reminders'
@@ -990,6 +1000,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/github-commit-trailers'
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
+    | '/api/agent/v1/memory'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/profile'
     | '/api/agent/v1/reminders'
@@ -1081,6 +1092,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/github-commit-trailers'
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
+    | '/api/agent/v1/memory'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/profile'
     | '/api/agent/v1/reminders'
@@ -1152,6 +1164,7 @@ export interface RootRouteChildren {
   ApiAgentV1GithubCommitTrailersRoute: typeof ApiAgentV1GithubCommitTrailersRoute
   ApiAgentV1GithubCredentialsRoute: typeof ApiAgentV1GithubCredentialsRoute
   ApiAgentV1ManualRoute: typeof ApiAgentV1ManualRoute
+  ApiAgentV1MemoryRoute: typeof ApiAgentV1MemoryRoute
   ApiAgentV1MessagesRoute: typeof ApiAgentV1MessagesRoute
   ApiAgentV1ProfileRoute: typeof ApiAgentV1ProfileRoute
   ApiAgentV1RemindersRoute: typeof ApiAgentV1RemindersRoute
@@ -1539,6 +1552,13 @@ declare module '@tanstack/react-router' {
       path: '/api/agent/v1/manual'
       fullPath: '/api/agent/v1/manual'
       preLoaderRoute: typeof ApiAgentV1ManualRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/memory': {
+      id: '/api/agent/v1/memory'
+      path: '/api/agent/v1/memory'
+      fullPath: '/api/agent/v1/memory'
+      preLoaderRoute: typeof ApiAgentV1MemoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/agent/v1/messages': {
@@ -1989,6 +2009,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1GithubCommitTrailersRoute: ApiAgentV1GithubCommitTrailersRoute,
   ApiAgentV1GithubCredentialsRoute: ApiAgentV1GithubCredentialsRoute,
   ApiAgentV1ManualRoute: ApiAgentV1ManualRoute,
+  ApiAgentV1MemoryRoute: ApiAgentV1MemoryRoute,
   ApiAgentV1MessagesRoute: ApiAgentV1MessagesRoute,
   ApiAgentV1ProfileRoute: ApiAgentV1ProfileRoute,
   ApiAgentV1RemindersRoute: ApiAgentV1RemindersRoute,
