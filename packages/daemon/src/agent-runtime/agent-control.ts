@@ -139,11 +139,7 @@ export class AgentControl {
   managed(agentId: string) {
     return this.#known.has(agentId);
   }
-  private async requireRecord(
-    record: AgentRuntimeRecord | undefined,
-    agentId: string,
-    known: boolean,
-  ) {
+  private async requireRecord(record: AgentRuntimeRecord | undefined, known: boolean) {
     // A missing record is the normal state for an Agent this process has not operated on yet
     // (the store is in-memory, task #54 step 2); only an agent this process already tracked
     // losing its record is the invariant violation.
@@ -174,7 +170,7 @@ export class AgentControl {
     this.#known.add(scope.agentId);
     return this.state.run(scope.agentId, async () => {
       let record = await this.store.read(scope.agentId);
-      await this.requireRecord(record, scope.agentId, known);
+      await this.requireRecord(record, known);
       record = await this.repairStaleRecord(scope.agentId, record);
       this.fence(record, scope);
       if (record?.scope.epoch === scope.epoch && record.stopResult) {
@@ -308,7 +304,7 @@ export class AgentControl {
         epoch: intent.controlEpoch,
       };
       let record = await this.store.read(intent.agentId);
-      await this.requireRecord(record, intent.agentId, known);
+      await this.requireRecord(record, known);
       record = await this.repairStaleRecord(intent.agentId, record);
       this.fence(record, scope);
       if (record?.scope.epoch === scope.epoch && record.startResult) {
