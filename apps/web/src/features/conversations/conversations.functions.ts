@@ -55,6 +55,8 @@ export const loadDirectConversation = createServerFn({ method: "GET" })
     const conversations = await ownedConversations(context, data.agentId);
     const page = await conversations.openForUser(workspaceId, user.id, data.agentId, {
       beforeSequence: data.beforeSequence,
+      afterSequence: data.afterSequence,
+      limit: data.limit,
     });
     return {
       ...page,

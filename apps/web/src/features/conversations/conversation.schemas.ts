@@ -15,10 +15,21 @@ export const attachmentIdsSchema = z
   })
   .optional();
 
-export const agentConversationInputSchema = z.object({ agentId: uuid });
-export const agentConversationPageInputSchema = agentConversationInputSchema.extend({
+/**
+ * A page of a conversation's message stream. `beforeSequence` pages up into history;
+ * `afterSequence` pages down towards the live end once the retained newest page is no longer the
+ * tail (the bounded window evicts it). At most one is set, and neither is the initial load.
+ * `limit` is the window's own page size (see `lib/conversation-window.ts`).
+ */
+export const conversationPageInputSchema = {
   beforeSequence: z.number().int().positive().optional(),
-});
+  afterSequence: z.number().int().nonnegative().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+};
+export const agentConversationInputSchema = z.object({ agentId: uuid });
+export const agentConversationPageInputSchema = agentConversationInputSchema.extend(
+  conversationPageInputSchema,
+);
 const conversationHistoryInputSchema = z.object({ conversationId: uuid });
 export const ownMessageIndexInputSchema = conversationHistoryInputSchema.extend({
   beforeSequence: z.number().int().positive().optional(),

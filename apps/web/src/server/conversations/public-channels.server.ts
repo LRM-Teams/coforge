@@ -1,6 +1,7 @@
 import { lockConversation } from "./conversation-lock.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
+import { windowPageFlags } from "../../lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import {
   channelActorMemberWhere,
@@ -897,10 +898,14 @@ export class PublicChannels {
     workspaceId: string,
     userId: string,
     channelId: string,
-    page: { beforeSequence?: number; limit?: number } = {},
+    page: { beforeSequence?: number; afterSequence?: number; limit?: number } = {},
   ) {
     const channel = await this.channel(workspaceId, userId, channelId);
     const limit = Math.min(page.limit ?? 50, 100);
+    // A forward fetch reads towards the live end from the newest sequence the retained window still
+    // holds; a backward fetch reads history upwards. Neither is the initial (uncursored) load,
+    // which lands on the newest page (see `lib/conversation-window.ts`).
+    const forward = page.afterSequence !== undefined;
     const [member, messages, mentionRows, viewerRecentMentions] = await Promise.all([
       // Filtered through ACTIVE_MEMBER_WHERE (not findUnique on the raw row): a human who left or
       // was removed must see the read-only preview (`senderMemberId` empty) like anyone who never
@@ -917,9 +922,15 @@ export class PublicChannels {
         where: {
           conversationId: channelId,
           threadRootId: null,
-          sequence: page.beforeSequence ? { lt: page.beforeSequence } : undefined,
+          sequence: forward
+            ? { gt: page.afterSequence }
+            : page.beforeSequence
+              ? { lt: page.beforeSequence }
+              : undefined,
         },
-        orderBy: { sequence: "desc" },
+        // Both directions take `limit + 1` rows to learn whether one more remains; the page is
+        // re-sorted by sequence below, so only the overflow row's presence matters.
+        orderBy: { sequence: forward ? ("asc" as const) : ("desc" as const) },
         take: limit + 1,
         select: {
           ...CHANNEL_MESSAGE_SELECT,
@@ -956,10 +967,16 @@ export class PublicChannels {
       }),
     ]);
     const mentionScores = mentionAffinityScores(viewerRecentMentions);
-    const hasOlder = messages.length > limit;
-    const pageMessages = messages
-      .slice(0, limit)
-      .reverse()
+    const overflow = messages.length > limit;
+    const { hasOlder, hasNewer } = windowPageFlags(
+      forward ? "forward" : page.beforeSequence ? "backward" : "initial",
+      overflow,
+    );
+    // The overflow row is always the newest of the fetched rows, so dropping the tail of the
+    // ordered list keeps the reader's side of the window and drops the row that only proved there
+    // was more.
+    const fetched = messages.slice(0, limit);
+    const pageMessages = (forward ? fetched : fetched.reverse())
       .flatMap((message) => [message, ...message.replies])
       .sort((left, right) => left.sequence - right.sequence);
     return {
@@ -1006,7 +1023,7 @@ export class PublicChannels {
         )
         .sort((left, right) => left.handle.localeCompare(right.handle)),
       hasOlder,
-      hasNewer: false,
+      hasNewer,
       messages: pageMessages.map((message) => channelMessageView(message, workspaceId)),
     };
   }

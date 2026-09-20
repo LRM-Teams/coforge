@@ -259,11 +259,139 @@ describe("PrismaDirectConversationRepository", () => {
       },
     });
     expect(page.hasOlder).toBe(true);
+    // A backward page read with a `beforeSequence` cursor always has newer content above it, which
+    // is what tells the bounded window that its newest retained page is no longer the live tail.
+    expect(page.hasNewer).toBe(true);
     expect(page.messages.map(({ id, sequence }) => [id, sequence])).toEqual([
       ["root-3", 3],
       ["reply-4", 4],
       ["root-5", 5],
     ]);
+  });
+
+  test("pages towards the live end from a retained page, and reports the tail it reaches", async () => {
+    const queries: object[] = [];
+    const message = (id: string, sequence: number, replies: object[] = []) => ({
+      id,
+      sequence,
+      threadRootId: null,
+      body: id,
+      createdAt: new Date(sequence),
+      attachments: [],
+      mentions: [],
+      sender: { userId: "user-1", user: { username: "alice" }, agent: null },
+      replies,
+    });
+    const reply = (id: string, sequence: number, threadRootId: string) => ({
+      ...message(id, sequence),
+      threadRootId,
+      replies: undefined,
+    });
+    const rowsFor = (messages: object[]) =>
+      ({
+        conversation: {
+          findUnique: async (input: object) => {
+            queries.push(input);
+            return {
+              members: [
+                {
+                  id: "user-member",
+                  userId: "user-1",
+                  agentId: null,
+                  threadReads: [],
+                  user: { username: "alice" },
+                  agent: null,
+                },
+                {
+                  id: "agent-member",
+                  userId: null,
+                  agentId: "agent-1",
+                  threadReads: [],
+                  user: null,
+                  agent: { id: "agent-1", name: "helper", displayName: "Helper" },
+                },
+              ],
+              messages,
+            };
+          },
+        },
+      }) as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async getOrCreateUserAgent() {
+        return { id: "conversation-1" };
+      }
+    }
+
+    // One row more than the limit: the fetch did not reach the tail.
+    const midWindow = await new TestConversationRepository(
+      rowsFor([message("root-5", 5, [reply("reply-6", 6, "root-5")]), message("root-7", 7)]),
+    ).openForUser("workspace-1", "user-1", "agent-1", { afterSequence: 4, limit: 1 });
+    expect(queries[0]).toMatchObject({
+      select: {
+        messages: {
+          where: { threadRootId: null, sequence: { gt: 4 } },
+          orderBy: { sequence: "asc" },
+          take: 2,
+        },
+      },
+    });
+    expect(midWindow.hasOlder).toBe(true);
+    expect(midWindow.hasNewer).toBe(true);
+    // The page itself is the first `limit` top-level rows with their replies, oldest first — the
+    // overflow row that only proved there was more is dropped from the reader's side.
+    expect(midWindow.messages.map(({ id, sequence }) => [id, sequence])).toEqual([
+      ["root-5", 5],
+      ["reply-6", 6],
+    ]);
+
+    // No overflow: this page is the live tail.
+    const atTail = await new TestConversationRepository(
+      rowsFor([message("root-9", 9)]),
+    ).openForUser("workspace-1", "user-1", "agent-1", { afterSequence: 6, limit: 20 });
+    expect(atTail.hasOlder).toBe(true);
+    expect(atTail.hasNewer).toBe(false);
+    expect(atTail.messages.map((message) => message.sequence)).toEqual([9]);
+  });
+
+  test("the initial page is the live tail with nothing newer to fetch", async () => {
+    const db = {
+      conversation: {
+        findUnique: async () => ({
+          members: [
+            {
+              id: "user-member",
+              userId: "user-1",
+              agentId: null,
+              threadReads: [],
+              user: { username: "alice" },
+              agent: null,
+            },
+            {
+              id: "agent-member",
+              userId: null,
+              agentId: "agent-1",
+              threadReads: [],
+              user: null,
+              agent: { id: "agent-1", name: "helper", displayName: "Helper" },
+            },
+          ],
+          messages: [],
+        }),
+      },
+    } as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async getOrCreateUserAgent() {
+        return { id: "conversation-1" };
+      }
+    }
+
+    const page = await new TestConversationRepository(db).openForUser(
+      "workspace-1",
+      "user-1",
+      "agent-1",
+    );
+    expect(page.hasOlder).toBe(false);
+    expect(page.hasNewer).toBe(false);
   });
 
   test("polls only messages after the browser cursor, including replies to older roots", async () => {

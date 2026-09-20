@@ -53,7 +53,7 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
   }),
   remountDeps: ({ params }) => params.agentId,
   loader: ({ context, params }) =>
-    context.queryClient.infiniteQuery(directConversationQuery(params.agentId)),
+    context.queryClient.infiniteQuery(directConversationQuery(params.agentId).query),
   pendingMs: 300,
   pendingMinMs: 0,
   pendingComponent: ConversationPending,
@@ -72,7 +72,7 @@ function DirectConversationPage() {
   const markRead = useServerFn(markDirectThreadRead);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
   const page = useConversationQuery({
-    query: directConversationQuery(agentId),
+    ...directConversationQuery(agentId),
     loadUpdates: directConversationUpdates(agentId),
     onRealtime: () => taskView.refresh(),
   });
@@ -167,6 +167,7 @@ function DirectConversationPage() {
       onShowLatest={page.showLatest}
       onReadLatest={readLatest}
       onLoadOlder={page.loadOlder}
+      onLoadNewer={page.loadNewer}
       onOpenAgentProfile={openAgentProfile}
       agentProfile={{ agentId: profileAgentId, tab: agentTab }}
       onAgentProfileTabChange={setAgentProfileTab}

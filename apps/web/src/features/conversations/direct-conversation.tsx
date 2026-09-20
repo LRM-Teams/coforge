@@ -137,6 +137,9 @@ type ConversationProps = {
     threadRootId?: string,
   ) => Promise<OwnMessageIndexEntry | void>;
   onLoadOlder?: () => Promise<void>;
+  /** Fetch the next page towards the live end once the bounded window's oldest page has pushed the
+   * tail out of the loaded pages. */
+  onLoadNewer?: () => Promise<void>;
   onLoadOwnMessages?: (beforeSequence?: number) => Promise<{
     messages: OwnMessageIndexEntry[];
     hasOlder: boolean;
@@ -681,6 +684,7 @@ export function ConversationPane({
   threadHeaderAction,
   messageFooter,
   onLoadOlder,
+  onLoadNewer,
   onLoadOwnMessages,
   onLoadMessageAround,
   onShowLatest,
@@ -706,19 +710,28 @@ export function ConversationPane({
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
+  const [, loadingNewerRef, setLoadingNewer] = useStateWithRef(false);
   const historyRef = useRef<HTMLDivElement>(null);
   /** Distance from the bottom as of the last scroll. The pinning observer decides from this
    * rather than from a fresh measurement, because by the time it runs the resize is already in
    * `scrollHeight`. */
   const bottomDistanceRef = useRef(0);
-  /** The empty row above the oldest loaded message. Coming into view is what asks for the next
-   * page of history — the reader never has to press anything. */
+  /** The sentinel above the oldest loaded message and the one below the newest. Coming into view
+   * is what asks for the next page of history or for the evicted tail — the reader never has to
+   * press anything. */
   const olderSentinelRef = useRef<HTMLDivElement>(null);
-  /** The current `loadOlder`, so the sentinel's observer never calls a stale one. */
+  const newerSentinelRef = useRef<HTMLDivElement>(null);
+  /** The current `loadOlder`/`loadNewer`, so a sentinel's observer never calls a stale one. */
   const loadOlderRef = useRef<() => Promise<void>>(async () => {});
+  const loadNewerRef = useRef<() => Promise<void>>(async () => {});
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
-  const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
+  /** The reading position to restore after a load changes the list's height at either end:
+   * the row at the top of the viewport and its offset, before the change. See the layout effect
+   * below for why a raw height delta is not enough once eviction is in play. */
+  const historyScrollAnchorRef = useRef<
+    { rowId?: string; offset: number; height: number; top: number } | undefined
+  >(undefined);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
   // The row the pane still owes an open scroll. Rows are all in the DOM, so this is only held
   // when the container had no height to scroll within yet (a hidden branch); the pinning
@@ -894,15 +907,29 @@ export function ConversationPane({
     return () => observer.disconnect();
   }, [conversation.conversationId, conversation.messages.length === 0]);
 
-  // Older history arrives above everything the reader is looking at, which would push it down by
-  // the new block's height. Nothing else keeps the position: rows are in normal flow now, and the
-  // browser's own scroll anchoring is suppressed at the scroll origin — exactly where a
-  // load-older happens. Restoring by the height delta leaves the reader on the same message.
+  // A load changes the list's height at one end *and*, once the window is full, removes a page at
+  // the other: paging up prepends history and evicts the newest page; paging down appends the tail
+  // and evicts the oldest. A raw `scrollHeight` delta would then move the reader by the evicted
+  // page's height too, which is not where they were reading. So the anchor is the row at the top of
+  // the viewport and its offset; restoring that row to the same offset keeps the reading position
+  // whatever moved at either end. The height delta stays as the fallback for the one case the row
+  // cannot cover: the anchor row itself was evicted.
   useLayoutEffect(() => {
-    const anchor = olderScrollAnchorRef.current;
+    const anchor = historyScrollAnchorRef.current;
     const history = historyRef.current;
     if (!anchor || !history) return;
-    olderScrollAnchorRef.current = undefined;
+    historyScrollAnchorRef.current = undefined;
+    if (anchor.rowId) {
+      const row = history.querySelector<HTMLElement>(
+        `li[data-message-id="${CSS.escape(anchor.rowId)}"]`,
+      );
+      if (row) {
+        const containerTop = history.getBoundingClientRect().top;
+        const delta = row.getBoundingClientRect().top - (containerTop + anchor.offset);
+        if (delta) history.scrollTop += delta;
+        return;
+      }
+    }
     history.scrollTop = anchor.top + (history.scrollHeight - anchor.height);
   }, [conversation.messages]);
 
@@ -923,6 +950,24 @@ export function ConversationPane({
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [conversation.conversationId, conversation.hasOlder]);
+
+  // The mirror sentinel below the newest row: once the bounded window has slid up into history and
+  // evicted the tail, scrolling back to the bottom asks for the page that brings it back. It re-runs
+  // on every message change so a fetch that leaves the sentinel still in view keeps going until the
+  // tail is loaded (an IntersectionObserver only fires on a crossing, not while it stays visible).
+  useEffect(() => {
+    const sentinel = newerSentinelRef.current;
+    const history = historyRef.current;
+    if (!sentinel || !history) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadNewerRef.current();
+      },
+      { root: history, rootMargin: "0px 0px 600px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [conversation.conversationId, conversation.hasNewer, conversation.messages.length]);
 
   useLayoutEffect(() => {
     function scrollToMessageAnchor() {
@@ -1003,6 +1048,25 @@ export function ConversationPane({
   }
 
   loadOlderRef.current = () => loadOlder();
+  loadNewerRef.current = () => loadNewer();
+
+  /** Snapshot the reading position before a load changes the list: the row at the top of the
+   * viewport and its offset, plus the raw height/scrollTop as a fallback. */
+  function captureScrollAnchor(history: HTMLDivElement) {
+    const containerTop = history.getBoundingClientRect().top;
+    let rowId: string | undefined;
+    let offset = 0;
+    for (const row of history.querySelectorAll<HTMLElement>("li[data-message-id]")) {
+      const rect = row.getBoundingClientRect();
+      // The first row that is not entirely above the container's top edge is the one the reader
+      // is looking at; the ones before it are already scrolled off.
+      if (rect.bottom <= containerTop) continue;
+      rowId = row.dataset.messageId;
+      offset = rect.top - containerTop;
+      break;
+    }
+    return { rowId, offset, height: history.scrollHeight, top: history.scrollTop };
+  }
 
   function trackReadingPosition() {
     const history = historyRef.current;
@@ -1029,16 +1093,28 @@ export function ConversationPane({
     if (root || !history || !conversation.hasOlder || !onLoadOlder || loadingOlderRef.current)
       return;
     setLoadingOlder(true);
-    olderScrollAnchorRef.current = {
-      height: history.scrollHeight,
-      top: history.scrollTop,
-    };
+    historyScrollAnchorRef.current = captureScrollAnchor(history);
     try {
       await onLoadOlder();
     } catch {
-      olderScrollAnchorRef.current = undefined;
+      historyScrollAnchorRef.current = undefined;
     } finally {
       setLoadingOlder(false);
+    }
+  }
+
+  async function loadNewer() {
+    const history = historyRef.current;
+    if (root || !history || !conversation.hasNewer || !onLoadNewer || loadingNewerRef.current)
+      return;
+    setLoadingNewer(true);
+    historyScrollAnchorRef.current = captureScrollAnchor(history);
+    try {
+      await onLoadNewer();
+    } catch {
+      historyScrollAnchorRef.current = undefined;
+    } finally {
+      setLoadingNewer(false);
     }
   }
 
@@ -1240,6 +1316,14 @@ export function ConversationPane({
               })}
             </ol>
           )}
+          {!root &&
+            conversation.hasNewer &&
+            onLoadNewer && (
+              // An empty sentinel below the newest row: coming into view asks for the page that
+              // restores the evicted tail. Nothing is shown for it — the reader reached the bottom
+              // and the tail is on its way.
+              <div ref={newerSentinelRef} aria-hidden="true" className="h-8" />
+            )}
         </div>
         {(ownMessages.length > 0 || !followingLatest) && (
           <div

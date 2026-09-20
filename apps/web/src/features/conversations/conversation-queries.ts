@@ -10,6 +10,14 @@ import { mergeMessages } from "./conversation-messages";
 import { createConversationReconciler } from "./conversation-reconciliation";
 import { useConversationRealtime } from "./conversation-realtime-client";
 import {
+  CONVERSATION_WINDOW_MAX_PAGES,
+  CONVERSATION_WINDOW_PAGE_SIZE,
+  newestSequence,
+  nextPageCursor,
+  previousPageCursor,
+  type ConversationWindowCursor,
+} from "@/lib/conversation-window";
+import {
   loadConversationAround,
   loadDirectConversation,
   loadDirectConversationUpdates,
@@ -31,6 +39,13 @@ type ConversationPage<M extends PageMessage> = {
   messages: M[];
 };
 
+/** One page request: an initial load (no cursor), an older page, or a newer page. */
+type PageRequest = {
+  beforeSequence?: number;
+  afterSequence?: number;
+  limit?: number;
+};
+
 /** The oldest loaded top-level message bounds the next page of history. */
 const beforeFirstRoot = (messages: PageMessage[]) =>
   messages.find((message) => !message.threadRootId)?.sequence;
@@ -39,18 +54,33 @@ const beforeFirstMessage = (messages: PageMessage[]) => messages[0]?.sequence;
 
 function conversationPages<M extends PageMessage, T extends ConversationPage<M>>(
   queryKey: readonly unknown[],
-  loadPage: (page: { beforeSequence?: number }) => Promise<T>,
+  loadPage: (page: PageRequest) => Promise<T>,
   olderBefore: (messages: M[]) => number | undefined,
 ) {
-  return infiniteQueryOptions({
+  // The bounded window: `maxPages` keeps the loaded pages from growing with every page of history
+  // read, dropping the page at the far end from the fetch (see `lib/conversation-window.ts`).
+  const query = infiniteQueryOptions({
     queryKey,
-    queryFn: ({ pageParam }) => loadPage({ beforeSequence: pageParam }),
-    initialPageParam: undefined as number | undefined,
-    // History only grows backwards: pages[0] is the oldest loaded window, the latest is last.
-    getPreviousPageParam: (oldest: T) =>
-      oldest.hasOlder ? olderBefore(oldest.messages) : undefined,
-    getNextPageParam: () => undefined,
+    queryFn: ({ pageParam }) => {
+      const cursor = pageParam as ConversationWindowCursor;
+      return loadPage({
+        beforeSequence: cursor?.before,
+        afterSequence: cursor?.after,
+        limit: CONVERSATION_WINDOW_PAGE_SIZE,
+      });
+    },
+    initialPageParam: undefined as ConversationWindowCursor,
+    maxPages: CONVERSATION_WINDOW_MAX_PAGES,
+    // Pages[0] is the oldest loaded window, the latest is the live end. Each direction derives its
+    // cursor from the boundary page, and an honest `hasNewer` tells whether the newest retained page
+    // is still the tail.
+    getPreviousPageParam: (oldest: T) => previousPageCursor(oldest, olderBefore(oldest.messages)),
+    getNextPageParam: (newest: T) => nextPageCursor(newest, newestSequence(newest.messages)),
   });
+  /** The newest page on its own, for returning to the live end after the window slid up into
+   * history and evicted the tail. */
+  const loadInitialPage = () => loadPage({ limit: CONVERSATION_WINDOW_PAGE_SIZE });
+  return { query, loadInitialPage };
 }
 
 export const directConversationQuery = (agentId: string) =>
@@ -73,7 +103,7 @@ export const directConversationUpdates = (agentId: string) => (afterSequence: nu
 export const publicChannelUpdates = (channelId: string) => (afterSequence: number) =>
   loadPublicChannelUpdates({ data: { channelId, afterSequence } });
 
-type Pages<T> = InfiniteData<T, number | undefined>;
+type Pages<T> = InfiniteData<T, ConversationWindowCursor>;
 
 /**
  * A message route's conversation, read from the Query cache the loader populated.
@@ -83,16 +113,20 @@ type Pages<T> = InfiniteData<T, number | undefined>;
  */
 export function useConversationQuery<M extends PageMessage, T extends ConversationPage<M>>({
   query,
+  loadInitialPage,
   loadUpdates,
   onRealtime,
 }: {
-  query: ReturnType<typeof conversationPages<M, T>>;
+  query: ReturnType<typeof conversationPages<M, T>>["query"];
+  /** The newest page on its own: how "back to latest" recovers a tail the window evicted. */
+  loadInitialPage: () => Promise<T>;
   loadUpdates: (afterSequence: number) => Promise<M[]>;
   /** Extra work per realtime event, run alongside reconciliation. */
   onRealtime?: () => Promise<unknown>;
 }) {
   const queryClient = useQueryClient();
-  const { data, hasPreviousPage, fetchPreviousPage, refetch } = useSuspenseInfiniteQuery(query);
+  const { data, hasPreviousPage, hasNextPage, fetchPreviousPage, fetchNextPage } =
+    useSuspenseInfiniteQuery(query);
   const latestPage = data.pages.at(-1)!;
   const conversationId = latestPage.conversationId;
 
@@ -197,9 +231,21 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
     loadOlder: async () => {
       if (hasPreviousPage) await fetchPreviousPage();
     },
-    /** Leave an "around" window and return to the live end of the conversation. */
+    /** Fetch the next page towards the live end after the window slid up into history and
+     * evicted the tail. */
+    loadNewer: async () => {
+      if (hasNextPage) await fetchNextPage();
+    },
+    /** Leave an "around" window, or a history window whose tail the bounded window evicted, and
+     * return to the live end. Replaces the loaded pages with a fresh newest page rather than
+     * re-fetching the existing (possibly evicted) window, so the tail really is loaded when this
+     * resolves; the pane's pending-latest effect then scrolls to it. */
     showLatest: async () => {
-      await refetch();
+      const newest = await loadInitialPage();
+      queryClient.setQueryData<Pages<T>>(query.queryKey, {
+        pages: [newest],
+        pageParams: [undefined],
+      });
     },
     /** Re-read every loaded page after a change the realtime feed does not carry. */
     invalidate: () => queryClient.invalidateQueries({ queryKey: query.queryKey }),
