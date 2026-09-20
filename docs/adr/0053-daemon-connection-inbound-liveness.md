@@ -55,7 +55,7 @@ and rebuilds itself when it has carried none for long enough.
   why the existing RPC is the probe rather than a new one.
 - At 70 seconds with nothing inbound the connection is reported quiet
   (`daemon_connection:inbound_quiet`), once per quiet stretch.
-- At 140 seconds - three unanswered status round trips - the connection is
+- At 140 seconds - four consecutive unanswered status round trips - the connection is
   rebuilt: `daemon_connection:inbound_stalled`, then `disconnect()` followed
   by `connect()` on the same client, which re-runs the existing reconnect
   path (ready recovery, Activity and status flush).

@@ -12,7 +12,10 @@
 export const INBOUND_QUIET_MS = 70_000;
 
 /** When a connection has carried nothing for this long, it is rebuilt rather than waited on.
- * Three of the 30-second status round trips have to go unanswered to reach it. */
+ * Four consecutive 30-second status round trips have to go unanswered before the fifth refresh
+ * finds this window crossed, so a connection is never rebuilt over a single lost reply. The
+ * relationship to that interval is asserted in `connection-liveness.test.ts`, because these
+ * windows are only meaningful in refreshes. */
 export const INBOUND_STALLED_MS = 140_000;
 
 export type ConnectionLiveness = "carrying" | "quiet" | "stalled";
