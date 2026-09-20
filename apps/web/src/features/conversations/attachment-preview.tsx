@@ -88,6 +88,8 @@ function PreviewStatus({
  *
  * - `markdown` goes through the same sanitized Markdown renderer a message body uses, so a `.md`
  *   attachment reads exactly like Markdown written in the conversation.
+ * - `text` (a `.txt` plain-text file) reads literally — rendered as escaped text in a scrollable
+ *   monospace pre, never parsed as Markdown.
  * - `html` goes into an iframe with an empty `sandbox`, which is a unique opaque origin with
  *   scripts, forms, popups and same-origin access all denied. The document renders, but it cannot
  *   run code, read this page, or reach our cookies.
@@ -150,7 +152,7 @@ function TextPreview({
   href,
 }: {
   fileName: string;
-  kind: "markdown" | "html";
+  kind: "markdown" | "html" | "text";
   href: string;
 }) {
   const blob = useAttachmentBlob(href, TEXT_PREVIEW_MAX_BYTES);
@@ -182,6 +184,16 @@ function TextPreview({
       <div className="min-h-0 flex-1 overflow-auto px-4 py-4 text-md leading-6 text-primary sm:px-6 sm:py-5">
         <MessageBody body={text} />
       </div>
+    );
+
+  // Plain text reads literally, not as Markdown and not through an iframe: the bytes are rendered
+  // as React text (auto-escaped, no script surface), in a scrollable monospace pre that preserves
+  // the file's line breaks and leading whitespace.
+  if (kind === "text")
+    return (
+      <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words px-4 py-4 font-mono text-sm leading-6 text-primary sm:px-6 sm:py-5">
+        {text}
+      </pre>
     );
 
   return (
