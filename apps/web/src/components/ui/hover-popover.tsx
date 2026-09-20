@@ -30,13 +30,15 @@ export function HoverPopover({
   className?: string;
   children: ReactNode;
   onOpen?: () => void;
-  /** A press (pointer or keyboard) on the trigger, independent of the hover peek above. React
-   * Aria's Button already gives this native Enter/Space activation. */
+  /** Primary action for a press (pointer or keyboard). Absent, the press toggles the peek
+   * itself, so touch and keyboard users — who cannot hover — can still reach the content. */
   onPress?: () => void;
   working?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLElement>(null);
   function cancel() {
     clearTimeout(timer.current);
   }
@@ -53,20 +55,66 @@ export function HoverPopover({
     timer.current = setTimeout(() => change(next), next ? 250 : 200);
   }
 
+  // The peek has one owner: this component. A press with a primary action runs it and ends
+  // the peek — the action already gives the user the full view. A press without one toggles
+  // the peek, which is how a touch or keyboard user, who never hovers, reaches and dismisses
+  // the content at all.
+  //
+  // DialogTrigger toggles the popover on every trigger press of its own accord, and reports
+  // it through `onOpenChange`. Accepting that `true` would race this handler, so the handler
+  // below decides every open and `onOpenChange` is honoured only when it closes (Escape, a
+  // press outside the trigger, or DialogTrigger's own toggle-back).
+  function onTriggerPress() {
+    cancel();
+    if (onPress) {
+      change(false);
+      onPress();
+      return;
+    }
+    change(!open);
+  }
+
+  // `isNonModal` also turns off React Aria's own dismiss-on-outside-press, so a peek opened
+  // by a press would survive every press elsewhere on the page. Close it here instead.
+  useEffect(() => {
+    if (!open) return;
+    function dismiss(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (triggerRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
+      change(false);
+    }
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+    // Re-registering on every `open` change keeps `change` reading current state.
+  }, [open]);
+
   return (
-    <DialogTrigger isOpen={open} onOpenChange={change}>
+    <DialogTrigger
+      isOpen={open}
+      onOpenChange={(next) => {
+        if (!next) change(false);
+      }}
+    >
       <Button
+        ref={triggerRef}
         aria-label={label}
         data-working={working}
         className={triggerClassName}
         onHoverStart={() => delay(true)}
         onHoverEnd={() => delay(false)}
-        onPress={onPress}
+        onPress={onTriggerPress}
       >
         {trigger}
       </Button>
       <Popover
+        ref={popoverRef}
         isNonModal
+        // The trigger sits outside the popover element, so without this React Aria counts
+        // pressing it as an interaction outside the peek and closes the peek before the press
+        // is delivered. DialogTrigger's toggle then reopened it, and the peek could never be
+        // pressed shut — the peek a touch user was stuck with, touch having no hover to end it.
+        shouldCloseOnInteractOutside={(element) => !triggerRef.current?.contains(element)}
         placement="bottom start"
         offset={12}
         containerPadding={12}
