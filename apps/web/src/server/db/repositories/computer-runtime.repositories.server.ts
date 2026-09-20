@@ -106,8 +106,16 @@ export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilit
           ...(providers.length ? { provider: { notIn: providers } } : {}),
         },
       });
+      // A provider that is still installed but reported no catalog this round (for example its
+      // model CLI probe failed) keeps its last-known models: only providers that are no longer an
+      // installed runtime are dropped. This keeps one failing provider from clearing every
+      // model catalog on the Computer.
       await transaction.computerModelCatalog.deleteMany({
-        where: { workspaceId: scope.workspaceId, computerId: scope.computerId },
+        where: {
+          workspaceId: scope.workspaceId,
+          computerId: scope.computerId,
+          ...(providers.length ? { provider: { notIn: providers } } : {}),
+        },
       });
       for (const runtime of runtimes) {
         await transaction.computerRuntime.upsert({
@@ -132,15 +140,24 @@ export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilit
           },
         });
       }
-      if (catalogs.length)
-        await transaction.computerModelCatalog.createMany({
-          data: catalogs.map((catalog) => ({
+      for (const catalog of catalogs) {
+        await transaction.computerModelCatalog.upsert({
+          where: {
+            workspaceId_computerId_provider: {
+              workspaceId: scope.workspaceId,
+              computerId: scope.computerId,
+              provider: catalog.provider,
+            },
+          },
+          create: {
             workspaceId: scope.workspaceId,
             computerId: scope.computerId,
             provider: catalog.provider,
             models: catalog.models,
-          })),
+          },
+          update: { models: catalog.models, observedAt: new Date() },
         });
+      }
     });
   }
 }
