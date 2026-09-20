@@ -1,6 +1,9 @@
 import type { AgentActivity, AgentRuntimeEvent } from "@coforge/agent";
 import { AGENT_ACTIVITY_DETAIL_KIND, truncateCodePoints } from "@lrm/coforge-sdk/internal";
-import { classifyRuntimeErrorText } from "./runtime-error-classification";
+import {
+  classifyRuntimeErrorText,
+  type RuntimeErrorClassification,
+} from "./runtime-error-classification";
 
 /**
  * The single place a provider's error, crash or reconnect report becomes an Activity: a
@@ -62,14 +65,18 @@ export type RuntimeReconnectingEvent = Extract<AgentRuntimeEvent, { type: "recon
  * trajectory entry (spec §7) alongside the top-level `detail`, so the message
  * is visible both in the current-status line and in the popover/history entry.
  */
-export function buildRuntimeErrorActivity(event: RuntimeErrorEvent): AgentActivity {
+export function buildRuntimeErrorActivity(
+  event: RuntimeErrorEvent,
+  // A provider's own richer class/reason hint is always kept as-is; only text this daemon has no
+  // provider hint for gets classified (runtime-error-classification.ts) instead of the previous
+  // generic "AgentRuntimeError"/"runtime_failure" default for every unhinted message. A caller
+  // that already needs the classification for its own decision passes it in rather than making
+  // this classify the same string a second time.
+  classified: RuntimeErrorClassification = classifyRuntimeErrorText(event.message),
+): AgentActivity {
   // A provider's own error message is shown as reported; only the crash summary built at
   // process exit is redacted and capped.
   const detail = event.message;
-  // A provider's own richer class/reason hint is always kept as-is; only text this daemon has no
-  // provider hint for gets classified here (runtime-error-classification.ts) instead of the
-  // previous generic "AgentRuntimeError"/"runtime_failure" default for every unhinted message.
-  const classified = classifyRuntimeErrorText(detail);
   return {
     detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
     level: "error",

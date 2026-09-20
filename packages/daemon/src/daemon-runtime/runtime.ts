@@ -24,6 +24,7 @@ import {
 import {
   classifyRuntimeErrorText,
   RUNTIME_ERROR_RETRY_DECISION,
+  type RuntimeErrorClassification,
 } from "../agent-runtime/runtime-error-classification";
 import {
   RuntimeErrorDeliveryBackoff,
@@ -2328,10 +2329,14 @@ export class DaemonRuntime {
     // an intervening `completed` can report `runtime_crashed` instead of a plain `idle` exit.
     if (event.type === "error") {
       launch.crashDetail = event;
+      // Classified once here: the Activity's fallback class/reason and this failure's retry
+      // decision are the same reading of the same text.
+      const classification = classifyRuntimeErrorText(event.message);
       const built = this.#noteRuntimeErrorRecovery(
         agentId,
         event,
-        buildRuntimeErrorActivity(event),
+        buildRuntimeErrorActivity(event, classification),
+        classification,
       );
       this.#emitAgentActivity(
         agentId,
@@ -2762,8 +2767,8 @@ export class DaemonRuntime {
     agentId: string,
     event: RuntimeErrorEvent,
     built: ReturnType<typeof buildRuntimeErrorActivity>,
+    classification: RuntimeErrorClassification,
   ): ReturnType<typeof buildRuntimeErrorActivity> {
-    const classification = classifyRuntimeErrorText(event.message);
     if (classification.retryDecision !== RUNTIME_ERROR_RETRY_DECISION.RETRY) {
       // Not worth backing off for: retrying achieves nothing on its own (D's territory is the
       // user-facing side of that, e.g. auth). Leave the Agent in a truthful state instead of
@@ -2778,7 +2783,9 @@ export class DaemonRuntime {
       return this.#runtimeErrorFingerprintFenceActivity(built, fence);
     }
     const backoff = this.#runtimeErrorDeliveryBackoff.recordFailure(agentId);
-    this.#deliveryQueue.hold(agentId, backoff.untilMs);
+    // No deadline handed to the queue: it only records *that* the Agent is held, and this
+    // release timer is the single owner of *when* that ends.
+    this.#deliveryQueue.hold(agentId);
     this.#scheduleRuntimeErrorDeliveryBackoffRelease(agentId, backoff.delayMs);
     return built;
   }
