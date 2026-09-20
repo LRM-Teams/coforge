@@ -2,6 +2,7 @@ import { RefreshCcw01 as Refresh } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
 
 import { Button } from "@/components/base/buttons/button";
+import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { formatAgentProfileParam } from "@/features/agents/profile-panel/profile-panel-search";
 import type { KeyPointExtractionMeta } from "./records-content";
@@ -18,6 +19,7 @@ export function KeyPointExtractionPanel({
   waitingLabel,
   /** Settings deep-link for the prompt editor (personal or team slot). */
   editPrompt,
+  className,
 }: {
   extraction: KeyPointExtractionMeta | undefined;
   assistantAgentId?: string | null;
@@ -28,6 +30,7 @@ export function KeyPointExtractionPanel({
     slot: "personal" | "team";
     returnTo: string;
   };
+  className?: string;
 }) {
   const status = extraction?.status;
   const canRestart =
@@ -41,7 +44,12 @@ export function KeyPointExtractionPanel({
   const showActions = Boolean(editPrompt) || canRestart;
 
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+    <div
+      className={cn(
+        "min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6",
+        className,
+      )}
+    >
       {showActions ? (
         <div className="flex flex-wrap items-center justify-end gap-3">
           {editPrompt ? (

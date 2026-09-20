@@ -18,6 +18,7 @@ import {
   applyKeyPointPromptText,
   emptyKeyPointPrompts,
 } from "../../features/records/records-content";
+import { linkifyKeyPointSourceAttributions } from "../../features/records/key-point-source-links";
 import { ensureWeeklyReportAssistant } from "./weekly-report-assistant.server";
 import { WeeklyReportAssistantChat } from "./weekly-report-assistant-chat.server";
 import { ensureWeeklyReportAssistantChatSession } from "./weekly-report-assistant-chat-session.server";
@@ -70,6 +71,10 @@ export function buildTeamKeyPointWakeText(input: {
     input.submitted.length === 0
       ? ["(本周尚无已提交成员周报)"]
       : input.submitted.map((row) => `- ${row.displayName} — reportId: ${row.reportId}`);
+  const attributionExample =
+    input.submitted[0] != null
+      ? `- 完成模板拖拽 [@${input.submitted[0].displayName}](/records/${input.submitted[0].reportId})`
+      : "- 完成模板拖拽 [@显示名](/records/<reportId>)";
   return [
     "[weekly-report-team-key-points]",
     `overviewReportId: ${input.overviewReportId}`,
@@ -81,6 +86,11 @@ export function buildTeamKeyPointWakeText(input: {
     "",
     "## 已提交成员",
     ...memberLines,
+    "",
+    "## 来源标注（必须）",
+    "每条要点末尾必须附上来源成员的 Markdown 链接；链接文字以 @ 开头，href 使用上表 reportId：",
+    attributionExample,
+    "同一事项多名成员则并列多个 [@姓名](/records/<reportId>)；不要只写姓名而不带链接。",
     "",
     "## 提示词",
     input.prompt.trim() || DEFAULT_TEAM_KEY_POINT_PROMPT,
@@ -555,8 +565,8 @@ export async function applyTeamKeyPointExtraction(
     requestId: string;
   },
 ): Promise<{ status: "ready" | "awaiting_confirm"; reportId: string }> {
-  const markdown = input.markdown.trim();
-  if (!markdown) throw new AppError("INVALID_INPUT");
+  const rawMarkdown = input.markdown.trim();
+  if (!rawMarkdown) throw new AppError("INVALID_INPUT");
 
   const owner = await db.weeklyReportAssistant.findFirst({
     where: { workspaceId: input.workspaceId, agentId: input.agentId },
@@ -587,6 +597,12 @@ export async function applyTeamKeyPointExtraction(
     },
   });
   if (assignmentCount === 0) throw new AppError("NOT_FOUND");
+
+  const sources = await loadSubmittedTeamKeyPointSources(db, {
+    workspaceId: input.workspaceId,
+    overviewReportId: report.id,
+  });
+  const markdown = linkifyTeamKeyPointMarkdown(rawMarkdown, sources, report.id);
 
   const content = normalizeReportContent(report.content);
   const promptSnapshot =
@@ -633,6 +649,42 @@ export async function applyTeamKeyPointExtraction(
     },
   });
   return { status: "ready", reportId: report.id };
+}
+
+/** Submitted member reports used for @source linkification on team key points. */
+export async function loadSubmittedTeamKeyPointSources(
+  db: PrismaClient,
+  input: { workspaceId: string; overviewReportId: string },
+): Promise<Array<{ reportId: string; displayName: string }>> {
+  const submitted = await db.weeklyReport.findMany({
+    where: {
+      workspaceId: input.workspaceId,
+      sourceTemplateId: input.overviewReportId,
+      kind: "member",
+      status: { in: ["submitted", "shared"] },
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      author: { select: { username: true, displayName: true } },
+    },
+  });
+  return submitted.map((row) => ({
+    reportId: row.id,
+    displayName: row.author.displayName?.trim() || row.author.username,
+  }));
+}
+
+export function linkifyTeamKeyPointMarkdown(
+  markdown: string,
+  sources: ReadonlyArray<{ reportId: string; displayName: string }>,
+  overviewReportId: string,
+): string {
+  return linkifyKeyPointSourceAttributions(
+    markdown,
+    sources,
+    `/records/${overviewReportId}`,
+  );
 }
 
 async function postTeamKeyPointConfirmSuggestion(

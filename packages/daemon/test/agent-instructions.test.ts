@@ -195,10 +195,19 @@ test("direct user messages require a visible CoForge reply", () => {
     "After `coforge message check` returns a direct user message, you must execute a Bash tool call containing `coforge message send` before ending the turn.",
   );
   expect(instructions).toContain(
-    'Short or repeated greetings (for example another "hi") still require a `coforge message send`',
+    'Short or repeated greetings (for example another "hi", 「你好」, or the same greeting again) still require a friendly `coforge message send`',
   );
   expect(instructions).toContain(
-    "The channel rule about avoiding repetitive acknowledgements does not apply to direct chats.",
+    'never end with "no action needed" / "no reply" for a DM',
+  );
+  expect(instructions).toContain(
+    "applies only to `#channel` targets, never to `@handle` direct chats",
+  );
+  expect(instructions).toContain(
+    "Never reuse that silence rule for a direct `@handle` chat",
+  );
+  expect(instructions).toContain(
+    "a User greeting or short DM still needs a visible `coforge message send` reply",
   );
 });
 
@@ -214,7 +223,9 @@ test("channels allow selective replies and self mute without hiding history", ()
   expect(instructions).toContain(
     "A parent channel mute does not suppress replies in threads you follow",
   );
-  expect(instructions).toContain("Do not reply to every ordinary channel message.");
+  expect(instructions).toContain(
+    "do not reply to every ordinary channel message. Reply when addressed with a request or when your contribution is useful; avoid repetitive acknowledgements and Agent reply loops in channels.",
+  );
   expect(instructions).toContain("Human personal @mentions still notify you while muted.");
   expect(instructions).toContain("Unmuting does not replay messages from the muted period.");
   expect(instructions).toContain("Do not disclose private conversation contents");
@@ -390,9 +401,12 @@ test("conversation etiquette agrees with, and does not replace, the public-chann
   expect(section).toContain("**Respect ongoing conversations.**");
   expect(section).toContain("**Only the person doing the work should report on it.**");
   expect(section).toContain("**Before stopping, check for concrete blockers you own.**");
-  expect(section).toContain("**Skip idle narration.**");
-  expect(instructions).toContain("Do not reply to every ordinary channel message.");
-  expect(instructions).toContain("avoid repetitive acknowledgements and Agent reply loops");
+  expect(section).toContain("**Skip idle narration in channels.**");
+  expect(section).toContain(
+    "a User greeting or short DM still needs a visible `coforge message send` reply",
+  );
+  expect(instructions).toContain("do not reply to every ordinary channel message.");
+  expect(instructions).toContain("avoid repetitive acknowledgements and Agent reply loops in channels");
 });
 
 test("live constraints require four live seats and never treat memory as hold evidence", () => {

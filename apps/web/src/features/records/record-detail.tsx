@@ -53,7 +53,7 @@ import {
   type ReportContent,
 } from "./records-content";
 import { copyText } from "./report-editor/lib/clipboard";
-import { BackToRecords, WeekBadge, useFormatEditHint } from "./records-layout";
+import { BackToRecords, RecordsKeyPointReturnBack, WeekBadge, useFormatEditHint } from "./records-layout";
 import { RecordSidePanel } from "./record-side-panel";
 import { readSidePanelPinned } from "./record-side-panel-pin";
 import { TemplateChildrenTable, type TemplateChild } from "./template-children-table";
@@ -106,14 +106,29 @@ type NoteSubject = {
   };
 };
 
-export function RecordDetail({ subject }: { subject: ReportSubject | NoteSubject }) {
+export function RecordDetail({
+  subject,
+  returnTo,
+}: {
+  subject: ReportSubject | NoteSubject;
+  /** When set (from key-point @source links), show back to that Records path. */
+  returnTo?: string;
+}) {
   if (subject.type === "note") {
     return <NoteDetail key={subject.note.id} note={subject.note} />;
   }
   if (subject.report.kind === "template") {
-    return <TemplateReportDetail key={subject.report.id} report={subject.report} />;
+    return (
+      <TemplateReportDetail
+        key={subject.report.id}
+        report={subject.report}
+        returnTo={returnTo}
+      />
+    );
   }
-  return <ReportDetail key={subject.report.id} report={subject.report} />;
+  return (
+    <ReportDetail key={subject.report.id} report={subject.report} returnTo={returnTo} />
+  );
 }
 
 async function fileToDataUrlUpload(file: File): Promise<UploadResult | null> {
@@ -133,7 +148,13 @@ async function fileToDataUrlUpload(file: File): Promise<UploadResult | null> {
   };
 }
 
-function ReportDetail({ report }: { report: ReportSubject["report"] }) {
+function ReportDetail({
+  report,
+  returnTo,
+}: {
+  report: ReportSubject["report"];
+  returnTo?: string;
+}) {
   const router = useRouter();
   const navigate = useNavigate();
   const toast = useAppToast();
@@ -398,7 +419,7 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
           heading={report.title}
           leading={
             <span className="flex items-center gap-2">
-              <BackToRecords />
+              {returnTo ? <RecordsKeyPointReturnBack returnTo={returnTo} /> : <BackToRecords />}
               <WeekBadge week={report.cycle.week} />
             </span>
           }
@@ -540,7 +561,13 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
   );
 }
 
-function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
+function TemplateReportDetail({
+  report,
+  returnTo,
+}: {
+  report: ReportSubject["report"];
+  returnTo?: string;
+}) {
   const router = useRouter();
   const toast = useAppToast();
   const setFormatEditing = useFormatEditHint();
@@ -784,7 +811,7 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
       >
         <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
           <span className="flex shrink-0 items-center gap-2">
-            <BackToRecords />
+            {returnTo ? <RecordsKeyPointReturnBack returnTo={returnTo} /> : <BackToRecords />}
             <WeekBadge week={report.cycle.week} />
           </span>
           <h1 className="min-w-0 truncate text-base font-semibold text-primary sm:text-lg">

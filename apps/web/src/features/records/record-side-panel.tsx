@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { Link, useRouter } from "@tanstack/react-router";
+import { Link, getRouteApi, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
   ChevronDown,
@@ -64,6 +64,7 @@ import {
 import {
   looksLikeMemberGenerateOfferAccept,
   looksLikeTeamKeyPointReorganizeRequest,
+  looksLikeSideChatGreeting,
   shouldUseMemberReportRulePath,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
@@ -95,6 +96,7 @@ function payloadOf(comment: CommentRow): RecordAssistantPayload | null {
 }
 
 const SIDE_PANEL_WIDTH_STORAGE_KEY = "coforge.records.side-panel-width";
+const appRoute = getRouteApi("/_app");
 const DEFAULT_SIDE_PANEL_WIDTH = 384;
 const MIN_SIDE_PANEL_WIDTH = 280;
 
@@ -160,6 +162,8 @@ export function RecordSidePanel({
   onRestartKeyPointExtraction?: () => void;
 }) {
   const router = useRouter();
+  const { user: viewer } = appRoute.useLoaderData();
+  const viewerName = viewer.name?.trim() || viewer.username?.trim() || m.records_side_chat_user();
   const countdown = useSendWindowCountdown(countdownUntil);
   const post = useServerFn(addRecordComment);
   const ensureIntro = useServerFn(ensureRecordAssistantIntro);
@@ -659,7 +663,9 @@ export function RecordSidePanel({
       }
 
       const useRulePath =
-        shouldUseMemberReportRulePath(surface, body) || !assistantReady(assistantStatus);
+        looksLikeSideChatGreeting(body) ||
+        shouldUseMemberReportRulePath(surface, body) ||
+        !assistantReady(assistantStatus);
       if (useRulePath) {
         if (!assistantReady(assistantStatus)) {
           session.setupDismissed = false;
@@ -1126,7 +1132,9 @@ export function RecordSidePanel({
                   ? m.records_side_chat_assistant()
                   : comment.authorType === "system"
                     ? m.records_side_chat_system()
-                    : (comment.author?.displayName ?? m.records_side_chat_user());
+                    : (comment.author?.displayName?.trim() ||
+                      comment.author?.username?.trim() ||
+                      viewerName);
               const payload = payloadOf(comment);
               const generateHelpConsumed = comments.some(
                 (row) => row.authorType === "user" && looksLikeMemberGenerateOfferAccept(row.body),
@@ -1240,9 +1248,7 @@ export function RecordSidePanel({
 
             const message = item.message;
             const authorName =
-              message.author === "assistant"
-                ? m.records_side_chat_assistant()
-                : m.records_side_chat_user();
+              message.author === "assistant" ? m.records_side_chat_assistant() : viewerName;
             const suggestion = message.suggestion ?? null;
             const showSuggestion =
               suggestion !== null &&

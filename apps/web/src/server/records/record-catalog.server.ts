@@ -20,6 +20,7 @@ import {
   looksLikeCollectAgainRequest,
   looksLikeMemberGenerateOfferAccept,
   looksLikeMemberReportRuleIntent,
+  looksLikeSideChatGreeting,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
   type RecordAssistantPayload,
@@ -1859,7 +1860,8 @@ export class RecordCatalog {
       throw new AppError("ACCESS_DENIED");
     }
 
-    const { writeKeyPointExtraction } = await import("./weekly-report-key-points.server");
+    const { writeKeyPointExtraction, loadSubmittedTeamKeyPointSources, linkifyTeamKeyPointMarkdown } =
+      await import("./weekly-report-key-points.server");
     const {
       DEFAULT_PERSONAL_KEY_POINT_PROMPT,
       DEFAULT_TEAM_KEY_POINT_PROMPT,
@@ -1868,13 +1870,24 @@ export class RecordCatalog {
     const promptSnapshot =
       content.keyPointExtraction?.promptSnapshot ??
       (report.kind === "template" ? DEFAULT_TEAM_KEY_POINT_PROMPT : DEFAULT_PERSONAL_KEY_POINT_PROMPT);
+    const linkedMarkdown =
+      report.kind === "template"
+        ? linkifyTeamKeyPointMarkdown(
+            markdown,
+            await loadSubmittedTeamKeyPointSources(this.db, {
+              workspaceId: input.workspaceId,
+              overviewReportId: report.id,
+            }),
+            report.id,
+          )
+        : markdown;
     const next = await writeKeyPointExtraction(this.db, {
       reportId: report.id,
       content,
       extraction: {
         status: "ready",
         promptSnapshot,
-        markdown,
+        markdown: linkedMarkdown,
         generatedAt: new Date().toISOString(),
       },
     });
@@ -2550,7 +2563,15 @@ export class RecordCatalog {
     assistantSessionId: string;
   }) {
     await this.addUserComment(input);
-    if (input.subjectType === "report" && looksLikeMemberGenerateOfferAccept(input.body)) {
+    if (looksLikeSideChatGreeting(input.body)) {
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+        body: "你好！我是周报助手。需要我整理要点、改文案，还是别的周报相关帮助？",
+      });
+    } else if (input.subjectType === "report" && looksLikeMemberGenerateOfferAccept(input.body)) {
       const assignment = await this.db.weeklyReport.findFirst({
         where: {
           id: input.subjectId,

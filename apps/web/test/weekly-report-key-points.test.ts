@@ -18,6 +18,8 @@ import { looksLikeTeamKeyPointReorganizeRequest } from "../src/features/records/
 test("looksLikeTeamKeyPointReorganizeRequest matches overview side-chat phrases", () => {
   expect(looksLikeTeamKeyPointReorganizeRequest("重新整理")).toBe(true);
   expect(looksLikeTeamKeyPointReorganizeRequest("再整理一次")).toBe(true);
+  expect(looksLikeTeamKeyPointReorganizeRequest("帮我整理一下全员周报")).toBe(true);
+  expect(looksLikeTeamKeyPointReorganizeRequest("整理全员周报")).toBe(true);
   expect(looksLikeTeamKeyPointReorganizeRequest("hi")).toBe(false);
 });
 
@@ -389,6 +391,8 @@ test("buildTeamKeyPointWakeText lists submitted members and asks for overview su
   expect(body).toContain("33333333-3333-4333-8333-333333333333");
   expect(body).toContain("全员提炼");
   expect(body).toContain("weekly-report-key-points submit");
+  expect(body).toContain("来源标注（必须）");
+  expect(body).toContain("[@Alice](/records/33333333-3333-4333-8333-333333333333)");
 });
 
 test("startTeamKeyPointExtraction is idempotent when already generating", async () => {
@@ -523,6 +527,12 @@ test("applyTeamKeyPointExtraction writes ready markdown on the overview template
         authorId: "leader-1",
       }),
       count: async () => 2,
+      findMany: async () => [
+        {
+          id: "r-alice",
+          author: { username: "alice", displayName: "Alice" },
+        },
+      ],
       update: async (args: { data: { content: unknown } }) => {
         written = args.data.content;
         return {};
@@ -534,14 +544,15 @@ test("applyTeamKeyPointExtraction writes ready markdown on the overview template
     workspaceId: "ws-1",
     agentId: "agent-1",
     reportId: "overview-1",
-    markdown: "## 本周进展\n- 完成 A",
+    markdown: "## 本周进展\n- 完成 A @Alice",
     requestId: "11111111-1111-4111-8111-111111111111",
   });
   expect(result).toEqual({ status: "ready", reportId: "overview-1" });
   expect(written).toMatchObject({
     keyPointExtraction: {
       status: "ready",
-      markdown: "## 本周进展\n- 完成 A",
+      markdown:
+        "## 本周进展\n- 完成 A [@Alice](/records/r-alice?returnTo=%2Frecords%2Foverview-1)",
       promptSnapshot: "团队提示词",
     },
   });
@@ -569,6 +580,7 @@ test("applyTeamKeyPointExtraction parks side-chat-confirm delivery as awaiting_c
         },
       }),
       count: async () => 1,
+      findMany: async () => [],
       update: async ({ data }: { data: { content: unknown } }) => {
         written = data.content;
         return {};
@@ -628,6 +640,7 @@ test("applyConfirmedKeyPointMarkdown writes ready extraction without replacing b
           keyPointExtraction: { status: "ready", promptSnapshot: "团队提示词", markdown: "old" },
         },
       }),
+      findMany: async () => [],
       update: async ({ data }: { data: { content: unknown } }) => {
         written = data.content;
         return {};

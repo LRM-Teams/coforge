@@ -81,13 +81,12 @@ export function TeamKeyPointSection({
       </div>
 
       {status ? (
-        <div className="rounded-xl border border-secondary bg-primary">
-          <KeyPointExtractionPanel
-            extraction={extraction}
-            assistantAgentId={assistantAgentId}
-            waitingLabel={m.records_key_points_team_waiting()}
-          />
-        </div>
+        <KeyPointExtractionPanel
+          extraction={extraction}
+          assistantAgentId={assistantAgentId}
+          waitingLabel={m.records_key_points_team_waiting()}
+          className="px-0 py-0 sm:px-0 sm:py-0"
+        />
       ) : (
         <p className="text-sm text-tertiary">{m.records_key_points_team_waiting()}</p>
       )}

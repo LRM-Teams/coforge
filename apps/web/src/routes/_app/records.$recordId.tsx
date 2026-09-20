@@ -3,6 +3,7 @@ import { createFileRoute, notFound } from "@tanstack/react-router";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { RecordDetail } from "@/features/records/record-detail";
 import { loadRecordSubject } from "@/features/records/records.functions";
+import { sanitizeRecordsReturnTo } from "@/features/records/records-return-to";
 import { isAppError } from "@/lib/app-error";
 
 export const Route = createFileRoute("/_app/records/$recordId")({
@@ -11,6 +12,9 @@ export const Route = createFileRoute("/_app/records/$recordId")({
   // Always revalidate when entering a report so saves from a previous visit win
   // over the first-load loader snapshot.
   staleTime: 0,
+  validateSearch: (search: Record<string, unknown>): { returnTo?: string } => ({
+    returnTo: sanitizeRecordsReturnTo(search.returnTo),
+  }),
   loader: async ({ params }) => {
     try {
       return await loadRecordSubject({ data: { id: params.recordId } });
@@ -25,5 +29,6 @@ export const Route = createFileRoute("/_app/records/$recordId")({
 
 function RecordDetailPage() {
   const subject = Route.useLoaderData();
-  return <RecordDetail subject={subject} />;
+  const { returnTo } = Route.useSearch();
+  return <RecordDetail subject={subject} returnTo={returnTo} />;
 }

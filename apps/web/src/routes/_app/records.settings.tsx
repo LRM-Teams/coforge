@@ -3,20 +3,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { WeeklyReportSettings } from "@/features/records/weekly-report-settings";
 import { loadKeyPointPrompts, loadWeeklyTemplates } from "@/features/records/records.functions";
+import { sanitizeRecordsReturnTo } from "@/features/records/records-return-to";
 import type { RecordsTab } from "@/features/records/records-layout";
 import { loadWorkspaceMembers } from "@/features/workspaces/members.functions";
 
 export type SettingsSection = "templates" | "key_points";
 export type KeyPointSlotSearch = "team" | "personal";
 
-/** Only allow in-app Records return paths (no open redirect). */
-export function sanitizeRecordsReturnTo(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  if (!value.startsWith("/records/")) return undefined;
-  if (value.includes("://") || value.includes("\\") || value.includes("\n")) return undefined;
-  if (value.length > 200) return undefined;
-  return value;
-}
+export { sanitizeRecordsReturnTo };
 
 export const Route = createFileRoute("/_app/records/settings")({
   validateSearch: (

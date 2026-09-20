@@ -6,6 +6,19 @@ import {
   type WeeklyReportAssistantSuggestion,
 } from "../src/server/records/weekly-report-assistant-suggestion.server";
 
+test("prose that mentions the suggestion tag does not truncate the display body", () => {
+  const body = [
+    "明白你的疑问。区别在于这是两条不同的流程：",
+    "",
+    "- **正文编辑（body-edit）**：走 `[weekly-report-suggestion]` 预览卡，需要你在界面上点「Confirm」。",
+    "- **全员要点**：用户侧聊应出 Insert 预览卡，不要直接 submit。",
+    "",
+    "要按这个方式来吗？",
+  ].join("\n");
+  expect(weeklyReportAssistantSuggestionDisplayBody(body)).toBe(body);
+  expect(parseWeeklyReportAssistantSuggestion(body)).toBeNull();
+});
+
 test("key-point-edit suggestions round-trip through the assistant message envelope", () => {
   const suggestion: WeeklyReportAssistantSuggestion = {
     type: "key-point-edit",

@@ -16,7 +16,7 @@ import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.se
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { getMessageRequestIdempotency } from "../../server/conversations/redis-message-request-idempotency.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
-import { looksLikeMemberReportRuleIntent } from "./weekly-highlight-extract";
+import { looksLikeMemberReportRuleIntent, looksLikeSideChatGreeting } from "./weekly-highlight-extract";
 import { normalizeReportContent, type ReportContent } from "./records-content";
 
 export const loadRecordsNavAttention = createServerFn({ method: "GET" })
@@ -683,6 +683,23 @@ export const postWeeklyReportAssistantRequest = createServerFn({ method: "POST" 
       userId: user.id,
       sessionId: data.sessionId,
     });
+    if (looksLikeSideChatGreeting(data.body)) {
+      const comments = await recordCatalog(db).postSideChat({
+        workspaceId,
+        userId: user.id,
+        subjectType: data.subjectType,
+        subjectId: data.subjectId,
+        body: data.body,
+        assistantSessionId: data.sessionId,
+      });
+      await touchWeeklyReportAssistantChatSession(db, {
+        workspaceId,
+        userId: user.id,
+        sessionId: data.sessionId,
+        title: data.body,
+      });
+      return { kind: "rule" as const, comments };
+    }
     if (data.subjectType === "report" && looksLikeMemberReportRuleIntent(data.body)) {
       const comments = await recordCatalog(db).postMemberReportRuleSideChatIfApplicable({
         workspaceId,

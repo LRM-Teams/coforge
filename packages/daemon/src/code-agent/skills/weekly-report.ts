@@ -29,10 +29,20 @@ Do not reuse another page's assumptions.
 The Records right-panel chat is a **direct** conversation with the User, not a
 public channel. Every User turn delivered to you (inbox notice / \`message
 check\`) requires a visible \`coforge message send\` reply before you end the
-turn — including greetings such as 「hi」and repeated short acknowledgements.
-Never conclude that a greeting or duplicate short message needs no reply; the
-User cannot see assistant-only thoughts. An assistant text response without
-\`coforge message send\` is invisible and is a protocol error.
+turn — including greetings such as 「hi」/「你好」and **repeated** short
+greetings. Never conclude that a greeting or duplicate short message needs no
+reply; never end with "no action needed". The User cannot see assistant-only
+thoughts, and the side panel keeps spinning until a real reply arrives. An
+assistant text response without \`coforge message send\` is invisible and is a
+protocol error.
+
+Example — User sends \`hi\` again:
+
+\`\`\`
+coforge message send --target "@username" <<'COFORGE_MESSAGE'
+你好！我是周报助手，需要我整理要点、改文案，还是别的周报相关帮助？
+COFORGE_MESSAGE
+\`\`\`
 
 ## Progressive loading
 
@@ -84,22 +94,32 @@ coforge weekly-report-key-points submit --report-id <uuid> --request-id <uuid> -
 \`\`\`
 
   Do **not** use a \`body-edit\` Confirm envelope for this write-back.
-- When the platform wakes you with a \`[weekly-report-team-key-points]\` turn,
-  read every submitted member report listed in the wake text, extract a team
-  summary using the team prompt, then submit with the **overviewReportId** as
-  \`--report-id\` (same CLI as personal). Do **not** use body-edit Confirm.
-- When the User asks in side chat to (re)organize key points for the current
-  page (for example 「重新整理」「再整理一次」「整理全员要点」), draft the
-  markdown yourself and reply with a \`key-point-edit\` suggestion so the
-  product can show a preview text box and an Insert button. Use the current
-  page subject's report id. Do **not** call \`weekly-report-key-points submit\`
-  for that User-initiated path — wait for Insert.
+- When the platform wakes you with a \`[weekly-report-team-key-points]\` turn
+  (must include \`[weekly-report-platform-turn]\`), read every submitted member
+  report listed in the wake text, extract a team summary using the team prompt,
+  then submit with the **overviewReportId** as \`--report-id\` (same CLI as
+  personal). Do **not** use body-edit Confirm.
+  Every bullet must end with source attribution Markdown links using the
+  wake-text \`reportId\` values, for example
+  \`[@Alice](/records/<alice-report-id>)\`. Link text must start with \`@\`.
+  Multiple sources on one bullet are allowed as adjacent links.
+- When the User asks in side chat to (re)organize key points / 全员周报 for the
+  current page (for example 「重新整理」「再整理一次」「整理全员要点」
+  「帮我整理一下全员周报」), draft the markdown yourself and reply with a
+  \`key-point-edit\` suggestion so the product can show a preview text box and
+  an Insert button. Use the current page subject's report id. Attribute each
+  bullet the same way with \`[@Name](/records/<member-report-id>)\`. Do **not**
+  call \`weekly-report-key-points submit\` for that User-initiated path — wait for
+  Insert. Only the platform-turn wake above may use submit.
 
 \`\`\`
 [weekly-report-suggestion]
 {"type":"key-point-edit","reportId":"<uuid>","summary":"<short summary>","markdown":"## …\\n- …\\n"}
 [/weekly-report-suggestion]
 \`\`\`
+Do not mention the raw \`[weekly-report-suggestion]\` tag in ordinary chat prose;
+only append a real envelope (open tag, JSON object, close tag) when proposing
+Insert.
 - When the platform wakes you after a Collect Run with ready packs and a slot
   status board, synthesize from those packs plus the template outline into a
   body-edit suggestion for the current member report. Do not re-scan the OS.
