@@ -245,6 +245,12 @@ WSS/RPC 连接。Daemon API key
 及其他面向一个 Workspace–Computer connection 的控制消息只发布到该 channel，不向同一
 Computer 的其他 Workspace 或 Workspace 内其他 Daemon 广播。
 
+Daemon 不把「传输层报告已连接」当作「Daemon 可达」的证据。连接记录自己最近一次承载入站
+流量的时刻——Daemon channel 上的 publication，或一次得到应答的 Computer status RPC，二者都
+在解码之前记录，因此没有任何解码器能接受的帧同样算数。70 秒无入站记 quiet，140 秒（三次
+未获应答的 status 往返）则重建连接。没有话要说的 Workspace 仍会产生 status 往返，因此安静
+的 Workspace 不会被误判为死连接（见 [ADR 0052](adr/0053-daemon-connection-inbound-liveness.md)）。
+
 #### Workspace-scoped remote Computer restart
 
 #### Workspace-scoped remote Computer upgrade

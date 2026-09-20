@@ -136,6 +136,7 @@ import type { AgentLaunchIdentity } from "../code-agent/agent-instructions";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
 import { AgentWeeklyReportRequestError } from "./agent-weekly-report-request-error";
 import { controlPayloadShape } from "./control-payload";
+import { connectionLiveness, INBOUND_STALLED_MS } from "./connection-liveness";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentLaunchConfig = {
@@ -180,6 +181,9 @@ export interface DaemonConnectionTiming {
   cancel(timer: unknown): void;
   scheduleRepeating?(callback: () => void, delayMs: number): unknown;
   cancelRepeating?(timer: unknown): void;
+  /** The connection's own clock, so a test can cross the inbound-liveness window without
+   * waiting for it. Production reads the wall clock. */
+  now?(): number;
 }
 
 const defaultDaemonConnectionTiming: DaemonConnectionTiming = {
@@ -1248,6 +1252,12 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #reportedUpgradeRequestIds = new Set<string>();
   #statusRefreshTimer: ReturnType<typeof setInterval> | undefined;
   #computerStatusRefreshTimer: unknown;
+  /** When this connection last carried inbound traffic, by the connection's own clock. Only a
+   * publication on the Daemon's channel or an answered status RPC sets it; an open socket does
+   * not, which is the whole point. Undefined until the connection first reports connected. */
+  #lastInboundAtMs: number | undefined;
+  /** Suppresses a repeated quiet report while one quiet stretch continues. */
+  #reportedQuiet = false;
   #statusRpcQueue = Promise.resolve();
 
   constructor(
@@ -1277,6 +1287,9 @@ export class DaemonConnection implements DaemonConnectionClient {
     const scope = { workspace_id: config.workspaceId, computer_id: config.computerId };
     client.on("publication", ({ channel, data }) => {
       if (client !== this.#client || channel !== daemonChannel) return;
+      // Before any decoding: a frame this Daemon cannot act on still proves the link carries
+      // traffic, and the liveness window must not mistake an undecodable frame for silence.
+      this.#markInbound();
       this.#handleAgentPublication(data, config);
     });
     client.on("disconnected", () => {
@@ -1294,6 +1307,7 @@ export class DaemonConnection implements DaemonConnectionClient {
         const reconnect = this.#hasConnected;
         this.#connected = true;
         this.#hasConnected = true;
+        this.#markInbound();
         logger.info("Daemon cloud connection established", {
           event: "daemon_connection:connected",
           ...scope,
@@ -1569,11 +1583,18 @@ export class DaemonConnection implements DaemonConnectionClient {
     const refresh = () => {
       const client = this.#client;
       if (!this.#connected || !client) return;
+      this.#checkInboundLiveness(client, config);
+      if (client !== this.#client) return;
       void client
         .rpc(
           DAEMON_CONNECTION_STATUS_METHOD,
           new TextEncoder().encode(JSON.stringify({ ...config, online: true })),
         )
+        .then(() => {
+          // An answered round trip is the only inbound traffic a Workspace with nothing to say
+          // produces, so it is what keeps a legitimately quiet connection alive.
+          if (client === this.#client) this.#markInbound();
+        })
         .catch(() => {});
     };
     this.#computerStatusRefreshTimer = this.timing.scheduleRepeating
@@ -1582,6 +1603,53 @@ export class DaemonConnection implements DaemonConnectionClient {
     if (!this.timing.scheduleRepeating) {
       (this.#computerStatusRefreshTimer as ReturnType<typeof setInterval>).unref();
     }
+  }
+
+  #nowMs(): number {
+    return this.timing.now ? this.timing.now() : Date.now();
+  }
+
+  #markInbound(): void {
+    this.#lastInboundAtMs = this.#nowMs();
+    this.#reportedQuiet = false;
+  }
+
+  /**
+   * Decides, once per status refresh, whether this connection is still worth believing.
+   *
+   * A socket that stays open is not evidence that anything reaches this Daemon: the incident
+   * this answers kept its socket and its subscription while every control frame it delivered was
+   * dropped as undecodable, and the Agent behind it stayed silent until a person restarted the
+   * Computer. Rebuilding the connection is the one recovery that does not need that person.
+   */
+  #checkInboundLiveness(client: CentrifugeWorkspaceClient, config: DaemonConnectionConfig): void {
+    if (this.#lastInboundAtMs === undefined) return;
+    const ageMs = this.#nowMs() - this.#lastInboundAtMs;
+    const scope = { workspace_id: config.workspaceId, computer_id: config.computerId };
+    const liveness = connectionLiveness(ageMs);
+    if (liveness === "carrying") return;
+    if (liveness === "quiet") {
+      if (this.#reportedQuiet) return;
+      this.#reportedQuiet = true;
+      logger.info("Daemon cloud connection has carried nothing recently", {
+        event: "daemon_connection:inbound_quiet",
+        ...scope,
+        last_inbound_age_ms: ageMs,
+        rebuild_after_ms: INBOUND_STALLED_MS,
+      });
+      return;
+    }
+    logger.warning("Daemon cloud connection carried nothing; rebuilding it", {
+      event: "daemon_connection:inbound_stalled",
+      ...scope,
+      last_inbound_age_ms: ageMs,
+      outcome: "reconnecting",
+    });
+    // Counts as fresh traffic so a connection that takes a while to come back is rebuilt once
+    // per window rather than on every refresh while it reconnects.
+    this.#markInbound();
+    client.disconnect();
+    client.connect();
   }
 
   #requireClient(): CentrifugeWorkspaceClient {
