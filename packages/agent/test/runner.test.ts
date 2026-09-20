@@ -190,3 +190,84 @@ async function readResponse(
   }
   throw new Error("Agent process closed before responding");
 }
+
+test("a second Pi launch inside the throttle window does not re-fetch the catalog", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "coforge-agent-model-throttle-"));
+  let catalogRequests = 0;
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      const provider = new URL(request.url).pathname.split("/").at(-1);
+      if (provider !== "anthropic") return new Response(null, { status: 404 });
+      catalogRequests += 1;
+      return Response.json(
+        [
+          {
+            id: "remote-throttle-model",
+            name: "Remote Throttle Model",
+            api: "anthropic-messages",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 100_000,
+            maxTokens: 8_192,
+          },
+        ],
+        { headers: { "last-modified": "Fri, 01 Jan 2099 00:00:00 GMT" } },
+      );
+    },
+  });
+  await Bun.write(
+    join(workspace, "catalog-preload.ts"),
+    `const nativeFetch = globalThis.fetch;
+globalThis.fetch = (input, init) => {
+  const url = new URL(input instanceof Request ? input.url : input.toString());
+  if (url.hostname === "pi.dev") {
+    url.protocol = "http:";
+    url.hostname = "127.0.0.1";
+    url.port = ${JSON.stringify(String(server.port))};
+  }
+  return nativeFetch(url, init);
+};
+`,
+  );
+  await Bun.write(
+    join(workspace, "session.ts"),
+    `import { createSession } from ${JSON.stringify(new URL("../src/runner.ts", import.meta.url).pathname)};
+const created = await createSession({
+  cwd: ${JSON.stringify(workspace)},
+  agentDir: ${JSON.stringify(join(workspace, ".pi", "agent"))},
+  sessionDir: ${JSON.stringify(join(workspace, ".pi-sessions"))},
+  sessionKind: "pi",
+  modelProvider: "anthropic",
+  model: "remote-throttle-model",
+  apiKey: "managed-session-key",
+  instructions: "Test only.",
+  environment: { HOME: ${JSON.stringify(workspace)}, PATH: ${JSON.stringify(process.env.PATH ?? "")} },
+});
+await created.dispose();
+`,
+  );
+  const runSession = async () => {
+    const child = Bun.spawn({
+      cmd: [process.execPath, "--preload", join(workspace, "catalog-preload.ts"), "session.ts"],
+      cwd: workspace,
+      env: { HOME: workspace, PATH: process.env.PATH ?? "" },
+      stderr: "pipe",
+    });
+    const stderr = await new Response(child.stderr).text();
+    expect(await child.exited, stderr).toBe(0);
+  };
+  try {
+    await runSession();
+    expect(catalogRequests).toBe(1);
+    // The launch path must not force a refresh: the SDK's own interval keeps the second launch
+    // from hitting the network again, so an offline or slow network cannot stall every start.
+    await runSession();
+    expect(catalogRequests).toBe(1);
+  } finally {
+    server.stop(true);
+    await rm(workspace, { recursive: true, force: true });
+  }
+}, 40_000);
