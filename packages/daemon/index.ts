@@ -26,6 +26,7 @@ import { stopLaunchdJobs } from "./src/platform/launchd-job";
 import {
   WorkspaceHealthJournal,
   workspaceHealthJournalPath,
+  workspaceHealthRecoveryCommand,
 } from "./src/supervisor/workspace-health-journal";
 import { guardWorkspaceRunnerStart } from "./src/supervisor/workspace-runner-guard";
 export { launchdJobs } from "./src/platform/launchd-job";
@@ -37,6 +38,7 @@ export {
   WORKSPACE_HEALTH_DEGRADED_THRESHOLD,
   WorkspaceHealthJournal,
   workspaceHealthJournalPath,
+  workspaceHealthRecoveryCommand,
 } from "./src/supervisor/workspace-health-journal";
 export type { WorkspaceHealthState } from "./src/supervisor/workspace-health-journal";
 export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
@@ -132,14 +134,11 @@ const DAEMON_CATEGORY = ["coforge", "daemon"];
  * precondition no restart can fix. */
 const MISSING_SOCKET_REASON = "Daemon requires --socket";
 
-/** The exact command that clears a Workspace's degraded latch (`MachineSupervisor.command`'s
- * `"start"`/`"restart"` seam, reached through `coforge-computer restart --workspace <id>`; see
- * `packages/computer/src/cli.ts`'s `restart` command). Unscoped when the Workspace is not even
- * identifiable yet, which still recovers it as part of every binding. */
+/** `workspaceHealthRecoveryCommand` needs a Workspace ID; this child does not always have one
+ * (e.g. a launch missing `--socket` before any config is even readable), so this falls back to
+ * the unscoped form, which still recovers every binding, including the unidentified one. */
 function workspaceRecoveryCommand(workspaceId?: string): string {
-  return workspaceId
-    ? `coforge-computer restart --workspace ${workspaceId}`
-    : "coforge-computer restart";
+  return workspaceId ? workspaceHealthRecoveryCommand(workspaceId) : "coforge-computer restart";
 }
 
 export async function runDaemon(args: string[], computerVersion?: string): Promise<void> {
@@ -148,8 +147,8 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
     return index >= 0 ? args[index + 1] : undefined;
   };
   const socketPath = argument("--socket");
-  const daemonStateDirectory =
-    argument("--state-directory") ?? join(homedir(), ".coforge", "daemon");
+  const stateDirectoryArg = argument("--state-directory");
+  const daemonStateDirectory = stateDirectoryArg ?? join(homedir(), ".coforge", "daemon");
   await configureDaemonLogging(daemonStateDirectory);
   const healthJournal = new WorkspaceHealthJournal(
     workspaceHealthJournalPath(daemonStateDirectory),
@@ -158,13 +157,23 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
     // Terminal, not a crash to retry: restarting this exact invocation can never supply the
     // missing argument. Latching degraded and exiting 0 (see the degraded branch below for why
     // exit 0 is what stops both supervisors' restart loop) keeps a broken launch from spinning
-    // forever instead of surfacing once with the fix.
-    await healthJournal.markTerminal(MISSING_SOCKET_REASON);
-    const brokenConfig = await new DaemonConfigStore(daemonStateDirectory, {
-      serverHttpUrl: COFORGE_DAEMON_SERVER_URL,
-    })
-      .load()
-      .catch(() => null);
+    // forever instead of surfacing once with the fix. Only latch when `--state-directory` was
+    // itself explicit: under every OS-supervised launch (the only shipped path) the Coordinator
+    // always supplies both flags together, so a launch missing `--socket` but not
+    // `--state-directory` never happens there. Without an explicit `--state-directory` this
+    // falls back to the shared default `~/.coforge/daemon` - not a real per-Workspace directory
+    // the Coordinator's `clearHealth` seam ever reaches - so writing a latch there could
+    // permanently poison a later, unrelated standalone run with no way to clear it short of
+    // deleting the file by hand. A hand-run invocation missing both flags gets today's plain
+    // failure instead, exactly as before this change.
+    if (stateDirectoryArg) await healthJournal.markTerminal(MISSING_SOCKET_REASON);
+    const brokenConfig = stateDirectoryArg
+      ? await new DaemonConfigStore(daemonStateDirectory, {
+          serverHttpUrl: COFORGE_DAEMON_SERVER_URL,
+        })
+          .load()
+          .catch(() => null)
+      : null;
     getLogger(DAEMON_CATEGORY).error(
       `${MISSING_SOCKET_REASON}. This Workspace will not restart on its own; run '${workspaceRecoveryCommand(brokenConfig?.workspaceId)}' after fixing its launch configuration.`,
       { event: "daemon:invalid_arguments" },

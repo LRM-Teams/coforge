@@ -88,7 +88,26 @@ only thing present at every restart.
   the loop stops itself with no supervising CoForge process required to be
   watching. The missing-`--socket` precondition (previously
   `process.exitCode = 2`, which *would* trigger a restart loop with a broken
-  invocation) now latches terminal and also exits 0, for the same reason.
+  invocation) now latches terminal and also exits 0, for the same reason -
+  **but only when `--state-directory` was also given explicitly.** Under
+  every OS-supervised launch (the only shipped path), the Coordinator always
+  passes `--socket` and `--state-directory` together
+  (`systemd-workspace-instance.ts`'s `workspaceUnit`,
+  `launchd-workspace-instance.ts`'s job `command`), so a real deployment can
+  never have one without the other; a launch missing `--socket` there is not
+  reachable. The only way to hit this branch with `--state-directory` also
+  missing is a hand-run invocation of `__workspace-daemon` with no arguments
+  at all, which is not a shipped path either - but it is easy to trigger by
+  accident. Without the guard, that invocation would fall back to the shared
+  default `join(homedir(), ".coforge", "daemon")` and latch *that* path
+  degraded; nothing ever calls `clearHealth` against the shared default
+  (only per-Workspace directories under it), so a later legitimate run at
+  that same default path - the standalone dev harness in this same file, for
+  instance - would find itself permanently refused with no way to recover
+  short of deleting the file by hand. The fix scopes the write: latch (and
+  look up a workspace ID to report) only when `--state-directory` was
+  explicit; a launch missing both flags gets today's plain failure, exactly
+  as before this change, and never touches the shared default's journal.
   Graceful `SIGTERM`/`SIGINT` shutdown (`shutdown()` inside `runDaemon`)
   calls `recordGracefulStop()`, so an operator stop, a restart, and an
   upgrade (`machine-supervisor.ts`'s own `#stop`, used by
@@ -100,14 +119,42 @@ only thing present at every restart.
   the `"start"` and `"restart"` branches - never for `"stop"`, and never from
   automatic recovery on Coordinator startup (`#reconcileBindings`, driven by
   `recover()`). This is deliberately the *only* seam that clears a latch: an
-  explicit operator action (including a restart the server requested through
-  the same command) clears it, while an OS-level crash-loop respawn - which
-  never reaches `command()` at all - cannot. `run-supervisor.ts` implements
-  `clearHealth` by calling `WorkspaceHealthJournal.clear()` against the same
-  per-Workspace directory the Coordinator already derives
+  explicit operator action clears it, while an OS-level crash-loop respawn -
+  which never reaches `command()` at all - cannot. `run-supervisor.ts`
+  implements `clearHealth` by calling `WorkspaceHealthJournal.clear()`
+  against the same per-Workspace directory the Coordinator already derives
   (`workspaceStateDirectory`, extracted from `run-supervisor.ts`'s former
   private closure into `workspace-instance.ts` so both the Coordinator and
-  Computer's `status` compute the identical path).
+  Computer's `status` compute the identical path). **A server-requested
+  restart also clears the latch, by design.** `packages/daemon/index.ts`'s
+  `requestRestart` closure (wired to the Workspace daemon's cloud connection)
+  reaches the Coordinator through the exact same `supervisorControl("restart",
+  ...)` -> `command("restart", ...)` path an operator-issued
+  `coforge-computer restart --workspace <id>` uses; there is no separate
+  server-restart code path to exempt. This is intended - a server-requested
+  restart still means a human asked for it (through the Workspace page) - but
+  it means the latch does not distinguish "restarted from the CLI" from
+  "restarted from the server"; both count as the operator action that earns a
+  fresh budget.
+- The Coordinator itself, not only the child, now consults the journal:
+  `run-supervisor.ts`'s `WorkspaceProcesses.start(binding)` reads
+  `WorkspaceHealthJournal.state()` before touching the OS unit at all, and
+  refuses immediately (logging the reason, crash count, and recovery command
+  as a structured `workspace:degraded_start_refused` event) when degraded.
+  Without this, `MachineSupervisor.#reconcileBindings` - which every Coordinator
+  boot runs before its own local RPC server even starts listening - would call
+  `#start` on a degraded binding, which would spawn the OS unit, watch the
+  replacement child observe the same latch and self-exit 0 within its own
+  guard check, and then spend the full 30s local-RPC readiness budget
+  discovering that no socket ever opened, throwing only a generic "Workspace
+  \<id> failed process readiness". Measured before this fix (real launchd,
+  compiled binary, `packages/daemon/test/macos-supervisor.test.ts`'s harness):
+  a single degraded binding delayed the Coordinator's own local RPC from
+  opening for ~37s, and Computer's own client-side handshake (a separate,
+  shorter timeout) gave up after 10s with "CoForge Daemon did not accept the
+  local handshake... " - never surfacing the real reason at all. With the
+  fast-fail check, the same scenario recovers and reports in well under a
+  second.
 - `packages/computer/src/status/types.ts` adds a `WorkspaceHealth` field to
   `WorkspaceStatus` and a new pure-read `StatusPorts.readWorkspaceHealth`
   port. `create-status-ports.ts` implements it by reading the same
@@ -179,6 +226,16 @@ only thing present at every restart.
   `status-render.test.ts`: a degraded Workspace's health is surfaced with
   its reason/crash count/since, a healthy Workspace's rendered output is
   unchanged, and a missing health journal reads as `ok`.
+- `packages/daemon/test/macos-supervisor.test.ts` (real launchd, a compiled
+  fixture binary, darwin only): "a degraded Workspace fails fast on
+  Coordinator recovery instead of stalling the readiness budget" - marks a
+  running Workspace's journal degraded, kills the live child so launchd
+  respawns it under the (still unfixed-without-this-CR) latch, kills and
+  restarts the Coordinator, and asserts the Coordinator's local RPC becomes
+  reachable again in well under the old ~30-37s stall, that the binding
+  reports `processId: 0`, and that an explicit `restart` still clears the
+  latch and brings it back. This is the test that produced the measured
+  numbers cited above.
 - Rollback criterion: reverting this change returns the Workspace child to
   its previous unconditional-restart behaviour (safe, if unobservable) and
   drops the `health` field from `status`; no schema or wire-protocol change

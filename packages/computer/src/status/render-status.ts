@@ -1,3 +1,4 @@
+import { workspaceHealthRecoveryCommand } from "@lrm/coforge-daemon";
 import { terminalText } from "../terminal-output";
 import type {
   ComputerStatusReport,
@@ -99,7 +100,7 @@ function renderDegradedHealth(workspace: {
   if (health.status !== "degraded") return [];
   return [
     `    degraded: ${terminalText(health.reason)}  crashes=${health.crashCount}  since=${terminalText(health.since)}`,
-    `      recover: coforge-computer restart --workspace ${terminalText(workspace.workspaceId)}`,
+    `      recover: ${terminalText(workspaceHealthRecoveryCommand(workspace.workspaceId))}`,
   ];
 }
 

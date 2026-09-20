@@ -31,6 +31,16 @@ type PersistedWorkspaceHealth = {
 
 const EMPTY_RECORD: PersistedWorkspaceHealth = { schemaVersion: 1, live: false, crashes: [] };
 
+/** The exact operator command that clears a Workspace's degraded latch - the only thing that
+ * does, since `MachineSupervisor.command`'s explicit `"start"`/`"restart"` branches are the sole
+ * seam that calls `clear()` (see `machine-supervisor.ts`). Both the Coordinator (a fast-fail
+ * refusal to start a degraded Workspace) and the Workspace child itself (its own exit message)
+ * name this same command, so an operator sees one consistent instruction wherever the latch is
+ * reported. */
+export function workspaceHealthRecoveryCommand(workspaceId: string): string {
+  return `coforge-computer restart --workspace ${workspaceId}`;
+}
+
 /** Where one Workspace's durable health record lives under its own state directory (the same
  * directory the Coordinator passes to `__workspace-daemon` as `--state-directory`). Both the
  * child that writes it and a read-only observer (e.g. Computer's `status` command, through the

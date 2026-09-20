@@ -21,7 +21,11 @@ import { COFORGE_DAEMON_VERSION } from "../version";
 import { SystemdWorkspaceInstance } from "./systemd-workspace-instance";
 import { LaunchdWorkspaceInstance } from "./launchd-workspace-instance";
 import { workspaceStateDirectory, type WorkspaceInstance } from "./workspace-instance";
-import { WorkspaceHealthJournal, workspaceHealthJournalPath } from "./workspace-health-journal";
+import {
+  WorkspaceHealthJournal,
+  workspaceHealthJournalPath,
+  workspaceHealthRecoveryCommand,
+} from "./workspace-health-journal";
 import { answeredWithin } from "./runner-hold";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
@@ -315,6 +319,28 @@ async function runWithSupervisorLock(
     {
       async start(binding) {
         const directory = workspaceDirectory(binding.workspaceId);
+        // A degraded Workspace must fail fast, not spend up to 30s discovering the OS unit will
+        // never open local RPC: the replacement child would itself observe the same latch and
+        // exit 0 immediately (see `guardWorkspaceRunnerStart`), so waiting out that readiness
+        // budget here only delays every other binding behind it in `#reconcileBindings` and, in
+        // turn, this Coordinator's own local RPC from ever opening (measured: a degraded
+        // Workspace stalled Coordinator recovery for ~37s and the client-side handshake gave up
+        // after its own 10s timeout with a misleading "did not accept the local handshake"
+        // message, never seeing the real reason at all).
+        const health = await new WorkspaceHealthJournal(
+          workspaceHealthJournalPath(directory),
+        ).state();
+        if (health.status === "degraded") {
+          const message = `Workspace ${binding.workspaceId} is degraded (${health.reason}); it will not restart automatically. Run '${workspaceHealthRecoveryCommand(binding.workspaceId)}' after fixing it.`;
+          upgradeLogger.error(message, {
+            event: "workspace:degraded_start_refused",
+            workspace_id: binding.workspaceId,
+            reason: health.reason,
+            crash_count: health.crashCount,
+            degraded_since: health.since,
+          });
+          throw new Error(message);
+        }
         await new DaemonConfigStore(directory).save(buildChildConfig(binding));
         const instance = workspaceInstance(binding.workspaceId);
         const processId = await instance.ensureStarted();
