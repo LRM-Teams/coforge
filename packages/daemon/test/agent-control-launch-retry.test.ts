@@ -164,6 +164,55 @@ test("consecutive failures back off 1s, 2s, 4s... 30s and then report launch_fai
   expect(h.record()?.lastResult?.phase).toBe("failed");
 });
 
+test("the terminal launch-failed warning carries the classified launch trace", async () => {
+  const classified = Object.assign(new Error("Pi model not found: gpt-5"), {
+    name: "PiLaunchError",
+    policyCode: "PI_LAUNCH_MODEL_MISSING",
+    trace: {
+      provider: "ollama-cloud",
+      providerPresent: true,
+      providerKeyPresent: true,
+      baseUrlPresent: true,
+      modelPresent: false,
+    },
+  });
+
+  const { records } = await captureLogs(async () => {
+    const h = harness(async () => {
+      throw classified;
+    });
+    await h.control.start(startIntent);
+    for (let attempt = 1; attempt < LAUNCH_FAILURE_MAX_ATTEMPTS; attempt++) {
+      await h.timers.fireLatest();
+    }
+    return h;
+  });
+
+  const terminal = records.find(
+    (record) => record.properties.event === "agent_control:launch_failed",
+  );
+  expect(terminal?.properties).toMatchObject({
+    agent_id: "a",
+    attempts: LAUNCH_FAILURE_MAX_ATTEMPTS,
+    error_code: "PiLaunchError",
+    launchCategory: "PI_LAUNCH_MODEL_MISSING",
+    provider: "ollama-cloud",
+    providerPresent: true,
+    providerKeyPresent: true,
+    baseUrlPresent: true,
+    modelPresent: false,
+  });
+  // The retry warnings carry the same evidence, so one exhausted launch is diagnosable from the
+  // first backoff to the terminal record instead of only the retry line above it.
+  const retry = records.find(
+    (record) => record.properties.event === "agent_control:launch_retry_scheduled",
+  );
+  expect(retry?.properties).toMatchObject({
+    launchCategory: "PI_LAUNCH_MODEL_MISSING",
+    modelPresent: false,
+  });
+});
+
 test("each retry keeps the managed scope and launchId of the operation it is recovering", async () => {
   const intents: AgentStartIntent[] = [];
   const launchIds: string[] = [];
