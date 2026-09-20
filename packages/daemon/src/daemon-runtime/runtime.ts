@@ -46,6 +46,7 @@ import {
   WORKSPACE_PROTOCOL_MAJOR,
   TASK_PROTOCOL_MAJOR,
   AGENT_ACTIVITY_DETAIL_KIND,
+  truncateCodePoints,
   type AgentActivity,
   type AgentSessionInvalidate,
   type AgentSessionInvalidateReason,
@@ -3831,11 +3832,11 @@ export class DaemonRuntime {
 }
 
 function safeRuntimeActivityMessage(activity: string, level: string, message: string): string {
-  if (level === "error") return message.slice(0, 512);
+  if (level === "error") return truncateCodePoints(message, 512);
   if (level === "warning") return scrubActivityText(message);
   if (activity === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS) return "";
   if (activity === AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND)
-    return [...scrubActivityText(message)].slice(0, 100).join("");
+    return truncateCodePoints(scrubActivityText(message), 200);
   if (
     activity === AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED ||
     activity === AGENT_ACTIVITY_DETAIL_KIND.CHECKING_MESSAGES ||

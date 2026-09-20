@@ -1,6 +1,8 @@
 import type { AgentRuntimeEvent } from "@coforge/agent";
 import {
   AGENT_ACTIVITY_DETAIL_KIND,
+  codePointLength,
+  truncateCodePoints,
   type ActivitySubagent,
   type AgentActivityDetailKind,
 } from "@lrm/coforge-sdk/internal";
@@ -88,8 +90,8 @@ export class ActivityTrajectory {
       };
       // Retain a bounded prefix; do not repeatedly emit tails of truncated secrets.
       const text = pending.text + event.text;
-      pending.truncated ||= text.length > 8000;
-      pending.text = text.slice(0, 8000);
+      pending.truncated ||= codePointLength(text) > 8000;
+      pending.text = truncateCodePoints(text, 8000);
       this.#pending = pending;
       clearTimeout(this.#timer);
       this.#timer = setTimeout(() => this.flush(), 350);

@@ -604,6 +604,7 @@ export type AgentMessageDeliveryAck = Omit<
   "body" | "conversationId" | "method" | "requestId"
 > & { method: typeof AGENT_MESSAGE_ACK_METHOD; requestId: string };
 export { parseActivityEntries } from "./activity-entries";
+export { codePointLength, truncateCodePoints } from "./truncate";
 export {
   compareReleaseVersions,
   isValidReleaseVersion,

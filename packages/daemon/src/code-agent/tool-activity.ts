@@ -2,6 +2,7 @@ import {
   AGENT_ACTIVITY_DETAIL_KIND,
   TOOL_ALIASES,
   toolActivityLabel,
+  truncateCodePoints,
   type AgentActivityDetailKind,
 } from "@lrm/coforge-sdk/internal";
 import { redactTrajectoryText } from "../agent-runtime/activity-trajectory";
@@ -107,7 +108,7 @@ function buildActivity(
 // runs of whitespace and trims, so a multi-line or otherwise-invalid summary still
 // satisfies the SDK's `validToolInput` instead of failing to decode on the wire.
 function sanitizeToolInput(value: string): string {
-  return [...collapseWhitespace(value.replace(/[\x00-\x1f\x7f]/g, " "))].slice(0, 200).join("");
+  return truncateCodePoints(collapseWhitespace(value.replace(/[\x00-\x1f\x7f]/g, " ")), 200);
 }
 
 function summarizeBash(command: unknown): {
@@ -140,13 +141,13 @@ function summarizeBash(command: unknown): {
       };
   }
   // Never let a heredoc body (or anything after it) reach the Activity
-  // detail; cut before redacting and truncating to the first 100 Unicode
-  // characters, matching the trajectory redaction.
+  // detail; cut before redacting and truncating to the first 200 Unicode code
+  // points, matching the SDK's `validToolInput` cap.
   const beforeHeredoc = command.split("<<")[0] ?? "";
   const redacted = redactTrajectoryText(beforeHeredoc);
   return {
     detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND,
-    summary: [...redacted].slice(0, 100).join("").trimEnd(),
+    summary: truncateCodePoints(redacted, 200).trimEnd(),
     toolName: "bash",
   };
 }
@@ -201,7 +202,7 @@ function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation 
       };
     if (sub === "list") return { tool: "list_reminders" };
     const id = flagValue(tokens, "--id");
-    return { tool: REMINDER_TOOLS[sub]!, summary: id ? [...id].slice(0, 8).join("") : undefined };
+    return { tool: REMINDER_TOOLS[sub]!, summary: id ? truncateCodePoints(id, 8) : undefined };
   } else if (category === "weekly-report") {
     return { tool: "weekly_report" };
   } else if (category === "manual" && (sub === "get" || sub === "search")) {
@@ -309,10 +310,9 @@ function tokenizeShellCommand(command: string): string[] {
 
 function allowlistedString(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
-  const chars = [...value];
-  return chars.length > max ? chars.slice(0, max).join("") : value;
+  return truncateCodePoints(value, max);
 }
 
 function sanitizeToolName(name: string): string {
-  return [...name.replace(/[\x00-\x1f\x7f]/g, "")].slice(0, 128).join("") || "unknown";
+  return truncateCodePoints(name.replace(/[\x00-\x1f\x7f]/g, ""), 128) || "unknown";
 }

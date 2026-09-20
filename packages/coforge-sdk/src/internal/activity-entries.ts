@@ -1,3 +1,5 @@
+import { codePointLength } from "./truncate";
+
 export type ActivitySubagent = { parentToolUseId: string };
 export type ActivityTrajectoryEntry = (
   | { kind: "text" | "thinking"; text: string }
@@ -35,7 +37,7 @@ export function parseActivityEntries(value: unknown): ActivityTrajectoryEntry[] 
     if (
       (item.kind === "text" || item.kind === "thinking") &&
       typeof item.text === "string" &&
-      [...item.text].length <= 2000 &&
+      codePointLength(item.text) <= 2000 &&
       item.toolName === undefined &&
       item.toolInput === undefined &&
       item.title === undefined
@@ -45,7 +47,7 @@ export function parseActivityEntries(value: unknown): ActivityTrajectoryEntry[] 
       item.kind === "system" &&
       validTitle(item.title) &&
       typeof item.text === "string" &&
-      [...item.text].length <= 2000 &&
+      codePointLength(item.text) <= 2000 &&
       item.toolName === undefined &&
       item.toolInput === undefined
     )
@@ -58,7 +60,7 @@ function validName(value: unknown): value is string {
   return (
     typeof value === "string" &&
     value.length > 0 &&
-    [...value].length <= 128 &&
+    codePointLength(value) <= 128 &&
     !/[\x00-\x1f\x7f]/.test(value)
   );
 }
@@ -66,14 +68,16 @@ function validName(value: unknown): value is string {
 // `toolInput`: the short, already-redacted argument summary. Same
 // control-character rejection as `validName`, with a longer cap.
 function validToolInput(value: unknown): value is string {
-  return typeof value === "string" && [...value].length <= 200 && !/[\x00-\x1f\x7f]/.test(value);
+  return (
+    typeof value === "string" && codePointLength(value) <= 200 && !/[\x00-\x1f\x7f]/.test(value)
+  );
 }
 
 function validTitle(value: unknown): value is string {
   return (
     typeof value === "string" &&
     value.length > 0 &&
-    [...value].length <= 120 &&
+    codePointLength(value) <= 120 &&
     !/[\x00-\x1f\x7f]/.test(value)
   );
 }

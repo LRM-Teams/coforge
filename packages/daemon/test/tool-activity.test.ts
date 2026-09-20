@@ -138,7 +138,7 @@ test("file_path, pattern and url toolInput summaries are truncated and never fal
   expect(nested.entries[0]).not.toHaveProperty("toolInput");
 });
 
-test("non-CoForge bash commands: detail is always the generic label, toolInput is redacted, truncated to 100 Unicode characters and cut at heredocs", () => {
+test("non-CoForge bash commands: detail is always the generic label, toolInput is redacted, truncated to 200 Unicode characters and cut at heredocs", () => {
   const secretCommand =
     'curl -H "Authorization: Bearer sk-liveTESTsecretTOKEN123" --data "password=hunter2" https://example.com';
   const result = toolActivity("bash", { command: secretCommand });
@@ -152,12 +152,12 @@ test("non-CoForge bash commands: detail is always the generic label, toolInput i
   expect(JSON.stringify(result)).not.toContain("hunter2");
   expect(JSON.stringify(result)).not.toContain("sk-liveTESTsecretTOKEN123");
 
-  const long = "echo " + "a".repeat(200);
+  const long = "echo " + "a".repeat(300);
   const truncated = toolActivity("bash", { command: long });
   expect(truncated.detail).toBe("Running command…");
   const truncatedInput = truncated.entries[0]!.toolInput!;
-  expect([...truncatedInput].length).toBe(100);
-  expect(truncatedInput).toBe(long.slice(0, 100));
+  expect([...truncatedInput].length).toBe(200);
+  expect(truncatedInput).toBe(long.slice(0, 200));
 
   const heredocCommand = `cat <<'EOF'\nprivate body with password=hunter2\nEOF`;
   const heredocResult = toolActivity("bash", { command: heredocCommand });
@@ -165,6 +165,15 @@ test("non-CoForge bash commands: detail is always the generic label, toolInput i
   const serialized = JSON.stringify(heredocResult);
   expect(serialized).not.toContain("private body");
   expect(serialized).not.toContain("hunter2");
+});
+
+test("bash truncation budgets Unicode code points, never splitting surrogate pairs", () => {
+  const command = `echo ${"😀".repeat(300)}`;
+  const result = toolActivity("bash", { command });
+  const toolInput = result.entries[0]!.toolInput!;
+  expect([...toolInput].length).toBe(200);
+  expect(toolInput).toBe(`echo ${"😀".repeat(195)}`);
+  expect([...toolInput].join("")).toBe(toolInput);
 });
 
 test("a multi-line bash command with no heredoc is sanitized to a single-line toolInput", () => {

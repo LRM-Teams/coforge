@@ -1,5 +1,5 @@
 import type { AgentActivity, AgentRuntimeEvent } from "@coforge/agent";
-import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
+import { AGENT_ACTIVITY_DETAIL_KIND, truncateCodePoints } from "@lrm/coforge-sdk/internal";
 
 /**
  * The single place a provider's error, crash or reconnect report becomes an Activity: a
@@ -31,11 +31,11 @@ const MAX_VISIBLE_ERROR_CHARS = 512;
  * part of consolidating every runtime-failure scrubber into this one function.
  */
 export function scrubRuntimeErrorText(message: string): string {
-  return message
+  const redacted = message
     .replace(/((?:api[_-]?key|token|secret|password)\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]")
     .replace(/sk-[A-Za-z0-9_-]+/g, "[REDACTED]")
-    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
-    .slice(0, MAX_VISIBLE_ERROR_CHARS);
+    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]");
+  return truncateCodePoints(redacted, MAX_VISIBLE_ERROR_CHARS);
 }
 
 /**
