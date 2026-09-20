@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { RefreshCw01 } from "@untitledui/icons";
 import {
   parseRuntimeProvider,
   RUNTIME_PROVIDER,
@@ -8,6 +9,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 
 import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
@@ -41,6 +43,13 @@ export type RuntimeSelection = {
  * contains "--"), and both stay free of the CSS-selector-special characters `modelOptionValue`
  * itself has to avoid. */
 const CUSTOM_MODEL_KEY = "custom-model";
+
+/** Opening the Model select re-reads the catalog at most once per interval: a refresh probes the
+ * Daemon's stored inventory (and, once the refresh wire lands, asks the Daemon to re-discover),
+ * which is not free, and quickly closing and reopening the select should not stack requests. The
+ * cache from the previous load stays rendered until a refresh returns, so an open never blocks on
+ * the network. */
+const MODEL_CATALOG_AUTO_REFRESH_INTERVAL_MS = 30_000;
 
 export function AgentRuntimeFields({
   open,
@@ -86,18 +95,47 @@ export function AgentRuntimeFields({
   const [retry, setRetry] = useState(0);
   const loading = useRef(new Set<string>());
   const previousComputerId = useRef(computerId);
+  const autoRefreshedAt = useRef(0);
+  const [refreshing, setRefreshing] = useState(false);
   const options = optionsByComputer[computerId];
   const failed = failedComputerId === computerId;
   const isPi = provider === RUNTIME_PROVIDER.PI;
   const piConfigured = isPi && piProviderChoice === "";
   const piBuiltin = isPi && !piConfigured;
 
+  /** Re-reads the Computer's model catalog and swaps it in only on success: the previously loaded
+   * catalog stays rendered while a refresh is in flight and after a failed one (cache fallback),
+   * so a refresh never blanks the selects or blocks an open popover. Unlike the initial load this
+   * never flips into the manual-entry fallback. */
+  const refreshCatalog = useCallback(
+    (throttle: boolean) => {
+      if (!open || !computerId || refreshing || loading.current.has(computerId)) return;
+      const now = Date.now();
+      if (throttle && now - autoRefreshedAt.current < MODEL_CATALOG_AUTO_REFRESH_INTERVAL_MS)
+        return;
+      autoRefreshedAt.current = now;
+      setRefreshing(true);
+      void onLoad(computerId)
+        .then((value) => {
+          setOptionsByComputer((current) => ({ ...current, [computerId]: value }));
+        })
+        .catch(() => {
+          // Cache fallback: keep showing the last loaded catalog.
+        })
+        .finally(() => setRefreshing(false));
+    },
+    [computerId, onLoad, open, refreshing],
+  );
+
   useEffect(() => {
     if (!open) setApiKey("");
   }, [open]);
 
   useEffect(() => {
-    if (previousComputerId.current !== computerId) setApiKey("");
+    if (previousComputerId.current !== computerId) {
+      setApiKey("");
+      autoRefreshedAt.current = 0;
+    }
     previousComputerId.current = computerId;
   }, [computerId]);
 
@@ -317,56 +355,71 @@ export function AgentRuntimeFields({
       ) : (
         <>
           <input type="hidden" name="model" value={modelValue} />
-          <Select
-            label={m.agent_form_model()}
-            size="sm"
-            wrapValue
-            className="min-w-0 sm:col-span-2"
-            popoverClassName="min-w-(--trigger-width) w-max max-w-[min(36rem,calc(100vw-3rem))]"
-            isDisabled={!options}
-            selectedKey={piConfigured && customModelActive ? CUSTOM_MODEL_KEY : modelKey}
-            onSelectionChange={(key) => {
-              if (key === null) return;
-              const value = String(key);
-              if (piConfigured && value === CUSTOM_MODEL_KEY) {
-                setCustomModelActive(true);
-                setModelKey("");
-                setReasoning("");
-                return;
-              }
-              setCustomModelActive(false);
-              setModelKey(value);
-              const model = catalogModels.find((item) => modelOptionValue(item) === value);
-              if (!isPi) {
-                if (model?.modelProvider !== modelProvider) setApiKey("");
-                setModelProvider(model?.modelProvider ?? "");
-              }
-              setReasoning(model?.defaultReasoning ?? "");
-            }}
-          >
-            <Select.Item
-              id=""
-              label={
-                piConfigured
-                  ? m.agent_form_pi_provider_configured()
-                  : m.agent_form_provider_default()
-              }
-            />
-            {configuredModelSelected && !selectedModel && !(piConfigured && customModelActive) && (
-              <Select.Item id={initialModelKey} label={configuredModelLabel} />
-            )}
-            {visibleModels.map((model) => (
+          <div className="flex min-w-0 items-end gap-1 sm:col-span-2">
+            <Select
+              label={m.agent_form_model()}
+              size="sm"
+              wrapValue
+              className="min-w-0 flex-1"
+              popoverClassName="min-w-(--trigger-width) w-max max-w-[min(36rem,calc(100vw-3rem))]"
+              isDisabled={!options}
+              selectedKey={piConfigured && customModelActive ? CUSTOM_MODEL_KEY : modelKey}
+              onOpenChange={(isOpen) => {
+                if (isOpen) refreshCatalog(true);
+              }}
+              onSelectionChange={(key) => {
+                if (key === null) return;
+                const value = String(key);
+                if (piConfigured && value === CUSTOM_MODEL_KEY) {
+                  setCustomModelActive(true);
+                  setModelKey("");
+                  setReasoning("");
+                  return;
+                }
+                setCustomModelActive(false);
+                setModelKey(value);
+                const model = catalogModels.find((item) => modelOptionValue(item) === value);
+                if (!isPi) {
+                  if (model?.modelProvider !== modelProvider) setApiKey("");
+                  setModelProvider(model?.modelProvider ?? "");
+                }
+                setReasoning(model?.defaultReasoning ?? "");
+              }}
+            >
               <Select.Item
-                key={modelOptionValue(model)}
-                id={modelOptionValue(model)}
-                className="[&_[slot=label]]:whitespace-normal [&_[slot=label]]:wrap-break-word"
-                label={piConfigured ? piConfiguredModelLabel(model) : model.displayName}
+                id=""
+                label={
+                  piConfigured
+                    ? m.agent_form_pi_provider_configured()
+                    : m.agent_form_provider_default()
+                }
               />
-            ))}
-            {piConfigured && (
-              <Select.Item id={CUSTOM_MODEL_KEY} label={m.agent_form_model_custom()} />
-            )}
-          </Select>
+              {configuredModelSelected &&
+                !selectedModel &&
+                !(piConfigured && customModelActive) && (
+                  <Select.Item id={initialModelKey} label={configuredModelLabel} />
+                )}
+              {visibleModels.map((model) => (
+                <Select.Item
+                  key={modelOptionValue(model)}
+                  id={modelOptionValue(model)}
+                  className="[&_[slot=label]]:whitespace-normal [&_[slot=label]]:wrap-break-word"
+                  label={piConfigured ? piConfiguredModelLabel(model) : model.displayName}
+                />
+              ))}
+              {piConfigured && (
+                <Select.Item id={CUSTOM_MODEL_KEY} label={m.agent_form_model_custom()} />
+              )}
+            </Select>
+            <ButtonUtility
+              icon={<RefreshCw01 className={refreshing ? "animate-spin" : undefined} />}
+              size="xs"
+              color="tertiary"
+              tooltip={m.agent_form_model_refresh()}
+              onClick={() => refreshCatalog(false)}
+              className="mb-1"
+            />
+          </div>
         </>
       )}
       {piConfigured && customModelActive && (
