@@ -6,6 +6,8 @@
  * needs translating twice, and the two sides cannot drift apart.
  */
 
+import { codePointLength, truncateCodePoints } from "./truncate";
+
 // Every alias a provider is known to send for a canonical tool name, lowercase. A
 // canonical name also maps to itself, so a lookup never needs an `?? name` fallback to
 // recognize a name it already knows.
@@ -94,12 +96,15 @@ export function canonicalToolName(rawName: string): { canonical: string; name: s
 /**
  * The generic, always-safe "…"-suffixed label a `tool_start` Activity's `detail`
  * carries: a known canonical tool's label, or `Using <name>…` for a tool this table
- * does not recognize (the name itself capped at 20 characters, so an unusually long
- * or adversarial tool name cannot become the leak). Never derived from tool
- * arguments — the argument summary belongs in the entry's `toolInput` instead.
+ * does not recognize (the name itself capped at 20 Unicode code points, so an
+ * unusually long or adversarial tool name cannot become the leak). Never derived
+ * from tool arguments — the argument summary belongs in the entry's `toolInput`
+ * instead.
  */
 export function toolActivityLabel(rawName: string): string {
   const { canonical, name } = canonicalToolName(rawName);
   const label = TOOL_LABELS[canonical];
-  return label ? `${label}…` : `Using ${name.length > 20 ? `${name.slice(0, 20)}…` : name}…`;
+  return label
+    ? `${label}…`
+    : `Using ${truncateCodePoints(name, 20)}${codePointLength(name) > 20 ? "…" : ""}…`;
 }

@@ -150,16 +150,15 @@ entries: [{ kind: "tool_start", toolName: "bash", toolInput: "bun test packages/
 `activity=running_command` 表示 Agent runtime 正在执行命令；持久化的 `message`（`detail`）
 固定是一个不含参数的通用标签（`toolActivityLabel`，`packages/coforge-sdk/src/internal/
 tool-display.ts`，Daemon 和 Web 共用同一张别名/标签表），例如「Running command…」「Reading
-file…」，已知工具取其标签，未知工具退化为「Using `<name>`…」（`name` 截断到 20 字符）；这个
+file…」，已知工具取其标签，未知工具退化为「Using `<name>`…」（`name` 截断到 20 个 Unicode 码点）；这个
 标签从不由参数推导，Agent 状态栏标题因此不可能泄漏原始命令或路径。命令、路径、pattern、URL
 等参数摘要改为只出现在同一帧 `tool_start` entry 的 `toolInput` 字段里，不再拼入 `message`。
 非 CoForge CLI 的 shell 命令，`toolInput` 先复用 trajectory 文本相同的脱敏规则
 （`redactTrajectoryText`）再截断：命令中出现的第一个 `<<`（heredoc 起始）之前截断，heredoc
-正文永远不进入 `toolInput`，随后才截断到前 100 个字符；命令参数中能被规则识别的
+正文永远不进入 `toolInput`，随后才截断到前 200 个 Unicode 码点；命令参数中能被规则识别的
 token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是尽力而为的脱敏，不保证
-覆盖所有敏感文本。`toolInput` 还要满足 SDK 的 `validToolInput`（至多 200 个 Unicode
-字符、不含控制字符）：换行等控制字符先被替换为空格再合并空白，一条多行命令也不会因此
-无法解码。
+覆盖所有敏感文本。`toolInput` 还要满足 SDK 的 `validToolInput`（至多 200 个 Unicode 码点、不含控制字符）：换行等控制字符先被替换为空格再合并空白，一条多行命令也不会因此
+无法解码。全篇的长度上限统一按 Unicode 码点计算（见 `truncate.ts`），不会把代理对拆散。
 
 当命令的第一个 token 是 `coforge` 或以 `/coforge` 结尾的路径时，Daemon 把它解析为语义
 工具，只记录该工具预先约定的安全摘要字段作为 `toolInput`，从不使用原始命令行或消息正文
@@ -175,15 +174,15 @@ token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是
 | `message send` | `send_message` | `--target` |
 | `message check` | `check_messages`（`checking_messages`） | 无 |
 | `message read` | `read_history` | `--target` |
-| `message search` | `search_messages` | `--query`（截断到 120 字符） |
+| `message search` | `search_messages` | `--query`（截断到 120 个 Unicode 码点） |
 | `message resolve` / `message react` | `resolve_message` / `react_message` | 无 |
 | `channel mute` / `unmute` | `mute_channel` / `unmute_channel` | `--target` |
 | `thread unfollow` | `unfollow_thread` | `--target` |
 | `task list/create/convert/claim/unclaim/assign/update/amend/history/delete/receipt` | `list_tasks` 等对应的 `*_task(s)` | `--target`，若有 `--number` 则附加 `#<n>` |
 | `attachment view` | `view_file` | 无 |
-| `reminder schedule` | `schedule_reminder` | `--title`（截断到 40 字符） |
+| `reminder schedule` | `schedule_reminder` | `--title`（截断到 40 个 Unicode 码点） |
 | `reminder list` | `list_reminders` | 无 |
-| `reminder update/snooze/cancel/log/ack/dismiss` | 对应的 `*_reminder`/`reminder_log` | `--id` 前 8 位 |
+| `reminder update/snooze/cancel/log/ack/dismiss` | 对应的 `*_reminder`/`reminder_log` | `--id` 前 8 个 Unicode 码点 |
 | `weekly-report *` | `weekly_report` | 无 |
 | 其他 `coforge` 子命令（含 `inbox check`、`workspace info`） | 无语义工具：照普通命令上报 `bash`/`running_command`，`toolInput` 为脱敏截断后的命令本身 |
 
@@ -261,7 +260,7 @@ provider 初始化/认证失败、模型或 reasoning 配置不支持、Agent ca
 `message`）是四个 provider（Claude Code、Codex、Kiro、Pi）唯一允许上报运行时失败
 和重连的方式，只携带原始事实，不带格式化或分类。`packages/daemon/src/agent-runtime/
 runtime-error-activity.ts` 是把这些事实变成可见 Activity 的唯一位置：provider 报错文案
-原样显示；崩溃摘要（`Crashed (...)`）脱敏并截断到 512 字符；附带的 `Error: …` trajectory
+原样显示；崩溃摘要（`Crashed (...)`）脱敏并截断到 512 个 Unicode 码点；附带的 `Error: …` trajectory
 entry，以及 `runtimeError`（`errorClass`/
 `errorReason`/`fingerprint`）结构化字段的分类，都只在这一个模块里发生；`error` 事件
 额外携带的 `providerErrorCode`/`providerErrorClass`/`providerErrorReason` 会被优先
