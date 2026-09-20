@@ -26,11 +26,24 @@ export type AgentRuntimeConfig = Readonly<{
   providerConfig?: AgentRuntimeProviderConfig;
   envVars?: Readonly<Record<string, string>>;
 }>;
+/** Raft-aligned plan-usage window status (task #50): `limit_reached` once the window's ratio
+ * hits 1.0, `parse_unavailable` when the provider reported a window whose ratio could not be
+ * read (then `usedPercent`/`resetsAt` are omitted). Replaces the old
+ * `"available" | "rate-limited"` vocabulary. */
+export type UsageWindowStatus = "ok" | "limit_reached" | "parse_unavailable";
+/** Raft-aligned account-level health for a usage scan (task #50). A snapshot is only emitted
+ * for a readable scan, so readers carry `ok`/`rate_limited`; the rest name the scan-level
+ * outcomes already carried by the scan status. */
+export type UsageHealth = "ok" | "rate_limited" | "reauth_required" | "unsupported" | "error";
 export type UsageWindow = Readonly<{
+  /** Stable window id derived from the window's label, Raft-style:
+   * `w<index>_<first 12 hex of sha256(label)>`. */
+  id?: string;
   usedPercent?: number;
-  status?: "available" | "rate-limited";
+  status?: UsageWindowStatus;
   windowDurationMinutes: number;
-  resetsAt: string;
+  /** ISO instant; omitted only for a `parse_unavailable` window with no readable reset. */
+  resetsAt?: string;
 }>;
 export type UsageSnapshot = Readonly<{
   provider: RuntimeProvider;
@@ -45,10 +58,13 @@ export type UsageSnapshot = Readonly<{
    * a passively observed usage event carries the time it was observed rather than "now". Older
    * Computers omit it. */
   collectedAt?: string;
-  /** The signed-in account, masked before it ever leaves the Computer (only the local part's
-   * first characters survive, e.g. `me****@gmail.com`) — never the raw address. Populated only
-   * for a provider whose existing usage/auth read already reports it. */
+  /** The signed-in account, masked before it ever leaves the Computer with Raft's
+   * `maskRuntimeAccountEmail` rule (e.g. `fra****n@example.com`) — never the raw address.
+   * Populated only for a provider whose existing usage/auth read already reports it. */
   accountLabel?: string;
+  /** Raft-aligned account-level health: `rate_limited` once any reported window is at its
+   * limit, `ok` otherwise. Readers that cannot tell leave it unset. */
+  health?: UsageHealth;
 }>;
 export type AgentSessionIdentity = Readonly<{
   sessionId: string;

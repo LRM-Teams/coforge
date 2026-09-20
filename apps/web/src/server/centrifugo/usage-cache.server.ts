@@ -10,16 +10,18 @@ export type UsageSnapshot = {
   provider: RuntimeProvider;
   planType?: string;
   primary?: {
+    id?: string;
     usedPercent?: number;
-    status?: "available" | "rate-limited";
+    status?: "ok" | "limit_reached" | "parse_unavailable";
     windowDurationMinutes: number;
-    resetsAt: string;
+    resetsAt?: string;
   };
   secondary?: {
+    id?: string;
     usedPercent?: number;
-    status?: "available" | "rate-limited";
+    status?: "ok" | "limit_reached" | "parse_unavailable";
     windowDurationMinutes: number;
-    resetsAt: string;
+    resetsAt?: string;
   };
   credits?: { hasCredits: boolean; unlimited: boolean };
   creditUsage?: { used: number; limit: number; overage: number };
@@ -28,6 +30,9 @@ export type UsageSnapshot = {
   /** The signed-in account, already masked on the Computer. Populated only when that provider's
    * usage/auth read reports it. */
   accountLabel?: string;
+  /** Raft-aligned account-level health: `rate_limited` once any reported window is at its
+   * limit, `ok` otherwise. Older Computers omit it. */
+  health?: "ok" | "rate_limited" | "reauth_required" | "unsupported" | "error";
 };
 
 /** The last completed scan for one (Workspace, Computer, provider) — kept separately from the

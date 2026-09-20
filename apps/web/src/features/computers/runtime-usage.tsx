@@ -27,7 +27,7 @@ export type Runtime = {
   displayName: string;
 };
 
-/** "ok" only when the last read is fresh, available, and no window is rate-limited. */
+/** "ok" only when the last read is fresh, available, and no usage window is at its limit. */
 export type UsageHealth = "ok" | "attention";
 
 export function RuntimeIdentity({ runtime, health }: { runtime: Runtime; health?: UsageHealth }) {
@@ -159,8 +159,9 @@ function usageBadge(
   if (result.status === "error") return { color: "error", label: m.computer_usage_badge_error() };
   if (result.status !== "available") return undefined;
   const rateLimited =
-    result.snapshot?.primary?.status === "rate-limited" ||
-    result.snapshot?.secondary?.status === "rate-limited";
+    result.snapshot?.health === "rate_limited" ||
+    result.snapshot?.primary?.status === "limit_reached" ||
+    result.snapshot?.secondary?.status === "limit_reached";
   return rateLimited
     ? { color: "warning", label: m.computer_usage_limit_reached() }
     : { color: "success", label: m.computer_usage_badge_ok() };
@@ -323,9 +324,11 @@ function UsageWindow({
 }) {
   const value =
     window.usedPercent === undefined
-      ? window.status === "rate-limited"
-        ? m.computer_usage_limit_reached()
-        : m.computer_usage_available()
+      ? window.status === "parse_unavailable"
+        ? m.computer_usage_badge_unavailable()
+        : window.status === "limit_reached"
+          ? m.computer_usage_limit_reached()
+          : m.computer_usage_available()
       : m.computer_usage_used_percent({ percent: window.usedPercent });
 
   return (
@@ -333,8 +336,14 @@ function UsageWindow({
       <div className="flex items-baseline justify-between gap-3">
         <p className="font-medium text-primary">{label}</p>
         <p className="shrink-0 text-xs text-tertiary tabular-nums">
-          {value} · {m.computer_usage_resets()}{" "}
-          <RelativeTime value={window.resetsAt} timeZone={timeZone} />
+          {value}
+          {window.resetsAt !== undefined && (
+            <>
+              {" · "}
+              {m.computer_usage_resets()}{" "}
+              <RelativeTime value={window.resetsAt} timeZone={timeZone} />
+            </>
+          )}
         </p>
       </div>
       {creditUsage && (
@@ -354,7 +363,7 @@ function UsageWindow({
           <div
             className={cn(
               "h-full rounded-full",
-              window.status === "rate-limited" ? "bg-warning-solid" : "bg-brand-solid",
+              window.status === "limit_reached" ? "bg-warning-solid" : "bg-brand-solid",
             )}
             style={{
               width: `${Math.min(100, Math.max(0, window.usedPercent))}%`,

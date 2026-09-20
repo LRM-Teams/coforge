@@ -52,7 +52,7 @@ test("reads Claude Code session and week usage windows", async () => {
 test("reports the plan and a masked account, never the full address", async () => {
   const result = await readClaudeCodeUsage(await directory(), { command: command() });
   expect(result?.planType).toBe("max");
-  expect(result?.accountLabel).toBe("fr****@example.com");
+  expect(result?.accountLabel).toBe("fra****n@example.com");
   expect(JSON.stringify(result)).not.toContain("frank.an");
 });
 
