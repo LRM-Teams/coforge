@@ -1,7 +1,6 @@
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { measureElement, observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import { ClientOnly, getRouteApi } from "@tanstack/react-router";
 import {
   ArrowDown,
@@ -69,26 +68,12 @@ import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-pa
 
 const appRoute = getRouteApi("/_app");
 
-const observeConversationRect: typeof observeElementRect = (instance, callback) =>
-  observeElementRect(instance, (rect) =>
-    callback(rect.height === 0 ? { ...rect, height: 800 } : rect),
-  );
-/**
- * A row can report a height of 0 while it is not laid out: the conversation sits in a hidden
- * branch, or a ResizeObserver delivers the row mid-reflow. Feeding that 0 through would tell the
- * virtualizer the row takes no space, so it falls back to a size. The estimate is only a safe
- * fallback for a row that has never been measured; using it for a row we *have* measured
- * replaces a true height (a wrapped Markdown body is easily 200px) with 160px, and the next
- * row's absolute offset then lands on top of this row's last lines — visible as messages
- * painting over each other, with the lower row's hover background clipping the text above it.
- * So keep the size already measured for this row and let the next real observation update it.
- */
-const measureConversationElement: typeof measureElement = (element, entry, instance) => {
-  const measured = measureElement(element, entry, instance);
-  if (measured > 0) return measured;
-  const key = instance.options.getItemKey(instance.indexFromElement(element));
-  return instance.itemSizeCache.get(key) ?? instance.options.estimateSize(0);
-};
+/** How close to the bottom the pane must be for a content-resize to re-pin it (see the pinning
+ * ResizeObserver). Tight on purpose: the reading position itself uses a wider tolerance. */
+const PIN_TOLERANCE_PX = 4;
+
+/** The gap left above a row the pane scrolls to (`applyOpenPosition`). */
+const ROW_TOP_GAP_PX = 12;
 
 export type DirectConversationView = {
   conversationId: string;
@@ -726,8 +711,10 @@ export function ConversationPane({
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
   const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
-  // The open position the pane still owes the virtualizer once `scrollMargin` is measured.
-  const pendingOpenIndexRef = useRef<number | undefined>(undefined);
+  // The row the pane still owes an open scroll. Rows are all in the DOM, so this is only held
+  // when the container had no height to scroll within yet (a hidden branch); the pinning
+  // observer retries it once the pane is laid out.
+  const pendingOpenMessageIdRef = useRef<string | undefined>(undefined);
   const pendingLatestRef = useRef(false);
   // The initial-position decision is made once per conversation open: with unread messages,
   // Slack's default lands on the first one and draws the divider; otherwise at the latest.
@@ -800,8 +787,6 @@ export function ConversationPane({
     () => makeMentionBodyFormatter(conversation.mentionables ?? []),
     [conversation.mentionables],
   );
-  /** The full-height sizer the rows' window sits in; its top is where row offsets start. */
-  const listRef = useRef<HTMLDivElement>(null);
   // Agent presence for the stream's avatars: one lookup built from the app shell's single
   // subscription, rather than each row subscribing for itself.
   const liveAgents = useLiveAgents();
@@ -814,8 +799,8 @@ export function ConversationPane({
     [agentDisplayById],
   );
   /** Message ids whose very long body the reader has opened in full. Kept here rather than in the
-   * row: a row unmounts as soon as it leaves the virtualizer's window, and an expanded message
-   * must not re-collapse behind the reader. */
+   * row: a row is skipped and laid out again as it leaves and re-enters the viewport, and an
+   * expanded message must not re-collapse behind the reader. */
   const [expandedMessages, setExpandedMessages] = useState<ReadonlySet<string>>(new Set());
   const toggleExpandedMessage = useCallback((messageId: string) => {
     setExpandedMessages((current) => {
@@ -824,54 +809,6 @@ export function ConversationPane({
       return next;
     });
   }, []);
-  const messagesRef = useRef(conversation.messages);
-  messagesRef.current = conversation.messages;
-  // Content above the list inside the scroll container (thread root, load-older control).
-  // `undefined` until the pane's non-virtualized header has been measured. The virtualizer
-  // positions every row against this margin, and the measurement can only happen after layout,
-  // so the open scroll waits for it rather than landing that header's height too high.
-  const [scrollMargin, setScrollMargin] = useState<number | undefined>(undefined);
-  const getMessageKey = useCallback(
-    (index: number) => conversation.messages[index]?.id ?? index,
-    [conversation.messages],
-  );
-  const messageVirtualizer = useVirtualizer({
-    count: conversation.messages.length,
-    getScrollElement: () => historyRef.current,
-    observeElementRect: observeConversationRect,
-    getItemKey: getMessageKey,
-    estimateSize: () => 160,
-    measureElement: measureConversationElement,
-    overscan: 6,
-    initialRect: { width: 0, height: 800 },
-    anchorTo: "end",
-    followOnAppend: true,
-    scrollEndThreshold: 48,
-    useFlushSync: false,
-    // Treat "not measured yet" as no margin for layout; `applyOpenPosition` is the one place
-    // that waits for the real value.
-    scrollMargin: scrollMargin ?? 0,
-  });
-
-  useLayoutEffect(() => {
-    const history = historyRef.current;
-    const list = listRef.current;
-    if (!history || !list) return;
-    // Layout offsets, not viewport rects: a rect-based measurement taken while the container is
-    // being scrolled mixes two moments and reports a margin that is hundreds of pixels off.
-    const measure = () =>
-      setScrollMargin(Math.max(0, Math.round(list.offsetTop - history.offsetTop)));
-    measure();
-    const observer = new ResizeObserver(measure);
-    for (const child of history.children) if (child !== list) observer.observe(child);
-    return () => observer.disconnect();
-  }, [
-    conversation.conversationId,
-    root?.id,
-    conversation.hasOlder,
-    conversation.messages.length === 0,
-  ]);
-
   useLayoutEffect(() => {
     const firstRender = previousConversationIdRef.current === undefined;
     const changedConversation =
@@ -902,10 +839,9 @@ export function ConversationPane({
           ? conversationOpenPosition(openMode, firstUnread)
           : undefined;
       if (openMessageId && !window.location.hash) {
-        const index = conversation.messages.findIndex((message) => message.id === openMessageId);
-        if (index >= 0) {
+        if (conversation.messages.some((message) => message.id === openMessageId)) {
           setFollowingLatest(false);
-          pendingOpenIndexRef.current = index;
+          pendingOpenMessageIdRef.current = openMessageId;
           applyOpenPosition();
           return undefined;
         }
@@ -920,16 +856,27 @@ export function ConversationPane({
     return undefined;
   }, [conversation.conversationId, lastSequence]);
 
-  // The open scroll the pane owed while `scrollMargin` was still unmeasured.
-  useLayoutEffect(() => {
-    applyOpenPosition();
-  }, [scrollMargin]);
-
   useLayoutEffect(() => {
     const history = historyRef.current;
     if (!history) return;
     const observer = new ResizeObserver(() => {
-      if (followingLatestRef.current) scrollToLatest("instant");
+      // Two reasons this fires. A row the browser skipped off screen (`content-visibility: auto`)
+      // is laid out for the first time as it comes into view, so the content height settles over
+      // the first pass through a conversation; and an open position the pane could not apply yet
+      // (a hidden branch has no height to scroll within) gets its chance here.
+      if (pendingOpenMessageIdRef.current) {
+        applyOpenPosition();
+        return;
+      }
+      if (!followingLatestRef.current) return;
+      // Re-pin the bottom only when the reader is genuinely AT it, never from the 48px "near
+      // enough" tolerance the reading position uses. A row changing height fires this observer,
+      // and re-pinning from 48px fought a reader who had scrolled up a little — the flicker. A few
+      // pixels keeps the real cases — an appended message, an attachment finishing at the bottom —
+      // pinned, and lets every deliberate scroll-up stand.
+      if (history.scrollHeight - history.scrollTop - history.clientHeight > PIN_TOLERANCE_PX)
+        return;
+      scrollToLatest("instant");
     });
     observer.observe(history);
     const messages = history.querySelector("ol");
@@ -941,21 +888,17 @@ export function ConversationPane({
     function scrollToMessageAnchor() {
       const anchor = window.location.hash.slice(1);
       if (!anchor.startsWith("message-")) return;
-      const message = document.getElementById(anchor);
-      if (message) {
+      // Every loaded row is in the DOM and in normal flow, so the anchored row's own box is the
+      // only thing to measure — there is no estimate to settle on. The second pass covers the
+      // router's own scroll restoration, which runs after this effect.
+      const scroll = () => {
+        const message = document.getElementById(anchor);
+        if (!message) return;
         setFollowingLatest(false);
         message.scrollIntoView({ block: "center" });
-        return;
-      }
-      const messageId = anchor.slice("message-".length);
-      const index = messagesRef.current.findIndex((candidate) => candidate.id === messageId);
-      if (index < 0) return;
-      setFollowingLatest(false);
-      messageVirtualizer.scrollToIndex(index, { align: "center" });
-      // The row is positioned from an estimate until it mounts; settle on its measured box.
-      requestAnimationFrame(() =>
-        document.getElementById(anchor)?.scrollIntoView({ block: "center" }),
-      );
+      };
+      scroll();
+      requestAnimationFrame(scroll);
     }
     scrollToMessageAnchor();
     window.addEventListener("hashchange", scrollToMessageAnchor);
@@ -965,22 +908,17 @@ export function ConversationPane({
   useLayoutEffect(() => {
     const messageId = pendingMessageIdRef.current;
     if (!messageId) return;
-    const index = conversation.messages.findIndex((message) => message.id === messageId);
-    if (index < 0) return;
-    messageVirtualizer.scrollToIndex(index, {
-      align: "center",
-      behavior: "smooth",
-    });
+    const message = document.getElementById(`message-${messageId}`);
+    if (!message) return;
     pendingMessageIdRef.current = undefined;
-  }, [conversation.messages, messageVirtualizer]);
+    message.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [conversation.messages]);
 
   useLayoutEffect(() => {
     if (!pendingLatestRef.current || conversation.hasNewer) return;
-    const lastIndex = conversation.messages.length - 1;
-    if (lastIndex >= 0) messageVirtualizer.scrollToIndex(lastIndex, { align: "end" });
-    requestAnimationFrame(() => scrollToLatest("instant"));
+    scrollTwice(() => scrollToLatest("instant"));
     pendingLatestRef.current = false;
-  }, [conversation.hasNewer, conversation.messages, messageVirtualizer]);
+  }, [conversation.hasNewer, conversation.messages]);
 
   /**
    * Runs a scroll now and again on the next frame. The router's scroll restoration
@@ -994,17 +932,30 @@ export function ConversationPane({
     requestAnimationFrame(scroll);
   }
 
-  /** Scrolls to the row the pane opens on, once `scrollMargin` is known. Runs once per open. */
+  /** Scrolls to the row the pane opens on — the oldest unread, or the latest. Runs once per open;
+   * the pinning observer retries it if the pane had no height to scroll within yet. */
   function applyOpenPosition() {
-    const index = pendingOpenIndexRef.current;
-    if (index === undefined || scrollMargin === undefined) return;
-    pendingOpenIndexRef.current = undefined;
-    scrollTwice(() => messageVirtualizer.scrollToIndex(index, { align: "start" }));
+    const messageId = pendingOpenMessageIdRef.current;
+    if (messageId === undefined) return;
+    const history = historyRef.current;
+    const message = document.getElementById(`message-${messageId}`);
+    if (!history || !message || history.clientHeight === 0) return;
+    pendingOpenMessageIdRef.current = undefined;
+    scrollTwice(() => {
+      // The row's own offset, straight from layout: rows are in normal flow, so this is exact on
+      // the first pass — there is no estimate to correct later. Left at the top of the pane with a
+      // small gap, the way Slack opens on the first unread.
+      const offset =
+        message.getBoundingClientRect().top -
+        history.getBoundingClientRect().top +
+        history.scrollTop;
+      history.scrollTo({ top: Math.max(0, offset - ROW_TOP_GAP_PX) });
+    });
   }
 
   function scrollToLatest(behavior: ScrollBehavior) {
     // Going to the latest retires any open position still owed.
-    pendingOpenIndexRef.current = undefined;
+    pendingOpenMessageIdRef.current = undefined;
     const history = historyRef.current;
     if (!history) return;
     history.scrollTo({ top: history.scrollHeight, behavior });
@@ -1064,9 +1015,9 @@ export function ConversationPane({
   }
 
   async function showMessage(messageId: string) {
-    const index = conversation.messages.findIndex((message) => message.id === messageId);
+    const loaded = conversation.messages.some((message) => message.id === messageId);
     setFollowingLatest(false);
-    if (index < 0) {
+    if (!loaded) {
       if (!onLoadMessageAround) return;
       pendingMessageIdRef.current = messageId;
       try {
@@ -1077,7 +1028,9 @@ export function ConversationPane({
       }
       return;
     }
-    messageVirtualizer.scrollToIndex(index, { align: "center", behavior: "smooth" });
+    document
+      .getElementById(`message-${messageId}`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
   return (
@@ -1205,67 +1158,48 @@ export function ConversationPane({
               </EmptyHeader>
             </Empty>
           ) : (
-            // The sizer holds the scrollbar at the full virtual height; the rows themselves
-            // live in one translated window below (see the `ol`).
-            <div
-              ref={listRef}
-              className="relative"
-              style={{ height: `${messageVirtualizer.getTotalSize() + 24}px` }}
-            >
-              {/* One window, positioned at the first rendered row's offset, with the rows in
-                  normal flow inside it — rather than every row absolutely positioned at its own
-                  offset. A row is measured after it renders, so until then the virtualizer only
-                  has `estimateSize`; with per-row absolute offsets a row taller than the estimate
-                  (a wrapped Markdown body is easily 200px against a 160px estimate) is drawn
-                  straight over the row below it, which is the "messages cover each other" report.
-                  In flow, a stale size can only shift this whole block — which end-anchoring
-                  corrects on the next measurement — and never paints two rows on top of each
-                  other. */}
-              <ol
-                className="absolute top-0 left-0 w-full"
-                style={{
-                  transform: `translateY(${(messageVirtualizer.getVirtualItems()[0]?.start ?? 0) - (scrollMargin ?? 0) + 24}px)`,
-                }}
-              >
-                {messageVirtualizer.getVirtualItems().map(({ index, key }) => {
-                  const message = conversation.messages[index];
-                  if (!message) return null;
-                  const previous = conversation.messages[index - 1];
-                  const own = isOwn(message);
-                  const { dayChanged, grouped } = groupsWithPrevious(
-                    message,
-                    previous,
-                    own,
-                    previous ? isOwn(previous) : false,
-                    dateLocale,
-                  );
-                  // The unread divider is anchored to the snapshot taken at open: once the
-                  // mark-read effect has advanced the cursor, the divider must not jump.
-                  const unreadStartsHere = openBoundary?.sequence === message.sequence;
-                  return (
-                    <MessageRow
-                      key={key}
-                      message={message}
-                      index={index}
-                      own={own}
-                      dayChanged={dayChanged}
-                      grouped={grouped}
-                      unreadStartsHere={unreadStartsHere}
-                      expanded={expandedMessages.has(message.id)}
-                      onToggleExpanded={() => toggleExpandedMessage(message.id)}
-                      agentDisplay={agentDisplayFor}
-                      dateLocale={dateLocale}
-                      measureRef={messageVirtualizer.measureElement}
-                      threadEntry={threadEntry}
-                      threadPreview={threadPreview}
-                      messageFooter={messageFooter}
-                      onOpenAgentProfile={onOpenAgentProfile}
-                      viewerHandle={conversation.viewerHandle}
-                    />
-                  );
-                })}
-              </ol>
-            </div>
+            // Every loaded row is rendered, in normal flow: the browser skips layout and paint for
+            // the rows off screen (`content-visibility: auto` on each row, see `MessageRow`) instead
+            // of a JS window unmounting them. Nothing here computes a row's position, so no
+            // measurement can shift one, and the scrollbar is the real content height from the first
+            // paint — the scroll position never has to be corrected while you read.
+            <ol className="flex flex-col pt-6">
+              {conversation.messages.map((message, index) => {
+                const key = message.id;
+                const previous = conversation.messages[index - 1];
+                const own = isOwn(message);
+                const { dayChanged, grouped } = groupsWithPrevious(
+                  message,
+                  previous,
+                  own,
+                  previous ? isOwn(previous) : false,
+                  dateLocale,
+                );
+                // The unread divider is anchored to the snapshot taken at open: once the
+                // mark-read effect has advanced the cursor, the divider must not jump.
+                const unreadStartsHere = openBoundary?.sequence === message.sequence;
+                return (
+                  <MessageRow
+                    key={key}
+                    message={message}
+                    index={index}
+                    own={own}
+                    dayChanged={dayChanged}
+                    grouped={grouped}
+                    unreadStartsHere={unreadStartsHere}
+                    expanded={expandedMessages.has(message.id)}
+                    onToggleExpanded={() => toggleExpandedMessage(message.id)}
+                    agentDisplay={agentDisplayFor}
+                    dateLocale={dateLocale}
+                    threadEntry={threadEntry}
+                    threadPreview={threadPreview}
+                    messageFooter={messageFooter}
+                    onOpenAgentProfile={onOpenAgentProfile}
+                    viewerHandle={conversation.viewerHandle}
+                  />
+                );
+              })}
+            </ol>
           )}
         </div>
         {(ownMessages.length > 0 || !followingLatest) && (
