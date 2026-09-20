@@ -192,10 +192,14 @@ function proxyTransportFailure(operation: string, target: string | undefined): C
   });
 }
 
-/** How many times a `send` is attempted before its delivery state is reported as unknown, and the
- * base delay between attempts (doubled each time: 250ms, 500ms). */
+/** How many times a `send` is attempted before its delivery state is reported as unknown, the base
+ * delay between attempts (doubled each time: 250ms, 500ms), and a hard ceiling on the whole retry
+ * window. The window stays under the server's 30s "processing" idempotency TTL
+ * (`redis-message-request-idempotency.server.ts`), so a retry always finds its own requestId still
+ * claimed and can never re-execute a send the server already accepted. */
 const SEND_RETRY_ATTEMPTS = 3;
 const SEND_RETRY_BASE_DELAY_MS = 250;
+const SEND_RETRY_DEADLINE_MS = 25_000;
 
 /**
  * Whether a `send` failure is worth retrying with the SAME `requestId`. A send is idempotent end
@@ -480,6 +484,7 @@ export function connectLocal(
     // A `send` retries with the same requestId: the daemon forwards that id to the cloud and the
     // server suppresses a duplicate by it, so a transient failure no longer has to end in silence.
     // Every other operation keeps the single attempt it had before.
+    const retryDeadline = Date.now() + SEND_RETRY_DEADLINE_MS;
     let response: Response | undefined;
     for (let attempt = 0; ; attempt += 1) {
       try {
@@ -489,6 +494,7 @@ export function connectLocal(
         if (
           operation !== "send" ||
           attempt >= SEND_RETRY_ATTEMPTS - 1 ||
+          Date.now() >= retryDeadline ||
           !isRetryableSendFailure(error)
         )
           throw error;
