@@ -156,6 +156,32 @@ export class AgentControl {
     }
   }
 
+  /** Boot-time settle results for records a gone daemon instance left in a live phase. `initialize`
+   * runs before the transport connects, so these are collected there and flushed once `#start` has
+   * completed the ready handshake — the same after-ready ordering the pre-ready publication buffer
+   * uses. `flushPendingBootResults` is idempotent and safe to call when the list is empty. */
+  readonly #pendingBootResults: AgentControlResult[] = [];
+
+  /** Sends every settle result `initialize` collected, logging (not swallowing) a per-result
+   * delivery failure with the facts a later investigation needs. */
+  async flushPendingBootResults(): Promise<void> {
+    const pending = this.#pendingBootResults.splice(0);
+    for (const result of pending) {
+      try {
+        await this.runtime.result(result);
+      } catch (error) {
+        logger.warning("Boot settle result for an interrupted Agent operation failed to deliver", {
+          event: "agent_control:boot_result_delivery_failed",
+          agent_id: result.agentId,
+          request_id: result.requestId,
+          result_phase: result.phase,
+          epoch: result.epoch,
+          error_code: diagnosticErrorCode(error),
+        });
+      }
+    }
+  }
+
   /** Boot-time counterpart of the lazy `repairStaleRecord`: a record left in a live phase by a
    * gone daemon instance otherwise sits there until some control operation touches the Agent —
    * the UI keeps showing "Starting…"/"Stopping…" and the server's operation for the interrupted
@@ -220,7 +246,7 @@ export class AgentControl {
       epoch: record.scope.epoch,
       ...(result ? { reported_result_phase: result.phase } : {}),
     });
-    if (result) await this.runtime.result(result).catch(() => {});
+    if (result) this.#pendingBootResults.push(result);
   }
   managed(agentId: string) {
     return this.#known.has(agentId);

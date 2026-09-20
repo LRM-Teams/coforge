@@ -1641,7 +1641,10 @@ test("a managed Start intent with no launchId sends a failed result instead of m
 });
 
 /** Seeds one persisted record and reports what `initialize` repairs and sends to the server. */
-function bootStore(record: AgentRuntimeRecord | undefined) {
+function bootStore(
+  record: AgentRuntimeRecord | undefined,
+  deliver?: (result: AgentControlResult) => Promise<void>,
+) {
   let current = record && structuredClone(record);
   const writes: AgentRuntimeRecord[] = [];
   const results: AgentControlResult[] = [];
@@ -1668,6 +1671,7 @@ function bootStore(record: AgentRuntimeRecord | undefined) {
       },
       rebind: async () => undefined,
       async result(reported: AgentControlResult) {
+        if (deliver) return deliver(reported);
         results.push(reported);
       },
     }),
@@ -1696,9 +1700,13 @@ function startingRecord(): AgentRuntimeRecord {
   };
 }
 
-test("initialize settles a start left starting by a gone daemon instance", async () => {
+test("initialize settles a start left starting by a gone daemon instance, delivered on flush", async () => {
   const boot = bootStore(startingRecord());
   await boot.control.initialize();
+  // The transport is not connected at boot: the settle result is buffered by `initialize` and
+  // delivered by `flushPendingBootResults` once `#start` has completed the ready handshake.
+  expect(boot.results).toHaveLength(0);
+  await boot.control.flushPendingBootResults();
   // The local record lands on "stopped" — startable — never "failed", so the Daemon-ready
   // recovery Start (a fresh epoch after the server settles the failed one) is not fenced.
   const repaired = boot.read();
@@ -1717,6 +1725,7 @@ test("initialize settles a start left starting by a gone daemon instance", async
 test("initialize reports the interrupted stop's own receipt and lands the record on stopped", async () => {
   const boot = bootStore(legacyStopFailedRecord());
   await boot.control.initialize();
+  await boot.control.flushPendingBootResults();
   const repaired = boot.read();
   expect(repaired?.phase).toBe("stopped");
   expect(boot.results).toHaveLength(1);
@@ -1758,4 +1767,34 @@ test("initialize leaves an exit-unconfirmed record fenced and a terminal record 
   expect(boot2.read()).toEqual(stopped);
   expect(boot2.results).toHaveLength(0);
   expect(boot2.writes).toHaveLength(0);
+});
+
+test("flushPendingBootResults logs a delivery failure instead of swallowing or throwing", async () => {
+  const { records: logs } = await captureLogs(async () => {
+    const boot = bootStore(startingRecord(), async () => {
+      throw new Error("transport down");
+    });
+    await boot.control.initialize();
+    expect(boot.results).toHaveLength(0);
+    // The daemon keeps booting even when a settle result cannot leave yet.
+    await boot.control.flushPendingBootResults();
+  });
+  expect(
+    logs.find((entry) => entry.properties.event === "agent_control:boot_result_delivery_failed"),
+  ).toMatchObject({
+    level: "warning",
+    properties: {
+      agent_id: "a",
+      request_id: "start-4",
+      result_phase: "failed",
+      epoch: 4,
+    },
+  });
+});
+
+test("flushPendingBootResults is a no-op when nothing was repaired", async () => {
+  const boot = bootStore(undefined);
+  await boot.control.initialize();
+  await expect(boot.control.flushPendingBootResults()).resolves.toBeUndefined();
+  expect(boot.results).toHaveLength(0);
 });

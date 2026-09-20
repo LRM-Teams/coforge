@@ -1070,6 +1070,10 @@ export class DaemonRuntime {
       buffering = false;
       this.#started = true;
       this.#activityEnabled = true;
+      // Settle the operations a gone daemon instance interrupted before any buffered control
+      // intent (a Daemon-ready recovery Start among them) is replayed, so the server reads
+      // "the interrupted start failed" before "a new start is arriving".
+      await this.#agentControl.flushPendingBootResults();
       await Promise.all(buffered.map((flush) => flush()));
     } catch (error) {
       this.#unsubscribeAll();
