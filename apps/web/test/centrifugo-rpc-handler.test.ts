@@ -701,6 +701,72 @@ describe("CentrifugoRpcHandler", () => {
     ]);
   });
 
+  test("an un-upgraded Computer's pre-Raft window vocabulary still ingests, normalized", async () => {
+    const records: unknown[] = [];
+    const method = createDaemonRuntimeUsageScanResultMethod({
+      async putScan() {},
+      async putResult(record) {
+        records.push(record);
+      },
+      async read() {
+        return { state: "missing" };
+      },
+    });
+    const snapshot = {
+      provider: "claude-code",
+      primary: {
+        status: "available",
+        usedPercent: 25,
+        windowDurationMinutes: 300,
+        resetsAt: "2026-09-04T03:00:00.000Z",
+      },
+      secondary: {
+        status: "rate-limited",
+        usedPercent: 100,
+        windowDurationMinutes: 10080,
+        resetsAt: "2026-09-11T03:00:00.000Z",
+      },
+    };
+    const payload = encodeDaemonRuntimeUsageScanResponse({
+      protocolMajor: 1,
+      requestId: "usage-legacy",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      provider: "claude-code",
+      accepted: true,
+      status: "available",
+      snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)),
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(records).toEqual([
+      {
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        provider: "claude-code",
+        scanId: "usage-legacy",
+        status: "available",
+        message: undefined,
+        snapshot: {
+          provider: "claude-code",
+          primary: {
+            status: "ok",
+            usedPercent: 25,
+            windowDurationMinutes: 300,
+            resetsAt: "2026-09-04T03:00:00.000Z",
+          },
+          secondary: {
+            status: "limit_reached",
+            usedPercent: 100,
+            windowDurationMinutes: 10080,
+            resetsAt: "2026-09-11T03:00:00.000Z",
+          },
+        },
+        collectedAt: expect.any(String),
+      },
+    ]);
+  });
+
   test("a snapshot's own collectedAt becomes the stored result's collectedAt", async () => {
     const records: unknown[] = [];
     const method = createDaemonRuntimeUsageScanResultMethod({

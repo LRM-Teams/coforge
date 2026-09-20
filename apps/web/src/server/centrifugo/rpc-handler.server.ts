@@ -805,9 +805,14 @@ function usageWindow(value: unknown): UsageSnapshot["primary"] | undefined {
         window.usedPercent < 0 ||
         window.usedPercent > 100)) ||
     (window.status !== undefined &&
+      // `available` / `rate-limited` are the pre-Raft vocabulary an un-upgraded Computer still
+      // sends; they normalize to `ok` / `limit_reached` below so those snapshots keep ingesting
+      // during the Web-first deploy window.
       window.status !== "ok" &&
       window.status !== "limit_reached" &&
-      window.status !== "parse_unavailable")
+      window.status !== "parse_unavailable" &&
+      window.status !== "available" &&
+      window.status !== "rate-limited")
   )
     return undefined;
   const status =
@@ -815,7 +820,11 @@ function usageWindow(value: unknown): UsageSnapshot["primary"] | undefined {
     window.status === "limit_reached" ||
     window.status === "parse_unavailable"
       ? window.status
-      : undefined;
+      : window.status === "rate-limited"
+        ? "limit_reached"
+        : window.status === "available"
+          ? "ok"
+          : undefined;
   return {
     windowDurationMinutes: window.windowDurationMinutes,
     ...(typeof window.resetsAt === "string" ? { resetsAt: window.resetsAt } : {}),
