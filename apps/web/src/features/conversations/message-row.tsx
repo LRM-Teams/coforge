@@ -424,11 +424,13 @@ function UnreadDivider() {
       aria-label={m.conversation_unread_divider()}
       className="flex items-center gap-3 px-4 py-2 md:px-6"
     >
-      <span aria-hidden="true" className="h-px flex-1 bg-brand-solid/40" />
-      <span className="shrink-0 bg-primary px-2 text-xs font-semibold text-brand-secondary">
+      {/* A neutral rule with the label at its end: the divider marks where reading resumes, so
+          it has to be findable, but a coloured bar across the middle of the pane is the loudest
+          thing on screen. The day divider above uses the same rule. */}
+      <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
+      <span className="shrink-0 text-xs text-brand-secondary">
         {m.conversation_unread_divider()}
       </span>
-      <span aria-hidden="true" className="h-px flex-1 bg-brand-solid/40" />
     </div>
   );
 }
