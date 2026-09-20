@@ -1,5 +1,6 @@
 import type { AgentActivity, AgentRuntimeEvent } from "@coforge/agent";
 import { AGENT_ACTIVITY_DETAIL_KIND, truncateCodePoints } from "@lrm/coforge-sdk/internal";
+import { classifyRuntimeErrorText } from "./runtime-error-classification";
 
 /**
  * The single place a provider's error, crash or reconnect report becomes an Activity: a
@@ -65,6 +66,10 @@ export function buildRuntimeErrorActivity(event: RuntimeErrorEvent): AgentActivi
   // A provider's own error message is shown as reported; only the crash summary built at
   // process exit is redacted and capped.
   const detail = event.message;
+  // A provider's own richer class/reason hint is always kept as-is; only text this daemon has no
+  // provider hint for gets classified here (runtime-error-classification.ts) instead of the
+  // previous generic "AgentRuntimeError"/"runtime_failure" default for every unhinted message.
+  const classified = classifyRuntimeErrorText(detail);
   return {
     detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
     level: "error",
@@ -72,8 +77,8 @@ export function buildRuntimeErrorActivity(event: RuntimeErrorEvent): AgentActivi
     observedAtMs: event.occurredAt ? Date.parse(event.occurredAt) : Date.now(),
     entries: [{ kind: "text", text: `Error: ${detail}` }],
     runtimeError: {
-      errorClass: event.providerErrorClass ?? event.providerErrorCode ?? "AgentRuntimeError",
-      errorReason: event.providerErrorReason ?? "runtime_failure",
+      errorClass: event.providerErrorClass ?? event.providerErrorCode ?? classified.errorClass,
+      errorReason: event.providerErrorReason ?? classified.errorReason,
       fingerprint: fingerprintRuntimeError(detail),
     },
   };
@@ -98,8 +103,12 @@ export function buildRuntimeCrashedActivity(lastError: RuntimeErrorEvent): Agent
     observedAtMs: Date.now(),
     entries: [{ kind: "text", text: `Error: ${detail}` }],
     runtimeError: {
+      // The exit reason itself is always "runtime_crashed" below, regardless of the underlying
+      // error's own class; only the class is worth refining from an unhinted provider message.
       errorClass:
-        lastError.providerErrorClass ?? lastError.providerErrorCode ?? "AgentRuntimeError",
+        lastError.providerErrorClass ??
+        lastError.providerErrorCode ??
+        classifyRuntimeErrorText(lastError.message).errorClass,
       errorReason: "runtime_crashed",
       fingerprint: fingerprintRuntimeError(detail),
     },

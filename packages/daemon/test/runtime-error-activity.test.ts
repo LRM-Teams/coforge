@@ -17,11 +17,24 @@ test("builds a runtime_error activity from the provider's message as reported, w
   expect(activity.level).toBe("error");
   expect(activity.detail).toBe(`request timed out ${long}`);
   expect(activity.entries).toEqual([{ kind: "text", text: `Error: ${activity.detail}` }]);
+  // No provider hint was given, so the daemon's own text classification fills errorClass/
+  // errorReason (runtime-error-classification.ts) instead of the old generic default.
+  expect(activity.runtimeError).toMatchObject({
+    errorClass: "TimeoutError",
+    errorReason: "provider_timeout",
+  });
+  expect(activity.runtimeError!.fingerprint).toMatch(/^[0-9a-f]{8}$/);
+});
+
+test("falls back to the generic class/reason when no provider hint and no text pattern matches", () => {
+  const activity = buildRuntimeErrorActivity({
+    type: "error",
+    message: "provider request failed",
+  });
   expect(activity.runtimeError).toMatchObject({
     errorClass: "AgentRuntimeError",
     errorReason: "runtime_failure",
   });
-  expect(activity.runtimeError!.fingerprint).toMatch(/^[0-9a-f]{8}$/);
 });
 
 test("prefers provider-supplied error class/code/reason hints when present", () => {
