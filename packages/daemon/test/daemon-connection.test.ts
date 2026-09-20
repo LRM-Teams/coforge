@@ -3174,3 +3174,99 @@ test("a rejected control publication names every decoder's reason and the payloa
   expect(reasons).toContain("agent_stop");
   expect(reasons).toContain("agent_start");
 });
+
+/** Drives the Computer status refresh by hand, with a clock this test moves itself, so the
+ * connection's liveness window can be crossed without waiting for it. */
+function livenessHarness(rpc: CentrifugeWorkspaceClient["rpc"]) {
+  const fake = fakeClient();
+  fake.client.rpc = rpc;
+  const lifecycle: string[] = [];
+  const connect = fake.client.connect.bind(fake.client);
+  fake.client.connect = () => {
+    lifecycle.push("connect");
+    connect();
+  };
+  fake.client.disconnect = () => {
+    lifecycle.push("disconnect");
+    fake.disconnect();
+  };
+  let nowMs = 1_000_000;
+  let refresh!: () => void;
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, undefined, {
+    schedule: () => 1,
+    cancel: () => {},
+    scheduleRepeating: (callback) => {
+      refresh = callback;
+      return 2;
+    },
+    cancelRepeating: () => {},
+    now: () => nowMs,
+  });
+  return {
+    fake,
+    transport,
+    lifecycle,
+    advance: (ms: number) => {
+      nowMs += ms;
+    },
+    tick: async () => {
+      refresh();
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+  };
+}
+
+test("a connection carrying nothing at all is rebuilt rather than waited on", async () => {
+  const harness = livenessHarness(async () => {
+    throw new Error("no reply");
+  });
+  const { records } = await captureLogs(async () => {
+    await harness.transport.start("secret", config);
+    harness.lifecycle.length = 0;
+    harness.advance(80_000);
+    await harness.tick();
+    harness.advance(80_000);
+    await harness.tick();
+  });
+
+  expect(harness.lifecycle).toEqual(["disconnect", "connect"]);
+  const stalled = records.find(
+    (record) => record.properties.event === "daemon_connection:inbound_stalled",
+  );
+  expect(stalled).toBeDefined();
+  expect(Number(stalled!.properties.last_inbound_age_ms)).toBeGreaterThanOrEqual(140_000);
+  await harness.transport.stop();
+});
+
+test("a quiet Workspace whose status round trip still answers keeps its connection", async () => {
+  const harness = livenessHarness(async () => new Uint8Array());
+  await harness.transport.start("secret", config);
+  harness.lifecycle.length = 0;
+  for (let elapsed = 0; elapsed < 600_000; elapsed += 30_000) {
+    harness.advance(30_000);
+    await harness.tick();
+  }
+
+  expect(harness.lifecycle).toEqual([]);
+  await harness.transport.stop();
+});
+
+test("a publication proves the connection carries traffic even when no decoder accepts it", async () => {
+  const harness = livenessHarness(async () => {
+    throw new Error("no reply");
+  });
+  await harness.transport.start("secret", config);
+  harness.lifecycle.length = 0;
+  harness.advance(80_000);
+  await harness.tick();
+  harness.fake.publish(
+    `daemon:${config.workspaceId}:${config.computerId}`,
+    new Uint8Array([0x0a, 0x28, 0x61]),
+  );
+  harness.advance(80_000);
+  await harness.tick();
+
+  expect(harness.lifecycle).toEqual([]);
+  await harness.transport.stop();
+});
