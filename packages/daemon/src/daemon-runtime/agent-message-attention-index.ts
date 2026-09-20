@@ -4,7 +4,7 @@ import type {
   AgentRecoveryMessage,
 } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
-import { isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
+import { AGENT_MESSAGE_ACK_METHOD, isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
 import type { AgentProcessManager } from "../agent-runtime/agent-process-manager";
 
 const logger = getLogger(["coforge", "daemon", "message-attention"]);
@@ -126,7 +126,7 @@ export class AgentMessageAttentionIndex {
       }
       await this.sendAck({
         ...message,
-        method: "agent:v1:message:ack",
+        method: AGENT_MESSAGE_ACK_METHOD,
         requestId: message.requestId,
       });
       return;
@@ -136,7 +136,7 @@ export class AgentMessageAttentionIndex {
     if (this.modelSeenSequence(message.agentId, target) >= message.sequence) {
       await this.sendAck({
         ...message,
-        method: "agent:v1:message:ack",
+        method: AGENT_MESSAGE_ACK_METHOD,
         requestId: message.requestId,
       });
       return;
@@ -168,7 +168,7 @@ export class AgentMessageAttentionIndex {
     if (this.#generations.get(message.agentId) !== generation) return;
     await this.sendAck({
       ...message,
-      method: "agent:v1:message:ack",
+      method: AGENT_MESSAGE_ACK_METHOD,
       requestId: message.requestId,
     });
   }
@@ -193,7 +193,7 @@ export class AgentMessageAttentionIndex {
     for (const message of held)
       await this.sendAck({
         ...message,
-        method: "agent:v1:message:ack",
+        method: AGENT_MESSAGE_ACK_METHOD,
         requestId: message.requestId,
       });
   }

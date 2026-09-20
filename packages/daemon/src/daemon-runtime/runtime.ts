@@ -90,6 +90,7 @@ import {
   type AgentContextScanRequest,
   type AgentContextScanResponse,
   AGENT_CONTEXT_SCAN_STATUS,
+  AGENT_MESSAGE_ACK_METHOD,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -1614,7 +1615,7 @@ export class DaemonRuntime {
     return (
       this.#transport.sendAgentDeliveryAck?.({
         ...message,
-        method: "agent:v1:message:ack",
+        method: AGENT_MESSAGE_ACK_METHOD,
         requestId: message.requestId,
       }) ?? Promise.resolve()
     );
