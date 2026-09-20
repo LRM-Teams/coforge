@@ -16,32 +16,13 @@ describe("resolveVisibleConversationSlot", () => {
     );
   });
 
-  test("when both are open, the most recently opened one wins", () => {
-    expect(
-      resolveVisibleConversationSlot({ threadOpen: true, profileOpen: true, lastOpened: "thread" }),
-    ).toBe("thread");
-    expect(
-      resolveVisibleConversationSlot({
-        threadOpen: true,
-        profileOpen: true,
-        lastOpened: "profile",
-      }),
-    ).toBe("profile");
-  });
-
-  test("both open with no ordering signal defaults to thread (its pre-existing behavior)", () => {
+  test("legacy URLs containing both params default to thread", () => {
     expect(resolveVisibleConversationSlot({ threadOpen: true, profileOpen: true })).toBe("thread");
   });
 
-  test("closing the visible panel reveals the other one, which this function never reports closed", () => {
-    // Arbitration only picks which is visible; the caller keeps the loser's own state (e.g. a
-    // visited thread stays mounted-hidden), so this function is never told to close it.
-    const visible = resolveVisibleConversationSlot({
-      threadOpen: true,
-      profileOpen: true,
-      lastOpened: "profile",
-    });
-    expect(visible).toBe("profile");
-    expect(resolveVisibleConversationSlot({ threadOpen: true, profileOpen: false })).toBe("thread");
+  test("has no visible panel when the active panel has been closed", () => {
+    expect(
+      resolveVisibleConversationSlot({ threadOpen: false, profileOpen: false }),
+    ).toBeUndefined();
   });
 });

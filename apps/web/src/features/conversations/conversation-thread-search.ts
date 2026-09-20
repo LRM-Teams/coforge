@@ -52,3 +52,10 @@ export function conversationSearchWithoutThread<T extends { threadRootId?: strin
   const { threadRootId: _threadRootId, ...rest } = previous;
   return rest;
 }
+
+export function conversationSearchWithoutAgentProfile<
+  T extends { profile?: string; agentTab?: unknown },
+>(previous: T): Omit<T, "profile" | "agentTab"> {
+  const { profile: _profile, agentTab: _agentTab, ...rest } = previous;
+  return rest;
+}

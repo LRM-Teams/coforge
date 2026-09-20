@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   agentIdFromProfileParam,
+  agentProfileSearchWithoutThread,
   agentProfileParamSchema,
   agentProfileTabParamSchema,
   formatAgentProfileParam,
@@ -48,6 +49,18 @@ describe("agentIdFromProfileParam", () => {
     expect(agentIdFromProfileParam(undefined)).toBeUndefined();
     expect(agentIdFromProfileParam("agent:nope")).toBeUndefined();
     expect(agentIdFromProfileParam(`channel:${AGENT_ID}`)).toBeUndefined();
+  });
+});
+
+describe("agentProfileSearchWithoutThread", () => {
+  test("removes the active thread while preserving unrelated search state", () => {
+    expect(
+      agentProfileSearchWithoutThread({
+        view: "chat",
+        threadRootId: "thread-1",
+        profile: "agent:agent-1",
+      }),
+    ).toEqual({ view: "chat", profile: "agent:agent-1" });
   });
 });
 

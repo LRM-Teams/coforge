@@ -359,23 +359,9 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const selectedSequence = selected ? (repliesOf(selected).at(-1)?.sequence ?? 0) : 0;
 
   // The conversation's shared right-hand slot: Thread (`threadRootId` search) and the Agent
-  // profile panel (`profile` search) can both be "open" at once; whichever was opened most
-  // recently is shown, the other keeps its own state. `lastOpened` only tracks fresh open actions
-  // (`openThread` below, and a `profileAgentId` transition into "open"), not every re-render.
+  // profile panel (`profile` search) are mutually exclusive. Their open hooks clear the other
+  // search param; the resolver remains defensive for legacy URLs containing both.
   const profileAgentId = agentProfile?.agentId;
-  const [lastOpened, setLastOpened] = useState<"thread" | "profile">();
-  const previousProfileAgentIdRef = useRef<string | undefined>(undefined);
-  const previousSelectedRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (profileAgentId && profileAgentId !== previousProfileAgentIdRef.current) {
-      setLastOpened("profile");
-    }
-    previousProfileAgentIdRef.current = profileAgentId;
-  }, [profileAgentId]);
-  useEffect(() => {
-    if (selected && selected !== previousSelectedRef.current) setLastOpened("thread");
-    previousSelectedRef.current = selected;
-  }, [selected]);
   useEffect(() => {
     if (!selected) return;
     setVisited((previous) => (previous.includes(selected) ? previous : [...previous, selected]));
@@ -383,7 +369,6 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const visibleSlot = resolveVisibleConversationSlot({
     threadOpen: Boolean(selected),
     profileOpen: Boolean(profileAgentId),
-    lastOpened,
   });
   const threadPaneVisible = (rootId: string) => visibleSlot === "thread" && selected === rootId;
   // The thread/profile pane's share of the width is the user's to set; remembered across visits,

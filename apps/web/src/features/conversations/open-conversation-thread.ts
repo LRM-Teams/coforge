@@ -1,7 +1,9 @@
 import { useCallback } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
+import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-panel-search";
 
 import {
+  conversationSearchWithoutAgentProfile,
   conversationSearchWithoutThread,
   conversationSearchWithThread,
 } from "./conversation-thread-search";
@@ -11,7 +13,11 @@ import {
  * narrow local type so `router.navigate({ to: "." })` type-checks without
  * pinning to one route — the same pattern as `useOpenAgentProfile`.
  */
-type ConversationThreadSearch = { threadRootId?: string };
+type ConversationThreadSearch = {
+  threadRootId?: string;
+  profile?: string;
+  agentTab?: AgentProfileTab;
+};
 
 /**
  * The one way the conversation UI opens or closes the thread pane.
@@ -38,7 +44,10 @@ export function useOpenConversationThread() {
         resetScroll: false,
         hash: () => "",
         search: (previous: ConversationThreadSearch) =>
-          conversationSearchWithThread(previous, threadRootId),
+          conversationSearchWithThread(
+            conversationSearchWithoutAgentProfile(previous),
+            threadRootId,
+          ),
       });
     },
     [router, searchThreadRootId],
@@ -51,7 +60,10 @@ export function useOpenConversationThread() {
         replace: true,
         resetScroll: false,
         search: (previous: ConversationThreadSearch) =>
-          conversationSearchWithThread(previous, threadRootId),
+          conversationSearchWithThread(
+            conversationSearchWithoutAgentProfile(previous),
+            threadRootId,
+          ),
       });
     },
     [router, searchThreadRootId],
@@ -63,7 +75,8 @@ export function useOpenConversationThread() {
         replace: true,
         resetScroll: false,
         hash: () => "",
-        search: (previous: ConversationThreadSearch) => conversationSearchWithoutThread(previous),
+        search: (previous: ConversationThreadSearch) =>
+          conversationSearchWithoutAgentProfile(conversationSearchWithoutThread(previous)),
       }),
     [router],
   );
