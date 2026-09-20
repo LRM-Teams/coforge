@@ -8,7 +8,7 @@ import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "@/features/agents/workspace-agents-realtime";
 import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
-import { useChannelUnreadCounts } from "./conversation-navigation";
+import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
 import {
   readCollapsedSections,
   writeCollapsedSections,
@@ -69,6 +69,7 @@ function ConversationRow({
   label: string;
   children: ReactNode;
 }) {
+  const closeList = useCloseConversationList();
   return (
     <Link
       {...("channelId" in target
@@ -76,6 +77,10 @@ function ConversationRow({
         : { to: "/messages/$agentId", params: target })}
       aria-current={current ? "page" : undefined}
       aria-label={rowLabel(unreadCount, label)}
+      // On mobile the list is a separate pane; choosing a row reveals the conversation even when
+      // the URL is unchanged (re-opening the channel already in the address bar), which the
+      // pathname-based reset in `ConversationNavigation` cannot see.
+      onClick={closeList}
       className={cx(
         "flex max-h-9 w-full cursor-pointer items-center gap-2 rounded-md p-2 outline-focus-ring transition duration-100 ease-linear select-none focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2",
         current ? "bg-sidebar-accent" : "hover:bg-primary_hover",
