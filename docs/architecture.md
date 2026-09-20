@@ -85,24 +85,6 @@ apps/web                 →  SDK/agent + @lrm/coforge-sdk/internal
 史 ADR 里若仍出现旧名（如 `agent:session`、`computer:upgrade_result`），以本节规范为准。
 本地 IPC（CLI↔常驻 Daemon 的 `LOCAL_RPC_METHODS`）是另一条协议，不在本规范内。
 
-**升级窗口兼容。** Computer 是用户机器上已安装的二进制，改名会先于 Computer 升级在云端生效：
-未升级的 Daemon 仍按旧名发起 `daemon:runtime_ready`、`daemon:connection_status`、
-`computer:upgrade_result` 等 RPC。云端若只认新名，这些调用全部被判为 unknown RPC method，
-Computer 随即失去 presence 并显示离线；而 `computer:v1:lifecycle:upgrade` 的前置条件正是
-presence，升级通道会被自己堵死。因此过渡期规则是：
-
-- 云端 RPC 边界（`CentrifugoRpcHandler`）同时接受旧名与新名，两者路由到同一个 handler，
-  不产生第二份实现。旧名清单只有一处所有者：`LEGACY_RPC_METHOD_NAMES`
-  （`packages/coforge-sdk/src/internal/rpc-methods.ts`），`currentRpcMethodName` 是唯一查表入口。
-- `AgentMessageDelivery`/`AgentMessageDeliveryAck` 的 `method` 判别字段：已安装 Daemon 严格
-  校验旧拼写（`agent:deliver`、`agent:deliver:ack`），所以过渡期云端继续按旧拼写下发，而新
-  Daemon 两种拼写都接受，解码时归一化为当前名。
-- 其余云→Daemon 控制报文按 Protobuf `message_type` 路由，Computer setup/attach 的 HTTPS
-  路由使用固定 method，都不受改名影响。
-- 这是升级窗口，不是第二套词表：不再有未升级 Computer 时删除这些条目，并把 delivery 判别
-  字段切回当前拼写、移除双拼写容忍。这些位置都带 `TODO(legacy-rpc-methods)` 标记，升级完成后
-  按标记清理即可。
-
 注意：`agent:start`/`agent:stop`/`agent:reset-workspace` 等 Agent lifecycle 方法名此前与
 Raft Computer 1.0.32 的同类 message-type 同名；本次改名后不再同名。若以后要求严格对齐
 Raft 命名，需单独决策。

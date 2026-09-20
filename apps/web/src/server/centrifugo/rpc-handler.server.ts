@@ -40,7 +40,6 @@ import {
 } from "../../features/agents/agent-status-realtime";
 import type { CentrifugoServerApi } from "./server-api.server";
 import type { AgentDisplay } from "../agents/agent-display.server";
-import { currentRpcMethodName } from "@lrm/coforge-sdk/internal";
 import {
   decodeReminderFireRequest,
   decodeReminderSnapshotRequest,
@@ -971,22 +970,6 @@ export class CentrifugoRpcHandler {
 
   readonly #authorizeProxyRequest?: CentrifugoProxyAuthorizer;
 
-  /**
-   * The handler for a wire method name: the exact name first, then the pre-rename alias
-   * (`LEGACY_RPC_METHOD_NAMES`). A Computer that has not been upgraded yet still sends the old
-   * spelling, and both spellings must reach the same handler rather than a second implementation.
-   * A name that is neither is unknown, exactly as before.
-   *
-   * TODO(legacy-rpc-methods): this alias lookup goes away with `LEGACY_RPC_METHOD_NAMES` once every
-   * Computer has been upgraded.
-   */
-  #methodFor(requestedMethod: string): CentrifugoRpcMethod | undefined {
-    const method = this.#methods.get(requestedMethod);
-    if (method) return method;
-    const currentName = currentRpcMethodName(requestedMethod);
-    return currentName ? this.#methods.get(currentName) : undefined;
-  }
-
   async handleRequest(request: Request, fixedMethod?: string): Promise<Response> {
     try {
       await this.#authorizeProxyRequest?.(request);
@@ -1009,7 +992,7 @@ export class CentrifugoRpcHandler {
     const requestedMethod = fixedMethod ?? envelope.method;
     if (typeof requestedMethod !== "string" || !requestedMethod || !payload)
       return errorResponse(errors.missing);
-    const method = this.#methodFor(requestedMethod);
+    const method = this.#methods.get(requestedMethod);
     if (!method) return errorResponse(errors.unknown);
 
     try {

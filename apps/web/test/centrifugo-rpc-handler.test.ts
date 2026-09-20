@@ -20,8 +20,6 @@ import {
   encodeDaemonRuntimeReadyRequest,
   encodeDaemonRuntimeUsageScanResponse,
   encodeComputerUpgradeResult,
-  DAEMON_RUNTIME_READY_METHOD,
-  LEGACY_RPC_METHOD_NAMES,
 } from "@lrm/coforge-sdk/internal";
 
 const encoded = (value: string) => btoa(value);
@@ -1014,78 +1012,6 @@ describe("CentrifugoRpcHandler", () => {
         await handler.handleRequest(new Request("http://handler", { method: "POST", body: "{" }))
       ).json(),
     ).toEqual({ error: { code: 400, message: "invalid RPC request" } });
-  });
-
-  describe("pre-rename method names", () => {
-    test("dispatches a pre-rename name to the same handler as its current name", async () => {
-      const seen: string[] = [];
-      const handler = new CentrifugoRpcHandler({
-        methods: {
-          [DAEMON_RUNTIME_READY_METHOD]: () => {
-            seen.push("ready");
-            return new Uint8Array();
-          },
-        },
-      });
-
-      const result = await handler.handleRequest(
-        json({ method: LEGACY_RPC_METHOD_NAMES.daemonRuntimeReady, b64data: "AA==" }),
-      );
-
-      expect(seen).toEqual(["ready"]);
-      expect(await result.json()).toEqual({ result: { b64data: "" } });
-    });
-
-    test("accepts a Computer's pre-rename daemon ready request", async () => {
-      const handler = createCentrifugoRpcHandler(null);
-      const previous = process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
-      process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = "test-secret";
-      try {
-        const result = await handler.handleRequest(
-          authorizedJson({
-            method: LEGACY_RPC_METHOD_NAMES.daemonRuntimeReady,
-            b64data: Buffer.from(
-              encodeDaemonRuntimeReadyRequest({
-                protocolMajor: 1,
-                requestId: "ready-1",
-                workspaceId: "workspace-1",
-                computerId: "computer-1",
-                workerInstanceId: "worker-1",
-                daemonVersion: "1.2.3",
-                startedAt: 123,
-                runningAgentIds: [],
-                recoveredRestartRequestIds: [],
-                recoveredUpgradeRequestIds: [],
-              }),
-            ).toString("base64"),
-            user: "user-1",
-            meta: { workspace_id: "workspace-1", computer_id: "computer-1" },
-          }),
-        );
-
-        expect(await result.json()).toEqual({ result: { b64data: "" } });
-      } finally {
-        if (previous === undefined) delete process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
-        else process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = previous;
-      }
-    });
-
-    test("still rejects a pre-rename name this composition does not serve", async () => {
-      const handler = createCentrifugoRpcHandler(null);
-      const previous = process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
-      process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = "test-secret";
-      try {
-        const result = await handler.handleRequest(
-          authorizedJson({ method: LEGACY_RPC_METHOD_NAMES.computerRegister, b64data: "AA==" }),
-        );
-        expect(await result.json()).toEqual({
-          error: { code: 404, message: "unknown RPC method" },
-        });
-      } finally {
-        if (previous === undefined) delete process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
-        else process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = previous;
-      }
-    });
   });
 
   test("maps handler errors without exposing secrets", async () => {
