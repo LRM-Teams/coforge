@@ -192,6 +192,36 @@ function proxyTransportFailure(operation: string, target: string | undefined): C
   });
 }
 
+/** How many times a `send` is attempted before its delivery state is reported as unknown, the base
+ * delay between attempts (doubled each time: 250ms, 500ms), and a hard ceiling on the whole retry
+ * window. The window stays under the server's 30s "processing" idempotency TTL
+ * (`redis-message-request-idempotency.server.ts`), so a retry always finds its own requestId still
+ * claimed and can never re-execute a send the server already accepted. */
+const SEND_RETRY_ATTEMPTS = 3;
+const SEND_RETRY_BASE_DELAY_MS = 250;
+const SEND_RETRY_DEADLINE_MS = 25_000;
+
+/**
+ * Whether a `send` failure is worth retrying with the SAME `requestId`. A send is idempotent end
+ * to end — the daemon forwards this `requestId` to the cloud and the server suppresses a duplicate
+ * by it (`message-request-idempotency`) — so a retry either lands the message the first attempt
+ * failed to deliver or returns the one it already persisted. Only transient transport/gateway
+ * failures qualify: a 4xx, a `local_precondition` (e.g. the thread-target guard), or a protocol
+ * mismatch is answered the same way however many times it is sent.
+ */
+function isRetryableSendFailure(error: unknown): boolean {
+  if (!(error instanceof CliError)) return false;
+  // Nothing answered: the CLI could not reach the local proxy at all.
+  if (!error.proxy) return error.code === "SEND_FAILED";
+  const failureClass = error.proxy.failureClass;
+  if (failureClass === "pre_response_transport" || failureClass === "mid_response_transport")
+    return true;
+  if (failureClass !== "upstream_http_response") return false;
+  const status = error.proxy.upstreamStatus;
+  // 5xx is a gateway/upstream fault; 409 is the server's own "this requestId is still processing".
+  return status !== undefined && (status >= 500 || status === 409);
+}
+
 function manualFailedCode(errorCode: string | undefined): string {
   return errorCode ? errorCode.toUpperCase() : "MANUAL_FAILED";
 }
@@ -418,35 +448,60 @@ export function connectLocal(
       throw preIssuanceError(operation, "coforge agent context is invalid");
     const requestId = crypto.randomUUID();
     if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
-    let response: Response;
-    try {
-      response = await fetch(proxyEndpoint(agentApiRoutes.proxy.messages.path), {
-        method: agentApiRoutes.local.messages.method,
-        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-        body: JSON.stringify({ requestId, operation, target, body, ...options }),
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch {
-      throw proxyTransportFailure(operation, target);
-    }
-    if (!response.ok) {
-      const errorBody = await readProxyErrorBody(response);
-      if (
-        options?.freshnessContextMode === "withheld" &&
-        errorBody.json?.proxy?.failure_class !== "local_precondition"
-      ) {
-        const label = operation === "send" ? "send" : `${operation} request`;
-        throw new CliError({
-          code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(operation),
-          message: `Reviewer-isolation ${label} failed (HTTP ${response.status}); upstream error detail was withheld.`,
-          retryable: false,
-          ...(operation === "send"
-            ? { draftSaved: true, suggestedNextAction: unknownDeliveryNextAction(target ?? "") }
-            : {}),
-          proxy: { upstreamStatus: response.status },
+    const attemptRequest = async (): Promise<Response> => {
+      let response: Response;
+      try {
+        response = await fetch(proxyEndpoint(agentApiRoutes.proxy.messages.path), {
+          method: agentApiRoutes.local.messages.method,
+          headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+          body: JSON.stringify({ requestId, operation, target, body, ...options }),
+          signal: AbortSignal.timeout(10_000),
         });
+      } catch {
+        throw proxyTransportFailure(operation, target);
       }
-      throw proxyHttpFailure(operation, response.status, errorBody, target);
+      if (!response.ok) {
+        const errorBody = await readProxyErrorBody(response);
+        if (
+          options?.freshnessContextMode === "withheld" &&
+          errorBody.json?.proxy?.failure_class !== "local_precondition"
+        ) {
+          const label = operation === "send" ? "send" : `${operation} request`;
+          throw new CliError({
+            code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(operation),
+            message: `Reviewer-isolation ${label} failed (HTTP ${response.status}); upstream error detail was withheld.`,
+            retryable: false,
+            ...(operation === "send"
+              ? { draftSaved: true, suggestedNextAction: unknownDeliveryNextAction(target ?? "") }
+              : {}),
+            proxy: { upstreamStatus: response.status },
+          });
+        }
+        throw proxyHttpFailure(operation, response.status, errorBody, target);
+      }
+      return response;
+    };
+    // A `send` retries with the same requestId: the daemon forwards that id to the cloud and the
+    // server suppresses a duplicate by it, so a transient failure no longer has to end in silence.
+    // Every other operation keeps the single attempt it had before.
+    const retryDeadline = Date.now() + SEND_RETRY_DEADLINE_MS;
+    let response: Response | undefined;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        response = await attemptRequest();
+        break;
+      } catch (error) {
+        if (
+          operation !== "send" ||
+          attempt >= SEND_RETRY_ATTEMPTS - 1 ||
+          Date.now() >= retryDeadline ||
+          !isRetryableSendFailure(error)
+        )
+          throw error;
+        await new Promise((resolve) =>
+          setTimeout(resolve, SEND_RETRY_BASE_DELAY_MS * 2 ** attempt),
+        );
+      }
     }
     return (await response.json()) as ReturnType<typeof decodeAgentMessageResponse>;
   };

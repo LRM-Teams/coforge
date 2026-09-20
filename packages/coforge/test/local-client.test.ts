@@ -863,7 +863,7 @@ test("a local precondition that explicitly saved a draft (e.g. --target-confirme
 });
 
 test("a send that fails after a transport/protocol failure marks the draft saved and refuses to say it is safe to retry", async () => {
-  spyOn(globalThis, "fetch").mockResolvedValue(
+  const upstream500 = () =>
     Response.json(
       {
         error: "upstream HTTP response failed",
@@ -880,8 +880,12 @@ test("a send that fails after a transport/protocol failure marks the draft saved
         },
       },
       { status: 500 },
-    ),
-  );
+    );
+  // A fresh response per attempt: a mock that reuses one body would be consumed after the first read.
+  const fetch = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(upstream500())
+    .mockResolvedValueOnce(upstream500())
+    .mockResolvedValueOnce(upstream500());
   const error = await connectLocal(
     "",
     `sfp_${"a".repeat(43)}`,
@@ -896,6 +900,8 @@ test("a send that fails after a transport/protocol failure marks the draft saved
   expect(cliError.retryable).toBe(false);
   expect(cliError.correlationId).toBe("corr-2");
   expect(cliError.suggestedNextAction).toContain("Do not resend on this evidence");
+  // A transient gateway 5xx is retried first; only the exhaustion reports the unknown state.
+  expect(fetch).toHaveBeenCalledTimes(3);
 });
 
 test("a network failure reaching the local daemon proxy is treated as possibly-issued for send", async () => {
@@ -1096,4 +1102,92 @@ test("version without a configured Agent proxy URL fails as a local precondition
   expect(fetch).not.toHaveBeenCalled();
   expect(error).toBeInstanceOf(CliError);
   expect((error as CliError).code).toBe("VERSION_FAILED");
+});
+
+test("retries a send that hit a transient upstream 502, reusing the same requestId", async () => {
+  const fetch = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(
+      Response.json(
+        {
+          code: "SERVER_5XX",
+          error: "upstream unavailable",
+          proxy: { failure_class: "upstream_http_response", upstream_status: 502 },
+        },
+        { status: 502 },
+      ),
+    )
+    .mockResolvedValueOnce(
+      Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+    );
+  const client = connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages));
+
+  await client.send("@ada", "hello");
+
+  expect(fetch).toHaveBeenCalledTimes(2);
+  const first = JSON.parse(fetch.mock.calls[0]![1]!.body as string);
+  const second = JSON.parse(fetch.mock.calls[1]![1]!.body as string);
+  // The same requestId is what makes the retry safe: the server suppresses the duplicate.
+  expect(second.requestId).toEqual(first.requestId);
+});
+
+test("retries a send that never reached the proxy at all", async () => {
+  const fetch = spyOn(globalThis, "fetch")
+    .mockRejectedValueOnce(new TypeError("fetch failed"))
+    .mockResolvedValueOnce(
+      Response.json({ requestId: "request", accepted: true, attentionCount: 0, messages: [] }),
+    );
+
+  await connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).send(
+    "@ada",
+    "hello",
+  );
+
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+test("does not retry a send the server refused with a definite answer", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        code: "NOT_FOUND",
+        error: "no such target",
+        proxy: { failure_class: "upstream_http_response", upstream_status: 404 },
+      },
+      { status: 404 },
+    ),
+  );
+
+  await expect(
+    connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).send(
+      "@ada",
+      "hello",
+    ),
+  ).rejects.toThrow("no such target");
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+test("still reports an unknown delivery state when every send attempt fails", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@ada", "hello")
+    .catch((caught: unknown) => caught as CliError);
+
+  expect(error).toBeInstanceOf(CliError);
+  expect((error as CliError).code).toBe("SEND_FAILED");
+  expect((error as CliError).draftSaved).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(3);
+});
+
+test("never retries a non-send operation", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+
+  await expect(
+    connectLocal("", `sfp_${"a".repeat(43)}`, proxyUrl(agentApiRoutes.local.messages)).check(),
+  ).rejects.toThrow("agent proxy request failed (network or timeout)");
+  expect(fetch).toHaveBeenCalledTimes(1);
 });
