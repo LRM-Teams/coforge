@@ -69,6 +69,10 @@ import type { AgentProfileTab } from "@/features/agents/profile-panel/profile-pa
 
 const appRoute = getRouteApi("/_app");
 
+/** How close to the bottom the pane must be for a content-resize to re-pin it (see the pinning
+ * ResizeObserver). Tight on purpose: the reading position itself uses a wider tolerance. */
+const PIN_TOLERANCE_PX = 4;
+
 const observeConversationRect: typeof observeElementRect = (instance, callback) =>
   observeElementRect(instance, (rect) =>
     callback(rect.height === 0 ? { ...rect, height: 800 } : rect),
@@ -929,7 +933,16 @@ export function ConversationPane({
     const history = historyRef.current;
     if (!history) return;
     const observer = new ResizeObserver(() => {
-      if (followingLatestRef.current) scrollToLatest("instant");
+      if (!followingLatestRef.current) return;
+      // Re-pin only when the reader is genuinely AT the bottom. `followingLatestRef` keeps a 48px
+      // "near enough" tolerance for the reading position, and the virtualizer mounts/unmounts rows
+      // on every frame of a scroll, resizing this content and firing the observer each time — so a
+      // 48px-tolerance re-pin fought the reader while scrolling (the flicker). A few pixels keeps
+      // the real cases — an appended message, an attachment finishing at the bottom — pinned, and
+      // lets every deliberate scroll-up stand.
+      if (history.scrollHeight - history.scrollTop - history.clientHeight > PIN_TOLERANCE_PX)
+        return;
+      scrollToLatest("instant");
     });
     observer.observe(history);
     const messages = history.querySelector("ol");
