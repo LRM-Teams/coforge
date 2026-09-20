@@ -1,4 +1,4 @@
-import { Edit01 as Edit, Plus, Trash01 as Trash, XClose as X } from "@untitledui/icons";
+import { ChevronLeft, Edit01 as Edit, Plus, Trash01 as Trash, XClose as X } from "@untitledui/icons";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -48,11 +48,18 @@ export function WeeklyReportSettings({
   members,
   keyPointPrompts,
   openCreateOnMount = false,
+  initialSection,
+  initialSlot,
+  returnTo,
 }: {
   templates: WeeklyTemplateList;
   members: TemplateMemberOption[];
   keyPointPrompts: KeyPointPromptsSnapshot;
   openCreateOnMount?: boolean;
+  initialSection?: SettingsTopTab;
+  initialSlot?: KeyPointSlot;
+  /** Safe Records path to return to after editing prompts. */
+  returnTo?: string;
 }) {
   const router = useRouter();
   const navigate = useNavigate({ from: "/records/settings" });
@@ -62,16 +69,17 @@ export function WeeklyReportSettings({
   const remove = useServerFn(deleteWeeklyTemplate);
   const savePrompts = useServerFn(saveKeyPointPrompts);
   const deleteHistory = useServerFn(deleteKeyPointPromptHistory);
-  const [topTab, setTopTab] = useState<SettingsTopTab>("templates");
-  const [keyPointSlot, setKeyPointSlot] = useState<KeyPointSlot>("personal");
+  const resolvedSlot: KeyPointSlot = initialSlot ?? "personal";
+  const [topTab, setTopTab] = useState<SettingsTopTab>(initialSection ?? "templates");
+  const [keyPointSlot, setKeyPointSlot] = useState<KeyPointSlot>(resolvedSlot);
   const initialPrompts = keyPointPrompts ?? emptyKeyPointPrompts();
   const [prompts, setPrompts] = useState<KeyPointPromptsMeta>(initialPrompts);
-  const [draftText, setDraftText] = useState(initialPrompts.personal.text);
+  const [draftText, setDraftText] = useState(initialPrompts[resolvedSlot].text);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   /** True while the textarea is focused / composing — ignore loader overwrites. */
   const editingRef = useRef(false);
   /** Last text we intentionally applied from server or a successful save. */
-  const appliedServerTextRef = useRef(initialPrompts.personal.text);
+  const appliedServerTextRef = useRef(initialPrompts[resolvedSlot].text);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WeeklyTemplateList[number] | null>(null);
   const [detail, setDetail] = useState<WeeklyTemplateList[number] | null>(null);
@@ -196,7 +204,20 @@ export function WeeklyReportSettings({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
-        <BackToRecords />
+        {returnTo ? (
+          <Button
+            size="sm"
+            color="link-color"
+            iconLeading={ChevronLeft}
+            onPress={() => {
+              void router.navigate({ href: returnTo });
+            }}
+          >
+            {m.records_key_points_back_to_report()}
+          </Button>
+        ) : (
+          <BackToRecords />
+        )}
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           <SettingsTabButton
             active={topTab === "templates"}

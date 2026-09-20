@@ -19,6 +19,7 @@ import {
 import {
   looksLikeCollectAgainRequest,
   looksLikeMemberGenerateOfferAccept,
+  looksLikeMemberReportRuleIntent,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
   type RecordAssistantPayload,
@@ -1407,7 +1408,7 @@ export class RecordCatalog {
                   workspaceId: input.workspaceId,
                   sourceTemplateId: report.id,
                   kind: "member",
-                  status: { in: ["submitted", "shared"] },
+                  // Overview lists every assignment; draft rows stay non-clickable in the UI.
                   ...(isTemplateAuthor ? {} : { authorId: input.userId }),
                 },
                 orderBy: { createdAt: "asc" },
@@ -1415,6 +1416,7 @@ export class RecordCatalog {
                   id: true,
                   title: true,
                   status: true,
+                  submittedAt: true,
                   author: {
                     select: { id: true, username: true, displayName: true, avatarObjectKey: true },
                   },
@@ -1428,6 +1430,7 @@ export class RecordCatalog {
                 report.cycle.week,
               ),
               status: child.status,
+              submittedAt: child.submittedAt?.toISOString() ?? null,
               author: {
                 userId: child.author.id,
                 username: child.author.username,
@@ -1828,6 +1831,108 @@ export class RecordCatalog {
     });
   }
 
+  /**
+   * Side-chat Confirm for a key-point-edit suggestion: writes markdown into
+   * `content.keyPointExtraction` without replacing the report body tabs.
+   */
+  async applyConfirmedKeyPointMarkdown(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    markdown: string;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const markdown = input.markdown.trim();
+    if (!markdown) throw new AppError("INVALID_INPUT");
+
+    const report = await this.db.weeklyReport.findFirst({
+      where: { id: input.reportId, workspaceId: input.workspaceId },
+      select: { id: true, authorId: true, content: true, kind: true },
+    });
+    if (!report) throw new AppError("NOT_FOUND");
+    if (
+      !canEditWeeklyReportContent({
+        viewerUserId: input.userId,
+        authorUserId: report.authorId,
+      })
+    ) {
+      throw new AppError("ACCESS_DENIED");
+    }
+
+    const { writeKeyPointExtraction } = await import("./weekly-report-key-points.server");
+    const {
+      DEFAULT_PERSONAL_KEY_POINT_PROMPT,
+      DEFAULT_TEAM_KEY_POINT_PROMPT,
+    } = await import("../../features/records/records-content");
+    const content = asReportContent(report.content);
+    const promptSnapshot =
+      content.keyPointExtraction?.promptSnapshot ??
+      (report.kind === "template" ? DEFAULT_TEAM_KEY_POINT_PROMPT : DEFAULT_PERSONAL_KEY_POINT_PROMPT);
+    const next = await writeKeyPointExtraction(this.db, {
+      reportId: report.id,
+      content,
+      extraction: {
+        status: "ready",
+        promptSnapshot,
+        markdown,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+    return { id: report.id, content: next };
+  }
+
+  /**
+   * Side-chat Ignore for a key-point-edit card: drop the pending draft and
+   * restore `ready` with the previously published markdown (unchanged).
+   */
+  async dismissKeyPointConfirmDraft(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: { id: input.reportId, workspaceId: input.workspaceId },
+      select: { id: true, authorId: true, content: true, kind: true },
+    });
+    if (!report) throw new AppError("NOT_FOUND");
+    if (
+      !canEditWeeklyReportContent({
+        viewerUserId: input.userId,
+        authorUserId: report.authorId,
+      })
+    ) {
+      throw new AppError("ACCESS_DENIED");
+    }
+
+    const content = asReportContent(report.content);
+    const existing = content.keyPointExtraction;
+    if (!existing || existing.status !== "awaiting_confirm") {
+      return { id: report.id, content };
+    }
+
+    const { writeKeyPointExtraction } = await import("./weekly-report-key-points.server");
+    const {
+      DEFAULT_PERSONAL_KEY_POINT_PROMPT,
+      DEFAULT_TEAM_KEY_POINT_PROMPT,
+    } = await import("../../features/records/records-content");
+    const promptSnapshot =
+      existing.promptSnapshot ||
+      (report.kind === "template" ? DEFAULT_TEAM_KEY_POINT_PROMPT : DEFAULT_PERSONAL_KEY_POINT_PROMPT);
+    const next = await writeKeyPointExtraction(this.db, {
+      reportId: report.id,
+      content,
+      extraction: {
+        status: existing.markdown ? "ready" : "failed",
+        promptSnapshot,
+        ...(existing.markdown ? { markdown: existing.markdown } : {}),
+        ...(existing.markdown ? {} : { error: "dismissed_without_published_draft" }),
+        ...(existing.generatedAt ? { generatedAt: existing.generatedAt } : {}),
+      },
+    });
+    return { id: report.id, content: next };
+  }
+
   async listTemplates(input: { workspaceId: string; userId: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const templates = await this.db.weeklyReportTemplate.findMany({
@@ -1983,6 +2088,100 @@ export class RecordCatalog {
       workspaceId: input.workspaceId,
       memberReportId: report.id,
       force: true,
+    });
+  }
+
+  /** Leader-only: start or re-run team key-point extraction for an overview week parent. */
+  async startTeamKeyPointExtraction(input: {
+    workspaceId: string;
+    userId: string;
+    overviewReportId: string;
+    force?: boolean;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const overview = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.overviewReportId,
+        workspaceId: input.workspaceId,
+        kind: "template",
+        authorId: input.userId,
+      },
+      select: { id: true },
+    });
+    if (!overview) throw new AppError("NOT_FOUND");
+    const assignmentCount = await this.db.weeklyReport.count({
+      where: {
+        workspaceId: input.workspaceId,
+        sourceTemplateId: overview.id,
+        kind: "member",
+      },
+    });
+    if (assignmentCount === 0) throw new AppError("NOT_FOUND");
+    const { startTeamKeyPointExtraction } = await import("./weekly-report-key-points.server");
+    return startTeamKeyPointExtraction(this.db, {
+      workspaceId: input.workspaceId,
+      overviewReportId: overview.id,
+      force: input.force ?? true,
+    });
+  }
+
+  /**
+   * Overview side chat「重新整理」: post the User turn, then start team extraction
+   * in side-chat-confirm mode so Agent submit yields an Insert suggestion.
+   */
+  async startTeamKeyPointExtractionFromSideChat(input: {
+    workspaceId: string;
+    userId: string;
+    overviewReportId: string;
+    sessionId: string;
+    body: string;
+    requestId: string;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const overview = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.overviewReportId,
+        workspaceId: input.workspaceId,
+        kind: "template",
+        authorId: input.userId,
+      },
+      select: { id: true },
+    });
+    if (!overview) throw new AppError("NOT_FOUND");
+
+    const { WeeklyReportAssistantChat } = await import("./weekly-report-assistant-chat.server");
+    const { createCentrifugoServerApi } = await import("../centrifugo/server-api.server");
+    const { CentrifugoConversationRealtime } =
+      await import("../conversations/conversation-realtime.server");
+    const { PrismaDirectConversationRepository } =
+      await import("../db/repositories/direct-conversation.repositories.server");
+    const { getMessageRequestIdempotency } =
+      await import("../conversations/redis-message-request-idempotency.server");
+    const centrifugo = createCentrifugoServerApi();
+    const chat = new WeeklyReportAssistantChat(
+      this.db,
+      new PrismaDirectConversationRepository(this.db),
+      getMessageRequestIdempotency(),
+      centrifugo,
+      new CentrifugoConversationRealtime(centrifugo),
+    );
+    await chat.postRequest({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      requestId: input.requestId,
+      subjectType: "report",
+      subjectId: overview.id,
+      sessionId: input.sessionId,
+      body: input.body,
+    });
+
+    const { startTeamKeyPointExtraction } = await import("./weekly-report-key-points.server");
+    return startTeamKeyPointExtraction(this.db, {
+      workspaceId: input.workspaceId,
+      overviewReportId: overview.id,
+      force: true,
+      delivery: "side-chat-confirm",
+      confirmSessionId: input.sessionId,
     });
   }
 
@@ -2422,6 +2621,30 @@ export class RecordCatalog {
       }
     }
     return this.listComments(input);
+  }
+
+  /**
+   * Applies member-assignee platform rules only when the subject is that user's
+   * member report. Overview / other subjects return null so the caller can fall
+   * through to the Agent DM (e.g. 「重新整理」 for team key points).
+   */
+  async postMemberReportRuleSideChatIfApplicable(input: {
+    workspaceId: string;
+    userId: string;
+    subjectType: "report" | "cycle";
+    subjectId: string;
+    body: string;
+    assistantSessionId: string;
+  }) {
+    if (input.subjectType !== "report") return null;
+    if (!looksLikeMemberReportRuleIntent(input.body)) return null;
+    const assignment = await this.loadMemberAssignmentForSideChat({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectId: input.subjectId,
+    });
+    if (!assignment) return null;
+    return this.postSideChat(input);
   }
 
   private async loadMemberAssignmentForSideChat(input: {

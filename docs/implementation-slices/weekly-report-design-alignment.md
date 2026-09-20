@@ -47,7 +47,7 @@
 - 成员在「我的周报」填写并提交；提交后出现在 Leader 的 parent 子树。
 - 格式文档：内容区以周报大纲为主；要点提示词在设置页「要点提示词模板」全员/个人编辑（含历史）。
 - 侧聊仍服务格式页发送/预览话术；**个人要点**由 Leader 周报助手 LLM 在成员提交后自动提炼，结果挂在成员报告「要点提炼」页签（见 [ADR 0014](../adr/0014-weekly-highlight-generation.md)）。
-- 已废弃规则抽取与独立 `WeeklyReportHighlight` 产品路径；全员 cycle 要点文档另开切片。
+- 已废弃规则抽取与独立 `WeeklyReportHighlight` 产品路径；全员要点在周 overview 页手动触发（表下「整理全员要点」），结果挂在 overview 的 `content.keyPointExtraction`（见 [ADR 0014](../adr/0014-weekly-highlight-generation.md) D）。
 - 收藏有 Prisma `WeeklyReportFavorite`、侧栏列表，以及成员周报详情的收藏/取消入口与标题旁爱心。
 - `/records` 在周报 Tab 的默认落地仍跟现有 catalog / 成员周导航（见 ADR 0015）。
 

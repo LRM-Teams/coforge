@@ -194,6 +194,12 @@ test("direct user messages require a visible CoForge reply", () => {
   expect(instructions).toContain(
     "After `coforge message check` returns a direct user message, you must execute a Bash tool call containing `coforge message send` before ending the turn.",
   );
+  expect(instructions).toContain(
+    'Short or repeated greetings (for example another "hi") still require a `coforge message send`',
+  );
+  expect(instructions).toContain(
+    "The channel rule about avoiding repetitive acknowledgements does not apply to direct chats.",
+  );
 });
 
 test("channels allow selective replies and self mute without hiding history", () => {
@@ -374,7 +380,7 @@ test("communication style keeps agents concise and agrees with the startup-seque
   );
   expect(section).toContain("lead with the answer and write in plain, complete sentences");
   expect(instructions).toContain(
-    "1. If this turn already includes a concrete incoming message, first decide whether that message needs a visible acknowledgment",
+    "1. If this turn already includes a concrete incoming direct-chat message (`target=@…`), you must send a visible reply with `coforge message send`",
   );
 });
 
@@ -461,7 +467,10 @@ test("Startup sequence lists five ordered steps and reads MEMORY.md before other
   const section = buildCoforgeCliGuideSections().startupSequence;
   expect(section.match(/^\d\. /gm)).toEqual(["1. ", "2. ", "3. ", "4. ", "5. "]);
   expect(section).toContain(
-    "send it early with `coforge message send` before deep context gathering",
+    "Direct-chat messages always need a `coforge message send` reply",
+  );
+  expect(section).toContain(
+    "send an early acknowledgment when useful, then finish the reply",
   );
   expect(section).toContain(
     "2. Read MEMORY.md (in your Agent workspace) and then only the additional memory/files you need to handle the current turn well.",

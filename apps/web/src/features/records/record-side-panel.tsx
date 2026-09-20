@@ -45,7 +45,9 @@ import type { KeyPointExtractionMeta, ReportContent } from "./records-content";
 import {
   addRecordComment,
   acceptMemberGenerateHelp,
+  applyConfirmedKeyPointMarkdown,
   applyConfirmedWeeklyReportBody,
+  dismissKeyPointConfirmDraft,
   archiveWeeklyReportAssistantChatSessionFn,
   confirmMemberReportIntent,
   createWeeklyReportAssistantChatSessionFn,
@@ -57,10 +59,12 @@ import {
   loadWeeklyReportAssistantStatus,
   postWeeklyReportAssistantRequest,
   renameWeeklyReportAssistantChatSessionFn,
+  startTeamKeyPointExtractionFromSideChat,
 } from "./records.functions";
 import {
   looksLikeMemberGenerateOfferAccept,
-  looksLikeMemberReportRuleIntent,
+  looksLikeTeamKeyPointReorganizeRequest,
+  shouldUseMemberReportRulePath,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
   type RecordAssistantPayload,
@@ -115,6 +119,7 @@ function assistantReady(
 
 function suggestionPreview(suggestion: WeeklyReportAssistantSuggestion): string {
   if (suggestion.type === "send-prompt") return "";
+  if (suggestion.type === "key-point-edit") return suggestion.markdown.trim();
   if (suggestion.type !== "body-edit") return "";
   const tabs = suggestion.content.tabs ?? {};
   return Object.entries(tabs)
@@ -169,7 +174,10 @@ export function RecordSidePanel({
   const loadAssistantStatus = useServerFn(loadWeeklyReportAssistantStatus);
   const loadAssistantMessages = useServerFn(loadWeeklyReportAssistantMessages);
   const postAssistantRequest = useServerFn(postWeeklyReportAssistantRequest);
+  const startTeamFromSideChat = useServerFn(startTeamKeyPointExtractionFromSideChat);
   const applyBody = useServerFn(applyConfirmedWeeklyReportBody);
+  const applyKeyPoints = useServerFn(applyConfirmedKeyPointMarkdown);
+  const dismissKeyPointsDraft = useServerFn(dismissKeyPointConfirmDraft);
   const [sessionStore] = useState(createWeeklyReportAssistantSessionStore);
   const sessionKey = weeklyReportAssistantSubjectKey(subjectType, subjectId);
   const session = sessionStore.get(sessionKey);
@@ -419,8 +427,9 @@ export function RecordSidePanel({
     if (hasNewAssistant) {
       setAwaitingSynthesis(false);
       synthesisStartedAtRef.current = null;
+      void router.invalidate();
     }
-  }, [assistantMessages, awaitingSynthesis]);
+  }, [assistantMessages, awaitingSynthesis, router]);
 
   async function onNewChat() {
     if (busy) return;
@@ -515,9 +524,28 @@ export function RecordSidePanel({
   }
 
   function dismissSuggestion(messageId: string) {
-    const next = [...new Set([...session.dismissedSuggestionIds, messageId])];
-    session.dismissedSuggestionIds = next;
+    const next = sessionStore.markSuggestionDismissed(sessionKey, messageId);
     setDismissedSuggestionIds(next);
+  }
+
+  async function onIgnoreSuggestion(
+    messageId: string,
+    suggestion: WeeklyReportAssistantSuggestion,
+  ) {
+    if (busy || appliedSuggestionIds.includes(messageId)) return;
+    if (dismissedSuggestionIds.includes(messageId)) return;
+    dismissSuggestion(messageId);
+    if (suggestion.type !== "key-point-edit") return;
+    setBusy(true);
+    setError(null);
+    try {
+      await dismissKeyPointsDraft({ data: { reportId: suggestion.reportId } });
+      await router.invalidate({ sync: true });
+    } catch {
+      // Card is already frozen locally; keep page refresh best-effort.
+    } finally {
+      setBusy(false);
+    }
   }
 
   function markSuggestionApplied(messageId: string) {
@@ -529,8 +557,30 @@ export function RecordSidePanel({
     if (busy) return;
     if (appliedSuggestionIds.includes(messageId)) return;
     if (suggestion.type === "send-prompt") {
-      dismissSuggestion(messageId);
+      markSuggestionApplied(messageId);
       onRequestSend?.();
+      return;
+    }
+    if (suggestion.type === "key-point-edit") {
+      setBusy(true);
+      setError(null);
+      session.error = null;
+      try {
+        await applyKeyPoints({
+          data: {
+            reportId: suggestion.reportId,
+            markdown: suggestion.markdown,
+          },
+        });
+        markSuggestionApplied(messageId);
+        await router.invalidate({ sync: true });
+      } catch {
+        const message = m.records_assistant_write_failed();
+        session.error = message;
+        setError(message);
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     if (suggestion.type !== "body-edit") {
@@ -586,7 +636,30 @@ export function RecordSidePanel({
     setError(null);
     session.error = null;
     try {
-      const useRulePath = looksLikeMemberReportRuleIntent(body) || !assistantReady(assistantStatus);
+      if (
+        surface === "plain" &&
+        subjectType === "report" &&
+        looksLikeTeamKeyPointReorganizeRequest(body)
+      ) {
+        await startTeamFromSideChat({
+          data: {
+            overviewReportId: subjectId,
+            sessionId: activeSessionId,
+            body,
+            requestId: crypto.randomUUID(),
+          },
+        });
+        session.draft = "";
+        setDraft("");
+        synthesisStartedAtRef.current = Date.now();
+        setAwaitingSynthesis(true);
+        await loadThread(activeSessionId, legacySessionId);
+        await router.invalidate({ sync: true });
+        return;
+      }
+
+      const useRulePath =
+        shouldUseMemberReportRulePath(surface, body) || !assistantReady(assistantStatus);
       if (useRulePath) {
         if (!assistantReady(assistantStatus)) {
           session.setupDismissed = false;
@@ -1173,9 +1246,12 @@ export function RecordSidePanel({
             const suggestion = message.suggestion ?? null;
             const showSuggestion =
               suggestion !== null &&
-              (suggestion.type === "body-edit" || suggestion.type === "send-prompt") &&
-              !dismissedSuggestionIds.includes(message.id);
+              (suggestion.type === "body-edit" ||
+                suggestion.type === "key-point-edit" ||
+                suggestion.type === "send-prompt");
             const suggestionApplied = appliedSuggestionIds.includes(message.id);
+            const suggestionDismissed = dismissedSuggestionIds.includes(message.id);
+            const suggestionFrozen = suggestionApplied || suggestionDismissed;
             const preview = showSuggestion ? suggestionPreview(suggestion) : "";
             return (
               <article key={item.id} className="space-y-2">
@@ -1193,14 +1269,34 @@ export function RecordSidePanel({
                 </div>
                 <p className="whitespace-pre-wrap text-sm leading-6 text-primary">{message.body}</p>
                 {showSuggestion ? (
-                  <div className="space-y-2 rounded-lg border border-secondary bg-secondary p-3">
-                    {suggestion.type !== "send-prompt" ? (
+                  <div
+                    className={`space-y-2 rounded-lg border p-3 ${
+                      suggestionFrozen
+                        ? "border-secondary bg-secondary opacity-80"
+                        : "border-secondary bg-secondary"
+                    }`}
+                  >
+                    {suggestionDismissed ? (
+                      <p className="text-sm font-medium text-tertiary">
+                        {m.records_assistant_suggestion_ignored()}
+                      </p>
+                    ) : null}
+                    {suggestionApplied && !suggestionDismissed ? (
+                      <p className="text-sm font-medium text-tertiary">
+                        {m.records_assistant_suggestion_inserted()}
+                      </p>
+                    ) : null}
+                    {suggestion.type === "send-prompt" ? (
+                      <p className="text-sm text-secondary">{m.records_assistant_confirm_send()}</p>
+                    ) : (
                       <>
                         <p className="text-sm font-medium text-primary">{suggestion.summary}</p>
                         {preview ? (
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-tertiary">
-                              {m.records_assistant_suggestion_preview()}
+                              {suggestion.type === "key-point-edit"
+                                ? m.records_key_points_suggestion_preview()
+                                : m.records_assistant_suggestion_preview()}
                             </p>
                             <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-primary p-2 text-xs leading-5 text-secondary">
                               {preview}
@@ -1208,29 +1304,31 @@ export function RecordSidePanel({
                           </div>
                         ) : null}
                       </>
-                    ) : (
-                      <p className="text-sm text-secondary">{m.records_assistant_confirm_send()}</p>
                     )}
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        color="primary"
-                        isDisabled={busy || suggestionApplied}
-                        onPress={() => void confirmSuggestion(message.id, suggestion)}
-                      >
-                        {suggestion.type === "send-prompt"
-                          ? m.records_assistant_confirm_send()
-                          : m.records_assistant_confirm_write()}
-                      </Button>
-                      <Button
-                        size="sm"
-                        color="tertiary"
-                        isDisabled={busy || suggestionApplied}
-                        onPress={() => dismissSuggestion(message.id)}
-                      >
-                        {m.records_assistant_ignore_suggestion()}
-                      </Button>
-                    </div>
+                    {!suggestionFrozen ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          color="primary"
+                          isDisabled={busy}
+                          onPress={() => void confirmSuggestion(message.id, suggestion)}
+                        >
+                          {suggestion.type === "send-prompt"
+                            ? m.records_assistant_confirm_send()
+                            : suggestion.type === "key-point-edit"
+                              ? m.records_key_points_insert()
+                              : m.records_assistant_confirm_write()}
+                        </Button>
+                        <Button
+                          size="sm"
+                          color="tertiary"
+                          isDisabled={busy}
+                          onPress={() => void onIgnoreSuggestion(message.id, suggestion)}
+                        >
+                          {m.records_assistant_ignore_suggestion()}
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </article>

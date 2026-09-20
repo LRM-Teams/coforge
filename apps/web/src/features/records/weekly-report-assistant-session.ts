@@ -35,6 +35,7 @@ export type WeeklyReportAssistantSessionStorage = {
 };
 
 const APPLIED_STORAGE_PREFIX = "coforge.weekly-report-assistant.applied:";
+const DISMISSED_STORAGE_PREFIX = "coforge.weekly-report-assistant.dismissed:";
 
 export function weeklyReportAssistantSubjectKey(
   subjectType: "report" | "cycle",
@@ -47,6 +48,10 @@ export function appliedSuggestionStorageKey(subjectKey: string) {
   return `${APPLIED_STORAGE_PREFIX}${subjectKey}`;
 }
 
+export function dismissedSuggestionStorageKey(subjectKey: string) {
+  return `${DISMISSED_STORAGE_PREFIX}${subjectKey}`;
+}
+
 function defaultSessionStorage(): WeeklyReportAssistantSessionStorage | null {
   try {
     const storage = (globalThis as { localStorage?: WeeklyReportAssistantSessionStorage })
@@ -57,14 +62,13 @@ function defaultSessionStorage(): WeeklyReportAssistantSessionStorage | null {
   }
 }
 
-/** Loads durable applied-suggestion ids for a subject (survives refresh / remount). */
-export function readAppliedSuggestionIds(
-  subjectKey: string,
-  storage: WeeklyReportAssistantSessionStorage | null = defaultSessionStorage(),
+function readIdList(
+  storageKey: string,
+  storage: WeeklyReportAssistantSessionStorage | null,
 ): string[] {
   if (!storage) return [];
   try {
-    const raw = storage.getItem(appliedSuggestionStorageKey(subjectKey));
+    const raw = storage.getItem(storageKey);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -74,22 +78,56 @@ export function readAppliedSuggestionIds(
   }
 }
 
+function writeIdList(
+  storageKey: string,
+  ids: readonly string[],
+  storage: WeeklyReportAssistantSessionStorage | null,
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(storageKey, JSON.stringify([...ids]));
+  } catch {
+    // Ignore quota / private-mode failures; in-memory session still works for this visit.
+  }
+}
+
+/** Loads durable applied-suggestion ids for a subject (survives refresh / remount). */
+export function readAppliedSuggestionIds(
+  subjectKey: string,
+  storage: WeeklyReportAssistantSessionStorage | null = defaultSessionStorage(),
+): string[] {
+  return readIdList(appliedSuggestionStorageKey(subjectKey), storage);
+}
+
 /** Persists applied-suggestion ids for a subject. */
 export function writeAppliedSuggestionIds(
   subjectKey: string,
   ids: readonly string[],
   storage: WeeklyReportAssistantSessionStorage | null = defaultSessionStorage(),
 ): void {
-  if (!storage) return;
-  try {
-    storage.setItem(appliedSuggestionStorageKey(subjectKey), JSON.stringify([...ids]));
-  } catch {
-    // Ignore quota / private-mode failures; in-memory session still works for this visit.
-  }
+  writeIdList(appliedSuggestionStorageKey(subjectKey), ids, storage);
+}
+
+/** Loads durable dismissed-suggestion ids for a subject (survives refresh / remount). */
+export function readDismissedSuggestionIds(
+  subjectKey: string,
+  storage: WeeklyReportAssistantSessionStorage | null = defaultSessionStorage(),
+): string[] {
+  return readIdList(dismissedSuggestionStorageKey(subjectKey), storage);
+}
+
+/** Persists dismissed-suggestion ids for a subject. */
+export function writeDismissedSuggestionIds(
+  subjectKey: string,
+  ids: readonly string[],
+  storage: WeeklyReportAssistantSessionStorage | null = defaultSessionStorage(),
+): void {
+  writeIdList(dismissedSuggestionStorageKey(subjectKey), ids, storage);
 }
 
 export function createWeeklyReportAssistantSession(
   appliedSuggestionIds: string[] = [],
+  dismissedSuggestionIds: string[] = [],
 ): WeeklyReportAssistantSession {
   return {
     messages: [],
@@ -99,7 +137,7 @@ export function createWeeklyReportAssistantSession(
     setupDismissed: false,
     contextManifest: null,
     pendingSuggestion: null,
-    dismissedSuggestionIds: [],
+    dismissedSuggestionIds,
     appliedSuggestionIds,
   };
 }
@@ -115,7 +153,10 @@ export function createWeeklyReportAssistantSessionStore(options?: {
     get(key: string) {
       let session = sessions.get(key);
       if (!session) {
-        session = createWeeklyReportAssistantSession(readAppliedSuggestionIds(key, storage));
+        session = createWeeklyReportAssistantSession(
+          readAppliedSuggestionIds(key, storage),
+          readDismissedSuggestionIds(key, storage),
+        );
         sessions.set(key, session);
       }
       return session;
@@ -125,6 +166,13 @@ export function createWeeklyReportAssistantSessionStore(options?: {
       const next = [...new Set([...session.appliedSuggestionIds, messageId])];
       session.appliedSuggestionIds = next;
       writeAppliedSuggestionIds(key, next, storage);
+      return next;
+    },
+    markSuggestionDismissed(key: string, messageId: string) {
+      const session = this.get(key);
+      const next = [...new Set([...session.dismissedSuggestionIds, messageId])];
+      session.dismissedSuggestionIds = next;
+      writeDismissedSuggestionIds(key, next, storage);
       return next;
     },
     clear(key: string) {

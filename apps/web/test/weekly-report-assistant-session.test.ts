@@ -85,3 +85,23 @@ test("applied suggestion ids survive a new session store for the same subject", 
   expect(afterReload.get("report:report-a").appliedSuggestionIds).toEqual(["msg-applied"]);
   expect(afterReload.get("report:report-b").appliedSuggestionIds).toEqual([]);
 });
+
+test("dismissed suggestion ids survive refresh and freeze the card state", () => {
+  const memory = new Map<string, string>();
+  const storage = {
+    getItem(key: string) {
+      return memory.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      memory.set(key, value);
+    },
+  };
+
+  const first = createWeeklyReportAssistantSessionStore({ storage });
+  first.markSuggestionDismissed("report:report-a", "msg-ignored");
+  expect(first.get("report:report-a").dismissedSuggestionIds).toEqual(["msg-ignored"]);
+
+  const afterReload = createWeeklyReportAssistantSessionStore({ storage });
+  expect(afterReload.get("report:report-a").dismissedSuggestionIds).toEqual(["msg-ignored"]);
+  expect(afterReload.get("report:report-b").dismissedSuggestionIds).toEqual([]);
+});

@@ -27,6 +27,19 @@ test("looksLikeCollectAgainRequest and synthesize intents match product phrases"
   expect(looksLikeMemberReportRuleIntent("再采集一遍")).toBe(true);
   expect(looksLikeMemberReportRuleIntent("整理周报")).toBe(true);
   expect(looksLikeMemberReportRuleIntent("需要")).toBe(true);
+  expect(looksLikeSynthesizeWeeklyReportRequest("重新整理")).toBe(true);
+});
+
+test("shouldUseMemberReportRulePath only on member-assignee surface", async () => {
+  const { shouldUseMemberReportRulePath } = await import(
+    "../src/features/records/weekly-highlight-extract"
+  );
+  expect(shouldUseMemberReportRulePath("member-assignee", "重新整理")).toBe(true);
+  expect(shouldUseMemberReportRulePath("member-assignee", "整理周报")).toBe(true);
+  expect(shouldUseMemberReportRulePath("plain", "重新整理")).toBe(false);
+  expect(shouldUseMemberReportRulePath("format", "重新整理")).toBe(false);
+  expect(shouldUseMemberReportRulePath("member-leader", "重新整理")).toBe(false);
+  expect(shouldUseMemberReportRulePath("plain", "hi")).toBe(false);
 });
 
 test("parseRecordAssistantPayload accepts confirm-intent and intent-declined", () => {
@@ -65,6 +78,38 @@ test("parseRecordAssistantPayload accepts confirm-intent and intent-declined", (
   expect(parseRecordAssistantPayload({ kind: "intent-declined" })).toEqual({
     kind: "intent-declined",
   });
+});
+
+test("postMemberReportRuleSideChatIfApplicable skips overview subjects", async () => {
+  const overviewId = "33333333-3333-3333-3333-333333333333";
+  const sessionId = "44444444-4444-4444-4444-444444444444";
+  let created = 0;
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "owner" }),
+    },
+    weeklyReport: {
+      findFirst: async () => null, // not a member assignment
+    },
+    recordComment: {
+      create: async () => {
+        created += 1;
+        return { id: "c1", createdAt: new Date() };
+      },
+      findMany: async () => [],
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).postMemberReportRuleSideChatIfApplicable({
+    workspaceId: "55555555-5555-5555-5555-555555555555",
+    userId: "66666666-6666-6666-6666-666666666666",
+    subjectType: "report",
+    subjectId: overviewId,
+    body: "重新整理",
+    assistantSessionId: sessionId,
+  });
+  expect(result).toBeNull();
+  expect(created).toBe(0);
 });
 
 test("declineMemberReportIntent recovers original text and continues instead of cancelling", async () => {

@@ -21,6 +21,7 @@ import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { useAppToast } from "@/components/ui/toast";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
 import { KEY_POINT_EXTRACTION_TAB, KeyPointExtractionPanel } from "./key-point-extraction-panel";
+import { TeamKeyPointSection } from "./team-key-point-section";
 import { ReportTabsEditor } from "./report-tabs-editor";
 import type { UploadResult } from "./report-editor/types";
 import {
@@ -36,6 +37,7 @@ import {
   deleteRecordNote,
   markWeeklyAssignmentOpened,
   restartPersonalKeyPointExtraction,
+  startTeamKeyPointExtraction,
   saveRecordNote,
   saveWeeklyReportContent,
   sendWeeklyReportAssignments,
@@ -504,6 +506,10 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
                 extraction={content.keyPointExtraction}
                 restartBusy={keyPointRestartBusy}
                 onRestart={() => void restartPersonalKeyPoints()}
+                editPrompt={{
+                  slot: "personal",
+                  returnTo: `/records/${report.id}`,
+                }}
               />
             ) : null
           }
@@ -540,11 +546,14 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
   const setFormatEditing = useFormatEditHint();
   const save = useServerFn(saveWeeklyReportContent);
   const sendAssignments = useServerFn(sendWeeklyReportAssignments);
+  const startTeamKeyPoints = useServerFn(startTeamKeyPointExtraction);
   const isOverview = report.surface === "overview";
+  const isOverviewLeader = isOverview && report.editable === true;
   const formatSurface = isOverview ? ("plain" as const) : ("format" as const);
   const [content, setContent] = useState(() =>
     normalizeLeaderFormatTabs(readReportDraft(report.id) ?? normalizeReportContent(report.content)),
   );
+  const [teamKeyPointBusy, setTeamKeyPointBusy] = useState(false);
   const contentRef = useRef(content);
   contentRef.current = content;
   const reportIdRef = useRef(report.id);
@@ -739,6 +748,35 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
     };
   }, [report.content, report.id, router]);
 
+  useEffect(() => {
+    if (!isOverview) return;
+    const normalized = normalizeReportContent(report.content);
+    setContent(normalized);
+    contentRef.current = normalized;
+  }, [isOverview, report.content, report.id]);
+
+  useEffect(() => {
+    if (!isOverviewLeader) return;
+    if (content.keyPointExtraction?.status !== "generating") return;
+    const timer = setInterval(() => {
+      void router.invalidate();
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [isOverviewLeader, content.keyPointExtraction?.status, router]);
+
+  async function onStartTeamKeyPoints() {
+    if (!isOverviewLeader || teamKeyPointBusy) return;
+    setTeamKeyPointBusy(true);
+    try {
+      await startTeamKeyPoints({
+        data: { overviewReportId: report.id, force: true },
+      });
+      await router.invalidate({ sync: true });
+    } finally {
+      setTeamKeyPointBusy(false);
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1">
       <div
@@ -812,6 +850,14 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
         {isOverview ? (
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
             <TemplateChildrenTable children={report.children ?? []} />
+            {isOverviewLeader ? (
+              <TeamKeyPointSection
+                overviewReportId={report.id}
+                extraction={content.keyPointExtraction}
+                busy={teamKeyPointBusy}
+                onStart={() => void onStartTeamKeyPoints()}
+              />
+            ) : null}
           </div>
         ) : (
           <ReportTabsEditor

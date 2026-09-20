@@ -121,6 +121,8 @@
   "records_assistant_confirm_send": "Send",
   "records_assistant_confirm_write": "Insert into report",
   "records_assistant_ignore_suggestion": "Dismiss",
+  "records_assistant_suggestion_ignored": "Dismissed",
+  "records_assistant_suggestion_inserted": "Inserted",
   "records_assistant_suggestion_preview": "Draft preview",
   "records_assistant_write_failed": "Could not insert into the report. Please try again.",
   "records_assistant_template": "Weekly report template",
@@ -237,5 +239,18 @@
   "records_key_points_side_ready": "Personal key points are ready. Re-extract if the report or prompt changed.",
   "records_key_points_side_ready_title": "Key points ready",
   "records_key_points_side_failed": "Personal key-point extraction did not finish. You can start it again.",
-  "records_key_points_side_pending": "The weekly report assistant is not ready yet. Re-extract after setup."
+  "records_key_points_side_pending": "The weekly report assistant is not ready yet. Re-extract after setup.",
+  "records_key_points_team_section_title": "Team weekly key points",
+  "records_key_points_team_section_hint": "Ask the weekly-report assistant to summarize all submitted member reports for this week.",
+  "records_key_points_team_start": "Summarize",
+  "records_key_points_team_restart": "Re-summarize",
+  "records_key_points_team_generating": "Summarizing team key points…",
+  "records_key_points_team_waiting": "Use the button above to have the assistant summarize submitted member reports.",
+  "records_key_points_team_restart_confirm_title": "Re-summarize?",
+  "records_key_points_team_restart_confirm_body": "Re-summarizing will overwrite the current team key points. Continue?",
+  "records_key_points_suggestion_preview": "Key points preview",
+  "records_key_points_insert": "Insert",
+  "records_key_points_awaiting_confirm": "Draft ready — preview it in the side chat and click Insert.",
+  "records_key_points_edit_prompt": "Edit prompt",
+  "records_key_points_back_to_report": "Back to report"
 }

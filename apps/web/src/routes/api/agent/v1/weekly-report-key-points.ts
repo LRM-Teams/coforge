@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { applyPersonalKeyPointExtraction } from "#/server/records/weekly-report-key-points.server";
+import { applyKeyPointExtractionWriteBack } from "#/server/records/weekly-report-key-points.server";
 
 const bodySchema = z.object({
   requestId: z.string().uuid(),
@@ -21,7 +21,7 @@ export const Route = createFileRoute("/api/agent/v1/weekly-report-key-points")({
           }
           const json = await request.json();
           const body = bodySchema.parse(json);
-          const result = await applyPersonalKeyPointExtraction(db, {
+          const result = await applyKeyPointExtractionWriteBack(db, {
             workspaceId: principal.workspaceId,
             agentId: principal.agentId,
             reportId: body.reportId,

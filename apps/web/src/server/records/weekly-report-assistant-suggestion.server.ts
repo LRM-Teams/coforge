@@ -11,6 +11,13 @@ export type WeeklyReportBodyEditSuggestion = {
   content: ReportContent;
 };
 
+export type WeeklyReportKeyPointEditSuggestion = {
+  type: "key-point-edit";
+  reportId: string;
+  summary: string;
+  markdown: string;
+};
+
 export type WeeklyReportSendPromptSuggestion = {
   type: "send-prompt";
   reportId: string;
@@ -18,6 +25,7 @@ export type WeeklyReportSendPromptSuggestion = {
 
 export type WeeklyReportAssistantSuggestion =
   | WeeklyReportBodyEditSuggestion
+  | WeeklyReportKeyPointEditSuggestion
   | WeeklyReportSendPromptSuggestion;
 
 /** Builds an Agent→User DM body that carries a confirmable write suggestion. */
@@ -92,6 +100,17 @@ function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | 
     return typeof row.reportId === "string" && UUID_RE.test(row.reportId)
       ? { type: "send-prompt", reportId: row.reportId }
       : null;
+  }
+  if (row.type === "key-point-edit") {
+    if (typeof row.reportId !== "string" || !UUID_RE.test(row.reportId)) return null;
+    if (typeof row.summary !== "string" || row.summary.trim().length === 0) return null;
+    if (typeof row.markdown !== "string" || row.markdown.trim().length === 0) return null;
+    return {
+      type: "key-point-edit",
+      reportId: row.reportId,
+      summary: row.summary.trim(),
+      markdown: row.markdown,
+    };
   }
   if (row.type === "body-edit") {
     if (typeof row.reportId !== "string" || !UUID_RE.test(row.reportId)) return null;

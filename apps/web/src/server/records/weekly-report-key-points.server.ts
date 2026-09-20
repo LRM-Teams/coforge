@@ -4,9 +4,11 @@ import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
 import { CentrifugoConversationRealtime } from "../conversations/conversation-realtime.server";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
+import { SendDirectMessage } from "../conversations/direct-message.server";
 import { parseAgentRuntimeConfig } from "../agents/agent-runtime-config.server";
 import {
   DEFAULT_PERSONAL_KEY_POINT_PROMPT,
+  DEFAULT_TEAM_KEY_POINT_PROMPT,
   normalizeReportContent,
   withKeyPointExtraction,
   type KeyPointExtractionMeta,
@@ -57,6 +59,34 @@ export function buildPersonalKeyPointWakeText(input: {
   ].join("\n");
 }
 
+export function buildTeamKeyPointWakeText(input: {
+  overviewReportId: string;
+  prompt: string;
+  year: number;
+  week: number;
+  submitted: ReadonlyArray<{ reportId: string; displayName: string }>;
+}): string {
+  const memberLines =
+    input.submitted.length === 0
+      ? ["(本周尚无已提交成员周报)"]
+      : input.submitted.map((row) => `- ${row.displayName} — reportId: ${row.reportId}`);
+  return [
+    "[weekly-report-team-key-points]",
+    `overviewReportId: ${input.overviewReportId}`,
+    `week: ${input.year} W${input.week}`,
+    "",
+    "平台已触发「全员要点提炼」。请按下列提示词阅读本周所有已提交成员周报，整理成一份团队要点纪要，",
+    "然后通过 `coforge weekly-report-key-points submit --report-id <overviewReportId> --request-id <uuid> --markdown <file>`",
+    "写回 markdown（reportId 使用 overviewReportId；不要用 body-edit Confirm）。",
+    "",
+    "## 已提交成员",
+    ...memberLines,
+    "",
+    "## 提示词",
+    input.prompt.trim() || DEFAULT_TEAM_KEY_POINT_PROMPT,
+  ].join("\n");
+}
+
 export async function resolvePersonalPromptFromFormat(
   content: ReportContent,
 ): Promise<KeyPointPromptState> {
@@ -64,7 +94,14 @@ export async function resolvePersonalPromptFromFormat(
   return prompts.personal;
 }
 
-/** Persist extraction meta onto a member report. */
+export async function resolveTeamPromptFromFormat(
+  content: ReportContent,
+): Promise<KeyPointPromptState> {
+  const prompts = content.keyPointPrompts ?? emptyKeyPointPrompts();
+  return prompts.team;
+}
+
+/** Persist extraction meta onto a report (member personal or overview team). */
 export async function writeKeyPointExtraction(
   db: PrismaClient,
   input: { reportId: string; content: ReportContent; extraction: KeyPointExtractionMeta },
@@ -138,10 +175,11 @@ export async function startPersonalKeyPointExtraction(
   }
 
   const leaderUserId = report.sourceTemplate.authorId;
-  const promptState = await loadPersonalPromptForLeader(db, {
+  const promptState = await loadPromptForLeader(db, {
     workspaceId: input.workspaceId,
     leaderUserId,
     settingsId: report.sourceTemplate.settingsId,
+    slot: "personal",
   });
   const promptSnapshot = promptState.text.trim() || DEFAULT_PERSONAL_KEY_POINT_PROMPT;
 
@@ -210,12 +248,195 @@ export async function startPersonalKeyPointExtraction(
   return { started: true, status: "generating" };
 }
 
-async function loadPersonalPromptForLeader(
+/**
+ * Leader manually starts team key-point extraction for one overview week parent.
+ * Idempotent when already generating/ready unless force=true.
+ */
+export async function startTeamKeyPointExtraction(
   db: PrismaClient,
-  input: { workspaceId: string; leaderUserId: string; settingsId: string | null },
+  input: {
+    workspaceId: string;
+    overviewReportId: string;
+    force?: boolean;
+    /**
+     * `side-chat-confirm`: Agent submit parks markdown for side-chat Insert
+     * instead of writing `ready` immediately. Requires confirmSessionId.
+     */
+    delivery?: "side-chat-confirm";
+    confirmSessionId?: string;
+    wake?: (args: {
+      workspaceId: string;
+      leaderUserId: string;
+      reportId: string;
+      sessionId: string;
+      body: string;
+    }) => Promise<void>;
+  },
+): Promise<{ started: boolean; status: KeyPointExtractionMeta["status"] }> {
+  const overview = await db.weeklyReport.findFirst({
+    where: {
+      id: input.overviewReportId,
+      workspaceId: input.workspaceId,
+      kind: "template",
+    },
+    select: {
+      id: true,
+      content: true,
+      authorId: true,
+      settingsId: true,
+      cycle: { select: { year: true, week: true } },
+    },
+  });
+  if (!overview) return { started: false, status: "failed" };
+
+  const content = normalizeReportContent(overview.content);
+  const existing = content.keyPointExtraction;
+  if (
+    !input.force &&
+    existing &&
+    (existing.status === "generating" || existing.status === "ready")
+  ) {
+    return { started: false, status: existing.status };
+  }
+
+  const assignmentCount = await db.weeklyReport.count({
+    where: {
+      workspaceId: input.workspaceId,
+      sourceTemplateId: overview.id,
+      kind: "member",
+    },
+  });
+  // Live format documents have no member assignments; only overview parents do.
+  if (assignmentCount === 0) return { started: false, status: "failed" };
+
+  const submitted = await db.weeklyReport.findMany({
+    where: {
+      workspaceId: input.workspaceId,
+      sourceTemplateId: overview.id,
+      kind: "member",
+      status: { in: ["submitted", "shared"] },
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      author: { select: { username: true, displayName: true } },
+    },
+  });
+
+  const leaderUserId = overview.authorId;
+  const promptState = await loadPromptForLeader(db, {
+    workspaceId: input.workspaceId,
+    leaderUserId,
+    settingsId: overview.settingsId,
+    slot: "team",
+  });
+  const promptSnapshot = promptState.text.trim() || DEFAULT_TEAM_KEY_POINT_PROMPT;
+
+  if (submitted.length === 0) {
+    await writeKeyPointExtraction(db, {
+      reportId: overview.id,
+      content,
+      extraction: {
+        status: "failed",
+        promptSnapshot,
+        error: "no_submitted_member_reports",
+      },
+    });
+    return { started: false, status: "failed" };
+  }
+
+  const assistant = await ensureWeeklyReportAssistant(db, {
+    workspaceId: input.workspaceId,
+    userId: leaderUserId,
+  });
+  const agent = await db.agent.findUnique({
+    where: { id_workspaceId: { id: assistant.agentId, workspaceId: input.workspaceId } },
+    select: { computerId: true, runtimeConfig: true },
+  });
+  if (!agent || !isWeeklyReportAssistantReady(agent)) {
+    await writeKeyPointExtraction(db, {
+      reportId: overview.id,
+      content,
+      extraction: {
+        status: "pending_setup",
+        promptSnapshot,
+        error: "weekly_report_assistant_not_configured",
+      },
+    });
+    return { started: false, status: "pending_setup" };
+  }
+
+  await writeKeyPointExtraction(db, {
+    reportId: overview.id,
+    content,
+    extraction: {
+      status: "generating",
+      promptSnapshot,
+      // Keep the last confirmed body on the page until Insert replaces it.
+      ...(existing?.markdown ? { markdown: existing.markdown } : {}),
+      ...(input.delivery === "side-chat-confirm" && input.confirmSessionId
+        ? {
+            delivery: "side-chat-confirm" as const,
+            confirmSessionId: input.confirmSessionId,
+          }
+        : {}),
+    },
+  });
+
+  const wakeBody = buildTeamKeyPointWakeText({
+    overviewReportId: overview.id,
+    prompt: promptSnapshot,
+    year: overview.cycle.year,
+    week: overview.cycle.week,
+    submitted: submitted.map((row) => ({
+      reportId: row.id,
+      displayName: row.author.displayName?.trim() || row.author.username,
+    })),
+  });
+
+  const ensured = await ensureWeeklyReportAssistantChatSession(db, {
+    workspaceId: input.workspaceId,
+    userId: leaderUserId,
+    subjectType: "report",
+    subjectId: overview.id,
+  });
+  const sessionId =
+    input.delivery === "side-chat-confirm" && input.confirmSessionId
+      ? input.confirmSessionId
+      : ensured.activeSessionId;
+
+  if (input.wake) {
+    await input.wake({
+      workspaceId: input.workspaceId,
+      leaderUserId,
+      reportId: overview.id,
+      sessionId,
+      body: wakeBody,
+    });
+  } else {
+    await wakeLeaderKeyPointAssistant(db, {
+      workspaceId: input.workspaceId,
+      leaderUserId,
+      reportId: overview.id,
+      sessionId,
+      body: wakeBody,
+    });
+  }
+
+  return { started: true, status: "generating" };
+}
+
+async function loadPromptForLeader(
+  db: PrismaClient,
+  input: {
+    workspaceId: string;
+    leaderUserId: string;
+    settingsId: string | null;
+    slot: "team" | "personal";
+  },
 ): Promise<KeyPointPromptState> {
   if (!input.settingsId) {
-    return emptyKeyPointPrompts().personal;
+    return emptyKeyPointPrompts()[input.slot];
   }
   const format = await db.weeklyReport.findFirst({
     where: {
@@ -228,8 +449,11 @@ async function loadPersonalPromptForLeader(
     orderBy: { updatedAt: "desc" },
     select: { content: true },
   });
-  if (!format) return emptyKeyPointPrompts().personal;
-  return resolvePersonalPromptFromFormat(normalizeReportContent(format.content));
+  if (!format) return emptyKeyPointPrompts()[input.slot];
+  const content = normalizeReportContent(format.content);
+  return input.slot === "team"
+    ? resolveTeamPromptFromFormat(content)
+    : resolvePersonalPromptFromFormat(content);
 }
 
 async function wakeLeaderKeyPointAssistant(
@@ -315,6 +539,167 @@ export async function applyPersonalKeyPointExtraction(
     },
   });
   return { status: "ready", reportId: report.id };
+}
+
+/**
+ * Leader weekly-report assistant writes team key-point markdown onto the
+ * overview template (week parent). reportId is the overview template id.
+ */
+export async function applyTeamKeyPointExtraction(
+  db: PrismaClient,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    reportId: string;
+    markdown: string;
+    requestId: string;
+  },
+): Promise<{ status: "ready" | "awaiting_confirm"; reportId: string }> {
+  const markdown = input.markdown.trim();
+  if (!markdown) throw new AppError("INVALID_INPUT");
+
+  const owner = await db.weeklyReportAssistant.findFirst({
+    where: { workspaceId: input.workspaceId, agentId: input.agentId },
+    select: { userId: true },
+  });
+  if (!owner) throw new AppError("ACCESS_DENIED");
+
+  const report = await db.weeklyReport.findFirst({
+    where: {
+      id: input.reportId,
+      workspaceId: input.workspaceId,
+      kind: "template",
+    },
+    select: {
+      id: true,
+      content: true,
+      authorId: true,
+    },
+  });
+  if (!report) throw new AppError("NOT_FOUND");
+  if (report.authorId !== owner.userId) throw new AppError("ACCESS_DENIED");
+
+  const assignmentCount = await db.weeklyReport.count({
+    where: {
+      workspaceId: input.workspaceId,
+      sourceTemplateId: report.id,
+      kind: "member",
+    },
+  });
+  if (assignmentCount === 0) throw new AppError("NOT_FOUND");
+
+  const content = normalizeReportContent(report.content);
+  const promptSnapshot =
+    content.keyPointExtraction?.promptSnapshot ?? DEFAULT_TEAM_KEY_POINT_PROMPT;
+  const confirmSessionId = content.keyPointExtraction?.confirmSessionId;
+  if (
+    content.keyPointExtraction?.delivery === "side-chat-confirm" &&
+    confirmSessionId
+  ) {
+    const publishedMarkdown = content.keyPointExtraction.markdown;
+    await writeKeyPointExtraction(db, {
+      reportId: report.id,
+      content,
+      extraction: {
+        status: "awaiting_confirm",
+        promptSnapshot,
+        // Page body stays on the previous published markdown until Insert.
+        ...(publishedMarkdown ? { markdown: publishedMarkdown } : {}),
+        pendingMarkdown: markdown,
+        generatedAt: new Date().toISOString(),
+        delivery: "side-chat-confirm",
+        confirmSessionId,
+      },
+    });
+    await postTeamKeyPointConfirmSuggestion(db, {
+      workspaceId: input.workspaceId,
+      agentId: input.agentId,
+      leaderUserId: owner.userId,
+      overviewReportId: report.id,
+      sessionId: confirmSessionId,
+      markdown,
+    });
+    return { status: "awaiting_confirm", reportId: report.id };
+  }
+
+  await writeKeyPointExtraction(db, {
+    reportId: report.id,
+    content,
+    extraction: {
+      status: "ready",
+      promptSnapshot,
+      markdown,
+      generatedAt: new Date().toISOString(),
+    },
+  });
+  return { status: "ready", reportId: report.id };
+}
+
+async function postTeamKeyPointConfirmSuggestion(
+  db: PrismaClient,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    leaderUserId: string;
+    overviewReportId: string;
+    sessionId: string;
+    markdown: string;
+  },
+) {
+  const { buildWeeklyReportAssistantSuggestionBody } =
+    await import("./weekly-report-assistant-suggestion.server");
+  const leader = await db.user.findUnique({
+    where: { id: input.leaderUserId },
+    select: { username: true },
+  });
+  if (!leader?.username) return;
+
+  const body = buildWeeklyReportAssistantSuggestionBody({
+    displayText: "已整理好全员要点，请确认后插入。",
+    suggestion: {
+      type: "key-point-edit",
+      reportId: input.overviewReportId,
+      summary: "全员要点草稿",
+      markdown: input.markdown,
+    },
+  });
+
+  const centrifugo = createCentrifugoServerApi();
+  const conversations = new PrismaDirectConversationRepository(db);
+  const sender = new SendDirectMessage(
+    conversations,
+    getMessageRequestIdempotency(),
+    centrifugo,
+    new CentrifugoConversationRealtime(centrifugo),
+  );
+  await sender.executeFromAgent({
+    requestId: crypto.randomUUID(),
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    target: `@${leader.username}`,
+    body,
+  });
+}
+
+/** HTTPS write-back entry: dispatch personal vs team by report kind. */
+export async function applyKeyPointExtractionWriteBack(
+  db: PrismaClient,
+  input: {
+    workspaceId: string;
+    agentId: string;
+    reportId: string;
+    markdown: string;
+    requestId: string;
+  },
+): Promise<{ status: "ready" | "awaiting_confirm"; reportId: string }> {
+  const report = await db.weeklyReport.findFirst({
+    where: { id: input.reportId, workspaceId: input.workspaceId },
+    select: { kind: true },
+  });
+  if (!report) throw new AppError("NOT_FOUND");
+  if (report.kind === "member") return applyPersonalKeyPointExtraction(db, input);
+  if (report.kind === "template") return applyTeamKeyPointExtraction(db, input);
+  throw new AppError("INVALID_INPUT");
 }
 
 export function mergeKeyPointPromptSlot(

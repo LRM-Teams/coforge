@@ -320,6 +320,34 @@ export const applyConfirmedWeeklyReportBody = createServerFn({ method: "POST" })
     });
   });
 
+export const applyConfirmedKeyPointMarkdown = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      reportId: z.string().uuid(),
+      markdown: z.string().trim().min(1).max(100_000),
+    }),
+  )
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).applyConfirmedKeyPointMarkdown({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+      markdown: data.markdown,
+    });
+  });
+
+export const dismissKeyPointConfirmDraft = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ reportId: z.string().uuid() }))
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).dismissKeyPointConfirmDraft({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+    });
+  });
+
 export const loadWeeklyTemplates = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context: { user, db, workspaceId } }) => {
@@ -374,6 +402,45 @@ export const restartPersonalKeyPointExtraction = createServerFn({ method: "POST"
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
+    });
+  });
+
+export const startTeamKeyPointExtraction = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      overviewReportId: z.string().uuid(),
+      force: z.boolean().optional(),
+    }),
+  )
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).startTeamKeyPointExtraction({
+      workspaceId,
+      userId: user.id,
+      overviewReportId: data.overviewReportId,
+      force: data.force,
+    });
+  });
+
+/** Overview side chat: User「重新整理」→ confirm-mode team extraction. */
+export const startTeamKeyPointExtractionFromSideChat = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      overviewReportId: z.string().uuid(),
+      sessionId: z.string().uuid(),
+      body: z.string().trim().min(1).max(4000),
+      requestId: z.string().uuid(),
+    }),
+  )
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).startTeamKeyPointExtractionFromSideChat({
+      workspaceId,
+      userId: user.id,
+      overviewReportId: data.overviewReportId,
+      sessionId: data.sessionId,
+      body: data.body,
+      requestId: data.requestId,
     });
   });
 
@@ -617,7 +684,7 @@ export const postWeeklyReportAssistantRequest = createServerFn({ method: "POST" 
       sessionId: data.sessionId,
     });
     if (data.subjectType === "report" && looksLikeMemberReportRuleIntent(data.body)) {
-      const comments = await recordCatalog(db).postSideChat({
+      const comments = await recordCatalog(db).postMemberReportRuleSideChatIfApplicable({
         workspaceId,
         userId: user.id,
         subjectType: data.subjectType,
@@ -625,13 +692,15 @@ export const postWeeklyReportAssistantRequest = createServerFn({ method: "POST" 
         body: data.body,
         assistantSessionId: data.sessionId,
       });
-      await touchWeeklyReportAssistantChatSession(db, {
-        workspaceId,
-        userId: user.id,
-        sessionId: data.sessionId,
-        title: data.body,
-      });
-      return { kind: "rule" as const, comments };
+      if (comments) {
+        await touchWeeklyReportAssistantChatSession(db, {
+          workspaceId,
+          userId: user.id,
+          sessionId: data.sessionId,
+          title: data.body,
+        });
+        return { kind: "rule" as const, comments };
+      }
     }
     const status = await readWeeklyReportAssistantStatus(db, user.id, workspaceId);
     if (!status.computerConfigured || !status.runtimeConfigured) {

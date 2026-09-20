@@ -1338,6 +1338,7 @@ test("getSubject overview children only include the assignee's own submission", 
             id: "assignment-1",
             title: "Alice 2026 W38 工作周报",
             status: "submitted",
+            submittedAt: new Date("2026-09-18T08:00:00.000Z"),
             author: { id: "member-a", username: "alice", displayName: "Alice" },
           },
         ];
@@ -1356,13 +1357,92 @@ test("getSubject overview children only include the assignee's own submission", 
     report: {
       id: "parent-1",
       surface: "overview",
-      children: [{ id: "assignment-1" }],
+      children: [
+        {
+          id: "assignment-1",
+          status: "submitted",
+          submittedAt: "2026-09-18T08:00:00.000Z",
+        },
+      ],
     },
   });
   expect(childQueries[0]).toMatchObject({
     sourceTemplateId: "parent-1",
     authorId: "member-a",
   });
+  expect(childQueries[0]).not.toHaveProperty("status");
+});
+
+test("getSubject overview lists every assignment for the Leader including drafts", async () => {
+  const childQueries: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "parent-1",
+        kind: "template",
+        title: "2026 W38 工作周报",
+        status: "draft",
+        content: { tabs: { Summary: { markdown: "Outline" } } },
+        submittedAt: null,
+        updatedAt: new Date("2026-09-14T02:00:00.000Z"),
+        sourceTemplateId: null,
+        sourceTemplate: null,
+        author: { id: "leader", username: "boss", displayName: "Boss" },
+        cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38 工作周报" },
+      }),
+      count: async () => 2,
+      findMany: async (query: { where: Record<string, unknown> }) => {
+        childQueries.push(query.where);
+        return [
+          {
+            id: "assignment-draft",
+            title: "Alice 2026 W38 工作周报",
+            status: "draft",
+            submittedAt: null,
+            author: { id: "member-a", username: "alice", displayName: "Alice" },
+          },
+          {
+            id: "assignment-submitted",
+            title: "Bob 2026 W38 工作周报",
+            status: "submitted",
+            submittedAt: new Date("2026-09-18T08:00:00.000Z"),
+            author: { id: "member-b", username: "bob", displayName: "Bob" },
+          },
+        ];
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const subject = await new RecordCatalog(db).getSubject({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    id: "parent-1",
+  });
+
+  expect(subject).toMatchObject({
+    type: "report",
+    report: {
+      id: "parent-1",
+      surface: "overview",
+      children: [
+        { id: "assignment-draft", status: "draft", submittedAt: null },
+        {
+          id: "assignment-submitted",
+          status: "submitted",
+          submittedAt: "2026-09-18T08:00:00.000Z",
+        },
+      ],
+    },
+  });
+  expect(childQueries[0]).toMatchObject({
+    sourceTemplateId: "parent-1",
+    kind: "member",
+  });
+  expect(childQueries[0]).not.toHaveProperty("status");
+  expect(childQueries[0]).not.toHaveProperty("authorId");
 });
 
 test("applyTemplate scopes activation to the owner without clearing peers", async () => {

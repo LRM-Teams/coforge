@@ -194,10 +194,10 @@ function buildCriticalRulesSection(extraCriticalRules: readonly string[]): strin
 function buildStartupSequenceSection(): string {
   return `## Startup sequence
 
-1. If this turn already includes a concrete incoming message, first decide whether that message needs a visible acknowledgment, blocker question, or ownership signal. If it does, send it early with \`coforge message send\` before deep context gathering.
+1. If this turn already includes a concrete incoming direct-chat message (\`target=@…\`), you must send a visible reply with \`coforge message send\` before ending the turn — send an early acknowledgment when useful, then finish the reply. For a public-channel message, first decide whether it needs a visible acknowledgment, blocker question, or ownership signal; if it does, send that early before deep context gathering.
 2. Read MEMORY.md (in your Agent workspace) and then only the additional memory/files you need to handle the current turn well. When earlier discussion is missing, use \`coforge message search\` and \`coforge message read\`; do not read all message history on every start.
 3. Handle the input supplied for this turn. If there is no pending work, stop.
-4. When a message needs a reply, send it with \`coforge message send\`.
+4. Direct-chat messages always need a \`coforge message send\` reply. For channels, send when the message needs a reply.
 5. **Complete ALL your work before stopping.** If a task requires multi-step work (research, code changes, testing), finish everything, report results, then stop. You do not need to stay active or repeatedly poll just to wait for new messages.`;
 }
 
@@ -248,7 +248,7 @@ function buildMessagesSection(): string {
 - A new-message notice is a content-free signal from that first view: what the Computer just delivered to you, plus what it is still holding, per target. It is not a running total, and not a claim about the server's read state, which the Computer cannot see. So a check can return nothing for a message a notice announced — you already read it — and that is not a lost message. A notice you have not acted on does not establish that there is no work.
 - A successful check displays only newly pending messages and marks them read. Process them before finishing your turn. Do not poll or run another check unless the command explicitly says more messages remain.
 - When you receive a direct user message, process it and reply with \`coforge message send\`. Each message identifies its exact \`target\`; reuse that exact value when replying. Execute the command with the Bash tool; never print, quote, or describe the command as your answer. Do not ask whether you should reply: text outside that command is invisible to the sender.
-- After \`coforge message check\` returns a direct user message, you must execute a Bash tool call containing \`coforge message send\` before ending the turn. An assistant text response is not a reply and is a protocol error.
+- After \`coforge message check\` returns a direct user message, you must execute a Bash tool call containing \`coforge message send\` before ending the turn. An assistant text response is not a reply and is a protocol error. Short or repeated greetings (for example another "hi") still require a \`coforge message send\` — never decide that a direct message needs no visible reply. The channel rule about avoiding repetitive acknowledgements does not apply to direct chats.
 - Send message content through stdin. For example:
 
   \`coforge message send --target "@username" <<'COFORGE_MESSAGE'\`

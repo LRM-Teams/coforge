@@ -7,6 +7,7 @@ export type TemplateChild = {
   id: string;
   title: string;
   status: string;
+  submittedAt: string | null;
   author: {
     userId: string;
     username: string;
@@ -14,18 +15,31 @@ export type TemplateChild = {
   };
 };
 
-/** One row in the template overview table (name filled first; other columns later). */
+/** One row in the template overview table. */
 export type TemplateChildRow = {
   id: string;
   name: string;
+  submitted: boolean;
+  submittedAt: string | null;
 };
+
+export function isTemplateChildSubmitted(status: string): boolean {
+  return status === "submitted" || status === "shared";
+}
 
 /** Map template children to overview-table rows. Name comes from the child author. */
 export function templateChildRows(children: readonly TemplateChild[]): TemplateChildRow[] {
   return children.map((child) => ({
     id: child.id,
     name: child.author.displayName,
+    submitted: isTemplateChildSubmitted(child.status),
+    submittedAt: child.submittedAt,
   }));
+}
+
+function submitTimeLabel(submittedAt: string | null): string {
+  if (!submittedAt) return "-";
+  return new Date(submittedAt).toLocaleString();
 }
 
 export function TemplateChildrenTable({ children }: { children: readonly TemplateChild[] }) {
@@ -58,19 +72,27 @@ export function TemplateChildrenTable({ children }: { children: readonly Templat
             rows.map((row) => (
               <tr key={row.id} className="border-b border-secondary last:border-b-0">
                 <td className="border-r border-secondary px-3 py-2">
-                  <Link
-                    to="/records/$recordId"
-                    params={{ recordId: row.id }}
-                    search={(previous) => ({
-                      tab: previous.tab === "notes" ? "notes" : "weekly",
-                    })}
-                    className="text-primary hover:underline"
-                  >
-                    {row.name}
-                  </Link>
+                  {row.submitted ? (
+                    <Link
+                      to="/records/$recordId"
+                      params={{ recordId: row.id }}
+                      search={(previous) => ({
+                        tab: previous.tab === "notes" ? "notes" : "weekly",
+                      })}
+                      className="text-brand-secondary hover:underline"
+                    >
+                      {row.name}
+                    </Link>
+                  ) : (
+                    <span className="text-tertiary">{row.name}</span>
+                  )}
                 </td>
-                <td className="border-r border-secondary px-3 py-2" />
-                <td className="px-3 py-2" />
+                <td className="border-r border-secondary px-3 py-2">
+                  {row.submitted
+                    ? m.records_template_enabled_yes()
+                    : m.records_template_enabled_no()}
+                </td>
+                <td className="px-3 py-2">{submitTimeLabel(row.submittedAt)}</td>
               </tr>
             ))
           )}

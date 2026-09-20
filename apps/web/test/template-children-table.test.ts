@@ -1,30 +1,52 @@
 import { expect, test } from "bun:test";
 
-import { templateChildRows, type TemplateChild } from "@/features/records/template-children-table";
+import {
+  isTemplateChildSubmitted,
+  templateChildRows,
+  type TemplateChild,
+} from "@/features/records/template-children-table";
 
-test("maps each template child to a name cell from the child author", () => {
+test("submitted/shared children are clickable; draft is not", () => {
+  expect(isTemplateChildSubmitted("draft")).toBe(false);
+  expect(isTemplateChildSubmitted("submitted")).toBe(true);
+  expect(isTemplateChildSubmitted("shared")).toBe(true);
+});
+
+test("maps each template child to name, submitted flag, and submittedAt", () => {
   const children: TemplateChild[] = [
     {
       id: "child-1",
       title: "Alice 2026 W37 工作周报",
       status: "draft",
+      submittedAt: null,
       author: { userId: "u1", username: "alice", displayName: "Alice" },
     },
     {
       id: "child-2",
-      title: "lijiannankai-95827c9b 2026 W37 工作周报",
+      title: "Bob 2026 W37 工作周报",
       status: "submitted",
+      submittedAt: "2026-09-18T08:00:00.000Z",
       author: {
         userId: "u2",
-        username: "lijiannankai-95827c9b",
-        displayName: "lijiannankai-95827c9b",
+        username: "bob",
+        displayName: "Bob",
       },
     },
   ];
 
   expect(templateChildRows(children)).toEqual([
-    { id: "child-1", name: "Alice" },
-    { id: "child-2", name: "lijiannankai-95827c9b" },
+    {
+      id: "child-1",
+      name: "Alice",
+      submitted: false,
+      submittedAt: null,
+    },
+    {
+      id: "child-2",
+      name: "Bob",
+      submitted: true,
+      submittedAt: "2026-09-18T08:00:00.000Z",
+    },
   ]);
 });
 

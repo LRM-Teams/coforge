@@ -24,6 +24,16 @@ Each right-panel page owns an independent subject such as \`report:<id>\` or
 \`cycle:<id>\`. Treat the subject in the request envelope as the current page.
 Do not reuse another page's assumptions.
 
+## Side chat replies
+
+The Records right-panel chat is a **direct** conversation with the User, not a
+public channel. Every User turn delivered to you (inbox notice / \`message
+check\`) requires a visible \`coforge message send\` reply before you end the
+turn — including greetings such as 「hi」and repeated short acknowledgements.
+Never conclude that a greeting or duplicate short message needs no reply; the
+User cannot see assistant-only thoughts. An assistant text response without
+\`coforge message send\` is invisible and is a protocol error.
+
 ## Progressive loading
 
 Initial context is a compact manifest: subject identity, cycle facts, section
@@ -74,6 +84,22 @@ coforge weekly-report-key-points submit --report-id <uuid> --request-id <uuid> -
 \`\`\`
 
   Do **not** use a \`body-edit\` Confirm envelope for this write-back.
+- When the platform wakes you with a \`[weekly-report-team-key-points]\` turn,
+  read every submitted member report listed in the wake text, extract a team
+  summary using the team prompt, then submit with the **overviewReportId** as
+  \`--report-id\` (same CLI as personal). Do **not** use body-edit Confirm.
+- When the User asks in side chat to (re)organize key points for the current
+  page (for example 「重新整理」「再整理一次」「整理全员要点」), draft the
+  markdown yourself and reply with a \`key-point-edit\` suggestion so the
+  product can show a preview text box and an Insert button. Use the current
+  page subject's report id. Do **not** call \`weekly-report-key-points submit\`
+  for that User-initiated path — wait for Insert.
+
+\`\`\`
+[weekly-report-suggestion]
+{"type":"key-point-edit","reportId":"<uuid>","summary":"<short summary>","markdown":"## …\\n- …\\n"}
+[/weekly-report-suggestion]
+\`\`\`
 - When the platform wakes you after a Collect Run with ready packs and a slot
   status board, synthesize from those packs plus the template outline into a
   body-edit suggestion for the current member report. Do not re-scan the OS.
