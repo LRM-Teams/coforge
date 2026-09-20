@@ -22,6 +22,9 @@ const messagesRoute = getRouteApi("/_app/messages");
 const appRoute = getRouteApi("/_app");
 const ConversationListContext = createContext<{
   showList: () => void;
+  /** Hides the list and reveals the detail pane. Called when a directory row is chosen, so a tap
+   * opens the conversation even when the URL does not change (the row that is already current). */
+  closeList: () => void;
   detailVisible: boolean;
 } | null>(null);
 
@@ -37,6 +40,12 @@ const OpenModeContext = createContext<ConversationOpenMode>(DEFAULT_CONVERSATION
 
 export function useConversationDetailVisible() {
   return useContext(ConversationListContext)?.detailVisible ?? true;
+}
+
+/** Hides the mobile conversation list so the chosen conversation's pane shows. */
+export function useCloseConversationList(): () => void {
+  const navigation = useContext(ConversationListContext);
+  return navigation?.closeList ?? (() => {});
 }
 
 /** The sidebar's live unread counts, seeded from the loader and updated by realtime. */
@@ -125,7 +134,11 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
 
   return (
     <ConversationListContext
-      value={{ showList: () => setBrowsing(true), detailVisible: desktop || !showList }}
+      value={{
+        showList: () => setBrowsing(true),
+        closeList: () => setBrowsing(false),
+        detailVisible: desktop || !showList,
+      }}
     >
       <OpenModeContext value={openMode}>
         <UnreadContext value={controls}>
