@@ -11,9 +11,7 @@ import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { readClaudeCodeUsage } from "./usage";
 import { readClaudeCodeContextReport } from "./context-report";
 import type { AgentContextReport } from "@lrm/coforge-sdk/internal";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { createPromptFile } from "./prompt-file";
 import { claudeStaticCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
 import type { ProviderDiscoveryOptions } from "../contract";
 import { asRecord, eventTime, textContent } from "../json-record";
@@ -76,11 +74,9 @@ export class ClaudeCodeProvider implements CodeAgentProvider {
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
     if (options.sessionId !== undefined && !options.sessionId.trim())
       throw new Error("Invalid session ID");
-    const promptDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-prompt-"));
+    const prompt = await createPromptFile(options.instructions);
     let process: JsonlProcess | undefined;
     try {
-      const promptPath = join(promptDirectory, "system-prompt.md");
-      await writeFile(promptPath, options.instructions, { mode: 0o600 });
       const command = (resumeSessionId?: string, createSessionId?: string) => [
         ...this.#command,
         "--dangerously-skip-permissions",
@@ -89,7 +85,7 @@ export class ClaudeCodeProvider implements CodeAgentProvider {
         ...(resumeSessionId ? ["--resume", resumeSessionId] : []),
         ...(createSessionId ? ["--session-id", createSessionId] : []),
         "--append-system-prompt-file",
-        promptPath,
+        prompt.path,
         ...(options.runtime?.model ? ["--model", options.runtime.model] : []),
         ...(options.runtime?.reasoning ? ["--effort", options.runtime.reasoning] : []),
       ];
@@ -106,7 +102,7 @@ export class ClaudeCodeProvider implements CodeAgentProvider {
       process = spawn(options.sessionId, initialFreshSessionId);
       const session = new ClaudeCodeAgentSession(
         process,
-        () => rm(promptDirectory, { recursive: true, force: true }),
+        () => prompt.remove(),
         options.onSessionId,
         options.sessionId,
         () => {
@@ -122,7 +118,7 @@ export class ClaudeCodeProvider implements CodeAgentProvider {
       try {
         await process?.dispose();
       } finally {
-        await rm(promptDirectory, { recursive: true, force: true });
+        await prompt.remove();
       }
       throw error;
     }
@@ -264,7 +260,9 @@ class ClaudeCodeAgentSession implements AgentSession {
         failure ?? new Error("code agent process closed during interrupt"),
       );
       this.#rejectWaitingNotices(new Error("code agent process closed before writing input"));
-      void this.#removePrompt();
+      // Fire and forget: the close path has nothing to do with a cleanup failure, and `dispose`
+      // awaits the same removal and reports it.
+      void this.#removePrompt().catch(() => {});
       this.#finishClose();
     });
   }
