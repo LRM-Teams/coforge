@@ -110,7 +110,7 @@ import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
 import { AgentSessions } from "../agent-runtime/agent-session";
 import { AgentRuntimeState } from "../agent-runtime/agent-runtime-state";
-import { FileAgentRuntimeStateStore } from "../persistence/agent-runtime-state-store";
+import { MemoryAgentRuntimeStateStore } from "../persistence/memory-agent-runtime-state-store";
 import { listAgentSkills } from "../code-agent/agent-skills";
 import {
   listAgentWorkspaceFiles,
@@ -584,11 +584,10 @@ export class DaemonRuntime {
       (job) => this.#acceptReminderDue(job),
     );
     const state = new AgentRuntimeState(
-      new FileAgentRuntimeStateStore(
-        stateDirectory,
-        connection.workspaceRoot,
-        connection.workspaceId,
-      ),
+      // Control state lives only in this process (ADR 0056 task #54 step ②): the server
+      // re-dispatches what should still be running after a restart, so a persisted record could
+      // only outlive the writer it was waiting on.
+      new MemoryAgentRuntimeStateStore(connection.workspaceRoot, connection.workspaceId),
     );
     this.#agentSessions = new AgentSessions(state, async (snapshot) => {
       await this.#transport.reportAgentSession?.({
