@@ -49,20 +49,24 @@ export type ComputerListItem = ComputerIdentity &
 const BackToComputersContext = createContext<(() => void) | undefined>(undefined);
 
 /**
- * Which Computer, if any, has an upgrade operation in flight. The control that starts one lives
- * on the detail panel, behind the router outlet, while the badge that reflects it lives in the
- * list; this is the seam between the two.
+ * Which Computers have an upgrade operation in flight. The control that starts one lives on the
+ * detail panel, behind the router outlet, while the badge that reflects it lives in the list; this
+ * is the seam between the two. A set, not a single slot: each Computer's upgrade is serialized on
+ * its own machine, so two may run at once and one finishing must not clear another's indicator.
  */
 const UpgradingComputerContext = createContext<{
-  upgradingComputerId?: string;
-  setUpgradingComputerId: (computerId?: string) => void;
-}>({ setUpgradingComputerId: () => {} });
+  upgradingComputerIds: ReadonlySet<string>;
+  setUpgradingComputer: (computerId: string, upgrading: boolean) => void;
+}>({ upgradingComputerIds: new Set<string>(), setUpgradingComputer: () => {} });
 
 export function UpgradingComputerProvider({
   value,
   children,
 }: {
-  value: { upgradingComputerId?: string; setUpgradingComputerId: (computerId?: string) => void };
+  value: {
+    upgradingComputerIds: ReadonlySet<string>;
+    setUpgradingComputer: (computerId: string, upgrading: boolean) => void;
+  };
   children: ReactNode;
 }) {
   return <UpgradingComputerContext value={value}>{children}</UpgradingComputerContext>;
@@ -92,7 +96,7 @@ export function ComputerLayout({
   latestComputerVersion?: string | null;
   children: ReactNode;
 }) {
-  const { upgradingComputerId } = useUpgradingComputer();
+  const { upgradingComputerIds } = useUpgradingComputer();
   const [showMobileList, setShowMobileList] = useState(!selectedComputerId);
   const listHidden = Boolean(selectedComputerId) && !showMobileList;
 
@@ -147,7 +151,7 @@ export function ComputerLayout({
                           ? latestComputerVersion
                           : undefined
                       }
-                      upgrading={upgradingComputerId === computer.id}
+                      upgrading={upgradingComputerIds.has(computer.id)}
                     />
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="truncate text-sm font-semibold">
