@@ -23,6 +23,7 @@ import { COFORGE_DAEMON_VERSION } from "./src/version";
 import { LocalDaemonLauncher } from "./src/daemon-host/launcher";
 import { configureDaemonLogging } from "./src/platform/daemon-logging";
 import { stopLaunchdJobs } from "./src/platform/launchd-job";
+import { stopWorkspaceAgentProcesses } from "./src/platform/linux-agent-processes";
 import {
   WorkspaceHealthJournal,
   workspaceDegradedMessage,
@@ -30,6 +31,7 @@ import {
 } from "./src/supervisor/workspace-health-journal";
 import { guardWorkspaceRunnerStart } from "./src/supervisor/workspace-runner-guard";
 export { launchdJobs } from "./src/platform/launchd-job";
+export { stopWorkspaceAgentProcesses } from "./src/platform/linux-agent-processes";
 export { FileBindingStore } from "./src/supervisor/binding-store";
 export { workspaceLaunchdIdentity } from "./src/supervisor/launchd-workspace-instance";
 export { workspaceStateDirectory } from "./src/supervisor/workspace-instance";
@@ -209,6 +211,24 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
         await dispose();
         process.exitCode = 0;
         return;
+      }
+      // Linux has no per-Agent service to reap on boot the way macOS reaps its launchd jobs, so
+      // sweep this Workspace's detached Agent processes that a previous daemon instance left
+      // behind. Best-effort: a sweep failure must never keep the daemon from starting.
+      if (process.platform === "linux" && config?.workspaceId) {
+        try {
+          const reaped = await stopWorkspaceAgentProcesses(config.workspaceId);
+          if (reaped > 0)
+            logger.info("Reaped Agent process groups left by a previous daemon instance", {
+              event: "daemon:agent_processes_reaped",
+              count: reaped,
+            });
+        } catch (error) {
+          logger.warning("Could not reap leftover Agent processes", {
+            event: "daemon:agent_process_reap_failed",
+            error_code: diagnosticErrorCode(error),
+          });
+        }
       }
       let runtime: DaemonRuntime | undefined;
       const requireRuntime = (): DaemonRuntime => {
