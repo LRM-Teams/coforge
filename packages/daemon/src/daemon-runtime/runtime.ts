@@ -608,7 +608,6 @@ export class DaemonRuntime {
     });
     this.#agentControl = new AgentControl(this.#runtimeInstanceId, state, this.#agentSessions, {
       running: (agentId) => Boolean(this.#agentProcessManager.session(agentId)),
-      cleanupUnconfirmed: (agentId, error) => this.#cleanupUnconfirmed(agentId, error),
       stop: async (agentId) => {
         const session = this.#agentProcessManager.session(agentId);
         await this.stopAgent(agentId);
@@ -845,7 +844,6 @@ export class DaemonRuntime {
 
   async #start(connection: DaemonConfig): Promise<void> {
     mkdirSync(connection.workspaceRoot, { recursive: true });
-    await this.#agentControl.initialize();
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace credential is missing");
     // Publications that arrive before the ready handshake completes are replayed afterwards:
@@ -1069,10 +1067,6 @@ export class DaemonRuntime {
       buffering = false;
       this.#started = true;
       this.#activityEnabled = true;
-      // Settle the operations a gone daemon instance interrupted before any buffered control
-      // intent (a Daemon-ready recovery Start among them) is replayed, so the server reads
-      // "the interrupted start failed" before "a new start is arriving".
-      await this.#agentControl.flushPendingBootResults();
       await Promise.all(buffered.map((flush) => flush()));
     } catch (error) {
       this.#unsubscribeAll();

@@ -12,12 +12,7 @@ import type {
   AgentStartIntent,
   SessionIdentity,
 } from "@lrm/coforge-sdk/internal";
-import { AgentProcessCleanupError } from "../src/code-agent/contract";
 import { LAUNCH_FAILURE_MAX_ATTEMPTS } from "../src/agent-runtime/launch-failure-backoff";
-
-/** Matches the production wiring (`DaemonRuntime#cleanupUnconfirmed`). */
-const cleanupUnconfirmed = (_agentId: string, error: unknown) =>
-  error instanceof AgentProcessCleanupError;
 
 /** A scheduler that only records what `AgentControl` asked for, so a test drives every retry
  * itself instead of sleeping through real cooldowns. */
@@ -106,7 +101,6 @@ function harness(launch: (attempt: number) => Promise<SessionIdentity | undefine
     new AgentSessions(state, async () => {}),
     {
       running: () => false,
-      cleanupUnconfirmed,
       rebind: async () => undefined,
       stop: async () => undefined,
       async launch() {
@@ -234,7 +228,6 @@ test("each retry keeps the managed scope and launchId of the operation it is rec
     new AgentSessions(state, async () => {}),
     {
       running: () => false,
-      cleanupUnconfirmed,
       rebind: async () => undefined,
       stop: async () => undefined,
       async launch(intent, launchId) {
