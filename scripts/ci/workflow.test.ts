@@ -98,7 +98,7 @@ test("the workflow diffs PRs from their merge base and includes both sides of a 
     git("commit", "-m", "move web source to documentation");
     expect(select("push", head, git("rev-parse", "HEAD"))).toContain('checks=["web"]\n');
     expect(select("push", "0".repeat(40), head)).toContain(
-      'contracts=["deploy","oss-cdn","release"]\n',
+      'contracts=["cdn-certs","deploy","oss-cdn","release"]\n',
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
