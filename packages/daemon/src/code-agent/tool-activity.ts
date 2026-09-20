@@ -140,11 +140,13 @@ function summarizeBash(command: unknown): {
         toolName: invocation.tool,
       };
   }
-  // Never let a heredoc body (or anything after it) reach the Activity
-  // detail; cut before redacting and truncating to the first 200 Unicode code
-  // points, matching the SDK's `validToolInput` cap.
-  const beforeHeredoc = command.split("<<")[0] ?? "";
-  const redacted = redactTrajectoryText(beforeHeredoc);
+  // Raft-aligned: the row carries the command as the Agent wrote it. Raft's `summarizeToolInput`
+  // for `summaryKind: "command"` returns `input.command` with only a length cap, so an inline
+  // script stays visible instead of the command appearing to stop at its heredoc (`cd x && python3
+  // -` with nothing after it). The heredoc cut this replaced never matched the reference client;
+  // redaction and the 200-code-point cap still apply, and redaction is best-effort — a heredoc body
+  // is now in scope, so text the rules cannot recognise will show.
+  const redacted = redactTrajectoryText(command);
   return {
     detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND,
     summary: truncateCodePoints(redacted, 200).trimEnd(),

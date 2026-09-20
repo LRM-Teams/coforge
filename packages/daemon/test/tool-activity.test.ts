@@ -138,7 +138,7 @@ test("file_path, pattern and url toolInput summaries are truncated and never fal
   expect(nested.entries[0]).not.toHaveProperty("toolInput");
 });
 
-test("non-CoForge bash commands: detail is always the generic label, toolInput is redacted, truncated to 200 Unicode characters and cut at heredocs", () => {
+test("non-CoForge bash commands: detail is always the generic label, toolInput is redacted and truncated to 200 Unicode characters", () => {
   const secretCommand =
     'curl -H "Authorization: Bearer sk-liveTESTsecretTOKEN123" --data "password=hunter2" https://example.com';
   const result = toolActivity("bash", { command: secretCommand });
@@ -159,12 +159,18 @@ test("non-CoForge bash commands: detail is always the generic label, toolInput i
   expect([...truncatedInput].length).toBe(200);
   expect(truncatedInput).toBe(long.slice(0, 200));
 
+  // Raft-aligned: an inline script's opening is visible, so a `cat <<'EOF'` no longer collapses to
+  // `cat `. Redaction is best-effort and now covers the heredoc body: the credential-shaped values
+  // are still replaced, while prose the rules cannot recognise is reported, as the reference client
+  // does.
   const heredocCommand = `cat <<'EOF'\nprivate body with password=hunter2\nEOF`;
   const heredocResult = toolActivity("bash", { command: heredocCommand });
   expect(heredocResult.detail).toBe("Running command…");
-  const serialized = JSON.stringify(heredocResult);
-  expect(serialized).not.toContain("private body");
-  expect(serialized).not.toContain("hunter2");
+  const heredocInput = heredocResult.entries[0]!.toolInput!;
+  expect(heredocInput).toContain("cat <<'EOF'");
+  expect(heredocInput).toContain("private body");
+  expect(heredocInput).toContain("password=[REDACTED]");
+  expect(JSON.stringify(heredocResult)).not.toContain("hunter2");
 });
 
 test("bash truncation budgets Unicode code points, never splitting surrogate pairs", () => {

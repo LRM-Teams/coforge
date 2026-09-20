@@ -154,10 +154,13 @@ file…」，已知工具取其标签，未知工具退化为「Using `<name>`�
 标签从不由参数推导，Agent 状态栏标题因此不可能泄漏原始命令或路径。命令、路径、pattern、URL
 等参数摘要改为只出现在同一帧 `tool_start` entry 的 `toolInput` 字段里，不再拼入 `message`。
 非 CoForge CLI 的 shell 命令，`toolInput` 先复用 trajectory 文本相同的脱敏规则
-（`redactTrajectoryText`）再截断：命令中出现的第一个 `<<`（heredoc 起始）之前截断，heredoc
-正文永远不进入 `toolInput`，随后才截断到前 200 个 Unicode 码点；命令参数中能被规则识别的
-token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是尽力而为的脱敏，不保证
-覆盖所有敏感文本。`toolInput` 还要满足 SDK 的 `validToolInput`（至多 200 个 Unicode 码点、不含控制字符）：换行等控制字符先被替换为空格再合并空白，一条多行命令也不会因此
+（`redactTrajectoryText`），随后截断到前 200 个 Unicode 码点；命令参数与 heredoc 正文中能被规则
+识别的 token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是尽力而为的脱敏，不保证
+覆盖所有敏感文本。这里**不再**在第一个 `<<` 处截断：参考客户端（Raft Computer 1.0.32 的
+`summarizeToolInput`，`summaryKind: "command"`）直接上报 `input.command` 并只做长度截断，我们此前
+「heredoc 正文永不进入 `toolInput`」的规则是自己加的，会让 `cd x && python3 - <<'EOF' …` 这类命令在
+界面上只剩 `cd x && python3 -`，读不出它在做什么；对齐后内联脚本的开头可见（代价是 heredoc 正文
+进入尽力脱敏的范围）。`toolInput` 还要满足 SDK 的 `validToolInput`（至多 200 个 Unicode 码点、不含控制字符）：换行等控制字符先被替换为空格再合并空白，一条多行命令也不会因此
 无法解码。全篇的长度上限统一按 Unicode 码点计算（见 `truncate.ts`），不会把代理对拆散。
 
 当命令的第一个 token 是 `coforge` 或以 `/coforge` 结尾的路径时，Daemon 把它解析为语义
