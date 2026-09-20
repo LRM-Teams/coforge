@@ -435,11 +435,16 @@ function UnreadDivider() {
   );
 }
 
-/** One virtualized history row: optional day divider, then the message with its hover actions.
+/** One history row: optional day divider, then the message with its hover actions.
  *
- * The row is an ordinary flow item. Its vertical position comes from the rows above it inside the
- * virtualizer's window container (`direct-conversation.tsx`), not from an offset of its own, so a
- * row whose height the virtualizer has not measured yet cannot be drawn over its neighbour. */
+ * The row is an ordinary flow item and carries its own off-screen skipping: `content-visibility:
+ * auto` lets the browser lay out and paint a row only when it comes near the viewport, and
+ * `contain-intrinsic-size: auto 160px` keeps the last laid-out height as the placeholder for the
+ * rows it has never rendered, so the scrollbar stays close to the real height. Nothing outside
+ * the row computes its position, so a row whose height is still an estimate can never be drawn
+ * over its neighbour (`direct-conversation.tsx`). */
+const ROW_CLASS = "flex flex-col [content-visibility:auto] [contain-intrinsic-size:auto_160px]";
+
 export function MessageRow({
   message,
   index,
@@ -463,8 +468,9 @@ export function MessageRow({
   own: boolean;
   dayChanged: boolean;
   grouped: boolean;
-  /** Whether this message's very long body is showing in full. Owned by the conversation so it
-   * survives the row unmounting as it scrolls out of the virtualizer's window. */
+  /** Whether this message's very long body is showing in full. Owned by the conversation rather
+   * than the row, so a row that re-renders (or is skipped and rendered again as you scroll) never
+   * collapses behind the reader. */
   expanded: boolean;
   onToggleExpanded: () => void;
   /** The live display snapshot for one Agent, from the app shell's subscription. Absent where the
@@ -473,7 +479,7 @@ export function MessageRow({
   /** The conversation's unread run begins at this row (ADR 0046): draws the divider above. */
   unreadStartsHere?: boolean;
   dateLocale?: string;
-  measureRef: Ref<HTMLLIElement>;
+  measureRef?: Ref<HTMLLIElement>;
   threadEntry?: (message: MessageView) => ReactNode;
   threadPreview?: (message: MessageView) => ReactNode;
   messageFooter?: (message: MessageView) => ReactNode;
@@ -524,16 +530,11 @@ export function MessageRow({
   // A system message (task/membership notices, etc.) is not a person talking: it carries no
   // avatar and no sender heading, and renders as a compact, muted line in the stream — like
   // Slack's channel notices. The body still goes through `MessageBody` so a `@handle` mention in
-  // it stays a resolved chip. The virtualizer wrapper (`li` with `data-index`/`measureRef`) is
-  // kept identical so row measurement and scrolling are unaffected.
+  // it stays a resolved chip. The wrapper (`li`) is the same in both branches, so a system row
+  // costs the browser exactly what a normal one does.
   if (message.senderKind === "system") {
     return (
-      <li
-        data-message-id={message.id}
-        data-index={index}
-        ref={measureRef}
-        className="flex flex-col"
-      >
+      <li data-message-id={message.id} data-index={index} ref={measureRef} className={ROW_CLASS}>
         {dayChanged && (
           <div className="flex items-center gap-3 px-4 py-2 md:px-6">
             <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
@@ -563,7 +564,7 @@ export function MessageRow({
     );
   }
   return (
-    <li data-message-id={message.id} data-index={index} ref={measureRef} className="flex flex-col">
+    <li data-message-id={message.id} data-index={index} ref={measureRef} className={ROW_CLASS}>
       {unreadStartsHere && <UnreadDivider />}
       {dayChanged && (
         <div className="flex items-center gap-3 px-4 py-2 md:px-6">
