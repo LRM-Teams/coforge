@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Outlet, createFileRoute, getRouteApi, useParams } from "@tanstack/react-router";
 import { AddComputerDialog } from "@/features/computers/add-computer-dialog";
 import { ComputerLayout, UpgradingComputerProvider } from "@/features/computers/computer-layout";
@@ -41,12 +41,24 @@ function ComputersPage() {
   });
   const [addComputerOpen, setAddComputerOpen] = useState(false);
   // The control that starts an upgrade lives on the detail panel behind the outlet; the list's
-  // badge reflects the same operation, so the page owns which Computer is upgrading.
-  const [upgradingComputerId, setUpgradingComputerId] = useState<string>();
+  // badge reflects the same operation. Several Computers may upgrade at once (each is serialized
+  // on its own machine), so this keeps a set rather than a single slot — one flow finishing must
+  // never clear another Computer's indicator.
+  const [upgradingComputerIds, setUpgradingComputerIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const setUpgradingComputer = useCallback((computerId: string, upgrading: boolean) => {
+    setUpgradingComputerIds((current) => {
+      const next = new Set(current);
+      if (upgrading) next.add(computerId);
+      else next.delete(computerId);
+      return next;
+    });
+  }, []);
 
   return (
     <>
-      <UpgradingComputerProvider value={{ upgradingComputerId, setUpgradingComputerId }}>
+      <UpgradingComputerProvider value={{ upgradingComputerIds, setUpgradingComputer }}>
         <ComputerLayout
           computers={computers}
           selectedComputerId={params?.computerId}

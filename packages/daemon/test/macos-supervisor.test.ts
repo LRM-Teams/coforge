@@ -2,6 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { LocalDaemonLauncher } from "../src/daemon-host/launcher";
+import {
+  WorkspaceHealthJournal,
+  workspaceHealthJournalPath,
+} from "../src/supervisor/workspace-health-journal";
+import { workspaceStateDirectory } from "../src/supervisor/workspace-instance";
 
 test.skipIf(process.platform !== "darwin")(
   "compiled macOS Coordinator configures two Workspaces and preserves scoped restart and stop across recovery",
@@ -111,4 +116,97 @@ test.skipIf(process.platform !== "darwin")(
     }
   },
   90_000,
+);
+
+test.skipIf(process.platform !== "darwin")(
+  "a degraded Workspace fails fast on Coordinator recovery instead of stalling the readiness budget",
+  async () => {
+    const root = await mkdtemp("/private/tmp/cf-mac-degraded-");
+    const serverUrl = "http://127.0.0.1:1";
+    const executable = join(root, "computer");
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        join(import.meta.dir, "fixtures/build-macos-computer.ts"),
+        executable,
+        serverUrl,
+      ],
+      { stdout: "inherit", stderr: "inherit" },
+    );
+    expect(await build.exited).toBe(0);
+    const socketPath = join(root, "daemon.sock");
+    const spawn = () =>
+      Bun.spawn([executable, "__daemon", "--socket", socketPath, "--state-directory", root], {
+        stdout: "ignore",
+        stderr: "inherit",
+      });
+    let coordinator = spawn();
+    const client = new LocalDaemonLauncher({
+      executablePath: executable,
+      socketPath,
+      stateDirectory: root,
+      serverUrl,
+    });
+    try {
+      await client.ensureRunning();
+      await client.ensureStarted({
+        workspaceId: "a",
+        computerId: "fixture-computer",
+        workspaceRoot: join(root, "data"),
+        daemonApiKey: "fixture-only",
+        serverHttpUrl: serverUrl,
+      });
+      const running = (await client.control("snapshot"))[0]!;
+      expect(running.processId).toBeGreaterThan(0);
+
+      // Latch degraded the same way a real terminal condition or a crash-budget breach would,
+      // then force the live child to die so launchd's own KeepAlive respawns it - the replacement
+      // observes the latch and self-exits 0 immediately (`guardWorkspaceRunnerStart`), leaving the
+      // launchd job inactive, exactly like a real crash loop's final generation.
+      const journal = new WorkspaceHealthJournal(
+        workspaceHealthJournalPath(workspaceStateDirectory(root, "a")),
+      );
+      await journal.markTerminal("test: simulated unrecoverable condition");
+      process.kill(running.processId, "SIGKILL");
+      // Give launchd a moment to notice the death, respawn under KeepAlive, and let that
+      // replacement run its guard check and exit 0 on its own.
+      await Bun.sleep(3_000);
+
+      coordinator.kill("SIGKILL");
+      await coordinator.exited;
+      coordinator = spawn();
+
+      // Before the fix, the Coordinator's own local RPC did not open until `recover()` finished
+      // waiting out the full ~30s per-binding readiness budget for the degraded Workspace, so the
+      // client's own handshake (a separate, shorter timeout) gave up first with a misleading
+      // "did not accept the local handshake" message that never named the real reason. Recovery
+      // must now complete - and the Coordinator's local RPC become reachable - well under that,
+      // so this asserts on a generous but much tighter bound than the old failure mode.
+      const start = Date.now();
+      await client.ensureRunning();
+      expect(Date.now() - start).toBeLessThan(10_000);
+
+      const snapshot = await client.control("snapshot");
+      expect(snapshot[0]).toMatchObject({ workspaceId: "a", processId: 0 });
+      // The fast-fail refusal never touches the latch: only an explicit operator start/restart
+      // clears it (`MachineSupervisor.command`).
+      expect(await journal.state()).toMatchObject({
+        status: "degraded",
+        reason: "test: simulated unrecoverable condition",
+      });
+
+      // An explicit operator restart is still the way out: it clears the latch and the
+      // replacement starts normally.
+      await client.control("restart", "a", "recover-a");
+      const recovered = await client.control("snapshot");
+      expect(recovered[0]?.processId).toBeGreaterThan(0);
+      expect(await journal.state()).toEqual({ status: "ok" });
+    } finally {
+      await client.control("stop").catch(() => {});
+      coordinator.kill("SIGTERM");
+      await coordinator.exited;
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  60_000,
 );

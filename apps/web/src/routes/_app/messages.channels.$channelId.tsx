@@ -37,7 +37,10 @@ import {
   useConversationReadRequiresScroll,
   useMarkConversationSeen,
 } from "@/features/conversations/conversation-navigation";
-import { latestTopLevelSequence } from "@/features/conversations/conversation-unread";
+import {
+  latestTopLevelSequence,
+  persistReadCursor,
+} from "@/features/conversations/conversation-unread";
 import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
@@ -95,11 +98,17 @@ function ChannelPage() {
   }, [markSeen, channelId, topLevelEnd]);
   useEffect(() => {
     if (!topLevelEnd || !conversation.senderMemberId || readRequiresScroll) return;
-    void advanceReadCursor({ data: { channelId, throughSequence: topLevelEnd } }).catch(() => {});
+    void persistReadCursor(
+      () => advanceReadCursor({ data: { channelId, throughSequence: topLevelEnd } }),
+      `channel:${channelId}`,
+    );
   }, [advanceReadCursor, channelId, topLevelEnd, conversation.senderMemberId, readRequiresScroll]);
   const readLatest = (throughSequence: number) => {
     if (!conversation.senderMemberId) return;
-    void advanceReadCursor({ data: { channelId, throughSequence } }).catch(() => {});
+    void persistReadCursor(
+      () => advanceReadCursor({ data: { channelId, throughSequence } }),
+      `channel:${channelId}:latest`,
+    );
   };
 
   // Membership changes reach the sidebar through the layout loader and this page

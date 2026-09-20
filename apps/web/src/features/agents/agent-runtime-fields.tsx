@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { RefreshCw01 } from "@untitledui/icons";
 import {
   parseRuntimeProvider,
@@ -12,6 +13,10 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
+import {
+  getComputerRuntimeCatalog,
+  refreshComputerRuntimeCatalog,
+} from "@/features/computers/computers.functions";
 import { m } from "@/paraglide/messages";
 import {
   isPiBuiltinModelProvider,
@@ -25,6 +30,9 @@ import { RuntimeProviderMark } from "./runtime-provider-mark";
 export type RuntimeCatalog = {
   provider: string;
   models: CodeAgentModelMetadata[];
+  /** When the Daemon reported this catalog; set by `getComputerRuntimeCatalog`. A refresh watch
+   * uses it to detect a newer report from the Computer. */
+  observedAt?: string | Date;
 };
 export type RuntimeOptions = {
   providers: string[];
@@ -44,12 +52,15 @@ export type RuntimeSelection = {
  * itself has to avoid. */
 const CUSTOM_MODEL_KEY = "custom-model";
 
-/** Opening the Model select re-reads the catalog at most once per interval: a refresh probes the
- * Daemon's stored inventory (and, once the refresh wire lands, asks the Daemon to re-discover),
- * which is not free, and quickly closing and reopening the select should not stack requests. The
- * cache from the previous load stays rendered until a refresh returns, so an open never blocks on
- * the network. */
+/** Opening the Model select re-reads the catalog at most once per interval: a refresh asks the
+ * Computer's daemon to re-discover (which spawns a provider CLI probe), which is not free, and
+ * quickly closing and reopening the select should not stack requests. The cache from the previous
+ * load stays rendered until a refresh returns, so an open never blocks on the network. */
 const MODEL_CATALOG_AUTO_REFRESH_INTERVAL_MS = 30_000;
+/** How long a click/auto refresh waits for the Computer's re-report before giving up and keeping
+ * the cached catalog: discovery spawns provider CLIs, so it can take several seconds. */
+const MODEL_CATALOG_REFRESH_TIMEOUT_MS = 20_000;
+const MODEL_CATALOG_REFRESH_POLL_MS = 1_500;
 
 export function AgentRuntimeFields({
   open,
@@ -97,16 +108,20 @@ export function AgentRuntimeFields({
   const previousComputerId = useRef(computerId);
   const autoRefreshedAt = useRef(0);
   const [refreshing, setRefreshing] = useState(false);
+  const requestRefresh = useServerFn(refreshComputerRuntimeCatalog);
+  const loadCatalog = useServerFn(getComputerRuntimeCatalog);
   const options = optionsByComputer[computerId];
   const failed = failedComputerId === computerId;
   const isPi = provider === RUNTIME_PROVIDER.PI;
   const piConfigured = isPi && piProviderChoice === "";
   const piBuiltin = isPi && !piConfigured;
 
-  /** Re-reads the Computer's model catalog and swaps it in only on success: the previously loaded
-   * catalog stays rendered while a refresh is in flight and after a failed one (cache fallback),
-   * so a refresh never blanks the selects or blocks an open popover. Unlike the initial load this
-   * never flips into the manual-entry fallback. */
+  /** Asks the Computer's daemon to re-run its model-catalog discovery (the
+   * `daemon:v1:provider:model_refresh` wire), then polls `getComputerRuntimeCatalog` until its
+   * `observedAt` moves past the pre-refresh snapshot — the daemon re-reports through the ordinary
+   * inventory update before answering. The previously loaded catalog stays rendered throughout
+   * (cache fallback): a refresh never blanks the selects, and a timeout — an offline or
+   * pre-upgrade daemon that cannot answer — keeps the last known list. */
   const refreshCatalog = useCallback(
     (throttle: boolean) => {
       if (!open || !computerId || refreshing || loading.current.has(computerId)) return;
@@ -115,16 +130,35 @@ export function AgentRuntimeFields({
         return;
       autoRefreshedAt.current = now;
       setRefreshing(true);
-      void onLoad(computerId)
-        .then((value) => {
-          setOptionsByComputer((current) => ({ ...current, [computerId]: value }));
-        })
-        .catch(() => {
-          // Cache fallback: keep showing the last loaded catalog.
-        })
-        .finally(() => setRefreshing(false));
+      void (async () => {
+        const previousCatalogs = optionsByComputer[computerId]?.catalogs;
+        const baseline = maxCatalogObservedAt(previousCatalogs);
+        try {
+          await requestRefresh({ data: { computerId } });
+        } catch {
+          // The daemon may be offline or pre-upgrade; the poll below still re-reads the stored
+          // catalog once and keeps the cache when nothing moved.
+        }
+        const deadline = Date.now() + MODEL_CATALOG_REFRESH_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, MODEL_CATALOG_REFRESH_POLL_MS));
+          let loaded;
+          try {
+            loaded = await loadCatalog({ data: { computerId } });
+          } catch {
+            break; // Cache fallback: keep the last loaded catalog.
+          }
+          if (maxCatalogObservedAt(loaded) > baseline) {
+            setOptionsByComputer((current) => ({
+              ...current,
+              [computerId]: { providers: current[computerId]?.providers ?? [], catalogs: loaded },
+            }));
+            return;
+          }
+        }
+      })().finally(() => setRefreshing(false));
     },
-    [computerId, onLoad, open, refreshing],
+    [computerId, loadCatalog, open, optionsByComputer, refreshing, requestRefresh],
   );
 
   useEffect(() => {
@@ -607,6 +641,19 @@ export function splitCustomModel(
  * every host-configured provider, so each option names both. */
 export function piConfiguredModelLabel(model: CodeAgentModelMetadata): string {
   return `${model.displayName} · ${modelProviderDisplayName(model.modelProvider)}`;
+}
+
+/** The newest report time across a catalog list: how a refresh decides the Computer's re-report
+ * has landed (the daemon re-reports with a fresh `observedAt` even when the models did not
+ * change). Serialization across the server-fn boundary may deliver a Date or an ISO string. */
+function maxCatalogObservedAt(catalogs: RuntimeCatalog[] | undefined): number {
+  if (!catalogs) return 0;
+  return catalogs.reduce((max, catalog) => {
+    const value = catalog.observedAt;
+    if (!value) return max;
+    const time = value instanceof Date ? value.getTime() : Date.parse(value);
+    return Number.isFinite(time) ? Math.max(max, time) : max;
+  }, 0);
 }
 
 function modelOptionValue(model: CodeAgentModelMetadata) {

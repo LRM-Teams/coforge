@@ -41,6 +41,7 @@ function fakePorts(overrides: Partial<StatusPorts> = {}): StatusPorts {
     probeMachineMutationLock: () => "free",
     readSupervisorLockOwner: async () => 4821,
     listLeftoverUpgradeJobs: { supported: true, list: async () => [] },
+    readWorkspaceHealth: async () => ({ status: "ok" }),
     ...overrides,
   };
 }
@@ -76,6 +77,7 @@ test("healthy machine reports every section as readable and reachable", async ()
         pidSource: "daemon-snapshot",
         pending: [],
         unsettledUpgrades: [],
+        health: { status: "ok" },
       },
     ],
   });
@@ -145,6 +147,7 @@ test("Coordinator missing: not loaded, no PID, RPC unreachable", async () => {
         pidSource: null,
         pending: [],
         unsettledUpgrades: [],
+        health: { status: "ok" },
       },
     ],
   });
@@ -339,4 +342,34 @@ test("Agents section reports unsupported on a platform without a listing helper"
   );
 
   expect(report.agents).toEqual({ supported: false, workspaces: [] });
+});
+
+test("a degraded Workspace's health is surfaced with its reason, crash count, and since", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      readWorkspaceHealth: async (workspaceId) => {
+        expect(workspaceId).toBe("ws-1");
+        return {
+          status: "degraded",
+          reason: "this Workspace exited unexpectedly 3 times within 60s",
+          crashCount: 3,
+          since: "2026-01-01T00:00:00.000Z",
+        };
+      },
+    }),
+  );
+
+  expect(report.workspaces).toMatchObject({
+    readable: true,
+    workspaces: [
+      {
+        health: {
+          status: "degraded",
+          reason: "this Workspace exited unexpectedly 3 times within 60s",
+          crashCount: 3,
+          since: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    ],
+  });
 });

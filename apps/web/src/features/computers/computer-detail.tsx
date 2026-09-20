@@ -124,13 +124,13 @@ export function ComputerDetail({
   const [restartState, setRestartState] = useState<
     "idle" | "pending" | "accepted" | "completed" | "error"
   >("idle");
-  const { upgradingComputerId, setUpgradingComputerId } = useUpgradingComputer();
+  const { upgradingComputerIds, setUpgradingComputer } = useUpgradingComputer();
   const [upgrade, setUpgrade] = useState<
     | { state: "idle" }
     | { state: "running" }
     | ({ state: "failed"; errorId?: string } & UpgradeFailureView)
   >({ state: "idle" });
-  const upgrading = upgrade.state === "running" || upgradingComputerId === computer.id;
+  const upgrading = upgrade.state === "running" || upgradingComputerIds.has(computer.id);
   const upgradeAvailable =
     onUpgrade &&
     computer.ownedByCurrentUser &&
@@ -140,7 +140,7 @@ export function ComputerDetail({
     if (!onUpgrade) return;
     const requestId = crypto.randomUUID();
     setUpgrade({ state: "running" });
-    setUpgradingComputerId(computer.id);
+    setUpgradingComputer(computer.id, true);
     const settle = (update: () => void) => {
       if (mountedRef.current) update();
     };
@@ -186,7 +186,10 @@ export function ComputerDetail({
         });
       });
     } finally {
-      settle(() => setUpgradingComputerId(undefined));
+      // The shared indicator clears whether or not this panel is still mounted: navigating to
+      // another Computer unmounts this one, and a stale "upgrading" badge must not outlive the
+      // operation it describes.
+      setUpgradingComputer(computer.id, false);
     }
   };
   const setRuntimePublic = async (runtimeId: string, isPublic: boolean) => {

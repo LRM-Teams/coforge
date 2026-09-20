@@ -1,5 +1,11 @@
+import { workspaceHealthRecoveryCommand } from "@lrm/coforge-daemon";
 import { terminalText } from "../terminal-output";
-import type { ComputerStatusReport, PendingRequest, UnsettledUpgradeOperation } from "./types";
+import type {
+  ComputerStatusReport,
+  PendingRequest,
+  UnsettledUpgradeOperation,
+  WorkspaceHealth,
+} from "./types";
 
 /** One stable JSON object with the full report, matching `--json` conventions used by
  * `setup`/`login`: a single line on stdout, nothing else. */
@@ -79,8 +85,23 @@ function renderWorkspaces(report: ComputerStatusReport): string[] {
     for (const pending of workspace.pending) lines.push(`    pending: ${renderPending(pending)}`);
     for (const unsettled of workspace.unsettledUpgrades)
       lines.push(`    unsettled upgrade: ${renderUnsettledUpgrade(unsettled)}`);
+    if (workspace.health.status === "degraded") lines.push(...renderDegradedHealth(workspace));
   }
   return lines;
+}
+
+/** Only printed when a Workspace is actually degraded, so a healthy Workspace's output stays as
+ * quiet as it is today. */
+function renderDegradedHealth(workspace: {
+  workspaceId: string;
+  health: WorkspaceHealth;
+}): string[] {
+  const { health } = workspace;
+  if (health.status !== "degraded") return [];
+  return [
+    `    degraded: ${terminalText(health.reason)}  crashes=${health.crashCount}  since=${terminalText(health.since)}`,
+    `      recover: ${terminalText(workspaceHealthRecoveryCommand(workspace.workspaceId))}`,
+  ];
 }
 
 function renderPending(pending: PendingRequest): string {

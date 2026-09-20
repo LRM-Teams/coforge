@@ -25,4 +25,6 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | [0050](0050-agent-context-usage-display.md) | accepted | Agent context-window usage display (Claude Code only) |
 | [0051](0051-agent-context-breakdown.md) | accepted | Agent context-window composition breakdown (Claude Code only) |
 | [0053](0053-daemon-connection-inbound-liveness.md) | accepted | An open socket is not evidence that the Daemon is reachable |
+| [0054](0054-workspace-runner-health.md) | accepted | A crash-looping Workspace latches itself degraded and says so |
 | [0055](0055-agent-runtime-failure-recovery.md) | accepted | Classify runtime failures, back off deliveries, and fence a repeating one |
+

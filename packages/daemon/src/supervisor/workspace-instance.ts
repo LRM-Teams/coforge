@@ -1,4 +1,14 @@
+import { join } from "node:path";
+
 export type NativeProcessIdentity = { mainPid: number; active: boolean; invocationId: string };
+
+/** The single source of truth for where a Workspace's own state lives under the Coordinator's
+ * state root - the same directory the Coordinator passes as `--state-directory` when it spawns
+ * `__workspace-daemon`, and the only path a read-only observer (e.g. `coforge-computer status`)
+ * may use to find that Workspace's durable state without recomputing the derivation itself. */
+export function workspaceStateDirectory(stateRoot: string, workspaceId: string): string {
+  return join(stateRoot, "workspaces", Buffer.from(workspaceId).toString("base64url"));
+}
 
 export type WorkspaceInstanceConfig = {
   stateRoot: string;
