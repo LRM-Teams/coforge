@@ -1,7 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
+  encodeDaemonRuntimeProviderModelRefreshRequest,
   isValidReleaseVersion,
   parseRuntimeProvider,
+  WORKSPACE_PROTOCOL_MAJOR,
   type CodeAgentModelMetadata,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
@@ -23,6 +25,7 @@ import {
 import {
   createCentrifugoServerApi,
   createUsageScan,
+  daemonControlChannel,
 } from "../../server/centrifugo/server-api.server";
 import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
 import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
@@ -261,6 +264,34 @@ export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
       }))
       .filter((catalog) => catalog.models !== undefined)
       .map((catalog) => ({ ...catalog, models: catalog.models! }));
+  });
+
+/** Asks the Computer's daemon to re-run its model-catalog discovery now (the browser's model
+ * selector refresh button / selector-open auto-refresh). Fire-and-forget on the wire: the daemon
+ * re-reports through the ordinary `daemon:v1:provider:inventory_update` and answers via
+ * `daemon:v1:provider:model_refresh_result`; the caller watches `getComputerRuntimeCatalog`'s
+ * `observedAt` move to see the refresh land. Authorizes exactly like reading the catalog: the
+ * Computer must belong to this Workspace. */
+export const refreshComputerRuntimeCatalog = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(computerIdInputSchema)
+  .handler(async ({ context, data }) => {
+    const { db, workspaceId } = context;
+    const connection = await db.workspaceComputer.findUnique({
+      where: { workspaceId_computerId: { workspaceId, computerId: data.computerId } },
+      select: { computerId: true },
+    });
+    if (!connection) throw new Error("Computer is not available");
+    await createCentrifugoServerApi().publish(
+      daemonControlChannel(workspaceId, data.computerId),
+      encodeDaemonRuntimeProviderModelRefreshRequest({
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId: crypto.randomUUID(),
+        workspaceId,
+        computerId: data.computerId,
+      }),
+    );
+    return { status: "pending" as const };
   });
 
 export const setRuntimeVisibility = createServerFn({ method: "POST" })

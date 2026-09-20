@@ -33,6 +33,7 @@ import {
   createWorkspaceListMethod,
   createDaemonRuntimeReadyMethod,
   createDaemonRuntimeUsageScanResultMethod,
+  createDaemonRuntimeProviderModelRefreshResultMethod,
   createAgentContextScanResultMethod,
   createComputerUpgradeResultMethod,
   createDaemonConnectionStatusMethod,
@@ -44,6 +45,7 @@ import {
   DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
   DAEMON_RUNTIME_READY_METHOD,
   DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
+  DAEMON_RUNTIME_MODEL_REFRESH_RESULT_METHOD,
   AGENT_CONTEXT_SCAN_RESULT_METHOD,
   COMPUTER_UPGRADE_RESULT_METHOD,
   DAEMON_CONNECTION_STATUS_METHOD,
@@ -264,6 +266,8 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
           new PrismaComputerRuntimeRepository(db),
         ),
         [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
+        [DAEMON_RUNTIME_MODEL_REFRESH_RESULT_METHOD]:
+          createDaemonRuntimeProviderModelRefreshResultMethod(),
         [AGENT_CONTEXT_SCAN_RESULT_METHOD]: createAgentContextScanResultMethod(),
         [COMPUTER_UPGRADE_RESULT_METHOD]:
           createComputerUpgradeResultMethod(getComputerUpgradeStore()),
@@ -304,6 +308,8 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
       [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,
       [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
+      [DAEMON_RUNTIME_MODEL_REFRESH_RESULT_METHOD]:
+        createDaemonRuntimeProviderModelRefreshResultMethod(),
       [AGENT_CONTEXT_SCAN_RESULT_METHOD]: createAgentContextScanResultMethod(),
       [COMPUTER_UPGRADE_RESULT_METHOD]: unavailableMethod,
       [AGENT_SKILLS_LIST_RESULT_METHOD]: unavailableMethod,

@@ -16,6 +16,7 @@ import {
   decodeAgentStartIntent,
   decodeAgentStatus,
   decodeDaemonRuntimeCodeAgentsUpdateRequest,
+  decodeDaemonRuntimeProviderModelRefreshResponse,
   decodeDaemonRuntimeReadyRequest,
   decodeDaemonRuntimeUsageScanResponse,
   type CodeAgentModelCatalog,
@@ -489,6 +490,36 @@ export function createDaemonRuntimeUsageScanResultMethod(
       // result is only as fresh as the moment the server received it.
       collectedAt: snapshot?.collectedAt ?? new Date().toISOString(),
     });
+    return new Uint8Array();
+  };
+}
+
+/**
+ * The Daemon's terminal reply for one on-demand model-catalog refresh
+ * (`daemon:v1:provider:model_refresh_result`). The fresh catalog itself already landed through the
+ * ordinary `daemon:v1:provider:inventory_update` re-report before this reply; this method only
+ * authenticates the sender and records the outcome for diagnosability — the browser's model
+ * selector watches `observedAt`, so the reply carries no state the Web needs to keep.
+ */
+export function createDaemonRuntimeProviderModelRefreshResultMethod(): CentrifugoRpcMethod {
+  return async (payload, metadata) => {
+    const response = decodeDaemonRuntimeProviderModelRefreshResponse(payload);
+    const denied = requireDaemonPrincipal(metadata, response);
+    if (denied) return denied;
+    if (response.protocolMajor !== 1 || !response.requestId)
+      return { code: 400, message: "invalid model refresh result" };
+    console.info(
+      JSON.stringify({
+        event: "code_agent_catalog:refresh_result",
+        request_id: response.requestId,
+        workspace_id: response.workspaceId,
+        computer_id: response.computerId,
+        accepted: response.accepted,
+        status: response.status,
+        catalog_count: response.catalogs?.length ?? 0,
+        outcome: response.accepted ? "ok" : "failed",
+      }),
+    );
     return new Uint8Array();
   };
 }
