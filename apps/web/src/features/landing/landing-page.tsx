@@ -1,5 +1,7 @@
 import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
+import cursorMark from "@lobehub/icons-static-svg/icons/cursor.svg";
+import kiroMark from "@lobehub/icons-static-svg/icons/kiro-color.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 import { Check, ChevronDown, Translate01 as Languages } from "@untitledui/icons";
 import { MotionConfig, useReducedMotion } from "motion/react";
@@ -45,6 +47,8 @@ const supportedAgents = [
   { name: "Claude Code", mark: claudeCodeMark, monochrome: false },
   { name: "Codex", mark: codexMark, monochrome: true },
   { name: "Pi", mark: piMark, monochrome: true },
+  { name: "Kiro", mark: kiroMark, monochrome: false },
+  { name: "Cursor", mark: cursorMark, monochrome: true },
 ] as const;
 
 // Lucide dropped brand marks, so the GitHub octicon is inlined here.
