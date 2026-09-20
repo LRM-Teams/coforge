@@ -1,6 +1,7 @@
 {
   "files_host": "files.coforge.cn",
   "releases_host": "releases.coforge.cn",
+  "images_host": "images.coforge.cn",
   "files": {
     "origin_url": "https://replace-files-bucket.oss-cn-region.aliyuncs.com/acceptance/replace-nonce/files.bin",
     "cdn_url": "https://files.coforge.cn/acceptance/replace-nonce/files.bin?auth_key=replace-with-short-lived-value",
@@ -17,6 +18,10 @@
     "cdn_url": "https://releases.coforge.cn/channels.json",
     "expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
+  "image": {
+    "origin_url": "https://replace-images-bucket.oss-cn-region.aliyuncs.com/acceptance/replace-nonce/image.png",
+    "cdn_url": "https://images.coforge.cn/acceptance/replace-nonce/image.png?x-oss-process=style/avatar192"
+  },
   "rejected_urls": [
     {
       "name": "files-through-releases",
@@ -25,6 +30,14 @@
     {
       "name": "release-through-files",
       "url": "https://files.coforge.cn/acceptance/replace-nonce/release.bin?auth_key=replace-with-short-lived-value"
+    },
+    {
+      "name": "files-through-images",
+      "url": "https://images.coforge.cn/acceptance/replace-nonce/files.bin"
+    },
+    {
+      "name": "image-through-files",
+      "url": "https://files.coforge.cn/acceptance/replace-nonce/image.png?auth_key=replace-with-short-lived-value"
     }
   ]
 }

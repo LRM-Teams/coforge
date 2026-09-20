@@ -1,5 +1,10 @@
 import type { PrismaClient } from "../../../../generated/client";
 import { AppError } from "../../../lib/app-error";
+import {
+  PROFILE_IMAGE_STYLES,
+  publicImageUrl,
+  type PublicImageUrlResolver,
+} from "../../files/public-image-delivery.server";
 
 export class PrismaUserProfileRepository {
   constructor(private readonly db: PrismaClient) {}
@@ -33,18 +38,34 @@ export class PrismaUserProfileRepository {
   }
 }
 
-export function avatarUrl(objectKey: string | null) {
+/**
+ * Where the browser reads this user's avatar. With an image CDN configured that is the object's
+ * own public URL, identical on every render so one cached copy serves every page; without one it
+ * is this deployment's authenticated route, versioned by the object id because the bytes behind
+ * one avatar id never change.
+ */
+export function avatarUrl(
+  objectKey: string | null,
+  publicUrl: PublicImageUrlResolver = publicImageUrl,
+) {
   if (!objectKey) return null;
   const version = objectKey.split("/").at(-2);
-  return `/api/me/avatar?v=${encodeURIComponent(version ?? "current")}`;
+  return (
+    publicUrl(objectKey, PROFILE_IMAGE_STYLES.avatar) ??
+    `/api/me/avatar?v=${encodeURIComponent(version ?? "current")}`
+  );
 }
 
 export function workspaceUserAvatarUrl(
   workspaceId: string,
   userId: string,
   objectKey: string | null,
+  publicUrl: PublicImageUrlResolver = publicImageUrl,
 ) {
   if (!objectKey) return null;
   const version = objectKey.split("/").at(-2) ?? "current";
-  return `/api/workspaces/${workspaceId}/users/${userId}/avatar?v=${encodeURIComponent(version)}`;
+  return (
+    publicUrl(objectKey, PROFILE_IMAGE_STYLES.avatar) ??
+    `/api/workspaces/${workspaceId}/users/${userId}/avatar?v=${encodeURIComponent(version)}`
+  );
 }

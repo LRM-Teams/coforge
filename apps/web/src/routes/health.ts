@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fileDeliveryStatus } from "#/server/files/file-delivery.server";
+import { publicImageDeliveryStatus } from "#/server/files/public-image-delivery.server";
 
 export const Route = createFileRoute("/health")({
   server: {
@@ -8,13 +9,19 @@ export const Route = createFileRoute("/health")({
         new Response("ok", {
           // Operators can see whether signed CDN delivery loaded without host access. The value
           // is a state or an error class name, never configuration or secret material.
-          headers: { "X-CoForge-File-Delivery": describeFileDelivery() },
+          headers: {
+            "X-CoForge-File-Delivery": describeFileDelivery(),
+            "X-CoForge-Image-Delivery": describe(publicImageDeliveryStatus()),
+          },
         }),
     },
   },
 });
 
 function describeFileDelivery() {
-  const status = fileDeliveryStatus();
+  return describe(fileDeliveryStatus());
+}
+
+function describe(status: { state: string; errorType?: string }) {
   return status.state === "error" ? `error:${status.errorType}` : status.state;
 }

@@ -82,6 +82,13 @@ services:
       # primary key, mounted as a secret; it is not an OSS credential.
       COFORGE_FILE_DELIVERY_URL: https://files-staging.coforge.cn
       COFORGE_FILE_DELIVERY_KEY_FILE: /run/secrets/coforge_file_delivery_key
+      # Avatars and project icons are published as anonymous, never-expiring URLs on their own
+      # domain and bucket (ADR 0052), so a browser caches one copy of each. Commented out until
+      # the bucket exists, its objects are copied over, and the domain passes the acceptance
+      # gate (docs/operations/aliyun-oss-cdn.md §11); until then the authenticated routes serve
+      # them. Both lines go live together: the URL without the bucket refuses to boot.
+      # COFORGE_IMAGE_OSS_BUCKET: coforge-images-staging
+      # COFORGE_IMAGE_DELIVERY_URL: https://images-staging.coforge.cn
     secrets:
       - source: authing_app_id
         uid: "1000"

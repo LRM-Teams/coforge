@@ -12,6 +12,7 @@ function validInput(): AcceptanceInput {
   return {
     files_host: "files.coforge.cn",
     releases_host: "releases.coforge.cn",
+    images_host: "images.coforge.cn",
     files: {
       origin_url:
         "https://coforge-files-test.oss-cn-example.aliyuncs.com/workspaces/w/attachments/a/original",
@@ -30,6 +31,11 @@ function validInput(): AcceptanceInput {
       cdn_url: "https://releases.coforge.cn/channels.json",
       expected_sha256: sha256("channels"),
     },
+    image: {
+      origin_url:
+        "https://coforge-images-test.oss-cn-example.aliyuncs.com/users/u/avatars/a/original",
+      cdn_url: "https://images.coforge.cn/users/u/avatars/a/original?x-oss-process=style/avatar192",
+    },
     rejected_urls: [
       {
         name: "files-through-releases",
@@ -38,6 +44,14 @@ function validInput(): AcceptanceInput {
       {
         name: "release-through-files",
         url: "https://files.coforge.cn/release-sets/r/bundles/linux.tar.gz?auth_key=valid",
+      },
+      {
+        name: "files-through-images",
+        url: "https://images.coforge.cn/workspaces/w/attachments/a/original",
+      },
+      {
+        name: "image-through-files",
+        url: "https://files.coforge.cn/users/u/avatars/a/original?auth_key=valid",
       },
     ],
   };
@@ -68,6 +82,14 @@ describe("OSS/CDN acceptance", () => {
         }),
       ],
       [input.channels.origin_url, new Response("denied", { status: 403 })],
+      [input.image.origin_url, new Response("denied", { status: 403 })],
+      [
+        input.image.cdn_url,
+        new Response("avatar", {
+          status: 200,
+          headers: { "Cache-Control": "public, max-age=31536000, immutable" },
+        }),
+      ],
       [
         input.channels.cdn_url,
         new Response("channels", {
@@ -82,7 +104,9 @@ describe("OSS/CDN acceptance", () => {
 
     const report = await runAcceptance(input, async (request, init) => {
       const url = String(request);
-      if ([input.files_host, input.releases_host].includes(new URL(url).hostname)) {
+      if (
+        [input.files_host, input.releases_host, input.images_host].includes(new URL(url).hostname)
+      ) {
         seenCookies.push(new Headers(init?.headers).get("cookie") ?? "");
       }
       const response = responses.get(url);
@@ -124,6 +148,86 @@ describe("OSS/CDN acceptance", () => {
       },
     ]);
     expect(requestCount).toBe(0);
+  });
+
+  test("fails when the unsigned image domain can reach a private attachment", async () => {
+    const input = validInput();
+    const attachmentThroughImages = input.rejected_urls.find(
+      ({ name }) => name === "files-through-images",
+    )!.url;
+
+    const report = await runAcceptance(input, async (request) => {
+      const url = String(request);
+      if (url === attachmentThroughImages) return new Response("attachment", { status: 200 });
+      if (url === input.image.cdn_url) {
+        return new Response("avatar", {
+          status: 200,
+          headers: { "Cache-Control": "public, max-age=31536000, immutable" },
+        });
+      }
+      if (url.startsWith("https://files.coforge.cn/workspaces")) {
+        return new Response("attachment", {
+          status: url.includes("auth_key") ? 200 : 403,
+          headers: { "Cache-Control": "private, no-store" },
+        });
+      }
+      return new Response("denied", { status: 403 });
+    });
+
+    expect(report.passed).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "route_rejected:files-through-images")?.passed,
+    ).toBe(false);
+  });
+
+  test("refuses a run that mixes environments", async () => {
+    const input = validInput();
+    input.images_host = "images-staging.coforge.cn";
+    input.image.cdn_url =
+      "https://images-staging.coforge.cn/users/u/avatars/a/original?x-oss-process=style/avatar192";
+    let requestCount = 0;
+
+    const report = await runAcceptance(input, async () => {
+      requestCount += 1;
+      return new Response("should not run", { status: 500 });
+    });
+
+    expect(report.passed).toBe(false);
+    expect(report.checks).toEqual([
+      {
+        id: "input_contract",
+        passed: false,
+        detail: "acceptance input is incomplete or outside the approved scope",
+      },
+    ]);
+    expect(requestCount).toBe(0);
+  });
+
+  test("accepts a staging run when every domain is staging", async () => {
+    const input = validInput();
+    input.files_host = "files-staging.coforge.cn";
+    input.releases_host = "releases-staging.coforge.cn";
+    input.images_host = "images-staging.coforge.cn";
+    for (const probe of [input.files, input.release, input.channels, input.image]) {
+      probe.cdn_url = probe.cdn_url.replace(
+        /(files|releases|images)\.coforge\.cn/,
+        "$1-staging.coforge.cn",
+      );
+    }
+    input.files.unsigned_cdn_url = input.files.unsigned_cdn_url.replace(
+      "files.coforge.cn",
+      "files-staging.coforge.cn",
+    );
+    input.rejected_urls = input.rejected_urls.map((probe) => ({
+      ...probe,
+      url: probe.url.replace(/(files|releases|images)\.coforge\.cn/, "$1-staging.coforge.cn"),
+    }));
+
+    const report = await runAcceptance(input, async () => new Response("denied", { status: 403 }));
+
+    expect(report.checks.some((check) => check.id === "input_contract" && !check.passed)).toBe(
+      false,
+    );
   });
 
   test("turns network failures into a sanitized failure report", async () => {

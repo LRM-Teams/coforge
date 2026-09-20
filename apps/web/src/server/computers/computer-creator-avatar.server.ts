@@ -3,7 +3,30 @@ import type { PrismaClient } from "../../../generated/client";
 import { AppError, isAppError } from "../../lib/app-error";
 import { optionalBrowserUser } from "../auth/require-user.server";
 import { getDatabaseClient } from "../db/client.server";
+import {
+  PROFILE_IMAGE_STYLES,
+  publicImageUrl,
+  type PublicImageUrlResolver,
+} from "../files/public-image-delivery.server";
 import { readUserAvatar } from "../profiles/user-avatar.server";
+
+/**
+ * Where the browser reads the avatar of the person who connected a Computer. The image CDN
+ * addresses the object directly; without one, the workspace-scoped route below serves it, which
+ * is why that route exists at all.
+ */
+export function computerCreatorAvatarUrl(
+  computerId: string,
+  workspaceId: string,
+  objectKey: string | null,
+  publicUrl: PublicImageUrlResolver = publicImageUrl,
+) {
+  if (!objectKey) return null;
+  return (
+    publicUrl(objectKey, PROFILE_IMAGE_STYLES.avatar) ??
+    `/api/computers/${computerId}/creator-avatar?workspaceId=${workspaceId}`
+  );
+}
 
 const scopeSchema = z.object({ computerId: z.uuid(), workspaceId: z.uuid() });
 type Dependencies = {

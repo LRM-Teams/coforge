@@ -1,19 +1,35 @@
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
-import { getFileStorage, type FileStorage } from "../files/file-storage.server";
+import type { FileStorage } from "../files/file-storage.server";
+import {
+  PROFILE_IMAGE_STYLES,
+  publicImageUrl,
+  type PublicImageUrlResolver,
+} from "../files/public-image-delivery.server";
+import { getPublicImageStorage } from "../files/public-image-storage.server";
 import { validateImage } from "../files/image-upload.server";
 import { toPublicServerError } from "../errors/public-error.server";
 
-export function projectIconUrl(projectId: string, objectKey: string | null) {
-  return objectKey
-    ? `/api/projects/${projectId}/icon?v=${encodeURIComponent(objectKey.split("/").at(-2)!)}`
-    : null;
+/**
+ * Where the browser reads a project icon: its own public URL on the image CDN when this
+ * deployment has one, otherwise the authenticated route versioned by the object id.
+ */
+export function projectIconUrl(
+  projectId: string,
+  objectKey: string | null,
+  publicUrl: PublicImageUrlResolver = publicImageUrl,
+) {
+  if (!objectKey) return null;
+  return (
+    publicUrl(objectKey, PROFILE_IMAGE_STYLES.icon) ??
+    `/api/projects/${projectId}/icon?v=${encodeURIComponent(objectKey.split("/").at(-2)!)}`
+  );
 }
 
 export class ProjectImages {
   constructor(
     private readonly db: PrismaClient,
-    private readonly storage: () => Promise<FileStorage> = getFileStorage,
+    private readonly storage: () => Promise<FileStorage> = getPublicImageStorage,
   ) {}
 
   async store(workspaceId: string, userId: string, projectId: string, file: File) {
