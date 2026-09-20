@@ -53,6 +53,7 @@ import {
   type AgentSessionInvalidateReason,
   type AgentMessageRecord,
   type AgentMessageResponse,
+  type DaemonRuntimeProviderModelRefreshRequest,
   type WorkspaceInfoRequest,
   type WorkspaceInfoResponse,
   type AgentStartIntent,
@@ -425,6 +426,9 @@ export class DaemonRuntime {
   #skillsScanning = false;
   /** One Workspace Files list/read at a time per daemon, mirroring `#skillsScanning`. */
   #workspaceFilesScanning = false;
+  /** Serializes on-demand model-catalog refreshes (one CLI-spawning discovery at a time), like
+   * Raft's `refreshChain`. */
+  #modelRefreshChain: Promise<void> = Promise.resolve();
   readonly #messageAttention: AgentMessageAttentionIndex;
   /** Busy-gated delivery holding for providers with no safe busy path (ADR 0048). */
   readonly #deliveryQueue = new AgentDeliveryQueue();
@@ -930,6 +934,16 @@ export class DaemonRuntime {
         }),
       );
       this.#subscribe(
+        this.#transport.onProviderModelRefresh?.(async (request) => {
+          if (this.#stopping || request.computerId !== connection.computerId) return;
+          // Serialize: each request gets a real discovery, in arrival order, never overlapping.
+          this.#modelRefreshChain = this.#modelRefreshChain
+            .catch(() => {})
+            .then(() => this.#refreshProviderModels(connection, request, transport));
+          await this.#modelRefreshChain;
+        }),
+      );
+      this.#subscribe(
         this.#transport.onAgentContextScan?.(async (request) => {
           if (request.computerId !== connection.computerId) return;
           const result = await this.scanAgentContext(request);
@@ -1251,6 +1265,80 @@ export class DaemonRuntime {
         outcome: "failed",
       });
       throw error;
+    }
+  }
+
+  /**
+   * On-demand model-catalog re-discovery, driven by the server's `daemon:v1:provider:model_refresh`
+   * request (the browser's model selector asks for it). Re-runs the same live discovery the
+   * background refresh uses, re-reports through the ordinary inventory update so the server's copy
+   * is current, then answers the request with the fresh catalog. Serialized by `#modelRefreshChain`,
+   * and guarded against shutdown or a replaced transport like `#reportCodeAgentCatalogs`.
+   */
+  async #refreshProviderModels(
+    connection: DaemonConfig,
+    request: DaemonRuntimeProviderModelRefreshRequest,
+    transport: DaemonConnectionClient,
+  ): Promise<void> {
+    const requestId = crypto.randomUUID();
+    const scope = {
+      request_id: requestId,
+      workspace_id: connection.workspaceId,
+      computer_id: connection.computerId,
+    };
+    const startedAt = performance.now();
+    logger.info("Code Agent catalog refresh started", {
+      event: "code_agent_catalog:refresh_started",
+      ...scope,
+      outcome: "started",
+    });
+    const reply = async (response: {
+      accepted: boolean;
+      status: "refreshed" | "error";
+      message?: string;
+      catalogs?: CodeAgentModelCatalog[];
+    }): Promise<void> => {
+      await transport.sendProviderModelRefreshResult?.({
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId: request.requestId,
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        ...response,
+      });
+    };
+    try {
+      const runtimes = await this.#codeAgentDiscovery.runtimes();
+      const catalogs = await this.#codeAgentDiscovery.catalogs(runtimes);
+      if (this.#stopping || this.#transport !== transport) return;
+      await transport.updateCodeAgents?.({
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId,
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        runtimes,
+        catalogs,
+      });
+      logger.info("Code Agent catalog refresh completed", {
+        event: "code_agent_catalog:refresh_completed",
+        ...scope,
+        catalog_count: catalogs.length,
+        elapsed_ms: Math.round(performance.now() - startedAt),
+        outcome: "ok",
+      });
+      await reply({ accepted: true, status: "refreshed", catalogs });
+    } catch (error) {
+      logger.warning("Code Agent catalog refresh failed", {
+        event: "code_agent_catalog:refresh_failed",
+        ...scope,
+        error_code: diagnosticErrorCode(error),
+        outcome: "failed",
+      });
+      if (this.#stopping || this.#transport !== transport) return;
+      await reply({
+        accepted: false,
+        status: "error",
+        message: error instanceof Error ? error.message : "model refresh failed",
+      }).catch(() => {});
     }
   }
 
