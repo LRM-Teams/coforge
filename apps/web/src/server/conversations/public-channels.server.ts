@@ -1039,7 +1039,7 @@ export class PublicChannels {
           const root = threadRootId
             ? await tx.message.findFirst({
                 where: { id: threadRootId, conversationId: channelId },
-                select: { id: true, threadRootId: true },
+                select: { id: true, threadRootId: true, senderMemberId: true },
               })
             : undefined;
           if (threadRootId && !root)
@@ -1099,15 +1099,26 @@ export class PublicChannels {
             ),
           );
           if (root) {
+            // Everyone who takes part in a thread is a follower: whoever replies, everyone the
+            // reply @mentions, and — the first time the thread gets a reply — the author of the
+            // message being replied to. Without that last one, a reply under someone's own
+            // message never enrolls them, and since a thread reply is not a parent-channel post,
+            // nothing would ever notify them of the discussion started under their message.
+            const participants = [member.id, ...resolution.mentions.map((mention) => mention.key)];
+            // Only while the thread is brand new: an explicit `thread unfollow` is a decision, and
+            // a later reply must not silently enroll the root author back into the thread.
+            const existingFollower = await tx.threadFollow.findFirst({
+              where: { rootMessageId: root.id },
+              select: { memberId: true },
+            });
+            if (root.senderMemberId && !existingFollower) participants.push(root.senderMemberId);
             await tx.threadFollow.createMany({
-              data: [member.id, ...resolution.mentions.map((mention) => mention.key)].map(
-                (memberId) => ({
-                  memberId,
-                  rootMessageId: root.id,
-                  conversationId: channelId,
-                  workspaceId,
-                }),
-              ),
+              data: participants.map((memberId) => ({
+                memberId,
+                rootMessageId: root.id,
+                conversationId: channelId,
+                workspaceId,
+              })),
               skipDuplicates: true,
             });
           }

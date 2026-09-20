@@ -2209,3 +2209,79 @@ test("channel unread (ADR 0046): list counts other-authored top-level messages p
     await db.$disconnect();
   }
 });
+
+test("a thread's root author starts following that thread, so later replies reach them", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `ra${suffix.slice(0, 8)}` } });
+  const bob = await db.user.create({ data: { username: `rb${suffix.slice(0, 8)}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `root-follow-${suffix}`,
+      name: "Root author follow",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+    });
+    const channel = await channels.create(workspace.id, alice.id, "rootfollow");
+    await channels.join(workspace.id, bob.id, channel.id);
+
+    const root = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: channel.id,
+      requestId: crypto.randomUUID(),
+      body: "root by alice",
+    });
+    const followed = async (userId: string) => {
+      const member = await db.conversationMember.findUniqueOrThrow({
+        where: { conversationId_userId: { conversationId: channel.id, userId } },
+        select: { id: true },
+      });
+      return db.threadFollow.findUnique({
+        where: { memberId_rootMessageId: { memberId: member.id, rootMessageId: root.id } },
+      });
+    };
+    // A top-level root message on its own enrolls nobody: replies are what make a thread.
+    expect(await followed(alice.id)).toBeNull();
+
+    await channels.send({
+      workspaceId: workspace.id,
+      userId: bob.id,
+      channelId: channel.id,
+      requestId: crypto.randomUUID(),
+      body: "reply by bob",
+      threadRootId: root.id,
+    });
+
+    // The replier follows the thread, and so does the author of the message being replied to:
+    // without that second enrollment a reply under someone's own message would never reach them,
+    // because a thread reply is not a parent-channel post and notifies followers only.
+    expect(await followed(bob.id)).not.toBeNull();
+    expect(await followed(alice.id)).not.toBeNull();
+
+    // An explicit unfollow is a decision: a later reply must not silently re-enroll the root
+    // author back into the thread.
+    await channels.setUserThreadFollowed(workspace.id, alice.id, channel.id, root.id, false);
+    await channels.send({
+      workspaceId: workspace.id,
+      userId: bob.id,
+      channelId: channel.id,
+      requestId: crypto.randomUUID(),
+      body: "second reply by bob",
+      threadRootId: root.id,
+    });
+    expect(await followed(alice.id)).toBeNull();
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+  }
+});
