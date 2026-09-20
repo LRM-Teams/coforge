@@ -149,6 +149,26 @@ export class AgentControl {
     // losing its record is the invariant violation.
     if (!record && known) throw new Error("control_record_missing");
   }
+  /**
+   * Invariant assertions (task #54 step 3): the record's phase and the live process must agree
+   * within this process lifetime — a terminal record with a live process, or a running record
+   * without one, is a bug in the transition that just wrote them. Logged at error level, never
+   * thrown: the assertion watches the boundary, it does not become a second failure path.
+   */
+  #assertPhaseInvariants(agentId: string, record: AgentRuntimeRecord | undefined) {
+    if (!record) return;
+    const running = this.runtime.running(agentId);
+    const terminal = !LIVE_PHASES.has(record.phase);
+    if (terminal === running)
+      logger.error("Agent control record phase disagrees with the live process", {
+        event: "agent_control:invariant_violation",
+        agent_id: agentId,
+        phase: record.phase,
+        process_running: running,
+        daemon_instance_id: this.instanceId,
+      });
+  }
+
   stop(scope: AgentControlScope): Promise<void> {
     const known = this.#known.has(scope.agentId);
     this.#known.add(scope.agentId);
@@ -217,6 +237,7 @@ export class AgentControl {
       }
       await this.store.write(scope.agentId, record);
       await this.runtime.result(record.lastResult).catch(() => {});
+      this.#assertPhaseInvariants(scope.agentId, record);
     });
   }
   resetWorkspace(scope: AgentWorkspaceResetRequest): Promise<void> {
@@ -447,6 +468,7 @@ export class AgentControl {
       record.lastResult = record.startResult;
       this.sessions.capture(record, identity);
       await this.store.write(intent.agentId, record);
+      this.#assertPhaseInvariants(intent.agentId, record);
       this.#onLaunchSucceeded(intent.agentId);
     } catch (launchError) {
       try {
