@@ -11,6 +11,7 @@ import { AgentSessionRecoveryError } from "../code-agent/contract";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
 import type { AgentRuntimeRecord, AgentRuntimeState } from "./agent-runtime-state";
 import type { AgentSessions } from "./agent-session";
+import { LAUNCH_FAILURE_MAX_ATTEMPTS, LaunchFailureBackoff } from "./launch-failure-backoff";
 
 const logger = getLogger(["coforge", "daemon", "agent-control"]);
 
@@ -59,14 +60,33 @@ type Runtime = {
   cleanupUnconfirmed(agentId: string, error: unknown): boolean;
 };
 
+/** Injectable timer seam for the automatic launch retry: production uses plain `setTimeout`, and
+ * tests drive the delays deterministically instead of sleeping through them. */
+export type LaunchRetryScheduler = {
+  schedule(callback: () => void, delayMs: number): unknown;
+  cancel(handle: unknown): void;
+};
+
+const systemLaunchRetryScheduler: LaunchRetryScheduler = {
+  schedule: (callback, delayMs) => setTimeout(callback, delayMs),
+  cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
 /** Owns separate stop, workspace reset, and start primitives. */
 export class AgentControl {
   readonly #known = new Set<string>();
+  /** Per-Agent launch-failure streaks and the cooldown each one owes (Raft's
+   * `SPAWN-FAIL BACKOFF`): counted here rather than derived from the control record, so a
+   * superseding Stop/Start cannot reset the limiter by rewriting that record. */
+  readonly #launchFailures = new LaunchFailureBackoff();
+  /** The one pending automatic launch retry per Agent, if any. */
+  readonly #launchRetries = new Map<string, unknown>();
   constructor(
     private readonly instanceId: string,
     private readonly state: AgentRuntimeState,
     private readonly sessions: AgentSessions,
     private readonly runtime: Runtime,
+    private readonly launchRetryScheduler: LaunchRetryScheduler = systemLaunchRetryScheduler,
   ) {}
   private get store() {
     return this.state.store;
@@ -163,6 +183,11 @@ export class AgentControl {
       }
       if (record?.scope.epoch === scope.epoch && record.phase === "failed")
         throw new Error("previous_control_not_completed");
+      // An accepted Stop supersedes any pending automatic launch retry: the streak and the armed
+      // retry both belong to the launch operation this Stop is ending. Cleared only after every
+      // validation above passed, so a stale/out-of-scope Stop cannot disarm a live retry.
+      this.#clearLaunchRetry(scope.agentId);
+      this.#launchFailures.reset(scope.agentId);
       const resetWorkspaceRequired =
         record?.action === "reset-workspace" && record.phase !== "workspace-reset";
       record = {
@@ -293,7 +318,21 @@ export class AgentControl {
         await this.runtime.result(record.startResult).catch(() => {});
         return;
       }
-      if (
+      // A newer operation supersedes our own pending launch retry. The record still says
+      // "starting" because that retry has not given up yet, but the retry is a daemon-side timer,
+      // never a concurrent launch — so refusing the fresher operation would block a user's
+      // Start/Restart for the whole retry window for no reason. Drop the retry (and its streak)
+      // and let this operation launch, exactly as a record the previous failure had marked
+      // "failed" did before retries existed.
+      const supersededRetry =
+        record !== undefined &&
+        record.phase === "starting" &&
+        record.scope.epoch < scope.epoch &&
+        this.#launchRetries.has(scope.agentId);
+      if (supersededRetry) {
+        this.#clearLaunchRetry(scope.agentId);
+        this.#launchFailures.reset(scope.agentId);
+      } else if (
         record &&
         (["stopping", "clearing", "starting"].includes(record.phase) ||
           (record.phase === "failed" && record.scope.epoch === scope.epoch))
@@ -350,86 +389,212 @@ export class AgentControl {
           sequence: 0,
           daemonInstanceId: this.instanceId,
         };
-      record.scope = scope;
-      record.action = "start";
-      const launchId = intent.launchId;
-      record.phase = "starting";
-      record.launchId = launchId;
-      record.daemonInstanceId = this.instanceId;
-      this.sessions.beginLaunch(record);
-      await this.store.write(intent.agentId, record);
+      await this.#attemptStart(intent, scope, record, intent.launchId, 1);
+    });
+  }
+
+  /**
+   * One launch attempt for a managed Start, plus its retry bookkeeping (Raft 1.0.32's
+   * `SPAWN-FAIL BACKOFF`): a failed spawn does not end the operation with one `launch_failed`
+   * record any more — it counts, the next attempt waits an exponentially growing capped cooldown,
+   * and the attempt is retried automatically until it succeeds or the attempts run out.
+   *
+   * Extracted from `start()` so a retry can re-enter exactly this code under the same control
+   * scope. That reuse is not an optimisation: the server only authorizes a daemon-side relaunch
+   * while its operation is still `starting` under a matching requestId/epoch/launchId
+   * (`agent-control.server.ts#authorizeLaunch` — "never for a superseded, failed, or stopped
+   * operation"), so a retry can never be a fresh control operation the daemon invents; it must
+   * stay inside the managed Start it is recovering.
+   *
+   * On failure the attempt either schedules the next one (the record stays `starting`, no result
+   * is reported, and the server's operation stays pending) or, once the attempts are used up,
+   * reports the same terminal `launch_failed` result this path always reported.
+   */
+  async #attemptStart(
+    intent: AgentStartIntent,
+    scope: AgentControlScope,
+    record: AgentRuntimeRecord,
+    launchId: string,
+    attempt: number,
+  ): Promise<void> {
+    record.scope = scope;
+    record.action = "start";
+    record.phase = "starting";
+    record.launchId = launchId;
+    record.daemonInstanceId = this.instanceId;
+    this.sessions.beginLaunch(record);
+    await this.store.write(intent.agentId, record);
+    try {
+      let identity;
       try {
-        let identity;
-        try {
-          identity = await this.runtime.launch(intent, launchId);
-        } catch (error) {
-          if (!intent.sessionId || !(error instanceof AgentSessionRecoveryError)) throw error;
-          const { sessionId: replaced, sessionMode: _, ...fresh } = intent;
-          // Fire-and-forget: tell the server the stale session is gone BEFORE the fresh
-          // launch attempt, so a later Restart never tries it again — even if this launch
-          // then fails. Only the two invalidation reasons are reported; "session_in_use"
-          // is a retry signal, not evidence the session itself is gone, so `reason` stays
-          // undefined and neither `invalidateSession` nor the retry's narration fires.
-          const reason: AgentSessionInvalidateReason | undefined =
-            error.code === "session_missing"
-              ? "missing"
-              : error.code === "provider_replay_rejected"
-                ? "provider_replay_rejected"
-                : undefined;
-          if (reason) this.runtime.invalidateSession?.(intent, launchId, replaced, reason);
-          // The retry creates a new native session, so it is an explicit create launch and gets
-          // the same startup turn as any other launch that creates a session.
-          identity = await this.runtime.launch(
-            { ...fresh, sessionMode: "create" },
-            launchId,
-            replaced,
-            reason,
-          );
-        }
-        record.phase = "running";
-        record.startResult = {
-          ...scope,
-          phase: "started",
+        identity = await this.runtime.launch(intent, launchId);
+      } catch (error) {
+        if (!intent.sessionId || !(error instanceof AgentSessionRecoveryError)) throw error;
+        const { sessionId: replaced, sessionMode: _, ...fresh } = intent;
+        // Fire-and-forget: tell the server the stale session is gone BEFORE the fresh
+        // launch attempt, so a later Restart never tries it again — even if this launch
+        // then fails. Only the two invalidation reasons are reported; "session_in_use"
+        // is a retry signal, not evidence the session itself is gone, so `reason` stays
+        // undefined and neither `invalidateSession` nor the retry's narration fires.
+        const reason: AgentSessionInvalidateReason | undefined =
+          error.code === "session_missing"
+            ? "missing"
+            : error.code === "provider_replay_rejected"
+              ? "provider_replay_rejected"
+              : undefined;
+        if (reason) this.runtime.invalidateSession?.(intent, launchId, replaced, reason);
+        // The retry creates a new native session, so it is an explicit create launch and gets
+        // the same startup turn as any other launch that creates a session.
+        identity = await this.runtime.launch(
+          { ...fresh, sessionMode: "create" },
           launchId,
-          sequence: ++record.sequence,
-          ...(identity ? { identity } : {}),
-        };
-        record.lastResult = record.startResult;
-        this.sessions.capture(record, identity);
-        await this.store.write(intent.agentId, record);
-      } catch (launchError) {
-        try {
-          await this.runtime.stop(intent.agentId);
-        } catch (stopError) {
-          // Cleanup after a failed launch could not confirm the process exited: the record
-          // must keep fencing (phase stays "starting", already written above), not be repaired.
-          record.exitUnconfirmed = this.runtime.cleanupUnconfirmed(intent.agentId, stopError);
-          await this.store.write(intent.agentId, record).catch(() => {});
-          logger.error("Agent launch cleanup did not confirm process exit; record stays fenced", {
-            event: "agent_control:launch_cleanup_unconfirmed",
-            agent_id: intent.agentId,
-            exit_unconfirmed: record.exitUnconfirmed,
-            error_code: diagnosticErrorCode(stopError),
-          });
-          throw stopError;
-        }
-        record.phase = "failed";
-        record.lastResult = {
-          ...scope,
-          phase: "failed",
-          launchId,
-          sequence: ++record.sequence,
-          errorCode: "launch_failed",
-        };
-        logger.warning("Agent launch failed", {
-          event: "agent_control:launch_failed",
+          replaced,
+          reason,
+        );
+      }
+      record.phase = "running";
+      record.startResult = {
+        ...scope,
+        phase: "started",
+        launchId,
+        sequence: ++record.sequence,
+        ...(identity ? { identity } : {}),
+      };
+      record.lastResult = record.startResult;
+      this.sessions.capture(record, identity);
+      await this.store.write(intent.agentId, record);
+      this.#onLaunchSucceeded(intent.agentId);
+    } catch (launchError) {
+      try {
+        await this.runtime.stop(intent.agentId);
+      } catch (stopError) {
+        // Cleanup after a failed launch could not confirm the process exited: the record
+        // must keep fencing (phase stays "starting", already written above), not be repaired.
+        record.exitUnconfirmed = this.runtime.cleanupUnconfirmed(intent.agentId, stopError);
+        await this.store.write(intent.agentId, record).catch(() => {});
+        logger.error("Agent launch cleanup did not confirm process exit; record stays fenced", {
+          event: "agent_control:launch_cleanup_unconfirmed",
           agent_id: intent.agentId,
+          exit_unconfirmed: record.exitUnconfirmed,
+          error_code: diagnosticErrorCode(stopError),
+        });
+        throw stopError;
+      }
+      const failure = this.#launchFailures.recordFailure(intent.agentId);
+      if (attempt < LAUNCH_FAILURE_MAX_ATTEMPTS) {
+        logger.warning("Agent launch failed; retrying after backoff", {
+          event: "agent_control:launch_retry_scheduled",
+          agent_id: intent.agentId,
+          attempt,
+          attempts: failure.attempts,
+          cooldown_ms: failure.cooldownMs,
+          retry_at_ms: failure.untilMs,
+          outcome: "retry",
           error_code: diagnosticErrorCode(launchError),
         });
+        // The record deliberately stays "starting": a live phase, so the next daemon instance
+        // repairs a launch that died mid-cooldown instead of fencing on it
+        // (`repairStaleRecord`), and the server's operation stays non-terminal so the retry is
+        // still authorized. `lastResult` is left as it was — the retry owns the outcome now.
         await this.store.write(intent.agentId, record);
+        this.#scheduleLaunchRetry(intent, scope, launchId, attempt + 1, failure.cooldownMs);
+        return;
       }
-      await this.runtime.result(record.lastResult).catch(() => {});
-    });
+      const attempts = this.#launchFailures.reset(intent.agentId);
+      this.#clearLaunchRetry(intent.agentId);
+      record.phase = "failed";
+      record.lastResult = {
+        ...scope,
+        phase: "failed",
+        launchId,
+        sequence: ++record.sequence,
+        errorCode: "launch_failed",
+      };
+      logger.warning("Agent launch failed", {
+        event: "agent_control:launch_failed",
+        agent_id: intent.agentId,
+        attempts,
+        error_code: diagnosticErrorCode(launchError),
+      });
+      await this.store.write(intent.agentId, record);
+    }
+    await this.runtime.result(record.lastResult).catch(() => {});
+  }
+
+  /** Clears the failure streak after a successful launch, narrating a recovery only when there
+   * actually was a streak to recover from. */
+  #onLaunchSucceeded(agentId: string): void {
+    const attempts = this.#launchFailures.reset(agentId);
+    this.#clearLaunchRetry(agentId);
+    if (attempts > 0)
+      logger.info("Agent launch recovered after retrying", {
+        event: "agent_control:launch_retry_recovered",
+        agent_id: agentId,
+        attempts,
+      });
+  }
+
+  /**
+   * Arms the single automatic retry for this Agent after `delayMs`. The callback re-reads the
+   * control record under the same per-Agent mutex every other transition takes, so a Stop or a
+   * newer Start that landed during the cooldown wins: the retry sees a phase/epoch/launchId it
+   * does not own and simply returns.
+   */
+  #scheduleLaunchRetry(
+    intent: AgentStartIntent,
+    scope: AgentControlScope,
+    launchId: string,
+    attempt: number,
+    delayMs: number,
+  ): void {
+    this.#clearLaunchRetry(intent.agentId);
+    const handle = this.launchRetryScheduler.schedule(() => {
+      this.#launchRetries.delete(intent.agentId);
+      void this.state
+        .run(intent.agentId, async () => {
+          const record = await this.store.read(intent.agentId);
+          if (
+            !record ||
+            record.phase !== "starting" ||
+            record.scope.epoch !== scope.epoch ||
+            record.launchId !== launchId
+          )
+            return;
+          if (this.runtime.running(intent.agentId)) {
+            // Something else brought the process up first (a rebind, or a wake through the
+            // runtime); adopt that success instead of spawning a second process.
+            this.#onLaunchSucceeded(intent.agentId);
+            return;
+          }
+          await this.#attemptStart(intent, scope, record, launchId, attempt);
+        })
+        .catch((error) => {
+          logger.error("Agent launch retry could not run", {
+            event: "agent_control:launch_retry_error",
+            agent_id: intent.agentId,
+            attempt,
+            error_code: diagnosticErrorCode(error),
+          });
+        });
+    }, delayMs);
+    this.#launchRetries.set(intent.agentId, handle);
+  }
+
+  #clearLaunchRetry(agentId: string): void {
+    const handle = this.#launchRetries.get(agentId);
+    if (handle === undefined) return;
+    this.#launchRetries.delete(agentId);
+    this.launchRetryScheduler.cancel(handle);
+  }
+
+  /** Drops every pending retry and every failure streak. Called on daemon shutdown: a pending
+   * retry has no meaning for the next daemon instance, which re-derives its work from the
+   * control records (a retry this one died mid-cooldown left behind a repairable "starting"
+   * record). */
+  dispose(): void {
+    for (const handle of this.#launchRetries.values()) this.launchRetryScheduler.cancel(handle);
+    this.#launchRetries.clear();
+    this.#launchFailures.clear();
   }
   /**
    * A Start met an already-running process under an older, terminal operation (docs/adr/0041).
