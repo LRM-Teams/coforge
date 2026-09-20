@@ -12,6 +12,8 @@ import { useConversationRealtime } from "./conversation-realtime-client";
 import {
   CONVERSATION_WINDOW_MAX_PAGES,
   CONVERSATION_WINDOW_PAGE_SIZE,
+  flushWindowUpdates,
+  foldWindowUpdates,
   newestSequence,
   nextPageCursor,
   previousPageCursor,
@@ -143,17 +145,40 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
   const setPages = (update: (pages: Pages<T>) => Pages<T>) =>
     queryClient.setQueryData<Pages<T>>(query.queryKey, (pages) => (pages ? update(pages) : pages));
 
+  /**
+   * Messages the retained window cannot hold yet. While the newest retained page is not the live
+   * tail (`hasNewer`), a realtime update must not be folded into it — but dropping it would lose a
+   * reply to a root that *is* still retained, because the forward page loader only fetches roots
+   * after its cursor and would never fetch that reply. Keep them (deduped by id) and merge them once
+   * the tail is back.
+   */
+  const pendingUpdatesRef = useRef<M[]>([]);
+
   /** Fold freshly received messages into the latest window, unless pinned to an older one. */
   const mergeUpdates = (updates: M[]) =>
     setPages((pages) => {
       const latest = pages.pages.at(-1);
-      if (!latest || latest.hasNewer) return pages;
+      const fold = foldWindowUpdates(latest, pendingUpdatesRef.current, updates, mergeMessages);
+      if (!fold || !latest) return pages;
+      pendingUpdatesRef.current = fold.pending;
+      if (!fold.messages) return pages;
       return {
         ...pages,
-        pages: [
-          ...pages.pages.slice(0, -1),
-          { ...latest, messages: mergeMessages(latest.messages, updates) },
-        ],
+        pages: [...pages.pages.slice(0, -1), { ...latest, messages: fold.messages }],
+      };
+    });
+
+  /** Merge anything buffered while the tail was evicted into the newest page, once it is the tail
+   * again. Leaves the buffer intact if it is still not (more forward pages remain). */
+  const flushPendingUpdates = () =>
+    setPages((pages) => {
+      const latest = pages.pages.at(-1);
+      const messages = flushWindowUpdates(latest, pendingUpdatesRef.current, mergeMessages);
+      if (!messages || !latest) return pages;
+      pendingUpdatesRef.current = [];
+      return {
+        ...pages,
+        pages: [...pages.pages.slice(0, -1), { ...latest, messages }],
       };
     });
 
@@ -232,9 +257,11 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
       if (hasPreviousPage) await fetchPreviousPage();
     },
     /** Fetch the next page towards the live end after the window slid up into history and
-     * evicted the tail. */
+     * evicted the tail, then merge anything that arrived while the tail was gone. */
     loadNewer: async () => {
-      if (hasNextPage) await fetchNextPage();
+      if (!hasNextPage) return;
+      await fetchNextPage();
+      flushPendingUpdates();
     },
     /** Leave an "around" window, or a history window whose tail the bounded window evicted, and
      * return to the live end. Replaces the loaded pages with a fresh newest page rather than
@@ -242,8 +269,14 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
      * resolves; the pane's pending-latest effect then scrolls to it. */
     showLatest: async () => {
       const newest = await loadInitialPage();
+      const buffered = pendingUpdatesRef.current;
+      pendingUpdatesRef.current = [];
       queryClient.setQueryData<Pages<T>>(query.queryKey, {
-        pages: [newest],
+        pages: [
+          buffered.length
+            ? { ...newest, messages: mergeMessages(newest.messages, buffered) }
+            : newest,
+        ],
         pageParams: [undefined],
       });
     },

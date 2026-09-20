@@ -84,3 +84,37 @@ export function windowPageFlags(
       return { hasOlder: true, hasNewer: overflow };
   }
 }
+
+type MergeMessages<M> = (base: readonly M[], incoming: readonly M[]) => M[];
+
+/** Where a realtime update lands: folded into the newest page, or buffered until it is the tail. */
+export type WindowUpdateFold<M> = { messages: M[] | undefined; pending: M[] };
+
+/**
+ * Fold a realtime update into a bounded window's newest page. When that page is not the live tail
+ * (`hasNewer`), the update is buffered instead: dropping it would lose a reply to a root that is
+ * still retained, because the forward page loader only fetches roots after its cursor and would
+ * never fetch that reply. `merge` is the caller's page merge (de-duplicating by id, ordered by
+ * sequence), passed in so this stays a pure decision with no dependency of its own.
+ */
+export function foldWindowUpdates<M extends { id: string; sequence: number }>(
+  latestPage: { hasNewer?: boolean; messages: M[] } | undefined,
+  pending: readonly M[],
+  updates: readonly M[],
+  merge: MergeMessages<M>,
+): WindowUpdateFold<M> | undefined {
+  if (!latestPage) return undefined;
+  if (latestPage.hasNewer) return { messages: undefined, pending: merge(pending, updates) };
+  return { messages: merge(latestPage.messages, [...pending, ...updates]), pending: [] };
+}
+
+/** The buffered updates to merge once the newest page is the tail again, or `undefined` while it is
+ * not (more forward pages remain) or there is nothing buffered. */
+export function flushWindowUpdates<M extends { id: string; sequence: number }>(
+  latestPage: { hasNewer?: boolean; messages: M[] } | undefined,
+  pending: readonly M[],
+  merge: MergeMessages<M>,
+): M[] | undefined {
+  if (!latestPage || latestPage.hasNewer || pending.length === 0) return undefined;
+  return merge(latestPage.messages, pending);
+}
