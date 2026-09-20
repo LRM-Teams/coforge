@@ -14,6 +14,15 @@ import type {
   AgentStartIntent,
 } from "@lrm/coforge-sdk/internal";
 import { AgentSessionRecoveryError, AgentProcessCleanupError } from "../src/code-agent/contract";
+import type { LaunchRetryScheduler } from "../src/agent-runtime/agent-control";
+
+/** Every test in this file that can fail a launch asserts on the operation's own outcome, so it
+ * arms no automatic retry; the retry behaviour has its own coverage in
+ * agent-control-launch-retry.test.ts. */
+const inertRetryScheduler: LaunchRetryScheduler = {
+  schedule: () => undefined,
+  cancel: () => {},
+};
 
 /** Matches the production wiring (`DaemonRuntime#cleanupUnconfirmed`): only a genuine
  * "process did not exit" cleanup failure counts as unconfirmed. */
@@ -93,23 +102,29 @@ test.each([true, false])(
         throw new Error("must not clear");
       },
     });
-    const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
-      running: () => false,
-      cleanupUnconfirmed,
-      rebind: async () => undefined,
-      stop: async () => undefined,
-      async launch(intent) {
-        attempts.push(intent);
-        if (intent.sessionId)
-          throw recoverable
-            ? new AgentSessionRecoveryError("session_missing")
-            : new Error("unauthorized");
-        return { sessionId: "fresh", state: "empty" };
+    const control = new AgentControl(
+      "daemon",
+      state,
+      new AgentSessions(state, async () => {}),
+      {
+        running: () => false,
+        cleanupUnconfirmed,
+        rebind: async () => undefined,
+        stop: async () => undefined,
+        async launch(intent) {
+          attempts.push(intent);
+          if (intent.sessionId)
+            throw recoverable
+              ? new AgentSessionRecoveryError("session_missing")
+              : new Error("unauthorized");
+          return { sessionId: "fresh", state: "empty" };
+        },
+        async result(result) {
+          results.push(result);
+        },
       },
-      async result(result) {
-        results.push(result);
-      },
-    });
+      inertRetryScheduler,
+    );
     await control.start({
       protocolMajor: 1,
       requestId: "r",
@@ -124,8 +139,14 @@ test.each([true, false])(
       sessionId: "old",
     });
     expect(attempts).toHaveLength(recoverable ? 2 : 1);
-    expect(results.at(-1)?.phase).toBe(recoverable ? "started" : "failed");
-    if (recoverable) expect(results.at(-1)?.identity?.sessionId).toBe("fresh");
+    if (recoverable) {
+      expect(results.at(-1)?.phase).toBe("started");
+      expect(results.at(-1)?.identity?.sessionId).toBe("fresh");
+    } else {
+      // A non-recoverable launch failure no longer ends the operation by itself: it is counted
+      // and an automatic retry is armed (see agent-control-launch-retry.test.ts).
+      expect(results).toHaveLength(0);
+    }
   },
 );
 

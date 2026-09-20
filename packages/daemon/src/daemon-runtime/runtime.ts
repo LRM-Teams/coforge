@@ -3791,6 +3791,9 @@ export class DaemonRuntime {
       }
     }
     await Promise.allSettled(this.#agentLaunches.values());
+    // No retry timer may outlive this daemon instance: a launch that was mid-cooldown left a
+    // "starting" record behind, which the next instance repairs and recovers (`recover()`).
+    this.#agentControl.dispose();
     const activeAgentIds = this.#agentProcessManager.activeAgentIds();
     const sessions = activeAgentIds.map((id) => ({
       id,
