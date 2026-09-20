@@ -28,4 +28,4 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | [0053](0053-daemon-connection-inbound-liveness.md) | accepted | An open socket is not evidence that the Daemon is reachable |
 | [0054](0054-workspace-runner-health.md) | accepted | A crash-looping Workspace latches itself degraded and says so |
 | [0055](0055-agent-runtime-failure-recovery.md) | accepted | Classify runtime failures, back off deliveries, and fence a repeating one |
-| [0056](0056-linux-agent-process-cleanup.md) | proposed | Linux reaps its own Workspace's Agent processes on daemon boot |
+| [0056](0056-linux-agent-process-cleanup.md) | accepted | Linux reaps its own Workspace's Agent processes on daemon boot |
