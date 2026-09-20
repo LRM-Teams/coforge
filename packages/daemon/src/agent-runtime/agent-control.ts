@@ -318,7 +318,21 @@ export class AgentControl {
         await this.runtime.result(record.startResult).catch(() => {});
         return;
       }
-      if (
+      // A newer operation supersedes our own pending launch retry. The record still says
+      // "starting" because that retry has not given up yet, but the retry is a daemon-side timer,
+      // never a concurrent launch — so refusing the fresher operation would block a user's
+      // Start/Restart for the whole retry window for no reason. Drop the retry (and its streak)
+      // and let this operation launch, exactly as a record the previous failure had marked
+      // "failed" did before retries existed.
+      const supersededRetry =
+        record !== undefined &&
+        record.phase === "starting" &&
+        record.scope.epoch < scope.epoch &&
+        this.#launchRetries.has(scope.agentId);
+      if (supersededRetry) {
+        this.#clearLaunchRetry(scope.agentId);
+        this.#launchFailures.reset(scope.agentId);
+      } else if (
         record &&
         (["stopping", "clearing", "starting"].includes(record.phase) ||
           (record.phase === "failed" && record.scope.epoch === scope.epoch))

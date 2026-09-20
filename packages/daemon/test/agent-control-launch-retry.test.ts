@@ -212,6 +212,30 @@ test("each retry keeps the managed scope and launchId of the operation it is rec
   expect(results.at(-1)).toMatchObject({ phase: "started", requestId: "r", epoch: 1 });
 });
 
+test("a newer Start supersedes the armed retry instead of being refused for the whole window", async () => {
+  const h = harness(async (attempt) => {
+    if (attempt === 1) throw new Error("cannot spawn");
+    return { sessionId: "fresh", state: "empty" };
+  });
+
+  await h.control.start(startIntent);
+  expect(h.timers.delays()).toEqual([1_000]);
+
+  // A user's Start/Restart arriving while we back off must launch immediately: the retry is a
+  // daemon-side timer, not a concurrent launch, so there is nothing for it to race.
+  await h.control.start({
+    ...startIntent,
+    requestId: "r2",
+    controlEpoch: 2,
+    launchId: "launch-2",
+  });
+
+  expect(h.launches).toEqual([1, 2]);
+  expect(h.results.at(-1)).toMatchObject({ phase: "started", requestId: "r2", epoch: 2 });
+  expect(h.record()?.launchId).toBe("launch-2");
+  expect(h.timers.entries.every((entry) => entry.cancelled)).toBe(true);
+});
+
 test("an accepted Stop cancels the armed retry instead of letting it spawn behind the Stop", async () => {
   const h = harness(async () => {
     throw new Error("cannot spawn");
