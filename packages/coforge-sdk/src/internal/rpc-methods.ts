@@ -13,6 +13,9 @@
  *
  * The local CLI ↔ resident-daemon IPC method names (`LOCAL_RPC_METHODS`) are a separate protocol
  * and do not live here.
+ *
+ * `LEGACY_RPC_METHOD_NAMES` below holds the pre-rename spellings of the same vocabulary for the
+ * upgrade window; the local IPC names are unaffected by it too.
  */
 export const RPC_METHODS = {
   computerRegister: "computer:v1:register",
@@ -56,3 +59,74 @@ export const RPC_METHODS = {
   agentTask: "agent:v1:task:get",
   agentWeeklyReport: "agent:v1:weekly_report:get",
 } as const;
+
+/**
+ * The pre-rename spelling of every method, keyed by the current `RPC_METHODS` entry it now belongs
+ * to. PR #459 renamed the whole vocabulary at once, so every installed Computer still speaks these
+ * names: a Daemon that has not been upgraded yet sends them, and a Daemon that has not been
+ * upgraded yet rejects an `AgentMessageDelivery` whose discriminator is not the old `agent:deliver`
+ * spelling. The cloud therefore keeps accepting the names below at its RPC boundary
+ * (`currentRpcMethodName`), and keeps emitting the delivery/ACK discriminator they carry
+ * (`codec.ts`).
+ *
+ * This is an upgrade window, not a second vocabulary: delete an entry once no installed Computer
+ * can still send it, and delete the table once it is empty. The per-feature `*_METHOD` constants
+ * stay the current spelling, so call sites never name a legacy method.
+ *
+ * TODO(legacy-rpc-methods): remove this table (and the dual-spelling delivery/ACK tolerance in
+ * `codec.ts` plus the alias lookup in the Web RPC handler) once every Computer has been upgraded.
+ */
+export const LEGACY_RPC_METHOD_NAMES = {
+  computerRegister: "computer:register",
+  workspaceList: "workspace:list",
+  workspaceGet: "workspace:get",
+  daemonRuntimeReady: "daemon:runtime_ready",
+  daemonConnectionStatus: "daemon:connection_status",
+  daemonCodeAgentsUpdate: "daemon:code_agents_update",
+  daemonUsageScan: "daemon:usage_scan",
+  daemonUsageScanResult: "daemon:usage_scan_result",
+  computerRestart: "computer:restart",
+  computerUpgrade: "computer:upgrade",
+  computerUpgradeResult: "computer:upgrade_result",
+  agentStart: "agent:start",
+  agentStop: "agent:stop",
+  agentActivityProbe: "agent:activity_probe",
+  agentContextScan: "agent:context_scan",
+  agentContextScanResult: "agent:context_scan_result",
+  agentMessage: "agent:deliver",
+  agentMessageAck: "agent:deliver:ack",
+  agentChannelMute: "agent:channel:mute",
+  agentChannelUnmute: "agent:channel:unmute",
+  agentThreadUnfollow: "agent:thread:unfollow",
+  agentStatus: "agent:status",
+  agentActivity: "agent:activity",
+  agentSession: "agent:session",
+  agentSessionInvalidate: "agent:session:invalidate",
+  agentContextUsage: "agent:context:usage",
+  agentWorkspaceInfo: "agent:workspace:info",
+  agentWorkspaceReset: "agent:reset-workspace",
+  agentControlResult: "agent:control:result",
+  agentSkillsList: "agent:skills:list",
+  agentSkillsListResult: "agent:skills:list_result",
+  agentWorkspaceFilesList: "agent:workspace_files:list",
+  agentWorkspaceFilesListResult: "agent:workspace_files:list_result",
+  agentWorkspaceFileRead: "agent:workspace_files:read",
+  agentWorkspaceFileReadResult: "agent:workspace_files:read_result",
+  agentReminder: "agent:reminder",
+  reminderFire: "reminder:fire",
+  reminderSnapshot: "reminder:snapshot",
+  agentTask: "agent:task",
+  agentWeeklyReport: "agent:weekly-report",
+} as const satisfies Partial<Record<keyof typeof RPC_METHODS, string>>;
+
+const CURRENT_RPC_METHOD_NAMES: ReadonlyMap<string, string> = new Map(
+  (Object.keys(LEGACY_RPC_METHOD_NAMES) as Array<keyof typeof RPC_METHODS>).map((name) => [
+    LEGACY_RPC_METHOD_NAMES[name],
+    RPC_METHODS[name],
+  ]),
+);
+
+/** The current name a pre-rename wire method stands for; `undefined` for every other name. */
+export function currentRpcMethodName(method: string): string | undefined {
+  return CURRENT_RPC_METHOD_NAMES.get(method);
+}
