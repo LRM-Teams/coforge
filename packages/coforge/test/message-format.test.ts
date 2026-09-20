@@ -287,43 +287,71 @@ test("formatSendSuccess appends a recentUnread section only when non-empty", () 
   expect(rendered).toContain("@frank: missed while held");
 });
 
-test("formatHeldSend lists held messages oldest first and offers the anyway escape hatch only when allowed", () => {
+test("formatHeldSend renders Raft's held notice and offers the anyway escape only when suggested", () => {
   const held = [
     message({ senderHandle: "ada", body: "first note", createdAt: "2026-09-07T10:01:00Z" }),
     message({ senderHandle: "bob", body: "second note", createdAt: "2026-09-07T10:02:00Z" }),
   ];
-  const withoutAnyway = formatHeldSend("#general", { attentionCount: 2, messages: held });
+  const withoutAnyway = formatHeldSend("#general", {
+    decision: "local_hold",
+    newMessageCount: 2,
+    shownMessageCount: 2,
+    omittedMessageCount: 0,
+    heldMessages: held,
+  });
   expect(withoutAnyway).toContain(
-    "Freshness hold: 2 newer messages arrived on #general before your reply was sent.",
+    "Held — 2 unread messages in #general. Your message has been saved as a draft.",
   );
+  expect(withoutAnyway).toContain(`  ├ Latest 2 ${"─".repeat(28)}`);
   expect(withoutAnyway).toContain("  │ @ada 10:01  first note");
   expect(withoutAnyway).toContain("  │ @bob 10:02  second note");
-  expect(withoutAnyway).toContain("Your message has been saved as a draft.");
-  expect(withoutAnyway).toContain('coforge message send --target "#general" --send-draft');
+  expect(withoutAnyway).toContain(
+    '  └ Previews are truncated. Full text: coforge message read --target "#general"',
+  );
+  expect(withoutAnyway).toContain("After reviewing the current state of this conversation");
+  expect(withoutAnyway).toContain('coforge message send --send-draft --target "#general"');
   expect(withoutAnyway).not.toContain("--anyway");
 
   const withAnyway = formatHeldSend("#general", {
-    attentionCount: 1,
-    anywayAllowed: true,
-    messages: [held[0]!],
+    decision: "local_hold",
+    newMessageCount: 1,
+    shownMessageCount: 1,
+    continueAnywaySuggested: true,
+    heldMessages: [held[0]!],
   });
-  expect(withAnyway).toContain("Freshness hold: 1 newer message arrived on #general");
-  expect(withAnyway).toContain('coforge message send --target "#general" --send-draft --anyway');
+  expect(withAnyway).toContain("Held — 1 unread message in #general");
+  expect(withAnyway).toContain('coforge message send --send-draft --anyway --target "#general"');
+});
+
+test("formatHeldSend names the omitted earlier messages and where to read them", () => {
+  const output = formatHeldSend("#general", {
+    decision: "local_hold",
+    newMessageCount: 5,
+    shownMessageCount: 2,
+    omittedMessageCount: 3,
+    heldMessages: [
+      message({ senderHandle: "ada", body: "first note", createdAt: "2026-09-07T10:01:00Z" }),
+    ],
+  });
+  expect(output).toContain("3 earlier messages skipped in this notice.");
+  expect(output).toContain('Older exist: coforge message read --target "#general" --before ');
 });
 
 test("formatHeldSend truncates a long preview with a remaining-character marker", () => {
   const body = "a".repeat(170);
   const output = formatHeldSend("@ada", {
-    attentionCount: 1,
-    messages: [message({ senderHandle: "ada", body, createdAt: "2026-09-07T09:00:00Z" })],
+    newMessageCount: 1,
+    shownMessageCount: 1,
+    heldMessages: [message({ senderHandle: "ada", body, createdAt: "2026-09-07T09:00:00Z" })],
   });
   expect(output).toContain(`  │ @ada 09:00  ${"a".repeat(160)}…⟨10 more chars⟩`);
 });
 
 test("formatHeldSend collapses newlines and runs of whitespace in the preview", () => {
   const output = formatHeldSend("@ada", {
-    attentionCount: 1,
-    messages: [
+    newMessageCount: 1,
+    shownMessageCount: 1,
+    heldMessages: [
       message({
         senderHandle: "ada",
         body: "  line one\n\nline   two  ",
@@ -332,9 +360,4 @@ test("formatHeldSend collapses newlines and runs of whitespace in the preview", 
     ],
   });
   expect(output).toContain("  │ @ada 09:00  line one line two");
-});
-
-test("formatHeldSend falls back to the returned message count when attentionCount is absent", () => {
-  const output = formatHeldSend("@ada", { messages: [message(), message({ id: "b" })] });
-  expect(output).toContain("Freshness hold: 2 newer messages arrived on @ada");
 });

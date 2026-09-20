@@ -546,9 +546,20 @@ export function parseArgs(
       if (attachmentIds && sendDraft)
         throw withOutputMode(
           new CliError({
-            code: "INVALID_ARG",
+            code: "SEND_DRAFT_ATTACHMENTS_UNSUPPORTED",
             message:
               "--attachment-id cannot be used with --send-draft. Use a normal send to replace the draft.",
+            retryable: false,
+            draftSaved: false,
+            suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+          }),
+          outputMode,
+        );
+      if (continueAnyway && !sendDraft)
+        throw withOutputMode(
+          new CliError({
+            code: "SEND_DRAFT_ANYWAY_REQUIRES_SEND_DRAFT",
+            message: "--anyway can only be used together with --send-draft.",
             retryable: false,
             draftSaved: false,
             suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
@@ -1196,7 +1207,25 @@ export async function run(args: readonly string[], transport: MessageTransport):
   const { command } = invocation;
   if (command === "send") {
     const outputMode = invocation.json ? "json" : "text";
-    const body = invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text();
+    if (invocation.sendDraft && (await sendDraftStdinHasContent())) {
+      throw withOutputMode(
+        new CliError({
+          code: "SEND_DRAFT_STDIN_UNSUPPORTED",
+          message: [
+            "--send-draft sends the current saved draft and does not accept stdin.",
+            "To update the draft, send the revised content normally without --send-draft:",
+            `  coforge message send --target "${invocation.target}" <<'COFORGE_MESSAGE'`,
+            "  revised message",
+            "  COFORGE_MESSAGE",
+          ].join("\n"),
+          retryable: false,
+          draftSaved: false,
+          suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+        }),
+        outputMode,
+      );
+    }
+    const body = invocation.sendDraft ? undefined : await readPipedSendContent();
     // With `--send-draft`, the body (and thus content presence) is only known to the daemon, which
     // already re-sends the draft's own saved mentions when no explicit override is given.
     if (invocation.mentions?.length && body !== undefined) {
@@ -1244,11 +1273,7 @@ export async function run(args: readonly string[], transport: MessageTransport):
       throw withOutputMode(
         heldSendCliError(
           invocation.target,
-          result as {
-            attentionCount?: number;
-            anywayAllowed?: boolean;
-            messages?: AgentMessageRecord[];
-          },
+          result as HeldSendResult,
           invocation.freshnessContextMode === "withheld",
         ),
         outputMode,
@@ -1499,11 +1524,22 @@ function formatReaction(messageId: string, emoji: string, remove: boolean): stri
   return `Reaction ${emoji} ${remove ? "removed from" : "added to"} message ${shortId}.`;
 }
 
-function isHeldSend(result: unknown): result is { accepted: false; sideEffectDecision: "hold" } {
+function isHeldSend(result: unknown): result is HeldSendResult {
   if (!result || typeof result !== "object") return false;
-  const response = result as { accepted?: unknown; sideEffectDecision?: unknown };
-  return response.accepted === false && response.sideEffectDecision === "hold";
+  return (result as { state?: unknown }).state === "held";
 }
+
+/** Raft's held-send envelope, as the daemon hands it to the CLI. */
+type HeldSendResult = {
+  state: "held";
+  decision?: "local_hold" | "syncing_hold";
+  newMessageCount?: number;
+  shownMessageCount?: number;
+  omittedMessageCount?: number;
+  heldMessages?: AgentMessageRecord[];
+  continueAnywaySuggested?: boolean;
+  withheldMessageCount?: number;
+};
 
 const HELD_SEND_NEXT_ACTION =
   "Review the held context, then update the draft or send the current draft unchanged.";
@@ -1516,16 +1552,15 @@ const HELD_SEND_NEXT_ACTION =
  */
 function heldSendCliError(
   target: string,
-  result: { attentionCount?: number; anywayAllowed?: boolean; messages?: AgentMessageRecord[] },
+  result: HeldSendResult,
   reviewerIsolation: boolean,
 ): CliError {
   if (reviewerIsolation) {
-    const response = result as { newMessageCount?: unknown; withheldMessageCount?: unknown };
     const count =
-      typeof response.newMessageCount === "number"
-        ? response.newMessageCount
-        : typeof response.withheldMessageCount === "number"
-          ? response.withheldMessageCount
+      typeof result.newMessageCount === "number"
+        ? result.newMessageCount
+        : typeof result.withheldMessageCount === "number"
+          ? result.withheldMessageCount
           : 0;
     return new CliError({
       code: "SEND_HELD_AS_DRAFT",
@@ -1572,6 +1607,38 @@ function formatInboxCheck(result: unknown): string {
         }
       : {}),
   });
+}
+
+/** How long `--send-draft` watches stdin before deciding nothing was piped in (Raft's own bounded
+ * observation window: the flag replays the daemon-held copy, so piped content is a mistake to
+ * report, not a body to silently discard). */
+const SEND_DRAFT_STDIN_OBSERVATION_MS = 150;
+
+/** Reads the bytes a caller piped in. The stream is single-use, so an invocation that already
+ * observed it (only possible when one process runs several sends, as the test harness does) has
+ * nothing left to read rather than an error to report. */
+async function readPipedSendContent(): Promise<string> {
+  try {
+    return await new Response(Bun.stdin.stream()).text();
+  } catch {
+    return "";
+  }
+}
+
+async function sendDraftStdinHasContent(): Promise<boolean> {
+  const reader = Bun.stdin.stream().getReader();
+  const deadline = new Promise<{ done: true; value: undefined }>((resolve) =>
+    setTimeout(
+      () => resolve({ done: true as const, value: undefined }),
+      SEND_DRAFT_STDIN_OBSERVATION_MS,
+    ),
+  );
+  try {
+    const first = await Promise.race([reader.read(), deadline]);
+    return !first.done && (first.value?.length ?? 0) > 0;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function isMessageCommand(value: string | undefined): value is MessageCommand {

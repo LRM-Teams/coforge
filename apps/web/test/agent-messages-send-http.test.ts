@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { handleAgentMessagesPost } from "../src/routes/api/agent/v1/messages";
-import type { AgentMessageHold } from "../src/server/conversations/agent-message-hold.server";
 import { AppError } from "../src/lib/app-error";
 import { AgentSendRejectedError } from "../src/server/conversations/agent-send-rejected-error.server";
 
@@ -12,7 +11,7 @@ const request = (body: unknown) =>
 
 test("rejects an unsupported freshnessContextMode with 400", async () => {
   const result = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "hello", freshnessContextMode: "secret" }),
+    request({ target: "@ada", content: "hello", freshnessContextMode: "secret" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       repository: {},
@@ -25,7 +24,7 @@ test("rejects an unsupported freshnessContextMode with 400", async () => {
 
 test("rejects a missing target or body with 400 before reading freshnessContextMode", async () => {
   const result = await handleAgentMessagesPost(
-    request({ body: "hello" }),
+    request({ content: "hello" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       repository: {},
@@ -62,31 +61,21 @@ test("withheld hold response carries state and a count, never message bodies", a
       attachments: [],
     },
   ];
-  const holds = new Map<string, AgentMessageHold>();
   const result = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "reviewer send", freshnessContextMode: "withheld" }),
+    request({ target: "@ada", content: "reviewer send", freshnessContextMode: "withheld" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       repository: {
         readPendingAgentContext: async () => pendingRows,
       },
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
-      holdStore: {
-        issue: async (hold: AgentMessageHold) => {
-          const token = `token-${holds.size}`;
-          holds.set(token, hold);
-          return token;
-        },
-        get: async (token: string) => holds.get(token),
-        consume: async (token: string) => holds.delete(token),
-      },
     },
   );
   expect(result.status).toBe(200);
   const body = await result.json();
   expect(body).toMatchObject({
     state: "held",
-    context: [],
+    heldMessages: [],
     freshnessContextMode: "withheld",
     withheldMessageCount: 2,
   });
@@ -110,24 +99,14 @@ test("inline hold response still carries the presented message bodies", async ()
       attachments: [],
     },
   ];
-  const holds = new Map<string, AgentMessageHold>();
   const result = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "reviewer send" }),
+    request({ target: "@ada", content: "reviewer send" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       repository: {
         readPendingAgentContext: async () => pendingRows,
       },
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
-      holdStore: {
-        issue: async (hold: AgentMessageHold) => {
-          const token = `token-${holds.size}`;
-          holds.set(token, hold);
-          return token;
-        },
-        get: async (token: string) => holds.get(token),
-        consume: async (token: string) => holds.delete(token),
-      },
     },
   );
   expect(result.status).toBe(200);
@@ -135,7 +114,7 @@ test("inline hold response still carries the presented message bodies", async ()
   expect(body).toMatchObject({ state: "held" });
   expect(body.freshnessContextMode).toBeUndefined();
   expect(body.withheldMessageCount).toBeUndefined();
-  expect(body.context).toEqual([
+  expect(body.heldMessages).toEqual([
     {
       id: "message-1",
       sequence: 1,
@@ -152,7 +131,7 @@ test("inline hold response still carries the presented message bodies", async ()
 
 test("rejects a non-uuid entry in attachmentIds with 400", async () => {
   const result = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "hello", attachmentIds: ["not-a-uuid"] }),
+    request({ target: "@ada", content: "hello", attachmentIds: ["not-a-uuid"] }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
   );
@@ -166,7 +145,7 @@ test("rejects attachmentIds with more than 10 entries with 400", async () => {
     (_, index) => `11111111-1111-4111-8111-11111111111${index.toString(16)}`,
   );
   const result = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "hello", attachmentIds: ids }),
+    request({ target: "@ada", content: "hello", attachmentIds: ids }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
   );
@@ -177,7 +156,7 @@ test("rejects attachmentIds with more than 10 entries with 400", async () => {
 test("rejects a duplicate id in attachmentIds with 400", async () => {
   const id = "11111111-1111-4111-8111-111111111111";
   const result = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "hello", attachmentIds: [id, id] }),
+    request({ target: "@ada", content: "hello", attachmentIds: [id, id] }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
   );
@@ -189,7 +168,7 @@ test("accepts two distinct attachmentIds and forwards them in order to the sende
   const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
   let received: unknown;
   const result = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "hello", attachmentIds: ids }),
+    request({ target: "@ada", content: "hello", attachmentIds: ids }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       repository: {},
@@ -207,7 +186,7 @@ test("accepts two distinct attachmentIds and forwards them in order to the sende
 
 test("rejects malformed mentions with 400", async () => {
   const result = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "hello @Ada", mentions: [{ type: "human", id: "x" }] }),
+    request({ target: "@ada", content: "hello @Ada", mentions: [{ type: "human", id: "x" }] }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     { repository: {}, sender: { executeFromAgent: async () => ({ id: "unreachable" }) } },
   );
@@ -219,7 +198,7 @@ test("maps an AgentSendRejectedError from the sender to its own status and messa
   const result = await handleAgentMessagesPost(
     request({
       target: "@ada",
-      body: "hello",
+      content: "hello",
       attachmentIds: ["11111111-1111-4111-8111-111111111111"],
     }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
@@ -240,7 +219,7 @@ test("maps an AgentSendRejectedError naming the offending mention to a 400", asy
   const result = await handleAgentMessagesPost(
     request({
       target: "@ada",
-      body: "hello @ghost",
+      content: "hello @ghost",
       mentions: [{ type: "user", id: "11111111-1111-4111-8111-111111111111", name: "ghost" }],
     }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
@@ -267,7 +246,7 @@ test("a channel ACCESS_DENIED AppError from channel resolution is not reported a
   // must never be mistaken for AgentSendRejectedError's attachment-unavailable case (the bug this
   // test guards against), and must propagate unchanged rather than becoming a Response.
   const caught = await handleAgentMessagesPost(
-    request({ target: "#general", body: "hello" }),
+    request({ target: "#general", content: "hello" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       repository: {},
@@ -284,7 +263,7 @@ test("a channel ACCESS_DENIED AppError from channel resolution is not reported a
 
 test("a malformed-channel INVALID_INPUT AppError is not reported as a mention error", async () => {
   const caught = await handleAgentMessagesPost(
-    request({ target: "#general", body: "hello" }),
+    request({ target: "#general", content: "hello" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       repository: {},
@@ -300,7 +279,6 @@ test("a malformed-channel INVALID_INPUT AppError is not reported as a mention er
 });
 
 test("a bypassed hold's sent response carries recentUnread; every other response carries none", async () => {
-  const holds = new Map<string, AgentMessageHold>();
   const dependencies = {
     repository: {
       readPendingAgentContext: async () => [
@@ -318,39 +296,34 @@ test("a bypassed hold's sent response carries recentUnread; every other response
       ],
     },
     sender: { executeFromAgent: async () => ({ id: "sent-1" }) },
-    holdStore: {
-      issue: async (hold: AgentMessageHold) => {
-        const token = `token-${holds.size}`;
-        holds.set(token, hold);
-        return token;
-      },
-      get: async (token: string) => holds.get(token),
-      consume: async (token: string) => holds.delete(token),
-    },
   };
   const firstHeld = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "hello" }),
+    request({ target: "@ada", content: "hello" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     dependencies,
   );
   const firstBody = await firstHeld.json();
   expect(firstBody.state).toBe("held");
+  expect(firstBody.decision).toBe("local_hold");
+  // The first hold of a draft does not suggest `--anyway`; a re-held one does (Raft's rule).
+  expect(firstBody.continueAnywaySuggested).toBe(false);
   expect(firstBody.recentUnread).toEqual([]);
 
   const secondHeld = await handleAgentMessagesPost(
-    request({ target: "@ada", body: "hello", holdToken: firstBody.holdToken }),
+    request({ target: "@ada", content: "hello", sendDraft: true, draftReholdCount: 1 }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     dependencies,
   );
   const secondBody = await secondHeld.json();
   expect(secondBody.state).toBe("held");
-  expect(secondBody.anywayAllowed).toBe(true);
+  expect(secondBody.continueAnywaySuggested).toBe(true);
 
   const bypassed = await handleAgentMessagesPost(
     request({
       target: "@ada",
-      body: "hello",
-      holdToken: secondBody.holdToken,
+      content: "hello",
+      sendDraft: true,
+      draftReholdCount: 1,
       continueAnyway: true,
     }),
     { workspaceId: "workspace-1", agentId: "agent-1" },

@@ -78,8 +78,11 @@ test("models the send route's state discriminant and held context", () => {
     protocolMajor: 1,
     requestId: "request-send-held",
     state: "held",
-    holdToken: "hold-1",
-    context: [
+    decision: "local_hold",
+    reason: "exact_target_pending",
+    availableActions: ["check_messages", "send_draft", "send_anyway"],
+    continueAnywaySuggested: true,
+    heldMessages: [
       {
         id: "message-2",
         sequence: 2,
@@ -97,15 +100,14 @@ test("models the send route's state discriminant and held context", () => {
     protocolMajor: 1,
     requestId: "request-send-bypass",
     state: "sent",
+    decision: "bypass",
+    reason: "continue_anyway",
     messageId: "message-3",
-    bypass: true,
-    anywayAllowed: true,
-    context: [],
   };
   expect(held.state).toBe("held");
-  expect(held.context).toHaveLength(1);
-  expect(bypassed.bypass).toBe(true);
-  expect(bypassed.context).toEqual([]);
+  expect(held.heldMessages).toHaveLength(1);
+  expect(bypassed.decision).toBe("bypass");
+  expect(bypassed.heldMessages).toBeUndefined();
 });
 
 test("models the resolve route's own response shape", () => {

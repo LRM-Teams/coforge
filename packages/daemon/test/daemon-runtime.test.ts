@@ -1668,14 +1668,14 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada:12345678",
-          body: "reply",
+          content: "reply",
         },
         harness.apiKey,
       );
       expect(requests.at(-1)).toMatchObject({
         operation: "send",
         target: fullTarget,
-        seenUpToSequence: 7,
+        seenUpToSeq: 7,
       });
     } finally {
       await harness.runtime.stop();
@@ -1713,7 +1713,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "#general:abcdef12",
-          body: "thread reply",
+          content: "thread reply",
         },
         harness.apiKey,
       );
@@ -1726,7 +1726,7 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("reuses a short-target held draft token and body when sent with the full target", async () => {
+  test("reuses a short-target held draft's content when sent with the full target", async () => {
     const rootId = "12345678-1234-4234-8234-123456789abc";
     const fullTarget = `@ada:${rootId}`;
     const sends: AgentMessageRequest[] = [];
@@ -1747,8 +1747,8 @@ describe("DaemonRuntime", () => {
             accepted: false,
             attentionCount: 1,
             messages: [],
-            sideEffectDecision: "hold",
-            holdToken: "opaque-token",
+            state: "held",
+            decision: "local_hold",
           }
         : {
             protocolMajor: 1,
@@ -1757,7 +1757,8 @@ describe("DaemonRuntime", () => {
             attentionCount: 0,
             messageId: "sent",
             messages: [],
-            sideEffectDecision: "forward",
+            state: "sent",
+            decision: "forward",
           };
     });
     try {
@@ -1768,7 +1769,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada:12345678",
-          body: "original body",
+          content: "original body",
         },
         harness.apiKey,
       );
@@ -1785,8 +1786,8 @@ describe("DaemonRuntime", () => {
       );
       expect(sends[1]).toMatchObject({
         target: fullTarget,
-        body: "original body",
-        holdToken: "opaque-token",
+        content: "original body",
+        draftReholdCount: 1,
       });
     } finally {
       await harness.runtime.stop();
@@ -1813,7 +1814,8 @@ describe("DaemonRuntime", () => {
         attentionCount: 0,
         messageId: "sent",
         messages: [],
-        sideEffectDecision: "forward",
+        state: "sent",
+        decision: "forward",
       };
     });
     try {
@@ -1835,7 +1837,7 @@ describe("DaemonRuntime", () => {
             context: harness.context,
             operation: "send",
             target: "@ada",
-            body: "top-level reply",
+            content: "top-level reply",
           },
           harness.apiKey,
         )
@@ -1865,8 +1867,7 @@ describe("DaemonRuntime", () => {
       expect(sends).toHaveLength(1);
       expect(sends[0]).toMatchObject({
         target: "@ada",
-        body: "top-level reply",
-        holdToken: undefined,
+        content: "top-level reply",
       });
 
       // --target-confirmed remains the other bypass, for a fresh (non-draft) send.
@@ -1877,7 +1878,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada",
-          body: "top-level reply",
+          content: "top-level reply",
           targetConfirmed: true,
         },
         harness.apiKey,
@@ -1889,7 +1890,7 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("a --send-draft resend of a tokenless draft sends as a plain send and rejects --anyway", async () => {
+  test("a --send-draft resend forwards --anyway instead of refusing it", async () => {
     const rootId = "12345678-1234-4234-8234-123456789abc";
     const sends: AgentMessageRequest[] = [];
     const harness = await messageHarness(async (request) => {
@@ -1909,7 +1910,8 @@ describe("DaemonRuntime", () => {
         attentionCount: 0,
         messageId: "sent",
         messages: [],
-        sideEffectDecision: "forward",
+        state: "sent",
+        decision: "forward",
       };
     });
     try {
@@ -1931,43 +1933,28 @@ describe("DaemonRuntime", () => {
             context: harness.context,
             operation: "send",
             target: "@ada",
-            body: "top-level reply",
+            content: "top-level reply",
           },
           harness.apiKey,
         )
         .catch(() => undefined);
 
-      // --anyway has nothing to bypass without a hold token.
-      await expect(
-        harness.runtime.agentMessage(
-          harness.context,
-          {
-            requestId: "resend-anyway",
-            context: harness.context,
-            operation: "send",
-            target: "@ada",
-            sendDraft: true,
-            continueAnyway: true,
-          },
-          harness.apiKey,
-        ),
-      ).rejects.toThrow("Held draft token is unavailable");
-      expect(sends).toEqual([]);
-
-      // Without --anyway, the same tokenless draft resends as an ordinary send.
+      // `--send-draft --anyway` is the Agent's explicit decision to send anyway: it forwards the
+      // flag and is never refused (Raft has no "denied" outcome).
       await harness.runtime.agentMessage(
         harness.context,
         {
-          requestId: "resend-plain",
+          requestId: "resend-anyway",
           context: harness.context,
           operation: "send",
           target: "@ada",
           sendDraft: true,
+          continueAnyway: true,
         },
         harness.apiKey,
       );
       expect(sends).toHaveLength(1);
-      expect(sends[0]).toMatchObject({ holdToken: undefined, continueAnyway: undefined });
+      expect(sends[0]).toMatchObject({ continueAnyway: true, draftReholdCount: 0 });
     } finally {
       await harness.runtime.stop();
     }
@@ -1983,8 +1970,8 @@ describe("DaemonRuntime", () => {
         accepted: false,
         attentionCount: 1,
         messages: [],
-        sideEffectDecision: "hold",
-        holdToken: "opaque-token",
+        state: "held",
+        decision: "local_hold",
       };
     });
     try {
@@ -1995,7 +1982,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada",
-          body: "hi @ada",
+          content: "hi @ada",
           mentions: [{ type: "user", id: "actor-1", name: "ada" }],
         },
         harness.apiKey,
@@ -2048,7 +2035,8 @@ describe("DaemonRuntime", () => {
         attentionCount: 0,
         messageId: "sent",
         messages: [],
-        sideEffectDecision: "forward",
+        state: "sent",
+        decision: "forward",
       };
     });
     try {
@@ -2074,7 +2062,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada",
-          body: "top-level reply",
+          content: "top-level reply",
         },
         harness.apiKey,
       );
@@ -2096,8 +2084,8 @@ describe("DaemonRuntime", () => {
           accepted: false,
           attentionCount: 1,
           messages: [],
-          sideEffectDecision: "hold",
-          holdToken: "opaque-token",
+          state: "held",
+          decision: "local_hold",
         };
       return {
         protocolMajor: 1,
@@ -2106,7 +2094,8 @@ describe("DaemonRuntime", () => {
         attentionCount: 0,
         messageId: "sent",
         messages: [],
-        sideEffectDecision: "forward",
+        state: "sent",
+        decision: "forward",
       };
     });
     try {
@@ -2117,7 +2106,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada",
-          body: "first body @ada",
+          content: "first body @ada",
           attachmentIds: ["attachment-1", "attachment-2"],
           mentions,
         },
@@ -2160,8 +2149,8 @@ describe("DaemonRuntime", () => {
           accepted: false,
           attentionCount: 1,
           messages: [],
-          sideEffectDecision: "hold",
-          holdToken: "opaque-token",
+          state: "held",
+          decision: "local_hold",
         };
       return {
         protocolMajor: 1,
@@ -2170,7 +2159,8 @@ describe("DaemonRuntime", () => {
         attentionCount: 0,
         messageId: "sent",
         messages: [],
-        sideEffectDecision: "forward",
+        state: "sent",
+        decision: "forward",
       };
     });
     try {
@@ -2181,7 +2171,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada",
-          body: "first body @ada @helper",
+          content: "first body @ada @helper",
           mentions: [{ type: "user", id: "actor-1", name: "ada" }],
         },
         harness.apiKey,
@@ -2224,7 +2214,8 @@ describe("DaemonRuntime", () => {
           attentionCount: 0,
           messageId: "sent-1",
           messages: [],
-          sideEffectDecision: "anyway_accepted",
+          state: "sent",
+          decision: "bypass",
           recentUnread: [messageRecord(11, "@bea", "@ada")],
         };
       return {
@@ -2234,7 +2225,8 @@ describe("DaemonRuntime", () => {
         attentionCount: 0,
         messageId: "sent-2",
         messages: [],
-        sideEffectDecision: "forward",
+        state: "sent",
+        decision: "forward",
       };
     });
     try {
@@ -2245,7 +2237,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada",
-          body: "reply",
+          content: "reply",
           continueAnyway: true,
         },
         harness.apiKey,
@@ -2259,11 +2251,11 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada",
-          body: "follow up",
+          content: "follow up",
         },
         harness.apiKey,
       );
-      expect(sends[1]).toMatchObject({ seenUpToSequence: 11 });
+      expect(sends[1]).toMatchObject({ seenUpToSeq: 11 });
     } finally {
       await harness.runtime.stop();
     }
@@ -2539,7 +2531,7 @@ describe("DaemonRuntime", () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const operations: string[] = [];
-    const messageRequests: Array<{ requestId: string; holdToken?: string }> = [];
+    const messageRequests: Array<{ requestId: string; draftReholdCount?: number }> = [];
     const runtime = new DaemonRuntime(
       connection,
       () => ({
@@ -2559,15 +2551,24 @@ describe("DaemonRuntime", () => {
           async sendAgentDeliveryAck() {},
           async agentMessage(request) {
             operations.push(request.operation);
-            messageRequests.push({ requestId: request.requestId, holdToken: request.holdToken });
+            messageRequests.push({
+              requestId: request.requestId,
+              draftReholdCount: request.draftReholdCount,
+            });
             return request.requestId === "send-1"
               ? {
                   protocolMajor: 1,
                   requestId: request.requestId,
                   accepted: false,
                   attentionCount: 1,
-                  sideEffectDecision: "hold" as const,
-                  holdToken: "server-opaque-token",
+                  state: "held" as const,
+                  decision: "local_hold" as const,
+                  reason: "exact_target_pending",
+                  continueAnywaySuggested: true,
+                  newMessageCount: 1,
+                  shownMessageCount: 1,
+                  omittedMessageCount: 0,
+                  seenUpToSeq: 7,
                   messages: [
                     {
                       id: "message-7",
@@ -2587,9 +2588,10 @@ describe("DaemonRuntime", () => {
                   requestId: request.requestId,
                   accepted: true,
                   attentionCount: 0,
+                  state: "sent" as const,
+                  decision: "forward" as const,
                   messageId: "sent",
                   messages: [],
-                  sideEffectDecision: "forward" as const,
                 };
           },
         }),
@@ -2617,18 +2619,19 @@ describe("DaemonRuntime", () => {
 
     const held = await runtime.agentMessage(
       context,
-      { requestId: "send-1", context, operation: "send", target: "@ada", body: "reply" },
+      { requestId: "send-1", context, operation: "send", target: "@ada", content: "reply" },
       `sk_agent_${"a".repeat(43)}`,
     );
     expect(held).toMatchObject({
       accepted: false,
-      sideEffectDecision: "hold",
+      state: "held",
+      decision: "local_hold",
       messages: [{ id: "message-7" }],
     });
-    expect(held).not.toHaveProperty("seenUpToSequence");
+    expect(held).not.toHaveProperty("seenUpToSeq");
     expect(held).not.toHaveProperty("holdToken");
     expect(operations).toEqual(["send"]);
-    expect(messageRequests).toEqual([{ requestId: "send-1" }]);
+    expect(messageRequests).toEqual([{ requestId: "send-1", draftReholdCount: 0 }]);
 
     await runtime.stop();
     const recoveredRuntime = new DaemonRuntime(
@@ -2650,15 +2653,19 @@ describe("DaemonRuntime", () => {
           async sendAgentDeliveryAck() {},
           async agentMessage(request) {
             operations.push(request.operation);
-            messageRequests.push({ requestId: request.requestId, holdToken: request.holdToken });
+            messageRequests.push({
+              requestId: request.requestId,
+              draftReholdCount: request.draftReholdCount,
+            });
             return {
               protocolMajor: 1,
               requestId: request.requestId,
               accepted: true,
               attentionCount: 0,
+              state: "sent" as const,
+              decision: "forward" as const,
               messageId: "sent",
               messages: [],
-              sideEffectDecision: "forward" as const,
             };
           },
         }),
@@ -2682,11 +2689,12 @@ describe("DaemonRuntime", () => {
       },
       `sk_agent_${"a".repeat(43)}`,
     );
-    expect(sent).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
+    expect(sent).toMatchObject({ accepted: true, decision: "forward" });
     expect(operations).toEqual(["send", "send"]);
+    // The replayed draft has been held once, which is what makes `continueAnywaySuggested` true.
     expect(messageRequests).toEqual([
-      { requestId: "send-1" },
-      { requestId: "send-2", holdToken: "server-opaque-token" },
+      { requestId: "send-1", draftReholdCount: 0 },
+      { requestId: "send-2", draftReholdCount: 1 },
     ]);
 
     await expect(
@@ -2701,7 +2709,7 @@ describe("DaemonRuntime", () => {
         },
         `sk_agent_${"a".repeat(43)}`,
       ),
-    ).rejects.toThrow("No held draft");
+    ).rejects.toThrow("No saved draft");
 
     const ordinarySend = await recoveredRuntime.agentMessage(
       recoveredContext,
@@ -2710,13 +2718,13 @@ describe("DaemonRuntime", () => {
         context: recoveredContext,
         operation: "send",
         target: "@ada",
-        body: "follow-up",
+        content: "follow-up",
       },
       `sk_agent_${"a".repeat(43)}`,
     );
-    expect(ordinarySend).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
+    expect(ordinarySend).toMatchObject({ accepted: true, decision: "forward" });
     expect(operations).toEqual(["send", "send", "send"]);
-    expect(messageRequests.at(-1)).toEqual({ requestId: "send-3", holdToken: undefined });
+    expect(messageRequests.at(-1)).toEqual({ requestId: "send-3", draftReholdCount: 0 });
     await recoveredRuntime.stop();
     await rm(stateDirectory, { recursive: true, force: true });
   });
@@ -2734,7 +2742,8 @@ describe("DaemonRuntime", () => {
         // daemon must redact them locally regardless, and fall back to attentionCount only
         // when the server omits withheldMessageCount.
         messages: [messageRecord(9, "@ada", "@ada")],
-        sideEffectDecision: "hold" as const,
+        state: "held",
+        decision: "local_hold" as const,
         freshnessContextMode: "withheld" as const,
         ...(request.requestId === "send-server-count" ? { withheldMessageCount: 5 } : {}),
       };
@@ -2747,7 +2756,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada",
-          body: "reply",
+          content: "reply",
           freshnessContextMode: "withheld",
         },
         harness.apiKey,
@@ -2765,7 +2774,7 @@ describe("DaemonRuntime", () => {
           context: harness.context,
           operation: "send",
           target: "@ada",
-          body: "reply",
+          content: "reply",
           freshnessContextMode: "withheld",
         },
         harness.apiKey,

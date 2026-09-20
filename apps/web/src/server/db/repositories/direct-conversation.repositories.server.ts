@@ -1760,20 +1760,69 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         mentions: MESSAGE_MENTIONS_SELECT,
       },
     });
-    return rows.reverse().map((m) => {
-      const sender = agentMessageSender(m.sender);
-      return {
-        id: m.id,
-        sequence: m.sequence,
-        senderKind: sender.kind,
-        senderHandle: sender.handle,
-        senderDescription: sender.description,
-        body: agentReadableBody(m.body, m.mentions),
-        createdAt: m.createdAt,
-        target: canonicalTarget,
-        attachments: m.attachments,
-      };
+    return rows.reverse().map((m) => this.#agentContextRecord(m, canonicalTarget));
+  }
+
+  /**
+   * The target's most recent messages, ignoring the Agent's own read boundary or own messages: the
+   * source of Raft's first-touch `syncing_hold` (`target_first_touch_recent_context`). Own messages
+   * are not context to review, so they are excluded.
+   */
+  async readRecentAgentContext(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    limit: number,
+  ) {
+    const { conversationId, threadRootId, canonicalTarget, isChannel } =
+      await this.resolveAgentTarget(workspaceId, agentId, target);
+    const agentMember = await this.db.conversationMember.findUnique({
+      where: { conversationId_agentId: { conversationId, agentId } },
+      select: { id: true },
     });
+    const rows = await this.db.message.findMany({
+      where: {
+        conversationId,
+        threadRootId,
+        ...(agentMember ? { senderMemberId: { not: agentMember.id } } : {}),
+        ...unreadForAgentWhere(agentId, isChannel),
+      },
+      orderBy: { sequence: "desc" },
+      take: limit,
+      include: {
+        sender: MESSAGE_SENDER_SELECT,
+        attachments: { orderBy: { position: "asc" } },
+        mentions: MESSAGE_MENTIONS_SELECT,
+      },
+    });
+    return rows.reverse().map((m) => this.#agentContextRecord(m, canonicalTarget));
+  }
+
+  /** One row of the Agent-facing context window, shared by the pending and recent readers so both
+   * surfaces cannot drift apart. */
+  #agentContextRecord<
+    Row extends {
+      id: string;
+      sequence: number;
+      sender: Parameters<typeof agentMessageSender>[0];
+      body: string;
+      mentions: Parameters<typeof agentReadableBody>[1];
+      createdAt: Date;
+      attachments: { id: string; fileName: string; contentType: string; sizeBytes: number }[];
+    },
+  >(m: Row, canonicalTarget: string) {
+    const sender = agentMessageSender(m.sender);
+    return {
+      id: m.id,
+      sequence: m.sequence,
+      senderKind: sender.kind,
+      senderHandle: sender.handle,
+      senderDescription: sender.description,
+      body: agentReadableBody(m.body, m.mentions),
+      createdAt: m.createdAt,
+      target: canonicalTarget,
+      attachments: m.attachments,
+    };
   }
 
   /** Count of the same pending-agent-context scope `readPendingAgentContext` reads, unbounded by its 3-row window. */

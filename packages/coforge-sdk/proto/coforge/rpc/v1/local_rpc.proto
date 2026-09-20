@@ -60,14 +60,13 @@ message MessageAttentionSummary {
 
 message AgentMessageResponse {
   string request_id = 1;
+  // For `message send`: whether the message was sent rather than held (`state == "sent"`).
   bool accepted = 2;
   uint32 attention_count = 3;
   repeated AgentMessageRecord messages = 4;
   string message_id = 5;
   repeated MessageAttentionSummary summaries = 6;
-  string side_effect_decision = 7;
-  optional uint64 seen_up_to_sequence = 8; // Reserved for trusted legacy decoders; never emitted.
-  bool anyway_allowed = 9;
+  optional uint64 seen_up_to_sequence = 8; // Daemon-side only; never emitted to the Agent.
   bool has_older = 10;
   bool has_newer = 11;
   string older_cursor = 12;
@@ -75,8 +74,25 @@ message AgentMessageResponse {
   string freshness_context_mode = 14;
   optional uint32 withheld_message_count = 15;
   bool has_more = 16;
-  // `message send` only: up to three pending messages bypassed via `--anyway`; empty otherwise.
+  // `message send` only: the pending messages a bypassed hold chose not to review; empty otherwise.
   repeated AgentMessageRecord recent_unread = 17;
+  // `message send` only, Raft's send contract: "sent" | "held".
+  string state = 18;
+  // `message send` only: `forward`/`bypass` for a sent message, `local_hold`/`syncing_hold` for a
+  // held one.
+  string decision = 19;
+  string reason = 20;
+  string producer_fact_id = 21;
+  // Raft's `available_actions` for a held send: `check_messages`, `send_draft`, `send_anyway`.
+  repeated string available_actions = 22;
+  bool continue_anyway_suggested = 23;
+  // `message send` only: the held context window, oldest to newest.
+  repeated AgentMessageRecord held_messages = 24;
+  optional uint32 new_message_count = 25;
+  optional uint32 shown_message_count = 26;
+  optional uint32 omitted_message_count = 27;
+  reserved 7, 9;
+  reserved "side_effect_decision", "anyway_allowed";
 }
 
 message LocalInboxRequest {

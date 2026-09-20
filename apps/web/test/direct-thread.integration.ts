@@ -4,7 +4,6 @@ import { PrismaClient } from "../generated/client";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 import { executeAgentSendMessageWithPolicy } from "../src/server/agents/agent-messages.service";
 import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
-import type { AgentMessageHold } from "../src/server/conversations/agent-message-hold.server";
 
 test("thread send and unread ranges stay separate from the main conversation", async () => {
   const connectionString = Bun.env.THREAD_TEST_DATABASE_URL;
@@ -145,37 +144,31 @@ test("thread send and unread ranges stay separate from the main conversation", a
     expect(afterRead.threadReadThrough[root.id]).toBe(7);
     expect(afterRead.threadReadThrough[other.id]).toBeUndefined();
 
-    const holds = new Map<string, AgentMessageHold>();
-    const holdStore = {
-      issue: async (hold: AgentMessageHold) => {
-        const token = crypto.randomUUID();
-        holds.set(token, hold);
-        return token;
-      },
-      get: async (token: string) => holds.get(token),
-      consume: async (token: string) => holds.delete(token),
-    };
     const idempotency = { execute: async (_scope: unknown, persist: () => unknown) => persist() };
     const sender = new SendDirectMessage(repo, idempotency as any, {} as any);
-    const sendTo = async (destination: string, holdToken?: string) =>
+    const sendTo = async (destination: string, seenUpToSeq?: number) =>
       executeAgentSendMessageWithPolicy(
-        { repository: repo, sender, holdStore },
+        { repository: repo, sender },
         {
           requestId: crypto.randomUUID(),
           workspaceId: workspace.id,
           agentId: agent.id,
           target: destination,
-          body: "response",
-          holdToken,
+          content: "response",
+          seenUpToSeq,
         },
       );
-    expect((await sendTo(shortTarget)).accepted).toBe(true);
+    // A first touch of a target that already carries context is held for a context sync (Raft's
+    // `syncing_hold`), so the thread send is held rather than forwarded.
+    expect((await sendTo(shortTarget)).state).toBe("held");
     const hold = await sendTo(otherTarget);
-    expect(hold.sideEffectDecision).toBe("hold");
-    expect(hold.messages.map((m) => [m.body, m.target, m.senderHandle])).toEqual([
+    expect(hold.state).toBe("held");
+    expect(hold.decision).toBe("local_hold");
+    expect(hold.heldMessages?.map((m) => [m.body, m.target, m.senderHandle])).toEqual([
       ["other thread", otherTarget, username],
     ]);
-    expect((await sendTo(`@${username}`, hold.holdToken)).messages.map((m) => m.body)).toEqual([
+    const rootHold = await sendTo(`@${username}`);
+    expect(rootHold.heldMessages?.map((m) => m.body)).toEqual([
       "root",
       "main unread",
       "other root",
@@ -316,52 +309,55 @@ test("thread send and unread ranges stay separate from the main conversation", a
     // Inline mode still presents only the bounded 3-row window; the fourth
     // pending reply is invisible to it, unlike withheld's true count below.
     const inlineHold = await sendTo(withheldTarget);
-    expect(inlineHold.sideEffectDecision).toBe("hold");
-    expect(inlineHold.messages.map((m) => m.body)).toEqual([
+    expect(inlineHold.state).toBe("held");
+    expect(inlineHold.heldMessages?.map((m) => m.body)).toEqual([
       "withheld reply 2",
       "withheld reply 3",
       "withheld reply 4",
     ]);
 
     const withheldBody = "independent review, reviewer isolated";
-    const sendWithheld = async (holdToken?: string, continueAnyway?: boolean) =>
+    const sendWithheld = async (draftReholdCount?: number, continueAnyway?: boolean) =>
       executeAgentSendMessageWithPolicy(
-        { repository: repo, sender, holdStore },
+        { repository: repo, sender },
         {
           requestId: crypto.randomUUID(),
           workspaceId: workspace.id,
           agentId: agent.id,
           target: withheldTarget,
-          body: withheldBody,
-          holdToken,
+          content: withheldBody,
+          draftReholdCount,
           continueAnyway,
           freshnessContextMode: "withheld",
         },
       );
     const withheldHold = await sendWithheld();
     expect(withheldHold).toMatchObject({
-      accepted: false,
-      sideEffectDecision: "hold",
-      messages: [],
+      state: "held",
+      decision: "local_hold",
+      heldMessages: [],
       freshnessContextMode: "withheld",
       withheldMessageCount: 4,
-      anywayAllowed: false,
+      continueAnywaySuggested: false,
     });
-    const withheldRehold = await sendWithheld(withheldHold.holdToken);
+    const withheldRehold = await sendWithheld(1);
     expect(withheldRehold).toMatchObject({
-      accepted: false,
-      sideEffectDecision: "hold",
-      messages: [],
+      state: "held",
+      decision: "local_hold",
+      heldMessages: [],
       freshnessContextMode: "withheld",
       withheldMessageCount: 4,
-      anywayAllowed: true,
+      continueAnywaySuggested: true,
     });
-    const withheldSent = await sendWithheld(withheldRehold.holdToken, true);
+    const withheldSent = await sendWithheld(1, true);
+    // Raft's sent envelope carries no freshness-context field, and withheld mode returns no
+    // bodies for anything — including the messages it bypassed.
     expect(withheldSent).toMatchObject({
-      accepted: true,
-      sideEffectDecision: "anyway_accepted",
-      freshnessContextMode: "withheld",
+      state: "sent",
+      decision: "bypass",
+      reason: "continue_anyway",
     });
+    expect(withheldSent.recentUnread).toEqual([]);
   } finally {
     await db.agentMessageDelivery.deleteMany({
       where: { workspaceId: workspace.id },

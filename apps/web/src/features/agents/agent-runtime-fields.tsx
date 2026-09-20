@@ -389,12 +389,12 @@ export function AgentRuntimeFields({
       ) : (
         <>
           <input type="hidden" name="model" value={modelValue} />
-          <div className="flex min-w-0 items-end gap-1 sm:col-span-2">
+          <div className="relative min-w-0 sm:col-span-2">
             <Select
               label={m.agent_form_model()}
               size="sm"
               wrapValue
-              className="min-w-0 flex-1"
+              className="min-w-0 [&_[data-label]]:pr-8"
               popoverClassName="min-w-(--trigger-width) w-max max-w-[min(36rem,calc(100vw-3rem))]"
               isDisabled={!options}
               selectedKey={piConfigured && customModelActive ? CUSTOM_MODEL_KEY : modelKey}
@@ -445,14 +445,16 @@ export function AgentRuntimeFields({
                 <Select.Item id={CUSTOM_MODEL_KEY} label={m.agent_form_model_custom()} />
               )}
             </Select>
-            <ButtonUtility
-              icon={<RefreshCw01 className={refreshing ? "animate-spin" : undefined} />}
-              size="xs"
-              color="tertiary"
-              tooltip={m.agent_form_model_refresh()}
-              onClick={() => refreshCatalog(false)}
-              className="mb-1"
-            />
+            <div className="absolute top-0 right-0 flex h-5 items-center">
+              <ButtonUtility
+                icon={RefreshCw01}
+                size="xs"
+                color="tertiary"
+                tooltip={m.agent_form_model_refresh()}
+                onClick={() => refreshCatalog(false)}
+                className={refreshing ? "*:data-icon:animate-spin" : undefined}
+              />
+            </div>
           </div>
         </>
       )}

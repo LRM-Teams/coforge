@@ -10,7 +10,6 @@ import {
   unfollowAgentThread,
   type AgentMessageRepository,
 } from "../src/server/agents/agent-messages.service";
-import type { AgentMessageHold } from "../src/server/conversations/agent-message-hold.server";
 
 function repository(overrides: Partial<AgentMessageRepository> = {}): AgentMessageRepository {
   return {
@@ -141,10 +140,10 @@ test("send policy forwards a clean message to the sender", async () => {
       workspaceId: "workspace-1",
       agentId: "agent-1",
       target: "#general",
-      body: "hello",
+      content: "hello",
     },
   );
-  expect(calls).toEqual([
+  expect(calls).toMatchObject([
     {
       requestId: "request-1",
       workspaceId: "workspace-1",
@@ -154,9 +153,9 @@ test("send policy forwards a clean message to the sender", async () => {
     },
   ]);
   expect(result).toMatchObject({
-    accepted: true,
+    state: "sent",
+    decision: "forward",
     messageId: "message-1",
-    sideEffectDecision: "forward",
   });
 });
 
@@ -181,15 +180,15 @@ test("send policy forwards multiple attachmentIds to the sender in order", async
       workspaceId: "workspace-1",
       agentId: "agent-1",
       target: "#general",
-      body: "hello",
+      content: "hello",
       attachmentIds,
     },
   );
   expect((calls[0] as { attachmentIds?: string[] }).attachmentIds).toEqual(attachmentIds);
   expect(result).toMatchObject({
-    accepted: true,
+    state: "sent",
+    decision: "forward",
     messageId: "message-1",
-    sideEffectDecision: "forward",
   });
 });
 
@@ -282,24 +281,14 @@ test("send policy advances the read-through boundary before reading pending cont
         },
       }),
       sender: { executeFromAgent: async () => ({ id: "message-1" }) },
-      // An explicit hold store keeps this test off real Redis; the repository
-      // fixture makes `readPendingAgentContext` truthy, which otherwise makes
-      // the policy resolve the default (Redis-backed) hold store eagerly.
-      holdStore: {
-        issue: async () => {
-          throw new Error("unexpected hold issue");
-        },
-        get: async () => undefined,
-        consume: async () => false,
-      },
     },
     {
       requestId: "request-1",
       workspaceId: "workspace-1",
       agentId: "agent-a",
       target: "@user",
-      body: "Hello",
-      seenUpToSequence: 7,
+      content: "Hello",
+      seenUpToSeq: 7,
     },
   );
   expect(calls).toEqual([
@@ -307,9 +296,9 @@ test("send policy advances the read-through boundary before reading pending cont
     ["pending", "workspace-1", "agent-a", "@user", 5],
   ]);
   expect(result).toMatchObject({
-    accepted: true,
+    state: "sent",
+    decision: "forward",
     messageId: "message-1",
-    sideEffectDecision: "forward",
   });
 });
 
@@ -325,375 +314,226 @@ test("send policy fails closed when a trusted seen sequence cannot be advanced",
         workspaceId: "workspace-1",
         agentId: "agent-a",
         target: "@user",
-        body: "Hello",
-        seenUpToSequence: 7,
+        content: "Hello",
+        seenUpToSeq: 7,
       },
     ),
   ).rejects.toThrow("advancement is unavailable");
 });
 
-test("send policy re-holds new pending context on retry, then forwards once the Agent has caught up", async () => {
-  // executeAgentSendMessageWithPolicy presents held context inline (unlike the
-  // removed RPC-only "withheld" freshness mode): once a hold's presentedThrough
-  // covers everything currently pending, retrying with that same holdToken
-  // forwards the send without requiring an explicit continueAnyway.
-  let sent = 0;
-  const boundaries: Array<number | undefined> = [];
-  const receipts = new Map<string, AgentMessageHold>();
-  const holdStore = {
-    issue: async (hold: AgentMessageHold) => {
-      const token = `token-${receipts.size}`;
-      receipts.set(token, hold);
-      return token;
-    },
-    get: async (token: string) => receipts.get(token),
-    consume: async (token: string) => receipts.delete(token),
-  };
-  let latestSequence = 8;
-  const repo = repository({
-    readPendingAgentContext: async (_workspaceId, _agentId, _target, after) => {
-      boundaries.push(after);
-      return (after ?? 0) < latestSequence
-        ? [
-            {
-              id: `message-${latestSequence}`,
-              sequence: latestSequence,
-              senderKind: "human" as const,
-              senderHandle: "reviewer",
-              senderDescription: "",
-              target: "@user",
-              body: `pending review ${latestSequence}`,
-              createdAt: new Date("2026-09-10T00:00:00Z"),
-              attachments: [],
-            },
-          ]
-        : [];
-    },
-  });
-  const sender = {
-    executeFromAgent: async () => {
-      sent++;
-      return { id: "sent-message" };
-    },
-  };
-  const send = async (holdToken?: string) =>
-    executeAgentSendMessageWithPolicy(
-      { repository: repo, sender, holdStore },
-      {
-        requestId: crypto.randomUUID(),
-        workspaceId: "workspace-1",
-        agentId: "agent-a",
-        target: "@user",
-        body: "independent review",
-        holdToken,
-      },
-    );
-  const first = await send();
-  expect(first).toMatchObject({ accepted: false, sideEffectDecision: "hold" });
-  expect(first.messages.map((m) => m.body)).toEqual(["pending review 8"]);
-  expect(sent).toBe(0);
-
-  // A new reviewer message arrives after the first hold was issued.
-  latestSequence = 9;
-  const retried = await send(first.holdToken);
-  expect(retried).toMatchObject({ accepted: false, sideEffectDecision: "hold" });
-  expect(retried.messages.map((m) => m.body)).toEqual(["pending review 9"]);
-  expect(sent).toBe(0);
-
-  // No further messages: retrying the same hold now forwards the send.
-  const caughtUp = await send(retried.holdToken);
-  expect(caughtUp).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
-  expect(sent).toBe(1);
-  expect(boundaries).toEqual([undefined, 8, 9]);
-});
-
-test("send policy in withheld mode hides bodies, counts all pending, and ignores presentedThrough on re-hold", async () => {
-  // Reviewer isolation (`freshnessContextMode: "withheld"`): a hold must never
-  // leak message bodies, senders, or metadata, and its count must cover every
-  // pending row above the Agent's seen boundary — not just the last three
-  // shown inline, and not narrowed by a prior hold's presentedThrough, since
-  // nothing was actually presented.
-  const boundaries: Array<number | undefined> = [];
-  const receipts = new Map<string, AgentMessageHold>();
-  const holdStore = {
-    issue: async (hold: AgentMessageHold) => {
-      const token = `token-${receipts.size}`;
-      receipts.set(token, hold);
-      return token;
-    },
-    get: async (token: string) => receipts.get(token),
-    consume: async (token: string) => receipts.delete(token),
-  };
-  const pendingRows = Array.from({ length: 5 }, (_, index) => ({
-    id: `message-${index + 1}`,
-    sequence: index + 1,
+function pendingRow(sequence: number, body: string) {
+  return {
+    id: `message-${sequence}`,
+    sequence,
     senderKind: "human" as const,
-    senderHandle: "reviewer",
+    senderHandle: "ada",
     senderDescription: "",
     target: "@user",
-    body: `pending review ${index + 1}`,
+    body,
     createdAt: new Date("2026-09-10T00:00:00Z"),
     attachments: [],
-  }));
-  let sent = 0;
-  const repo = repository({
-    readPendingAgentContext: async (_workspaceId, _agentId, _target, after) => {
-      boundaries.push(after);
-      return pendingRows;
-    },
-  });
-  const sender = {
-    executeFromAgent: async () => {
-      sent++;
-      return { id: "sent-message" };
-    },
   };
-  const send = async (holdToken?: string, continueAnyway?: boolean) =>
-    executeAgentSendMessageWithPolicy(
-      { repository: repo, sender, holdStore },
-      {
-        requestId: crypto.randomUUID(),
-        workspaceId: "workspace-1",
-        agentId: "agent-a",
-        target: "@user",
-        body: "reviewer isolation send",
-        holdToken,
-        continueAnyway,
-        freshnessContextMode: "withheld",
-      },
-    );
+}
 
-  const first = await send();
-  expect(first).toMatchObject({
-    accepted: false,
-    sideEffectDecision: "hold",
-    messages: [],
-    freshnessContextMode: "withheld",
-    withheldMessageCount: 5,
-    anywayAllowed: false,
-  });
-
-  const second = await send(first.holdToken);
-  expect(second).toMatchObject({
-    accepted: false,
-    sideEffectDecision: "hold",
-    messages: [],
-    freshnessContextMode: "withheld",
-    withheldMessageCount: 5,
-    anywayAllowed: true,
-  });
-  expect(boundaries).toEqual([undefined, undefined]);
-  expect(sent).toBe(0);
-
-  const sentResult = await send(second.holdToken, true);
-  expect(sentResult).toMatchObject({
-    accepted: true,
-    sideEffectDecision: "anyway_accepted",
-    freshnessContextMode: "withheld",
-  });
-  expect(sent).toBe(1);
+const sendInput = (overrides: Record<string, unknown> = {}) => ({
+  requestId: "request-1",
+  workspaceId: "workspace-1",
+  agentId: "agent-a",
+  target: "@user",
+  content: "Hello",
+  ...overrides,
 });
 
-test("send policy in withheld mode prefers the repository's true pending count over the bounded window", async () => {
-  // The repository's readPendingAgentContext window is bounded (production
-  // caps it at 3 rows for inline display); when the repository also exposes
-  // countPendingAgentContext, withheld mode must report that true count
-  // instead of the bounded window's length.
-  const boundaries: Array<number | undefined> = [];
-  const countCalls: Array<number | undefined> = [];
-  const repo = repository({
-    readPendingAgentContext: async (_workspaceId, _agentId, _target, after) => {
-      boundaries.push(after);
-      return [
-        {
-          id: "message-5",
-          sequence: 5,
-          senderKind: "human" as const,
-          senderHandle: "reviewer",
-          senderDescription: "",
-          target: "@user",
-          body: "pending review 5",
-          createdAt: new Date("2026-09-10T00:00:00Z"),
-          attachments: [],
-        },
-        {
-          id: "message-6",
-          sequence: 6,
-          senderKind: "human" as const,
-          senderHandle: "reviewer",
-          senderDescription: "",
-          target: "@user",
-          body: "pending review 6",
-          createdAt: new Date("2026-09-10T00:00:00Z"),
-          attachments: [],
-        },
-        {
-          id: "message-7",
-          sequence: 7,
-          senderKind: "human" as const,
-          senderHandle: "reviewer",
-          senderDescription: "",
-          target: "@user",
-          body: "pending review 7",
-          createdAt: new Date("2026-09-10T00:00:00Z"),
-          attachments: [],
-        },
-      ];
-    },
-    countPendingAgentContext: async (_workspaceId, _agentId, _target, after) => {
-      countCalls.push(after);
-      return 7;
-    },
-  });
-  const result = await executeAgentSendMessageWithPolicy(
+test("send policy holds unseen pending context, then forwards once the Agent reports the boundary", async () => {
+  const pending = [pendingRow(7, "first"), pendingRow(9, "second")];
+  const held = await executeAgentSendMessageWithPolicy(
     {
-      repository: repo,
+      repository: repository({
+        readPendingAgentContext: async (_workspace, _agent, _target, after) =>
+          after === undefined ? pending : pending.filter((row) => row.sequence > after),
+      }),
       sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
-      holdStore: {
-        issue: async () => "token-0",
-        get: async () => undefined,
-        consume: async () => false,
-      },
     },
-    {
-      requestId: "request-1",
-      workspaceId: "workspace-1",
-      agentId: "agent-a",
-      target: "@user",
-      body: "independent review",
-      freshnessContextMode: "withheld",
-    },
+    sendInput(),
   );
-  expect(result).toMatchObject({
-    accepted: false,
-    sideEffectDecision: "hold",
-    messages: [],
-    freshnessContextMode: "withheld",
-    withheldMessageCount: 7,
+  expect(held).toMatchObject({
+    state: "held",
+    decision: "local_hold",
+    reason: "exact_target_pending",
+    availableActions: ["check_messages", "send_draft", "send_anyway"],
+    newMessageCount: 2,
+    shownMessageCount: 2,
+    omittedMessageCount: 0,
+    seenUpToSeq: 9,
   });
-  expect(boundaries).toEqual([undefined]);
-  expect(countCalls).toEqual([undefined]);
+  expect(held.heldMessages?.map((message) => message.id)).toEqual(["message-7", "message-9"]);
+  // The first hold of a draft does not suggest `--anyway`.
+  expect(held.continueAnywaySuggested).toBe(false);
+
+  const sent = await executeAgentSendMessageWithPolicy(
+    {
+      repository: repository({
+        advanceAgentReadThrough: async () => 9,
+        readPendingAgentContext: async (_workspace, _agent, _target, after) =>
+          after === undefined ? pending : pending.filter((row) => row.sequence > after),
+      }),
+      sender: { executeFromAgent: async () => ({ id: "message-10" }) },
+    },
+    sendInput({ seenUpToSeq: 9 }),
+  );
+  expect(sent).toMatchObject({
+    state: "sent",
+    decision: "forward",
+    reason: "model_seen_boundary",
+    messageId: "message-10",
+  });
 });
 
-test("send policy in inline mode is unchanged by the withheld addition", async () => {
+test("send policy suggests --anyway only for a draft that has already been held", async () => {
+  const dependencies = {
+    repository: repository({ readPendingAgentContext: async () => [pendingRow(7, "first")] }),
+    sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+  };
+  expect(
+    await executeAgentSendMessageWithPolicy(dependencies, sendInput({ draftReholdCount: 0 })),
+  ).toMatchObject({ state: "held", continueAnywaySuggested: false });
+  expect(
+    await executeAgentSendMessageWithPolicy(dependencies, sendInput({ draftReholdCount: 1 })),
+  ).toMatchObject({ state: "held", continueAnywaySuggested: true });
+});
+
+test("send policy holds a first touch of a target that already carries context", async () => {
   const result = await executeAgentSendMessageWithPolicy(
     {
-      repository: repository(),
-      sender: {
-        executeFromAgent: async () => ({ id: "message-1" }),
-      },
+      repository: repository({
+        readPendingAgentContext: async () => [],
+        readRecentAgentContext: async () => [pendingRow(4, "recent context")],
+      }),
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
-    {
-      requestId: "request-1",
-      workspaceId: "workspace-1",
-      agentId: "agent-1",
-      target: "#general",
-      body: "hello",
-      freshnessContextMode: "inline",
-    },
+    sendInput(),
   );
   expect(result).toMatchObject({
-    accepted: true,
+    state: "held",
+    decision: "syncing_hold",
+    reason: "target_first_touch_recent_context",
+    newMessageCount: 1,
+    shownMessageCount: 1,
+    omittedMessageCount: 0,
+    seenUpToSeq: 4,
+  });
+});
+
+test("send policy forwards a first touch of a target with no context at all", async () => {
+  const result = await executeAgentSendMessageWithPolicy(
+    {
+      repository: repository({
+        readPendingAgentContext: async () => [],
+        readRecentAgentContext: async () => [],
+      }),
+      sender: { executeFromAgent: async () => ({ id: "message-1" }) },
+    },
+    sendInput(),
+  );
+  expect(result).toMatchObject({
+    state: "sent",
+    decision: "forward",
+    reason: "no_exact_target_pending_or_recent_context",
     messageId: "message-1",
-    sideEffectDecision: "forward",
-    freshnessContextMode: "inline",
   });
 });
 
-test("send policy rejects continueAnyway without a valid hold", async () => {
+test("send policy bypasses a hold when the Agent sends anyway and returns what it skipped", async () => {
+  const pending = [pendingRow(7, "missed while held")];
   const result = await executeAgentSendMessageWithPolicy(
     {
-      repository: repository(),
-      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
-      holdStore: {
-        get: async () => undefined,
-        issue: async () => {
-          throw new Error("unexpected hold issue");
-        },
-        consume: async () => false,
-      },
+      repository: repository({ readPendingAgentContext: async () => pending }),
+      sender: { executeFromAgent: async () => ({ id: "message-8" }) },
     },
-    {
-      requestId: "request-1",
-      workspaceId: "workspace-1",
-      agentId: "agent-1",
-      target: "#general",
-      body: "hello",
-      continueAnyway: true,
-    },
+    sendInput({ continueAnyway: true }),
   );
-  expect(result).toMatchObject({ accepted: false, sideEffectDecision: "anyway_denied" });
+  expect(result).toMatchObject({
+    state: "sent",
+    decision: "bypass",
+    reason: "continue_anyway",
+    messageId: "message-8",
+  });
+  expect(result.recentUnread?.map((message) => message.id)).toEqual(["message-7"]);
 });
 
-test("a bypassed hold's sent result carries up to three bypassed messages as recentUnread", async () => {
-  const holds = new Map<string, AgentMessageHold>();
-  const holdStore = {
-    issue: async (hold: AgentMessageHold) => {
-      const token = `token-${holds.size}`;
-      holds.set(token, hold);
-      return token;
+test("send policy reports the unbounded newer count, so omitted messages stay visible", async () => {
+  const result = await executeAgentSendMessageWithPolicy(
+    {
+      repository: repository({
+        // The inline window is bounded to three rows; the count is not.
+        readPendingAgentContext: async () => [pendingRow(8, "third"), pendingRow(9, "fourth")],
+        countPendingAgentContext: async () => 5,
+      }),
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
-    get: async (token: string) => holds.get(token),
-    consume: async (token: string) => holds.delete(token),
-  };
-  const pendingRows = Array.from({ length: 5 }, (_, index) => ({
-    id: `message-${index + 1}`,
-    sequence: index + 1,
-    senderKind: "human" as const,
-    senderHandle: "bea",
-    senderDescription: "",
-    target: "@user",
-    body: `pending ${index + 1}`,
-    createdAt: new Date("2026-09-10T00:00:00Z"),
-    attachments: [],
-  }));
-  const repo = repository({ readPendingAgentContext: async () => pendingRows });
-  const sender = { executeFromAgent: async () => ({ id: "sent-message" }) };
-  const send = async (holdToken?: string, continueAnyway?: boolean) =>
+    sendInput(),
+  );
+  expect(result).toMatchObject({
+    state: "held",
+    newMessageCount: 5,
+    shownMessageCount: 2,
+    omittedMessageCount: 3,
+  });
+});
+
+test("every freshness decision names its own fact id", async () => {
+  const send = (options: {
+    seenUpToSeq?: number;
+    readRecentAgentContext?: () => Promise<never[]>;
+  }) =>
     executeAgentSendMessageWithPolicy(
-      { repository: repo, sender, holdStore },
       {
-        requestId: crypto.randomUUID(),
-        workspaceId: "workspace-1",
-        agentId: "agent-a",
-        target: "@user",
-        body: "reply",
-        holdToken,
-        continueAnyway,
+        repository: repository({
+          advanceAgentReadThrough: async () => options.seenUpToSeq ?? 0,
+          readPendingAgentContext: async () => [],
+          ...(options.readRecentAgentContext
+            ? { readRecentAgentContext: options.readRecentAgentContext }
+            : {}),
+        }),
+        sender: { executeFromAgent: async () => ({ id: "message-1" }) },
       },
+      sendInput(options.seenUpToSeq === undefined ? {} : { seenUpToSeq: options.seenUpToSeq }),
     );
 
-  const first = await send();
-  expect(first).toMatchObject({ accepted: false, sideEffectDecision: "hold" });
-  expect(first.recentUnread).toBeUndefined();
-
-  const second = await send(first.holdToken);
-  expect(second).toMatchObject({
-    accepted: false,
-    sideEffectDecision: "hold",
-    anywayAllowed: true,
-  });
-
-  const sentResult = await send(second.holdToken, true);
-  expect(sentResult).toMatchObject({ accepted: true, sideEffectDecision: "anyway_accepted" });
-  expect(sentResult.recentUnread?.map((m) => m.id)).toEqual([
-    "message-3",
-    "message-4",
-    "message-5",
-  ]);
+  const withBoundary = await send({ seenUpToSeq: 5 });
+  const withoutBoundary = await send({});
+  // Raft's `buildApmFreshnessDecisionProducerFactId` hashes the full stable decision input.
+  expect(withBoundary.producerFactId).toMatch(/^freshness_decision_fact:[0-9a-f]{64}$/);
+  expect(withoutBoundary.producerFactId).toMatch(/^freshness_decision_fact:[0-9a-f]{64}$/);
+  // Two different reasons must never collapse onto one fact id.
+  expect(withBoundary.producerFactId).not.toBe(withoutBoundary.producerFactId);
 });
 
-test("every non-bypassed sent result reports an empty recentUnread", async () => {
+test("send policy in withheld mode hides bodies and reports the repository's true pending count", async () => {
+  let boundary: number | undefined | "unset" = "unset";
   const result = await executeAgentSendMessageWithPolicy(
-    { repository: repository(), sender: { executeFromAgent: async () => ({ id: "message-1" }) } },
     {
-      requestId: "request-1",
-      workspaceId: "workspace-1",
-      agentId: "agent-1",
-      target: "#general",
-      body: "hello",
+      repository: repository({
+        readPendingAgentContext: async (_workspace, _agent, _target, after) => {
+          boundary = after;
+          return [pendingRow(7, "SECRET")];
+        },
+        countPendingAgentContext: async () => 12,
+      }),
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
     },
+    sendInput({ freshnessContextMode: "withheld" }),
   );
-  expect(result).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
-  expect(result.recentUnread).toEqual([]);
+  expect(result).toMatchObject({
+    state: "held",
+    decision: "local_hold",
+    freshnessContextMode: "withheld",
+    withheldMessageCount: 12,
+    newMessageCount: 12,
+    shownMessageCount: 0,
+  });
+  // Withheld mode never presented context, so it must not narrow to a presented boundary.
+  expect(boundary).toBeUndefined();
+  expect(result.heldMessages).toEqual([]);
+  expect(JSON.stringify(result)).not.toContain("SECRET");
 });

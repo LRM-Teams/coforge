@@ -133,7 +133,7 @@ test("single-file installation provides management and Agent CLI without a Daemo
         body: expect.objectContaining({
           operation: "send",
           target: "@user",
-          body: "release-only hello",
+          content: "release-only hello",
         }),
       }),
     );

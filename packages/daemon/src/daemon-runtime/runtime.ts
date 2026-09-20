@@ -3172,9 +3172,13 @@ export class DaemonRuntime {
     const inbox = this.#agentInbox(agentId);
     const draft = request.sendDraft ? await inbox.draft(target) : undefined;
     if (request.sendDraft && !draft)
-      throw new AgentPreflightError(`No held draft for target: ${target}`, "NO_HELD_DRAFT");
-    const body = draft?.body ?? request.body;
-    if (body === undefined)
+      throw new AgentPreflightError(`No saved draft for target: ${target}`, "SEND_DRAFT_NOT_FOUND");
+    // A normal send replaces whatever draft was there; Raft reports that (and the hold count the
+    // draft had reached) so the server can compute `continueAnywaySuggested`.
+    const priorDraft = draft ?? (request.sendDraft ? undefined : await inbox.draft(target));
+    const draftReholdCount = priorDraft?.reholdCount ?? 0;
+    const content = draft?.content ?? request.content;
+    if (content === undefined)
       throw new AgentPreflightError(
         "Agent message body is required",
         "AGENT_MESSAGE_BODY_REQUIRED",
@@ -3191,7 +3195,7 @@ export class DaemonRuntime {
     // including a `--send-draft` resend of the daemon-held body (the CLI can only run this check
     // client-side when it has the body in hand, i.e. never for an unmodified draft resend).
     if (mentions?.length) {
-      const present = mentionsInContent(body);
+      const present = mentionsInContent(content);
       for (const mention of mentions)
         if (!present.has(mention.name))
           throw new AgentPreflightError(
@@ -3213,9 +3217,9 @@ export class DaemonRuntime {
       if (latestThread) {
         const parentOrder = this.#messageAttention.readOrder(agentId, target);
         if (parentOrder === undefined || parentOrder < latestThread.order) {
-          // Raft-aligned: the outgoing content is saved as the local draft (no holdToken) before
-          // refusing, so the documented recovery is resending that exact draft, not retyping it.
-          await inbox.save(target, body, attachmentIds, mentions);
+          // Raft-aligned: the outgoing content is saved as the local draft before refusing, so the
+          // documented recovery is resending that exact draft, not retyping it.
+          await inbox.save(target, content, attachmentIds, mentions);
           throw new AgentPreflightError(
             targetConfirmationRequiredMessage(target, latestThread.target),
             "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
@@ -3227,14 +3231,7 @@ export class DaemonRuntime {
     // `inbox.save` persists the draft locally BEFORE the request is issued to the transport below;
     // any failure past this point leaves delivery state unknown, never "not sent" (see
     // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
-    if (!request.sendDraft) await inbox.save(target, body, attachmentIds, mentions);
-    // A tokenless draft (saved by the guard above, or by a failed transport before ever reaching a
-    // hold) resends as a plain send: no holdToken to send, and nothing for `--anyway` to bypass.
-    if (request.sendDraft && !draft?.holdToken && request.continueAnyway)
-      throw new AgentPreflightError(
-        `Held draft token is unavailable for target: ${target}`,
-        "HELD_DRAFT_TOKEN_UNAVAILABLE",
-      );
+    if (!request.sendDraft) await inbox.save(target, content, attachmentIds, mentions);
     const result = await this.#transport.agentMessage!(
       {
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
@@ -3243,19 +3240,19 @@ export class DaemonRuntime {
         workspaceId: this.#connection.workspaceId,
         operation: "send",
         target,
-        body,
-        holdToken: draft?.holdToken,
+        content,
         continueAnyway: request.continueAnyway,
-        seenUpToSequence: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
+        draftReholdCount,
+        draftReplacedExisting: !request.sendDraft && draftReholdCount > 0,
+        seenUpToSeq: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
         freshnessContextMode: request.freshnessContextMode,
         attachmentIds: attachmentIds ? [...attachmentIds] : undefined,
         mentions: mentions ? [...mentions] : undefined,
       },
       agentApiKey,
     );
-    const held = result.sideEffectDecision === "hold";
-    if (held && result.holdToken)
-      await inbox.replace(target, body, result.holdToken, attachmentIds, mentions);
+    const held = result.state === "held";
+    if (held) await inbox.replace(target, content, attachmentIds, mentions);
     else if (result.accepted) await inbox.clear(target);
     const withheld = request.freshnessContextMode === "withheld";
     const targetMessages = result.messages.filter((message) => message.target === target);
@@ -3290,7 +3287,7 @@ export class DaemonRuntime {
     logger.info("Agent sent a message", {
       event: "agent.message.sent",
       ...this.#agentLogScope(agentId, request.requestId),
-      freshness_decision: result.sideEffectDecision ?? "forward",
+      freshness_decision: result.decision ?? "forward",
       accepted: result.accepted,
       message_id: result.messageId,
       duration_ms: Math.round(performance.now() - startedAt),
@@ -3303,13 +3300,16 @@ export class DaemonRuntime {
       messageId: result.messageId ?? "",
       messages: withheld ? [] : result.messages,
       summaries: [],
-      sideEffectDecision:
-        result.sideEffectDecision === "anyway_accepted"
-          ? "bypass"
-          : result.sideEffectDecision === "anyway_denied"
-            ? undefined
-            : result.sideEffectDecision,
-      anywayAllowed: result.anywayAllowed,
+      // Raft's send contract, carried to the Agent unchanged.
+      state: result.state,
+      decision: result.decision,
+      reason: result.reason,
+      producerFactId: result.producerFactId,
+      availableActions: result.availableActions,
+      continueAnywaySuggested: result.continueAnywaySuggested,
+      newMessageCount: result.newMessageCount,
+      shownMessageCount: result.shownMessageCount,
+      omittedMessageCount: result.omittedMessageCount,
       freshnessContextMode: result.freshnessContextMode,
       withheldMessageCount: withheld
         ? (result.withheldMessageCount ?? result.attentionCount)
@@ -3339,7 +3339,7 @@ export class DaemonRuntime {
         workspaceId: this.#connection.workspaceId,
         operation,
         target: target ?? "",
-        body: request.body,
+        content: request.content,
         before: request.before,
         after: request.after,
         around: request.around,
