@@ -517,6 +517,10 @@ export class AgentControl {
         agent_id: intent.agentId,
         attempts,
         error_code: diagnosticErrorCode(launchError),
+        // The terminal record of an exhausted launch carries the same classified evidence as the
+        // retry warnings above: once the retries are gone this is the only log line left, so the
+        // category/provider/model facts must not be stranded on the earlier `launch_retry_scheduled`.
+        ...launchFailureTrace(launchError),
       });
       await this.store.write(intent.agentId, record);
     }
