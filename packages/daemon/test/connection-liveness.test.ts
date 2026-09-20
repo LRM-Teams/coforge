@@ -4,6 +4,7 @@ import {
   INBOUND_QUIET_MS,
   INBOUND_STALLED_MS,
 } from "../src/connection/connection-liveness";
+import { COMPUTER_STATUS_REFRESH_MS } from "../src/connection/daemon-connection";
 
 test("a connection that carried traffic recently is left alone", () => {
   expect(connectionLiveness(0)).toBe("carrying");
@@ -20,7 +21,11 @@ test("a connection that has carried nothing for the stalled window must be rebui
   expect(connectionLiveness(INBOUND_STALLED_MS * 10)).toBe("stalled");
 });
 
-test("the stalled window leaves room for more than one missed round trip", () => {
+test("both windows are measured in the status round trips that feed them", () => {
+  // The only inbound traffic a Workspace with nothing to say produces is the answered status
+  // RPC, so these windows mean nothing except as a count of those refreshes. A window shorter
+  // than a couple of them would rebuild a healthy connection over one lost reply.
+  expect(INBOUND_QUIET_MS).toBeGreaterThanOrEqual(COMPUTER_STATUS_REFRESH_MS * 2);
+  expect(INBOUND_STALLED_MS).toBeGreaterThanOrEqual(COMPUTER_STATUS_REFRESH_MS * 4);
   expect(INBOUND_STALLED_MS).toBeGreaterThan(INBOUND_QUIET_MS);
-  expect(INBOUND_STALLED_MS - INBOUND_QUIET_MS).toBeGreaterThanOrEqual(60_000);
 });
