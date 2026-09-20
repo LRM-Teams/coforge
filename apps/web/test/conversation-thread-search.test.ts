@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  conversationSearchWithoutAgentProfile,
   conversationSearchWithoutThread,
   conversationSearchWithThread,
   messageIdFromHash,
@@ -66,16 +67,19 @@ describe("resolveConversationThreadRoot", () => {
 });
 
 describe("conversation thread search updates", () => {
-  test("opening writes threadRootId and keeps the rest of search", () => {
-    // Search that does not already carry a thread id is the case this exists for.
-    expect(conversationSearchWithThread({ view: "chat", profile: "agent:1" }, "root-1")).toEqual({
+  test("opening writes threadRootId after removing the Agent panel state", () => {
+    const withoutProfile = conversationSearchWithoutAgentProfile({
       view: "chat",
       profile: "agent:1",
+      agentTab: "profile",
+    });
+    expect(conversationSearchWithThread(withoutProfile, "root-1")).toEqual({
+      view: "chat",
       threadRootId: "root-1",
     });
   });
 
-  test("closing drops threadRootId and keeps the rest of search", () => {
+  test("closing drops threadRootId while preserving unrelated search", () => {
     expect(
       conversationSearchWithoutThread({
         view: "chat",

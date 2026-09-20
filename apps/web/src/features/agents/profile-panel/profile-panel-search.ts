@@ -32,6 +32,13 @@ export function formatAgentProfileParam(agentId: string): string {
   return `${AGENT_PROFILE_PREFIX}${agentId}`;
 }
 
+export function agentProfileSearchWithoutThread<T extends { threadRootId?: string }>(
+  previous: T,
+): Omit<T, "threadRootId"> {
+  const { threadRootId: _threadRootId, ...rest } = previous;
+  return rest;
+}
+
 /** The Agent id encoded in a `profile` search param, or `undefined` when the panel is closed or
  * the param does not name an Agent (already validated by `agentProfileParamSchema`, but callers
  * that read raw search state — e.g. before validation — can use this defensively too). */

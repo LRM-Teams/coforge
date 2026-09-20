@@ -1,12 +1,20 @@
 import { useRouter } from "@tanstack/react-router";
 
-import { formatAgentProfileParam, type AgentProfileTab } from "./profile-panel-search";
+import {
+  agentProfileSearchWithoutThread,
+  formatAgentProfileParam,
+  type AgentProfileTab,
+} from "./profile-panel-search";
 
 /** The subset of either conversation route's search this hook reads/writes. A narrow local type
  * (not `Record<string, unknown>`) so `router.navigate({ to: "." })`'s search updater still
  * type-checks without pinning to one specific route — the same pattern
  * `use-conversation-view.ts`'s `update()` uses for `view`/`layout`. */
-type AgentProfileSearch = { profile?: string; agentTab?: AgentProfileTab };
+type AgentProfileSearch = {
+  profile?: string;
+  agentTab?: AgentProfileTab;
+  threadRootId?: string;
+};
 
 /**
  * The one way a conversation page or the Members directory opens/closes/switches the Agent
@@ -24,7 +32,7 @@ export function useOpenAgentProfile() {
     void router.navigate({
       to: ".",
       search: (previous: AgentProfileSearch) => ({
-        ...previous,
+        ...agentProfileSearchWithoutThread(previous),
         profile: formatAgentProfileParam(agentId),
         ...(tab ? { agentTab: tab } : {}),
       }),
@@ -41,7 +49,7 @@ export function useOpenAgentProfile() {
       replace: true,
       search: (previous: AgentProfileSearch) => {
         const { profile: _profile, agentTab: _agentTab, ...rest } = previous;
-        return rest;
+        return agentProfileSearchWithoutThread(rest);
       },
     });
   return { openAgentProfile, setAgentProfileTab, closeAgentProfile };
