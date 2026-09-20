@@ -21,6 +21,8 @@ describe("resolveVisibleConversationSlot", () => {
   });
 
   test("has no visible panel when the active panel has been closed", () => {
-    expect(resolveVisibleConversationSlot({ threadOpen: false, profileOpen: false })).toBeUndefined();
+    expect(
+      resolveVisibleConversationSlot({ threadOpen: false, profileOpen: false }),
+    ).toBeUndefined();
   });
 });
