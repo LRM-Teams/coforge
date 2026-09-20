@@ -3,6 +3,8 @@
  * exception is `install`: a corrupt or unreadable `active.json` fails the whole command, because
  * every other section is meaningless without knowing which Computer build is even running. */
 
+import type { WorkspaceHealthState } from "@lrm/coforge-daemon";
+
 export type SupportedStatusPlatform = "darwin" | "linux" | "win32";
 
 export type LockState = "held" | "free" | "unknown";
@@ -60,9 +62,7 @@ export type WorkspacePidSource = "daemon-snapshot" | "os-job";
  * `WorkspaceHealthJournal`): `ok`, or latched `degraded` with the real reason, how many
  * unexpected deaths landed inside the crash window, and when the latch was set. An explicit
  * operator `restart` is the only thing that clears it. */
-export type WorkspaceHealth =
-  | { status: "ok" }
-  | { status: "degraded"; reason: string; crashCount: number; since: string };
+export type WorkspaceHealth = WorkspaceHealthState;
 
 export type WorkspaceStatus = {
   workspaceId: string;
