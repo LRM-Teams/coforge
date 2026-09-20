@@ -765,6 +765,23 @@ export function BackToRecords() {
   );
 }
 
+/** Back control when arriving from a key-point `@source` link (`?returnTo=`). */
+export function RecordsKeyPointReturnBack({ returnTo }: { returnTo: string }) {
+  const router = useRouter();
+  return (
+    <Button
+      size="sm"
+      color="link-color"
+      iconLeading={ChevronLeft}
+      onPress={() => {
+        void router.navigate({ href: returnTo });
+      }}
+    >
+      {m.records_key_points_back_to_report()}
+    </Button>
+  );
+}
+
 export function EmptyRecord() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">

@@ -46,9 +46,36 @@ Amends: [ADR 0009](0009-workspace-records-weekly-reports.md),
 
 ### C. Out of scope for this slice
 
-- Team / cycle-level key-point document generation and sidebar「周报要点」nodes.
 - Restoring `WeeklyReportHighlight` table or rule extractors.
 - New Prisma models/columns for prompts or extraction.
+- Sidebar「周报要点」nodes as a separate catalog entity (overview page hosts
+  the team result in-place).
+
+### D. Team / overview key-point extraction (added 2026-09-20)
+
+1. **Trigger**: Leader clicks「整理全员要点」on the week overview page (manual;
+   not auto on each member submit).
+2. **Who runs**: Same Leader `WeeklyReportAssistant` + `platformTurn`.
+3. **Prompt**: Live-format `content.keyPointPrompts.team` snapshot.
+4. **Persistence**: Result on the **overview template** as
+   `content.keyPointExtraction` (same meta shape as personal; overview parents
+   are the only templates with member assignments).
+5. **Write-back**: Same HTTPS `POST /api/agent/v1/weekly-report-key-points` /
+   CLI `weekly-report-key-points submit`, with `reportId` = overview template
+   id. Server dispatches by report `kind` (member → personal, template → team).
+6. **Wake**: `[weekly-report-team-key-points]` lists submitted member report
+   ids; skill instructs the assistant to read those reports and submit to the
+   overview id.
+7. **Overview table**: Lists **all** assignments (including draft). Submitted /
+   shared names are links; draft names are plain. Submitted column shows 是/否;
+   submit time shows locale time or `-`.
+8. **Side-chat (re)organize**: When the Leader asks in the overview side chat
+   (e.g. 「重新整理」), the product starts team extraction with
+   `delivery: "side-chat-confirm"`. Agent HTTPS submit then parks markdown as
+   `awaiting_confirm` and the server posts a `[weekly-report-suggestion]`
+   `key-point-edit` bubble (preview + Insert). Confirm writes `ready` via
+   `applyConfirmedKeyPointMarkdown`. The overview page button still uses direct
+   `ready` write-back (no Insert step).
 
 ## Rejected alternatives
 
@@ -59,12 +86,16 @@ Amends: [ADR 0009](0009-workspace-records-weekly-reports.md),
   HTTPS write-back so results land while Leader is offline.
 - Calling Workspace Agent runtimes from ad-hoc Web paths outside the weekly-report
   assistant seams: rejected; keep Daemon skill + authorized Agent HTTPS.
+- Auto-running team extraction on every member submit: rejected; Leader chooses
+  when the cohort is ready.
 
 ## Consequences
 
-- Catalog: `startPersonalKeyPointExtraction` / `applyPersonalKeyPointExtraction`;
-  submit hook in `saveReportContent`.
-- Daemon skill `weekly-report` wakes on `[weekly-report-key-points]` and submits
-  via CLI/HTTPS.
-- Settings edit both team and personal prompts; only **personal** auto-runs after
-  member submit in this slice.
+- Catalog: `startPersonalKeyPointExtraction` / `applyPersonalKeyPointExtraction`
+  / `startTeamKeyPointExtraction` / `applyTeamKeyPointExtraction`; submit hook
+  in `saveReportContent` for personal only.
+- Daemon skill `weekly-report` wakes on `[weekly-report-key-points]` and
+  `[weekly-report-team-key-points]`, submits via the same CLI/HTTPS; side-chat
+  reorganize uses `key-point-edit` Confirm instead.
+- Settings edit both team and personal prompts; personal auto-runs after member
+  submit; team runs from the overview button or side-chat Insert.

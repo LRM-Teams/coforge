@@ -33,15 +33,34 @@ export type KeyPointPromptsMeta = {
   personal: KeyPointPromptState;
 };
 
-export type KeyPointExtractionStatus = "generating" | "ready" | "failed" | "pending_setup";
+export type KeyPointExtractionStatus =
+  | "generating"
+  | "ready"
+  | "failed"
+  | "pending_setup"
+  | "awaiting_confirm";
 
-/** Personal key-point extraction result on a member report (Leader-only UI tab). */
+/** Personal / team key-point extraction result (Leader-owned UI). */
 export type KeyPointExtractionMeta = {
   status: KeyPointExtractionStatus;
   promptSnapshot: string;
+  /** Last Insert-confirmed (or direct-submit) body shown on the page. */
   markdown?: string;
+  /**
+   * Draft parked for side-chat Insert. Must not replace `markdown` until the
+   * Leader confirms — the page keeps showing the previous `markdown`.
+   */
+  pendingMarkdown?: string;
   generatedAt?: string;
   error?: string;
+  /**
+   * When `side-chat-confirm`, Agent HTTPS submit parks markdown as
+   * `awaiting_confirm` and posts a side-chat Insert suggestion instead of
+   * writing `ready` immediately.
+   */
+  delivery?: "side-chat-confirm";
+  /** Side-chat session that should receive the confirm suggestion. */
+  confirmSessionId?: string;
 };
 
 export const KEY_POINT_PROMPT_HISTORY_LIMIT = 20;
@@ -50,7 +69,7 @@ export const DEFAULT_TEAM_KEY_POINT_PROMPT = [
   "请基于本周全组成员已提交的周报，提炼一份团队要点纪要。要求：",
   "1、按「本周进展、下周计划、要点总结」三部分组织，使用 Markdown 标题与条目列表；",
   "2、优先保留可核对的事实：完成事项、阻塞风险、关键结论与明确计划，避免空泛表述；",
-  "3、合并重复信息，按主题归类；同一事项可标注涉及成员姓名；",
+  "3、合并重复信息，按主题归类；每条要点末尾必须用 Markdown 链接标注来源成员，格式为 [@显示名](/records/<reportId>)，reportId 取自「已提交成员」列表；同一事项多名成员则并列多个链接；",
   "4、语言简洁、描述清晰，少用过重的专业黑话；不确定处写「待确认」而非臆测；",
   "5、不要复述整篇周报原文，只输出提炼后的要点正文。",
 ].join("\n");
@@ -170,7 +189,13 @@ function parseKeyPointPrompts(value: unknown): KeyPointPromptsMeta | undefined {
   };
 }
 
-const EXTRACTION_STATUSES = new Set<string>(["generating", "ready", "failed", "pending_setup"]);
+const EXTRACTION_STATUSES = new Set<string>([
+  "generating",
+  "ready",
+  "failed",
+  "pending_setup",
+  "awaiting_confirm",
+]);
 
 function parseKeyPointExtraction(value: unknown): KeyPointExtractionMeta | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -178,8 +203,11 @@ function parseKeyPointExtraction(value: unknown): KeyPointExtractionMeta | undef
     status?: unknown;
     promptSnapshot?: unknown;
     markdown?: unknown;
+    pendingMarkdown?: unknown;
     generatedAt?: unknown;
     error?: unknown;
+    delivery?: unknown;
+    confirmSessionId?: unknown;
   };
   if (typeof row.status !== "string" || !EXTRACTION_STATUSES.has(row.status)) return undefined;
   if (typeof row.promptSnapshot !== "string") return undefined;
@@ -187,8 +215,13 @@ function parseKeyPointExtraction(value: unknown): KeyPointExtractionMeta | undef
     status: row.status as KeyPointExtractionStatus,
     promptSnapshot: row.promptSnapshot,
     ...(typeof row.markdown === "string" ? { markdown: row.markdown } : {}),
+    ...(typeof row.pendingMarkdown === "string" ? { pendingMarkdown: row.pendingMarkdown } : {}),
     ...(typeof row.generatedAt === "string" ? { generatedAt: row.generatedAt } : {}),
     ...(typeof row.error === "string" ? { error: row.error } : {}),
+    ...(row.delivery === "side-chat-confirm" ? { delivery: "side-chat-confirm" as const } : {}),
+    ...(typeof row.confirmSessionId === "string" && row.confirmSessionId.trim()
+      ? { confirmSessionId: row.confirmSessionId.trim() }
+      : {}),
   };
 }
 

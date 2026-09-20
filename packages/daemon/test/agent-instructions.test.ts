@@ -194,6 +194,17 @@ test("direct user messages require a visible CoForge reply", () => {
   expect(instructions).toContain(
     "After `coforge message check` returns a direct user message, you must execute a Bash tool call containing `coforge message send` before ending the turn.",
   );
+  expect(instructions).toContain(
+    'Short or repeated greetings (for example another "hi", 「你好」, or the same greeting again) still require a friendly `coforge message send`',
+  );
+  expect(instructions).toContain('never end with "no action needed" / "no reply" for a DM');
+  expect(instructions).toContain(
+    "applies only to `#channel` targets, never to `@handle` direct chats",
+  );
+  expect(instructions).toContain("Never reuse that silence rule for a direct `@handle` chat");
+  expect(instructions).toContain(
+    "a User greeting or short DM still needs a visible `coforge message send` reply",
+  );
 });
 
 test("channels allow selective replies and self mute without hiding history", () => {
@@ -208,7 +219,9 @@ test("channels allow selective replies and self mute without hiding history", ()
   expect(instructions).toContain(
     "A parent channel mute does not suppress replies in threads you follow",
   );
-  expect(instructions).toContain("Do not reply to every ordinary channel message.");
+  expect(instructions).toContain(
+    "do not reply to every ordinary channel message. Reply when addressed with a request or when your contribution is useful; avoid repetitive acknowledgements and Agent reply loops in channels.",
+  );
   expect(instructions).toContain("Human personal @mentions still notify you while muted.");
   expect(instructions).toContain("Unmuting does not replay messages from the muted period.");
   expect(instructions).toContain("Do not disclose private conversation contents");
@@ -374,7 +387,7 @@ test("communication style keeps agents concise and agrees with the startup-seque
   );
   expect(section).toContain("lead with the answer and write in plain, complete sentences");
   expect(instructions).toContain(
-    "1. If this turn already includes a concrete incoming message, first decide whether that message needs a visible acknowledgment",
+    "1. If this turn already includes a concrete incoming direct-chat message (`target=@…`), you must send a visible reply with `coforge message send`",
   );
 });
 
@@ -384,9 +397,14 @@ test("conversation etiquette agrees with, and does not replace, the public-chann
   expect(section).toContain("**Respect ongoing conversations.**");
   expect(section).toContain("**Only the person doing the work should report on it.**");
   expect(section).toContain("**Before stopping, check for concrete blockers you own.**");
-  expect(section).toContain("**Skip idle narration.**");
-  expect(instructions).toContain("Do not reply to every ordinary channel message.");
-  expect(instructions).toContain("avoid repetitive acknowledgements and Agent reply loops");
+  expect(section).toContain("**Skip idle narration in channels.**");
+  expect(section).toContain(
+    "a User greeting or short DM still needs a visible `coforge message send` reply",
+  );
+  expect(instructions).toContain("do not reply to every ordinary channel message.");
+  expect(instructions).toContain(
+    "avoid repetitive acknowledgements and Agent reply loops in channels",
+  );
 });
 
 test("live constraints require four live seats and never treat memory as hold evidence", () => {
@@ -460,9 +478,8 @@ test("the prompt is its named sections, in order, each opening with its own head
 test("Startup sequence lists five ordered steps and reads MEMORY.md before other context", () => {
   const section = buildCoforgeCliGuideSections().startupSequence;
   expect(section.match(/^\d\. /gm)).toEqual(["1. ", "2. ", "3. ", "4. ", "5. "]);
-  expect(section).toContain(
-    "send it early with `coforge message send` before deep context gathering",
-  );
+  expect(section).toContain("Direct-chat messages always need a `coforge message send` reply");
+  expect(section).toContain("send an early acknowledgment when useful, then finish the reply");
   expect(section).toContain(
     "2. Read MEMORY.md (in your Agent workspace) and then only the additional memory/files you need to handle the current turn well.",
   );

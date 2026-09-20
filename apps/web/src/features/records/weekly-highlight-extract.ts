@@ -103,6 +103,34 @@ export function looksLikeSynthesizeWeeklyReportRequest(body: string): boolean {
   );
 }
 
+/** User asks to (re)organize overview team key points in side chat. */
+export function looksLikeTeamKeyPointReorganizeRequest(body: string): boolean {
+  const text = body.trim();
+  if (!text) return false;
+  if (
+    /^(重新整理|再整理一次|再整理一遍|整理全员要点|整理全员周报|整理要点|重新提炼|再提炼一次|(帮我)?整理(一下)?全员(周报|要点))[!！。.?？]*$/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  return /(重新|再).{0,4}(整理|提炼).{0,8}(要点|全员)?|(整理|提炼).{0,8}全员.{0,4}(要点|周报)|帮我.{0,10}(整理|提炼).{0,10}(全员|要点)/i.test(
+    text,
+  );
+}
+
+/**
+ * Short greeting-only turns in Records side chat. Platform replies immediately so
+ * the panel does not wait on the Agent LLM (which may skip repeated greetings).
+ */
+export function looksLikeSideChatGreeting(body: string): boolean {
+  const text = body.trim();
+  if (!text || text.length > 24) return false;
+  return /^(hi|hello|hey|yo|hola|你好|您好|嗨|哈喽|哈啰|早|早上好|下午好|晚上好|在吗|在不在)[!！。.?？~\s]*$/i.test(
+    text,
+  );
+}
+
 /** Platform rule path for member report side chat (skip Agent LLM). */
 export function looksLikeMemberReportRuleIntent(body: string): boolean {
   return (
@@ -110,4 +138,18 @@ export function looksLikeMemberReportRuleIntent(body: string): boolean {
     looksLikeCollectAgainRequest(body) ||
     looksLikeSynthesizeWeeklyReportRequest(body)
   );
+}
+
+export type RecordSideChatSurface = "format" | "member-leader" | "member-assignee" | "plain";
+
+/**
+ * Collect/synthesize short-phrases only belong on the member-assignee surface.
+ * On overview (`plain`) or template (`format`), the same text (e.g. 「重新整理」)
+ * must reach the Agent DM instead of being swallowed as a no-op RecordComment.
+ */
+export function shouldUseMemberReportRulePath(
+  surface: RecordSideChatSurface,
+  body: string,
+): boolean {
+  return surface === "member-assignee" && looksLikeMemberReportRuleIntent(body);
 }

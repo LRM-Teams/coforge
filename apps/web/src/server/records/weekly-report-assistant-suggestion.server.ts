@@ -4,11 +4,34 @@ const OPEN = "[weekly-report-suggestion]";
 const CLOSE = "[/weekly-report-suggestion]";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Real envelopes put JSON right after the open tag. Prose that merely mentions
+ * `[weekly-report-suggestion]` (e.g. inside backticks) must not truncate the DM.
+ */
+function findSuggestionEnvelopeStart(body: string): number {
+  let from = 0;
+  while (from < body.length) {
+    const start = body.indexOf(OPEN, from);
+    if (start < 0) return -1;
+    const after = body.slice(start + OPEN.length);
+    if (/^\s*\{/.test(after)) return start;
+    from = start + OPEN.length;
+  }
+  return -1;
+}
+
 export type WeeklyReportBodyEditSuggestion = {
   type: "body-edit";
   reportId: string;
   summary: string;
   content: ReportContent;
+};
+
+export type WeeklyReportKeyPointEditSuggestion = {
+  type: "key-point-edit";
+  reportId: string;
+  summary: string;
+  markdown: string;
 };
 
 export type WeeklyReportSendPromptSuggestion = {
@@ -18,6 +41,7 @@ export type WeeklyReportSendPromptSuggestion = {
 
 export type WeeklyReportAssistantSuggestion =
   | WeeklyReportBodyEditSuggestion
+  | WeeklyReportKeyPointEditSuggestion
   | WeeklyReportSendPromptSuggestion;
 
 /** Builds an Agent→User DM body that carries a confirmable write suggestion. */
@@ -29,7 +53,7 @@ export function buildWeeklyReportAssistantSuggestionBody(input: {
 }
 
 export function weeklyReportAssistantSuggestionDisplayBody(body: string): string {
-  const start = body.indexOf(OPEN);
+  const start = findSuggestionEnvelopeStart(body);
   if (start < 0) return body.trim();
   return body.slice(0, start).trim();
 }
@@ -37,7 +61,7 @@ export function weeklyReportAssistantSuggestionDisplayBody(body: string): string
 export function parseWeeklyReportAssistantSuggestion(
   body: string,
 ): WeeklyReportAssistantSuggestion | null {
-  const start = body.indexOf(OPEN);
+  const start = findSuggestionEnvelopeStart(body);
   if (start < 0) return null;
   const afterOpen = body.slice(start + OPEN.length).trimStart();
   const closeAt = afterOpen.indexOf(CLOSE);
@@ -92,6 +116,17 @@ function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | 
     return typeof row.reportId === "string" && UUID_RE.test(row.reportId)
       ? { type: "send-prompt", reportId: row.reportId }
       : null;
+  }
+  if (row.type === "key-point-edit") {
+    if (typeof row.reportId !== "string" || !UUID_RE.test(row.reportId)) return null;
+    if (typeof row.summary !== "string" || row.summary.trim().length === 0) return null;
+    if (typeof row.markdown !== "string" || row.markdown.trim().length === 0) return null;
+    return {
+      type: "key-point-edit",
+      reportId: row.reportId,
+      summary: row.summary.trim(),
+      markdown: row.markdown,
+    };
   }
   if (row.type === "body-edit") {
     if (typeof row.reportId !== "string" || !UUID_RE.test(row.reportId)) return null;
