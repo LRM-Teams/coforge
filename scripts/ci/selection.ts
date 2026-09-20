@@ -1,5 +1,6 @@
 const allChecks = [
   "agent",
+  "cdn-certs",
   "coforge",
   "coforge-sdk",
   "computer",
@@ -15,7 +16,7 @@ const allChecks = [
 
 export function selectChecks(paths: string[], track: "changes" | "web" | "local") {
   if (track === "local") {
-    return allChecks.filter((check) => !["deploy", "oss-cdn", "web"].includes(check));
+    return allChecks.filter((check) => !["cdn-certs", "deploy", "oss-cdn", "web"].includes(check));
   }
   const checks = new Set<string>();
   for (const path of paths) {
@@ -44,6 +45,8 @@ export function selectChecks(paths: string[], track: "changes" | "web" | "local"
       affected = ["deploy", "web"];
     } else if (/^scripts\/verify-oss-cdn[.]/.test(path)) {
       affected = ["oss-cdn"];
+    } else if (path.startsWith("scripts/ops/")) {
+      affected = ["cdn-certs"];
     } else {
       // SDK, toolchain, CI, lockfiles, and unclassified new paths get full coverage.
       affected = allChecks;
@@ -62,7 +65,9 @@ if (import.meta.main) {
   const paths = (await Bun.stdin.text()).split("\0").filter(Boolean);
   const checks = selectChecks(paths, track);
   const libraries = checks.filter((check) => ["coforge-sdk", "agent", "coforge"].includes(check));
-  const contracts = checks.filter((check) => ["deploy", "release", "oss-cdn"].includes(check));
+  const contracts = checks.filter((check) =>
+    ["cdn-certs", "deploy", "release", "oss-cdn"].includes(check),
+  );
   const jobs = [
     "changes",
     ...new Set(

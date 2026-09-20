@@ -18,7 +18,9 @@
     "test:release": "bun run --cwd packages/coforge-sdk generate && bun test scripts/release",
     "check:release": "bunx oxfmt --check scripts/release && bunx oxlint scripts/release && mise exec -- shellcheck scripts/release/install.sh",
     "test:ci": "bun test scripts/ci",
-    "check:ci": "actionlint && bunx oxfmt --check scripts/ci && bunx oxlint scripts/ci"
+    "check:ci": "actionlint && bunx oxfmt --check scripts/ci && bunx oxlint scripts/ci",
+    "test:cdn-certs": "bun test scripts/ops/cdn-certificates.test.ts",
+    "check:cdn-certs": "bunx oxfmt --check scripts/ops/cdn-certificates.test.ts && bunx oxlint scripts/ops/cdn-certificates.test.ts && mise exec -- shellcheck scripts/ops/renew-cdn-certificates.sh"
   },
   "devDependencies": {
     "@alicloud/credentials": "2.4.7",

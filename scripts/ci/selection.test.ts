@@ -35,6 +35,7 @@ test("documentation skips application checks, while shared and unknown inputs fa
   ).toEqual([]);
   const all = [
     "agent",
+    "cdn-certs",
     "coforge",
     "coforge-sdk",
     "computer",
@@ -71,6 +72,7 @@ test("documentation skips application checks, while shared and unknown inputs fa
   ]);
   expect(selectChecks(["scripts/release/install.sh"], "changes")).toEqual(["release", "web"]);
   expect(selectChecks(["infra/staging/caddy/Caddyfile"], "changes")).toEqual(["deploy", "web"]);
+  expect(selectChecks(["scripts/ops/renew-cdn-certificates.sh"], "changes")).toEqual(["cdn-certs"]);
   expect(selectChecks(["scripts/release/compile-targets.ts"], "changes")).toEqual([
     "computer",
     "daemon",

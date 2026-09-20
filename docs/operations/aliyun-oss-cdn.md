@@ -306,9 +306,12 @@ Agent 参照，不要按前面的步骤重复创建。
 两个 bucket 都是私有 + 阻止公共访问 + OSS 完全托管加密（AES256），华北 2（北京），
 标准存储、同城冗余。
 
-**⚠️ 两张证书都是免费个人测试证书，90 天，不自动续期：`cert-d7orsd` 于 2026-12-02
-到期，`cert-a4kn7` 于 2026-12-03 到期。** 到期后 staging 的 HTTPS 直接失效且没有告警。
-账号每年有 20 张免费额度，重新签发是免费的，但必须有人主动做。
+`cert-d7orsd`（2026-12-02 到期）与 `cert-a4kn7`（2026-12-03 到期）是阿里云免费
+个人测试证书路径下签发的最后一批证书——该路径已随 2026-02-24 的 SSL 证书付费
+订阅化改动关闭，无法在控制台重新签发。这两个域名连同 2026-09-20 新建、尚未有
+任何证书的 `images-staging.coforge.cn`，现在由 acme.sh + Let's Encrypt 自动
+签发和续期，取代了这条已关闭的人工续期路径；证书生命周期的完整 runbook见
+[`cdn-certificates.md`](cdn-certificates.md)，不再在本节维护。
 
 验证过的行为，可用 `curl -sI` 复现：
 
@@ -373,6 +376,9 @@ object key 本身（[ADR 0052](../adr/0052-public-profile-image-delivery.md)）�
    `coforge-images-staging`，生产是 `images.coforge.cn` 回源生产 `${IMAGES_BUCKET}`。单一 origin
    指向 `${IMAGES_BUCKET}`，开启同账号 STS 私有回源，**不启用** URL 鉴权，缓存与响应头
    按 5.3 表格的 `images` 行设置为 `public, max-age=31536000, immutable`。
+   `images-staging.coforge.cn` 的 HTTPS 证书不走控制台手动上传：它已经是
+   [`cdn-certificates.md`](cdn-certificates.md) 里 `scripts/ops/renew-cdn-certificates.sh`
+   覆盖的三个域名之一，按该文档第 5 节跑一次首次签发即可，之后自动续期。
 5. 在该域名的性能优化里把「忽略参数」改成**保留指定参数**并保留 `x-oss-process`。
    CDN 默认过滤 `?` 之后的全部参数，不改这一项样式参数根本到不了 OSS：结果不是报错，
    而是静默回退成原图，慢但能显示——所以必须按第 6 节实测样式 URL 的响应大小。
