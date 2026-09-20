@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, jest, setSystemTime, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
@@ -6645,6 +6645,7 @@ describe("Agent delivery queue (ADR 0048)", () => {
     provider: AgentRuntimeConfig["provider"],
     acks = ackGate(0),
     stateDirectory?: string,
+    onActivity?: (activity: import("@lrm/coforge-sdk/internal").AgentActivity) => void,
   ) {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -6664,6 +6665,9 @@ describe("Agent delivery queue (ADR 0048)", () => {
           async revokeAgentApiKey() {},
           async sendAgentDeliveryAck(ack) {
             acks.record(ack.deliveryId);
+          },
+          sendAgentActivity(activity) {
+            onActivity?.(activity);
           },
         }),
       },
@@ -6777,6 +6781,137 @@ describe("Agent delivery queue (ADR 0048)", () => {
     await runtime.startAgent("agent-a", { ...config, provider: "kiro" });
     await fake.waitForNotices(1);
     expect(fake.notices).toEqual(["STEERED-BUT-NEVER-INJECTED"]);
+  });
+
+  describe("runtime-error delivery backoff and fingerprint fence (ADR 0054)", () => {
+    afterEach(() => jest.useRealTimers());
+
+    test("a retryable runtime error holds a new delivery and releases it once the backoff elapses", async () => {
+      const acks = ackGate(1);
+      const { fake, deliver } = await deliveryQueueHarness("pi", acks);
+      jest.useFakeTimers();
+
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      // Every provider pairs a mid-turn "error" with that turn's own "completed" outcome; the
+      // explicit hold (not the turn's busy/idle state) is what actually keeps this delivery
+      // queued until the backoff releases it.
+      fake.emit({ type: "completed", status: "failed" });
+      await deliver(1);
+      expect(fake.notices).toEqual([]); // held behind the backoff, not sent yet
+
+      jest.advanceTimersByTime(10_000 * 1.1 + 1); // base delay plus the maximum jitter
+      await fake.waitForNotices(1);
+      await acks.done;
+      expect(fake.notices).toHaveLength(1);
+    });
+
+    test("a non-retryable runtime error does not hold the next delivery", async () => {
+      const acks = ackGate(1);
+      const { fake, deliver } = await deliveryQueueHarness("pi", acks);
+
+      fake.emit({ type: "error", message: "the request timed out after 60000ms" });
+      await deliver(1);
+      await acks.done;
+      expect(fake.notices).toHaveLength(1);
+    });
+
+    test("a successful turn resets the backoff streak, so the next failure starts at the base delay again", async () => {
+      const acks = ackGate(2);
+      const { fake, deliver } = await deliveryQueueHarness("pi", acks);
+      jest.useFakeTimers();
+
+      // First streak: fail, let it back off and release on its own.
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      fake.emit({ type: "completed", status: "failed" });
+      await deliver(1);
+      jest.advanceTimersByTime(10_000 * 1.1 + 1);
+      await fake.waitForNotices(1);
+
+      // A successful turn in between resets the streak.
+      fake.emit({ type: "completed", status: "completed" });
+
+      // A second failure: if the streak had not reset, the second attempt's delay would double
+      // to ~20s and this delivery would still be held after only the base delay elapses.
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      fake.emit({ type: "completed", status: "failed" });
+      await deliver(2);
+      jest.advanceTimersByTime(10_000 * 1.1 + 1);
+      await fake.waitForNotices(2);
+      await acks.done;
+      expect(fake.notices).toHaveLength(2);
+    });
+
+    test("a failed (not completed) turn does not reset the backoff streak", async () => {
+      const acks = ackGate(1);
+      const { fake, deliver } = await deliveryQueueHarness("pi", acks);
+      jest.useFakeTimers();
+
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      await deliver(1);
+      fake.emit({ type: "completed", status: "failed" });
+      expect(fake.notices).toEqual([]); // still held: a failed turn is not a successful one
+
+      jest.advanceTimersByTime(10_000 * 1.1 + 1);
+      await fake.waitForNotices(1);
+      await acks.done;
+      expect(fake.notices).toHaveLength(1);
+    });
+
+    test("three consecutive failures with the same fingerprint stop retrying and report a fenced Activity", async () => {
+      const acks = ackGate(3);
+      const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+      const { fake, deliver } = await deliveryQueueHarness("pi", acks, undefined, (activity) =>
+        activities.push(activity),
+      );
+      jest.useFakeTimers();
+
+      // Two failures back off and release normally.
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      fake.emit({ type: "completed", status: "failed" });
+      await deliver(1);
+      jest.advanceTimersByTime(10_000 * 1.1 + 1);
+      await fake.waitForNotices(1);
+
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      fake.emit({ type: "completed", status: "failed" });
+      await deliver(2);
+      jest.advanceTimersByTime(20_000 * 1.1 + 1);
+      await fake.waitForNotices(2);
+
+      // The third consecutive failure with the same fingerprint trips the fence: the next
+      // delivery must not be held behind yet another backoff.
+      activities.length = 0;
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      fake.emit({ type: "completed", status: "failed" });
+      await deliver(3);
+      await fake.waitForNotices(3);
+      await acks.done;
+      expect(fake.notices).toHaveLength(3);
+
+      const fenced = activities.find((activity) => activity.detailKind === "runtime_error");
+      expect(fenced).toBeDefined();
+      expect(fenced!.runtimeError?.errorReason).toBe("runtime_error_fenced");
+      expect(fenced!.detail).toContain("3");
+      expect(fenced!.detail.toLowerCase()).toContain("restart");
+    });
+
+    test("an explicit Stop discards the backoff and fence streaks for the next launch", async () => {
+      const acks = ackGate(1);
+      const { runtime, fake, deliver } = await deliveryQueueHarness("pi", acks);
+      jest.useFakeTimers();
+
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      await deliver(1); // held behind an explicit hold, discarded (not released) by Stop below
+      await runtime.stopAgent("agent-a");
+
+      // A fresh launch starts with no inherited hold or backoff state: a delivery on it reaches
+      // the (new) session immediately instead of staying stuck behind the stopped launch's hold.
+      await runtime.startAgent("agent-a", { ...config, provider: "pi" });
+      await deliver(2);
+      await fake.waitForNotices(1);
+      await acks.done;
+      expect(fake.notices).toHaveLength(1);
+    });
   });
 });
 

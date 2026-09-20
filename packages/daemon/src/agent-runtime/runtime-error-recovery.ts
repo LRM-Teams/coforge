@@ -104,9 +104,7 @@ export type RuntimeErrorFingerprintFenceState = Readonly<{
 export class RuntimeErrorFingerprintFence {
   readonly #state = new Map<string, { fingerprint: string; attempts: number }>();
 
-  constructor(
-    private readonly threshold: number = RUNTIME_ERROR_FINGERPRINT_FENCE_THRESHOLD,
-  ) {}
+  constructor(private readonly threshold: number = RUNTIME_ERROR_FINGERPRINT_FENCE_THRESHOLD) {}
 
   /** Records one retryable failure carrying `fingerprint` for `agentId`. A fingerprint different
    * from the one last seen restarts the streak at one, matching a brand-new problem rather than a

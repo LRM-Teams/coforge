@@ -22,6 +22,16 @@ import {
   type RuntimeErrorEvent,
 } from "../agent-runtime/runtime-error-activity";
 import {
+  classifyRuntimeErrorText,
+  RUNTIME_ERROR_RETRY_DECISION,
+} from "../agent-runtime/runtime-error-classification";
+import {
+  RuntimeErrorDeliveryBackoff,
+  RuntimeErrorFingerprintFence,
+  runtimeErrorFingerprintFenceDetail,
+  type RuntimeErrorFingerprintFenceState,
+} from "../agent-runtime/runtime-error-recovery";
+import {
   AgentProcessManager,
   type CodeAgentProviderFactory,
   type AgentRuntime,
@@ -432,6 +442,12 @@ export class DaemonRuntime {
   readonly #messageAttention: AgentMessageAttentionIndex;
   /** Busy-gated delivery holding for providers with no safe busy path (ADR 0048). */
   readonly #deliveryQueue = new AgentDeliveryQueue();
+  /** Per-Agent retryable-runtime-error bookkeeping (ADR 0054): consecutive-failure delivery
+   * backoff and the same-fingerprint repeat fence — see agent-runtime/runtime-error-recovery.ts. */
+  readonly #runtimeErrorDeliveryBackoff = new RuntimeErrorDeliveryBackoff();
+  readonly #runtimeErrorFingerprintFence = new RuntimeErrorFingerprintFence();
+  /** The one pending delivery-backoff release timer per Agent, if any. */
+  readonly #runtimeErrorBackoffTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #reminders: ReminderScheduler;
   readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
   readonly #appInboxes = new Map<string, Promise<AgentAppInbox>>();
@@ -2312,7 +2328,11 @@ export class DaemonRuntime {
     // an intervening `completed` can report `runtime_crashed` instead of a plain `idle` exit.
     if (event.type === "error") {
       launch.crashDetail = event;
-      const built = buildRuntimeErrorActivity(event);
+      const built = this.#noteRuntimeErrorRecovery(
+        agentId,
+        event,
+        buildRuntimeErrorActivity(event),
+      );
       this.#emitAgentActivity(
         agentId,
         launch,
@@ -2344,18 +2364,14 @@ export class DaemonRuntime {
       return;
     }
     if (event.type !== "completed") return;
+    // ADR 0054: only a genuinely successful turn clears the delivery-backoff streak and the
+    // fingerprint fence; a failed or interrupted turn leaves both exactly as they were, so a
+    // still-active backoff correctly keeps holding across it.
+    if (event.status === "completed") this.#resetRuntimeErrorRecovery(agentId);
     // ADR 0048: release whatever a queue_until_idle provider held while this turn ran, as one
     // coalesced notice for the next turn — never blocking this turn-end Activity on it.
     const held = this.#deliveryQueue.idle(agentId);
-    if (held.length)
-      void this.#messageAttention.flush(agentId, held).catch((error: unknown) => {
-        logger.warn("Held Agent deliveries were not accepted at turn end", {
-          event: "agent.delivery_queue.flush_rejected",
-          agent_id: agentId,
-          held_count: held.length,
-          error_code: error instanceof Error ? error.name : "UnknownError",
-        });
-      });
+    if (held.length) this.#flushHeldDeliveries(agentId, held);
     // Checked after the flush call above, not before: `flush` (via `#notify`) marks busy again
     // synchronously, in the same tick, whenever it actually has something to deliver — so a held
     // app item correctly re-holds itself (via `#notifyAppItem`'s own `shouldHold` check) for the
@@ -2635,6 +2651,11 @@ export class DaemonRuntime {
     this.#messageAttention.clearAgent(agentId);
     // ADR 0048: explicit Stop discards anything a queue_until_idle provider was holding.
     this.#deliveryQueue.clearAgent(agentId);
+    // ADR 0054: an explicit Stop discards the runtime-error recovery streaks the same way — a
+    // fresh start should not inherit a backoff/fence from a process that no longer exists.
+    this.#clearRuntimeErrorBackoffTimer(agentId);
+    this.#runtimeErrorDeliveryBackoff.reset(agentId);
+    this.#runtimeErrorFingerprintFence.reset(agentId);
     this.#sendAgentStatus(agentId, "inactive");
     if (publishStopped && activityLaunch)
       this.#emitAgentActivity(agentId, activityLaunch, this.#stoppedActivity(agentId));
@@ -2726,6 +2747,109 @@ export class DaemonRuntime {
 
   #runtimeErrorActivity(agentId: string, detail: string): ActivityDraft {
     return this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR, "error", detail);
+  }
+
+  /**
+   * ADR 0054: decides what a mid-turn runtime error means for this Agent's queued deliveries —
+   * retry after a backoff, stop retrying, or stop retrying because the same fingerprint has now
+   * failed `RUNTIME_ERROR_FINGERPRINT_FENCE_THRESHOLD` times in a row — and returns the Activity
+   * that should actually be reported (unchanged, unless the fence just tripped). The retry
+   * decision is always taken from this failure's own text (`classifyRuntimeErrorText`), never
+   * from a provider's own class/reason hint: an arbitrary provider-native string is not something
+   * a fixed retry table can look up.
+   */
+  #noteRuntimeErrorRecovery(
+    agentId: string,
+    event: RuntimeErrorEvent,
+    built: ReturnType<typeof buildRuntimeErrorActivity>,
+  ): ReturnType<typeof buildRuntimeErrorActivity> {
+    const classification = classifyRuntimeErrorText(event.message);
+    if (classification.retryDecision !== RUNTIME_ERROR_RETRY_DECISION.RETRY) {
+      // Not worth backing off for: retrying achieves nothing on its own (D's territory is the
+      // user-facing side of that, e.g. auth). Leave the Agent in a truthful state instead of
+      // holding a delivery behind a backoff that will never usefully resolve.
+      this.#stopRuntimeErrorDeliveryBackoff(agentId);
+      return built;
+    }
+    const fingerprint = built.runtimeError?.fingerprint ?? fingerprintRuntimeError(event.message);
+    const fence = this.#runtimeErrorFingerprintFence.note(agentId, fingerprint);
+    if (fence.fenced) {
+      this.#stopRuntimeErrorDeliveryBackoff(agentId);
+      return this.#runtimeErrorFingerprintFenceActivity(built, fence);
+    }
+    const backoff = this.#runtimeErrorDeliveryBackoff.recordFailure(agentId);
+    this.#deliveryQueue.hold(agentId, backoff.untilMs);
+    this.#scheduleRuntimeErrorDeliveryBackoffRelease(agentId, backoff.delayMs);
+    return built;
+  }
+
+  /** Overrides a runtime_error Activity's wording once the fingerprint fence has tripped: same
+   * detailKind/level (still an ordinary runtime_error, so nothing new appears in a client that
+   * does not yet know about fencing), but a distinguishable `errorReason` and a detail that names
+   * the repeat and how to recover — CoForge's own words, not the last raw provider message alone. */
+  #runtimeErrorFingerprintFenceActivity(
+    built: ReturnType<typeof buildRuntimeErrorActivity>,
+    fence: RuntimeErrorFingerprintFenceState,
+  ): ReturnType<typeof buildRuntimeErrorActivity> {
+    const detail = runtimeErrorFingerprintFenceDetail(fence, built.detail);
+    return {
+      ...built,
+      detail,
+      entries: [{ kind: "text", text: `Error: ${detail}` }],
+      runtimeError: built.runtimeError && {
+        ...built.runtimeError,
+        errorReason: "runtime_error_fenced",
+      },
+    };
+  }
+
+  /** Cancels any pending release timer, releases (and flushes) anything currently held under an
+   * explicit hold, and forgets the consecutive-retryable-failure streak. Deliberately leaves the
+   * fingerprint fence's own streak untouched — that one only ever resets on a successful turn
+   * (`#resetRuntimeErrorRecovery`), so a fenced Agent stays fenced across a merely non-retryable
+   * failure of a different class. */
+  #stopRuntimeErrorDeliveryBackoff(agentId: string): void {
+    this.#clearRuntimeErrorBackoffTimer(agentId);
+    const held = this.#deliveryQueue.release(agentId);
+    if (held.length) this.#flushHeldDeliveries(agentId, held);
+    this.#runtimeErrorDeliveryBackoff.reset(agentId);
+  }
+
+  /** A genuinely successful turn (ADR 0054): forgets both streaks entirely. */
+  #resetRuntimeErrorRecovery(agentId: string): void {
+    this.#stopRuntimeErrorDeliveryBackoff(agentId);
+    this.#runtimeErrorFingerprintFence.reset(agentId);
+  }
+
+  #clearRuntimeErrorBackoffTimer(agentId: string): void {
+    const timer = this.#runtimeErrorBackoffTimers.get(agentId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.#runtimeErrorBackoffTimers.delete(agentId);
+  }
+
+  #scheduleRuntimeErrorDeliveryBackoffRelease(agentId: string, delayMs: number): void {
+    this.#clearRuntimeErrorBackoffTimer(agentId);
+    const timer = setTimeout(() => {
+      this.#runtimeErrorBackoffTimers.delete(agentId);
+      const held = this.#deliveryQueue.release(agentId);
+      if (held.length) this.#flushHeldDeliveries(agentId, held);
+    }, delayMs);
+    this.#runtimeErrorBackoffTimers.set(agentId, timer);
+  }
+
+  /** Attempts delivery of everything just released from an explicit or busy-gated hold, as one
+   * coalesced notice — never blocking the caller on it. Shared by ordinary turn-end draining and
+   * the runtime-error delivery backoff (ADR 0048/0054). */
+  #flushHeldDeliveries(agentId: string, held: AgentMessageDelivery[]): void {
+    void this.#messageAttention.flush(agentId, held).catch((error: unknown) => {
+      logger.warn("Held Agent deliveries were not accepted", {
+        event: "agent.delivery_queue.flush_rejected",
+        agent_id: agentId,
+        held_count: held.length,
+        error_code: error instanceof Error ? error.name : "UnknownError",
+      });
+    });
   }
 
   #stoppedActivity(agentId: string): ActivityDraft {

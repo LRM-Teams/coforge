@@ -176,5 +176,9 @@ export function classifyRuntimeErrorText(message: string): RuntimeErrorClassific
         retryDecision: rule.retryDecision,
       };
   }
-  return { errorClass: RUNTIME_ERROR_CLASS.RUNTIME, errorReason: "runtime_failure", retryDecision: RETRY };
+  return {
+    errorClass: RUNTIME_ERROR_CLASS.RUNTIME,
+    errorReason: "runtime_failure",
+    retryDecision: RETRY,
+  };
 }
