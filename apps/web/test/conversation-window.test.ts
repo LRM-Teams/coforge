@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   CONVERSATION_WINDOW_MAX_PAGES,
   CONVERSATION_WINDOW_PAGE_SIZE,
+  flushWindowUpdates,
+  foldWindowUpdates,
   newestSequence,
   nextPageCursor,
   previousPageCursor,
@@ -71,5 +73,71 @@ describe("windowPageFlags", () => {
 describe("window size", () => {
   test("retains the 100-row window the brief asks for", () => {
     expect(CONVERSATION_WINDOW_PAGE_SIZE * CONVERSATION_WINDOW_MAX_PAGES).toBe(100);
+  });
+});
+
+type TestMessage = { id: string; sequence: number };
+
+const bySequence = (base: readonly TestMessage[], incoming: readonly TestMessage[]) => {
+  const byId = new Map(base.map((message) => [message.id, message]));
+  for (const message of incoming) byId.set(message.id, message);
+  return [...byId.values()].sort((left, right) => left.sequence - right.sequence);
+};
+
+const message = (id: string, sequence: number): TestMessage => ({ id, sequence });
+
+describe("foldWindowUpdates", () => {
+  test("folds realtime into the newest page when it is the live tail", () => {
+    const fold = foldWindowUpdates(
+      { hasNewer: false, messages: [message("a", 1)] },
+      [],
+      [message("b", 2)],
+      bySequence,
+    );
+    expect(fold).toEqual({ messages: [message("a", 1), message("b", 2)], pending: [] });
+  });
+
+  test("buffers a late reply while the newest page is not the tail", () => {
+    // The reply to a still-retained root: the forward page loader can never fetch it, so it must
+    // not be dropped.
+    const fold = foldWindowUpdates(
+      { hasNewer: true, messages: [message("a", 1)] },
+      [message("reply", 50)],
+      [message("reply", 50)],
+      bySequence,
+    );
+    expect(fold).toEqual({ messages: undefined, pending: [message("reply", 50)] });
+  });
+
+  test("a page that is gone folds nothing", () => {
+    expect(foldWindowUpdates(undefined, [], [message("b", 2)], bySequence)).toBeUndefined();
+  });
+});
+
+describe("flushWindowUpdates", () => {
+  test("merges the buffer once the newest page is the tail again", () => {
+    expect(
+      flushWindowUpdates(
+        { hasNewer: false, messages: [message("a", 1)] },
+        [message("reply", 50)],
+        bySequence,
+      ),
+    ).toEqual([message("a", 1), message("reply", 50)]);
+  });
+
+  test("waits while the tail is still missing", () => {
+    expect(
+      flushWindowUpdates(
+        { hasNewer: true, messages: [message("a", 1)] },
+        [message("reply", 50)],
+        bySequence,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("is a no-op with nothing buffered", () => {
+    expect(
+      flushWindowUpdates({ hasNewer: false, messages: [message("a", 1)] }, [], bySequence),
+    ).toBeUndefined();
   });
 });
