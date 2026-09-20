@@ -150,7 +150,7 @@ export type AgentLaunchConfig = {
 };
 
 const AGENT_STATUS_REFRESH_MS = 30_000;
-const COMPUTER_STATUS_REFRESH_MS = 30_000;
+export const COMPUTER_STATUS_REFRESH_MS = 30_000;
 const RECONNECT_READY_RETRY_MS = 1_000;
 const RECONNECT_READY_RETRY_MAX_MS = 60_000;
 /** Consecutive ready failures after which this stops being a transient hiccup: the connection is
@@ -1256,8 +1256,9 @@ export class DaemonConnection implements DaemonConnectionClient {
    * publication on the Daemon's channel or an answered status RPC sets it; an open socket does
    * not, which is the whole point. Undefined until the connection first reports connected. */
   #lastInboundAtMs: number | undefined;
-  /** Suppresses a repeated quiet report while one quiet stretch continues. */
-  #reportedQuiet = false;
+  /** Same log suppression as `#loggedUnknownSessionInvalidateMethod`, but per quiet stretch
+   * rather than per connection: cleared the moment anything arrives. */
+  #loggedInboundQuiet = false;
   #statusRpcQueue = Promise.resolve();
 
   constructor(
@@ -1584,7 +1585,6 @@ export class DaemonConnection implements DaemonConnectionClient {
       const client = this.#client;
       if (!this.#connected || !client) return;
       this.#checkInboundLiveness(client, config);
-      if (client !== this.#client) return;
       void client
         .rpc(
           DAEMON_CONNECTION_STATUS_METHOD,
@@ -1611,7 +1611,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   #markInbound(): void {
     this.#lastInboundAtMs = this.#nowMs();
-    this.#reportedQuiet = false;
+    this.#loggedInboundQuiet = false;
   }
 
   /**
@@ -1625,12 +1625,12 @@ export class DaemonConnection implements DaemonConnectionClient {
   #checkInboundLiveness(client: CentrifugeWorkspaceClient, config: DaemonConnectionConfig): void {
     if (this.#lastInboundAtMs === undefined) return;
     const ageMs = this.#nowMs() - this.#lastInboundAtMs;
-    const scope = { workspace_id: config.workspaceId, computer_id: config.computerId };
     const liveness = connectionLiveness(ageMs);
     if (liveness === "carrying") return;
+    const scope = { workspace_id: config.workspaceId, computer_id: config.computerId };
     if (liveness === "quiet") {
-      if (this.#reportedQuiet) return;
-      this.#reportedQuiet = true;
+      if (this.#loggedInboundQuiet) return;
+      this.#loggedInboundQuiet = true;
       logger.info("Daemon cloud connection has carried nothing recently", {
         event: "daemon_connection:inbound_quiet",
         ...scope,
