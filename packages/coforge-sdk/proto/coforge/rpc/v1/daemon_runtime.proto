@@ -108,6 +108,33 @@ message DaemonRuntimeUsageScanResponse {
   string message_type = 10;
 }
 
+// Server -> daemon, on the daemon control channel like `DaemonRuntimeUsageScanRequest`: re-run
+// Code Agent model-catalog discovery now, so the browser's model selector can pick up a provider
+// config change without a daemon restart. The daemon re-reports through the ordinary
+// `DaemonRuntimeCodeAgentsUpdateRequest` path and answers here with the fresh catalog.
+message DaemonRuntimeProviderModelRefreshRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string message_type = 5;
+}
+
+// Daemon -> server RPC, method `daemon:v1:provider:model_refresh_result`. `catalogs` carries the
+// freshly discovered catalog only when `status` is `refreshed`; `status` is one of
+// `refreshed | refused | error`.
+message DaemonRuntimeProviderModelRefreshResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  bool accepted = 5;
+  string status = 6;
+  string message = 7;
+  repeated CodeAgentModelCatalog catalogs = 8;
+  string message_type = 9;
+}
+
 message CodeAgentModelCatalog {
   string provider = 1;
   repeated CodeAgentModelMetadata models = 2;

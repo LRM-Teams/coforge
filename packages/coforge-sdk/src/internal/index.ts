@@ -9,6 +9,8 @@ export const DAEMON_CONNECTION_STATUS_METHOD = RPC_METHODS.daemonConnectionStatu
 export const DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD = RPC_METHODS.daemonCodeAgentsUpdate;
 export const DAEMON_RUNTIME_USAGE_SCAN_METHOD = RPC_METHODS.daemonUsageScan;
 export const DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD = RPC_METHODS.daemonUsageScanResult;
+export const DAEMON_RUNTIME_MODEL_REFRESH_METHOD = RPC_METHODS.daemonModelRefresh;
+export const DAEMON_RUNTIME_MODEL_REFRESH_RESULT_METHOD = RPC_METHODS.daemonModelRefreshResult;
 export const COMPUTER_RESTART_METHOD = RPC_METHODS.computerRestart;
 export const COMPUTER_RESTART_MESSAGE_TYPE = "coforge.rpc.v1.ComputerRestartIntent" as const;
 export const COMPUTER_UPGRADE_METHOD = RPC_METHODS.computerUpgrade;
@@ -24,6 +26,10 @@ export const AGENT_ACTIVITY_PROBE_MESSAGE_TYPE = "coforge.rpc.v1.AgentActivityPr
 export const USAGE_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.DaemonRuntimeUsageScanRequest" as const;
 export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeUsageScanResponse" as const;
+export const MODEL_REFRESH_MESSAGE_TYPE =
+  "coforge.rpc.v1.DaemonRuntimeProviderModelRefreshRequest" as const;
+export const MODEL_REFRESH_RESPONSE_MESSAGE_TYPE =
+  "coforge.rpc.v1.DaemonRuntimeProviderModelRefreshResponse" as const;
 /** Server -> daemon, on the daemon control channel like the usage scan (ADR 0051); per-Agent
  * rather than per-provider, so it decodes through the same `#route` chain in
  * `daemon-connection.ts` rather than a dedicated method the daemon calls. */
@@ -38,6 +44,8 @@ export type DaemonRuntimeMessageType =
   | typeof AGENT_STOP_MESSAGE_TYPE
   | typeof USAGE_SCAN_MESSAGE_TYPE
   | typeof USAGE_SCAN_RESPONSE_MESSAGE_TYPE
+  | typeof MODEL_REFRESH_MESSAGE_TYPE
+  | typeof MODEL_REFRESH_RESPONSE_MESSAGE_TYPE
   | typeof AGENT_CONTEXT_SCAN_MESSAGE_TYPE
   | typeof AGENT_CONTEXT_SCAN_RESPONSE_MESSAGE_TYPE;
 export const AGENT_MESSAGE_METHOD = RPC_METHODS.agentMessage;
@@ -485,6 +493,24 @@ export type DaemonRuntimeUsageScanResponse = DaemonRuntimeUsageScanRequest & {
   message?: string;
   snapshotJson?: Uint8Array;
 };
+/** Server -> daemon, on the daemon control channel like the usage scan: re-run Code Agent
+ * model-catalog discovery on demand so the browser's model selector can pick up a provider config
+ * change without a daemon restart. */
+export type DaemonRuntimeProviderModelRefreshRequest = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  messageType?: DaemonRuntimeMessageType;
+};
+/** Daemon -> server. `catalogs` carries the freshly discovered catalog when `status` is
+ * `refreshed`; `status` is one of `refreshed | refused | error`. */
+export type DaemonRuntimeProviderModelRefreshResponse = DaemonRuntimeProviderModelRefreshRequest & {
+  accepted: boolean;
+  status: string;
+  message?: string;
+  catalogs?: CodeAgentModelCatalog[];
+};
 /** Server -> daemon, on the daemon control channel like the usage scan (ADR 0051). Per-Agent: the
  * server fills `launchId`/`sessionId` from its own record of the Agent's current control state;
  * the daemon still resolves its own current launch/session independently before running anything
@@ -791,6 +817,10 @@ export {
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
   decodeDaemonRuntimeUsageScanResponse,
+  encodeDaemonRuntimeProviderModelRefreshRequest,
+  decodeDaemonRuntimeProviderModelRefreshRequest,
+  encodeDaemonRuntimeProviderModelRefreshResponse,
+  decodeDaemonRuntimeProviderModelRefreshResponse,
   encodeAgentContextScanRequest,
   decodeAgentContextScanRequest,
   encodeAgentContextScanResponse,

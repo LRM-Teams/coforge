@@ -75,6 +75,8 @@ import {
   type ComputerUpgradeResult,
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
+  decodeDaemonRuntimeProviderModelRefreshRequest,
+  encodeDaemonRuntimeProviderModelRefreshResponse,
   decodeAgentContextScanRequest,
   encodeAgentContextScanResponse,
   AGENT_CONTEXT_SCAN_RESULT_METHOD,
@@ -94,12 +96,15 @@ import {
   DAEMON_CONNECTION_STATUS_METHOD,
   DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
   DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
+  DAEMON_RUNTIME_MODEL_REFRESH_RESULT_METHOD,
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_STATUS_METHOD,
   type DaemonRuntimeReadyRequest,
   type DaemonRuntimeCodeAgentsUpdateRequest,
   type DaemonRuntimeUsageScanRequest,
   type DaemonRuntimeUsageScanResponse,
+  type DaemonRuntimeProviderModelRefreshRequest,
+  type DaemonRuntimeProviderModelRefreshResponse,
   type AgentActivity,
   type AgentStatus,
   type AgentStartIntent,
@@ -442,6 +447,12 @@ export interface DaemonConnectionClient {
   sendWorkspaceFileReadResult?(result: AgentWorkspaceFileReadResult): Promise<void>;
   onUsageScan?(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void;
   sendUsageScanResult?(response: DaemonRuntimeUsageScanResponse): Promise<void>;
+  onProviderModelRefresh?(
+    callback: (request: DaemonRuntimeProviderModelRefreshRequest) => Promise<void>,
+  ): () => void;
+  sendProviderModelRefreshResult?(
+    response: DaemonRuntimeProviderModelRefreshResponse,
+  ): Promise<void>;
   onAgentContextScan?(callback: (request: AgentContextScanRequest) => Promise<void>): () => void;
   sendAgentContextScanResult?(response: AgentContextScanResponse): Promise<void>;
   sendUpgradeResult?(result: ComputerUpgradeResult): Promise<boolean>;
@@ -1209,6 +1220,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #usageScan = new ListenerSlot<
     (request: DaemonRuntimeUsageScanRequest) => Promise<void>
   >();
+  readonly #providerModelRefresh = new ListenerSlot<
+    (request: DaemonRuntimeProviderModelRefreshRequest) => Promise<void>
+  >();
   readonly #agentContextScan = new ListenerSlot<
     (request: AgentContextScanRequest) => Promise<void>
   >();
@@ -1388,6 +1402,12 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   onUsageScan(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void {
     return this.#usageScan.set(callback);
+  }
+
+  onProviderModelRefresh(
+    callback: (request: DaemonRuntimeProviderModelRefreshRequest) => Promise<void>,
+  ): () => void {
+    return this.#providerModelRefresh.set(callback);
   }
 
   onAgentContextScan(callback: (request: AgentContextScanRequest) => Promise<void>): () => void {
@@ -2285,6 +2305,16 @@ export class DaemonConnection implements DaemonConnectionClient {
         void this.#usageScan.current?.(usage);
         return true;
       }) ||
+      this.#route(data, decodeDaemonRuntimeProviderModelRefreshRequest, (refresh) => {
+        if (
+          refresh.protocolMajor !== 1 ||
+          refresh.workspaceId !== workspaceId ||
+          !refresh.computerId
+        )
+          return false;
+        void this.#providerModelRefresh.current?.(refresh);
+        return true;
+      }) ||
       this.#route(data, decodeAgentContextScanRequest, (scan) => {
         if (scan.protocolMajor !== 1 || scan.workspaceId !== workspaceId || !scan.computerId)
           return false;
@@ -2406,6 +2436,15 @@ export class DaemonConnection implements DaemonConnectionClient {
     await this.#rpc(
       DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
       encodeDaemonRuntimeUsageScanResponse(response),
+    );
+  }
+
+  async sendProviderModelRefreshResult(
+    response: DaemonRuntimeProviderModelRefreshResponse,
+  ): Promise<void> {
+    await this.#rpc(
+      DAEMON_RUNTIME_MODEL_REFRESH_RESULT_METHOD,
+      encodeDaemonRuntimeProviderModelRefreshResponse(response),
     );
   }
 

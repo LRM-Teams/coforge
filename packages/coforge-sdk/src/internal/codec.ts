@@ -23,6 +23,8 @@ import {
 } from "./gen/coforge/rpc/v1/workspace_pb";
 import {
   DaemonRuntimeCodeAgentsUpdateRequestSchema,
+  DaemonRuntimeProviderModelRefreshRequestSchema,
+  DaemonRuntimeProviderModelRefreshResponseSchema,
   DaemonRuntimeReadyRequestSchema,
   DaemonRuntimeUsageScanRequestSchema,
   DaemonRuntimeUsageScanResponseSchema,
@@ -64,6 +66,8 @@ import {
   AGENT_ACTIVITY_PROBE_MESSAGE_TYPE,
   USAGE_SCAN_MESSAGE_TYPE,
   USAGE_SCAN_RESPONSE_MESSAGE_TYPE,
+  MODEL_REFRESH_MESSAGE_TYPE,
+  MODEL_REFRESH_RESPONSE_MESSAGE_TYPE,
   AGENT_CONTEXT_SCAN_MESSAGE_TYPE,
   AGENT_CONTEXT_SCAN_RESPONSE_MESSAGE_TYPE,
 } from "./index";
@@ -373,6 +377,57 @@ export function decodeDaemonRuntimeUsageScanResponse(bytes: Uint8Array) {
     status: v.status,
     message: v.message || undefined,
     snapshotJson: v.snapshotJson.length ? v.snapshotJson : undefined,
+    messageType: v.messageType,
+  };
+}
+export const encodeDaemonRuntimeProviderModelRefreshRequest = (
+  v: import("./index").DaemonRuntimeProviderModelRefreshRequest,
+) =>
+  toBinary(
+    DaemonRuntimeProviderModelRefreshRequestSchema,
+    create(DaemonRuntimeProviderModelRefreshRequestSchema, {
+      ...v,
+      messageType: MODEL_REFRESH_MESSAGE_TYPE,
+    }),
+  );
+export function decodeDaemonRuntimeProviderModelRefreshRequest(bytes: Uint8Array) {
+  const v = fromBinary(DaemonRuntimeProviderModelRefreshRequestSchema, bytes);
+  if (v.messageType !== MODEL_REFRESH_MESSAGE_TYPE)
+    throw new Error("invalid daemon runtime message type");
+  return {
+    protocolMajor: v.protocolMajor,
+    requestId: v.requestId,
+    workspaceId: v.workspaceId,
+    computerId: v.computerId,
+    messageType: v.messageType,
+  };
+}
+export const encodeDaemonRuntimeProviderModelRefreshResponse = (
+  v: import("./index").DaemonRuntimeProviderModelRefreshResponse,
+) =>
+  toBinary(
+    DaemonRuntimeProviderModelRefreshResponseSchema,
+    create(DaemonRuntimeProviderModelRefreshResponseSchema, {
+      ...v,
+      catalogs: v.catalogs?.map(modelCatalog) ?? [],
+      messageType: MODEL_REFRESH_RESPONSE_MESSAGE_TYPE,
+    }),
+  );
+export function decodeDaemonRuntimeProviderModelRefreshResponse(
+  bytes: Uint8Array,
+): import("./index").DaemonRuntimeProviderModelRefreshResponse {
+  const v = fromBinary(DaemonRuntimeProviderModelRefreshResponseSchema, bytes);
+  if (v.messageType !== MODEL_REFRESH_RESPONSE_MESSAGE_TYPE)
+    throw new Error("invalid daemon runtime message type");
+  return {
+    protocolMajor: v.protocolMajor,
+    requestId: v.requestId,
+    workspaceId: v.workspaceId,
+    computerId: v.computerId,
+    accepted: v.accepted,
+    status: v.status,
+    message: v.message || undefined,
+    catalogs: v.catalogs.map(decodedModelCatalog),
     messageType: v.messageType,
   };
 }
