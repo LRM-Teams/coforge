@@ -14,11 +14,12 @@ export function TaskOwner({ owner, showName }: { owner: TaskView["owner"]; showN
     );
   }
   const initials = owner.name.trim().charAt(0).toUpperCase();
+  const avatarUrl = owner.avatarUrl ?? undefined;
   if (showName) {
     return (
       <span className="flex min-w-0 items-center gap-2 text-xs text-secondary">
         <span className="sr-only">{m.tasks_overview_owner()}: </span>
-        <Avatar size="xs" initials={initials} alt="" />
+        <Avatar size="xs" initials={initials} alt="" src={avatarUrl} />
         <span className="truncate">{owner.name}</span>
       </span>
     );
@@ -28,7 +29,7 @@ export function TaskOwner({ owner, showName }: { owner: TaskView["owner"]; showN
       <span className="sr-only">{m.tasks_overview_owner()}: </span>
       <Tooltip title={owner.name}>
         <TooltipTrigger className="rounded-full">
-          <Avatar size="xs" initials={initials} alt="" />
+          <Avatar size="xs" initials={initials} alt="" src={avatarUrl} />
           <span className="sr-only">{owner.name}</span>
         </TooltipTrigger>
       </Tooltip>

@@ -1075,6 +1075,7 @@ export function RecordSidePanel({
                     <Avatar
                       size="xs"
                       alt={authorName}
+                      src={comment.author?.avatarUrl ?? undefined}
                       initials={avatarInitial(authorName)}
                       contentClassName={avatarToneClassName(authorName)}
                     />

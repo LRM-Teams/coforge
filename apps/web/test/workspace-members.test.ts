@@ -37,7 +37,7 @@ describe("WorkspaceMembers", () => {
               displayName: null,
               description: "Compiler pioneer",
               email: "private@example.test",
-              avatarObjectKey: "private/avatar",
+              avatarObjectKey: "avatars/other-user/7f3a/avatar",
             },
           ];
         },
@@ -81,7 +81,13 @@ describe("WorkspaceMembers", () => {
     });
     expect(queries.people).toEqual({
       where: { memberships: { some: { workspaceId: "workspace-1" } } },
-      select: { id: true, username: true, displayName: true, description: true },
+      select: {
+        id: true,
+        username: true,
+        displayName: true,
+        description: true,
+        avatarObjectKey: true,
+      },
       orderBy: [{ username: "asc" }, { id: "asc" }],
     });
     expect(queries.agents).toEqual({
@@ -117,6 +123,7 @@ describe("WorkspaceMembers", () => {
           name: "grace",
           displayName: "grace",
           description: "Compiler pioneer",
+          avatarUrl: "/api/workspaces/workspace-1/users/other-user/avatar?v=7f3a",
         },
       ],
       agents: [

@@ -236,6 +236,8 @@ export function RecordsLayout({
                             >
                               <Avatar
                                 size="sm"
+                                alt={item.author.displayName}
+                                src={item.author.avatarUrl ?? undefined}
                                 initials={avatarInitial(item.author.displayName)}
                                 contentClassName={avatarToneClassName(item.author.displayName)}
                               />
@@ -359,6 +361,8 @@ export function RecordsLayout({
                                       >
                                         <Avatar
                                           size="sm"
+                                          alt={submission.author.displayName}
+                                          src={submission.author.avatarUrl ?? undefined}
                                           initials={avatarInitial(submission.author.displayName)}
                                           contentClassName={avatarToneClassName(
                                             submission.author.displayName,
@@ -410,6 +414,8 @@ export function RecordsLayout({
                           >
                             <Avatar
                               size="sm"
+                              alt={catalog.actorDisplayName}
+                              src={catalog.actorAvatarUrl ?? undefined}
                               initials={avatarInitial(catalog.actorDisplayName)}
                               contentClassName={avatarToneClassName(catalog.actorDisplayName)}
                             />

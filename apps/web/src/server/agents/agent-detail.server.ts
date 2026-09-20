@@ -27,7 +27,12 @@ type DetailAgent = {
   createdAt: Date;
   computerId?: string | null;
   computer?: DetailComputer | null;
-  owner: { id: string; username: string; displayName?: string | null };
+  owner: {
+    id: string;
+    username: string;
+    displayName?: string | null;
+    avatarObjectKey?: string | null;
+  };
   runtimeConfig: Prisma.JsonValue;
   weeklyReportAssistant?: { id: string } | null;
   /** Set when a user stopped this Agent (ADR 0038). */

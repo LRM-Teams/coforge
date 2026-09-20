@@ -38,6 +38,7 @@ import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
 import { workspaceMemberRole } from "../../server/workspaces/members.server";
+import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
 import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
 import { PrismaAgentRuntimeCredentialRepository } from "../../server/db/repositories/agent-runtime-credential.repositories.server";
@@ -371,7 +372,9 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
               runtimeConfig: true,
               stoppedAt: true,
               weeklyReportAssistant: { select: { id: true } },
-              owner: { select: { id: true, username: true, displayName: true } },
+              owner: {
+                select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+              },
             },
           })
           .then((agent) => agent ?? undefined),
@@ -427,6 +430,16 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
     : undefined;
   return {
     ...result,
+    // The Creator row renders the same identity the rest of the product does (avatar image +
+    // display name), so the owner's avatar URL is resolved here like every other person surface.
+    owner: {
+      ...result.owner,
+      avatarUrl: workspaceUserAvatarUrl(
+        workspaceId,
+        result.owner.id,
+        result.owner.avatarObjectKey ?? null,
+      ),
+    },
     runtimeConfig: publicAgentRuntimeConfig(runtimeConfig),
     ownedByCurrentUser,
     runtimeCredential,
