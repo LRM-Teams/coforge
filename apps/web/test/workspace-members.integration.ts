@@ -94,12 +94,14 @@ test("lists only the requested Workspace directory and denies outsiders", async 
           name: otherOwner.username,
           displayName: "Agent Owner",
           description: "Owns the Workspace Agents",
+          avatarUrl: null,
         },
         {
           id: viewer.id,
           name: viewer.username,
           displayName: "Directory Viewer",
           description: "Views the directory",
+          avatarUrl: null,
         },
       ].sort((left, right) => left.name.localeCompare(right.name)),
       agents: [

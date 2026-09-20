@@ -35,6 +35,7 @@ type MemberRow = {
   role: string;
   username: string;
   displayName: string | null;
+  avatarUrl: string | null;
 };
 
 type InvitationRow = {
@@ -149,6 +150,7 @@ export function WorkspaceMembersPanel(props: {
                     <Avatar
                       size="sm"
                       alt={displayName}
+                      src={member.avatarUrl ?? undefined}
                       initials={avatarInitial(displayName)}
                       contentClassName={avatarToneClassName(displayName)}
                       className="shrink-0"

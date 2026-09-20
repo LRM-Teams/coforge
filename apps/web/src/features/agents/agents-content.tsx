@@ -344,7 +344,14 @@ function MemberCard({
   selected = false,
   openProfile = false,
 }: {
-  member: WorkspaceMemberDirectory["people"][number];
+  member: {
+    id: string;
+    name: string;
+    displayName: string;
+    description: string | null;
+    /** Present only on human directory entries; Agents render no avatar image. */
+    avatarUrl?: string | null;
+  };
   label: string;
   computerName?: string | null;
   ownedAgent?: AgentView;
@@ -364,6 +371,7 @@ function MemberCard({
         <Avatar
           size="xl"
           alt={member.displayName}
+          src={member.avatarUrl ?? undefined}
           initials={avatarInitial(member.displayName)}
           contentClassName={avatarToneClassName(member.displayName)}
         />

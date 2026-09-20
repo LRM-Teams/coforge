@@ -92,6 +92,7 @@ export function WeeklyReportStats({
                         <Avatar
                           size="xs"
                           alt={member.displayName}
+                          src={member.avatarUrl ?? undefined}
                           initials={avatarInitial(member.displayName)}
                           contentClassName={avatarToneClassName(member.displayName)}
                         />

@@ -12,6 +12,7 @@ import {
   type TaskView,
 } from "@lrm/coforge-sdk/internal";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import {
@@ -46,7 +47,8 @@ const taskSelection = {
   owner: {
     select: {
       id: true,
-      user: { select: { username: true, displayName: true } },
+      userId: true,
+      user: { select: { username: true, displayName: true, avatarObjectKey: true } },
       agent: { select: { name: true, displayName: true } },
     },
   },
@@ -124,6 +126,14 @@ function view(task: SelectedTask): TaskView {
             memberId: task.owner.id,
             kind: "user",
             name: task.owner.user?.displayName || `@${task.owner.user?.username}`,
+            avatarUrl:
+              task.owner.userId && task.owner.user
+                ? workspaceUserAvatarUrl(
+                    task.workspaceId,
+                    task.owner.userId,
+                    task.owner.user.avatarObjectKey,
+                  )
+                : null,
           }
       : null,
   };

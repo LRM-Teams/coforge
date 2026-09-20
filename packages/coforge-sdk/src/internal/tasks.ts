@@ -12,7 +12,14 @@ export type TaskView = {
   description?: string | null;
   status: TaskStatus;
   revision: number;
-  owner: { memberId: string; kind: "user" | "agent"; name: string } | null;
+  owner: {
+    memberId: string;
+    kind: "user" | "agent";
+    name: string;
+    /** Where the browser reads a human owner's avatar; absent for an Agent owner or a viewer
+     * surface that carries no avatar (the Agent API's TaskView). */
+    avatarUrl?: string | null;
+  } | null;
   channelRef?: string;
   requiresResourceReceipt?: boolean;
   resourceReceiptRecordedAt?: string | null;

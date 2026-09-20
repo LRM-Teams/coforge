@@ -68,8 +68,13 @@ type ReportSubject = {
     status: string;
     content: ReportContent;
     submittedAt?: string | null;
-    sharedBy?: { userId: string; username: string; displayName: string } | null;
-    author: { userId: string; username: string; displayName: string };
+    sharedBy?: {
+      userId: string;
+      username: string;
+      displayName: string;
+      avatarUrl: string | null;
+    } | null;
+    author: { userId: string; username: string; displayName: string; avatarUrl: string | null };
     cycle: { id: string; year: number; week: number; title: string };
     sourceTemplateId?: string | null;
     unread?: boolean;
@@ -402,6 +407,7 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
                   <Avatar
                     size="sm"
                     alt={report.author.displayName}
+                    src={report.author.avatarUrl ?? undefined}
                     initials={avatarInitial(report.author.displayName)}
                     contentClassName={avatarToneClassName(report.author.displayName)}
                   />

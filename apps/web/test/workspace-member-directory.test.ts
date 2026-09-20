@@ -160,6 +160,7 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
         role: input.role,
         username: input.username,
         displayName: null,
+        avatarUrl: null,
       });
     },
     seedUser(userId, username) {
@@ -214,6 +215,7 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
         role: invitation.role,
         username: invitation.inviteeUsername,
         displayName: null,
+        avatarUrl: null,
       };
       members.set(`${member.workspaceId}:${member.userId}`, member);
       generalEnrollments.push({ workspaceId: member.workspaceId, userId: member.userId });
