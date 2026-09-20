@@ -591,6 +591,15 @@ test("applyTeamKeyPointExtraction parks side-chat-confirm delivery as awaiting_c
     },
   } as unknown as PrismaClient;
 
+  const previousEnv = {
+    centrifugoUrl: process.env.COFORGE_CENTRIFUGO_API_URL,
+    centrifugoKey: process.env.COFORGE_CENTRIFUGO_API_KEY,
+    redisUrl: process.env.REDIS_URL,
+  };
+  process.env.COFORGE_CENTRIFUGO_API_URL = "http://centrifugo.test/api";
+  process.env.COFORGE_CENTRIFUGO_API_KEY = "test-key";
+  process.env.REDIS_URL = "redis://127.0.0.1:9";
+
   const originalFromAgent = SendDirectMessage.prototype.executeFromAgent;
   SendDirectMessage.prototype.executeFromAgent = async function (input: {
     body: string;
@@ -620,6 +629,12 @@ test("applyTeamKeyPointExtraction parks side-chat-confirm delivery as awaiting_c
     expect(agentBody).toContain("完成侧栏确认流");
   } finally {
     SendDirectMessage.prototype.executeFromAgent = originalFromAgent;
+    if (previousEnv.centrifugoUrl === undefined) delete process.env.COFORGE_CENTRIFUGO_API_URL;
+    else process.env.COFORGE_CENTRIFUGO_API_URL = previousEnv.centrifugoUrl;
+    if (previousEnv.centrifugoKey === undefined) delete process.env.COFORGE_CENTRIFUGO_API_KEY;
+    else process.env.COFORGE_CENTRIFUGO_API_KEY = previousEnv.centrifugoKey;
+    if (previousEnv.redisUrl === undefined) delete process.env.REDIS_URL;
+    else process.env.REDIS_URL = previousEnv.redisUrl;
   }
 });
 

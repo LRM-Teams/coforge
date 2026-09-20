@@ -197,15 +197,11 @@ test("direct user messages require a visible CoForge reply", () => {
   expect(instructions).toContain(
     'Short or repeated greetings (for example another "hi", 「你好」, or the same greeting again) still require a friendly `coforge message send`',
   );
-  expect(instructions).toContain(
-    'never end with "no action needed" / "no reply" for a DM',
-  );
+  expect(instructions).toContain('never end with "no action needed" / "no reply" for a DM');
   expect(instructions).toContain(
     "applies only to `#channel` targets, never to `@handle` direct chats",
   );
-  expect(instructions).toContain(
-    "Never reuse that silence rule for a direct `@handle` chat",
-  );
+  expect(instructions).toContain("Never reuse that silence rule for a direct `@handle` chat");
   expect(instructions).toContain(
     "a User greeting or short DM still needs a visible `coforge message send` reply",
   );
@@ -406,7 +402,9 @@ test("conversation etiquette agrees with, and does not replace, the public-chann
     "a User greeting or short DM still needs a visible `coforge message send` reply",
   );
   expect(instructions).toContain("do not reply to every ordinary channel message.");
-  expect(instructions).toContain("avoid repetitive acknowledgements and Agent reply loops in channels");
+  expect(instructions).toContain(
+    "avoid repetitive acknowledgements and Agent reply loops in channels",
+  );
 });
 
 test("live constraints require four live seats and never treat memory as hold evidence", () => {
@@ -480,12 +478,8 @@ test("the prompt is its named sections, in order, each opening with its own head
 test("Startup sequence lists five ordered steps and reads MEMORY.md before other context", () => {
   const section = buildCoforgeCliGuideSections().startupSequence;
   expect(section.match(/^\d\. /gm)).toEqual(["1. ", "2. ", "3. ", "4. ", "5. "]);
-  expect(section).toContain(
-    "Direct-chat messages always need a `coforge message send` reply",
-  );
-  expect(section).toContain(
-    "send an early acknowledgment when useful, then finish the reply",
-  );
+  expect(section).toContain("Direct-chat messages always need a `coforge message send` reply");
+  expect(section).toContain("send an early acknowledgment when useful, then finish the reply");
   expect(section).toContain(
     "2. Read MEMORY.md (in your Agent workspace) and then only the additional memory/files you need to handle the current turn well.",
   );
