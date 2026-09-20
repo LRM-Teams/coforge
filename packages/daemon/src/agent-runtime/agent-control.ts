@@ -150,9 +150,103 @@ export class AgentControl {
   }
   async initialize() {
     for (const id of await this.store.listAgentIds()) {
-      await this.store.read(id);
+      const record = await this.store.read(id);
       this.#known.add(id);
+      await this.#settleInterruptedOperation(id, record);
     }
+  }
+
+  /** Boot-time settle results for records a gone daemon instance left in a live phase. `initialize`
+   * runs before the transport connects, so these are collected there and flushed once `#start` has
+   * completed the ready handshake — the same after-ready ordering the pre-ready publication buffer
+   * uses. `flushPendingBootResults` is idempotent and safe to call when the list is empty. */
+  readonly #pendingBootResults: AgentControlResult[] = [];
+
+  /** Sends every settle result `initialize` collected, logging (not swallowing) a per-result
+   * delivery failure with the facts a later investigation needs. */
+  async flushPendingBootResults(): Promise<void> {
+    const pending = this.#pendingBootResults.splice(0);
+    for (const result of pending) {
+      try {
+        await this.runtime.result(result);
+      } catch (error) {
+        logger.warning("Boot settle result for an interrupted Agent operation failed to deliver", {
+          event: "agent_control:boot_result_delivery_failed",
+          agent_id: result.agentId,
+          request_id: result.requestId,
+          result_phase: result.phase,
+          epoch: result.epoch,
+          error_code: diagnosticErrorCode(error),
+        });
+      }
+    }
+  }
+
+  /** Boot-time counterpart of the lazy `repairStaleRecord`: a record left in a live phase by a
+   * gone daemon instance otherwise sits there until some control operation touches the Agent —
+   * the UI keeps showing "Starting…"/"Stopping…" and the server's operation for the interrupted
+   * start stays non-terminal forever, because the automatic launch retry that would have
+   * settled it died with the old instance (Raft's wait states carry an instance id + deadline
+   * precisely so they cannot outlive their writer). Repair the record to its honest terminal
+   * phase and report a result under the interrupted operation's own scope, so the server
+   * settles it without waiting for a newer command; a result for an op the server already
+   * superseded is rejected and logged (ADR 0035's decision B) — harmless.
+   *
+   * The repaired phase is always "stopped" — never "failed": the server's `recover()` treats a
+   * failed state as terminal and starts fresh, but republishing the SAME epoch at a record that
+   * reads "failed" would be fenced as `previous_control_not_completed`, so a "failed" repair
+   * could block the very recovery that follows this boot. The reported result is still `failed`
+   * for an interrupted start — that is the honest outcome for the operation — while the local
+   * record stays startable. */
+  async #settleInterruptedOperation(
+    agentId: string,
+    record: AgentRuntimeRecord | undefined,
+  ): Promise<void> {
+    if (
+      !record ||
+      !LIVE_PHASES.has(record.phase) ||
+      record.exitUnconfirmed ||
+      this.runtime.running(agentId) ||
+      record.daemonInstanceId === this.instanceId
+    )
+      return;
+    const previousPhase = record.phase;
+    const repaired: AgentRuntimeRecord = { ...record, phase: "stopped" };
+    let result: AgentControlResult | undefined;
+    if (previousPhase === "starting") {
+      // A launch that never finished: settle the server's operation as failed under the op's own
+      // scope so its pending state resolves; the next Start (including the Daemon-ready recovery
+      // dispatch) starts fresh with a new epoch.
+      repaired.lastResult = {
+        ...record.scope,
+        phase: "failed",
+        launchId: record.launchId,
+        sequence: ++repaired.sequence,
+        errorCode: "daemon_restarted",
+      };
+      result = repaired.lastResult;
+    } else if (previousPhase === "stopping") {
+      result = record.stopResult;
+      if (!result) {
+        repaired.lastResult = {
+          ...record.scope,
+          phase: "stopped",
+          sequence: ++repaired.sequence,
+        };
+        result = repaired.lastResult;
+      }
+    }
+    await this.store.write(agentId, repaired);
+    logger.error("Agent control record left live by a gone daemon instance; repaired at boot", {
+      event: "agent_control:interrupted_operation_repaired",
+      agent_id: agentId,
+      previous_phase: previousPhase,
+      previous_daemon_instance_id: record.daemonInstanceId,
+      daemon_instance_id: this.instanceId,
+      epoch: record.scope.epoch,
+      ...(result ? { reported_result_phase: result.phase } : {}),
+    });
+    if (result) this.#pendingBootResults.push(result);
   }
   managed(agentId: string) {
     return this.#known.has(agentId);
