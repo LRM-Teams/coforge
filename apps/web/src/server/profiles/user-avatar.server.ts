@@ -1,7 +1,8 @@
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { avatarUrl } from "../db/repositories/user-profile.repositories.server";
-import { getFileStorage, type FileStorage } from "../files/file-storage.server";
+import type { FileStorage } from "../files/file-storage.server";
+import { getPublicImageStorage } from "../files/public-image-storage.server";
 import { validateImage } from "../files/image-upload.server";
 
 export { IMAGE_MAX_BYTES as PROFILE_IMAGE_MAX_BYTES } from "../files/image-upload.server";
@@ -9,7 +10,7 @@ export { IMAGE_MAX_BYTES as PROFILE_IMAGE_MAX_BYTES } from "../files/image-uploa
 export async function storeUserAvatar(
   db: PrismaClient,
   input: { userId: string; file: File },
-  storage: () => Promise<FileStorage> = getFileStorage,
+  storage: () => Promise<FileStorage> = getPublicImageStorage,
 ) {
   await validateImage(input.file);
   const previous = await db.user.findUnique({
@@ -38,7 +39,7 @@ export async function storeUserAvatar(
 export async function readUserAvatar(
   db: PrismaClient,
   userId: string,
-  storage: () => Promise<FileStorage> = getFileStorage,
+  storage: () => Promise<FileStorage> = getPublicImageStorage,
 ) {
   const profile = await db.user.findUnique({
     where: { id: userId },
@@ -53,7 +54,7 @@ export async function readUserAvatar(
 export async function removeUserAvatar(
   db: PrismaClient,
   userId: string,
-  storage: () => Promise<FileStorage> = getFileStorage,
+  storage: () => Promise<FileStorage> = getPublicImageStorage,
 ) {
   const previous = await db.user.findUnique({
     where: { id: userId },

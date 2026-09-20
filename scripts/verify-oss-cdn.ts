@@ -8,6 +8,17 @@ export interface FilesProbe extends ContentProbe {
   unsigned_cdn_url: string;
 }
 
+/**
+ * A profile image is delivered through a bucket image style, so what the edge returns is a
+ * resized derivative the operator cannot hash locally. Its identity is proven at the origin
+ * (which must still refuse anonymous access) and by the style it was asked for; the byte
+ * comparison the other classes make has no meaning here.
+ */
+export interface ImageProbe {
+  origin_url: string;
+  cdn_url: string;
+}
+
 export interface RejectedProbe {
   name: string;
   url: string;
@@ -16,9 +27,12 @@ export interface RejectedProbe {
 export interface AcceptanceInput {
   files_host: string;
   releases_host: string;
+  images_host: string;
   files: FilesProbe;
   release: ContentProbe;
   channels: ContentProbe;
+  /** A profile image: anonymous, unsigned, styled, and immutable by design (ADR 0052). */
+  image: ImageProbe;
   rejected_urls: RejectedProbe[];
 }
 
@@ -45,7 +59,48 @@ const PROBE_COOKIE = "coforge_acceptance_probe=must-not-authorize";
 const MIN_IMMUTABLE_TTL_SECONDS = 30 * 24 * 60 * 60;
 // Each delivery domain fronts exactly one private bucket, so the boundary is
 // proven by asking one domain for the other domain's object key.
-const REQUIRED_REJECTION_NAMES = new Set(["files-through-releases", "release-through-files"]);
+/**
+ * Each content class has one production domain and one staging counterpart. Acceptance runs
+ * against the environment being provisioned, and all three domains in one run must belong to the
+ * same environment: a report that mixed a staging image domain with the production attachment
+ * domain would claim a boundary nobody tested.
+ */
+const DELIVERY_ENVIRONMENTS = {
+  production: {
+    files: "files.coforge.cn",
+    releases: "releases.coforge.cn",
+    images: "images.coforge.cn",
+  },
+  staging: {
+    files: "files-staging.coforge.cn",
+    releases: "releases-staging.coforge.cn",
+    images: "images-staging.coforge.cn",
+  },
+} as const;
+
+function deliveryEnvironment(input: {
+  files_host: unknown;
+  releases_host: unknown;
+  images_host: unknown;
+}): keyof typeof DELIVERY_ENVIRONMENTS | null {
+  for (const [environment, hosts] of Object.entries(DELIVERY_ENVIRONMENTS)) {
+    if (
+      input.files_host === hosts.files &&
+      input.releases_host === hosts.releases &&
+      input.images_host === hosts.images
+    ) {
+      return environment as keyof typeof DELIVERY_ENVIRONMENTS;
+    }
+  }
+  return null;
+}
+
+const REQUIRED_REJECTION_NAMES = new Set([
+  "files-through-releases",
+  "release-through-files",
+  "files-through-images",
+  "image-through-files",
+]);
 
 function addCheck(checks: AcceptanceCheck[], id: string, passed: boolean, detail: string): void {
   checks.push({ id, passed, detail });
@@ -88,16 +143,24 @@ function isContentProbe(value: unknown): value is ContentProbe {
   );
 }
 
+function isImageProbe(value: unknown): value is ImageProbe {
+  if (typeof value !== "object" || value === null) return false;
+  const probe = value as Record<string, unknown>;
+  return isString(probe.origin_url) && isString(probe.cdn_url);
+}
+
 function isAcceptanceInput(value: unknown): value is AcceptanceInput {
   if (typeof value !== "object" || value === null) return false;
   const input = value as Record<string, unknown>;
   if (
-    input.files_host !== "files.coforge.cn" ||
-    input.releases_host !== "releases.coforge.cn" ||
+    deliveryEnvironment(
+      input as { files_host: unknown; releases_host: unknown; images_host: unknown },
+    ) === null ||
     !isContentProbe(input.files) ||
     !isString((input.files as Record<string, unknown>).unsigned_cdn_url) ||
     !isContentProbe(input.release) ||
     !isContentProbe(input.channels) ||
+    !isImageProbe(input.image) ||
     !Array.isArray(input.rejected_urls) ||
     input.rejected_urls.length !== REQUIRED_REJECTION_NAMES.size
   ) {
@@ -107,6 +170,7 @@ function isAcceptanceInput(value: unknown): value is AcceptanceInput {
   const files = input.files as unknown as FilesProbe;
   const release = input.release as ContentProbe;
   const channels = input.channels as ContentProbe;
+  const image = input.image as ImageProbe;
   const rejected = input.rejected_urls as unknown[];
   if (
     !rejected.every(
@@ -128,15 +192,24 @@ function isAcceptanceInput(value: unknown): value is AcceptanceInput {
     const releaseCdn = new URL(release.cdn_url);
     const channelsOrigin = new URL(channels.origin_url);
     const channelsCdn = new URL(channels.cdn_url);
+    const imageOrigin = new URL(image.origin_url);
+    const imageCdn = new URL(image.cdn_url);
     const rejectedByName = new Map(rejected.map((probe) => [probe.name, new URL(probe.url)]));
     const filesThroughReleases = rejectedByName.get("files-through-releases");
     const releaseThroughFiles = rejectedByName.get("release-through-files");
+    const filesThroughImages = rejectedByName.get("files-through-images");
+    const imageThroughFiles = rejectedByName.get("image-through-files");
 
     return (
       rejectedByName.size === REQUIRED_REJECTION_NAMES.size &&
       [...rejectedByName.keys()].every((name) => REQUIRED_REJECTION_NAMES.has(name)) &&
       filesOrigin.hostname !== releaseOrigin.hostname &&
       releaseOrigin.hostname === channelsOrigin.hostname &&
+      // Profile images are served without any signature, so their bucket must be
+      // neither the attachment bucket nor the release bucket: a domain can read
+      // every object in the bucket behind it.
+      imageOrigin.hostname !== filesOrigin.hostname &&
+      imageOrigin.hostname !== releaseOrigin.hostname &&
       filesCdn.origin === filesUnsigned.origin &&
       filesCdn.pathname === filesUnsigned.pathname &&
       filesCdn.search.length > 0 &&
@@ -151,6 +224,14 @@ function isAcceptanceInput(value: unknown): value is AcceptanceInput {
       channelsCdn.pathname === channelsOrigin.pathname &&
       releaseCdn.search.length === 0 &&
       channelsCdn.search.length === 0 &&
+      imageCdn.hostname === input.images_host &&
+      imageCdn.pathname === imageOrigin.pathname &&
+      // No signing material: the URL a profile image is published with is the
+      // whole credential, and it must stay byte-identical across renders. Its
+      // one parameter names a bucket image style, never a free-form processing
+      // expression, so the variants this domain can produce stay bounded.
+      [...imageCdn.searchParams.keys()].join() === "x-oss-process" &&
+      imageCdn.searchParams.get("x-oss-process")?.startsWith("style/") === true &&
       // The attachment key asked of the release domain, unsigned because that
       // domain has no signing to satisfy: only bucket isolation can reject it.
       filesThroughReleases?.hostname === input.releases_host &&
@@ -161,7 +242,17 @@ function isAcceptanceInput(value: unknown): value is AcceptanceInput {
       // signature.
       releaseThroughFiles?.hostname === input.files_host &&
       releaseThroughFiles.pathname === releaseOrigin.pathname &&
-      releaseThroughFiles.search.length > 0
+      releaseThroughFiles.search.length > 0 &&
+      // The attachment key asked of the unsigned image domain: the one probe
+      // that proves the public domain cannot reach private user files.
+      filesThroughImages?.hostname === input.images_host &&
+      filesThroughImages.pathname === filesOrigin.pathname &&
+      filesThroughImages.search.length === 0 &&
+      // The image key asked of the attachment domain, with valid signing
+      // material, so its rejection proves bucket isolation.
+      imageThroughFiles?.hostname === input.files_host &&
+      imageThroughFiles.pathname === imageOrigin.pathname &&
+      imageThroughFiles.search.length > 0
     );
   } catch {
     return false;
@@ -257,11 +348,17 @@ export async function runAcceptance(
     input.files.unsigned_cdn_url,
     input.release.cdn_url,
     input.channels.cdn_url,
+    input.image.cdn_url,
     ...input.rejected_urls.map(({ url }) => url),
   ];
-  const origins = [input.files.origin_url, input.release.origin_url, input.channels.origin_url];
+  const origins = [
+    input.files.origin_url,
+    input.release.origin_url,
+    input.channels.origin_url,
+    input.image.origin_url,
+  ];
   const originHosts = origins.map((url) => new URL(url).hostname);
-  const cdnHosts = [input.files_host, input.releases_host];
+  const cdnHosts = [input.files_host, input.releases_host, input.images_host];
 
   addCheck(
     checks,
@@ -270,6 +367,7 @@ export async function runAcceptance(
       isCdnUrl(input.files.unsigned_cdn_url, [input.files_host]) &&
       isCdnUrl(input.release.cdn_url, [input.releases_host]) &&
       isCdnUrl(input.channels.cdn_url, [input.releases_host]) &&
+      isCdnUrl(input.image.cdn_url, [input.images_host]) &&
       allCdnUrls.every((url) => isCdnUrl(url, cdnHosts)) &&
       origins.every((url) => isOriginUrl(url, cdnHosts)),
     "all probes use the expected HTTPS delivery domains and OSS host classes",
@@ -279,10 +377,13 @@ export async function runAcceptance(
     const filesOrigin = await capture(fetcher, input.files.origin_url, false);
     const releaseOrigin = await capture(fetcher, input.release.origin_url, false);
     const channelsOrigin = await capture(fetcher, input.channels.origin_url, false);
+    const imageOrigin = await capture(fetcher, input.image.origin_url, false);
     addCheck(
       checks,
       "origins_reject_anonymous_exact_key_get",
-      [filesOrigin, releaseOrigin, channelsOrigin].every(({ status }) => status === 403),
+      [filesOrigin, releaseOrigin, channelsOrigin, imageOrigin].every(
+        ({ status }) => status === 403,
+      ),
       "every known existing OSS object returned HTTP 403 without a signature",
     );
 
@@ -297,6 +398,7 @@ export async function runAcceptance(
     const filesCdn = await capture(fetcher, input.files.cdn_url, true);
     const releaseCdn = await capture(fetcher, input.release.cdn_url, true);
     const channelsCdn = await capture(fetcher, input.channels.cdn_url, true);
+    const imageCdn = await capture(fetcher, input.image.cdn_url, false);
 
     addCheck(
       checks,
@@ -323,6 +425,12 @@ export async function runAcceptance(
     );
     addCheck(
       checks,
+      "image_style_is_served_immutable",
+      imageCdn.status === 200 && hasReleaseCachePolicy(imageCdn.headers),
+      "the styled profile image is served anonymously, public, immutable, and cached for at least 30 days",
+    );
+    addCheck(
+      checks,
       "channels_revalidate",
       hasChannelsCachePolicy(channelsCdn.headers),
       "channels.json requires cache revalidation",
@@ -330,7 +438,7 @@ export async function runAcceptance(
     addCheck(
       checks,
       "cdn_responses_hide_provider",
-      [filesCdn, releaseCdn, channelsCdn].every((response) =>
+      [filesCdn, releaseCdn, channelsCdn, imageCdn].every((response) =>
         hasNoProviderLeak(response, originHosts),
       ),
       "successful client responses contain no redirect, Set-Cookie, or OSS hostname",

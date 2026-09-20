@@ -26,6 +26,7 @@ import {
 } from "../../server/centrifugo/server-api.server";
 import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
 import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
+import { computerCreatorAvatarUrl } from "../../server/computers/computer-creator-avatar.server";
 import { isWorkspaceMemberComputer } from "../../server/computers/computer-membership.server";
 import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
@@ -144,9 +145,11 @@ export const listComputers = createServerFn({ method: "GET" })
           creator: {
             username: computer.owner.username,
             displayName: computer.owner.displayName,
-            avatarUrl: computer.owner.avatarObjectKey
-              ? `/api/computers/${computer.id}/creator-avatar?workspaceId=${workspaceId}`
-              : null,
+            avatarUrl: computerCreatorAvatarUrl(
+              computer.id,
+              workspaceId,
+              computer.owner.avatarObjectKey,
+            ),
           },
           connectedAt: createdAt,
           ownedByCurrentUser: computer.ownerId === user.id,
