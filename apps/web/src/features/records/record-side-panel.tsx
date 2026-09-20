@@ -1132,9 +1132,9 @@ export function RecordSidePanel({
                   ? m.records_side_chat_assistant()
                   : comment.authorType === "system"
                     ? m.records_side_chat_system()
-                    : (comment.author?.displayName?.trim() ||
+                    : comment.author?.displayName?.trim() ||
                       comment.author?.username?.trim() ||
-                      viewerName);
+                      viewerName;
               const payload = payloadOf(comment);
               const generateHelpConsumed = comments.some(
                 (row) => row.authorType === "user" && looksLikeMemberGenerateOfferAccept(row.body),

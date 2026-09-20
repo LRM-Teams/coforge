@@ -1,4 +1,10 @@
-import { ChevronLeft, Edit01 as Edit, Plus, Trash01 as Trash, XClose as X } from "@untitledui/icons";
+import {
+  ChevronLeft,
+  Edit01 as Edit,
+  Plus,
+  Trash01 as Trash,
+  XClose as X,
+} from "@untitledui/icons";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";

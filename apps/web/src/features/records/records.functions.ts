@@ -16,7 +16,10 @@ import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.se
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { getMessageRequestIdempotency } from "../../server/conversations/redis-message-request-idempotency.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
-import { looksLikeMemberReportRuleIntent, looksLikeSideChatGreeting } from "./weekly-highlight-extract";
+import {
+  looksLikeMemberReportRuleIntent,
+  looksLikeSideChatGreeting,
+} from "./weekly-highlight-extract";
 import { normalizeReportContent, type ReportContent } from "./records-content";
 
 export const loadRecordsNavAttention = createServerFn({ method: "GET" })

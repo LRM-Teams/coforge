@@ -114,10 +114,8 @@ export function looksLikeTeamKeyPointReorganizeRequest(body: string): boolean {
   ) {
     return true;
   }
-  return (
-    /(重新|再).{0,4}(整理|提炼).{0,8}(要点|全员)?|(整理|提炼).{0,8}全员.{0,4}(要点|周报)|帮我.{0,10}(整理|提炼).{0,10}(全员|要点)/i.test(
-      text,
-    )
+  return /(重新|再).{0,4}(整理|提炼).{0,8}(要点|全员)?|(整理|提炼).{0,8}全员.{0,4}(要点|周报)|帮我.{0,10}(整理|提炼).{0,10}(全员|要点)/i.test(
+    text,
   );
 }
 

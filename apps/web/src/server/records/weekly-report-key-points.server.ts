@@ -608,10 +608,7 @@ export async function applyTeamKeyPointExtraction(
   const promptSnapshot =
     content.keyPointExtraction?.promptSnapshot ?? DEFAULT_TEAM_KEY_POINT_PROMPT;
   const confirmSessionId = content.keyPointExtraction?.confirmSessionId;
-  if (
-    content.keyPointExtraction?.delivery === "side-chat-confirm" &&
-    confirmSessionId
-  ) {
+  if (content.keyPointExtraction?.delivery === "side-chat-confirm" && confirmSessionId) {
     const publishedMarkdown = content.keyPointExtraction.markdown;
     await writeKeyPointExtraction(db, {
       reportId: report.id,
@@ -680,11 +677,7 @@ export function linkifyTeamKeyPointMarkdown(
   sources: ReadonlyArray<{ reportId: string; displayName: string }>,
   overviewReportId: string,
 ): string {
-  return linkifyKeyPointSourceAttributions(
-    markdown,
-    sources,
-    `/records/${overviewReportId}`,
-  );
+  return linkifyKeyPointSourceAttributions(markdown, sources, `/records/${overviewReportId}`);
 }
 
 async function postTeamKeyPointConfirmSuggestion(

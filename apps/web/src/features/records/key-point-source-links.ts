@@ -18,7 +18,9 @@ export function linkifyKeyPointSourceAttributions(
   returnTo: string,
 ): string {
   if (!markdown.trim() || sources.length === 0) return markdown;
-  const sorted = [...sources].sort((left, right) => right.displayName.length - left.displayName.length);
+  const sorted = [...sources].sort(
+    (left, right) => right.displayName.length - left.displayName.length,
+  );
   let result = markdown;
   for (const source of sorted) {
     const name = source.displayName.trim();

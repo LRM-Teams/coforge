@@ -31,9 +31,8 @@ test("looksLikeCollectAgainRequest and synthesize intents match product phrases"
 });
 
 test("shouldUseMemberReportRulePath only on member-assignee surface", async () => {
-  const { shouldUseMemberReportRulePath } = await import(
-    "../src/features/records/weekly-highlight-extract"
-  );
+  const { shouldUseMemberReportRulePath } =
+    await import("../src/features/records/weekly-highlight-extract");
   expect(shouldUseMemberReportRulePath("member-assignee", "重新整理")).toBe(true);
   expect(shouldUseMemberReportRulePath("member-assignee", "整理周报")).toBe(true);
   expect(shouldUseMemberReportRulePath("plain", "重新整理")).toBe(false);

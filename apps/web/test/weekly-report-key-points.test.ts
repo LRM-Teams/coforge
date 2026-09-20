@@ -551,8 +551,7 @@ test("applyTeamKeyPointExtraction writes ready markdown on the overview template
   expect(written).toMatchObject({
     keyPointExtraction: {
       status: "ready",
-      markdown:
-        "## 本周进展\n- 完成 A [@Alice](/records/r-alice?returnTo=%2Frecords%2Foverview-1)",
+      markdown: "## 本周进展\n- 完成 A [@Alice](/records/r-alice?returnTo=%2Frecords%2Foverview-1)",
       promptSnapshot: "团队提示词",
     },
   });
@@ -601,9 +600,7 @@ test("applyTeamKeyPointExtraction parks side-chat-confirm delivery as awaiting_c
   process.env.REDIS_URL = "redis://127.0.0.1:9";
 
   const originalFromAgent = SendDirectMessage.prototype.executeFromAgent;
-  SendDirectMessage.prototype.executeFromAgent = async function (input: {
-    body: string;
-  }) {
+  SendDirectMessage.prototype.executeFromAgent = async function (input: { body: string }) {
     agentBody = input.body;
     return { id: "msg-1" };
   };

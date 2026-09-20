@@ -1860,16 +1860,19 @@ export class RecordCatalog {
       throw new AppError("ACCESS_DENIED");
     }
 
-    const { writeKeyPointExtraction, loadSubmittedTeamKeyPointSources, linkifyTeamKeyPointMarkdown } =
-      await import("./weekly-report-key-points.server");
     const {
-      DEFAULT_PERSONAL_KEY_POINT_PROMPT,
-      DEFAULT_TEAM_KEY_POINT_PROMPT,
-    } = await import("../../features/records/records-content");
+      writeKeyPointExtraction,
+      loadSubmittedTeamKeyPointSources,
+      linkifyTeamKeyPointMarkdown,
+    } = await import("./weekly-report-key-points.server");
+    const { DEFAULT_PERSONAL_KEY_POINT_PROMPT, DEFAULT_TEAM_KEY_POINT_PROMPT } =
+      await import("../../features/records/records-content");
     const content = asReportContent(report.content);
     const promptSnapshot =
       content.keyPointExtraction?.promptSnapshot ??
-      (report.kind === "template" ? DEFAULT_TEAM_KEY_POINT_PROMPT : DEFAULT_PERSONAL_KEY_POINT_PROMPT);
+      (report.kind === "template"
+        ? DEFAULT_TEAM_KEY_POINT_PROMPT
+        : DEFAULT_PERSONAL_KEY_POINT_PROMPT);
     const linkedMarkdown =
       report.kind === "template"
         ? linkifyTeamKeyPointMarkdown(
@@ -1925,13 +1928,13 @@ export class RecordCatalog {
     }
 
     const { writeKeyPointExtraction } = await import("./weekly-report-key-points.server");
-    const {
-      DEFAULT_PERSONAL_KEY_POINT_PROMPT,
-      DEFAULT_TEAM_KEY_POINT_PROMPT,
-    } = await import("../../features/records/records-content");
+    const { DEFAULT_PERSONAL_KEY_POINT_PROMPT, DEFAULT_TEAM_KEY_POINT_PROMPT } =
+      await import("../../features/records/records-content");
     const promptSnapshot =
       existing.promptSnapshot ||
-      (report.kind === "template" ? DEFAULT_TEAM_KEY_POINT_PROMPT : DEFAULT_PERSONAL_KEY_POINT_PROMPT);
+      (report.kind === "template"
+        ? DEFAULT_TEAM_KEY_POINT_PROMPT
+        : DEFAULT_PERSONAL_KEY_POINT_PROMPT);
     const next = await writeKeyPointExtraction(this.db, {
       reportId: report.id,
       content,

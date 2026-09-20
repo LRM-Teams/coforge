@@ -30,9 +30,7 @@ test("key-point-edit suggestions round-trip through the assistant message envelo
     displayText: "已整理好全员要点，请确认后插入。",
     suggestion,
   });
-  expect(weeklyReportAssistantSuggestionDisplayBody(body)).toBe(
-    "已整理好全员要点，请确认后插入。",
-  );
+  expect(weeklyReportAssistantSuggestionDisplayBody(body)).toBe("已整理好全员要点，请确认后插入。");
   expect(parseWeeklyReportAssistantSuggestion(body)).toEqual(suggestion);
 });
 

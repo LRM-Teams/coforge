@@ -53,7 +53,12 @@ import {
   type ReportContent,
 } from "./records-content";
 import { copyText } from "./report-editor/lib/clipboard";
-import { BackToRecords, RecordsKeyPointReturnBack, WeekBadge, useFormatEditHint } from "./records-layout";
+import {
+  BackToRecords,
+  RecordsKeyPointReturnBack,
+  WeekBadge,
+  useFormatEditHint,
+} from "./records-layout";
 import { RecordSidePanel } from "./record-side-panel";
 import { readSidePanelPinned } from "./record-side-panel-pin";
 import { TemplateChildrenTable, type TemplateChild } from "./template-children-table";
@@ -119,16 +124,10 @@ export function RecordDetail({
   }
   if (subject.report.kind === "template") {
     return (
-      <TemplateReportDetail
-        key={subject.report.id}
-        report={subject.report}
-        returnTo={returnTo}
-      />
+      <TemplateReportDetail key={subject.report.id} report={subject.report} returnTo={returnTo} />
     );
   }
-  return (
-    <ReportDetail key={subject.report.id} report={subject.report} returnTo={returnTo} />
-  );
+  return <ReportDetail key={subject.report.id} report={subject.report} returnTo={returnTo} />;
 }
 
 async function fileToDataUrlUpload(file: File): Promise<UploadResult | null> {
