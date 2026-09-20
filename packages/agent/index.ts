@@ -10,6 +10,8 @@ export {
   findSessionFile,
   resolveAgentSessionFile,
 } from "./src/runner";
+export { classifyPiLaunchFailure, PiLaunchError, piLaunchTrace } from "./src/launch-error";
+export type { PiLaunchCategory, PiLaunchTrace } from "./src/launch-error";
 export { getAgentDir, VERSION as PI_SDK_VERSION } from "@earendil-works/pi-coding-agent";
 export { COFORGE_PROVIDER_MODELS_GENERATED } from "./src/coforge-provider-models.generated";
 export {

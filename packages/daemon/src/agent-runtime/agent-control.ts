@@ -9,6 +9,7 @@ import type {
 } from "@lrm/coforge-sdk/internal";
 import { AgentSessionRecoveryError } from "../code-agent/contract";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import { launchFailureTrace } from "./launch-failure";
 import type { AgentRuntimeRecord, AgentRuntimeState } from "./agent-runtime-state";
 import type { AgentSessions } from "./agent-session";
 import { LAUNCH_FAILURE_MAX_ATTEMPTS, LaunchFailureBackoff } from "./launch-failure-backoff";
@@ -491,6 +492,7 @@ export class AgentControl {
           retry_at_ms: failure.untilMs,
           outcome: "retry",
           error_code: diagnosticErrorCode(launchError),
+          ...launchFailureTrace(launchError),
         });
         // The record deliberately stays "starting": a live phase, so the next daemon instance
         // repairs a launch that died mid-cooldown instead of fencing on it

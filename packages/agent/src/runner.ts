@@ -15,6 +15,7 @@ import { join, resolve } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory } from "./paths";
 import { API_KEY_ENV_BY_PROVIDER, configureRuntimeEnvironment } from "./runtime-provider";
+import { classifyPiLaunchFailure, PI_MODEL_UNAVAILABLE } from "./launch-error";
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   cwd,
@@ -91,11 +92,22 @@ export async function createSession(options: {
     await modelRuntime.setRuntimeApiKey(options.modelProvider, options.apiKey);
   configureRuntimeEnvironment(modelRuntime, environment);
   if (sessionKind === "pi") {
-    await refreshPiModelCatalog(
-      modelRuntime,
-      environment,
-      options.modelProvider ? [options.modelProvider] : undefined,
-    );
+    try {
+      await refreshPiModelCatalog(
+        modelRuntime,
+        environment,
+        options.modelProvider ? [options.modelProvider] : undefined,
+      );
+    } catch (refreshError) {
+      // A timed-out/network-failed provider refresh must not surface as an opaque SDK
+      // TimeoutError (the old error_code "23"): classify it with launch trace evidence.
+      throw classifyPiLaunchFailure(
+        modelRuntime,
+        options.modelProvider,
+        options.model,
+        refreshError,
+      );
+    }
   }
   const services = await createAgentSessionServices({
     cwd,
@@ -112,7 +124,13 @@ export async function createSession(options: {
     options.modelProvider && options.model
       ? modelRuntime.getModel(options.modelProvider, options.model)
       : undefined;
-  if (options.model && !model) throw new Error(`Pi model not found: ${options.model}`);
+  if (options.model && !model)
+    throw classifyPiLaunchFailure(
+      modelRuntime,
+      options.modelProvider,
+      options.model,
+      PI_MODEL_UNAVAILABLE,
+    );
   const extensionDefinesBash = services.resourceLoader
     .getExtensions()
     .extensions.some((extension) => extension.tools.has("bash"));
