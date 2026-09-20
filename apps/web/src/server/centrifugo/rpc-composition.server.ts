@@ -90,6 +90,9 @@ import { daemonControlChannel } from "./server-api.server";
 import { encodeReminderSync } from "@lrm/coforge-sdk/internal";
 import { getAgentDisplay } from "../agents/agent-display.server";
 import { ensureAgentActivitySweep } from "../agents/agent-activity-sweep.server";
+import { ensureMemoryIngestionSweep } from "../group-memory/memory-ingestion.server";
+import { ensureMemoryDistillationSweep } from "../group-memory/memory-distillation.server";
+import { OpenAiCompatibleDistillationLlm } from "../group-memory/distillation-llm.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -184,7 +187,11 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     const agentAuthorization = new RepositoryAgentAuthorization(agentRepository);
     const centrifugo = createCentrifugoServerApi();
     // Real traffic: idempotent per process, inert until this composition runs.
+    // The Group Memory sweeps ride the same hook: ingestion (episode windows)
+    // and the distill→propose sweep chain (ADR 0052-B/G).
     ensureAgentActivitySweep();
+    ensureMemoryIngestionSweep();
+    ensureMemoryDistillationSweep(new OpenAiCompatibleDistillationLlm());
     const sessions = createAgentSessions(db);
     const controlStore = new PrismaAgentControlStore(db);
     const directConversations = new PrismaDirectConversationRepository(db);
