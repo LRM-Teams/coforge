@@ -200,7 +200,9 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
     expect(usage?.snapshot?.creditUsage?.used).toBeGreaterThanOrEqual(0);
     expect(usage?.snapshot?.creditUsage?.limit).toBeGreaterThan(0);
     expect(usage?.snapshot?.creditUsage?.overage).toBeGreaterThanOrEqual(0);
-    expect(Date.parse(usage!.snapshot!.primary!.resetsAt)).toBeGreaterThan(Date.now());
+    const resetsAt = usage!.snapshot!.primary!.resetsAt;
+    expect(resetsAt).toBeDefined();
+    expect(Date.parse(resetsAt ?? "")).toBeGreaterThan(Date.now());
     console.log(
       `Verified native Kiro reply, delivery ACK and account usage scan; review /messages/${created.agent.id}`,
     );
