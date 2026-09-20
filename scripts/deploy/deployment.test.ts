@@ -948,6 +948,10 @@ describe("staging user file persistence", () => {
     const webBlock = compose.slice(webStart, migrateStart);
 
     expect(webBlock).toContain("COFORGE_FILE_DELIVERY_URL: https://files-staging.coforge.cn");
+    // Profile images ride a second bucket and an unsigned domain (ADR 0052). The two settings
+    // are asserted together because the Web process refuses to boot with only one of them.
+    expect(webBlock).toContain("COFORGE_IMAGE_OSS_BUCKET: coforge-images-staging");
+    expect(webBlock).toContain("COFORGE_IMAGE_DELIVERY_URL: https://images-staging.coforge.cn");
     expect(webBlock).toContain(
       "COFORGE_FILE_DELIVERY_KEY_FILE: /run/secrets/coforge_file_delivery_key",
     );
