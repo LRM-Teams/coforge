@@ -65,40 +65,59 @@ if (!API_KEY) {
       },
     );
 
-    // Episodes exist from materialization; give the critique cadence enough
-    // distilled episodes by stamping the scenario windows' outcomes via the
-    // real sweep (four filler episodes keep the cadence honest).
-    const episodes = await db.memoryEpisode.findMany({
-      where: { workspaceId: handles.workspaceId, distilledAt: null },
+    // The critique cadence trips at 5 distilled episodes: pre-stamp the two
+    // materialized windows (teach + decoy; benign, marker-free stamps), then
+    // admit three filler windows the REAL outcome pass distills — 5 total.
+    const stamped = await db.memoryEpisode.findMany({
+      where: { workspaceId: handles.workspaceId },
       orderBy: { createdAt: "asc" },
     });
-    for (const [index, episode] of episodes.entries()) {
-      void index;
+    for (const [index, episode] of stamped.entries()) {
       await db.memoryEpisode.update({
         where: { id: episode.id },
         data: {
           outcome: index === 0 ? "failure" : "success",
-          outcomeReason: "scenario",
-          keySteps: "steps",
+          outcomeReason: "scenario pre-stamp",
+          keySteps: "routine collaboration window",
           distilledAt: new Date(),
         },
       });
     }
-    for (let index = 0; index < 4; index += 1) {
+    const { admitMemoryEpisode } =
+      await import("../src/server/group-memory/memory-episodes.server");
+    for (let index = 0; index < 3; index += 1) {
       const seq = 100 + index * 3;
+      const body = `collab window ${index}: the team discussed the audit checklist, agreed credentials must rotate before the quarterly audit, and shipped the review`;
       await db.message.create({
         data: {
           conversationId: handles.channelId,
           workspaceId: handles.workspaceId,
-          body: `filler collaboration window ${index}: the team reviewed the deploy checklist and moved on`,
+          body,
           sequence: seq,
         },
       });
+      await admitMemoryEpisode(db, {
+        workspaceId: handles.workspaceId,
+        conversationId: handles.channelId,
+        kind: "quiet_window",
+        startSequence: seq,
+        endSequence: seq,
+        title: `collab window ${index}`,
+        body,
+        participants: [{ kind: "human", id: owner.id, handle: owner.username }],
+      });
     }
-    await sweepMemoryDistillation(db, llm);
+    // A failed pass degrades to "try again next sweep" by design (the
+    // reasoning model occasionally returns empty content); loop the sweep
+    // until the critique cadence lands, bounded.
+    let insights = 0;
+    for (let sweep = 0; sweep < 3 && insights === 0; sweep += 1) {
+      await sweepMemoryDistillation(db, llm);
+      insights = await db.memoryInsight.count({ where: { workspaceId: handles.workspaceId } });
+      console.log(JSON.stringify({ event: "memory_agent_smoke.sweep", sweep, insights }));
+    }
 
     // Mechanism evidence first: the real critique pass distilled something.
-    const insights = await db.memoryInsight.count({ where: { workspaceId: handles.workspaceId } });
     console.log(JSON.stringify({ event: "memory_agent_smoke.distilled", insights }));
     expect(insights).toBeGreaterThan(0);
 

@@ -54,7 +54,10 @@ export class OpenAiCompatibleDistillationLlm implements DistillationLlm {
           temperature: 0.1,
           response_format: { type: "json_object" },
           ...(credential.reasoning ? { reasoning_effort: credential.reasoning } : {}),
-          ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
+          // Reasoning models can burn the whole budget on hidden reasoning
+          // and return empty content; a generous default bounds that class
+          // of failure without changing shorter-model behavior materially.
+          ...(request.maxTokens ? { max_tokens: request.maxTokens } : { max_tokens: 4096 }),
         }),
         signal: AbortSignal.timeout(this.timeoutMs),
       });

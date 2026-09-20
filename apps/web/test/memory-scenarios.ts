@@ -135,7 +135,11 @@ export function buildScenarioOne(): MemoryScenario {
       {
         kind: "negative",
         key: "s1-negative",
-        query: "who won the company football league final in 2019",
+        // Strongly out-of-domain tokens: generic words (won/company/final)
+        // can cross the low trigram threshold against real LLM-distilled
+        // statements, so the negative probe uses vocabulary guaranteed
+        // absent from any collaboration transcript.
+        query: "zorblax intergalactic poetry championship 1987 winner",
         neverMarkers: [m.rotate, m.decoy],
       },
     ],
