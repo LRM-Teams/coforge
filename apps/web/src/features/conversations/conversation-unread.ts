@@ -112,6 +112,31 @@ export function latestTopLevelSequence(
 }
 
 /**
+ * Persists a conversation-level read cursor, retrying a transient failure once. Both mark-read
+ * call sites used to swallow every failure with `.catch(() => {})`, so a flaky POST left the
+ * cursor stuck at zero and the pane kept reopening at the same unread boundary with nothing in
+ * the console to show why. One retry clears the transient case; a persistent one is logged with
+ * the label of the surface that failed, so it is diagnosable from devtools.
+ */
+export async function persistReadCursor(
+  call: () => Promise<unknown>,
+  label: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await call();
+      return;
+    } catch (error) {
+      if (attempt === 1) {
+        console.warn(`[coforge] read cursor did not persist (${label})`, error);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+  }
+}
+
+/**
  * A loader refresh replaced the server's own counts; local arithmetic restarts from them.
  * Sequence boundaries survive the refresh, so a stale event that raced the fetch cannot
  * double-count a message the server already counted.

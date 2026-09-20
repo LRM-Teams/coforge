@@ -6,6 +6,7 @@ import {
   seedUnreadCounts,
   replaceUnreadCounts,
   latestTopLevelSequence,
+  persistReadCursor,
 } from "../src/features/conversations/conversation-unread";
 import {
   decodeMessageAvailableEvent,
@@ -288,4 +289,41 @@ describe("decodeMessageAvailableEvent", () => {
 test("conversation channel naming", () => {
   expect(workspaceConversationChannel("w-1")).toBe("chat:workspace:w-1");
   expect(userConversationChannel("u-1")).toBe("chat:user:u-1");
+});
+
+describe("persistReadCursor", () => {
+  test("returns after the first success", async () => {
+    const calls: number[] = [];
+    await persistReadCursor(async () => {
+      calls.push(1);
+    }, "channel:c1");
+    expect(calls).toHaveLength(1);
+  });
+
+  test("retries once after a transient failure", async () => {
+    let attempts = 0;
+    await persistReadCursor(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("502");
+    }, "channel:c1");
+    expect(attempts).toBe(2);
+  });
+
+  test("gives up after the retry and warns instead of throwing", async () => {
+    let attempts = 0;
+    const warnings: unknown[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args);
+    try {
+      await persistReadCursor(async () => {
+        attempts += 1;
+        throw new Error("502");
+      }, "agent:a1");
+    } finally {
+      console.warn = original;
+    }
+    expect(attempts).toBe(2);
+    expect(warnings).toHaveLength(1);
+    expect(String(warnings[0])).toContain("read cursor did not persist");
+  });
 });
