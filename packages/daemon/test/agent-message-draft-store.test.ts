@@ -19,12 +19,12 @@ test("saves and loads only a versioned Agent message draft", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent/a", stateDirectory, () => 1_000);
 
-  await store.save("@ada", "draft reply", "opaque-hold-token");
+  await store.save("@ada", "draft reply");
 
   expect(await store.load("@ada")).toEqual({
     target: "@ada",
-    body: "draft reply",
-    holdToken: "opaque-hold-token",
+    content: "draft reply",
+    reholdCount: 0,
     savedAt: 1_000,
   });
   expect(
@@ -41,9 +41,7 @@ test("saves and loads only a versioned Agent message draft", async () => {
     ),
   ).toEqual({
     version: 1,
-    drafts: [
-      { target: "@ada", body: "draft reply", holdToken: "opaque-hold-token", savedAt: 1_000 },
-    ],
+    drafts: [{ target: "@ada", content: "draft reply", reholdCount: 0, savedAt: 1_000 }],
   });
 });
 
@@ -51,7 +49,7 @@ test("expires drafts after Raft's ten-minute local draft TTL", async () => {
   const stateDirectory = temporaryStateDirectory();
   let now = 1_000;
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => now);
-  await store.save("@ada", "draft reply", "opaque-hold-token");
+  await store.save("@ada", "draft reply");
 
   now += AGENT_MESSAGE_DRAFT_TTL_MS + 1;
 
@@ -63,29 +61,23 @@ test("saves and loads a draft's attachmentIds and mentions", async () => {
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
   const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
 
-  await store.save(
-    "@ada",
-    "draft reply",
-    "opaque-hold-token",
-    ["attachment-1", "attachment-2"],
-    mentions,
-  );
+  await store.replace("@ada", "draft reply", 1, ["attachment-1", "attachment-2"], mentions);
 
   expect(await store.load("@ada")).toEqual({
     target: "@ada",
-    body: "draft reply",
-    holdToken: "opaque-hold-token",
+    content: "draft reply",
+    reholdCount: 1,
     attachmentIds: ["attachment-1", "attachment-2"],
     mentions,
     savedAt: 1_000,
   });
 });
 
-test("loads an older draft file written before attachmentIds and mentions existed", async () => {
+test("loads an older draft file written before the Raft draft shape existed", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
   // Simulate an older daemon build's on-disk shape by writing the legacy fields directly,
-  // bypassing `save` (which would now also write `attachmentIds`/`mentions` when present).
+  // bypassing `save`: the text was `body` and holds were not counted.
   const path = join(userDirectory(stateDirectory), "agent-a", "continue-state.json");
   await mkdir(join(userDirectory(stateDirectory), "agent-a"), { recursive: true, mode: 0o700 });
   await Bun.write(
@@ -98,22 +90,23 @@ test("loads an older draft file written before attachmentIds and mentions existe
 
   expect(await store.load("@ada")).toEqual({
     target: "@ada",
-    body: "legacy reply",
-    holdToken: "old-token",
+    content: "legacy reply",
+    reholdCount: 0,
     savedAt: 1_000,
   });
 });
 
-test("replacing a draft body removes its old hold token", async () => {
+test("a revised send replaces the draft and resets its hold count", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
-  await store.save("@ada", "first reply", "old-token");
+  await store.replace("@ada", "first reply", 1);
 
   await store.save("@ada", "changed reply");
 
   expect(await store.load("@ada")).toEqual({
     target: "@ada",
-    body: "changed reply",
+    content: "changed reply",
+    reholdCount: 0,
     savedAt: 1_000,
   });
 });
@@ -139,10 +132,10 @@ test.skipIf(!process.geteuid)("isolates drafts belonging to different system use
     identity.mockReturnValue(uid);
     expect(await second.load("@ada")).toBeUndefined();
     await second.save("@ada", "second user's reply");
-    expect((await first.load("@ada"))?.body).toBe("first user's reply");
-    expect((await second.load("@ada"))?.body).toBe("second user's reply");
+    expect((await first.load("@ada"))?.content).toBe("first user's reply");
+    expect((await second.load("@ada"))?.content).toBe("second user's reply");
     await second.clear("@ada");
-    expect((await first.load("@ada"))?.body).toBe("first user's reply");
+    expect((await first.load("@ada"))?.content).toBe("first user's reply");
   } finally {
     identity.mockRestore();
   }

@@ -75,39 +75,34 @@ export async function handleAgentMessagesGet(
   }
 }
 
-/** Maps `executeAgentSendMessageWithPolicy`'s side-effect decision onto the send route's `state`. */
-function mapSendResult(requestId: string, result: AgentSendMessageResult & { messages: unknown }) {
-  const context = (result.messages as { createdAt: Date }[]).map((message) => ({
-    ...message,
-    createdAt: message.createdAt.toISOString(),
-  })) as AgentMessage[];
-  const state =
-    result.sideEffectDecision === "hold"
-      ? "held"
-      : result.sideEffectDecision === "anyway_denied"
-        ? "denied"
-        : "sent";
+/** Maps `executeAgentSendMessageWithPolicy`'s side-effect decision onto the send route's response,
+ * using Raft's own field names for both states (`agentApiSendResponseSchema`). */
+function mapSendResult(requestId: string, result: AgentSendMessageResult) {
+  const toAgentMessage = (message: { createdAt: Date }) =>
+    ({
+      ...message,
+      createdAt: message.createdAt.toISOString(),
+    }) as AgentMessage;
   const response: AgentSendResponse = {
     protocolMajor: 1,
     requestId,
-    state,
+    state: result.state,
+    decision: result.decision,
+    reason: result.reason,
+    producerFactId: result.producerFactId,
     messageId: result.messageId,
-    holdToken: result.holdToken,
-    bypass: result.sideEffectDecision === "anyway_accepted" ? true : undefined,
-    anywayAllowed: result.anywayAllowed,
-    // Belt and braces: never surface message bodies for a withheld hold, even
-    // if the service's own `messages` field were ever non-empty.
-    context: result.freshnessContextMode === "withheld" ? [] : context,
+    availableActions: result.availableActions ? [...result.availableActions] : undefined,
+    continueAnywaySuggested: result.continueAnywaySuggested,
+    // Held-context fields are only ever present on a held result; a sent one carries none.
+    heldMessages:
+      result.state === "held" ? (result.heldMessages ?? []).map(toAgentMessage) : undefined,
+    newMessageCount: result.newMessageCount,
+    shownMessageCount: result.shownMessageCount,
+    omittedMessageCount: result.omittedMessageCount,
+    seenUpToSeq: result.state === "held" ? result.seenUpToSeq : undefined,
     freshnessContextMode: result.freshnessContextMode,
     withheldMessageCount: result.withheldMessageCount,
-    // Only ever populated for `state: "sent"`; every other result carries none.
-    recentUnread:
-      state === "sent"
-        ? ((result.recentUnread ?? []).map((message) => ({
-            ...message,
-            createdAt: message.createdAt.toISOString(),
-          })) as AgentMessage[])
-        : [],
+    recentUnread: (result.recentUnread ?? []).map(toAgentMessage),
   };
   return response;
 }
@@ -136,9 +131,9 @@ export async function handleAgentMessagesPost(
     !body ||
     typeof body !== "object" ||
     typeof body.target !== "string" ||
-    typeof body.body !== "string"
+    typeof body.content !== "string"
   )
-    return Response.json({ error: "target and body are required" }, { status: 400 });
+    return Response.json({ error: "target and content are required" }, { status: 400 });
   const freshnessContextMode = body.freshnessContextMode;
   if (
     freshnessContextMode !== undefined &&
@@ -157,11 +152,14 @@ export async function handleAgentMessagesPost(
       workspaceId: principal.workspaceId,
       agentId: principal.agentId,
       target: body.target,
-      body: body.body,
-      holdToken: typeof body.holdToken === "string" ? body.holdToken : undefined,
+      content: body.content,
       continueAnyway: body.continueAnyway === true,
-      seenUpToSequence:
-        typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
+      draftReholdCount:
+        typeof body.draftReholdCount === "number" && Number.isInteger(body.draftReholdCount)
+          ? body.draftReholdCount
+          : undefined,
+      draftReplacedExisting: body.draftReplacedExisting === true,
+      seenUpToSeq: typeof body.seenUpToSeq === "number" ? body.seenUpToSeq : undefined,
       freshnessContextMode,
       attachmentIds: Array.isArray(body.attachmentIds)
         ? (body.attachmentIds as string[])

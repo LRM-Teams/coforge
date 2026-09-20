@@ -29,3 +29,4 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | [0054](0054-workspace-runner-health.md) | accepted | A crash-looping Workspace latches itself degraded and says so |
 | [0055](0055-agent-runtime-failure-recovery.md) | accepted | Classify runtime failures, back off deliveries, and fence a repeating one |
 | [0056](0056-linux-agent-process-cleanup.md) | accepted | Linux reaps its own Workspace's Agent processes on daemon boot |
+| [0057](0057-message-freshness-hold-contract.md) | proposed | The freshness hold is Raft's send contract, not a server-issued token |

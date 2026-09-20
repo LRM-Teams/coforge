@@ -1832,7 +1832,9 @@ test("parses a held draft retry", () => {
     sendDraft: true,
     continueAnyway: true,
   });
-  expect(() => parseArgs(["message", "send", "--anyway", "--target", "@ada"])).toThrow("Usage:");
+  expect(() => parseArgs(["message", "send", "--anyway", "--target", "@ada"])).toThrow(
+    "--anyway can only be used together with --send-draft.",
+  );
 });
 
 test("dispatches only through the injected transport seam", async () => {
@@ -2294,11 +2296,11 @@ test("reviewer-isolation send redacts transport failures and held context", asyn
       check: async () => ({ messages: [] }),
       read: async () => undefined,
       send: async () => ({
-        accepted: false,
-        sideEffectDecision: "hold",
+        state: "held",
+        decision: "local_hold",
         freshnessContextMode: "inline",
         newMessageCount: 2,
-        messages: [{ body: "SECRET_HELD_DETAIL" }],
+        heldMessages: [{ body: "SECRET_HELD_DETAIL" }],
       }),
       view: async () => ({ bytes: new Uint8Array() }),
     },
@@ -2316,10 +2318,10 @@ test("held sends fail with a typed error that keeps the existing held-context re
     check: async () => ({ messages: [] }),
     read: async () => undefined,
     send: async () => ({
-      accepted: false,
-      sideEffectDecision: "hold",
-      attentionCount: 1,
-      messages: [
+      state: "held",
+      decision: "local_hold",
+      newMessageCount: 1,
+      heldMessages: [
         {
           id: "message-2",
           sequence: 9,
@@ -2355,10 +2357,10 @@ test("message send --json renders a held failure as one JSON object", async () =
     check: async () => ({ messages: [] }),
     read: async () => undefined,
     send: async () => ({
-      accepted: false,
-      sideEffectDecision: "hold",
-      attentionCount: 0,
-      messages: [],
+      state: "held",
+      decision: "local_hold",
+      newMessageCount: 0,
+      heldMessages: [],
     }),
     view: async () => ({ bytes: new Uint8Array() }),
   }).catch((caught: unknown) => caught);
@@ -2701,7 +2703,7 @@ test("--attachment-id combined with --send-draft is a typed usage error", () => 
   })();
   expect(error).toBeInstanceOf(CliError);
   const cliError = error as CliError;
-  expect(cliError.code).toBe("INVALID_ARG");
+  expect(cliError.code).toBe("SEND_DRAFT_ATTACHMENTS_UNSUPPORTED");
   expect(cliError.message).toBe(
     "--attachment-id cannot be used with --send-draft. Use a normal send to replace the draft.",
   );

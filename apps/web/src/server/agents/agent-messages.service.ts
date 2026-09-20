@@ -4,11 +4,6 @@ import {
   isValidReactionEmoji,
   type MessageSenderKind,
 } from "@lrm/coforge-sdk/internal";
-import {
-  getAgentMessageHoldStore,
-  hashAgentDraft,
-  type AgentMessageHoldStore,
-} from "../conversations/agent-message-hold.server";
 import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
 
 export type AgentMessageRepository = {
@@ -25,6 +20,15 @@ export type AgentMessageRepository = {
     target: string,
     through?: number,
   ): Promise<number>;
+  /** The target's most recent messages, ignoring the Agent's own read boundary: the source of
+   * Raft's first-touch `syncing_hold` (`target_first_touch_recent_context`). Own messages are not
+   * context to review, so they are excluded. */
+  readRecentAgentContext?(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    limit: number,
+  ): Promise<readonly AgentMessageRecord[]>;
   advanceAgentReadThrough?(
     workspaceId: string,
     agentId: string,
@@ -89,27 +93,96 @@ export type AgentSendMessageInput = {
   workspaceId: string;
   agentId: string;
   target: string;
-  body: string;
-  holdToken?: string;
+  content: string;
   continueAnyway?: boolean;
-  seenUpToSequence?: number;
+  /** How many times this draft has already been held (Raft's local draft `reholdCount`). */
+  draftReholdCount?: number;
+  /** A normal send that replaced a draft the Agent had already been held on. */
+  draftReplacedExisting?: boolean;
+  seenUpToSeq?: number;
   freshnessContextMode?: "inline" | "withheld";
   attachmentIds?: string[];
   mentions?: AgentMentionSelector[];
 };
 
 export type AgentSendMessageResult = {
-  accepted: boolean;
+  state: "sent" | "held";
+  /** Raft's side-effect decision: `forward`/`bypass` sent the message, `local_hold`/`syncing_hold`
+   * held it as a draft. There is deliberately no "denied" outcome. */
+  decision: "forward" | "bypass" | "local_hold" | "syncing_hold";
+  reason?: string;
   messageId?: string;
-  attentionCount: number;
-  sideEffectDecision: "forward" | "hold" | "anyway_denied" | "anyway_accepted";
-  holdToken?: string;
-  anywayAllowed?: boolean;
+  producerFactId?: string;
+  /** Raft's `available_actions` on a held send (`apmHeldFreshnessAvailableActions("send")`). */
+  availableActions?: readonly string[];
+  /** Raft's `continueAnywaySuggested`: an already-re-held draft may be forced with `--anyway`. */
+  continueAnywaySuggested?: boolean;
+  heldMessages?: readonly AgentMessageRecord[];
+  newMessageCount?: number;
+  shownMessageCount?: number;
+  omittedMessageCount?: number;
+  seenUpToSeq?: number;
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
-  /** Only when `sideEffectDecision === "anyway_accepted"` and `freshnessContextMode !== "withheld"`. */
+  /** Only when a sent message bypassed a hold and `freshnessContextMode !== "withheld"`. */
   recentUnread?: readonly AgentMessageRecord[];
 };
+
+/** Raft 1.0.32 `apmHeldFreshnessAvailableActions("send")`. */
+const HELD_SEND_AVAILABLE_ACTIONS = ["check_messages", "send_draft", "send_anyway"] as const;
+
+/** Raft 1.0.32 `DEFAULT_HELD_CONTEXT_LIMIT`. */
+const HELD_CONTEXT_LIMIT = 3;
+
+/** Raft 1.0.32's `stableNormalizeApmHeldFreshness`: keys sorted recursively, `undefined` dropped, so
+ * the same decision always serializes to the same bytes. */
+function stableNormalizeFreshnessFact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableNormalizeFreshnessFact);
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort()) {
+    const child = record[key];
+    if (child === undefined) continue;
+    normalized[key] = stableNormalizeFreshnessFact(child);
+  }
+  return normalized;
+}
+
+/** Raft 1.0.32's `buildApmFreshnessDecisionProducerFactId`: the `freshness_decision_fact:` prefix
+ * plus the full SHA-256 of the stable decision input. The Agent identity is part of it, so two
+ * Agents making the "same" decision never share a fact id. */
+async function freshnessDecisionFactId(input: {
+  agentId: string;
+  decision: AgentSendMessageResult["decision"];
+  reason: string;
+  target: string;
+  freshnessContextMode?: "inline" | "withheld";
+  pendingMaxSeq?: number;
+  modelSeenSeq?: number;
+  heldMessageCount?: number;
+  omittedMessageCount?: number;
+}): Promise<string> {
+  const stableInput = {
+    agentId: input.agentId,
+    action: "send",
+    decision: input.decision,
+    ...(input.freshnessContextMode === "withheld"
+      ? { freshnessContextMode: "withheld" as const }
+      : {}),
+    target: input.target ?? null,
+    reason: input.reason,
+    pendingMaxSeq: input.pendingMaxSeq ?? null,
+    modelSeenSeq: input.modelSeenSeq ?? null,
+    heldMessageCount: input.heldMessageCount ?? null,
+    omittedMessageCount: input.omittedMessageCount ?? null,
+  };
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(stableNormalizeFreshnessFact(stableInput))),
+  );
+  return `freshness_decision_fact:${Buffer.from(digest).toString("hex")}`;
+}
 
 export async function executeAgentSendMessage(
   sender: {
@@ -124,14 +197,17 @@ export async function executeAgentSendMessage(
     }): Promise<{ id: string }>;
   },
   input: AgentSendMessageInput,
-): Promise<AgentSendMessageResult> {
-  const message = await sender.executeFromAgent(input);
-  return {
-    accepted: true,
-    messageId: message.id,
-    attentionCount: 0,
-    sideEffectDecision: input.continueAnyway ? "anyway_accepted" : "forward",
-  };
+): Promise<{ messageId: string }> {
+  const message = await sender.executeFromAgent({
+    requestId: input.requestId,
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    target: input.target,
+    body: input.content,
+    attachmentIds: input.attachmentIds,
+    mentions: input.mentions,
+  });
+  return { messageId: message.id };
 }
 
 export async function executeAgentSendMessageWithPolicy(
@@ -141,14 +217,20 @@ export async function executeAgentSendMessageWithPolicy(
         workspaceId: string,
         agentId: string,
         target: string,
-        through?: number,
+        afterSequence?: number,
       ): Promise<readonly AgentMessageRecord[]>;
       countPendingAgentContext?(
         workspaceId: string,
         agentId: string,
         target: string,
-        through?: number,
+        afterSequence?: number,
       ): Promise<number>;
+      readRecentAgentContext?(
+        workspaceId: string,
+        agentId: string,
+        target: string,
+        limit: number,
+      ): Promise<readonly AgentMessageRecord[]>;
       advanceAgentReadThrough?(
         workspaceId: string,
         agentId: string,
@@ -157,123 +239,154 @@ export async function executeAgentSendMessageWithPolicy(
       ): Promise<number>;
     };
     sender: Parameters<typeof executeAgentSendMessage>[0];
-    holdStore?: AgentMessageHoldStore;
   },
   input: AgentSendMessageInput,
-): Promise<AgentSendMessageResult & { messages: readonly AgentMessageRecord[] }> {
+): Promise<AgentSendMessageResult> {
   const mode = input.freshnessContextMode ?? "inline";
+  const withheld = mode === "withheld";
+  // Raft: the Agent reports the boundary it has already reviewed; the server advances its own
+  // read-through to it (monotone) and uses the advanced value as the freshness boundary.
   let seen = 0;
-  if (input.seenUpToSequence !== undefined) {
+  if (input.seenUpToSeq !== undefined) {
     if (!dependencies.repository.advanceAgentReadThrough)
       throw new Error("Agent read-through advancement is unavailable");
     seen = await dependencies.repository.advanceAgentReadThrough(
       input.workspaceId,
       input.agentId,
       input.target,
-      input.seenUpToSequence,
+      input.seenUpToSeq,
     );
   }
-  const bodyHash = await hashAgentDraft(input.body);
-  const holds =
-    dependencies.holdStore ??
-    (dependencies.repository.readPendingAgentContext || input.holdToken || input.continueAnyway
-      ? getAgentMessageHoldStore()
-      : undefined);
-  const prior = input.holdToken && holds ? await holds.get(input.holdToken) : undefined;
-  const validPrior =
-    prior &&
-    prior.agentId === input.agentId &&
-    prior.workspaceId === input.workspaceId &&
-    prior.target === input.target &&
-    prior.bodyHash === bodyHash
-      ? prior
-      : undefined;
-  if (input.continueAnyway && (!validPrior || validPrior.stage < 2))
-    return {
-      accepted: false,
-      attentionCount: 0,
-      sideEffectDecision: "anyway_denied",
-      messages: [],
-      freshnessContextMode: mode,
-    };
-  // Withheld mode never presented context to the Agent, so a re-hold must not
-  // narrow to "since last presented" — it has to keep covering everything
-  // still pending above the Agent's seen boundary.
-  const pendingBoundary =
-    Math.max(mode === "withheld" ? 0 : (validPrior?.presentedThrough ?? 0), seen) || undefined;
+  // Withheld mode never presented context to the Agent, so a hold must cover everything still
+  // pending above the boundary, not only "since the last presentation".
+  const pendingBoundary = withheld ? undefined : seen || undefined;
   const pending = await dependencies.repository.readPendingAgentContext?.(
     input.workspaceId,
     input.agentId,
     input.target,
     pendingBoundary,
   );
-  const heldMessages = pending?.slice(-3) ?? [];
-  if (heldMessages.length && !input.continueAnyway) {
-    if (!holds) throw new Error("Agent message hold storage is unavailable");
-    const hold = {
-      agentId: input.agentId,
-      workspaceId: input.workspaceId,
-      target: input.target,
-      bodyHash,
-      presentedThrough: Math.max(...heldMessages.map((m) => m.sequence)),
-      stage: (validPrior ? 2 : 1) as 1 | 2,
-      expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
-    };
-    const token = await holds.issue(hold);
-    if (validPrior && input.holdToken) await holds.consume(input.holdToken, validPrior);
-    // The 3-row `readPendingAgentContext` window is for inline display only;
-    // withheld mode reports the true pending count when the repository can
-    // provide it, falling back to the bounded window's length otherwise.
-    const withheldMessageCount =
-      mode === "withheld"
-        ? ((await dependencies.repository.countPendingAgentContext?.(
-            input.workspaceId,
-            input.agentId,
-            input.target,
-            pendingBoundary,
-          )) ??
-          pending?.length ??
-          0)
-        : undefined;
+  const unconsumed = pending ?? [];
+  // Raft (`planAgentInboxSideEffect`): `continueAnyway` is the Agent's explicit decision to send
+  // anyway (`--send-draft --anyway`). It short-circuits every hold and is never refused — there is
+  // no "denied" outcome in Raft's contract.
+  if (input.continueAnyway) {
+    const sent = await executeAgentSendMessage(dependencies.sender, input);
     return {
-      accepted: false,
-      attentionCount: heldMessages.length,
-      sideEffectDecision: "hold",
-      holdToken: token,
-      anywayAllowed: hold.stage === 2,
-      // Withheld mode never returns message bodies, senders, or metadata —
-      // only the state and a count of everything still pending.
-      messages: mode === "withheld" ? [] : heldMessages,
-      ...(mode === "withheld"
-        ? { freshnessContextMode: "withheld" as const, withheldMessageCount }
+      state: "sent",
+      decision: "bypass",
+      reason: "continue_anyway",
+      messageId: sent.messageId,
+      producerFactId: await freshnessDecisionFactId({
+        agentId: input.agentId,
+        decision: "bypass",
+        reason: "continue_anyway",
+        target: input.target,
+        freshnessContextMode: mode,
+        modelSeenSeq: seen || undefined,
+      }),
+      // A bypassed hold is the one sent result that reports what the Agent chose not to review.
+      recentUnread: withheld ? [] : unconsumed.slice(-HELD_CONTEXT_LIMIT),
+    };
+  }
+  // Unconsumed context for this exact target above the Agent's boundary -> `local_hold`.
+  if (unconsumed.length > 0) {
+    const heldMessages = withheld ? [] : unconsumed.slice(-HELD_CONTEXT_LIMIT);
+    // The inline window is bounded for display, so the true newer count comes from the repository's
+    // unbounded count in *both* modes; without that seam the window's length is all we know and
+    // `omittedMessageCount` stays 0.
+    const newMessageCount =
+      (await dependencies.repository.countPendingAgentContext?.(
+        input.workspaceId,
+        input.agentId,
+        input.target,
+        pendingBoundary,
+      )) ?? unconsumed.length;
+    const seenUpToSeq = Math.max(seen, ...unconsumed.map((message) => message.sequence));
+    return {
+      state: "held",
+      decision: "local_hold",
+      reason: "exact_target_pending",
+      producerFactId: await freshnessDecisionFactId({
+        agentId: input.agentId,
+        decision: "local_hold",
+        reason: "exact_target_pending",
+        target: input.target,
+        freshnessContextMode: mode,
+        pendingMaxSeq: seenUpToSeq,
+        modelSeenSeq: seen || undefined,
+        heldMessageCount: heldMessages.length,
+        omittedMessageCount: Math.max(0, newMessageCount - heldMessages.length),
+      }),
+      availableActions: HELD_SEND_AVAILABLE_ACTIONS,
+      continueAnywaySuggested: (input.draftReholdCount ?? 0) >= 1,
+      // Withheld mode never returns message bodies, senders, or metadata — only the state and a
+      // count of everything still pending.
+      heldMessages,
+      newMessageCount,
+      shownMessageCount: heldMessages.length,
+      omittedMessageCount: Math.max(0, newMessageCount - heldMessages.length),
+      seenUpToSeq,
+      ...(withheld
+        ? { freshnessContextMode: "withheld" as const, withheldMessageCount: newMessageCount }
         : {}),
     };
   }
-  if (
-    input.continueAnyway &&
-    input.holdToken &&
-    validPrior &&
-    holds &&
-    !(await holds.consume(input.holdToken, validPrior))
-  )
-    return {
-      accepted: false,
-      attentionCount: 0,
-      sideEffectDecision: "anyway_denied",
-      messages: [],
-      freshnessContextMode: mode,
-    };
+  // Raft's second hold kind, `syncing_hold` (`target_first_touch_recent_context`): the Agent has no
+  // boundary for this target at all, and the target already carries context it has never reviewed,
+  // so the send is held until the Agent syncs that context.
+  if (seen === 0 && dependencies.repository.readRecentAgentContext) {
+    const recent = await dependencies.repository.readRecentAgentContext(
+      input.workspaceId,
+      input.agentId,
+      input.target,
+      HELD_CONTEXT_LIMIT,
+    );
+    if (recent.length > 0) {
+      const seenUpToSeq = Math.max(...recent.map((message) => message.sequence));
+      return {
+        state: "held",
+        decision: "syncing_hold",
+        reason: "target_first_touch_recent_context",
+        producerFactId: await freshnessDecisionFactId({
+          agentId: input.agentId,
+          decision: "syncing_hold",
+          reason: "target_first_touch_recent_context",
+          target: input.target,
+          freshnessContextMode: mode,
+          pendingMaxSeq: seenUpToSeq,
+          heldMessageCount: withheld ? 0 : recent.length,
+          omittedMessageCount: 0,
+        }),
+        availableActions: HELD_SEND_AVAILABLE_ACTIONS,
+        continueAnywaySuggested: (input.draftReholdCount ?? 0) >= 1,
+        heldMessages: withheld ? [] : recent,
+        newMessageCount: recent.length,
+        shownMessageCount: withheld ? 0 : recent.length,
+        omittedMessageCount: 0,
+        seenUpToSeq,
+        ...(withheld
+          ? { freshnessContextMode: "withheld" as const, withheldMessageCount: recent.length }
+          : {}),
+      };
+    }
+  }
   const sent = await executeAgentSendMessage(dependencies.sender, input);
+  const forwardReason =
+    seen > 0 ? "model_seen_boundary" : "no_exact_target_pending_or_recent_context";
   return {
-    ...sent,
-    messages: [],
-    freshnessContextMode: mode,
-    // Every other sent result reports no recently-missed messages; only a bypassed hold does, and
-    // withheld mode never returns bodies for anything, including these.
-    recentUnread:
-      sent.sideEffectDecision === "anyway_accepted" && mode !== "withheld"
-        ? (pending?.slice(-3) ?? [])
-        : [],
+    state: "sent",
+    decision: "forward",
+    reason: forwardReason,
+    messageId: sent.messageId,
+    producerFactId: await freshnessDecisionFactId({
+      agentId: input.agentId,
+      decision: "forward",
+      reason: forwardReason,
+      target: input.target,
+      freshnessContextMode: mode,
+      modelSeenSeq: seen || undefined,
+    }),
   };
 }
 

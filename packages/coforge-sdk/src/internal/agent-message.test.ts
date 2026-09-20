@@ -175,8 +175,8 @@ test("accepts a trusted model-seen sequence on send", () => {
     workspaceId: "workspace-a",
     operation: "send" as const,
     target: "@ada",
-    body: "reply",
-    seenUpToSequence: 42,
+    content: "reply",
+    seenUpToSeq: 42,
   };
   expect(validateAgentMessageRequest(request)).toBe(request);
 });
@@ -189,11 +189,11 @@ test("rejects seen-up-to sequences on non-send operations", () => {
     workspaceId: "workspace-a",
     operation: "read" as const,
     target: "@ada",
-    seenUpToSequence: 42,
+    seenUpToSeq: 42,
   };
   expect(() => validateAgentMessageRequest(request)).toThrow("only valid for send");
   expect(
-    validateAgentMessageRequest({ ...request, operation: "send", body: "reply" }),
+    validateAgentMessageRequest({ ...request, operation: "send", content: "reply" }),
   ).toMatchObject({ operation: "send" });
 });
 
@@ -242,8 +242,10 @@ test("round-trips an Agent Inbox held response", () => {
     summaries: [],
     messages: [],
     messageId: "",
-    sideEffectDecision: "hold" as const,
-    seenUpToSequence: 7,
+    state: "held" as const,
+    decision: "local_hold" as const,
+    newMessageCount: 3,
+    continueAnywaySuggested: true,
   };
   expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
 });

@@ -1717,8 +1717,8 @@ test("requestSend HTTP POST body carries freshnessContextMode when set and omits
       protocolMajor: 1,
       requestId: "request-send-1",
       state: "sent",
+      decision: "forward",
       messageId: "message-1",
-      context: [],
     });
   });
   const baseRequest = {
@@ -1728,7 +1728,7 @@ test("requestSend HTTP POST body carries freshnessContextMode when set and omits
     agentId: "agent-a",
     operation: "send" as const,
     target: "@ada",
-    body: "hi",
+    content: "hi",
   };
   await client.requestSend!({
     url: "https://server.example/api/agent/v1/messages",
@@ -2277,40 +2277,66 @@ const sendAdapterCases: Array<{
   expected: Partial<AgentMessageTransportResponse>;
 }> = [
   {
-    label: "sent with no bypass maps to forward",
+    label: "a forwarded send carries Raft's decision through unchanged",
     response: {
       protocolMajor: 1,
       requestId: "request-send",
       state: "sent",
+      decision: "forward",
+      reason: "model_seen_boundary",
+      producerFactId: "freshness_decision_fact:aaaa",
       messageId: "message-1",
-      context: [],
     },
-    expected: { accepted: true, sideEffectDecision: "forward", messageId: "message-1" },
+    expected: {
+      accepted: true,
+      decision: "forward",
+      reason: "model_seen_boundary",
+      messageId: "message-1",
+    },
   },
   {
-    label: "sent with bypass maps to anyway_accepted",
+    label: "a bypassed send reports its decision and the messages it skipped",
     response: {
       protocolMajor: 1,
       requestId: "request-send",
       state: "sent",
+      decision: "bypass",
+      reason: "continue_anyway",
       messageId: "message-1",
-      bypass: true,
-      context: [],
+      recentUnread: [
+        {
+          id: "message-2",
+          sequence: 2,
+          senderKind: "human",
+          senderHandle: "ada",
+          senderDescription: "",
+          target: "@ada",
+          body: "newer",
+          createdAt: "2026-09-16T00:00:01.000Z",
+          attachments: [],
+        },
+      ],
     },
-    expected: { accepted: true, sideEffectDecision: "anyway_accepted", messageId: "message-1" },
+    expected: { accepted: true, decision: "bypass", reason: "continue_anyway" },
   },
   {
-    label: "held maps to hold and carries the held context as messages/attentionCount",
+    label: "a held send carries the window as messages/attentionCount plus Raft's counts",
     response: {
       protocolMajor: 1,
       requestId: "request-send",
       state: "held",
-      holdToken: "hold-token-1",
-      anywayAllowed: true,
-      context: [
+      decision: "local_hold",
+      reason: "exact_target_pending",
+      availableActions: ["check_messages", "send_draft", "send_anyway"],
+      continueAnywaySuggested: true,
+      newMessageCount: 3,
+      shownMessageCount: 1,
+      omittedMessageCount: 2,
+      seenUpToSeq: 9,
+      heldMessages: [
         {
           id: "message-1",
-          sequence: 1,
+          sequence: 9,
           senderKind: "human",
           senderHandle: "ada",
           senderDescription: "",
@@ -2323,21 +2349,25 @@ const sendAdapterCases: Array<{
     },
     expected: {
       accepted: false,
-      sideEffectDecision: "hold",
-      holdToken: "hold-token-1",
-      anywayAllowed: true,
+      decision: "local_hold",
+      continueAnywaySuggested: true,
+      newMessageCount: 3,
+      omittedMessageCount: 2,
       attentionCount: 1,
     },
   },
   {
-    label: "denied maps to anyway_denied",
+    label: "a first-touch hold keeps its own decision",
     response: {
       protocolMajor: 1,
       requestId: "request-send",
-      state: "denied",
-      context: [],
+      state: "held",
+      decision: "syncing_hold",
+      reason: "target_first_touch_recent_context",
+      newMessageCount: 2,
+      heldMessages: [],
     },
-    expected: { accepted: false, sideEffectDecision: "anyway_denied" },
+    expected: { accepted: false, decision: "syncing_hold", newMessageCount: 2 },
   },
 ];
 
@@ -2360,12 +2390,12 @@ test.each(sendAdapterCases)(
         agentId: "agent-1",
         operation: "send",
         target: "@ada",
-        body: "hi",
+        content: "hi",
       },
       TEST_AGENT_API_KEY,
     );
     expect(result).toMatchObject(expected);
-    expect(result.messages).toEqual(response.context);
+    expect(result.messages).toEqual(response.state === "held" ? (response.heldMessages ?? []) : []);
   },
 );
 
@@ -2390,7 +2420,7 @@ test("requestSend rejects a response whose state is not sent/held/denied instead
         agentId: "agent-a",
         operation: "send",
         target: "@ada",
-        body: "hi",
+        content: "hi",
       },
     });
     await expect(attempt).rejects.toBeInstanceOf(AgentTransportError);
@@ -2418,7 +2448,7 @@ test("requestSend classifies a network failure as pre-response transport, never 
       agentId: "agent-a",
       operation: "send",
       target: "@ada",
-      body: "hi",
+      content: "hi",
     },
   });
   await expect(attempt).rejects.toBeInstanceOf(AgentTransportError);
@@ -2444,7 +2474,7 @@ test("requestSend on a non-2xx upstream response surfaces the real status, not a
       agentId: "agent-a",
       operation: "send",
       target: "@ada",
-      body: "hi",
+      content: "hi",
     },
   });
   await expect(attempt).rejects.toBeInstanceOf(AgentTransportError);

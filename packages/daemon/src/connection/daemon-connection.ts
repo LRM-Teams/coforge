@@ -276,9 +276,16 @@ export type AgentMessageTransportResponse = {
   attentionCount: number;
   messageId?: string;
   messages: AgentMessage[];
-  sideEffectDecision?: "forward" | "hold" | "anyway_accepted" | "anyway_denied";
-  holdToken?: string;
-  anywayAllowed?: boolean;
+  /** `send` only: Raft's send contract (state/decision/reason/counts). */
+  state?: "sent" | "held";
+  decision?: AgentSendResponse["decision"];
+  reason?: string;
+  producerFactId?: string;
+  availableActions?: string[];
+  continueAnywaySuggested?: boolean;
+  newMessageCount?: number;
+  shownMessageCount?: number;
+  omittedMessageCount?: number;
   hasOlder?: boolean;
   hasNewer?: boolean;
   olderCursor?: string;
@@ -286,7 +293,7 @@ export type AgentMessageTransportResponse = {
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
   hasMore?: boolean;
-  /** `send` only: pending messages bypassed via `continueAnyway`; empty otherwise. */
+  /** `send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessage[];
 };
 
@@ -317,29 +324,26 @@ function adaptAgentSearchResponse(response: AgentSearchResponse): AgentMessageTr
 }
 
 /**
- * Adapts the send route's response into the shape `DaemonRuntime` consumes, mapping `state`/
- * `bypass` back onto `accepted`/`sideEffectDecision` losslessly: `sent` (no bypass) → `forward`,
- * `sent` with `bypass` → `anyway_accepted`, `held` → `hold`, `denied` → `anyway_denied`.
+ * Adapts the send route's response into the shape `DaemonRuntime` consumes. Raft's own
+ * `state`/`decision` are carried through unchanged; `messages` is the held context window.
  */
 function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransportResponse {
-  const sideEffectDecision: AgentMessageTransportResponse["sideEffectDecision"] =
-    response.state === "sent"
-      ? response.bypass
-        ? "anyway_accepted"
-        : "forward"
-      : response.state === "held"
-        ? "hold"
-        : "anyway_denied";
   return {
     protocolMajor: response.protocolMajor,
     requestId: response.requestId,
     accepted: response.state === "sent",
-    attentionCount: response.context.length,
+    attentionCount: response.heldMessages?.length ?? 0,
     messageId: response.messageId,
-    messages: response.context,
-    sideEffectDecision,
-    holdToken: response.holdToken,
-    anywayAllowed: response.anywayAllowed,
+    messages: response.heldMessages ?? [],
+    state: response.state,
+    decision: response.decision,
+    reason: response.reason,
+    producerFactId: response.producerFactId,
+    availableActions: response.availableActions,
+    continueAnywaySuggested: response.continueAnywaySuggested,
+    newMessageCount: response.newMessageCount,
+    shownMessageCount: response.shownMessageCount,
+    omittedMessageCount: response.omittedMessageCount,
     freshnessContextMode: response.freshnessContextMode,
     withheldMessageCount: response.withheldMessageCount,
     recentUnread: response.recentUnread,
@@ -794,14 +798,18 @@ async function decodeAgentEnvelopeJson<Result extends { ok: true }>(
   return data as Result;
 }
 
-const AGENT_SEND_STATES = new Set(["sent", "held", "denied"]);
+const AGENT_SEND_DECISIONS = new Set(["forward", "bypass", "local_hold", "syncing_hold"]);
+const AGENT_SEND_STATES = new Set(["sent", "held"]);
 
 /** Validates the send route's response shape; the incident this module exists to prevent. */
 function validateAgentSendResponseShape(data: unknown): string | undefined {
   if (!isRecord(data)) return "response body is not a JSON object";
   if (typeof data.state !== "string" || !AGENT_SEND_STATES.has(data.state))
-    return `response state is not one of "sent"/"held"/"denied" (got ${JSON.stringify(data.state)})`;
-  if (!Array.isArray(data.context)) return "response is missing the context array";
+    return `response state is not one of "sent"/"held" (got ${JSON.stringify(data.state)})`;
+  if (typeof data.decision !== "string" || !AGENT_SEND_DECISIONS.has(data.decision))
+    return `response decision is not one of "forward"/"bypass"/"local_hold"/"syncing_hold" (got ${JSON.stringify(data.decision)})`;
+  if (data.state === "held" && !Array.isArray(data.heldMessages))
+    return "response is missing the heldMessages array";
   return undefined;
 }
 
@@ -856,10 +864,11 @@ export const createAgentMessageHttpClient = (
         body: JSON.stringify({
           requestId: request.requestId,
           target: request.target,
-          body: request.body,
-          holdToken: request.holdToken,
+          content: request.content,
           continueAnyway: request.continueAnyway,
-          seenUpToSequence: request.seenUpToSequence,
+          draftReholdCount: request.draftReholdCount,
+          draftReplacedExisting: request.draftReplacedExisting,
+          seenUpToSeq: request.seenUpToSeq,
           freshnessContextMode: request.freshnessContextMode,
           attachmentIds: request.attachmentIds,
           mentions: request.mentions,

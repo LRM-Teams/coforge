@@ -22,7 +22,6 @@ import {
 } from "../src/server/agents/agent-messages.service";
 import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
 import { CentrifugoConversationRealtime } from "../src/server/conversations/conversation-realtime.server";
-import { RedisAgentMessageHoldStore } from "../src/server/conversations/agent-message-hold.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
 import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";
 import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
@@ -496,7 +495,6 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
         throw new Error("Agent reply must not publish");
       },
     };
-    const holdStore = new RedisAgentMessageHoldStore(redis);
     const agentSender = new SendDirectMessage(
       repo,
       new RedisMessageRequestIdempotency(redis),
@@ -510,17 +508,17 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     const beforeReply = published.length;
     await channels.setUserMuted(workspace.id, user.id, general.id, true);
     const reply = await executeAgentSendMessageWithPolicy(
-      { repository: repo, sender: agentSender, holdStore },
+      { repository: repo, sender: agentSender },
       {
         requestId: crypto.randomUUID(),
         workspaceId: workspace.id,
         agentId: agent.id,
         target: "#general",
-        body: `@${user.username} this Agent reply should notify the mentioned human`,
-        seenUpToSequence: ordinary.sequence,
+        content: `@${user.username} this Agent reply should notify the mentioned human`,
+        seenUpToSeq: ordinary.sequence,
       },
     );
-    expect(reply.accepted).toBe(true);
+    expect(reply.state).toBe("sent");
     expect(published.length).toBe(beforeReply);
     if (!reply.messageId) throw new Error("Agent reply did not return its message identity");
     expect(

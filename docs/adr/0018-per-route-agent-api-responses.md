@@ -1,7 +1,9 @@
 # ADR 0018: Per-route Agent API responses for read/search/send/resolve/reactions, a dedicated search route, and removal of the dead Centrifugo message RPC
 
-Status: accepted
+Status: accepted (partially superseded)
 Date: 2026-09-16
+
+Status: partially superseded by [ADR 0057](0057-message-freshness-hold-contract.md) for the freshness hold: the held/send response shape, the `holdToken`/`anywayAllowed` fields and the `denied` state described below were replaced by Raft's contract.
 
 ## Context
 

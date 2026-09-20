@@ -498,7 +498,7 @@ function parseMessageRequest(
     requestId: payload.requestId,
     operation: payload.operation as LocalAgentMessageRequest["operation"],
     target: typeof payload.target === "string" ? payload.target : undefined,
-    body: typeof payload.body === "string" ? payload.body : undefined,
+    content: typeof payload.content === "string" ? payload.content : undefined,
     continueAnyway: payload.continueAnyway === true || undefined,
     sendDraft: payload.sendDraft === true || undefined,
     before: typeof payload.before === "string" ? payload.before : undefined,

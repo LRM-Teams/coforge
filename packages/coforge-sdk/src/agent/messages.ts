@@ -87,21 +87,29 @@ export type AgentSearchResponse = {
   results: AgentMessage[];
 };
 
-/** Response for the send route (POST /api/agent/v1/messages). */
+/** Response for the send route (POST /api/agent/v1/messages); Raft 1.0.32's own send contract. */
 export type AgentSendResponse = {
   protocolMajor: 1;
   requestId: string;
-  state: "sent" | "held" | "denied";
+  state: "sent" | "held";
+  decision: "forward" | "bypass" | "local_hold" | "syncing_hold";
+  reason?: string;
+  producerFactId?: string;
   messageId?: string;
-  holdToken?: string;
-  /** True when a freshness hold was overridden with `continueAnyway`; the message still sent. */
-  bypass?: boolean;
-  anywayAllowed?: boolean;
-  /** Held-context messages the Agent should review before resending; empty when `state` is `"sent"`. */
-  context: AgentMessage[];
+  /** Held only: Raft's `available_actions` — `check_messages`, `send_draft`, `send_anyway`. */
+  availableActions?: string[];
+  /** Held only: an already-re-held draft may be forced with `--send-draft --anyway`. */
+  continueAnywaySuggested?: boolean;
+  /** Held only: the held context window, oldest to newest; empty when `state` is `"sent"`. */
+  heldMessages?: AgentMessage[];
+  newMessageCount?: number;
+  shownMessageCount?: number;
+  omittedMessageCount?: number;
+  /** Held only: the boundary the Agent should treat as reviewed after this hold. */
+  seenUpToSeq?: number;
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
-  /** Only for `state: "sent"`: pending messages bypassed via `continueAnyway`; empty otherwise. */
+  /** Sent only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessage[];
 };
 

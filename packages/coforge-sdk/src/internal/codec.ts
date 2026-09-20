@@ -1066,7 +1066,7 @@ export function validateAgentMessageRequest(request: AgentMessageRequest): Agent
     request.freshnessContextMode !== "withheld"
   )
     throw new Error("invalid Agent message freshness context mode");
-  if (request.seenUpToSequence !== undefined && request.operation !== "send")
+  if (request.seenUpToSeq !== undefined && request.operation !== "send")
     throw new Error("Agent message seen-up-to sequence is only valid for send");
   if (
     !request.requestId ||

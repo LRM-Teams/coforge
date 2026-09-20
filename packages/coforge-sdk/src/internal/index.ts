@@ -697,9 +697,14 @@ export type AgentMessageRequest = {
     | "react"
     | "unreact";
   target: string;
-  body?: string;
-  holdToken?: string;
+  content?: string;
   continueAnyway?: boolean;
+  /** `send` only: the boundary the sender has already reviewed. */
+  seenUpToSeq?: number;
+  /** `send` only: how many times this draft has already been held (`continueAnywaySuggested`). */
+  draftReholdCount?: number;
+  /** `send` only: a normal send that replaced an already-held draft. */
+  draftReplacedExisting?: boolean;
   before?: string;
   after?: string;
   around?: string;
@@ -708,7 +713,6 @@ export type AgentMessageRequest = {
   sender?: string;
   sort?: "relevance" | "recent";
   offset?: number;
-  seenUpToSequence?: number;
   freshnessContextMode?: "inline" | "withheld";
   messageId?: string;
   emoji?: string;

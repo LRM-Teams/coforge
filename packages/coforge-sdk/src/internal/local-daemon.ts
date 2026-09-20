@@ -217,9 +217,15 @@ export type LocalAgentMessageRequest = {
     | "react"
     | "unreact";
   target?: string;
-  body?: string;
+  content?: string;
   sendDraft?: boolean;
   continueAnyway?: boolean;
+  /** `message send` only (daemon-internal): the boundary the sender has already reviewed. */
+  seenUpToSeq?: number;
+  /** `message send` only (daemon-internal): how many times this draft has already been held. */
+  draftReholdCount?: number;
+  /** `message send` only (daemon-internal): a normal send that replaced an already-held draft. */
+  draftReplacedExisting?: boolean;
   before?: string;
   after?: string;
   around?: string;
@@ -320,9 +326,21 @@ export type AgentMessageResponse = {
   messages: AgentMessageRecord[];
   messageId: string;
   summaries: MessageAttentionSummary[];
-  sideEffectDecision?: "forward" | "hold" | "bypass";
-  seenUpToSequence?: number;
-  anywayAllowed?: boolean;
+  /** `message send` only: Raft's send contract, `"sent"` or `"held"`. */
+  state?: "sent" | "held";
+  /** `message send` only: `forward`/`bypass` sent the message, `local_hold`/`syncing_hold` held it. */
+  decision?: "forward" | "bypass" | "local_hold" | "syncing_hold";
+  reason?: string;
+  producerFactId?: string;
+  /** `message send` only, held: Raft's `available_actions` recovery paths. */
+  availableActions?: string[];
+  /** `message send` only, held: an already-re-held draft may be forced with `--send-draft --anyway`. */
+  continueAnywaySuggested?: boolean;
+  /** `message send` only, held: the held context window, oldest to newest. */
+  heldMessages?: AgentMessageRecord[];
+  newMessageCount?: number;
+  shownMessageCount?: number;
+  omittedMessageCount?: number;
   hasOlder?: boolean;
   hasNewer?: boolean;
   olderCursor?: string;
@@ -330,7 +348,7 @@ export type AgentMessageResponse = {
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
   hasMore?: boolean;
-  /** `message send` only: up to three pending messages bypassed via `--anyway`; empty otherwise. */
+  /** `message send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessageRecord[];
 };
 export type MessageAttentionSummary = {
@@ -399,6 +417,7 @@ export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Ar
           newerCursor: undefined,
           withheldMessageCount: value.withheldMessageCount ?? value.attentionCount,
           hasMore: undefined,
+          heldMessages: [],
           recentUnread: [],
         }
       : value;
@@ -407,6 +426,7 @@ export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Ar
     create(AgentMessageResponseSchema, {
       ...safeValue,
       messages: encodeAgentMessageRecords(safeValue.messages),
+      heldMessages: encodeAgentMessageRecords(safeValue.heldMessages ?? []),
       recentUnread: encodeAgentMessageRecords(safeValue.recentUnread ?? []),
       summaries: safeValue.summaries.map((summary) => {
         if (summary.latestSenderKind !== undefined)
@@ -421,9 +441,6 @@ export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Ar
           latestSequence: BigInt(summary.latestSequence),
         };
       }),
-      seenUpToSequence:
-        safeValue.seenUpToSequence === undefined ? undefined : BigInt(safeValue.seenUpToSequence),
-      anywayAllowed: safeValue.anywayAllowed ?? false,
       hasOlder: safeValue.hasOlder ?? false,
       hasNewer: safeValue.hasNewer ?? false,
       olderCursor: safeValue.olderCursor,
@@ -443,8 +460,16 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       messages: [],
       messageId: v.messageId,
       summaries: [],
-      sideEffectDecision: v.sideEffectDecision as AgentMessageResponse["sideEffectDecision"],
-      anywayAllowed: v.anywayAllowed || undefined,
+      state: v.state as AgentMessageResponse["state"],
+      decision: v.decision as AgentMessageResponse["decision"],
+      reason: v.reason || undefined,
+      producerFactId: v.producerFactId || undefined,
+      availableActions: v.availableActions.length ? v.availableActions : undefined,
+      continueAnywaySuggested: v.continueAnywaySuggested || undefined,
+      heldMessages: [],
+      newMessageCount: v.newMessageCount,
+      shownMessageCount: v.shownMessageCount,
+      omittedMessageCount: v.omittedMessageCount,
       freshnessContextMode: "withheld",
       withheldMessageCount: v.withheldMessageCount ?? v.attentionCount,
       recentUnread: [],
@@ -477,12 +502,17 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       };
     }),
     messages: decodeAgentMessageRecords(v.messages),
+    state: (v.state || undefined) as AgentMessageResponse["state"],
+    decision: (v.decision || undefined) as AgentMessageResponse["decision"],
+    reason: v.reason || undefined,
+    producerFactId: v.producerFactId || undefined,
+    availableActions: v.availableActions.length ? v.availableActions : undefined,
+    continueAnywaySuggested: v.continueAnywaySuggested || undefined,
+    heldMessages: v.heldMessages.length ? decodeAgentMessageRecords(v.heldMessages) : undefined,
+    newMessageCount: v.newMessageCount,
+    shownMessageCount: v.shownMessageCount,
+    omittedMessageCount: v.omittedMessageCount,
     recentUnread: v.recentUnread.length ? decodeAgentMessageRecords(v.recentUnread) : undefined,
-    sideEffectDecision: v.sideEffectDecision
-      ? (v.sideEffectDecision as AgentMessageResponse["sideEffectDecision"])
-      : undefined,
-    seenUpToSequence: v.seenUpToSequence === undefined ? undefined : Number(v.seenUpToSequence),
-    anywayAllowed: v.anywayAllowed || undefined,
     hasOlder: v.hasOlder || undefined,
     hasNewer: v.hasNewer || undefined,
     olderCursor: v.olderCursor || undefined,

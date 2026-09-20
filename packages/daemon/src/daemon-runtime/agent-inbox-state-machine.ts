@@ -5,13 +5,13 @@ import type {
 } from "../persistence/agent-message-draft-store";
 
 type InMemoryDraft = {
-  body: string;
-  holdToken?: string;
+  content: string;
+  reholdCount: number;
   attachmentIds?: readonly string[];
   mentions?: readonly LocalMentionSelector[];
 };
 
-/** Draft continuation state. Web/backend exclusively decides freshness and --anyway authorization. */
+/** Draft continuation state. */
 export class AgentInboxStateMachine {
   readonly #drafts = new Map<string, InMemoryDraft>();
 
@@ -19,23 +19,24 @@ export class AgentInboxStateMachine {
 
   async save(
     target: string,
-    body: string,
+    content: string,
     attachmentIds?: readonly string[],
     mentions?: readonly LocalMentionSelector[],
   ) {
-    this.#drafts.set(target, { body, attachmentIds, mentions });
-    await this.persistence?.save(target, body, undefined, attachmentIds, mentions);
+    this.#drafts.set(target, { content, reholdCount: 0, attachmentIds, mentions });
+    await this.persistence?.save(target, content, attachmentIds, mentions);
   }
 
+  /** Raft's held-draft refresh: the same draft, one hold later. */
   async replace(
     target: string,
-    body: string,
-    holdToken: string,
+    content: string,
     attachmentIds?: readonly string[],
     mentions?: readonly LocalMentionSelector[],
   ) {
-    this.#drafts.set(target, { body, holdToken, attachmentIds, mentions });
-    await this.persistence?.save(target, body, holdToken, attachmentIds, mentions);
+    const reholdCount = ((await this.draft(target))?.reholdCount ?? 0) + 1;
+    this.#drafts.set(target, { content, reholdCount, attachmentIds, mentions });
+    await this.persistence?.replace(target, content, reholdCount, attachmentIds, mentions);
   }
 
   async draft(target: string): Promise<AgentMessageDraft | InMemoryDraft | undefined> {

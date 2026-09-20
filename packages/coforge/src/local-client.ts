@@ -454,7 +454,7 @@ export function connectLocal(
         response = await fetch(proxyEndpoint(agentApiRoutes.proxy.messages.path), {
           method: agentApiRoutes.local.messages.method,
           headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-          body: JSON.stringify({ requestId, operation, target, body, ...options }),
+          body: JSON.stringify({ requestId, operation, target, content: body, ...options }),
           signal: AbortSignal.timeout(10_000),
         });
       } catch {

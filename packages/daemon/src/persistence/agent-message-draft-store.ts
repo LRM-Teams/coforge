@@ -7,8 +7,10 @@ export const AGENT_MESSAGE_DRAFT_TTL_MS = 10 * 60 * 1_000;
 
 export type AgentMessageDraft = Readonly<{
   target: string;
-  body: string;
-  holdToken?: string;
+  content: string;
+  /** How many times this draft has already been held. Reported to the server as
+   * `draftReholdCount`, which is what makes `continueAnywaySuggested` true (Raft's draft state). */
+  reholdCount: number;
   savedAt: number;
   attachmentIds?: readonly string[];
   mentions?: readonly LocalMentionSelector[];
@@ -40,22 +42,44 @@ export class AgentMessageDraftStore {
         ({ savedAt }) => this.now() - savedAt <= AGENT_MESSAGE_DRAFT_TTL_MS,
       );
       if (fresh.length !== drafts.length) await this.#write(fresh);
-      return fresh.find((draft) => draft.target === target);
+      const found = fresh.find((draft) => draft.target === target);
+      if (!found) return undefined;
+      // A file written before Raft's draft shape was adopted still names its text `body` and has
+      // simply never been held; carry it forward instead of losing an in-flight draft on upgrade.
+      const legacy = found as { body?: string };
+      return {
+        target: found.target,
+        content: found.content ?? legacy.body ?? "",
+        reholdCount: found.reholdCount ?? 0,
+        savedAt: found.savedAt,
+        ...(found.attachmentIds ? { attachmentIds: found.attachmentIds } : {}),
+        ...(found.mentions ? { mentions: found.mentions } : {}),
+      };
     });
   }
 
+  /** A fresh send saves a never-held draft; only `replace` (a hold) advances the count. */
   save(
     target: string,
-    body: string,
-    holdToken?: string,
+    content: string,
+    attachmentIds?: readonly string[],
+    mentions?: readonly LocalMentionSelector[],
+  ): Promise<void> {
+    return this.#writeDraft(target, content, 0, attachmentIds, mentions);
+  }
+
+  #writeDraft(
+    target: string,
+    content: string,
+    reholdCount: number,
     attachmentIds?: readonly string[],
     mentions?: readonly LocalMentionSelector[],
   ): Promise<void> {
     return this.#serialized(async () => {
       const draft = {
         target,
-        body,
-        ...(holdToken ? { holdToken } : {}),
+        content,
+        reholdCount,
         ...(attachmentIds?.length ? { attachmentIds } : {}),
         ...(mentions?.length ? { mentions } : {}),
         savedAt: this.now(),
@@ -64,6 +88,17 @@ export class AgentMessageDraftStore {
       drafts.push(draft);
       await this.#write(drafts);
     });
+  }
+
+  /** Raft's held-draft refresh: the same text, one hold later. */
+  replace(
+    target: string,
+    content: string,
+    reholdCount: number,
+    attachmentIds?: readonly string[],
+    mentions?: readonly LocalMentionSelector[],
+  ): Promise<void> {
+    return this.#writeDraft(target, content, reholdCount, attachmentIds, mentions);
   }
 
   clear(target: string): Promise<void> {
@@ -141,8 +176,11 @@ function isDraft(value: unknown): value is AgentMessageDraft {
   const draft = value as Record<string, unknown>;
   return (
     typeof draft.target === "string" &&
-    typeof draft.body === "string" &&
-    (draft.holdToken === undefined || typeof draft.holdToken === "string") &&
+    (typeof draft.content === "string" ||
+      // Pre-rename draft files named the text `body`; still a valid, readable draft.
+      typeof (draft as { body?: unknown }).body === "string") &&
+    // Older drafts predate `reholdCount`; a missing value is simply a never-held draft.
+    (draft.reholdCount === undefined || typeof draft.reholdCount === "number") &&
     typeof draft.savedAt === "number" &&
     Number.isFinite(draft.savedAt) &&
     // Older drafts predate these fields; their absence is a valid, backward-compatible draft.

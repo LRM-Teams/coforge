@@ -270,42 +270,81 @@ export function formatAttachmentDownloadSuccess(output: string): string {
 }
 
 type HeldSendResponse = {
-  attentionCount?: number;
-  anywayAllowed?: boolean;
-  messages?: AgentMessageRecord[];
+  decision?: "local_hold" | "syncing_hold";
+  newMessageCount?: number;
+  shownMessageCount?: number;
+  omittedMessageCount?: number;
+  heldMessages?: AgentMessageRecord[];
+  continueAnywaySuggested?: boolean;
 };
+
+/** Raft 1.0.32's `HOLD_PREVIEW_CHARS`: the held-context preview cut, counted in code points. */
+const HELD_PREVIEW_CHARS = 160;
 
 function formatUtcHourMinute(createdAt: string): string {
   return formatUtcTimestamp(createdAt).slice(11, 16);
 }
 
-function formatHeldPreview(body: string): string {
-  const collapsed = body.replace(/\s+/g, " ").trim();
-  if (collapsed.length <= 160) return collapsed;
-  const remaining = collapsed.length - 160;
-  return `${collapsed.slice(0, 160)}…⟨${remaining} more chars⟩`;
+/** Raft 1.0.32's `previewLine`: `  │ @sender HH:MM  content…⟨n more chars⟩`. */
+function heldPreviewLine(message: AgentMessageRecord): string {
+  const collapsed = message.body.replace(/\s+/g, " ").trim();
+  const points = Array.from(collapsed);
+  const shown = points.slice(0, HELD_PREVIEW_CHARS).join("");
+  const hidden = points.length - Math.min(points.length, HELD_PREVIEW_CHARS);
+  const head = [messageSender(message), formatUtcHourMinute(message.createdAt)]
+    .filter(Boolean)
+    .join(" ");
+  const marker = hidden > 0 ? `…⟨${hidden} more chars⟩` : "";
+  return `  │ ${head}  ${shown}${marker}`;
 }
 
+/**
+ * Raft 1.0.32's held-send notice (`formatHeldSendOutput` → `formatFreshnessHoldOutput`): the
+ * opening count line, the bounded held-context window with its omitted-earlier-messages note, the
+ * "choose one path" recovery block, and the `--anyway` escape only when the server suggests it.
+ */
 export function formatHeldSend(target: string, response: HeldSendResponse): string {
-  const messages = response.messages ?? [];
-  const count = response.attentionCount ?? messages.length;
-  const lines = [
-    `Freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} arrived on ${target} before your reply was sent.`,
-    ...messages.map(
-      (message) =>
-        `  │ ${messageSender(message)} ${formatUtcHourMinute(message.createdAt)}  ${formatHeldPreview(message.body)}`,
-    ),
-    "Your message has been saved as a draft.",
+  const heldMessages = response.heldMessages ?? [];
+  const newMessageCount = response.newMessageCount ?? heldMessages.length;
+  const shownMessageCount = response.shownMessageCount ?? heldMessages.length;
+  const omittedMessageCount = response.omittedMessageCount ?? 0;
+  const messageNoun = newMessageCount === 1 ? "message" : "messages";
+
+  const lines: string[] = [];
+  if (omittedMessageCount > 0 && heldMessages.length > 0) {
+    const noun = omittedMessageCount === 1 ? "message" : "messages";
+    lines.push(
+      `  ├ ⋯ ${omittedMessageCount} earlier ${noun} skipped in this notice. Older exist: coforge message read --target "${target}" --before ${shortId(heldMessages[0]!.id)}. ⋯`,
+    );
+  }
+  if (heldMessages.length > 0) {
+    lines.push(`  ├ Latest ${shownMessageCount} ${"─".repeat(28)}`);
+    for (const message of heldMessages) lines.push(heldPreviewLine(message));
+  }
+  lines.push(`  └ Previews are truncated. Full text: coforge message read --target "${target}"`);
+
+  const paths = [
+    "After reviewing the current state of this conversation, choose one path.",
     "To update the draft, send revised content normally:",
     `  coforge message send --target "${target}" <<'COFORGE_MESSAGE'`,
     "  revised message",
     "  COFORGE_MESSAGE",
     "To send the current draft unchanged:",
-    `  coforge message send --target "${target}" --send-draft`,
+    `  coforge message send --send-draft --target "${target}"`,
+    "  (this sends the stored copy — do not use it if you meant to change the content)",
+    "You can also choose not to send anything.",
   ];
-  if (response.anywayAllowed) {
-    lines.push("If repeated updates keep holding the same still-correct reply:");
-    lines.push(`  coforge message send --target "${target}" --send-draft --anyway`);
-  }
-  return lines.join("\n");
+  if (response.continueAnywaySuggested)
+    paths.push(
+      "If repeated updates keep blocking the same draft and this is still the right reply, you may use:",
+      `  coforge message send --send-draft --anyway --target "${target}"`,
+    );
+
+  return [
+    `Held — ${newMessageCount} unread ${messageNoun} in ${target}. Your message has been saved as a draft.`,
+    "",
+    lines.join("\n"),
+    "",
+    paths.join("\n"),
+  ].join("\n");
 }
