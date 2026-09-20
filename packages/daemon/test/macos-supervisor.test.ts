@@ -167,10 +167,34 @@ test.skipIf(process.platform !== "darwin")(
         workspaceHealthJournalPath(workspaceStateDirectory(root, "a")),
       );
       await journal.markTerminal("test: simulated unrecoverable condition");
+      const degradedLogPath = join(
+        workspaceStateDirectory(root, "a"),
+        "logs",
+        "daemon",
+        "daemon.jsonl",
+      );
+      const degradedExits = async () =>
+        (
+          await Bun.file(degradedLogPath)
+            .text()
+            .catch(() => "")
+        )
+          .split("\n")
+          .filter((line) => line.includes('"daemon:workspace_degraded"')).length;
+      const exitsBeforeCrash = await degradedExits();
       process.kill(running.processId, "SIGKILL");
-      // Give launchd a moment to notice the death, respawn under KeepAlive, and let that
-      // replacement run its guard check and exit 0 on its own.
-      await Bun.sleep(3_000);
+      // The replacement launchd spawns under KeepAlive logs this before exiting 0, so a new
+      // entry is the observable proof that launchd noticed the death, respawned, and that
+      // replacement actually reached the latch - none of which a fixed sleep would establish.
+      const respawnDeadline = Date.now() + 20_000;
+      while ((await degradedExits()) === exitsBeforeCrash) {
+        if (Date.now() >= respawnDeadline)
+          throw new Error("Replacement Workspace never refused to start on the degraded latch");
+        await Bun.sleep(25);
+      }
+      // ...and it exited rather than staying up: the killed process is gone and the latch's
+      // refusal left no live Workspace behind it.
+      expect(() => process.kill(running.processId, 0)).toThrow();
 
       coordinator.kill("SIGKILL");
       await coordinator.exited;

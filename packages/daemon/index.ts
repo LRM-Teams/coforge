@@ -25,8 +25,8 @@ import { configureDaemonLogging } from "./src/platform/daemon-logging";
 import { stopLaunchdJobs } from "./src/platform/launchd-job";
 import {
   WorkspaceHealthJournal,
+  workspaceDegradedMessage,
   workspaceHealthJournalPath,
-  workspaceHealthRecoveryCommand,
 } from "./src/supervisor/workspace-health-journal";
 import { guardWorkspaceRunnerStart } from "./src/supervisor/workspace-runner-guard";
 export { launchdJobs } from "./src/platform/launchd-job";
@@ -37,6 +37,7 @@ export {
   WORKSPACE_HEALTH_CRASH_WINDOW_MS,
   WORKSPACE_HEALTH_DEGRADED_THRESHOLD,
   WorkspaceHealthJournal,
+  workspaceDegradedMessage,
   workspaceHealthJournalPath,
   workspaceHealthRecoveryCommand,
 } from "./src/supervisor/workspace-health-journal";
@@ -134,13 +135,6 @@ const DAEMON_CATEGORY = ["coforge", "daemon"];
  * precondition no restart can fix. */
 const MISSING_SOCKET_REASON = "Daemon requires --socket";
 
-/** `workspaceHealthRecoveryCommand` needs a Workspace ID; this child does not always have one
- * (e.g. a launch missing `--socket` before any config is even readable), so this falls back to
- * the unscoped form, which still recovers every binding, including the unidentified one. */
-function workspaceRecoveryCommand(workspaceId?: string): string {
-  return workspaceId ? workspaceHealthRecoveryCommand(workspaceId) : "coforge-computer restart";
-}
-
 export async function runDaemon(args: string[], computerVersion?: string): Promise<void> {
   const argument = (flag: string) => {
     const index = args.indexOf(flag);
@@ -175,7 +169,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           .catch(() => null)
       : null;
     getLogger(DAEMON_CATEGORY).error(
-      `${MISSING_SOCKET_REASON}. This Workspace will not restart on its own; run '${workspaceRecoveryCommand(brokenConfig?.workspaceId)}' after fixing its launch configuration.`,
+      workspaceDegradedMessage(MISSING_SOCKET_REASON, brokenConfig?.workspaceId),
       { event: "daemon:invalid_arguments" },
     );
     await dispose();
@@ -206,15 +200,12 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       // whether the previous run(s) died unexpectedly often enough to stop this restart loop.
       const guard = await guardWorkspaceRunnerStart(healthJournal);
       if (guard.action === "exit") {
-        logger.error(
-          `Workspace is degraded (${guard.reason}); it will not restart automatically. Run '${workspaceRecoveryCommand(config?.workspaceId)}' after fixing it.`,
-          {
-            event: "daemon:workspace_degraded",
-            reason: guard.reason,
-            crash_count: guard.crashCount,
-            degraded_since: guard.since,
-          },
-        );
+        logger.error(workspaceDegradedMessage(guard.reason, config?.workspaceId), {
+          event: "daemon:workspace_degraded",
+          reason: guard.reason,
+          crash_count: guard.crashCount,
+          degraded_since: guard.since,
+        });
         await dispose();
         process.exitCode = 0;
         return;
