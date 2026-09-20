@@ -1,5 +1,5 @@
-import { readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, readdir, rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import type {
   AgentRuntimeRecord,
   AgentRuntimeStateStore,
@@ -13,7 +13,7 @@ import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
  * stale operation can no longer outlive the writer it was waiting on, and the dual-run fence is
  * boot process cleanup (task #54 step ①) rather than a persisted record.
  *
- * `workspaceExists` and `clearWorkspace` are still real filesystem operations: they describe the
+ * `clearWorkspace` is still a real filesystem operation: it describes the
  * Agent's workspace directory, not the record. The record store and the workspace are only
  * coupled through reset-workspace, which stops the process tree first and then empties the
  * directory — exactly as the file-backed store did.
@@ -25,17 +25,6 @@ export class MemoryAgentRuntimeStateStore implements AgentRuntimeStateStore {
     private readonly workspaceRoot: string,
     private readonly workspaceId: string,
   ) {}
-
-  async workspaceExists(agentId: string) {
-    const path = agentWorkspaceDirectory(this.workspaceRoot, this.workspaceId, agentId);
-    try {
-      await readdir(path);
-      return true;
-    } catch (error) {
-      if ((error as { code?: string }).code === "ENOENT") return false;
-      throw error;
-    }
-  }
 
   async listAgentIds() {
     return [...this.#records.keys()];
@@ -51,6 +40,7 @@ export class MemoryAgentRuntimeStateStore implements AgentRuntimeStateStore {
 
   async clearWorkspace(agentId: string) {
     const workspace = agentWorkspaceDirectory(this.workspaceRoot, this.workspaceId, agentId);
+    await noLinkedAncestors(workspace);
     let entries;
     try {
       entries = await readdir(workspace);
@@ -70,5 +60,24 @@ export class MemoryAgentRuntimeStateStore implements AgentRuntimeStateStore {
       }
     }
     if (firstError !== undefined) throw firstError;
+  }
+}
+
+/** The workspace root is outside the daemon's own tree; a symlink anywhere on the way to an
+ * Agent's workspace would let a record operation reach a directory the daemon does not own.
+ * Same guard the file-backed store had (where this implementation's `clearWorkspace` came from). */
+async function noLinkedAncestors(path: string): Promise<void> {
+  const absolute = resolve(path);
+  let current = absolute;
+  for (;;) {
+    try {
+      if ((await lstat(current)).isSymbolicLink())
+        throw new Error("Agent control path contains a symbolic link");
+    } catch (error) {
+      if ((error as { code?: string }).code !== "ENOENT") throw error;
+    }
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
   }
 }

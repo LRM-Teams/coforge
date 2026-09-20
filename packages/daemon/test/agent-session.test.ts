@@ -26,7 +26,6 @@ test("Session reporting persists before sending and replays the same snapshot af
   };
   const state = new AgentRuntimeState({
     listAgentIds: async () => ["a"],
-    workspaceExists: async () => true,
     read: async () => structuredClone(record),
     write: async (_id, next) => {
       record = structuredClone(next);
