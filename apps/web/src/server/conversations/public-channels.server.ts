@@ -11,7 +11,11 @@ import {
   resolveChannelAuthority,
 } from "./channel-authority.server";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
-import { browserSenderHandle, browserSenderName } from "./sender-display.server";
+import {
+  agentMessageSender,
+  browserSenderHandle,
+  browserSenderName,
+} from "./sender-display.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
 import {
@@ -88,7 +92,12 @@ const CHANNEL_MESSAGE_SELECT = {
       agentId: true,
       agent: { select: { name: true, displayName: true, deletedAt: true } },
       user: {
-        select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+        select: {
+          id: true,
+          username: true,
+          displayName: true,
+          avatarObjectKey: true,
+        },
       },
     },
   },
@@ -109,7 +118,11 @@ export type ChannelMessageRow = {
   createdAt: Date;
   sender: {
     agentId: string | null;
-    agent: { name: string; displayName: string | null; deletedAt: Date | null } | null;
+    agent: {
+      name: string;
+      displayName: string | null;
+      deletedAt: Date | null;
+    } | null;
     user: {
       id: string;
       username: string;
@@ -1208,9 +1221,23 @@ export class PublicChannels {
       },
       select: {
         ...CHANNEL_MESSAGE_SELECT,
+        // Wider than CHANNEL_MESSAGE_SELECT's sender: this reload alone feeds
+        // `agentMessageSender` below, which needs the sender's description too.
         sender: {
           select: {
-            user: { select: { username: true, displayName: true, avatarObjectKey: true } },
+            agentId: true,
+            agent: {
+              select: { name: true, displayName: true, deletedAt: true, description: true },
+            },
+            user: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                avatarObjectKey: true,
+                description: true,
+              },
+            },
           },
         },
         deliveries: {
@@ -1236,6 +1263,9 @@ export class PublicChannels {
     // `@handle` text — the stored body keeps mentions as embedded-UUID tokens, so translate.
     const publisher = this.publisher ?? createCentrifugoServerApi();
     const agentBody = agentReadableBody(message.body, message.mentions);
+    // Routed through the shared projection (ADR 0052) rather than two non-null assertions on
+    // `sender.user`, which broke for an Agent-authored channel delivery.
+    const sender = agentMessageSender(message.sender);
     await Promise.all(
       message.deliveries
         .filter((delivery) => delivery.agent.computerId)
@@ -1254,7 +1284,9 @@ export class PublicChannels {
               sequence: message.sequence,
               body: agentBody,
               target: `#${channel.channelName}${message.threadRootId ? `:${message.threadRootId}` : ""}`,
-              latestSender: `@${message.sender!.user!.username}`,
+              latestSenderKind: sender.kind,
+              latestSenderHandle: sender.handle,
+              latestSenderDescription: sender.description,
             }),
           ),
         ),

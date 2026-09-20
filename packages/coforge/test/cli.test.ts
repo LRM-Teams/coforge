@@ -1309,7 +1309,9 @@ test("message search aligns with Raft lexical search options and dispatches them
           {
             id: "aaaaaaaa-0000-4000-8000-000000000001",
             sequence: 99,
-            sender: "@ada",
+            senderKind: "human",
+            senderHandle: "ada",
+            senderDescription: "",
             target: "#general",
             body: "release plan",
             createdAt: "2026-09-07T10:00:00Z",
@@ -1365,7 +1367,9 @@ test("message resolve looks up one message by id and formats it like message che
           {
             id: "abcd1234-0000-4000-8000-000000000001",
             sequence: 1,
-            sender: "@ada",
+            senderKind: "human",
+            senderHandle: "ada",
+            senderDescription: "",
             target: "#general",
             body: "release plan",
             createdAt: "2026-09-07T10:00:00Z",
@@ -1376,7 +1380,7 @@ test("message resolve looks up one message by id and formats it like message che
   });
   expect(calls).toEqual(["abcd1234"]);
   expect(output).toBe(
-    "[target=#general msg=abcd1234 time=2026-09-07 10:00:00Z] @ada: release plan",
+    "[target=#general msg=abcd1234 time=2026-09-07 10:00:00Z type=human] @ada: release plan",
   );
 });
 
@@ -1861,7 +1865,9 @@ test("message check hides server ordering fields", async () => {
         {
           id: "message-7",
           sequence: 7,
-          sender: "@ada",
+          senderKind: "human",
+          senderHandle: "ada",
+          senderDescription: "",
           target: "@ada",
           body: "Can you investigate?",
           createdAt: "2026-09-03T10:00:00Z",
@@ -1875,7 +1881,7 @@ test("message check hides server ordering fields", async () => {
   });
 
   expect(output).toBe(
-    "[target=@ada msg=message- time=2026-09-03 10:00:00Z] @ada: Can you investigate?\n\nNo more new messages.",
+    "[target=@ada msg=message- time=2026-09-03 10:00:00Z type=human] @ada: Can you investigate?\n\nNo more new messages.",
   );
 });
 
@@ -1888,7 +1894,9 @@ test("message check tells the Agent to run check again when the server reports m
         {
           id: "message-7",
           sequence: 7,
-          sender: "@ada",
+          senderKind: "human",
+          senderHandle: "ada",
+          senderDescription: "",
           target: "@ada",
           body: "Can you investigate?",
           createdAt: "2026-09-03T10:00:00Z",
@@ -1902,7 +1910,7 @@ test("message check tells the Agent to run check again when the server reports m
   });
 
   expect(output).toBe(
-    "[target=@ada msg=message- time=2026-09-03 10:00:00Z] @ada: Can you investigate?\n\nMore messages are pending. Run `coforge message check` again.",
+    "[target=@ada msg=message- time=2026-09-03 10:00:00Z type=human] @ada: Can you investigate?\n\nMore messages are pending. Run `coforge message check` again.",
   );
 });
 
@@ -1949,7 +1957,9 @@ test("message read hides server ordering fields", async () => {
         {
           id: "message-1",
           sequence: 42,
-          sender: "@ada",
+          senderKind: "human",
+          senderHandle: "ada",
+          senderDescription: "",
           target: "@ada",
           body: "hello",
           createdAt: "2026-09-03T10:00:00Z",
@@ -2126,7 +2136,9 @@ test("reviewer-isolation held Task output suppresses secret context", async () =
           {
             id: "secret-id",
             sequence: 1,
-            sender: "secret-sender",
+            senderKind: "human",
+            senderHandle: "secret-sender",
+            senderDescription: "",
             target: "#secret",
             body: "SECRET_SENTINEL",
             createdAt: "now",
@@ -2169,7 +2181,9 @@ test("requested reviewer isolation suppresses held Task context even when the re
           {
             id: "secret-id",
             sequence: 1,
-            sender: "secret-sender",
+            senderKind: "human",
+            senderHandle: "secret-sender",
+            senderDescription: "",
             target: "#secret",
             body: "SECRET_SENTINEL",
             createdAt: "now",
@@ -2209,7 +2223,9 @@ test("non-reviewer-isolation Task holds still surface the held messages", async 
           {
             id: "visible-id",
             sequence: 1,
-            sender: "@ada",
+            senderKind: "human",
+            senderHandle: "ada",
+            senderDescription: "",
             target: "#general",
             body: "VISIBLE_CONTEXT",
             createdAt: "now",
@@ -2307,7 +2323,9 @@ test("held sends fail with a typed error that keeps the existing held-context re
         {
           id: "message-2",
           sequence: 9,
-          sender: "@ada",
+          senderKind: "human",
+          senderHandle: "ada",
+          senderDescription: "",
           target: "@ada",
           body: "new context",
           createdAt: "2026-09-03T10:05:00Z",
@@ -2526,7 +2544,9 @@ test("message send --json appends recentUnread from a bypass send", async () => 
         {
           id: "message-2",
           sequence: 5,
-          sender: "@ada",
+          senderKind: "human",
+          senderHandle: "ada",
+          senderDescription: "",
           target: "@ada",
           body: "missed while you were held",
           createdAt: "2026-09-17T10:00:00Z",
@@ -2551,7 +2571,9 @@ test("message send text mode appends a recentUnread section after the sent line"
         {
           id: "message-2",
           sequence: 5,
-          sender: "@frank",
+          senderKind: "human",
+          senderHandle: "frank",
+          senderDescription: "",
           target: "@ada",
           body: "missed while you were held",
           createdAt: "2026-09-17T10:00:00Z",

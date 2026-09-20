@@ -769,7 +769,9 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     expect(published).toHaveLength(1);
     expect(published[0]).toMatchObject({
       messageId: receipt.messageId,
-      latestSender: "system",
+      latestSenderKind: "system",
+      latestSenderHandle: "",
+      latestSenderDescription: "",
       agentId: assigned!.id,
       target,
     });
@@ -778,7 +780,13 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     expect(published).toHaveLength(1);
     expect(await db.message.count({ where: { conversationId: channel.id } })).toBe(3);
     expect(await repo.readPendingAgentDeliveries(workspace.id, assigned!.id)).toEqual([
-      expect.objectContaining({ messageId: receipt.messageId, latestSender: "system", target }),
+      expect.objectContaining({
+        messageId: receipt.messageId,
+        latestSenderKind: "system",
+        latestSenderHandle: "",
+        latestSenderDescription: "",
+        target,
+      }),
     ]);
     expect(await repo.readAgentRecoveryContext(workspace.id, unrelated!.id)).toEqual({
       resumeMessages: [],
@@ -791,14 +799,14 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     ]);
     expect(
       (await repo.readPendingAgentContext(workspace.id, assigned!.id, target, 0)).map(
-        (message) => message.sender,
+        (message) => message.senderKind,
       ),
     ).toEqual(["system"]);
     const page = await repo.readMessagesPage(workspace.id, assigned!.id, target, {
       around: receipt.messageId,
     });
     expect(page.messages.find((message) => message.id === receipt.messageId)).toMatchObject({
-      sender: "system",
+      senderKind: "system",
       body: receipt.content,
     });
     const browser = await new PublicChannels(db).open(workspace.id, human.id, channel.id);
@@ -860,7 +868,8 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     expect(afterAgentMention).toHaveLength(beforeAgentSend.length + 1);
     expect(afterAgentMention).toContainEqual(
       expect.objectContaining({
-        latestSender: `@${assigned!.name}`,
+        latestSenderKind: "agent",
+        latestSenderHandle: assigned!.name,
         target,
         body: `@${unrelated!.name} directed Agent handoff`,
       }),
@@ -888,7 +897,9 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       ),
     ).toMatchObject({
       target: `@${human.username}`,
-      latestSender: "system",
+      latestSenderKind: "system",
+      latestSenderHandle: "",
+      latestSenderDescription: "",
       messageId: directCreated.assignmentReceipt!.messageId,
     });
     const directMine = await board.execute(agentPrincipal, {
@@ -905,7 +916,9 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       ),
     ).toMatchObject({
       messageId: directCreated.assignmentReceipt!.messageId,
-      latestSender: "system",
+      latestSenderKind: "system",
+      latestSenderHandle: "",
+      latestSenderDescription: "",
       target: `@${human.username}`,
     });
     await board.execute(agentPrincipal, {

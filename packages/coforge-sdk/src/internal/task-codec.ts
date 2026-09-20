@@ -15,6 +15,7 @@ import {
   TaskViewSchema,
 } from "./gen/coforge/rpc/v1/task_pb";
 import { decodeLocalAttachments, decodeMessageTask, encodeLocalAttachments } from "./local-daemon";
+import { isValidMessageSender } from "./message-sender";
 import {
   TASK_STATUSES,
   type TaskClaimConflict,
@@ -548,7 +549,7 @@ export function decodeTaskResponse(bytes: Uint8Array): TaskResponse {
       !isNonblank(message.id) ||
       !Number.isSafeInteger(sequence) ||
       sequence < 1 ||
-      !isNonblank(message.sender) ||
+      !isValidMessageSender(message.senderKind, message.senderHandle) ||
       !isNonblank(message.target) ||
       typeof message.body !== "string" ||
       !isIsoDate(message.createdAt)
@@ -557,7 +558,9 @@ export function decodeTaskResponse(bytes: Uint8Array): TaskResponse {
     return {
       id: message.id,
       sequence,
-      sender: message.sender,
+      senderKind: message.senderKind,
+      senderHandle: message.senderHandle,
+      senderDescription: message.senderDescription,
       target: message.target,
       body: message.body,
       createdAt: message.createdAt,

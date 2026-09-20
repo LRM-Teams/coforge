@@ -36,7 +36,9 @@ test("returns the canonical response shape with hasMore passthrough", async () =
           {
             id: "message-1",
             sequence: 6,
-            sender: "@ada",
+            senderKind: "human",
+            senderHandle: "ada",
+            senderDescription: "",
             target: "@ada",
             body: "hello",
             createdAt: new Date("2026-09-15T00:00:00.000Z"),
@@ -57,7 +59,9 @@ test("returns the canonical response shape with hasMore passthrough", async () =
       {
         id: "message-1",
         sequence: 6,
-        sender: "@ada",
+        senderKind: "human",
+        senderHandle: "ada",
+        senderDescription: "",
         target: "@ada",
         body: "hello",
         createdAt: "2026-09-15T00:00:00.000Z",

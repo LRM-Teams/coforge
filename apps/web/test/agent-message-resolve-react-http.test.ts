@@ -19,7 +19,9 @@ test("resolve returns one canonical message record", async () => {
         return {
           id: "abcd1234-0000-4000-8000-000000000001",
           sequence: 1,
-          sender: "@ada",
+          senderKind: "human",
+          senderHandle: "ada",
+          senderDescription: "",
           target: "#general",
           body: "hello",
           createdAt: new Date("2026-09-15T00:00:00.000Z"),
@@ -36,7 +38,9 @@ test("resolve returns one canonical message record", async () => {
     message: {
       id: "abcd1234-0000-4000-8000-000000000001",
       sequence: 1,
-      sender: "@ada",
+      senderKind: "human",
+      senderHandle: "ada",
+      senderDescription: "",
       target: "#general",
       body: "hello",
       createdAt: "2026-09-15T00:00:00.000Z",
@@ -56,7 +60,9 @@ test("resolve generates a request id when the daemon omits one", async () => {
       resolveAgentMessage: async () => ({
         id: "abcd1234-0000-4000-8000-000000000001",
         sequence: 1,
-        sender: "@ada",
+        senderKind: "human",
+        senderHandle: "ada",
+        senderDescription: "",
         target: "#general",
         body: "hello",
         createdAt: new Date("2026-09-15T00:00:00.000Z"),

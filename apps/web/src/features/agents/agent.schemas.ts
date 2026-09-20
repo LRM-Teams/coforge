@@ -41,11 +41,13 @@ const apiKeySchema = z.preprocess(
 );
 
 // The @mention username: fixed at creation (Raft 1.0.32 alignment), never renamed afterward.
+export const AGENT_NAME_MAX_LENGTH = 60;
+
 const nameSchema = z
   .string()
   .trim()
   .min(1)
-  .max(64)
+  .max(AGENT_NAME_MAX_LENGTH)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
 export const AGENT_DISPLAY_NAME_MAX_LENGTH = 80;

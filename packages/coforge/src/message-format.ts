@@ -1,4 +1,11 @@
-import type { AgentMessageRecord } from "@lrm/coforge-sdk/internal";
+import { renderMessageSender, type AgentMessageRecord } from "@lrm/coforge-sdk/internal";
+
+/** The sender exactly as an Agent-visible message line shows it (ADR 0052, decision C):
+ * `system` for a system message, `@handle — description` when a description exists, `@handle`
+ * alone otherwise. */
+function messageSender(message: AgentMessageRecord): string {
+  return renderMessageSender(message.senderKind, message.senderHandle, message.senderDescription);
+}
 
 /** Any target containing `:` is a thread target (a channel/DM plus a rooting message id). */
 function isThreadTarget(target: string): boolean {
@@ -41,7 +48,7 @@ function taskSuffix(message: AgentMessageRecord): string {
 
 /** The message line shared by `message check`, `message resolve`, and held Task context. */
 export function formatMessageLine(message: AgentMessageRecord): string {
-  return `[target=${message.target} msg=${shortId(message.id)} time=${formatUtcTimestamp(message.createdAt)}] ${message.sender}: ${message.body}${attachmentSuffix(message)}${taskSuffix(message)}`;
+  return `[target=${message.target} msg=${shortId(message.id)} time=${formatUtcTimestamp(message.createdAt)} type=${message.senderKind}] ${messageSender(message)}: ${message.body}${attachmentSuffix(message)}${taskSuffix(message)}`;
 }
 
 type ReadWindowResponse = {
@@ -75,7 +82,7 @@ export function formatReadWindow(
   messages.forEach((message, index) => {
     const replyTarget = includeReplyTarget ? ` replyTarget=${target}:${shortId(message.id)}` : "";
     lines.push(
-      `[${index + 1}/${messages.length} msg=${message.id} time=${formatUtcTimestamp(message.createdAt)}${replyTarget}] ${message.sender}: ${message.body}${attachmentSuffix(message)}${taskSuffix(message)}`,
+      `[${index + 1}/${messages.length} msg=${message.id} time=${formatUtcTimestamp(message.createdAt)} type=${message.senderKind}${replyTarget}] ${messageSender(message)}: ${message.body}${attachmentSuffix(message)}${taskSuffix(message)}`,
     );
   });
 
@@ -197,7 +204,7 @@ export function formatSearchResults(query: string, response: SearchResponse): st
     [
       `<result ref="msg:${message.id}">`,
       `Source: ${message.target}`,
-      `Sender: ${neutralizeReferenceLiterals(message.sender)}`,
+      `Sender: ${neutralizeReferenceLiterals(messageSender(message))}`,
       `Time: ${formatUtcTimestamp(message.createdAt)}`,
       "",
       "<preview>",
@@ -286,7 +293,7 @@ export function formatHeldSend(target: string, response: HeldSendResponse): stri
     `Freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} arrived on ${target} before your reply was sent.`,
     ...messages.map(
       (message) =>
-        `  │ ${message.sender} ${formatUtcHourMinute(message.createdAt)}  ${formatHeldPreview(message.body)}`,
+        `  │ ${messageSender(message)} ${formatUtcHourMinute(message.createdAt)}  ${formatHeldPreview(message.body)}`,
     ),
     "Your message has been saved as a draft.",
     "To update the draft, send revised content normally:",

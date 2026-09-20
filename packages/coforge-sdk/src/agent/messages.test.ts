@@ -29,7 +29,9 @@ test("models the read route's own response shape, including multiple attachments
       {
         id: "message-1",
         sequence: 1,
-        sender: "agent-1",
+        senderKind: "agent",
+        senderHandle: "agent-1",
+        senderDescription: "",
         target: "#general",
         body: "hello",
         createdAt: "2026-09-15T00:00:00.000Z",
@@ -81,7 +83,9 @@ test("models the send route's state discriminant and held context", () => {
       {
         id: "message-2",
         sequence: 2,
-        sender: "@ada",
+        senderKind: "human",
+        senderHandle: "ada",
+        senderDescription: "",
         target: "#general",
         body: "newer",
         createdAt: "2026-09-15T00:00:01.000Z",
@@ -111,7 +115,9 @@ test("models the resolve route's own response shape", () => {
     message: {
       id: "message-4",
       sequence: 4,
-      sender: "@ada",
+      senderKind: "human",
+      senderHandle: "ada",
+      senderDescription: "",
       target: "#general",
       body: "resolved",
       createdAt: "2026-09-15T00:00:02.000Z",

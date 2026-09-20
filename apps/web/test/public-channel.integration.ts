@@ -411,11 +411,11 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     });
     expect(
       (await repo.readMessages(workspace.id, agent.id, "#general")).map((m) => [
-        m.sender,
+        m.senderHandle,
         m.body,
         m.target,
       ]),
-    ).toEqual([[`@${user.username}`, "Ordinary conversation, no Agent requested.", "#general"]]);
+    ).toEqual([[user.username, "Ordinary conversation, no Agent requested.", "#general"]]);
     const mentioned = await channels.send({
       workspaceId: workspace.id,
       userId: user.id,
@@ -431,8 +431,8 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       body: "Email x@helper.test and @helper-other are not a mention.",
     });
     const pending = await repo.readPendingAgentDeliveries(workspace.id, agent.id);
-    expect(pending.map((m) => [m.messageId, m.target, m.latestSender])).toEqual([
-      [mentioned.id, "#general", `@${user.username}`],
+    expect(pending.map((m) => [m.messageId, m.target, m.latestSenderHandle])).toEqual([
+      [mentioned.id, "#general", user.username],
     ]);
     const recovery = await repo.readAgentRecoveryContext(workspace.id, agent.id);
     expect(recovery.resumeMessages.map((m) => m.messageId)).toEqual([mentioned.id]);

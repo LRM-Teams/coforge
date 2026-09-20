@@ -44,7 +44,12 @@ test("a user-sent channel message has no senderAgentId", () => {
       sender: {
         agentId: null,
         agent: null,
-        user: { id: "user-1", username: "ada", displayName: "Ada Lovelace", avatarObjectKey: null },
+        user: {
+          id: "user-1",
+          username: "ada",
+          displayName: "Ada Lovelace",
+          avatarObjectKey: null,
+        },
       },
     }),
     WORKSPACE_ID,
@@ -87,7 +92,12 @@ test("a person's message is attributed to their display name, not their @usernam
       sender: {
         agentId: null,
         agent: null,
-        user: { id: "user-1", username: "ada", displayName: "Ada Lovelace", avatarObjectKey: null },
+        user: {
+          id: "user-1",
+          username: "ada",
+          displayName: "Ada Lovelace",
+          avatarObjectKey: null,
+        },
       },
     }),
     WORKSPACE_ID,
@@ -101,7 +111,12 @@ test("a person with no display name falls back to their username, without an @",
       sender: {
         agentId: null,
         agent: null,
-        user: { id: "user-1", username: "ada", displayName: null, avatarObjectKey: null },
+        user: {
+          id: "user-1",
+          username: "ada",
+          displayName: null,
+          avatarObjectKey: null,
+        },
       },
     }),
     WORKSPACE_ID,
@@ -115,7 +130,12 @@ test("a blank display name is treated as unset rather than shown as an empty nam
       sender: {
         agentId: null,
         agent: null,
-        user: { id: "user-1", username: "ada", displayName: "   ", avatarObjectKey: null },
+        user: {
+          id: "user-1",
+          username: "ada",
+          displayName: "   ",
+          avatarObjectKey: null,
+        },
       },
     }),
     WORKSPACE_ID,

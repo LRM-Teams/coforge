@@ -3,10 +3,14 @@ import {
   WORKSPACE_PROTOCOL_MAJOR,
   encodeAgentMessageDelivery,
   isChannelMessageTarget,
+  isPrintableSenderHandle,
 } from "@lrm/coforge-sdk/internal";
 import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { daemonControlChannel } from "../centrifugo/server-api.server";
-import type { DirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
+import type {
+  DirectConversationRepository,
+  LatestSenderFields,
+} from "../db/repositories/direct-conversation.repositories.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { agentReadableBody } from "./mentions";
@@ -158,10 +162,9 @@ export class SendDirectMessage {
       body: string;
       workspaceId: string;
       target?: string;
-      latestSender?: string;
       mentions?: { kind: string; actorId: string; handle: string }[];
       deliveries?: { deliveryId: string; agentId: string; computerId: string | null }[];
-    },
+    } & Partial<LatestSenderFields>,
   ) {
     if (!message.deliveries?.length) return;
     // Agents read plain `@handle` text; the stored body keeps mentions as embedded-UUID tokens.
@@ -185,7 +188,9 @@ export class SendDirectMessage {
                     sequence: message.sequence,
                     body,
                     target: message.target ?? "",
-                    latestSender: message.latestSender ?? "",
+                    latestSenderKind: message.latestSenderKind,
+                    latestSenderHandle: message.latestSenderHandle,
+                    latestSenderDescription: message.latestSenderDescription,
                   }),
                 ),
               ),
@@ -223,9 +228,16 @@ export class SendDirectMessage {
   ) {
     if (!message) throw new Error("message publication is unavailable");
     if (!message.deliveryId) throw new Error("message delivery is unavailable");
+    // This path only ever carries a human sender (a browser-authored direct message). The shared
+    // `agentMessageSender` projection already failed loudly upstream if the handle could not be
+    // resolved, but this guard checks something that projection cannot: that the resolved sender
+    // is specifically `human` on this human-only send path (never `agent`, never absent), and
+    // that the handle is well-formed. `encodeAgentMessageDelivery`'s own boundary check does not
+    // cover an entirely absent `latestSenderKind`, so this stays the one place that does.
     if (
-      !message.latestSender ||
-      !/^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/.test(message.latestSender)
+      message.latestSenderKind !== "human" ||
+      !message.latestSenderHandle ||
+      !isPrintableSenderHandle(message.latestSenderHandle)
     )
       throw new Error("message sender must be a public @username");
     if (!message.computerId) throw new Error("Agent is not assigned to a Computer");
@@ -242,8 +254,10 @@ export class SendDirectMessage {
         agentId: message.agentId,
         body: message.body,
         method: AGENT_MESSAGE_METHOD,
-        target: message.deliveryTarget ?? message.latestSender,
-        latestSender: message.latestSender,
+        target: message.deliveryTarget ?? `@${message.latestSenderHandle}`,
+        latestSenderKind: message.latestSenderKind,
+        latestSenderHandle: message.latestSenderHandle,
+        latestSenderDescription: message.latestSenderDescription,
       }),
     );
   }

@@ -21,6 +21,11 @@ import {
 } from "../conversations/conversation-realtime.server";
 import { mentionedNames } from "../conversations/mentions";
 import { ACTIVE_MEMBER_WHERE } from "../conversations/active-member.server";
+import {
+  agentMessageSender,
+  MESSAGE_SENDER_SELECT,
+  type AgentMessageSender,
+} from "../conversations/sender-display.server";
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import { MAX_ACTIVE_REMINDERS } from "../reminders/reminders.server";
@@ -606,7 +611,7 @@ export class TaskBoard {
     },
     requestId: string,
     target: string,
-    latestSender: string,
+    sender: AgentMessageSender,
   ) {
     const publisher = this.dependencies.publisher;
     if (!publisher) return;
@@ -630,7 +635,9 @@ export class TaskBoard {
                     sequence: message.sequence,
                     body: message.body,
                     target,
-                    latestSender,
+                    latestSenderKind: sender.kind,
+                    latestSenderHandle: sender.handle,
+                    latestSenderDescription: sender.description,
                   }),
                 ),
               ),
@@ -835,17 +842,17 @@ export class TaskBoard {
         const messages = await this.db.message.findMany({
           where: { id: { in: result.tasks.map((task) => task.messageId) } },
           include: {
-            sender: { select: { user: { select: { username: true } } } },
+            sender: MESSAGE_SENDER_SELECT,
             deliveries: { include: { agent: { select: { computerId: true } } } },
           },
         });
         for (const message of messages) {
-          const sender = `@${message.sender!.user!.username}`;
+          const sender = agentMessageSender(message.sender);
           effects.push(
             this.publishDeliveries(
               message,
               command.requestId,
-              scope.channelName ? `#${scope.channelName}` : sender,
+              scope.channelName ? `#${scope.channelName}` : `@${sender.handle}`,
               sender,
             ),
           );
@@ -947,7 +954,7 @@ export class TaskBoard {
         message.conversation.channelName
           ? `#${message.conversation.channelName}`
           : `@${message.conversation.members[0]!.user!.username}`,
-        "system",
+        agentMessageSender(null),
       ),
     ]);
   }

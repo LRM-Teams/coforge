@@ -2,9 +2,15 @@ import type {
   AgentMessageDelivery,
   AgentMessageDeliveryAck,
   AgentRecoveryMessage,
+  MessageSenderKind,
 } from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
-import { AGENT_MESSAGE_ACK_METHOD, isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
+import {
+  AGENT_MESSAGE_ACK_METHOD,
+  isChannelMessageTarget,
+  isValidMessageSender,
+  renderMessageSender,
+} from "@lrm/coforge-sdk/internal";
 import type { AgentProcessManager } from "../agent-runtime/agent-process-manager";
 
 const logger = getLogger(["coforge", "daemon", "message-attention"]);
@@ -14,7 +20,8 @@ export type MessageAttention = Readonly<{
   pendingCount: number;
   firstPendingSequence: number;
   latestSequence: number;
-  latestSender?: string;
+  latestSenderKind?: MessageSenderKind;
+  latestSenderHandle?: string;
   flags: readonly string[];
 }>;
 
@@ -26,19 +33,27 @@ export type MessageAttention = Readonly<{
 const REMEMBERED_DELIVERIES = 4096;
 
 /**
- * A sender name a notice may repeat: the server identity, or `@` plus a handle. Everything else is
- * dropped rather than printed.
- *
- * The wire type allows any non-empty string here, and a notice is model-visible text, so an
- * unchecked value could carry newlines and pass itself off as further instruction lines. One rule
- * for recording attention and for rendering, so the two cannot disagree about what is printable.
+ * Validates a `(kind, handle)` pair before it can reach a model-visible notice (ADR 0052,
+ * decision D): the kind must be one of the closed values and the handle must match the public
+ * handle grammar (or be empty for `system`). This replaces the former regex guard on a single
+ * composed string — a newline can no longer reach a notice through a sender name, because the
+ * handle is matched against the handle grammar and the kind against the closed set separately.
+ * A rejected pair is logged by name and dropped rather than printed; it never fails the delivery
+ * it came with.
  */
-const NOTICE_SENDER = /^@[a-z0-9][a-z0-9_-]*$/i;
-
-function printableSender(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  if (value === "system") return value;
-  return NOTICE_SENDER.test(value) ? value : undefined;
+function printableSender(
+  kind: MessageSenderKind | undefined,
+  handle: string | undefined,
+): { kind: MessageSenderKind; handle: string } | undefined {
+  if (kind === undefined) return undefined;
+  if (!isValidMessageSender(kind, handle ?? "")) {
+    logger.warn("rejected an unprintable message sender", {
+      event: "message.sender_rejected",
+      sender_kind: kind,
+    });
+    return undefined;
+  }
+  return { kind, handle: handle ?? "" };
 }
 
 /** Distinct messages in a delivery list. The same message can appear more than once: a request
@@ -141,7 +156,7 @@ export class AgentMessageAttentionIndex {
       });
       return;
     }
-    const latestSender = printableSender(message.latestSender);
+    const latestSender = printableSender(message.latestSenderKind, message.latestSenderHandle);
     const byTarget = this.#attention.get(message.agentId) ?? new Map<string, MessageAttention>();
     const previous = byTarget.get(target);
     const pendingByTarget =
@@ -155,7 +170,9 @@ export class AgentMessageAttentionIndex {
       pendingCount: (previous?.pendingCount ?? 0) + 1,
       firstPendingSequence: previous?.firstPendingSequence ?? message.sequence,
       latestSequence: Math.max(previous?.latestSequence ?? 0, message.sequence),
-      ...(latestSender ? { latestSender } : {}),
+      ...(latestSender
+        ? { latestSenderKind: latestSender.kind, latestSenderHandle: latestSender.handle }
+        : {}),
       flags: [isChannelMessageTarget(target) ? "channel" : target.includes(":") ? "thread" : "dm"],
     };
     byTarget.set(target, current);
@@ -222,7 +239,8 @@ export class AgentMessageAttentionIndex {
         !message.conversationId ||
         !message.body ||
         (!message.target.startsWith("@") && !isChannelMessageTarget(message.target)) ||
-        message.sequence < 1
+        message.sequence < 1 ||
+        !isValidMessageSender(message.latestSenderKind, message.latestSenderHandle)
       )
         throw new Error("invalid Agent recovery message");
       suppliedTargets.add(message.target);
@@ -246,7 +264,8 @@ export class AgentMessageAttentionIndex {
           message.sequence,
         ),
         latestSequence: Math.max(previous?.latestSequence ?? 0, message.sequence),
-        ...(message.latestSender ? { latestSender: message.latestSender } : {}),
+        latestSenderKind: message.latestSenderKind,
+        latestSenderHandle: message.latestSenderHandle,
         flags: [
           isChannelMessageTarget(message.target)
             ? "channel"
@@ -267,7 +286,7 @@ export class AgentMessageAttentionIndex {
       .filter((message) => !isChannelMessageTarget(message.target))
       .map(
         (message) =>
-          `[target=${message.target} msg=${message.messageId.slice(0, 8)} seq=${message.sequence}] ${message.latestSender}: ${message.body}`,
+          `[target=${message.target} msg=${message.messageId.slice(0, 8)} seq=${message.sequence} type=${message.latestSenderKind}] ${renderMessageSender(message.latestSenderKind, message.latestSenderHandle, message.latestSenderDescription)}: ${message.body}`,
       );
     const instructions = Object.entries(unreadSummary)
       .filter(
@@ -329,14 +348,17 @@ export class AgentMessageAttentionIndex {
     queued: readonly AgentMessageDelivery[],
   ): string[] {
     const announcedIds = new Set(announced.map((delivery) => delivery.messageId));
-    const byTarget = new Map<
-      string,
-      { newIds: Set<string>; heldIds: Set<string>; latestSender?: string }
-    >();
+    type Row = {
+      newIds: Set<string>;
+      heldIds: Set<string>;
+      latestSenderKind?: MessageSenderKind;
+      latestSenderHandle?: string;
+    };
+    const byTarget = new Map<string, Row>();
     const rowFor = (target: string) => {
       const existing = byTarget.get(target);
       if (existing) return existing;
-      const created: { newIds: Set<string>; heldIds: Set<string>; latestSender?: string } = {
+      const created: Row = {
         newIds: new Set<string>(),
         heldIds: new Set<string>(),
       };
@@ -349,13 +371,21 @@ export class AgentMessageAttentionIndex {
       if (!delivery.target) continue;
       const row = rowFor(delivery.target);
       row.newIds.add(delivery.messageId);
-      row.latestSender = printableSender(delivery.latestSender) ?? row.latestSender;
+      const sender = printableSender(delivery.latestSenderKind, delivery.latestSenderHandle);
+      if (sender) {
+        row.latestSenderKind = sender.kind;
+        row.latestSenderHandle = sender.handle;
+      }
     }
     for (const delivery of queued) {
       if (!delivery.target || announcedIds.has(delivery.messageId)) continue;
       const row = rowFor(delivery.target);
       row.heldIds.add(delivery.messageId);
-      row.latestSender = printableSender(delivery.latestSender) ?? row.latestSender;
+      const sender = printableSender(delivery.latestSenderKind, delivery.latestSenderHandle);
+      if (sender) {
+        row.latestSenderKind = sender.kind;
+        row.latestSenderHandle = sender.handle;
+      }
     }
     return [...byTarget].map(([target, row]) => {
       const parts: string[] = [];
@@ -363,7 +393,10 @@ export class AgentMessageAttentionIndex {
         parts.push(`new: ${row.newIds.size} message${row.newIds.size === 1 ? "" : "s"}`);
       if (row.heldIds.size)
         parts.push(`held: ${row.heldIds.size} message${row.heldIds.size === 1 ? "" : "s"}`);
-      if (row.latestSender) parts.push(`latest sender ${row.latestSender}`);
+      if (row.latestSenderKind !== undefined)
+        parts.push(
+          `latest sender ${renderMessageSender(row.latestSenderKind, row.latestSenderHandle ?? "")}`,
+        );
       return `${target}  ${parts.join(" · ")}`;
     });
   }
