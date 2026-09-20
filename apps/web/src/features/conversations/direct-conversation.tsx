@@ -93,9 +93,10 @@ const measureConversationElement: typeof measureElement = (element, entry, insta
 export type DirectConversationView = {
   conversationId: string;
   senderMemberId: string;
-  /** The viewer's conversation-level read cursor over top-level messages (ADR 0046).
-   * The first top-level message past it is the first unread; the initial view positions
-   * there and draws the divider. Absent for a non-member or a fully-read fresh seed. */
+  /** The viewer's read cursor over this view's messages (ADR 0046): the channel's member
+   * cursor for a channel pane, that thread's `thread_reads` cursor for a thread pane. The
+   * first message past it is the first unread; the initial view positions there and draws the
+   * divider. Absent for a non-member, a fully-read fresh seed, or an unvisited thread. */
   readThroughSequence?: number;
   threadReadThrough?: Record<string, number>;
   hasOlder?: boolean;
@@ -336,6 +337,21 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     useOpenConversationThread();
   const [visited, setVisited] = useState<string[]>([]);
   const [readThrough, setReadThrough] = useState<Record<string, number>>({});
+  /**
+   * This thread's read cursor: the persisted `thread_reads` row, raised by any mark-read this
+   * visit has already performed. `undefined` means the viewer has never read this thread, which
+   * reads as "nothing to catch up on" rather than "every reply is unread" — opening a long
+   * thread for the first time should not bury the conversation that was just clicked into.
+   */
+  const threadCursor = useCallback(
+    (rootMessageId: string) => {
+      const local = readThrough[rootMessageId];
+      const persisted = conversation.threadReadThrough?.[rootMessageId];
+      if (local === undefined && persisted === undefined) return undefined;
+      return Math.max(local ?? 0, persisted ?? 0);
+    },
+    [readThrough, conversation.threadReadThrough],
+  );
   const reading = useRef(false);
   const mainMessages = useMemo(
     () => conversation.messages.filter((message) => !message.threadRootId),
@@ -394,10 +410,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       document.visibilityState === "hidden"
     )
       return;
-    const boundary = Math.max(
-      readThrough[selected] ?? 0,
-      conversation.threadReadThrough?.[selected] ?? 0,
-    );
+    const boundary = threadCursor(selected) ?? 0;
     if (selectedSequence <= boundary) return;
     reading.current = true;
     void (onReadThread?.(selected, selectedSequence) ?? Promise.resolve())
@@ -453,10 +466,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       conversation={{ ...conversation, messages: mainMessages }}
       threadEntry={(message) => {
         const replies = repliesOf(message.id);
-        const boundary = Math.max(
-          readThrough[message.id] ?? 0,
-          conversation.threadReadThrough?.[message.id] ?? 0,
-        );
+        const boundary = threadCursor(message.id) ?? 0;
         const unread = replies.filter(
           (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
         ).length;
@@ -587,7 +597,11 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
                 description: m.conversation_thread_empty(),
                 media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
               }}
-              conversation={{ ...conversation, messages: repliesOf(rootId) }}
+              conversation={{
+                ...conversation,
+                messages: repliesOf(rootId),
+                readThroughSequence: threadCursor(rootId),
+              }}
               onSend={(body, requestId, attachmentIds) =>
                 conversationProps.onSend(body, requestId, attachmentIds, rootId)
               }
@@ -714,20 +728,10 @@ export function ConversationPane({
   // Slack's default lands on the first one and draws the divider; otherwise at the latest.
   // Consumed by the mount effect below (open positioning) and by the divider snapshot, and
   // never re-read on later updates.
-  // A thread pane reads that thread's own cursor (one `thread_reads` row per root message);
-  // the channel pane reads the member's channel cursor. Each pane already holds the right
-  // messages — a thread's replies, or the channel's top-level messages.
   const firstUnread = useMemo(
-    () =>
-      root
-        ? unreadBoundary(conversation.messages, conversation.threadReadThrough?.[root.id])
-        : unreadBoundary(
-            conversation.messages.filter((message) => !message.threadRootId),
-            conversation.readThroughSequence,
-          ),
+    () => unreadBoundary(conversation.messages, conversation.readThroughSequence),
     [conversation.conversationId, root?.id],
   );
-  const firstUnreadConsumedRef = useRef(false);
   // The divider is frozen at the boundary seen at open, so the mark-read effect (which
   // advances the cursor server-side) never makes it jump or vanish mid-visit. Captured once,
   // by the first render's state initializer: a ref written during render could be left set by
@@ -839,6 +843,8 @@ export function ConversationPane({
     followOnAppend: true,
     scrollEndThreshold: 48,
     useFlushSync: false,
+    // Treat "not measured yet" as no margin for layout; `applyOpenPosition` is the one place
+    // that waits for the real value.
     scrollMargin: scrollMargin ?? 0,
   });
 
@@ -884,16 +890,14 @@ export function ConversationPane({
       //   when the cursor advances: it waits for `onReadLatest` below, never for the open.
       // A message hash (deep link, task jump) still wins over both — the anchor effect
       // handles it and has already cleared `followingLatest` by the time this runs.
-      // Switching conversations reuses this pane, and each conversation gets its own open
-      // position: without this reset only the first conversation of a visit would land on its
-      // unread boundary and every later one would open at the latest.
-      if (changedConversation) firstUnreadConsumedRef.current = false;
-      const position = firstUnreadConsumedRef.current
-        ? ({ kind: "latest" } as const)
-        : conversationOpenPosition(openMode, firstUnread);
-      firstUnreadConsumedRef.current = true;
-      if (position.kind === "message" && !window.location.hash) {
-        const index = conversation.messages.findIndex((message) => message.id === position.id);
+      // Only an actual open positions on unread. Reaching the latest again later in the same
+      // conversation (`followingLatest`) keeps following it.
+      const openMessageId =
+        firstRender || changedConversation
+          ? conversationOpenPosition(openMode, firstUnread)
+          : undefined;
+      if (openMessageId && !window.location.hash) {
+        const index = conversation.messages.findIndex((message) => message.id === openMessageId);
         if (index >= 0) {
           setFollowingLatest(false);
           pendingOpenIndexRef.current = index;
@@ -901,13 +905,8 @@ export function ConversationPane({
           return undefined;
         }
       }
-      pendingOpenIndexRef.current = undefined;
-      scrollToLatest("instant");
       setFollowingLatest(true);
-      // TanStack's scroll restoration rewrites this container's scrollTop in the router's
-      // `onRendered` pass, which runs after this child's layout effect. Reassert the
-      // open-at-latest contract one frame later, after that write has landed.
-      requestAnimationFrame(() => {
+      scrollTwice(() => {
         if (followingLatestRef.current) scrollToLatest("instant");
       });
     } else if (receivedMessageCount > 0) {
@@ -918,7 +917,6 @@ export function ConversationPane({
 
   // The open scroll the pane owed while `scrollMargin` was still unmeasured.
   useLayoutEffect(() => {
-    if (scrollMargin === undefined) return;
     applyOpenPosition();
   }, [scrollMargin]);
 
@@ -980,25 +978,30 @@ export function ConversationPane({
   }, [conversation.hasNewer, conversation.messages, messageVirtualizer]);
 
   /**
-   * Scrolls to the row the pane opens on — once now, once on the next frame. The router's
-   * scroll restoration (`scrollRestoration: true` in `router.tsx`) tracks every scrolled
-   * element and rewrites this container's scrollTop in its `onRendered` pass, which runs after
-   * this child's layout effect; without the second pass the open position is overwritten with
-   * the previous route's offset. The open-at-latest path below reasserts itself for the same
-   * reason. Does nothing until `scrollMargin` is known, and runs once per open.
+   * Runs a scroll now and again on the next frame. The router's scroll restoration
+   * (`scrollRestoration: true` in `router.tsx`) rewrites this container's scrollTop in its
+   * `onRendered` pass, which runs after this child's layout effect, so a single pass can be
+   * overwritten by the entry cached for this pane. `data-scroll-restoration-id` below keeps
+   * another conversation's offset from reaching this pane in the first place.
    */
+  function scrollTwice(scroll: () => void) {
+    scroll();
+    requestAnimationFrame(scroll);
+  }
+
+  /** Scrolls to the row the pane opens on, once `scrollMargin` is known. Runs once per open. */
   function applyOpenPosition() {
     const index = pendingOpenIndexRef.current;
     if (index === undefined || scrollMargin === undefined) return;
     pendingOpenIndexRef.current = undefined;
-    messageVirtualizer.scrollToIndex(index, { align: "start" });
-    requestAnimationFrame(() => messageVirtualizer.scrollToIndex(index, { align: "start" }));
+    scrollTwice(() => messageVirtualizer.scrollToIndex(index, { align: "start" }));
   }
 
   function scrollToLatest(behavior: ScrollBehavior) {
+    // Going to the latest retires any open position still owed.
+    pendingOpenIndexRef.current = undefined;
     const history = historyRef.current;
     if (!history) return;
-    pendingOpenIndexRef.current = undefined;
     history.scrollTo({ top: history.scrollHeight, behavior });
     history.scrollTop = history.scrollHeight;
   }
@@ -1093,6 +1096,10 @@ export function ConversationPane({
       <div className="group/history relative min-h-0 flex-1">
         <div
           ref={historyRef}
+          // The router matches restored scroll targets by a structural selector unless the
+          // element names itself, and every conversation renders the same structure — so
+          // without this the previous conversation's offset is applied to this one.
+          data-scroll-restoration-id={`conversation-${conversation.conversationId}${root ? `-thread-${root.id}` : ""}`}
           aria-label={root ? m.conversation_thread() : m.conversation_history()}
           onScroll={trackReadingPosition}
           className="h-full overflow-y-auto pb-6 [scrollbar-width:thin]"
