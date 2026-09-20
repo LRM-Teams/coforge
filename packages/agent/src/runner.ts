@@ -6,16 +6,198 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   createBashTool,
+  defineTool,
   getAgentDir,
   ModelRuntime,
   runRpcMode,
   SessionManager,
+  type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { join, resolve } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory } from "./paths";
 import { API_KEY_ENV_BY_PROVIDER, configureRuntimeEnvironment } from "./runtime-provider";
 import { classifyPiLaunchFailure, PI_MODEL_UNAVAILABLE } from "./launch-error";
+
+/**
+ * The Memory Agent's fenced tool profile (ADR 0054-D): the session starts
+ * with no tools at all (`noTools: "all"`) and registers exactly the native
+ * explorer tools below — four bounded exploration operations plus channel
+ * message publishing. No shell, filesystem, or coding tool exists in the
+ * profile, and the proxy bearer context never reaches a child process.
+ */
+export type AgentToolProfile = Readonly<{ kind: "memory-explorer" }>;
+
+const MEMORY_PATH = "/api/agent/v1/memory";
+const MESSAGES_PATH = "/api/agent/v1/messages";
+
+type ProxyCall = (path: string, body: Record<string, unknown>) => Promise<string>;
+
+function proxyCaller(environment: Record<string, string>): ProxyCall {
+  const proxyUrl = environment.COFORGE_AGENT_PROXY_URL;
+  const context = environment.COFORGE_AGENT_CONTEXT;
+  return async (path, body) => {
+    if (!proxyUrl || !context) throw new Error("CoForge agent proxy is not configured");
+    const response = await fetch(`${proxyUrl.replace(/\/+$/, "")}${path}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const text = await response.text();
+    if (!response.ok)
+      throw new Error(`CoForge agent proxy rejected ${path} (HTTP ${response.status}): ${text}`);
+    return text;
+  };
+}
+
+export function memoryExplorerTools(environment: Record<string, string>): ToolDefinition[] {
+  const call = proxyCaller(environment);
+  const result = (text: string) => ({
+    content: [{ type: "text" as const, text }],
+    details: undefined,
+  });
+
+  const start = defineTool({
+    name: "memory_start",
+    label: "Start memory exploration",
+    description:
+      "Start a bounded exploration of the Workspace's team memory and receive the first " +
+      "citations. Returns citations as `episode:<uuid>` / `insight:<uuid>` ids with snippets.",
+    promptSnippet: "Start a bounded team-memory exploration by query.",
+    parameters: Type.Object({
+      start_key: Type.String({ minLength: 1, maxLength: 128 }),
+      query: Type.String({ minLength: 1, maxLength: 500 }),
+      max_steps: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
+      max_results: Type.Optional(Type.Integer({ minimum: 1, maximum: 30 })),
+    }),
+    async execute(_toolCallId, params) {
+      return result(
+        await call(MEMORY_PATH, {
+          op: "start",
+          startKey: params.start_key,
+          query: params.query,
+          ...(params.max_steps === undefined ? {} : { maxSteps: params.max_steps }),
+          ...(params.max_results === undefined ? {} : { maxResults: params.max_results }),
+        }),
+      );
+    },
+  });
+
+  const explore = defineTool({
+    name: "memory_explore",
+    label: "Explore from a citation",
+    description:
+      "One graph step from a citation this exploration already served, along a relation: " +
+      "'similar' (text similarity), 'related' (insight↔episode), or 'collaborators' " +
+      "(who worked with whom).",
+    promptSnippet: "Walk one memory-graph edge from an already-served citation.",
+    parameters: Type.Object({
+      session_id: Type.String(),
+      operation_id: Type.String({ minLength: 1, maxLength: 128 }),
+      anchor: Type.String(),
+      relation: Type.Optional(
+        Type.Union([
+          Type.Literal("similar"),
+          Type.Literal("related"),
+          Type.Literal("collaborators"),
+        ]),
+      ),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+    }),
+    async execute(_toolCallId, params) {
+      return result(
+        await call(MEMORY_PATH, {
+          op: "explore",
+          sessionId: params.session_id,
+          operationId: params.operation_id,
+          anchor: params.anchor,
+          ...(params.relation === undefined ? {} : { relation: params.relation }),
+          ...(params.limit === undefined ? {} : { limit: params.limit }),
+        }),
+      );
+    },
+  });
+
+  const redirect = defineTool({
+    name: "memory_redirect",
+    label: "Redirect the exploration query",
+    description: "Re-query the team memory with a new query inside the same exploration session.",
+    promptSnippet: "Re-query team memory within the open exploration.",
+    parameters: Type.Object({
+      session_id: Type.String(),
+      operation_id: Type.String({ minLength: 1, maxLength: 128 }),
+      query: Type.String({ minLength: 1, maxLength: 500 }),
+    }),
+    async execute(_toolCallId, params) {
+      return result(
+        await call(MEMORY_PATH, {
+          op: "redirect",
+          sessionId: params.session_id,
+          operationId: params.operation_id,
+          query: params.query,
+        }),
+      );
+    },
+  });
+
+  const submit = defineTool({
+    name: "memory_submit",
+    label: "Close the exploration",
+    description:
+      "Close the exploration session with a cited answer. Every citation id must be one this " +
+      "session served; an answer that found something must cite at least one citation.",
+    promptSnippet: "Close the exploration with a citation-grounded answer.",
+    parameters: Type.Object({
+      session_id: Type.String(),
+      operation_id: Type.String({ minLength: 1, maxLength: 128 }),
+      found: Type.Boolean(),
+      summary: Type.Optional(Type.String({ maxLength: 2000 })),
+      citation_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 30 })),
+    }),
+    async execute(_toolCallId, params) {
+      return result(
+        await call(MEMORY_PATH, {
+          op: "close",
+          sessionId: params.session_id,
+          operationId: params.operation_id,
+          found: params.found,
+          ...(params.summary === undefined || params.summary.trim() === ""
+            ? {}
+            : { summary: params.summary }),
+          ...(params.citation_ids === undefined ? {} : { citationIds: params.citation_ids }),
+        }),
+      );
+    },
+  });
+
+  const send = defineTool({
+    name: "send_channel_message",
+    label: "Send a channel message",
+    description:
+      "Publish a message to a channel (or a thread) as this agent. Mentioned teammates are " +
+      "woken by the mention. Use this to answer @-mentions and to share memory findings.",
+    promptSnippet: "Publish a channel or thread message as this agent.",
+    parameters: Type.Object({
+      request_id: Type.String({ minLength: 1, maxLength: 128 }),
+      target: Type.String({ minLength: 2, maxLength: 80 }),
+      body: Type.String({ minLength: 1, maxLength: 12_000 }),
+    }),
+    async execute(_toolCallId, params) {
+      return result(
+        await call(MESSAGES_PATH, {
+          requestId: params.request_id,
+          operation: "send",
+          target: params.target,
+          body: params.body,
+        }),
+      );
+    },
+  });
+
+  return [start, explore, redirect, submit, send];
+}
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   cwd,
@@ -55,6 +237,9 @@ export async function createSession(options: {
   instructions: string;
   environment?: Readonly<Record<string, string>>;
   sessionKind?: "coforge" | "pi";
+  /** When set, the session starts with zero tools and registers only the
+   * profile's native tools (ADR 0054-D's fenced runtime). */
+  toolProfile?: AgentToolProfile;
 }) {
   const cwd = options.cwd;
   const environment = options.environment
@@ -134,55 +319,60 @@ export async function createSession(options: {
   const extensionDefinesBash = services.resourceLoader
     .getExtensions()
     .extensions.some((extension) => extension.tools.has("bash"));
+  const fenced = options.toolProfile?.kind === "memory-explorer";
   const created = await createAgentSessionFromServices({
     services,
     sessionManager,
     ...(model ? { model } : {}),
     ...(options.reasoning ? { thinkingLevel: options.reasoning as never } : {}),
-    ...(options.environment && !extensionDefinesBash
-      ? {
-          customTools: [
-            createBashTool(cwd, {
-              shellPath: services.settingsManager.getShellPath(),
-              commandPrefix: services.settingsManager.getShellCommandPrefix(),
-              spawnHook: ({ env, ...context }) => {
-                const childEnv = { ...env };
-                for (const key of [
-                  "COFORGE_AGENT_CONTEXT",
-                  "COFORGE_AGENT_PROXY_URL",
-                  "COFORGE_DAEMON_SOCKET",
-                  "COFORGE_SUPERVISOR_SOCKET",
-                  "COFORGE_CURRENT_AGENT_ID",
-                  "COFORGE_CURRENT_AGENT_NAME",
-                  "COFORGE_CURRENT_WORKSPACE_ID",
-                  "COFORGE_CURRENT_WORKSPACE_SLUG",
-                  "COFORGE_CURRENT_WORKSPACE_NAME",
-                  "COFORGE_CURRENT_COMPUTER_ID",
-                  "COFORGE_CURRENT_COMPUTER_NAME",
-                  "COFORGE_CURRENT_COMPUTER_HOSTNAME",
-                  "COFORGE_CURRENT_COMPUTER_OS",
-                  "COFORGE_CURRENT_COMPUTER_VERSION",
-                  "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
-                ])
-                  delete childEnv[key];
-                Object.assign(childEnv, environment);
-                // Pi resolves current metadata before the hook, including absent values.
-                for (const key of [
-                  "PI_SESSION_ID",
-                  "PI_SESSION_FILE",
-                  "PI_PROVIDER",
-                  "PI_MODEL",
-                  "PI_REASONING_LEVEL",
-                ]) {
-                  if (env[key] === undefined) delete childEnv[key];
-                  else childEnv[key] = env[key];
-                }
-                return { ...context, env: childEnv };
-              },
-            }),
-          ],
-        }
-      : {}),
+    // The fenced profile replaces the default tool surface entirely: no
+    // built-ins, no extensions, only the native explorer tools.
+    ...(fenced
+      ? { noTools: "all" as const, customTools: memoryExplorerTools(environment) }
+      : options.environment && !extensionDefinesBash
+        ? {
+            customTools: [
+              createBashTool(cwd, {
+                shellPath: services.settingsManager.getShellPath(),
+                commandPrefix: services.settingsManager.getShellCommandPrefix(),
+                spawnHook: ({ env, ...context }) => {
+                  const childEnv = { ...env };
+                  for (const key of [
+                    "COFORGE_AGENT_CONTEXT",
+                    "COFORGE_AGENT_PROXY_URL",
+                    "COFORGE_DAEMON_SOCKET",
+                    "COFORGE_SUPERVISOR_SOCKET",
+                    "COFORGE_CURRENT_AGENT_ID",
+                    "COFORGE_CURRENT_AGENT_NAME",
+                    "COFORGE_CURRENT_WORKSPACE_ID",
+                    "COFORGE_CURRENT_WORKSPACE_SLUG",
+                    "COFORGE_CURRENT_WORKSPACE_NAME",
+                    "COFORGE_CURRENT_COMPUTER_ID",
+                    "COFORGE_CURRENT_COMPUTER_NAME",
+                    "COFORGE_CURRENT_COMPUTER_HOSTNAME",
+                    "COFORGE_CURRENT_COMPUTER_OS",
+                    "COFORGE_CURRENT_COMPUTER_VERSION",
+                    "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
+                  ])
+                    delete childEnv[key];
+                  Object.assign(childEnv, environment);
+                  // Pi resolves current metadata before the hook, including absent values.
+                  for (const key of [
+                    "PI_SESSION_ID",
+                    "PI_SESSION_FILE",
+                    "PI_PROVIDER",
+                    "PI_MODEL",
+                    "PI_REASONING_LEVEL",
+                  ]) {
+                    if (env[key] === undefined) delete childEnv[key];
+                    else childEnv[key] = env[key];
+                  }
+                  return { ...context, env: childEnv };
+                },
+              }),
+            ],
+          }
+        : {}),
   });
   return {
     ...created,
