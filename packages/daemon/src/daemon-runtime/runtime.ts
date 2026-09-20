@@ -2774,7 +2774,7 @@ export class DaemonRuntime {
     const fingerprint = built.runtimeError?.fingerprint ?? fingerprintRuntimeError(event.message);
     const fence = this.#runtimeErrorFingerprintFence.note(agentId, fingerprint);
     if (fence.fenced) {
-      this.#stopRuntimeErrorDeliveryBackoff(agentId);
+      this.#applyRuntimeErrorFingerprintFence(agentId);
       return this.#runtimeErrorFingerprintFenceActivity(built, fence);
     }
     const backoff = this.#runtimeErrorDeliveryBackoff.recordFailure(agentId);
@@ -2804,15 +2804,34 @@ export class DaemonRuntime {
   }
 
   /** Cancels any pending release timer, releases (and flushes) anything currently held under an
-   * explicit hold, and forgets the consecutive-retryable-failure streak. Deliberately leaves the
-   * fingerprint fence's own streak untouched — that one only ever resets on a successful turn
-   * (`#resetRuntimeErrorRecovery`), so a fenced Agent stays fenced across a merely non-retryable
-   * failure of a different class. */
+   * explicit hold, and forgets the consecutive-retryable-failure streak. Only for a failure this
+   * PR has decided is not worth retrying at all (a `terminal`-classified one) — never for a
+   * tripped fingerprint fence, which must keep its hold instead (see
+   * `#applyRuntimeErrorFingerprintFence`). Deliberately leaves the fingerprint fence's own streak
+   * untouched — that one only ever resets on a successful turn (`#resetRuntimeErrorRecovery`) or
+   * an explicit Stop, so a fenced Agent stays fenced across a merely non-retryable failure of a
+   * different class. */
   #stopRuntimeErrorDeliveryBackoff(agentId: string): void {
     this.#clearRuntimeErrorBackoffTimer(agentId);
     const held = this.#deliveryQueue.release(agentId);
     if (held.length) this.#flushHeldDeliveries(agentId, held);
     this.#runtimeErrorDeliveryBackoff.reset(agentId);
+  }
+
+  /**
+   * ADR 0055: a tripped fingerprint fence stops retrying — cancels any pending release timer and
+   * keeps (or starts) an indefinite explicit hold, so nothing currently held, and nothing newly
+   * queued, reaches the runtime that just failed the same way three times in a row. Deliberately
+   * never releases or flushes anything already held: doing so would deliver straight into the
+   * same broken runtime this fence exists to stop retrying — the bug this method replaces
+   * (reusing `#stopRuntimeErrorDeliveryBackoff`, which releases, here) removed protection instead
+   * of adding it. Only an explicit Stop (`#releaseAgentRuntime` → `AgentDeliveryQueue.clearAgent`)
+   * clears the hold; an unexpected exit and any relaunch that follows inherit it unchanged — see
+   * the ADR's "Held deliveries while fenced" section for why that is safe and deliberate.
+   */
+  #applyRuntimeErrorFingerprintFence(agentId: string): void {
+    this.#clearRuntimeErrorBackoffTimer(agentId);
+    this.#deliveryQueue.hold(agentId);
   }
 
   /** A genuinely successful turn (ADR 0055): forgets both streaks entirely. */

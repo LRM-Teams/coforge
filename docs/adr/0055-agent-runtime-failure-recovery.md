@@ -78,6 +78,26 @@ something a fixed retry table can look up.
 No new wire field: everything above rides the existing `runtimeError.errorClass`/`errorReason`
 strings.
 
+#### `TimeoutError`'s scope, decided explicitly
+
+`TimeoutError` is classified `terminal`, matching Raft's own `recoverableRuntimeDeliveryBackoffReason`
+returning `null` for it (chunk line 12272) — a timeout gets no delivery backoff there either. But in
+Raft that `null` means only "no delivery backoff"; a hung provider is instead handled by a *separate*
+stall watchdog (this plan's E, out of scope here), not folded into Raft's sticky-terminal/
+action-required class. CoForge's two-tier model has no third bucket, so `terminal` here is being
+asked to carry a meaning narrower than its name suggests: **today it means only "do not hold a
+delivery behind a backoff for this occurrence" — it is not itself evidence the Agent needs to stop
+or that a user must act.** I chose to keep `TimeoutError` terminal rather than move it to `retry`,
+because retrying (holding and redelivering the same message) into a session that may be genuinely
+hung does not help either — a stuck provider needs a kill/restart, which this CR does not build.
+Moving it to `retry` would also contradict the verified reference behaviour above. The cost is a
+naming trap: **when D gives `terminal` real teeth (stopping the Agent, prompting a user re-auth),
+it must re-examine `TimeoutError` specifically before attaching that behaviour to it** — a transient
+provider timeout is not the same fact as an expired credential, even though both currently classify
+as `terminal` in this PR's simplified table. `RUNTIME_ERROR_RETRY_DECISION.TERMINAL`'s own doc
+comment and the `TimeoutError` rule's inline comment both carry this note so it is not lost to
+anyone reading only the code.
+
 ### 2. Delivery backoff: `agent-runtime/runtime-error-recovery.ts` + `daemon-runtime/runtime.ts`
 
 On a retryable `error` event, `daemon-runtime/runtime.ts` calls the existing
@@ -111,14 +131,62 @@ release timer, and releases/flushes anything still held — before the pre-exist
 
 Consecutive retryable failures carrying the *same* `fingerprintRuntimeError` value are counted
 separately from the plain attempt streak above. On the third in a row
-(`RUNTIME_ERROR_FINGERPRINT_FENCE_THRESHOLD = 3`), the daemon stops retrying that fingerprint: no
-new hold/backoff cycle is created, anything currently held is released immediately, and the
-`runtime_error` Activity's `errorReason` becomes `"runtime_error_fenced"` with a `detail` that
-names the streak length, repeats the last error, and tells the operator to restart the Agent —
-CoForge's own words, not a copy of Raft's fence-detail sentence. The fence's own streak is
-untouched by a merely non-retryable failure (a different, unrelated problem should not extend or
-break a same-fingerprint streak it is not part of) and — like the backoff streak — only resets on
-a genuinely successful turn.
+(`RUNTIME_ERROR_FINGERPRINT_FENCE_THRESHOLD = 3`), the daemon stops retrying that fingerprint:
+**no new hold/backoff cycle is scheduled, and — critically — nothing currently held is released or
+flushed.** `#applyRuntimeErrorFingerprintFence` cancels any pending release timer and keeps (or
+freshly starts) `AgentDeliveryQueue`'s explicit hold with no expiry, so a fenced Agent stops
+receiving deliveries entirely instead of the backoff loop continuing to feed the same broken
+runtime. (An earlier revision of this PR got this backwards — it released and flushed on trip,
+which delivered straight into the failing runtime and left the Agent with *no* protection at all
+past the third failure; see "Held deliveries while fenced" below for why the fix is safe, and the
+regression test `"a fenced Agent stops delivering entirely…"` that covers it.) The `runtime_error`
+Activity's `errorReason` becomes `"runtime_error_fenced"` with a `detail` that names the streak
+length, repeats the last error, and tells the operator to restart the Agent — CoForge's own words,
+not a copy of Raft's fence-detail sentence. The fence's own streak is untouched by a merely
+non-retryable failure (a different, unrelated problem should not extend or break a same-fingerprint
+streak it is not part of) and — like the backoff streak — only resets on a genuinely successful
+turn or an explicit Stop (never on a mere relaunch — see "State persistence" below).
+
+#### Held deliveries while fenced
+
+Only an explicit Stop clears a tripped fence's hold (`#releaseAgentRuntime` →
+`AgentDeliveryQueue.clearAgent`); an unexpected exit and any relaunch that follows inherit it
+unchanged, so a fenced Agent stays fenced across a mere process restart — the underlying problem
+that tripped the fence (a broken credential, an unreachable host, a bad model config) almost always
+outlives a bare process restart, and the daemon has no way to tell otherwise without a human
+deciding to Stop first. Traced through every path a held delivery can take from here, so none of
+them silently loses a message the cloud's canonical Message/read state could not otherwise recover:
+
+- **Explicit Stop.** `AgentDeliveryQueue.clearAgent` discards `#held` without sending any ACK. This
+  is safe by the architecture's existing rule (`handleAgentMessage`'s own runner-hold comment): an
+  unacked delivery leaves the server's `receivedAt` null, so the message is re-fetched after the
+  next Start — never lost, never assumed read.
+  Nothing new here; this is ADR 0048's existing Stop behaviour, unaffected by this PR.
+- **Unexpected exit (crash) while fenced.** `AgentDeliveryQueue.onProcessExit` only clears `#busy`;
+  it never touches `#explicitHolds` or `#held`. The fenced hold and everything queued behind it
+  survive the crash byte-for-byte, in memory, until the next launch's own reconciliation runs.
+- **Relaunch (`#recoverAttention`, ADR 0048), whether after a crash or an explicit server Start.**
+  Every launch enqueues a recovery pass that already reconciles whatever `AgentDeliveryQueue` held
+  across the previous process. When that launch's own recovery context has content
+  (`recoveryHasContent` — a wake message, resume messages, or an unread summary), which is true for
+  essentially every real relaunch of an Agent with something genuinely stuck behind a fence (by
+  definition the server's own canonical unread ledger still shows it pending), `#dropSurvivingDeliveryQueue`
+  discards the stale local queue entries and ACKs each one. This is safe for the same reason Stop's
+  discard is not — ACKing a delivery marks only that this specific local delivery attempt was
+  accepted, never that the message was read; the server's canonical unread/read boundary, which is
+  what actually recovers the Agent's context on the new launch via `resumeMessages`/`unreadSummary`,
+  is untouched by it. The fence's hold itself (the `#explicitHolds` flag) is *not* cleared by this
+  reconciliation — deliberately, so the new launch inherits the same "stop delivering" state, per
+  above.
+
+The one theoretical gap this trace surfaces — a relaunch whose recovery context has no content at
+all, `recoveryHasContent === false`, combined with something still sitting in `#held` — would hit
+`#flushSurvivingDeliveryQueue`'s `idle(agentId)` call, which itself declines to drain while an
+explicit hold is active (by `AgentDeliveryQueue.idle`'s own pre-existing contract). In practice this
+cannot happen for a fenced Agent specifically: anything held locally implies a real pending delivery
+the server also still has unread, so its recovery context is never empty. This gap already existed
+in `AgentDeliveryQueue`'s design for an explicit hold generally (ADR 0048); this PR does not widen
+it and the fence path cannot reach it.
 
 **Verified, not merely assumed:** the brief's originating plan claimed Raft also fences an Agent
 after 3 same-fingerprint failures, but flagged that anchor as unconfirmed. It is confirmed present:
@@ -131,6 +199,23 @@ tripping at the threshold, skipped entirely for an already-sticky-terminal or ac
 failure. This PR's own design (independently arrived at before finding the anchor, per the brief's
 instruction to design first and verify after) turned out to match Raft's shape closely; the CoForge
 divergences from it are recorded below.
+
+#### State persistence: what actually clears the backoff streak and the fence
+
+Both `RuntimeErrorDeliveryBackoff` and `RuntimeErrorFingerprintFence` are plain in-memory `Map`s
+keyed by `agentId`, owned by `DaemonRuntime` itself (not by any per-launch record). Writing the
+rule down rather than leaving it to be inferred from the `Map`'s lifetime:
+
+- A genuinely successful turn (`completed`/`status: "completed"`) resets both.
+- An explicit Stop (`#releaseAgentRuntime`) resets both and cancels any pending timer.
+- **An unexpected process exit does not reset either one**, and **neither does any relaunch that
+  follows it** (whether self-initiated after a crash or a fresh server-issued Start) — nothing in
+  this PR clears them on that path. This is deliberate, not an oversight: the same underlying
+  problem that built up a backoff streak, or tripped the fence, almost always persists across a
+  bare process restart, and continuing to count/fence across it is what actually stops the "useless
+  retry loop" this CR exists to close — resetting on every relaunch would let a permanently broken
+  Agent burn a fresh 3-strike allowance every time it crashes and comes back. Only a human's
+  explicit Stop is treated as "start over."
 
 ### 4. Spawn-failure cooldown: already delivered by PR #470, evaluated here
 
@@ -241,8 +326,11 @@ already cover it.
   timeout does not retry at all, so the Agent's Activity feed stops implying a retry is coming when
   none is.
 - An Agent whose runtime is stuck on the exact same failure stops burning a backoff cycle (up to
-  5 minutes each) forever — it fences after 3 in a row and says so, in one place, in CoForge's own
-  words, instead of retrying at the cap indefinitely.
+  5 minutes each) forever — it fences after 3 in a row, says so in one place in CoForge's own
+  words, and stops receiving further deliveries entirely (not just further automatic retries)
+  until a human explicitly Stops it, instead of either retrying at the cap indefinitely or (the
+  bug an earlier revision of this PR had) delivering straight into the same broken runtime with no
+  protection at all past the third failure.
 - The spawn path (item 4) already had its own cooldown from #470; this PR's classification/backoff/
   fence machinery is a distinct layer (mid-turn runtime errors on an already-running process) that
   does not touch or duplicate it.
@@ -255,11 +343,13 @@ already cover it.
   now asserts real classification; one new test covers the still-generic fallback).
 - New integration coverage in `packages/daemon/test/daemon-runtime.test.ts`, nested under the
   existing "Agent delivery queue (ADR 0048)" describe block (`"runtime-error delivery backoff and
-  fingerprint fence (ADR 0055)"`, 6 tests): a retryable error holds and releases on schedule; a
+  fingerprint fence (ADR 0055)"`, 7 tests): a retryable error holds and releases on schedule; a
   non-retryable error never holds; a successful turn resets the streak so a later failure starts
   at the base delay again; a failed (not completed) turn does not reset it; three same-fingerprint
-  failures trip the fence and report `runtime_error_fenced` without a fourth hold; an explicit Stop
-  discards both streaks and cancels the pending timer.
+  failures trip the fence and report `runtime_error_fenced`; **a fenced Agent stops delivering
+  entirely — a further delivery is held, not notified, even long past what would have been the
+  next backoff's release time, because nothing schedules one any more** (the regression test for
+  the release-on-trip bug); an explicit Stop discards both streaks and cancels the pending timer.
 - Rollback: revert this PR's commits. `AgentDeliveryQueue`'s `hold`/`release` seam and the wire
   `runtimeError` fields are unchanged by a revert (ADR 0048 already shipped them); no data
   migration, no wire-version bump.

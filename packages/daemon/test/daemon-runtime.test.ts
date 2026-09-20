@@ -6857,8 +6857,8 @@ describe("Agent delivery queue (ADR 0048)", () => {
       expect(fake.notices).toHaveLength(1);
     });
 
-    test("three consecutive failures with the same fingerprint stop retrying and report a fenced Activity", async () => {
-      const acks = ackGate(3);
+    test("three consecutive failures with the same fingerprint trip the fence, reporting it in CoForge's own words", async () => {
+      const acks = ackGate(2);
       const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
       const { fake, deliver } = await deliveryQueueHarness("pi", acks, undefined, (activity) =>
         activities.push(activity),
@@ -6877,22 +6877,48 @@ describe("Agent delivery queue (ADR 0048)", () => {
       await deliver(2);
       jest.advanceTimersByTime(20_000 * 1.1 + 1);
       await fake.waitForNotices(2);
+      await acks.done;
 
-      // The third consecutive failure with the same fingerprint trips the fence: the next
-      // delivery must not be held behind yet another backoff.
+      // The third consecutive failure with the same fingerprint trips the fence.
       activities.length = 0;
       fake.emit({ type: "error", message: "connect ECONNRESET" });
       fake.emit({ type: "completed", status: "failed" });
-      await deliver(3);
-      await fake.waitForNotices(3);
-      await acks.done;
-      expect(fake.notices).toHaveLength(3);
 
       const fenced = activities.find((activity) => activity.detailKind === "runtime_error");
       expect(fenced).toBeDefined();
       expect(fenced!.runtimeError?.errorReason).toBe("runtime_error_fenced");
       expect(fenced!.detail).toContain("3");
       expect(fenced!.detail.toLowerCase()).toContain("restart");
+    });
+
+    test("a fenced Agent stops delivering entirely: a new delivery is held, not notified, with no timer left to release it", async () => {
+      const acks = ackGate(2);
+      const { fake, deliver } = await deliveryQueueHarness("pi", acks);
+      jest.useFakeTimers();
+
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      fake.emit({ type: "completed", status: "failed" });
+      await deliver(1);
+      jest.advanceTimersByTime(10_000 * 1.1 + 1);
+      await fake.waitForNotices(1);
+
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      fake.emit({ type: "completed", status: "failed" });
+      await deliver(2);
+      jest.advanceTimersByTime(20_000 * 1.1 + 1);
+      await fake.waitForNotices(2);
+      await acks.done;
+
+      // The third failure trips the fence: it must not release/flush whatever is held (that
+      // would deliver straight into the same broken runtime it just failed on three times).
+      fake.emit({ type: "error", message: "connect ECONNRESET" });
+      fake.emit({ type: "completed", status: "failed" });
+
+      // A further delivery is held instead of reaching the runtime, even long past what would
+      // have been the next backoff's release time — nothing schedules one any more.
+      await deliver(3);
+      jest.advanceTimersByTime(5 * 60_000 * 1.1 + 1_000);
+      expect(fake.notices).toHaveLength(2);
     });
 
     test("an explicit Stop discards the backoff and fence streaks for the next launch", async () => {

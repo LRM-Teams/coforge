@@ -41,8 +41,16 @@ export const RUNTIME_ERROR_RETRY_DECISION = {
   /** Worth holding queued deliveries for and re-attempting after a backoff (see
    * `runtime-error-recovery.ts`). */
   RETRY: "retry",
-  /** Retrying this delivery achieves nothing on its own; the daemon does not back off — it
-   * leaves the Agent in a truthful state instead of pretending a retry is coming. */
+  /**
+   * Today this means only "do not hold a delivery behind a backoff for this occurrence" — it is
+   * not itself evidence the Agent needs to stop or that a user must act. `TimeoutError` is
+   * deliberately in this bucket for that narrow reason (matching the reference product: a
+   * timeout gets no delivery backoff there either, but is handled by a separate stall watchdog,
+   * not folded into its sticky-terminal/action-required class) — a stuck provider needs a
+   * kill/restart, not a redelivered message. A future CR that gives `terminal` real teeth (D:
+   * stopping the Agent, prompting re-auth) must re-examine `TimeoutError` specifically before
+   * attaching that behavior to it; see docs/adr/0054's "TimeoutError's scope" note.
+   */
   TERMINAL: "terminal",
 } as const;
 export type RuntimeErrorRetryDecision =
@@ -110,6 +118,8 @@ const CLASSIFICATION_RULES: readonly ClassificationRule[] = [
       ) || /\bunsupported\b[^.]{0,40}\bmodel\b/i.test(message),
   },
   {
+    // TERMINAL here means only "no delivery backoff" (see RUNTIME_ERROR_RETRY_DECISION.TERMINAL's
+    // own doc) — a hung provider needs a kill/restart, not a redelivered message.
     errorClass: RUNTIME_ERROR_CLASS.TIMEOUT,
     errorReason: "provider_timeout",
     retryDecision: TERMINAL,
