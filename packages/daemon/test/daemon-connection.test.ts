@@ -3149,3 +3149,28 @@ test("a rejection without a stage still logs, and a recovery says how long the f
     (recovered!.properties as { failed_for_ms?: number }).failed_for_ms,
   ).toBeGreaterThanOrEqual(0);
 });
+
+test("a rejected control publication names every decoder's reason and the payload's shape", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const { records } = await captureLogs(async () => {
+    await transport.start("secret", config);
+    fake.connect();
+    // A length-delimited field that claims more bytes than arrived: the shape of a control frame
+    // that was cut short on the wire, which no decoder can accept and none can explain.
+    fake.publish(
+      `daemon:${config.workspaceId}:${config.computerId}`,
+      new Uint8Array([0x0a, 0x28, 0x61, 0x62, 0x63]),
+    );
+  });
+
+  const rejection = records.find((record) => record.properties.event === "daemon_control:rejected");
+  expect(rejection).toBeDefined();
+  expect(rejection!.properties.payload_bytes).toBe(5);
+  expect(rejection!.properties.payload_shape).toContain("1:len(40)");
+  expect(rejection!.properties.payload_shape).toContain("truncated");
+  const reasons = String(rejection!.properties.rejections);
+  expect(reasons).toContain("agent_message");
+  expect(reasons).toContain("agent_stop");
+  expect(reasons).toContain("agent_start");
+});

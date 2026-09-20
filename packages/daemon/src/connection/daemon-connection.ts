@@ -135,6 +135,7 @@ import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
 import type { AgentLaunchIdentity } from "../code-agent/agent-instructions";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
 import { AgentWeeklyReportRequestError } from "./agent-weekly-report-request-error";
+import { controlPayloadShape } from "./control-payload";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentLaunchConfig = {
@@ -2230,26 +2231,38 @@ export class DaemonConnection implements DaemonConnectionClient {
     if (handled) return;
     // Agent publications are the common case and must decode as exactly one intent kind.
     const decoders = [
-      () =>
-        this.#deliver(
-          this.#agentMessage,
-          this.#ownedIntent(decodeAgentMessageDelivery(data), workspaceId),
-        ),
-      () =>
-        this.#deliver(this.#agentStop, this.#ownedIntent(decodeAgentStopIntent(data), workspaceId)),
-      () =>
-        this.#deliver(
-          this.#agentStart,
-          this.#ownedIntent(decodeAgentStartIntent(data), workspaceId),
-        ),
+      {
+        kind: "agent_message",
+        decode: () =>
+          this.#deliver(
+            this.#agentMessage,
+            this.#ownedIntent(decodeAgentMessageDelivery(data), workspaceId),
+          ),
+      },
+      {
+        kind: "agent_stop",
+        decode: () =>
+          this.#deliver(
+            this.#agentStop,
+            this.#ownedIntent(decodeAgentStopIntent(data), workspaceId),
+          ),
+      },
+      {
+        kind: "agent_start",
+        decode: () =>
+          this.#deliver(
+            this.#agentStart,
+            this.#ownedIntent(decodeAgentStartIntent(data), workspaceId),
+          ),
+      },
     ];
-    let rejection: unknown;
-    for (const decode of decoders) {
+    const rejections: { kind: string; error: unknown }[] = [];
+    for (const { kind, decode } of decoders) {
       try {
         decode();
         return;
       } catch (error) {
-        rejection = error;
+        rejections.push({ kind, error });
       }
     }
     // Invalid publications are rejected at the protocol boundary and never reach the runtime.
@@ -2258,10 +2271,18 @@ export class DaemonConnection implements DaemonConnectionClient {
       workspace_id: workspaceId,
       computer_id: computerId,
       payload_bytes: data.byteLength,
-      error_code: diagnosticErrorCode(rejection),
-      // The decoders' own message, never the payload: without it a rejected start intent looks
-      // identical to noise, and an Agent that never starts leaves no reason behind.
-      error_message: rejection instanceof Error ? rejection.message : String(rejection),
+      // Every decoder's own account, not just the last one's: each refuses for its own reason,
+      // and reporting only the final attempt named a cause that belonged to a frame kind this
+      // publication may never have been. An Agent that never woke leaves nothing else behind.
+      rejections: rejections
+        .map(
+          ({ kind, error }) => `${kind}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        .join("; "),
+      // The fields the payload carries, never their values, so a frame no decoder accepted can
+      // still be matched against a schema without putting message text in the log.
+      payload_shape: controlPayloadShape(data),
+      error_code: diagnosticErrorCode(rejections.at(-1)?.error),
       outcome: "rejected",
     });
   }
