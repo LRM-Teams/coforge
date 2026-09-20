@@ -35,7 +35,10 @@ import {
   useConversationReadRequiresScroll,
   useMarkConversationSeen,
 } from "@/features/conversations/conversation-navigation";
-import { latestTopLevelSequence } from "@/features/conversations/conversation-unread";
+import {
+  latestTopLevelSequence,
+  persistReadCursor,
+} from "@/features/conversations/conversation-unread";
 import { markDirectConversationRead } from "@/features/conversations/conversations.functions";
 import { useEffect } from "react";
 
@@ -89,10 +92,16 @@ function DirectConversationPage() {
   }, [markSeen, agentId, topLevelEnd]);
   useEffect(() => {
     if (!topLevelEnd || readRequiresScroll) return;
-    void advanceReadCursor({ data: { agentId, throughSequence: topLevelEnd } }).catch(() => {});
+    void persistReadCursor(
+      () => advanceReadCursor({ data: { agentId, throughSequence: topLevelEnd } }),
+      `agent:${agentId}`,
+    );
   }, [advanceReadCursor, agentId, topLevelEnd, readRequiresScroll]);
   const readLatest = (throughSequence: number) => {
-    void advanceReadCursor({ data: { agentId, throughSequence } }).catch(() => {});
+    void persistReadCursor(
+      () => advanceReadCursor({ data: { agentId, throughSequence } }),
+      `agent:${agentId}:latest`,
+    );
   };
 
   if (view === "tasks")
