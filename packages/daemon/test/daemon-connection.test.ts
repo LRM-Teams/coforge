@@ -3034,3 +3034,118 @@ test("a failed Computer upgrade report stays replayable", async () => {
   expect(await transport.sendUpgradeResult(result)).toBe(true);
   expect(attempts).toBe(2);
 });
+
+test("a run of ready failures escalates, names the server's stage, and reports how long it has been failing", async () => {
+  const fake = fakeClient();
+  const scheduled: (() => void)[] = [];
+  // The first ready succeeds; every reconnect ready fails, which is the retrying path. The server
+  // answers with the stage that failed (`rpc-handler.server.ts`).
+  let readyCalls = 0;
+  fake.client.rpc = async (method) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD && ++readyCalls > 1)
+      throw Object.assign(new Error("daemon ready failed at agent_recovery"), { code: 503 });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, undefined, {
+    schedule: (callback) => {
+      scheduled.push(callback);
+      return scheduled.length;
+    },
+    cancel: () => {},
+  });
+
+  const { records } = await captureLogs(async () => {
+    await transport.start("secret", config);
+    await transport.ready(() => ({
+      protocolMajor: 1,
+      requestId: "ready-1",
+      workspaceId: config.workspaceId,
+      computerId: config.computerId,
+      workerInstanceId: "runtime-1",
+      startedAt: 123,
+      runningAgentIds: ["agent-1"],
+    }));
+    fake.connect();
+    // Each scheduled retry fails the same way; run enough of them to cross the escalation point.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      scheduled.shift()?.();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const retries = records.filter(
+    (record) => (record.properties as { event?: string }).event === "daemon_ready:retry_scheduled",
+  );
+  expect(retries.length).toBeGreaterThanOrEqual(5);
+  // Every line names the failing step, so the machine's own log explains itself.
+  for (const record of retries) {
+    const properties = record.properties as { server_stage?: string; failing_for_ms?: number };
+    expect(properties.server_stage).toBe("agent_recovery");
+    expect(properties.failing_for_ms).toBeGreaterThanOrEqual(0);
+  }
+  // The first few stay warnings; a sustained run becomes an error naming the consequence.
+  expect(retries.slice(0, 4).map((record) => record.level)).toEqual([
+    "warning",
+    "warning",
+    "warning",
+    "warning",
+  ]);
+  const escalated = retries.find((record) => record.level === "error");
+  expect(escalated).toBeDefined();
+  expect((escalated!.properties as { attempt?: number }).attempt).toBe(5);
+  expect(String(escalated!.message)).toContain("connected but its Workspace is not recovered");
+});
+
+test("a rejection without a stage still logs, and a recovery says how long the failure lasted", async () => {
+  const fake = fakeClient();
+  const scheduled: (() => void)[] = [];
+  let readyCalls = 0;
+  let failReady = true;
+  fake.client.rpc = async (method) => {
+    // No stage in this rejection: an older server, or a failure from outside the ready handler.
+    if (method === DAEMON_RUNTIME_READY_METHOD && ++readyCalls > 1 && failReady)
+      throw Object.assign(new Error("<html>502 Bad Gateway</html>"), { code: 502 });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, undefined, {
+    schedule: (callback) => {
+      scheduled.push(callback);
+      return scheduled.length;
+    },
+    cancel: () => {},
+  });
+
+  const { records } = await captureLogs(async () => {
+    await transport.start("secret", config);
+    await transport.ready(() => ({
+      protocolMajor: 1,
+      requestId: "ready-1",
+      workspaceId: config.workspaceId,
+      computerId: config.computerId,
+      workerInstanceId: "runtime-1",
+      startedAt: 123,
+      runningAgentIds: [],
+    }));
+    fake.connect();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    failReady = false;
+    scheduled.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  const retries = records.filter(
+    (record) => (record.properties as { event?: string }).event === "daemon_ready:retry_scheduled",
+  );
+  expect(retries.length).toBeGreaterThanOrEqual(1);
+  // Remote text is never echoed into the log: no stage is reported rather than a guessed one.
+  for (const record of retries)
+    expect((record.properties as { server_stage?: string }).server_stage).toBeUndefined();
+  const recovered = records.find(
+    (record) => (record.properties as { event?: string }).event === "daemon_ready:recovered",
+  );
+  expect(recovered).toBeDefined();
+  expect(
+    (recovered!.properties as { failed_for_ms?: number }).failed_for_ms,
+  ).toBeGreaterThanOrEqual(0);
+});
