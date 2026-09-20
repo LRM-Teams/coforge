@@ -87,6 +87,16 @@ describe("the other kinds are decided by name, then by content type", () => {
     expect(attachmentPreviewKind("notes", "text/markdown", undefined, APP_ORIGIN)).toBe("markdown");
   });
 
+  test("plain text is previewable by extension or content type, never parsed as Markdown", () => {
+    expect(attachmentPreviewKind("readme.txt", "text/plain", undefined, APP_ORIGIN)).toBe("text");
+    expect(
+      attachmentPreviewKind("NOTES.txt", "application/octet-stream", undefined, APP_ORIGIN),
+    ).toBe("text");
+    // An unknown extension carrying `text/plain` is still previewed literally (a `.txt` routinely
+    // arrives as `text/plain`; a generic plain-text file is the same safe reading).
+    expect(attachmentPreviewKind("changelog", "text/plain", undefined, APP_ORIGIN)).toBe("text");
+  });
+
   test("allowlisted media is previewable, other files are not", () => {
     expect(attachmentPreviewKind("clip.mp4", "video/mp4", undefined, APP_ORIGIN)).toBe("video");
     expect(attachmentPreviewKind("voice.wav", "audio/wav", undefined, APP_ORIGIN)).toBe("audio");
