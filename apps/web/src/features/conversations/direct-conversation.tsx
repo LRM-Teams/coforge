@@ -30,6 +30,7 @@ import {
   useConversationDetailVisible,
   useConversationOpenMode,
 } from "./conversation-navigation";
+import { conversationOpenPosition, unreadBoundary } from "./conversation-open-position";
 import { latestTopLevelSequence } from "./conversation-unread";
 import { ConversationPending } from "./conversation-pending";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
@@ -721,21 +722,26 @@ export function ConversationPane({
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
   const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
+  // The open position the pane still owes the virtualizer once `scrollMargin` is measured.
+  const pendingOpenIndexRef = useRef<number | undefined>(undefined);
   const pendingLatestRef = useRef(false);
   // The initial-position decision is made once per conversation open: with unread messages,
   // Slack's default lands on the first one and draws the divider; otherwise at the latest.
   // Consumed by the mount effect below (open positioning) and by the divider snapshot, and
   // never re-read on later updates.
-  const firstUnread = useMemo(() => {
-    const cursor = conversation.readThroughSequence;
-    if (cursor === undefined) return undefined;
-    const firstUnreadMessage = conversation.messages.find(
-      (message) => !message.threadRootId && message.sequence > cursor,
-    );
-    return firstUnreadMessage
-      ? { id: firstUnreadMessage.id, sequence: firstUnreadMessage.sequence }
-      : undefined;
-  }, [conversation.conversationId]);
+  // A thread pane reads that thread's own cursor (one `thread_reads` row per root message);
+  // the channel pane reads the member's channel cursor. Each pane already holds the right
+  // messages — a thread's replies, or the channel's top-level messages.
+  const firstUnread = useMemo(
+    () =>
+      root
+        ? unreadBoundary(conversation.messages, conversation.threadReadThrough?.[root.id])
+        : unreadBoundary(
+            conversation.messages.filter((message) => !message.threadRootId),
+            conversation.readThroughSequence,
+          ),
+    [conversation.conversationId, root?.id],
+  );
   const firstUnreadConsumedRef = useRef(false);
   // The divider is frozen at the boundary seen at open, so the mark-read effect (which
   // advances the cursor server-side) never makes it jump or vanish mid-visit. Captured once,
@@ -827,7 +833,10 @@ export function ConversationPane({
   const messagesRef = useRef(conversation.messages);
   messagesRef.current = conversation.messages;
   // Content above the list inside the scroll container (thread root, load-older control).
-  const [scrollMargin, setScrollMargin] = useState(0);
+  // `undefined` until the pane's non-virtualized header has been measured. The virtualizer
+  // positions every row against this margin, and the measurement can only happen after layout,
+  // so the open scroll waits for it rather than landing that header's height too high.
+  const [scrollMargin, setScrollMargin] = useState<number | undefined>(undefined);
   const getMessageKey = useCallback(
     (index: number) => conversation.messages[index]?.id ?? index,
     [conversation.messages],
@@ -845,24 +854,17 @@ export function ConversationPane({
     followOnAppend: true,
     scrollEndThreshold: 48,
     useFlushSync: false,
-    scrollMargin,
+    scrollMargin: scrollMargin ?? 0,
   });
 
   useLayoutEffect(() => {
     const history = historyRef.current;
     const list = listRef.current;
     if (!history || !list) return;
+    // Layout offsets, not viewport rects: a rect-based measurement taken while the container is
+    // being scrolled mixes two moments and reports a margin that is hundreds of pixels off.
     const measure = () =>
-      setScrollMargin(
-        Math.max(
-          0,
-          Math.round(
-            list.getBoundingClientRect().top -
-              history.getBoundingClientRect().top +
-              history.scrollTop,
-          ),
-        ),
-      );
+      setScrollMargin(Math.max(0, Math.round(list.offsetTop - history.offsetTop)));
     measure();
     const observer = new ResizeObserver(measure);
     for (const child of history.children) if (child !== list) observer.observe(child);
@@ -897,20 +899,24 @@ export function ConversationPane({
       //   when the cursor advances: it waits for `onReadLatest` below, never for the open.
       // A message hash (deep link, task jump) still wins over both — the anchor effect
       // handles it and has already cleared `followingLatest` by the time this runs.
-      const initial =
-        openMode === "first-unread" && !firstUnreadConsumedRef.current ? firstUnread : undefined;
+      // Switching conversations reuses this pane, and each conversation gets its own open
+      // position: without this reset only the first conversation of a visit would land on its
+      // unread boundary and every later one would open at the latest.
+      if (changedConversation) firstUnreadConsumedRef.current = false;
+      const position = firstUnreadConsumedRef.current
+        ? ({ kind: "latest" } as const)
+        : conversationOpenPosition(openMode, firstUnread);
       firstUnreadConsumedRef.current = true;
-      if (initial && !window.location.hash) {
-        const index = conversation.messages.findIndex((message) => message.id === initial.id);
+      if (position.kind === "message" && !window.location.hash) {
+        const index = conversation.messages.findIndex((message) => message.id === position.id);
         if (index >= 0) {
           setFollowingLatest(false);
-          messageVirtualizer.scrollToIndex(index, { align: "start" });
-          requestAnimationFrame(() => {
-            document.getElementById(`message-${initial.id}`)?.scrollIntoView({ block: "start" });
-          });
+          pendingOpenIndexRef.current = index;
+          applyOpenPosition();
           return undefined;
         }
       }
+      pendingOpenIndexRef.current = undefined;
       scrollToLatest("instant");
       setFollowingLatest(true);
       // TanStack's scroll restoration rewrites this container's scrollTop in the router's
@@ -924,6 +930,12 @@ export function ConversationPane({
     }
     return undefined;
   }, [conversation.conversationId, lastSequence]);
+
+  // The open scroll the pane owed while `scrollMargin` was still unmeasured.
+  useLayoutEffect(() => {
+    if (scrollMargin === undefined) return;
+    applyOpenPosition();
+  }, [scrollMargin]);
 
   useLayoutEffect(() => {
     const history = historyRef.current;
@@ -982,9 +994,26 @@ export function ConversationPane({
     pendingLatestRef.current = false;
   }, [conversation.hasNewer, conversation.messages, messageVirtualizer]);
 
+  /**
+   * Scrolls to the row the pane opens on — once now, once on the next frame. The router's
+   * scroll restoration (`scrollRestoration: true` in `router.tsx`) tracks every scrolled
+   * element and rewrites this container's scrollTop in its `onRendered` pass, which runs after
+   * this child's layout effect; without the second pass the open position is overwritten with
+   * the previous route's offset. The open-at-latest path below reasserts itself for the same
+   * reason. Does nothing until `scrollMargin` is known, and runs once per open.
+   */
+  function applyOpenPosition() {
+    const index = pendingOpenIndexRef.current;
+    if (index === undefined || scrollMargin === undefined) return;
+    pendingOpenIndexRef.current = undefined;
+    messageVirtualizer.scrollToIndex(index, { align: "start" });
+    requestAnimationFrame(() => messageVirtualizer.scrollToIndex(index, { align: "start" }));
+  }
+
   function scrollToLatest(behavior: ScrollBehavior) {
     const history = historyRef.current;
     if (!history) return;
+    pendingOpenIndexRef.current = undefined;
     history.scrollTo({ top: history.scrollHeight, behavior });
     history.scrollTop = history.scrollHeight;
   }
@@ -1198,7 +1227,7 @@ export function ConversationPane({
               <ol
                 className="absolute top-0 left-0 w-full"
                 style={{
-                  transform: `translateY(${(messageVirtualizer.getVirtualItems()[0]?.start ?? 0) - scrollMargin + 24}px)`,
+                  transform: `translateY(${(messageVirtualizer.getVirtualItems()[0]?.start ?? 0) - (scrollMargin ?? 0) + 24}px)`,
                 }}
               >
                 {messageVirtualizer.getVirtualItems().map(({ index, key }) => {

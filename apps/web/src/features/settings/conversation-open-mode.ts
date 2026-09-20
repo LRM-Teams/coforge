@@ -7,7 +7,13 @@ export const CONVERSATION_OPEN_MODES = ["newest-read", "first-unread", "newest-u
 
 export type ConversationOpenMode = (typeof CONVERSATION_OPEN_MODES)[number];
 
-export const DEFAULT_CONVERSATION_OPEN_MODE: ConversationOpenMode = "newest-read";
+/**
+ * Start where the viewer left off. Slack ships the same three choices under
+ * "When I view a channel", and both Slack and Discord open a conversation at the unread
+ * boundary rather than at the newest message, which is what makes the unread divider
+ * something you land on instead of something scrolled past.
+ */
+export const DEFAULT_CONVERSATION_OPEN_MODE: ConversationOpenMode = "first-unread";
 
 export function isConversationOpenMode(value: string): value is ConversationOpenMode {
   return (CONVERSATION_OPEN_MODES as readonly string[]).includes(value);
