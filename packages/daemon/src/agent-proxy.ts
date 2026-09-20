@@ -31,6 +31,8 @@ import {
   type GitHubCredentialResponse,
   type GitHubCommitTrailersRequest,
   type GitHubCommitTrailersResponse,
+  type MemoryExplorationCommand,
+  type MemoryExplorationResponse,
   type AgentUserInfoRequest,
   type AgentUserInfoResponse,
   type AgentProfileShowRequest,
@@ -148,6 +150,11 @@ export type AgentProxyRuntime = {
     request: GitHubCommitTrailersRequest,
     agentApiKey: string,
   ): Promise<GitHubCommitTrailersResponse>;
+  agentMemory?(
+    context: string,
+    request: MemoryExplorationCommand,
+    agentApiKey: string,
+  ): Promise<MemoryExplorationResponse>;
   agentWeeklyReport?(
     context: string,
     request: WeeklyReportCommand,
@@ -420,6 +427,98 @@ function parseGithubCommitTrailersRequest(
 ): GitHubCommitTrailersRequest | Response {
   if (payload.repository !== null && typeof payload.repository !== "string") return badRequest();
   return { repository: payload.repository };
+}
+
+/** Start | explore | redirect | close over the Memory Agent's exploration API
+ * (ADR 0054-E). Structural validation only; budgets and citations are the
+ * server's to clamp. */
+function parseMemoryCommand(payload: JsonObject): MemoryExplorationCommand | Response {
+  const op = payload.op;
+  if (op === "start") {
+    if (typeof payload.startKey !== "string" || typeof payload.query !== "string")
+      return badRequest();
+    const command: MemoryExplorationCommand = {
+      op,
+      startKey: payload.startKey,
+      query: payload.query,
+    };
+    if (payload.maxSteps !== undefined) {
+      if (typeof payload.maxSteps !== "number") return badRequest();
+      command.maxSteps = payload.maxSteps;
+    }
+    if (payload.maxResults !== undefined) {
+      if (typeof payload.maxResults !== "number") return badRequest();
+      command.maxResults = payload.maxResults;
+    }
+    return command;
+  }
+  if (op === "explore") {
+    if (
+      typeof payload.sessionId !== "string" ||
+      typeof payload.operationId !== "string" ||
+      typeof payload.anchor !== "string"
+    )
+      return badRequest();
+    const relation = payload.relation;
+    if (
+      relation !== undefined &&
+      relation !== "similar" &&
+      relation !== "related" &&
+      relation !== "collaborators"
+    )
+      return badRequest();
+    const command: MemoryExplorationCommand = {
+      op,
+      sessionId: payload.sessionId,
+      operationId: payload.operationId,
+      anchor: payload.anchor,
+      ...(relation === undefined ? {} : { relation }),
+    };
+    if (payload.limit !== undefined) {
+      if (typeof payload.limit !== "number") return badRequest();
+      command.limit = payload.limit;
+    }
+    return command;
+  }
+  if (op === "redirect") {
+    if (
+      typeof payload.sessionId !== "string" ||
+      typeof payload.operationId !== "string" ||
+      typeof payload.query !== "string"
+    )
+      return badRequest();
+    return {
+      op,
+      sessionId: payload.sessionId,
+      operationId: payload.operationId,
+      query: payload.query,
+    };
+  }
+  if (op === "close") {
+    if (
+      typeof payload.sessionId !== "string" ||
+      typeof payload.operationId !== "string" ||
+      typeof payload.found !== "boolean"
+    )
+      return badRequest();
+    if (
+      payload.citationIds !== undefined &&
+      (!Array.isArray(payload.citationIds) ||
+        payload.citationIds.some((id) => typeof id !== "string"))
+    )
+      return badRequest();
+    const command: MemoryExplorationCommand = {
+      op,
+      sessionId: payload.sessionId,
+      operationId: payload.operationId,
+      found: payload.found,
+    };
+    if (typeof payload.summary === "string" && payload.summary.trim())
+      command.summary = payload.summary;
+    if (Array.isArray(payload.citationIds)) command.citationIds = payload.citationIds as string[];
+    return command;
+  }
+  return badRequest();
 }
 
 function parseInboxRequest(
@@ -760,6 +859,15 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     body: "json-object",
     handler: "githubCommitTrailers",
     parse: ({ fields }) => parseGithubCommitTrailersRequest(fields),
+    respond: (result) => Response.json(result, { headers: { "cache-control": "no-store" } }),
+  }),
+  defineRoute({
+    family: "agent-api/memory",
+    method: LOCAL_PROXY_ROUTES.memory.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.memory.path),
+    body: "json-object",
+    handler: "agentMemory",
+    parse: ({ fields }) => parseMemoryCommand(fields),
     respond: (result) => Response.json(result, { headers: { "cache-control": "no-store" } }),
   }),
   defineRoute({

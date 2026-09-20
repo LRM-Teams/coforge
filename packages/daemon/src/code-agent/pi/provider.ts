@@ -109,6 +109,7 @@ export class CoforgeProvider implements CodeAgentProvider {
         envVars: runtime.envVars,
         gitHooks: options.gitHooks,
       }),
+      ...(runtime.toolProfile ? { toolProfile: runtime.toolProfile } : {}),
     });
     try {
       await options.onSessionId?.(session.sessionId, session.replacedSessionId);

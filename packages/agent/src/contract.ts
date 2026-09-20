@@ -25,6 +25,9 @@ export type AgentRuntimeConfig = Readonly<{
   reasoning: string;
   providerConfig?: AgentRuntimeProviderConfig;
   envVars?: Readonly<Record<string, string>>;
+  /** When set, the runtime session starts fenced: zero tools except the
+   * profile's native ones (the Memory Agent's explorer profile, ADR 0054-D). */
+  toolProfile?: Readonly<{ kind: "memory-explorer" }>;
 }>;
 /** Raft-aligned plan-usage window status (task #50): `limit_reached` once the window's ratio
  * hits 1.0, `parse_unavailable` when the provider reported a window whose ratio could not be

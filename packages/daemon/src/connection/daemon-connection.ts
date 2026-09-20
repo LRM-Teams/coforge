@@ -3,6 +3,7 @@ import {
   agentApiRoutes,
   decodeGitHubCredentialResponse,
   decodeGitHubCommitTrailersResponse,
+  decodeMemoryExplorationResponse,
 } from "@lrm/coforge-sdk/agent";
 import type {
   AgentEventsResponse,
@@ -20,6 +21,8 @@ import type {
   GitHubCredentialResponse,
   GitHubCommitTrailersRequest,
   GitHubCommitTrailersResponse,
+  MemoryExplorationCommand,
+  MemoryExplorationResponse,
   AgentManualGetRequest,
   AgentManualGetResponse,
   AgentManualSearchRequest,
@@ -248,6 +251,9 @@ export interface AgentMessageHttpClient {
   requestGitHubCommitTrailers?(
     input: AgentHttpInput<GitHubCommitTrailersRequest>,
   ): Promise<GitHubCommitTrailersResponse>;
+  requestMemoryExploration?(
+    input: AgentHttpInput<MemoryExplorationCommand>,
+  ): Promise<MemoryExplorationResponse>;
   requestManualGet?(input: AgentHttpInput<AgentManualGetRequest>): Promise<AgentManualGetResponse>;
   requestManualSearch?(
     input: AgentHttpInput<AgentManualSearchRequest>,
@@ -420,6 +426,10 @@ export interface DaemonConnectionClient {
     request: GitHubCommitTrailersRequest,
     agentApiKey: string,
   ): Promise<GitHubCommitTrailersResponse>;
+  agentMemory?(
+    request: MemoryExplorationCommand,
+    agentApiKey: string,
+  ): Promise<MemoryExplorationResponse>;
   manualGet?(request: AgentManualGetRequest, agentApiKey: string): Promise<AgentManualGetResponse>;
   manualSearch?(
     request: AgentManualSearchRequest,
@@ -1010,6 +1020,16 @@ export const createAgentMessageHttpClient = (
     });
     if (!response.ok) throw new Error(`GitHub commit trailers request failed (${response.status})`);
     return decodeGitHubCommitTrailersResponse(await response.json());
+  },
+  async requestMemoryExploration({ url, request, ...keys }) {
+    const response = await httpClient(url, {
+      method: "POST",
+      headers: agentHeaders(keys, true),
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`Memory exploration request failed (${response.status})`);
+    return decodeMemoryExplorationResponse(request.op, await response.json());
   },
   async requestReminder({ url, request, ...keys }) {
     let response: Response;
@@ -1869,6 +1889,20 @@ export class DaemonConnection implements DaemonConnectionClient {
         "GitHub commit trailers",
         agentApiRoutes.cloud.githubCommitTrailers.path,
       ),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  /** The Memory Agent's exploration API (ADR 0054-C/E): forwarded verbatim; the
+   * server fences the caller against the Workspace's Memory Agent designation. */
+  async agentMemory(request: MemoryExplorationCommand, agentApiKey: string) {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Memory exploration endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestMemoryExploration)
+      throw new Error("Memory exploration HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestMemoryExploration({
+      url: this.#serverEndpoint("Memory exploration", agentApiRoutes.cloud.memory.path),
       ...this.#agentKeys(agentApiKey),
       request,
     });

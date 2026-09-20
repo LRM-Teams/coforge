@@ -274,3 +274,47 @@ _Avoid_: installation token, Agent App, repository password
 **machine_id**:
 A stable internal registration identifier for one Computer installation profile. It supports identity reconciliation but is neither a credential, a user-facing Computer name, nor necessarily the primary key of a server-side Computer record.
 _Avoid_: Hardware fingerprint, machine secret, Computer token
+
+**Group Memory**:
+The Workspace-owned team memory distilled from PublicChannel collaboration and organized as Memory Episodes, Memory Insights, and Interaction Links. DirectConversation content never enters it.
+_Avoid_: chat log, channel archive, imported method name
+
+**Memory Episode**:
+One admitted, immutable record of a completed slice of PublicChannel collaboration — a Task's discussion window or a channel quiet-window — carrying its participants snapshot and an inferred outcome. It is evidence, not interpretation.
+_Avoid_: transcript, log window, Memory Insight
+
+**Memory Insight**:
+A versioned rule or lesson about how this Workspace's collaboration goes, tied to the Memory Episodes supporting or contradicting it, with a score derived from append-only adjustments. It is team knowledge, not an executable skill.
+_Avoid_: LearnedSkill, MEMORY.md note, message
+
+**Interaction Links**:
+The lossless, structured collaboration facts extracted from PublicChannel messages: who mentions whom, who replies to what, who delegates what to whom. Together with message nodes and delivery segments they form the interaction record Group Memory is distilled from. They are extracted facts, never semantic guesses.
+_Avoid_: interaction log, social graph, inferred relationship
+
+**Provenance edge**:
+The recorded source relation across Group Memory's layers: an Episode supporting or contradicting an Insight, an Insight or Episode grounding a Skill Proposal, and a LearnedSkill revision superseding its predecessor. Provenance edges are authoritative records of origin, written when the layer above is created, and they are the paths a Memory Exploration traverses between layers.
+_Avoid_: similarity link, derived edge, reference table
+
+**Memory Agent**:
+The managed Workspace-scoped Agent that explores Group Memory read-only on every PublicChannel message and on mention, and publishes Memory Offers naming the Agents they may help. Only it may query Group Memory, and it never writes it.
+_Avoid_: memory bot, per-user assistant, distiller
+
+**Memory Exploration**:
+A bounded read-only query session the Memory Agent opens against Group Memory: retrieve by query, expand from seed citations along Interaction Links and Provenance edges — across the interaction record, Memory Insights, and LearnedSkills — refine, and close with a cited answer.
+_Avoid_: unbounded search, training pass, crawl
+
+**Memory Offer**:
+A PublicChannel Message from the Memory Agent carrying cited Group Memory content — an Insight, or a LearnedSkill's guidance — to one mentioned Agent, as advice. It offers information; it is not an instruction, a grant of authority, or proof of benefit.
+_Avoid_: skill offer, injection, broadcast
+
+**LearnedSkill**:
+A Workspace-owned reusable skill distilled from Group Memory's Memory Insights and their supporting evidence. Its artifact is a governed immutable revision of procedural guidance — a decision-branch skill or a stable procedure — identified by lineage, version, and content digest. It is the procedural descendant of memory, not memory itself, and is distinct from provider-native Global Skills and platform-assigned skill packs.
+_Avoid_: skill pack, Global Skills, assigned skill, Memory Insight
+
+**Skill Proposal**:
+One atomic, immutable proposal to create or revise a single LearnedSkill, grounded in committed Group Memory evidence. A proposal becomes a candidate for delivery, never directly an active skill; its acceptance is decided by later collaboration outcomes, not by its proposer.
+_Avoid_: skill patch, freeform edit, auto-accept
+
+**Proposal Ledger**:
+The append-only record of every Skill Proposal with its evidence, verdict, and outcome. It preserves rejected and retired proposals so future proposers do not repeat them, and it is required reading before proposing.
+_Avoid_: proposal log, skill history table, audit trail of edits

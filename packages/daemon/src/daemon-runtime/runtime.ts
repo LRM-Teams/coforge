@@ -140,6 +140,8 @@ import type {
   GitHubCredentialResponse,
   GitHubCommitTrailersRequest,
   GitHubCommitTrailersResponse,
+  MemoryExplorationCommand,
+  MemoryExplorationResponse,
   AgentManualGetRequest,
   AgentManualGetResponse,
   AgentManualSearchRequest,
@@ -3422,6 +3424,17 @@ export class DaemonRuntime {
     if (!this.#transport.githubCommitTrailers)
       throw new Error("GitHub commit trailers endpoint is not configured");
     return this.#transport.githubCommitTrailers(request, agentApiKey);
+  }
+
+  async agentMemory(
+    context: string,
+    request: MemoryExplorationCommand,
+    agentApiKey: string,
+  ): Promise<MemoryExplorationResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.agentMemory)
+      throw new Error("Memory exploration endpoint is not configured");
+    return this.#transport.agentMemory(request, agentApiKey);
   }
 
   async manualGet(

@@ -28,6 +28,9 @@ export type AgentRuntimeConfig = {
   modelProvider: string;
   reasoning: string;
   environment?: EncryptedAgentEnvironment;
+  /// The Memory Agent's fenced explorer profile (ADR 0054-D): the runtime
+  /// session starts with zero tools except its native explorer tools.
+  toolProfile?: { kind: "memory-explorer" };
 };
 
 export function parseAgentRuntimeConfig(value: unknown): AgentRuntimeConfig {
@@ -45,6 +48,7 @@ export function parseAgentRuntimeConfig(value: unknown): AgentRuntimeConfig {
     typeof reasoning !== "string"
   )
     throw new Error("invalid runtime config");
+  const toolProfile = parseToolProfile(Reflect.get(value, "toolProfile"));
   return {
     runtime,
     provider: parseProviderConfig(Reflect.get(value, "provider")),
@@ -52,6 +56,7 @@ export function parseAgentRuntimeConfig(value: unknown): AgentRuntimeConfig {
     modelProvider: modelProvider ?? "",
     reasoning,
     ...(environment ? { environment } : {}),
+    ...(toolProfile ? { toolProfile } : {}),
   };
 }
 
@@ -109,4 +114,16 @@ function parseEncryptedApiKey(value: unknown): EncryptedRuntimeApiKey | undefine
   )
     throw new Error("invalid encrypted runtime API key");
   return { keyId, ciphertext, nonce, hint };
+}
+
+function parseToolProfile(value: unknown): { kind: "memory-explorer" } | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Reflect.get(value, "kind") === "memory-explorer"
+  )
+    return { kind: "memory-explorer" };
+  throw new Error("invalid runtime tool profile");
 }

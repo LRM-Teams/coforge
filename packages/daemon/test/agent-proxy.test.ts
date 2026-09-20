@@ -1740,3 +1740,78 @@ test("a GitHub credential failure is classified under its own route family", asy
   expect(body.code).toBe("agent_proxy_failed");
   expect(body.proxy.route_family).toBe("agent-api/github-credential");
 });
+
+test("proxy forwards validated memory exploration commands without caching", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      agentMemory: async (context, request, agentApiKey) => {
+        calls.push({ context, request, agentApiKey });
+        return {
+          op: "start",
+          sessionId: "session-1",
+          state: "active",
+          items: [{ citationId: "insight:abc", kind: "insight", id: "abc", snippet: "rule text" }],
+          remainingSteps: 4,
+          duplicate: false,
+          query: "backups",
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  const response = await fetch(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.memory.path),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ op: "start", startKey: "start-1", query: "backups", maxSteps: 2 }),
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(await response.json()).toMatchObject({ sessionId: "session-1", state: "active" });
+  expect(calls).toEqual([
+    {
+      context: "agent-a",
+      request: { op: "start", startKey: "start-1", query: "backups", maxSteps: 2 },
+      agentApiKey,
+    },
+  ]);
+});
+
+test("proxy rejects a memory exploration command with an unknown op or malformed fields", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      agentMemory: async () => {
+        throw new Error("must not be reached");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  for (const body of [
+    { op: "destroy", startKey: "k", query: "q" },
+    { op: "start", startKey: 7, query: "q" },
+    { op: "explore", sessionId: "s", anchor: "insight:abc" },
+    { op: "close", sessionId: "s", operationId: "o", found: "yes" },
+  ]) {
+    const response = await fetch(
+      proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.memory.path),
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    expect(response.status).toBe(400);
+  }
+});

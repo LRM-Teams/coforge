@@ -678,3 +678,126 @@ export function createMessageTransportAgentApiTransport(
     },
   };
 }
+
+/**
+ * The Memory Agent's exploration API over `/api/agent/v1/memory` (ADR 0054-C/E):
+ * one command discriminated on `op` — start | explore | redirect | close. The
+ * server fences the caller against the Workspace's Memory Agent designation;
+ * every other identity is refused. Citation ids are normalized
+ * "episode:<uuid>" | "insight:<uuid>" strings.
+ */
+export type MemoryExplorationCitation = {
+  citationId: string;
+  kind: "episode" | "insight";
+  id: string;
+  snippet: string;
+};
+
+export type MemoryExplorationCommand =
+  | {
+      op: "start";
+      startKey: string;
+      query: string;
+      maxSteps?: number;
+      maxResults?: number;
+    }
+  | {
+      op: "explore";
+      sessionId: string;
+      operationId: string;
+      anchor: string;
+      relation?: "similar" | "related" | "collaborators";
+      limit?: number;
+    }
+  | { op: "redirect"; sessionId: string; operationId: string; query: string }
+  | {
+      op: "close";
+      sessionId: string;
+      operationId: string;
+      found: boolean;
+      summary?: string;
+      citationIds?: string[];
+    };
+
+export type MemoryExplorationStepResponse = {
+  sessionId: string;
+  state: "active" | "closed" | "expired";
+  items: MemoryExplorationCitation[];
+  remainingSteps: number;
+  duplicate: boolean;
+};
+
+export type MemoryExplorationResponse =
+  | (MemoryExplorationStepResponse & { op: "start" | "explore" | "redirect"; query?: string })
+  | {
+      op: "close";
+      sessionId: string;
+      state: "closed";
+      found: boolean;
+      summary: string | null;
+      citations: Array<Pick<MemoryExplorationCitation, "citationId" | "kind" | "id">>;
+      duplicate: boolean;
+    };
+
+function decodeMemoryCitation(value: unknown): MemoryExplorationCitation {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    typeof (value as MemoryExplorationCitation).citationId !== "string" ||
+    ((value as MemoryExplorationCitation).kind !== "episode" &&
+      (value as MemoryExplorationCitation).kind !== "insight") ||
+    typeof (value as MemoryExplorationCitation).id !== "string" ||
+    typeof (value as MemoryExplorationCitation).snippet !== "string"
+  ) {
+    throw new Error("invalid memory citation");
+  }
+  return value as MemoryExplorationCitation;
+}
+
+export function decodeMemoryExplorationResponse(
+  op: MemoryExplorationCommand["op"],
+  value: unknown,
+): MemoryExplorationResponse {
+  if (!value || typeof value !== "object" || (value as { ok?: unknown }).ok !== true)
+    throw new Error("invalid memory exploration response");
+  const body = value as Record<string, unknown>;
+  if (typeof body.sessionId !== "string") throw new Error("invalid memory exploration response");
+  if (op === "close") {
+    if (
+      body.state !== "closed" ||
+      typeof body.found !== "boolean" ||
+      (body.summary !== null && typeof body.summary !== "string") ||
+      !Array.isArray(body.citations) ||
+      typeof body.duplicate !== "boolean"
+    )
+      throw new Error("invalid memory exploration response");
+    return {
+      op,
+      sessionId: body.sessionId,
+      state: "closed",
+      found: body.found,
+      summary: body.summary ?? null,
+      citations: body.citations as Array<
+        Pick<MemoryExplorationCitation, "citationId" | "kind" | "id">
+      >,
+      duplicate: body.duplicate,
+    };
+  }
+  if (
+    (body.state !== "active" && body.state !== "closed" && body.state !== "expired") ||
+    !Array.isArray(body.items) ||
+    typeof body.remainingSteps !== "number" ||
+    typeof body.duplicate !== "boolean"
+  )
+    throw new Error("invalid memory exploration response");
+  const response: MemoryExplorationResponse = {
+    op,
+    sessionId: body.sessionId,
+    state: body.state,
+    items: (body.items as unknown[]).map(decodeMemoryCitation),
+    remainingSteps: body.remainingSteps,
+    duplicate: body.duplicate,
+    ...(typeof body.query === "string" ? { query: body.query } : {}),
+  };
+  return response;
+}
