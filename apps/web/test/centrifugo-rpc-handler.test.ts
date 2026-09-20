@@ -237,7 +237,7 @@ describe("CentrifugoRpcHandler", () => {
     });
     const payload = encodeAgentMessageDeliveryAck({
       protocolMajor: 1,
-      method: "agent:deliver:ack",
+      method: "agent:v1:message:ack",
       requestId: "request-1",
       workspaceId: "workspace-1",
       agentId: "agent-1",
@@ -923,7 +923,7 @@ describe("CentrifugoRpcHandler", () => {
     process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = "test-secret";
     const result = await handler.handleRequest(
       authorizedJson({
-        method: "workspace:list",
+        method: "workspace:v1:list",
         b64data: "AA==",
         user: "user-1",
       }),
@@ -942,7 +942,7 @@ describe("CentrifugoRpcHandler", () => {
     const previous = process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
     process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = "test-secret";
     try {
-      for (const method of ["workspace:get", "computer:register"]) {
+      for (const method of ["workspace:v1:get", "computer:v1:register"]) {
         const result = await handler.handleRequest(authorizedJson({ method, b64data: "AA==" }));
         expect(await result.json()).toEqual({
           error: { code: 404, message: "unknown RPC method" },

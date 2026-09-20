@@ -5,8 +5,8 @@ import {
 } from "./gen/coforge/rpc/v1/agent_control_pb";
 import { parseRuntimeProvider, type RuntimeProvider } from "./index";
 
-export const AGENT_WORKSPACE_RESET_METHOD = "agent:reset-workspace" as const;
-export const AGENT_CONTROL_RESULT_METHOD = "agent:control:result" as const;
+export const AGENT_WORKSPACE_RESET_METHOD = "agent:v1:workspace:reset" as const;
+export const AGENT_CONTROL_RESULT_METHOD = "agent:v1:control:result" as const;
 
 const WORKSPACE_RESET_TYPE = "coforge.rpc.v1.AgentWorkspaceResetRequest";
 const RESULT_TYPE = "coforge.rpc.v1.AgentControlResult";

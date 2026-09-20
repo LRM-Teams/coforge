@@ -160,7 +160,7 @@ describe("SendDirectMessage", () => {
       conversationId: "conversation-a",
       agentId: "agent-a",
       body: "Hello Agent",
-      method: "agent:deliver",
+      method: "agent:v1:message:deliver",
       target: "@ada",
       latestSender: "@ada",
     });

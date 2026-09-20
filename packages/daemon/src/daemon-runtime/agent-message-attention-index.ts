@@ -126,7 +126,7 @@ export class AgentMessageAttentionIndex {
       }
       await this.sendAck({
         ...message,
-        method: "agent:deliver:ack",
+        method: "agent:v1:message:ack",
         requestId: message.requestId,
       });
       return;
@@ -136,7 +136,7 @@ export class AgentMessageAttentionIndex {
     if (this.modelSeenSequence(message.agentId, target) >= message.sequence) {
       await this.sendAck({
         ...message,
-        method: "agent:deliver:ack",
+        method: "agent:v1:message:ack",
         requestId: message.requestId,
       });
       return;
@@ -166,7 +166,11 @@ export class AgentMessageAttentionIndex {
     }
     await this.#notify(message, current);
     if (this.#generations.get(message.agentId) !== generation) return;
-    await this.sendAck({ ...message, method: "agent:deliver:ack", requestId: message.requestId });
+    await this.sendAck({
+      ...message,
+      method: "agent:v1:message:ack",
+      requestId: message.requestId,
+    });
   }
 
   /**
@@ -187,7 +191,11 @@ export class AgentMessageAttentionIndex {
     await this.#notify(held[held.length - 1]!, undefined, held);
     if (this.#generations.get(agentId) !== generation) return;
     for (const message of held)
-      await this.sendAck({ ...message, method: "agent:deliver:ack", requestId: message.requestId });
+      await this.sendAck({
+        ...message,
+        method: "agent:v1:message:ack",
+        requestId: message.requestId,
+      });
   }
 
   async recover(

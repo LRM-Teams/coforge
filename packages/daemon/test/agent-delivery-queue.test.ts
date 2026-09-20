@@ -12,7 +12,7 @@ const delivery = (id: string): AgentMessageDelivery => ({
   conversationId: "conversation-1",
   agentId: "agent-1",
   body: "body",
-  method: "agent:deliver",
+  method: "agent:v1:message:deliver",
   target: "@ada",
 });
 

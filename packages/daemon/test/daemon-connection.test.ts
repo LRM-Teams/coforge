@@ -112,7 +112,7 @@ test("sends delivery ACK through the RPC method, not a publication", async () =>
   await transport.sendAgentDeliveryAck(ack);
   expect(published).toBe(false);
   expect(calls.map(({ method }) => method)).toEqual([
-    "daemon:connection_status",
+    "daemon:v1:connection:status",
     AGENT_MESSAGE_ACK_METHOD,
   ]);
   expect(decodeAgentMessageDeliveryAck(calls[1]!.data)).toMatchObject(ack);
@@ -185,7 +185,7 @@ test("sends Agent status transitions through the status RPC", async () => {
   await Promise.resolve();
 
   expect(calls.map(({ method }) => method)).toEqual([
-    "daemon:connection_status",
+    "daemon:v1:connection:status",
     AGENT_STATUS_METHOD,
   ]);
   expect(decodeAgentStatus(calls[1]!.data)).toEqual({
@@ -223,7 +223,7 @@ test("refreshes Computer online status while the connection remains active", asy
   refresh();
   await Promise.resolve();
 
-  expect(calls.filter(({ method }) => method === "daemon:connection_status")).toHaveLength(2);
+  expect(calls.filter(({ method }) => method === "daemon:v1:connection:status")).toHaveLength(2);
   expect(JSON.parse(new TextDecoder().decode(calls[1]!.data))).toEqual({
     ...config,
     online: true,
@@ -391,7 +391,7 @@ test("sends the session invalidate RPC (not a publication) when connected", asyn
 
   expect(published).toBe(false);
   expect(calls.map(({ method }) => method)).toEqual([
-    "daemon:connection_status",
+    "daemon:v1:connection:status",
     AGENT_SESSION_INVALIDATE_METHOD,
   ]);
   expect(decodeAgentSessionInvalidate(calls[1]!.data)).toEqual(message);
@@ -664,7 +664,7 @@ test("sends the context usage RPC (not a publication) when connected", async () 
 
   expect(published).toBe(false);
   expect(calls.map(({ method }) => method)).toEqual([
-    "daemon:connection_status",
+    "daemon:v1:connection:status",
     AGENT_CONTEXT_USAGE_METHOD,
   ]);
   expect(decodeAgentContextUsage(calls[1]!.data)).toEqual(message);
@@ -1112,7 +1112,7 @@ test("retries reconnect ready on the same connection before releasing buffered p
       conversationId: "conversation-1",
       agentId: "agent-1",
       body: "hello",
-      method: "agent:deliver",
+      method: "agent:v1:message:deliver",
       target: "@alice",
     }),
   );

@@ -1614,7 +1614,7 @@ export class DaemonRuntime {
     return (
       this.#transport.sendAgentDeliveryAck?.({
         ...message,
-        method: "agent:deliver:ack",
+        method: "agent:v1:message:ack",
         requestId: message.requestId,
       }) ?? Promise.resolve()
     );

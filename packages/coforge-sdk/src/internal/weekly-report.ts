@@ -1,5 +1,5 @@
 /** Agent HTTPS weekly-report reads. Authorization is the assistant owner User. */
-export const AGENT_WEEKLY_REPORT_METHOD = "agent:weekly-report" as const;
+export const AGENT_WEEKLY_REPORT_METHOD = "agent:v1:weekly_report:get" as const;
 export const WEEKLY_REPORT_PROTOCOL_MAJOR = 1 as const;
 
 export const WEEKLY_REPORT_SUBJECT_TYPES = ["report", "cycle"] as const;

@@ -5,8 +5,8 @@ import {
 } from "./gen/coforge/rpc/v1/agent_skills_pb";
 import { parseRuntimeProvider, type RuntimeProvider } from "./index";
 
-export const AGENT_SKILLS_LIST_METHOD = "agent:skills:list";
-export const AGENT_SKILLS_LIST_RESULT_METHOD = "agent:skills:list_result";
+export const AGENT_SKILLS_LIST_METHOD = "agent:v1:skills:list";
+export const AGENT_SKILLS_LIST_RESULT_METHOD = "agent:v1:skills:list_result";
 const REQUEST_TYPE = "coforge.rpc.v1.AgentSkillsListRequest";
 const RESULT_TYPE = "coforge.rpc.v1.AgentSkillsListResult";
 const MAX_BYTES = 1_048_576;

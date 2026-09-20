@@ -23,7 +23,7 @@ import {
   type TaskView,
 } from "./tasks";
 
-export const AGENT_TASK_METHOD = "agent:task" as const;
+export const AGENT_TASK_METHOD = "agent:v1:task:get" as const;
 export const TASK_PROTOCOL_MAJOR = 1 as const;
 export type TaskRequest = TaskCommand & {
   protocolMajor: number;

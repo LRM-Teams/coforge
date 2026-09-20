@@ -43,7 +43,7 @@ test("workspace:get request and response roundtrip their public fields", () => {
 });
 
 test("workspace query methods and protocol major are stable", () => {
-  expect(WORKSPACE_LIST_METHOD).toBe("workspace:list");
-  expect(WORKSPACE_GET_METHOD).toBe("workspace:get");
+  expect(WORKSPACE_LIST_METHOD).toBe("workspace:v1:list");
+  expect(WORKSPACE_GET_METHOD).toBe("workspace:v1:get");
   expect(WORKSPACE_PROTOCOL_MAJOR).toBe(1);
 });

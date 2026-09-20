@@ -768,7 +768,7 @@ async function queueHarness(
         conversationId: "conversation-a",
         agentId: "agent-a",
         body: "private",
-        method: "agent:deliver",
+        method: "agent:v1:message:deliver",
         target: "@ada",
       }),
   };
@@ -831,7 +831,7 @@ async function messageHarness(
         conversationId: "conversation-a",
         agentId: "agent-a",
         body: `body-${sequence}`,
-        method: "agent:deliver",
+        method: "agent:v1:message:deliver",
         target,
       }),
   };
@@ -1500,7 +1500,7 @@ describe("DaemonRuntime", () => {
       conversationId: "conversation-a",
       agentId: "agent-a",
       body: "new message",
-      method: "agent:deliver",
+      method: "agent:v1:message:deliver",
       target: "@ada",
     });
 
@@ -2484,7 +2484,7 @@ describe("DaemonRuntime", () => {
       conversationId: "conversation-a",
       agentId: "agent-a",
       body: "body-1",
-      method: "agent:deliver",
+      method: "agent:v1:message:deliver",
       target: "@ada",
     });
     await runtime.handleAgentMessage({
@@ -2497,7 +2497,7 @@ describe("DaemonRuntime", () => {
       conversationId: "conversation-b",
       agentId: "agent-a",
       body: "body-9",
-      method: "agent:deliver",
+      method: "agent:v1:message:deliver",
       target: "@carl",
     });
     const context = runtime.issueAgentContext("agent-a");
@@ -2597,7 +2597,7 @@ describe("DaemonRuntime", () => {
       conversationId: "conversation-a",
       agentId: "agent-a",
       body: "new context",
-      method: "agent:deliver",
+      method: "agent:v1:message:deliver",
       target: "@ada",
     });
 
@@ -2836,7 +2836,7 @@ describe("DaemonRuntime", () => {
       conversationId: "conversation-1",
       agentId: "agent-a",
       body: "private body",
-      method: "agent:deliver",
+      method: "agent:v1:message:deliver",
       target: "@agent",
     });
     expect(starts).toBe(2);
@@ -3552,7 +3552,7 @@ describe("DaemonRuntime", () => {
               conversationId: "conversation-a",
               agentId: "agent-a",
               body: "hello",
-              method: "agent:deliver",
+              method: "agent:v1:message:deliver",
               target: "@ada",
             });
             startListener?.({
@@ -5982,7 +5982,7 @@ describe("DaemonRuntime", () => {
         conversationId: "conversation-a",
         agentId: "agent-a",
         body: "private chat body",
-        method: "agent:deliver",
+        method: "agent:v1:message:deliver",
         target: "@ada",
       });
       await runtime.drainAppInboxNotices("agent-a");
@@ -6550,7 +6550,7 @@ describe("Agent delivery queue (ADR 0048)", () => {
           conversationId: "conversation-a",
           agentId: "agent-a",
           body: `body-${sequence}`,
-          method: "agent:deliver",
+          method: "agent:v1:message:deliver",
           target: "@ada",
         }),
     };

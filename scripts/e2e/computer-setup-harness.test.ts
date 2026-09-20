@@ -24,7 +24,7 @@ test("Computer setup harness exercises the compiled CLI and real daemon path", (
   expect(fixtureBuild).toContain("COFORGE_E2E_CENTRIFUGO_ENDPOINT");
   expect(fixtureBuild).toContain("COFORGE_SERVER_URL");
   expect(fixtureBuild).toContain("COFORGE_DAEMON_SERVER_URL");
-  expect(harness).toContain("computer:register");
+  expect(harness).toContain("computer:v1:register");
   expect(harness).toContain(".coforge/computer/install/active/coforge-computer");
   expect(harness).not.toContain("InMemoryDaemon");
   expect(harness).not.toContain("TRUNCATE");
