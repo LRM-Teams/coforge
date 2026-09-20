@@ -850,10 +850,11 @@ test("a stale stop-failed record from a gone daemon instance is repaired so a ne
       },
     },
   );
-  await control.initialize();
-
-  const { records: logs } = await captureLogs(() =>
-    control.start({
+  // The stale record the previous daemon instance left behind is repaired at boot now, before
+  // any control operation arrives — capture both so the repair log is observed where it happens.
+  const { records: logs } = await captureLogs(async () => {
+    await control.initialize();
+    await control.start({
       protocolMajor: 1,
       requestId: "start-9",
       workspaceId: "w",
@@ -864,15 +865,15 @@ test("a stale stop-failed record from a gone daemon instance is repaired so a ne
       reasoning: "",
       controlEpoch: 9,
       launchId: "launch-16",
-    }),
-  );
+    });
+  });
 
   expect(launches).toBe(1);
   expect(results.at(-1)).toMatchObject({ phase: "started", requestId: "start-9" });
   expect(record).toMatchObject({ phase: "running" });
 
   const repair = logs.find(
-    (entry) => entry.properties.event === "agent_control:stale_record_repaired",
+    (entry) => entry.properties.event === "agent_control:interrupted_operation_repaired",
   );
   expect(repair?.level).toBe("error");
   expect(repair?.properties).toMatchObject({
@@ -1637,4 +1638,124 @@ test("a managed Start intent with no launchId sends a failed result instead of m
     requestId: "start-1",
     errorCode: "agent_launch_id_required",
   });
+});
+
+/** Seeds one persisted record and reports what `initialize` repairs and sends to the server. */
+function bootStore(record: AgentRuntimeRecord | undefined) {
+  let current = record && structuredClone(record);
+  const writes: AgentRuntimeRecord[] = [];
+  const results: AgentControlResult[] = [];
+  const state = new AgentRuntimeState({
+    listAgentIds: async () => (current ? ["a"] : []),
+    workspaceExists: async () => false,
+    read: async () => current && structuredClone(current),
+    write: async (_id, value) => {
+      current = structuredClone(value);
+      writes.push(structuredClone(value));
+    },
+    clearWorkspace: async () => {},
+  });
+  return {
+    state,
+    writes,
+    results,
+    control: new AgentControl("daemon-new", state, new AgentSessions(state, async () => {}), {
+      running: () => false,
+      cleanupUnconfirmed,
+      stop: async () => undefined,
+      launch: async () => {
+        throw new Error("initialize must not launch");
+      },
+      rebind: async () => undefined,
+      async result(reported: AgentControlResult) {
+        results.push(reported);
+      },
+    }),
+    read: () => current && structuredClone(current),
+  };
+}
+
+function startingRecord(): AgentRuntimeRecord {
+  const scope: AgentControlScope = {
+    protocolMajor: 1,
+    requestId: "start-4",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi",
+    epoch: 4,
+  };
+  return {
+    version: 1,
+    scope,
+    action: "start",
+    phase: "starting",
+    daemonInstanceId: "daemon-old",
+    sequence: 2,
+    launchId: "launch-4",
+  };
+}
+
+test("initialize settles a start left starting by a gone daemon instance", async () => {
+  const boot = bootStore(startingRecord());
+  await boot.control.initialize();
+  // The local record lands on "stopped" — startable — never "failed", so the Daemon-ready
+  // recovery Start (a fresh epoch after the server settles the failed one) is not fenced.
+  const repaired = boot.read();
+  expect(repaired?.phase).toBe("stopped");
+  expect(repaired?.lastResult).toMatchObject({
+    phase: "failed",
+    requestId: "start-4",
+    epoch: 4,
+    launchId: "launch-4",
+    sequence: 3,
+    errorCode: "daemon_restarted",
+  });
+  expect(boot.results).toHaveLength(1);
+});
+
+test("initialize reports the interrupted stop's own receipt and lands the record on stopped", async () => {
+  const boot = bootStore(legacyStopFailedRecord());
+  await boot.control.initialize();
+  const repaired = boot.read();
+  expect(repaired?.phase).toBe("stopped");
+  expect(boot.results).toHaveLength(1);
+  expect(boot.results[0]).toMatchObject({
+    phase: "failed",
+    requestId: "stop-8",
+    epoch: 8,
+  });
+});
+
+test("initialize repairs a running-phase record left by a gone instance without inventing a result", async () => {
+  const record = startingRecord();
+  record.phase = "running";
+  record.startResult = {
+    ...record.scope,
+    phase: "started",
+    launchId: "launch-4",
+    sequence: 3,
+  };
+  const boot = bootStore(record);
+  await boot.control.initialize();
+  expect(boot.read()?.phase).toBe("stopped");
+  // The start's own outcome was already reported when it launched; the daemon death is not a
+  // new operation, so there is nothing to settle — the Daemon-ready recovery re-dispatches.
+  expect(boot.results).toHaveLength(0);
+});
+
+test("initialize leaves an exit-unconfirmed record fenced and a terminal record untouched", async () => {
+  const fenced = { ...startingRecord(), exitUnconfirmed: true };
+  const boot = bootStore(fenced);
+  await boot.control.initialize();
+  expect(boot.read()).toEqual(fenced);
+  expect(boot.results).toHaveLength(0);
+  expect(boot.writes).toHaveLength(0);
+
+  const stopped = { ...startingRecord(), phase: "stopped" as const };
+  const boot2 = bootStore(stopped);
+  await boot2.control.initialize();
+  expect(boot2.read()).toEqual(stopped);
+  expect(boot2.results).toHaveLength(0);
+  expect(boot2.writes).toHaveLength(0);
 });
