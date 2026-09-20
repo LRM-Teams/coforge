@@ -109,7 +109,9 @@ export async function acquireSupervisorLock(stateDirectory: string): Promise<Pro
     return acquireProcessLock(lockPath);
   } catch (error) {
     if (!isLockContention(error)) throw error;
-    throw new Error(await describeSupervisorLockHeld(stateDirectory, lockPath));
+    // Keeps SQLite's own code on the cause, so the technical reason survives for anyone reading
+    // a stack trace while the message stays the one a person can act on.
+    throw new Error(await describeSupervisorLockHeld(stateDirectory, lockPath), { cause: error });
   }
 }
 
