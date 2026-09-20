@@ -13,6 +13,7 @@ import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import { RecordsReadingColumn } from "./records-reading-column";
 import {
   dropEdgeFromClientY,
   MAX_LEVEL,
@@ -249,117 +250,119 @@ export function ReportTemplateOutlineEditor({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-      <div className="flex w-full flex-col gap-1">
-        <div className="flex items-center gap-2 pb-2">
-          <Dropdown.Root>
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <RecordsReadingColumn>
+        <div className="flex w-full flex-col gap-1">
+          <div className="flex items-center gap-2 pb-2">
+            <Dropdown.Root>
+              <Button
+                type="button"
+                size="sm"
+                color="link-gray"
+                iconLeading={Plus}
+                className="w-fit px-1 text-brand-secondary"
+              >
+                {m.records_template_add_heading()}
+              </Button>
+              <Dropdown.Popover placement="bottom start" className="w-44">
+                <Dropdown.Menu
+                  onAction={(key) => {
+                    const level = Number(String(key).replace("heading-", "")) as HeadingLevel;
+                    addHeading(level);
+                  }}
+                >
+                  {([1, 2, 3, 4, 5] as const).map((level) => (
+                    <Dropdown.Item key={level} id={`heading-${level}`} label={addLabel(level)} />
+                  ))}
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown.Root>
             <Button
               type="button"
               size="sm"
               color="link-gray"
               iconLeading={Plus}
+              onPress={() => addBody()}
               className="w-fit px-1 text-brand-secondary"
             >
-              {m.records_template_add_heading()}
+              {m.records_template_add_body()}
             </Button>
-            <Dropdown.Popover placement="bottom start" className="w-44">
-              <Dropdown.Menu
-                onAction={(key) => {
-                  const level = Number(String(key).replace("heading-", "")) as HeadingLevel;
-                  addHeading(level);
-                }}
-              >
-                {([1, 2, 3, 4, 5] as const).map((level) => (
-                  <Dropdown.Item key={level} id={`heading-${level}`} label={addLabel(level)} />
-                ))}
-              </Dropdown.Menu>
-            </Dropdown.Popover>
-          </Dropdown.Root>
-          <Button
-            type="button"
-            size="sm"
-            color="link-gray"
-            iconLeading={Plus}
-            onPress={() => addBody()}
-            className="w-fit px-1 text-brand-secondary"
-          >
-            {m.records_template_add_body()}
-          </Button>
-        </div>
+          </div>
 
-        {nodes.map((node, index) => {
-          const dropEdge =
-            dropIndicator?.targetId === node.id && draggedId !== node.id
-              ? dropIndicator.edge
-              : null;
-          const rowProps = {
-            dragging: draggedId === node.id,
-            dropEdge,
-            style: { paddingLeft: `${0.5 + depthAt(nodes, index) * 1.75}rem` } as CSSProperties,
-            onDragStart: (event: DragEvent<HTMLDivElement>) => handleDragStart(event, node.id),
-            onDragOver: (event: DragEvent<HTMLDivElement>) => handleDragOver(event, node.id),
-            onDrop: (event: DragEvent<HTMLDivElement>) => handleDrop(event, node.id),
-            onDragEnd: handleDragEnd,
-          };
+          {nodes.map((node, index) => {
+            const dropEdge =
+              dropIndicator?.targetId === node.id && draggedId !== node.id
+                ? dropIndicator.edge
+                : null;
+            const rowProps = {
+              dragging: draggedId === node.id,
+              dropEdge,
+              style: { paddingLeft: `${0.5 + depthAt(nodes, index) * 1.75}rem` } as CSSProperties,
+              onDragStart: (event: DragEvent<HTMLDivElement>) => handleDragStart(event, node.id),
+              onDragOver: (event: DragEvent<HTMLDivElement>) => handleDragOver(event, node.id),
+              onDrop: (event: DragEvent<HTMLDivElement>) => handleDrop(event, node.id),
+              onDragEnd: handleDragEnd,
+            };
 
-          if (node.kind === "body") {
+            if (node.kind === "body") {
+              return (
+                <OutlineRow key={node.id} body {...rowProps}>
+                  {dragHandle()}
+                  <input
+                    aria-label={m.records_template_body_label()}
+                    value={node.text}
+                    placeholder={m.records_template_body_placeholder()}
+                    onChange={(event) => updateText(node.id, event.target.value)}
+                    onBlur={onBlur}
+                    className="min-w-0 flex-1 bg-transparent px-0.5 text-sm leading-6 text-primary outline-none placeholder:text-placeholder"
+                  />
+                  <ButtonUtility
+                    size="xs"
+                    color="tertiary"
+                    icon={X}
+                    aria-label={`${m.records_template_delete_body()}: ${node.text || m.records_template_body_placeholder()}`}
+                    onClick={() => removeNode(node.id)}
+                    className="size-6 p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  />
+                </OutlineRow>
+              );
+            }
+
+            const childLevel = Math.min(node.level + 1, MAX_LEVEL) as HeadingLevel;
+            const canAddChild = node.level < MAX_LEVEL;
             return (
-              <OutlineRow key={node.id} body {...rowProps}>
+              <OutlineRow key={node.id} body={false} {...rowProps}>
                 {dragHandle()}
                 <input
-                  aria-label={m.records_template_body_label()}
+                  aria-label={`${m.records_template_heading_label()} ${node.level}`}
                   value={node.text}
-                  placeholder={m.records_template_body_placeholder()}
                   onChange={(event) => updateText(node.id, event.target.value)}
                   onBlur={onBlur}
-                  className="min-w-0 flex-1 bg-transparent px-0.5 text-sm leading-6 text-primary outline-none placeholder:text-placeholder"
+                  className={`min-w-0 flex-1 bg-transparent px-0.5 text-primary outline-none placeholder:text-placeholder ${headingClass(node.level)}`}
                 />
+                {canAddChild ? (
+                  <ButtonUtility
+                    size="xs"
+                    color="tertiary"
+                    icon={Plus}
+                    aria-label={addLabel(childLevel)}
+                    onClick={() => addHeading(childLevel, node.id)}
+                    className="size-6 shrink-0 p-1 opacity-60 hover:opacity-100"
+                  />
+                ) : null}
                 <ButtonUtility
                   size="xs"
                   color="tertiary"
                   icon={X}
-                  aria-label={`${m.records_template_delete_body()}: ${node.text || m.records_template_body_placeholder()}`}
+                  aria-label={`${m.records_template_delete_heading()}: ${node.text}`}
                   onClick={() => removeNode(node.id)}
-                  className="size-6 p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  className="size-6 shrink-0 p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                 />
               </OutlineRow>
             );
-          }
-
-          const childLevel = Math.min(node.level + 1, MAX_LEVEL) as HeadingLevel;
-          const canAddChild = node.level < MAX_LEVEL;
-          return (
-            <OutlineRow key={node.id} body={false} {...rowProps}>
-              {dragHandle()}
-              <input
-                aria-label={`${m.records_template_heading_label()} ${node.level}`}
-                value={node.text}
-                onChange={(event) => updateText(node.id, event.target.value)}
-                onBlur={onBlur}
-                className={`min-w-0 flex-1 bg-transparent px-0.5 text-primary outline-none placeholder:text-placeholder ${headingClass(node.level)}`}
-              />
-              {canAddChild ? (
-                <ButtonUtility
-                  size="xs"
-                  color="tertiary"
-                  icon={Plus}
-                  aria-label={addLabel(childLevel)}
-                  onClick={() => addHeading(childLevel, node.id)}
-                  className="size-6 shrink-0 p-1 opacity-60 hover:opacity-100"
-                />
-              ) : null}
-              <ButtonUtility
-                size="xs"
-                color="tertiary"
-                icon={X}
-                aria-label={`${m.records_template_delete_heading()}: ${node.text}`}
-                onClick={() => removeNode(node.id)}
-                className="size-6 shrink-0 p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              />
-            </OutlineRow>
-          );
-        })}
-      </div>
+          })}
+        </div>
+      </RecordsReadingColumn>
     </div>
   );
 }

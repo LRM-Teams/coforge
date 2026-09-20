@@ -29,7 +29,7 @@ import { Maximize02 as Maximize2 } from "@untitledui/icons";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { useT } from "./i18n";
-import { normalizeMermaidChart } from "./normalize-mermaid-chart";
+import { normalizeMermaidChart, sanitizeMermaidSvg } from "./normalize-mermaid-chart";
 
 export type MermaidDiagramHandle = {
   openFullscreen: () => void;
@@ -137,6 +137,26 @@ function getMermaidLayout(svg: string): MermaidLayout {
 // such space upfront so async content doesn't shift surrounding layout.
 const MERMAID_SKELETON_HEIGHT_PX = 280;
 const MERMAID_LAYOUT_CACHE_PREFIX = "multica:mermaid:layout:";
+/**
+ * Soft preview caps. Prefer nearly full reading-column width; only shrink
+ * when the native viewBox would dominate the page. Height is capped lightly
+ * so tall mindmaps stay readable without a postage-stamp scale.
+ */
+const MERMAID_PREVIEW_MAX_WIDTH_PX = 840;
+const MERMAID_PREVIEW_MAX_HEIGHT_PX = 520;
+
+function getPreviewFrameSize(layout: MermaidLayout): { width?: number; height?: number } {
+  if (!layout.width || !layout.height) return {};
+  const scale = Math.min(
+    1,
+    MERMAID_PREVIEW_MAX_WIDTH_PX / layout.width,
+    MERMAID_PREVIEW_MAX_HEIGHT_PX / layout.height,
+  );
+  return {
+    width: Math.round(layout.width * scale),
+    height: Math.round(layout.height * scale),
+  };
+}
 
 // DJB2 — small, fast, sufficient for sessionStorage cache keys. The chart
 // text itself is too unwieldy as a key (length, special chars), and a
@@ -186,7 +206,10 @@ function writeCachedLayout(chart: string, layout: MermaidLayout): void {
 function buildSandboxedMermaidDocument(svg: string, host: HTMLElement | null): string {
   const cssVariables = getSandboxCssVariables(host);
 
-  return `<!doctype html><html><head><style>:root { ${cssVariables} } body { margin: 0; display: flex; justify-content: center; background: transparent; } svg { max-width: 100%; height: auto; }</style></head><body>${svg}</body></html>`;
+  // html/body fill the iframe and clip overflow. Mermaid SVGs often keep
+  // explicit width/height attributes; without max-height + overflow:hidden
+  // the iframe shows an inner scrollbar around a tiny centered diagram.
+  return `<!doctype html><html><head><style>:root { ${cssVariables} } html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; } body { display: flex; align-items: center; justify-content: center; background: transparent; } svg { max-width: 100%; max-height: 100%; width: auto; height: auto; }</style></head><body>${svg}</body></html>`;
 }
 
 function buildExpandedMermaidDocument(svg: string, host: HTMLElement | null): string {
@@ -200,17 +223,15 @@ function useThemeVersion() {
 
   useEffect(() => {
     const bumpThemeVersion = () => setThemeVersion((version) => version + 1);
+    // Watch only the documentElement theme surface. Do not observe `body`
+    // attributes: React Aria ModalOverlay applies scroll-lock styles there,
+    // which would bump themeVersion, clear the sandboxed docs mid-open, and
+    // unmount the lightbox (fullscreen click → brief flash → nothing).
     const observer = new MutationObserver(bumpThemeVersion);
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["class", "style", "data-theme"],
+      attributeFilter: ["class", "data-theme"],
     });
-    if (document.body) {
-      observer.observe(document.body, {
-        attributes: true,
-        attributeFilter: ["class", "style", "data-theme"],
-      });
-    }
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     mediaQuery.addEventListener("change", bumpThemeVersion);
@@ -268,12 +289,8 @@ export function MermaidDiagram({
     async function renderDiagram() {
       try {
         setError(null);
-        svgRef.current = null;
-        setSandboxedDocument(null);
-        setExpandedDocument(null);
-        // Seed layout from cache (if any) so the skeleton sizes correctly
-        // even when `chart` changes after mount — the lazy useState above
-        // only fires once.
+        // Keep prior sandboxed/expanded docs until the next render succeeds so
+        // an in-flight fullscreen lightbox is not torn down mid-open.
         setLayout(readCachedLayout(chart) ?? {});
         const mermaid = await getMermaid();
         mermaid.initialize({
@@ -285,15 +302,19 @@ export function MermaidDiagram({
         const normalizedChart = normalizeMermaidChart(chart);
         const { svg: renderedSvg } = await mermaid.render(diagramId, normalizedChart);
         if (!cancelled) {
-          const measured = getMermaidLayout(renderedSvg);
+          const svg = sanitizeMermaidSvg(renderedSvg);
+          const measured = getMermaidLayout(svg);
           setLayout(measured);
           writeCachedLayout(chart, measured);
-          svgRef.current = renderedSvg;
-          setSandboxedDocument(buildSandboxedMermaidDocument(renderedSvg, containerRef.current));
-          setExpandedDocument(buildExpandedMermaidDocument(renderedSvg, containerRef.current));
+          svgRef.current = svg;
+          setSandboxedDocument(buildSandboxedMermaidDocument(svg, containerRef.current));
+          setExpandedDocument(buildExpandedMermaidDocument(svg, containerRef.current));
         }
       } catch (err) {
         if (!cancelled) {
+          svgRef.current = null;
+          setSandboxedDocument(null);
+          setExpandedDocument(null);
           setError(err instanceof Error ? err.message : "Failed to render Mermaid diagram");
         }
       }
@@ -321,9 +342,10 @@ export function MermaidDiagram({
   // height (cached real height when available, fallback default otherwise).
   // Once the iframe renders, drop the min-height — the iframe's own height
   // drives layout. If the cache was right, this transition is zero-shift.
+  const previewSize = getPreviewFrameSize(layout);
   const containerStyle: CSSProperties | undefined = sandboxedDocument
     ? undefined
-    : { minHeight: layout.height ?? MERMAID_SKELETON_HEIGHT_PX };
+    : { minHeight: previewSize.height ?? MERMAID_SKELETON_HEIGHT_PX };
 
   return (
     <div
@@ -339,8 +361,12 @@ export function MermaidDiagram({
             sandbox=""
             srcDoc={sandboxedDocument}
             style={{
-              height: layout.height ? `${layout.height}px` : undefined,
-              width: layout.width ? `${layout.width}px` : undefined,
+              width: previewSize.width ? `min(100%, ${previewSize.width}px)` : "100%",
+              aspectRatio:
+                previewSize.width && previewSize.height
+                  ? `${previewSize.width} / ${previewSize.height}`
+                  : undefined,
+              height: "auto",
             }}
             aria-label="Mermaid diagram"
           />
@@ -355,27 +381,30 @@ export function MermaidDiagram({
               />
             </div>
           )}
-          <ModalOverlay isOpen={lightboxOpen} onOpenChange={setLightboxOpen}>
-            <Modal className="h-[min(90vh,calc(100vh-2rem))] w-full max-w-6xl overflow-hidden bg-secondary">
-              <Dialog
-                aria-label={t(($) => $.code_block.fullscreen)}
-                className="h-full overflow-hidden"
-              >
-                {expandedDocument ? (
-                  <iframe
-                    className="mermaid-diagram-lightbox-frame h-full w-full rounded-none border-0 bg-secondary"
-                    sandbox=""
-                    srcDoc={expandedDocument}
-                    aria-label="Mermaid diagram fullscreen"
-                  />
-                ) : null}
-              </Dialog>
-            </Modal>
-          </ModalOverlay>
         </>
       ) : (
         <div className="mermaid-diagram-loading">{t(($) => $.mermaid.rendering)}</div>
       )}
+      {/* Lightbox stays outside the sandboxedDocument gate so a theme/chart
+          re-render cannot unmount an open ModalOverlay. */}
+      <ModalOverlay
+        isOpen={lightboxOpen && Boolean(expandedDocument)}
+        onOpenChange={setLightboxOpen}
+        isDismissable
+      >
+        <Modal className="h-[min(90vh,calc(100vh-2rem))] w-full max-w-6xl overflow-hidden bg-secondary">
+          <Dialog aria-label={t(($) => $.code_block.fullscreen)} className="h-full overflow-hidden">
+            {expandedDocument ? (
+              <iframe
+                className="mermaid-diagram-lightbox-frame h-full w-full rounded-none border-0 bg-secondary"
+                sandbox=""
+                srcDoc={expandedDocument}
+                aria-label="Mermaid diagram fullscreen"
+              />
+            ) : null}
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
     </div>
   );
 }

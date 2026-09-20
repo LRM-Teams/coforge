@@ -80,6 +80,7 @@ function languageLabel(language: string): string {
 
 /** Stop ProseMirror from treating toolbar clicks as editor selection. */
 function stopToolbarBubble(event: ReactMouseEvent) {
+  event.preventDefault();
   event.stopPropagation();
 }
 
@@ -136,10 +137,10 @@ function CodeBlockToolbar({
           color="tertiary"
           data-testid="code-block-language"
           aria-label={t(($) => $.code_block.language)}
-          className="h-6 gap-1 rounded-md bg-primary_hover px-2 py-0 text-xs text-quaternary"
+          className="h-6 gap-1 rounded-md bg-primary_hover px-2 py-0 text-xs font-normal text-quaternary"
+          iconTrailing={ChevronDown}
         >
-          <span className="select-none">{languageLabel(currentLanguage)}</span>
-          <ChevronDown className="size-3 opacity-70" />
+          {languageLabel(currentLanguage)}
         </Button>
         <Dropdown.Popover placement="bottom start" offset={4} className="w-40">
           <Dropdown.Menu selectionMode="single" selectedKeys={[currentLanguage]}>
@@ -336,7 +337,7 @@ function CodeBlockView({ node, updateAttributes, deleteNode, editor, getPos }: N
     <NodeViewWrapper className="code-block-wrapper group/code relative my-2">
       <div
         className={cn(
-          "code-block-frame relative overflow-hidden rounded-md bg-primary_hover",
+          "code-block-frame relative overflow-hidden rounded-md bg-secondary",
           isMermaid &&
             mermaidView === "diagram" &&
             !hasMermaidChart &&
