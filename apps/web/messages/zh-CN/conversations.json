@@ -81,6 +81,7 @@
   "conversation_drop_to_upload": "拖放以上传",
   "conversation_attachment_download": "下载",
   "conversation_attachment_preview_open": "预览 {name}",
+  "conversation_attachment_preview_hint": "可预览",
   "conversation_attachment_preview_loading": "正在加载预览…",
   "conversation_attachment_preview_failed": "这个文件无法预览，请下载后查看。",
   "conversation_attachment_preview_too_large": "这个文件太大，无法预览，请下载后查看。",
