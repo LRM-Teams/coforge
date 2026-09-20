@@ -78,6 +78,7 @@ type Setup = {
     status?: string;
     rootSequence?: number;
     conversationId?: string;
+    createdAt?: Date;
   }) => Promise<string>;
 };
 
@@ -119,6 +120,11 @@ async function setup(): Promise<Setup> {
     return messageId;
   };
   const addTask: Setup["addTask"] = async (options = {}) => {
+    // The task root message must be backdatable: quiet-window eligibility
+    // compares message createdAt against a frozen test clock, and an
+    // unbackdated root (real "now") silently disables the quiet trigger
+    // once real time passes the test's cutoff.
+
     const taskConversationId = options.conversationId ?? conversation.id;
     const taskMessageId = crypto.randomUUID();
     let rootSequence = options.rootSequence;
@@ -136,6 +142,7 @@ async function setup(): Promise<Setup> {
         senderMemberId: member.id,
         body: "task root message",
         sequence: rootSequence,
+        ...(options.createdAt ? { createdAt: options.createdAt } : {}),
       },
     });
     const taskRow = await db.task.findFirst({
@@ -341,7 +348,11 @@ test("sweep tick ingests both trigger kinds once and respects the distributed lo
   const s = await setup();
   const t0 = Date.parse("2026-09-20T12:00:00Z");
   await s.addMessage("alice: quiet opener", { createdAt: new Date(t0) });
-  const taskMessageId = await s.addTask({ rootSequence: 2, status: "done" });
+  const taskMessageId = await s.addTask({
+    rootSequence: 2,
+    status: "done",
+    createdAt: new Date(t0 + 60_000),
+  });
 
   const alwaysLocked: { acquire: (id: string) => Promise<boolean> } = {
     acquire: async () => false,
@@ -354,7 +365,15 @@ test("sweep tick ingests both trigger kinds once and respects the distributed lo
     acquire: async () => true,
   };
   const sweep = new MemoryIngestionSweep(s.db, alwaysFree, () => t0 + 45 * 60_000);
-  await sweep.tick();
+  // The tick is eventually-consistent by design ("a lost signal never drops
+  // an episode; the next tick catches up"), and the quiet-channel batch has
+  // no ordering guarantee across leftover workspaces in the shared scratch
+  // database — so retry the tick until THIS workspace's two windows land.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await sweep.tick();
+    const landed = await s.db.memoryEpisode.count({ where: { workspaceId: s.workspaceId } });
+    if (landed >= 2) break;
+  }
   const episodes = await s.db.memoryEpisode.findMany({
     where: { workspaceId: s.workspaceId },
     orderBy: { kind: "asc" },

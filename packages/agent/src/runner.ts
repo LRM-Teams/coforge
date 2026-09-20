@@ -172,6 +172,44 @@ export function memoryExplorerTools(environment: Record<string, string>): ToolDe
     },
   });
 
+  const offer = defineTool({
+    name: "memory_offer",
+    label: "Deliver a memory offer",
+    description:
+      "Deliver cited memory content (an insight or a learned skill) to one teammate agent " +
+      "as an advice mention. The server enforces the offer discipline: provenance targets " +
+      "must exist, the same target is not redelivered within the cooldown unless the " +
+      "teammate explicitly asked, and publication is all-or-none.",
+    promptSnippet: "Deliver a cited memory offer to a teammate.",
+    parameters: Type.Object({
+      operation_key: Type.String({ minLength: 1, maxLength: 128 }),
+      conversation_id: Type.String({ minLength: 1 }),
+      target_agent_id: Type.String({ minLength: 1 }),
+      targets: Type.Array(
+        Type.Object({
+          kind: Type.Union([Type.Literal("insight"), Type.Literal("skill")]),
+          id: Type.String({ minLength: 1 }),
+        }),
+        { minItems: 1, maxItems: 10 },
+      ),
+      body: Type.String({ minLength: 1, maxLength: 4000 }),
+      explicit_ask: Type.Optional(Type.Boolean()),
+    }),
+    async execute(_toolCallId, params) {
+      return result(
+        await call(MEMORY_PATH, {
+          op: "offer",
+          operationKey: params.operation_key,
+          conversationId: params.conversation_id,
+          targetAgentId: params.target_agent_id,
+          targets: params.targets,
+          body: params.body,
+          ...(params.explicit_ask === undefined ? {} : { explicitAsk: params.explicit_ask }),
+        }),
+      );
+    },
+  });
+
   const send = defineTool({
     name: "send_channel_message",
     label: "Send a channel message",
@@ -196,7 +234,7 @@ export function memoryExplorerTools(environment: Record<string, string>): ToolDe
     },
   });
 
-  return [start, explore, redirect, submit, send];
+  return [start, explore, redirect, submit, offer, send];
 }
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({

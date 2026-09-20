@@ -315,6 +315,14 @@ _Avoid_: skill pack, Global Skills, assigned skill, Memory Insight
 One atomic, immutable proposal to create or revise a single LearnedSkill, grounded in committed Group Memory evidence. A proposal becomes a candidate for delivery, never directly an active skill; its acceptance is decided by later collaboration outcomes, not by its proposer.
 _Avoid_: skill patch, freeform edit, auto-accept
 
+**Memory Scenario**:
+A scripted PublicChannel collaboration timeline used to test Group Memory: teaching messages with unique markers, fact updates, decoys, and Memory Probes, each carrying expected memory assertions. It is test material over the real pipeline, never production data and never a bypass around the disciplines it exercises.
+_Avoid_: benchmark task, fixture chat, Memory Episode
+
+**Memory Probe**:
+A message sent into a Memory Scenario to test the Memory Agent's behavior: explicit (an @-ask that must be answered), implicit (related content that should trigger exploration and possibly an offer), or negative (a never-taught topic that must stay silent). A probe's evidence is the server's records — exploration citations, offer deliveries — never the reply text alone.
+_Avoid_: test query, judge prompt
+
 **Proposal Ledger**:
 The append-only record of every Skill Proposal with its evidence, verdict, and outcome. It preserves rejected and retired proposals so future proposers do not repeat them, and it is required reading before proposing.
 _Avoid_: proposal log, skill history table, audit trail of edits

@@ -116,6 +116,52 @@ describe("memory explorer tools", () => {
     }
   });
 
+  test("memory_offer posts the offer operation with targets and explicit-ask flag", async () => {
+    const stub = withStubProxy(() => Response.json({ ok: true, published: true }));
+    try {
+      const tools = memoryExplorerTools(ENV);
+      const offer = tools.find((tool) => tool.name === "memory_offer")!;
+      const result = await offer.execute(
+        "t1",
+        {
+          operation_key: "offer-1",
+          conversation_id: "conv-1",
+          target_agent_id: "agent-7",
+          targets: [
+            { kind: "insight", id: "11111111-1111-4111-8111-111111111111" },
+            { kind: "skill", id: "22222222-2222-4222-8222-222222222222" },
+          ],
+          body: "@worker the team learned this",
+          explicit_ask: true,
+        },
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(result.content[0]).toMatchObject({ type: "text" });
+      expect(stub.calls).toEqual([
+        {
+          path: "/api/agent/v1/memory",
+          body: {
+            op: "offer",
+            operationKey: "offer-1",
+            conversationId: "conv-1",
+            targetAgentId: "agent-7",
+            targets: [
+              { kind: "insight", id: "11111111-1111-4111-8111-111111111111" },
+              { kind: "skill", id: "22222222-2222-4222-8222-222222222222" },
+            ],
+            body: "@worker the team learned this",
+            explicitAsk: true,
+          },
+          auth: `Bearer ${ENV.COFORGE_AGENT_CONTEXT}`,
+        },
+      ]);
+    } finally {
+      stub.restore();
+    }
+  });
+
   test("send_channel_message posts the send operation to the messages route", async () => {
     const stub = withStubProxy(() => Response.json({ ok: true }));
     try {
@@ -168,13 +214,14 @@ describe("memory explorer tools", () => {
     }
   });
 
-  test("the profile has exactly the five native tools and no others", () => {
+  test("the profile has exactly the six native tools and no others", () => {
     expect(
       memoryExplorerTools(ENV)
         .map((tool) => tool.name)
         .sort(),
     ).toEqual([
       "memory_explore",
+      "memory_offer",
       "memory_redirect",
       "memory_start",
       "memory_submit",

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { isAppError, type AppErrorCode } from "#/lib/app-error";
 import type { PrismaClient } from "../../../../../generated/client";
+import { publishMemoryOffer } from "#/server/group-memory/memory-offer.server";
 import {
   closeMemoryExploration,
   exploreMemoryStep,
@@ -18,7 +19,7 @@ import {
  * this API admits only the designated Memory Agent's key — the fence resolves
  * the principal against the designation before any memory content is served;
  * ordinary Agents are refused here, not silently scoped). The wire is plain
- * JSON, one command discriminated on `op`: start | explore | redirect | close
+ * JSON, one command discriminated on `op`: start | explore | redirect | close | offer
  * (ADR 0052-E's bounded exploration protocol).
  */
 
@@ -53,6 +54,24 @@ const requestSchema = z.discriminatedUnion("op", [
       sessionId: z.string().regex(SESSION_ID),
       operationId: z.string().regex(OPERATION_KEY),
       query: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal("offer"),
+      operationKey: z.string().regex(OPERATION_KEY),
+      conversationId: z.string().regex(SESSION_ID),
+      targetAgentId: z.string().regex(SESSION_ID),
+      targets: z
+        .array(
+          z
+            .object({ kind: z.enum(["insight", "skill"]), id: z.string().regex(SESSION_ID) })
+            .strict(),
+        )
+        .min(1)
+        .max(10),
+      body: z.string().trim().min(1).max(4000),
+      explicitAsk: z.boolean().optional(),
     })
     .strict(),
   z
@@ -144,6 +163,19 @@ export async function handleAgentMemoryPost(
           },
           { headers: { "cache-control": "no-store" } },
         );
+      case "offer": {
+        const result = await publishMemoryOffer(db, {
+          workspaceId: principal.workspaceId,
+          memoryAgentId: principal.agentId,
+          conversationId: command.conversationId,
+          targetAgentId: command.targetAgentId,
+          targets: command.targets,
+          body: command.body,
+          operationKey: command.operationKey,
+          ...(command.explicitAsk === undefined ? {} : { explicitAsk: command.explicitAsk }),
+        });
+        return Response.json({ ok: true, ...result }, { headers: { "cache-control": "no-store" } });
+      }
       case "close":
         return Response.json(
           {

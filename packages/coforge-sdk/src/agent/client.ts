@@ -706,7 +706,7 @@ export type MemoryExplorationCommand =
       sessionId: string;
       operationId: string;
       anchor: string;
-      relation?: "similar" | "related" | "collaborators";
+      relation?: "similar" | "related" | "collaborators" | "skills";
       limit?: number;
     }
   | { op: "redirect"; sessionId: string; operationId: string; query: string }
@@ -717,6 +717,15 @@ export type MemoryExplorationCommand =
       found: boolean;
       summary?: string;
       citationIds?: string[];
+    }
+  | {
+      op: "offer";
+      operationKey: string;
+      conversationId: string;
+      targetAgentId: string;
+      targets: Array<{ kind: "insight" | "skill"; id: string }>;
+      body: string;
+      explicitAsk?: boolean;
     };
 
 export type MemoryExplorationStepResponse = {
@@ -727,8 +736,18 @@ export type MemoryExplorationStepResponse = {
   duplicate: boolean;
 };
 
+export type MemoryOfferResponse = {
+  op: "offer";
+  published: boolean;
+  duplicate?: boolean;
+  messageId?: string;
+  targetRefs?: string[];
+  suppressed?: Array<{ targetRef: string; reason: string }>;
+};
+
 export type MemoryExplorationResponse =
   | (MemoryExplorationStepResponse & { op: "start" | "explore" | "redirect"; query?: string })
+  | MemoryOfferResponse
   | {
       op: "close";
       sessionId: string;
@@ -761,6 +780,23 @@ export function decodeMemoryExplorationResponse(
   if (!value || typeof value !== "object" || (value as { ok?: unknown }).ok !== true)
     throw new Error("invalid memory exploration response");
   const body = value as Record<string, unknown>;
+  if (op === "offer") {
+    if (typeof body.published !== "boolean") throw new Error("invalid memory exploration response");
+    const offer: MemoryOfferResponse = { op, published: body.published };
+    if (typeof body.duplicate === "boolean") offer.duplicate = body.duplicate;
+    if (typeof body.messageId === "string") offer.messageId = body.messageId;
+    if (Array.isArray(body.targetRefs))
+      offer.targetRefs = body.targetRefs.filter((ref): ref is string => typeof ref === "string");
+    if (Array.isArray(body.suppressed))
+      offer.suppressed = body.suppressed.filter(
+        (entry): entry is { targetRef: string; reason: string } =>
+          !!entry &&
+          typeof entry === "object" &&
+          typeof (entry as { targetRef?: unknown }).targetRef === "string" &&
+          typeof (entry as { reason?: unknown }).reason === "string",
+      );
+    return offer;
+  }
   if (typeof body.sessionId !== "string") throw new Error("invalid memory exploration response");
   if (op === "close") {
     if (

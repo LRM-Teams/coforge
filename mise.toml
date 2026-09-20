@@ -50,11 +50,15 @@ run = "bash scripts/reload-local-computer.sh"
 
 [tasks."test:memory"]
 description = "Run Group Memory / LearnedSkill value semantics against local PostgreSQL (MEMORY_TEST_DATABASE_URL required)"
-run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/group-memory.integration.ts ./apps/web/test/group-memory-ingestion.integration.ts ./apps/web/test/group-memory-distillation.test.ts ./apps/web/test/group-memory-distillation.integration.ts ./apps/web/test/learned-skills.integration.ts ./apps/web/test/group-memory-exploration.integration.ts ./apps/web/test/group-memory-agent.integration.ts ./apps/web/test/shadow-gate.integration.ts ./apps/web/test/agent-memory-http.integration.ts"
+run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/group-memory.integration.ts ./apps/web/test/group-memory-ingestion.integration.ts ./apps/web/test/group-memory-distillation.test.ts ./apps/web/test/group-memory-distillation.integration.ts ./apps/web/test/learned-skills.integration.ts ./apps/web/test/group-memory-exploration.integration.ts ./apps/web/test/group-memory-agent.integration.ts ./apps/web/test/shadow-gate.integration.ts ./apps/web/test/agent-memory-http.integration.ts ./apps/web/test/memory-agent-scenarios.integration.ts ./apps/web/test/memory-agent-protocol.integration.ts"
 
 [tasks."test:e2e:group-memory"]
 description = "Run the LearnedSkill loop real-LLM smoke (MEMORY_SMOKE_API_KEY required; skips cleanly without it)"
 run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && ./scripts/e2e/run-group-memory-smoke.sh"
+
+[tasks."test:e2e:memory-agent"]
+description = "Memory Agent full-stack smoke against a live model (MANUAL GATE: real tokens; MEMORY_SMOKE_API_KEY required, skips cleanly without it)"
+run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && ./scripts/e2e/run-memory-agent-smoke.sh"
 
 [tasks."test:web"]
 description = "Run Web package tests"
