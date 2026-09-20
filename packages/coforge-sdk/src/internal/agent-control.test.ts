@@ -110,7 +110,7 @@ test("enforces lifecycle payload and safe error-code limits", () => {
 });
 
 test("exports stable lifecycle methods", () => {
-  expect(AGENT_WORKSPACE_RESET_METHOD).toBe("agent:reset-workspace");
-  expect(AGENT_CONTROL_RESULT_METHOD).toBe("agent:control:result");
-  expect(AGENT_SESSION_METHOD).toBe("agent:session");
+  expect(AGENT_WORKSPACE_RESET_METHOD).toBe("agent:v1:workspace:reset");
+  expect(AGENT_CONTROL_RESULT_METHOD).toBe("agent:v1:control:result");
+  expect(AGENT_SESSION_METHOD).toBe("agent:v1:session:get");
 });

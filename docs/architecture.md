@@ -68,6 +68,27 @@ CoForge 的 Agent-facing API 与 Daemon realtime/control protocol 是两个独�
 apps/web                 →  SDK/agent + @lrm/coforge-sdk/internal
 ```
 
+### 内部 RPC 方法命名规范
+
+`@lrm/coforge-sdk/internal` 暴露的云↔Computer/Daemon/Agent 方法名统一为：
+
+`<scope>:v<major>:<domain>:<action>[_result]`
+
+- 全小写 snake_case，用 `:` 分级；`action` 只允许单个动词，不再使用 `usage_scan` 这类“动词_名词”拼接。
+- `scope` ∈ `daemon`（云↔Daemon runtime）、`agent`（云↔Agent）、`computer`、`workspace`。
+- `v<major>` 紧跟 scope，是 RPC 面的版本，必须与报文里的 `protocolMajor` 相等。
+- `domain` 是资源名词（单数），词表对齐 Raft Computer 的契约命名：`provider`、`model`、`usage`、`session`、`skill`、`workspace_file`、`channel`、`thread`、`message`、`task`、`reminder`、`context`、`activity`、`runtime`、`connection`、`lifecycle`；仅当 scope 本身即资源时省略。
+- 应答方法名 = 请求方法名 + `_result`。
+- 例：`daemon:v1:provider:usage_scan`、`agent:v1:session:get`、`computer:v1:lifecycle:restart`、`workspace:v1:list`。
+
+2026-09-20 的破坏性改名把既有方法升级到该规范（当时统一为 `v1`）。本文其它段落与历
+史 ADR 里若仍出现旧名（如 `agent:session`、`computer:upgrade_result`），以本节规范为准。
+本地 IPC（CLI↔常驻 Daemon 的 `LOCAL_RPC_METHODS`）是另一条协议，不在本规范内。
+
+注意：`agent:start`/`agent:stop`/`agent:reset-workspace` 等 Agent lifecycle 方法名此前与
+Raft Computer 1.0.32 的同类 message-type 同名；本次改名后不再同名。若以后要求严格对齐
+Raft 命名，需单独决策。
+
 ## 3. 包与进程不是同一个层级
 
 本地产品包含两个可独立构建、版本化和打包的 package component。内置 Agent runtime 可以是独立 library/runtime package，但不能成为第三个本地产品组件：

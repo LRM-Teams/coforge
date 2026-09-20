@@ -1,3 +1,4 @@
+import { RPC_METHODS } from "./rpc-methods";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { AgentMessageRecordSchema } from "./gen/coforge/rpc/v1/local_rpc_pb";
 import {
@@ -23,7 +24,7 @@ import {
   type TaskView,
 } from "./tasks";
 
-export const AGENT_TASK_METHOD = "agent:task" as const;
+export const AGENT_TASK_METHOD = RPC_METHODS.agentTask;
 export const TASK_PROTOCOL_MAJOR = 1 as const;
 export type TaskRequest = TaskCommand & {
   protocolMajor: number;

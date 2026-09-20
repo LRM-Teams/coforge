@@ -1,3 +1,4 @@
+import { RPC_METHODS } from "./rpc-methods";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentSkillsListRequestSchema,
@@ -5,8 +6,8 @@ import {
 } from "./gen/coforge/rpc/v1/agent_skills_pb";
 import { parseRuntimeProvider, type RuntimeProvider } from "./index";
 
-export const AGENT_SKILLS_LIST_METHOD = "agent:skills:list";
-export const AGENT_SKILLS_LIST_RESULT_METHOD = "agent:skills:list_result";
+export const AGENT_SKILLS_LIST_METHOD = RPC_METHODS.agentSkillsList;
+export const AGENT_SKILLS_LIST_RESULT_METHOD = RPC_METHODS.agentSkillsListResult;
 const REQUEST_TYPE = "coforge.rpc.v1.AgentSkillsListRequest";
 const RESULT_TYPE = "coforge.rpc.v1.AgentSkillsListResult";
 const MAX_BYTES = 1_048_576;

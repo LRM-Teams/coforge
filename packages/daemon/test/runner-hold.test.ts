@@ -112,7 +112,7 @@ async function harness() {
         conversationId: "conversation-a",
         agentId: "agent-a",
         body: "private",
-        method: "agent:deliver",
+        method: "agent:v1:message:deliver",
         target: "@ada",
       }),
   };

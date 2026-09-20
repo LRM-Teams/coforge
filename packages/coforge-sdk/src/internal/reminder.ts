@@ -1,3 +1,4 @@
+import { RPC_METHODS } from "./rpc-methods";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentReminderOperationRequestSchema,
@@ -9,9 +10,9 @@ import {
   ReminderSyncSchema,
 } from "./gen/coforge/rpc/v1/reminder_pb";
 
-export const AGENT_REMINDER_METHOD = "agent:reminder" as const;
-export const REMINDER_FIRE_METHOD = "reminder:fire" as const;
-export const REMINDER_SNAPSHOT_METHOD = "reminder:snapshot" as const;
+export const AGENT_REMINDER_METHOD = RPC_METHODS.agentReminder;
+export const REMINDER_FIRE_METHOD = RPC_METHODS.reminderFire;
+export const REMINDER_SNAPSHOT_METHOD = RPC_METHODS.reminderSnapshot;
 export const REMINDER_SYNC_MESSAGE_TYPE = "coforge.rpc.v1.ReminderSync" as const;
 export const REMINDER_CAPABILITY = "reminder:v1" as const;
 

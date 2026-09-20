@@ -173,7 +173,7 @@ async function deliverMessage(
     conversationId: "conversation-1",
     agentId,
     body: "wake me",
-    method: "agent:deliver",
+    method: "agent:v1:message:deliver",
     target: "@agent",
   });
 }

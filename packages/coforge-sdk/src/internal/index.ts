@@ -1,24 +1,25 @@
+import { RPC_METHODS } from "./rpc-methods";
 /** TypeScript boundary approved by ADR 0004; codec/transport remains an adapter concern. */
-export const COMPUTER_REGISTER_METHOD = "computer:register" as const;
+export const COMPUTER_REGISTER_METHOD = RPC_METHODS.computerRegister;
 export const COMPUTER_REGISTER_PROTOCOL_MAJOR = 1 as const;
-export const WORKSPACE_LIST_METHOD = "workspace:list" as const;
-export const WORKSPACE_GET_METHOD = "workspace:get" as const;
-export const DAEMON_RUNTIME_READY_METHOD = "daemon:runtime_ready" as const;
-export const DAEMON_CONNECTION_STATUS_METHOD = "daemon:connection_status" as const;
-export const DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD = "daemon:code_agents_update" as const;
-export const DAEMON_RUNTIME_USAGE_SCAN_METHOD = "daemon:usage_scan" as const;
-export const DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD = "daemon:usage_scan_result" as const;
-export const COMPUTER_RESTART_METHOD = "computer:restart" as const;
+export const WORKSPACE_LIST_METHOD = RPC_METHODS.workspaceList;
+export const WORKSPACE_GET_METHOD = RPC_METHODS.workspaceGet;
+export const DAEMON_RUNTIME_READY_METHOD = RPC_METHODS.daemonRuntimeReady;
+export const DAEMON_CONNECTION_STATUS_METHOD = RPC_METHODS.daemonConnectionStatus;
+export const DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD = RPC_METHODS.daemonCodeAgentsUpdate;
+export const DAEMON_RUNTIME_USAGE_SCAN_METHOD = RPC_METHODS.daemonUsageScan;
+export const DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD = RPC_METHODS.daemonUsageScanResult;
+export const COMPUTER_RESTART_METHOD = RPC_METHODS.computerRestart;
 export const COMPUTER_RESTART_MESSAGE_TYPE = "coforge.rpc.v1.ComputerRestartIntent" as const;
-export const COMPUTER_UPGRADE_METHOD = "computer:upgrade" as const;
+export const COMPUTER_UPGRADE_METHOD = RPC_METHODS.computerUpgrade;
 export const COMPUTER_UPGRADE_MESSAGE_TYPE = "coforge.rpc.v1.ComputerUpgradeIntent" as const;
-export const COMPUTER_UPGRADE_RESULT_METHOD = "computer:upgrade_result" as const;
+export const COMPUTER_UPGRADE_RESULT_METHOD = RPC_METHODS.computerUpgradeResult;
 export const COMPUTER_UPGRADE_RESULT_MESSAGE_TYPE = "coforge.rpc.v1.ComputerUpgradeResult" as const;
-export const AGENT_START_METHOD = "agent:start" as const;
+export const AGENT_START_METHOD = RPC_METHODS.agentStart;
 export const AGENT_START_MESSAGE_TYPE = "coforge.rpc.v1.AgentStartIntent" as const;
-export const AGENT_STOP_METHOD = "agent:stop" as const;
+export const AGENT_STOP_METHOD = RPC_METHODS.agentStop;
 export const AGENT_STOP_MESSAGE_TYPE = "coforge.rpc.v1.AgentStopIntent" as const;
-export const AGENT_ACTIVITY_PROBE_METHOD = "agent:activity_probe" as const;
+export const AGENT_ACTIVITY_PROBE_METHOD = RPC_METHODS.agentActivityProbe;
 export const AGENT_ACTIVITY_PROBE_MESSAGE_TYPE = "coforge.rpc.v1.AgentActivityProbe" as const;
 export const USAGE_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.DaemonRuntimeUsageScanRequest" as const;
 export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
@@ -26,9 +27,9 @@ export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
 /** Server -> daemon, on the daemon control channel like the usage scan (ADR 0051); per-Agent
  * rather than per-provider, so it decodes through the same `#route` chain in
  * `daemon-connection.ts` rather than a dedicated method the daemon calls. */
-export const AGENT_CONTEXT_SCAN_METHOD = "agent:context_scan" as const;
+export const AGENT_CONTEXT_SCAN_METHOD = RPC_METHODS.agentContextScan;
 /** Daemon -> server RPC carrying the scan's result. */
-export const AGENT_CONTEXT_SCAN_RESULT_METHOD = "agent:context_scan_result" as const;
+export const AGENT_CONTEXT_SCAN_RESULT_METHOD = RPC_METHODS.agentContextScanResult;
 export const AGENT_CONTEXT_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.AgentContextScanRequest" as const;
 export const AGENT_CONTEXT_SCAN_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.AgentContextScanResponse" as const;
@@ -39,11 +40,11 @@ export type DaemonRuntimeMessageType =
   | typeof USAGE_SCAN_RESPONSE_MESSAGE_TYPE
   | typeof AGENT_CONTEXT_SCAN_MESSAGE_TYPE
   | typeof AGENT_CONTEXT_SCAN_RESPONSE_MESSAGE_TYPE;
-export const AGENT_MESSAGE_METHOD = "agent:deliver" as const;
-export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
-export const AGENT_CHANNEL_MUTE_METHOD = "agent:channel:mute" as const;
-export const AGENT_CHANNEL_UNMUTE_METHOD = "agent:channel:unmute" as const;
-export const AGENT_THREAD_UNFOLLOW_METHOD = "agent:thread:unfollow" as const;
+export const AGENT_MESSAGE_METHOD = RPC_METHODS.agentMessage;
+export const AGENT_MESSAGE_ACK_METHOD = RPC_METHODS.agentMessageAck;
+export const AGENT_CHANNEL_MUTE_METHOD = RPC_METHODS.agentChannelMute;
+export const AGENT_CHANNEL_UNMUTE_METHOD = RPC_METHODS.agentChannelUnmute;
+export const AGENT_THREAD_UNFOLLOW_METHOD = RPC_METHODS.agentThreadUnfollow;
 export const isChannelTarget = (target: string): boolean =>
   /^#[a-z0-9][a-z0-9_-]{0,31}$/.test(target);
 export const isChannelMessageTarget = (target: string): boolean =>
@@ -74,8 +75,8 @@ export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "unfollow requires a channel thread target",
 ] as const;
 export type AgentMessageValidationMessage = (typeof AGENT_MESSAGE_VALIDATION_MESSAGES)[number];
-export const AGENT_STATUS_METHOD = "agent:status" as const;
-export const AGENT_ACTIVITY_METHOD = "agent:activity" as const;
+export const AGENT_STATUS_METHOD = RPC_METHODS.agentStatus;
+export const AGENT_ACTIVITY_METHOD = RPC_METHODS.agentActivity;
 /** Stable Activity detail kinds shared by the Daemon producer and the Web consumer. */
 export const AGENT_ACTIVITY_DETAIL_KIND = {
   MODEL_REQUEST_STARTED: "model_request_started",
@@ -129,7 +130,7 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
 } as const;
 export type AgentActivityDetailKind =
   (typeof AGENT_ACTIVITY_DETAIL_KIND)[keyof typeof AGENT_ACTIVITY_DETAIL_KIND];
-export const AGENT_SESSION_METHOD = "agent:session" as const;
+export const AGENT_SESSION_METHOD = RPC_METHODS.agentSession;
 export type AgentSessionReport = {
   protocolMajor: number;
   requestId: string;
@@ -147,7 +148,7 @@ export type AgentSessionReport = {
   sequence?: number;
   sessionState?: "empty" | "resumable" | "unknown";
 };
-export const AGENT_SESSION_INVALIDATE_METHOD = "agent:session:invalidate" as const;
+export const AGENT_SESSION_INVALIDATE_METHOD = RPC_METHODS.agentSessionInvalidate;
 /** `missing`: the stored native Session no longer exists. `provider_replay_rejected`: the
  * provider rejected replaying it. Mirrors `AgentSessionRecoveryCode`, minus `session_in_use`. */
 export const AGENT_SESSION_INVALIDATE_REASONS = {
@@ -175,7 +176,7 @@ export type AgentSessionInvalidate = {
   launchId: string;
   reason: AgentSessionInvalidateReason;
 };
-export const AGENT_CONTEXT_USAGE_METHOD = "agent:context:usage" as const;
+export const AGENT_CONTEXT_USAGE_METHOD = RPC_METHODS.agentContextUsage;
 /**
  * Fire-and-forget daemon-to-cloud notice of the Agent's current context-window usage, observed
  * at the top-level Claude Code `result` record (ADR 0050). Never delivered as Activity; a
@@ -254,7 +255,7 @@ export type WorkspaceInfoResponse = {
     agentWorkspacePath?: string;
   };
 };
-export const AGENT_WORKSPACE_INFO_METHOD = "agent:workspace:info" as const;
+export const AGENT_WORKSPACE_INFO_METHOD = RPC_METHODS.agentWorkspaceInfo;
 
 export type WorkspaceQueryRequest = {
   protocolMajor: number;

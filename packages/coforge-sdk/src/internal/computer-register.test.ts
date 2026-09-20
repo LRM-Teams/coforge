@@ -46,7 +46,7 @@ test("computer registration sends the stable method and rejects incompatible maj
     computerId: "c",
     workspaceId: "w",
   });
-  expect(calls[0]).toMatchObject(["computer:register", request]);
+  expect(calls[0]).toMatchObject(["computer:v1:register", request]);
   expect(() => client.register({ ...request, protocolMajor: 2 })).toThrow("unsupported");
 });
 
