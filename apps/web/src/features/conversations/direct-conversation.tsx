@@ -502,17 +502,21 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
                 count: threadReplies.length,
               });
         const lastReply = threadReplies.at(-1)!;
-        // Carry each replier's deleted flag alongside its name so the preview stack greys a
-        // deleted Agent (ADR 0044) instead of losing the distinction when it dedupes.
-        // Dedupe on the handle, which is unique, rather than the display name, which is not:
-        // two people may both be called "Alex" and must still both appear here.
-        const repliers: { name: string; deleted: boolean }[] = [];
+        // Carry each replier's deleted flag and avatar alongside its name so the preview stack
+        // shows the same picture the message rows do, and greys a deleted Agent (ADR 0044)
+        // instead of losing the distinction when it dedupes.
+        const repliers: { name: string; deleted: boolean; avatarUrl: string | null | undefined }[] =
+          [];
         const seenRepliers = new Set<string>();
         for (const reply of [...threadReplies].reverse()) {
           const key = reply.senderHandle ?? reply.senderName;
           if (seenRepliers.has(key)) continue;
           seenRepliers.add(key);
-          repliers.push({ name: reply.senderName, deleted: Boolean(reply.senderDeleted) });
+          repliers.push({
+            name: reply.senderName,
+            deleted: Boolean(reply.senderDeleted),
+            avatarUrl: reply.senderAvatarUrl,
+          });
           if (repliers.length === 3) break;
         }
         return (
@@ -529,6 +533,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
                   key={replier.name}
                   size="xs"
                   alt={replier.name}
+                  src={replier.avatarUrl}
                   initials={avatarInitial(replier.name)}
                   contentClassName={
                     replier.deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(replier.name)
