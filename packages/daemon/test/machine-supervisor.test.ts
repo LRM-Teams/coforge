@@ -601,3 +601,112 @@ function restartFixture() {
       ),
   };
 }
+
+test("an explicit start clears the Workspace's health latch before starting it", async () => {
+  const cleared: string[] = [];
+  const running = new Map<string, string>();
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => [
+        { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: false },
+      ],
+      save: async () => {},
+    },
+    {
+      start: async (binding) => {
+        const id = crypto.randomUUID();
+        running.set(binding.workspaceId, id);
+        return id;
+      },
+      stop: async (binding) => {
+        running.delete(binding.workspaceId);
+      },
+      instance: async (binding) => running.get(binding.workspaceId) ?? null,
+      clearHealth: async (binding) => {
+        cleared.push(binding.workspaceId);
+      },
+    },
+  );
+  await supervisor.recover();
+
+  await supervisor.command("start", "a");
+
+  expect(cleared).toEqual(["a"]);
+});
+
+test("an explicit restart clears the Workspace's health latch before starting the replacement", async () => {
+  const cleared: string[] = [];
+  const running = new Map<string, string>();
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => [{ workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true }],
+      save: async () => {},
+    },
+    {
+      start: async (binding) => {
+        const id = crypto.randomUUID();
+        running.set(binding.workspaceId, id);
+        return id;
+      },
+      stop: async (binding) => {
+        running.delete(binding.workspaceId);
+      },
+      instance: async (binding) => running.get(binding.workspaceId) ?? null,
+      clearHealth: async (binding) => {
+        cleared.push(binding.workspaceId);
+      },
+    },
+  );
+  await supervisor.recover();
+  cleared.length = 0;
+
+  await supervisor.command("restart", "a", "request-1");
+
+  expect(cleared).toEqual(["a"]);
+});
+
+test("stop never clears the Workspace's health latch", async () => {
+  const cleared: string[] = [];
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => [{ workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true }],
+      save: async () => {},
+    },
+    {
+      start: async () => "instance",
+      stop: async () => {},
+      instance: async () => "instance",
+      clearHealth: async (binding) => {
+        cleared.push(binding.workspaceId);
+      },
+    },
+  );
+  await supervisor.recover();
+  cleared.length = 0;
+
+  await supervisor.command("stop", "a");
+
+  expect(cleared).toEqual([]);
+});
+
+test("automatic recovery on Coordinator startup never clears a Workspace's health latch", async () => {
+  const cleared: string[] = [];
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => [{ workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true }],
+      save: async () => {},
+    },
+    {
+      start: async () => "instance",
+      stop: async () => {},
+      instance: async () => null,
+      clearHealth: async (binding) => {
+        cleared.push(binding.workspaceId);
+      },
+    },
+  );
+
+  await supervisor.recover();
+
+  expect(cleared).toEqual([]);
+});

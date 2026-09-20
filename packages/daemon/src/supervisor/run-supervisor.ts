@@ -20,7 +20,8 @@ import { configureDaemonLogging } from "../platform/daemon-logging";
 import { COFORGE_DAEMON_VERSION } from "../version";
 import { SystemdWorkspaceInstance } from "./systemd-workspace-instance";
 import { LaunchdWorkspaceInstance } from "./launchd-workspace-instance";
-import type { WorkspaceInstance } from "./workspace-instance";
+import { workspaceStateDirectory, type WorkspaceInstance } from "./workspace-instance";
+import { WorkspaceHealthJournal, workspaceHealthJournalPath } from "./workspace-health-journal";
 import { answeredWithin } from "./runner-hold";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
@@ -149,8 +150,7 @@ async function runWithSupervisorLock(
   await mkdir(lockMarker, { recursive: true, mode: 0o700 });
   await writeFile(join(lockMarker, "owner"), String(process.pid), { mode: 0o600 });
   const holdPath = join(stateDirectory, "launch-hold");
-  const workspaceDirectory = (id: string) =>
-    join(stateDirectory, "workspaces", Buffer.from(id).toString("base64url"));
+  const workspaceDirectory = (id: string) => workspaceStateDirectory(stateDirectory, id);
   const children = new Map<
     string,
     { instance: WorkspaceInstance; identity: ManagedRuntimeIdentity; osInstanceId: string }
@@ -374,6 +374,10 @@ async function runWithSupervisorLock(
         holdWorkspaceRunners(binding.workspaceId, "hold", reason, "restart"),
       release: (binding, reason) =>
         holdWorkspaceRunners(binding.workspaceId, "release", reason, "restart"),
+      clearHealth: (binding) =>
+        new WorkspaceHealthJournal(
+          workspaceHealthJournalPath(workspaceDirectory(binding.workspaceId)),
+        ).clear(),
     },
     Date.now,
     {},

@@ -23,9 +23,22 @@ import { COFORGE_DAEMON_VERSION } from "./src/version";
 import { LocalDaemonLauncher } from "./src/daemon-host/launcher";
 import { configureDaemonLogging } from "./src/platform/daemon-logging";
 import { stopLaunchdJobs } from "./src/platform/launchd-job";
+import {
+  WorkspaceHealthJournal,
+  workspaceHealthJournalPath,
+} from "./src/supervisor/workspace-health-journal";
+import { guardWorkspaceRunnerStart } from "./src/supervisor/workspace-runner-guard";
 export { launchdJobs } from "./src/platform/launchd-job";
 export { FileBindingStore } from "./src/supervisor/binding-store";
 export { workspaceLaunchdIdentity } from "./src/supervisor/launchd-workspace-instance";
+export { workspaceStateDirectory } from "./src/supervisor/workspace-instance";
+export {
+  WORKSPACE_HEALTH_CRASH_WINDOW_MS,
+  WORKSPACE_HEALTH_DEGRADED_THRESHOLD,
+  WorkspaceHealthJournal,
+  workspaceHealthJournalPath,
+} from "./src/supervisor/workspace-health-journal";
+export type { WorkspaceHealthState } from "./src/supervisor/workspace-health-journal";
 export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
 export {
   holdRunnersUntilQuiescent,
@@ -115,6 +128,19 @@ export {
 export { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
 
 const DAEMON_CATEGORY = ["coforge", "daemon"];
+/** `--socket` is required for every launch this build understands; a launch missing it is a
+ * precondition no restart can fix. */
+const MISSING_SOCKET_REASON = "Daemon requires --socket";
+
+/** The exact command that clears a Workspace's degraded latch (`MachineSupervisor.command`'s
+ * `"start"`/`"restart"` seam, reached through `coforge-computer restart --workspace <id>`; see
+ * `packages/computer/src/cli.ts`'s `restart` command). Unscoped when the Workspace is not even
+ * identifiable yet, which still recovers it as part of every binding. */
+function workspaceRecoveryCommand(workspaceId?: string): string {
+  return workspaceId
+    ? `coforge-computer restart --workspace ${workspaceId}`
+    : "coforge-computer restart";
+}
 
 export async function runDaemon(args: string[], computerVersion?: string): Promise<void> {
   const argument = (flag: string) => {
@@ -125,12 +151,26 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
   const daemonStateDirectory =
     argument("--state-directory") ?? join(homedir(), ".coforge", "daemon");
   await configureDaemonLogging(daemonStateDirectory);
+  const healthJournal = new WorkspaceHealthJournal(
+    workspaceHealthJournalPath(daemonStateDirectory),
+  );
   if (!socketPath) {
-    getLogger(DAEMON_CATEGORY).error("Daemon requires --socket", {
-      event: "daemon:invalid_arguments",
-    });
+    // Terminal, not a crash to retry: restarting this exact invocation can never supply the
+    // missing argument. Latching degraded and exiting 0 (see the degraded branch below for why
+    // exit 0 is what stops both supervisors' restart loop) keeps a broken launch from spinning
+    // forever instead of surfacing once with the fix.
+    await healthJournal.markTerminal(MISSING_SOCKET_REASON);
+    const brokenConfig = await new DaemonConfigStore(daemonStateDirectory, {
+      serverHttpUrl: COFORGE_DAEMON_SERVER_URL,
+    })
+      .load()
+      .catch(() => null);
+    getLogger(DAEMON_CATEGORY).error(
+      `${MISSING_SOCKET_REASON}. This Workspace will not restart on its own; run '${workspaceRecoveryCommand(brokenConfig?.workspaceId)}' after fixing its launch configuration.`,
+      { event: "daemon:invalid_arguments" },
+    );
     await dispose();
-    process.exitCode = 2;
+    process.exitCode = 0;
     return;
   }
   return withContext(
@@ -152,6 +192,24 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       const configStore = new DaemonConfigStore(daemonStateDirectory, {
         serverHttpUrl: COFORGE_DAEMON_SERVER_URL,
       });
+      let config = await configStore.load();
+      // Before any real work (Agent proxy, Workspace connection): let the health journal say
+      // whether the previous run(s) died unexpectedly often enough to stop this restart loop.
+      const guard = await guardWorkspaceRunnerStart(healthJournal);
+      if (guard.action === "exit") {
+        logger.error(
+          `Workspace is degraded (${guard.reason}); it will not restart automatically. Run '${workspaceRecoveryCommand(config?.workspaceId)}' after fixing it.`,
+          {
+            event: "daemon:workspace_degraded",
+            reason: guard.reason,
+            crash_count: guard.crashCount,
+            degraded_since: guard.since,
+          },
+        );
+        await dispose();
+        process.exitCode = 0;
+        return;
+      }
       let runtime: DaemonRuntime | undefined;
       const requireRuntime = (): DaemonRuntime => {
         if (!runtime) throw new Error("daemon runtime is not running");
@@ -197,7 +255,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
         } satisfies Required<AgentProxyRuntime>,
       });
       process.env.COFORGE_AGENT_PROXY_URL = agentProxy.url;
-      let config = await configStore.load();
+      // `config` was already loaded above, ahead of the health-journal guard.
       const supervisorSocket = Bun.env.COFORGE_SUPERVISOR_SOCKET;
       const supervisorControl = (...request: Parameters<LocalDaemonLauncher["control"]>) =>
         new LocalDaemonLauncher({
@@ -313,6 +371,10 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       const shutdown = async () => {
         if (shuttingDown) return;
         shuttingDown = true;
+        // A SIGTERM/SIGINT shutdown is deliberate - an operator stop, a restart, or an upgrade
+        // (`machine-supervisor.ts`'s `#stop`) - never an unexpected death; clearing the live
+        // marker here is what keeps the next start from counting it as a crash.
+        await healthJournal.recordGracefulStop();
         await daemon.stopAll();
         agentProxy.close();
         await localRpc.close();

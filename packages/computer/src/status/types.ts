@@ -56,6 +56,14 @@ export type UnsettledUpgradeOperation = {
  * launchd job whose PID the Agents section already reads from one `launchctl list` call. */
 export type WorkspacePidSource = "daemon-snapshot" | "os-job";
 
+/** What the Workspace's own durable health journal reports (see `@lrm/coforge-daemon`'s
+ * `WorkspaceHealthJournal`): `ok`, or latched `degraded` with the real reason, how many
+ * unexpected deaths landed inside the crash window, and when the latch was set. An explicit
+ * operator `restart` is the only thing that clears it. */
+export type WorkspaceHealth =
+  | { status: "ok" }
+  | { status: "degraded"; reason: string; crashCount: number; since: string };
+
 export type WorkspaceStatus = {
   workspaceId: string;
   serverHttpUrl: string | null;
@@ -65,6 +73,7 @@ export type WorkspaceStatus = {
   pidSource: WorkspacePidSource | null;
   pending: PendingRequest[];
   unsettledUpgrades: UnsettledUpgradeOperation[];
+  health: WorkspaceHealth;
 };
 
 export type WorkspacesStatus =
@@ -154,4 +163,5 @@ export interface StatusPorts {
   probeMachineMutationLock(): LockState;
   readSupervisorLockOwner(): Promise<number | null>;
   listLeftoverUpgradeJobs: { supported: boolean; list(): Promise<LeftoverJob[]> };
+  readWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
 }

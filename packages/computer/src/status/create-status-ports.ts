@@ -5,6 +5,9 @@ import {
   FileBindingStore,
   LocalDaemonLauncher,
   resolveDaemonExecutablePath,
+  workspaceHealthJournalPath,
+  workspaceStateDirectory,
+  WorkspaceHealthJournal,
 } from "@lrm/coforge-daemon";
 import { resolveDaemonSocketPath } from "../paths";
 import {
@@ -145,6 +148,16 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
       input.platform === "darwin"
         ? { supported: true, list: listDarwinLeftoverUpgradeJobs }
         : { supported: false, list: async () => [] },
+    async readWorkspaceHealth(workspaceId) {
+      try {
+        const directory = workspaceStateDirectory(input.stateDirectory, workspaceId);
+        return await new WorkspaceHealthJournal(workspaceHealthJournalPath(directory)).state();
+      } catch {
+        // A missing or unreadable health journal is not evidence of a problem - it reads as a
+        // fresh, healthy Workspace, the same way `WorkspaceHealthJournal` itself treats it.
+        return { status: "ok" };
+      }
+    },
   };
 }
 
