@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { acquireProcessLock } from "@lrm/coforge-daemon";
+import { acquireProcessLock, isLockContention } from "@lrm/coforge-daemon";
 import { isValidReleaseVersion } from "@lrm/coforge-sdk/internal";
 import { runInstallationSource } from "./release/installation-source";
 
@@ -601,15 +601,6 @@ export class ComputerUpdater {
       lock.release();
     }
   }
-}
-
-function isLockContention(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error.code === "SQLITE_BUSY" || error.code === "SQLITE_LOCKED")
-  );
 }
 
 function checksum(bytes: Uint8Array): string {
