@@ -1,4 +1,4 @@
-# ADR 0053: Workspace runner health - a self-latching restart budget
+# ADR 0054: Workspace runner health - a self-latching restart budget
 
 Status: accepted
 Date: 2026-09-20
