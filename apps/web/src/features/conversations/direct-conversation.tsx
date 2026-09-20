@@ -707,6 +707,15 @@ export function ConversationPane({
   const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
   const historyRef = useRef<HTMLDivElement>(null);
+  /** Distance from the bottom as of the last scroll. The pinning observer decides from this
+   * rather than from a fresh measurement, because by the time it runs the resize is already in
+   * `scrollHeight`. */
+  const bottomDistanceRef = useRef(0);
+  /** The empty row above the oldest loaded message. Coming into view is what asks for the next
+   * page of history — the reader never has to press anything. */
+  const olderSentinelRef = useRef<HTMLDivElement>(null);
+  /** The current `loadOlder`, so the sentinel's observer never calls a stale one. */
+  const loadOlderRef = useRef<() => Promise<void>>(async () => {});
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
   const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
@@ -860,29 +869,60 @@ export function ConversationPane({
     const history = historyRef.current;
     if (!history) return;
     const observer = new ResizeObserver(() => {
-      // Two reasons this fires. A row the browser skipped off screen (`content-visibility: auto`)
-      // is laid out for the first time as it comes into view, so the content height settles over
-      // the first pass through a conversation; and an open position the pane could not apply yet
-      // (a hidden branch has no height to scroll within) gets its chance here.
+      // An open position the pane could not apply yet (a hidden branch has no height to scroll
+      // within) gets its chance here.
       if (pendingOpenMessageIdRef.current) {
         applyOpenPosition();
         return;
       }
-      if (!followingLatestRef.current) return;
-      // Re-pin the bottom only when the reader is genuinely AT it, never from the 48px "near
-      // enough" tolerance the reading position uses. A row changing height fires this observer,
-      // and re-pinning from 48px fought a reader who had scrolled up a little — the flicker. A few
-      // pixels keeps the real cases — an appended message, an attachment finishing at the bottom —
-      // pinned, and lets every deliberate scroll-up stand.
-      if (history.scrollHeight - history.scrollTop - history.clientHeight > PIN_TOLERANCE_PX)
-        return;
+      // Whether to re-pin is decided from where the reader stood BEFORE this resize. A
+      // ResizeObserver callback runs after layout, so `scrollHeight` already includes the growth:
+      // judging "at the bottom" from it would refuse to re-pin in exactly the case the pin exists
+      // for — an attachment at the bottom finishing and pushing the latest message out of view.
+      const wasAtBottom = bottomDistanceRef.current <= PIN_TOLERANCE_PX;
+      bottomDistanceRef.current = history.scrollHeight - history.scrollTop - history.clientHeight;
+      // Only a reader genuinely AT the bottom is carried along, never one within the 48px "near
+      // enough" tolerance the reading position uses: re-pinning from 48px fought a reader who had
+      // scrolled up a little, and every deliberate scroll-up must stand.
+      if (!followingLatestRef.current || !wasAtBottom) return;
       scrollToLatest("instant");
+      bottomDistanceRef.current = 0;
     });
     observer.observe(history);
     const messages = history.querySelector("ol");
     if (messages) observer.observe(messages);
     return () => observer.disconnect();
   }, [conversation.conversationId, conversation.messages.length === 0]);
+
+  // Older history arrives above everything the reader is looking at, which would push it down by
+  // the new block's height. Nothing else keeps the position: rows are in normal flow now, and the
+  // browser's own scroll anchoring is suppressed at the scroll origin — exactly where a
+  // load-older happens. Restoring by the height delta leaves the reader on the same message.
+  useLayoutEffect(() => {
+    const anchor = olderScrollAnchorRef.current;
+    const history = historyRef.current;
+    if (!anchor || !history) return;
+    olderScrollAnchorRef.current = undefined;
+    history.scrollTop = anchor.top + (history.scrollHeight - anchor.height);
+  }, [conversation.messages]);
+
+  // Asking for the next page when the sentinel comes into view, rather than from a scroll
+  // handler: an IntersectionObserver also fires when the pane is laid out already showing the
+  // top, which a scroll handler never sees. The margin starts the load a screenful early, so the
+  // history is usually there before the reader reaches it.
+  useEffect(() => {
+    const sentinel = olderSentinelRef.current;
+    const history = historyRef.current;
+    if (!sentinel || !history) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadOlderRef.current();
+      },
+      { root: history, rootMargin: "600px 0px 0px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [conversation.conversationId, conversation.hasOlder]);
 
   useLayoutEffect(() => {
     function scrollToMessageAnchor() {
@@ -938,17 +978,17 @@ export function ConversationPane({
     const messageId = pendingOpenMessageIdRef.current;
     if (messageId === undefined) return;
     const history = historyRef.current;
-    const message = document.getElementById(`message-${messageId}`);
-    if (!history || !message || history.clientHeight === 0) return;
+    // The whole row, not the message body inside it: the unread divider and the day divider are
+    // drawn at the top of the row, and anchoring on the body would scroll them off the top —
+    // Slack's default is to open on the first unread *and* show its divider.
+    const row = history?.querySelector(`li[data-message-id="${CSS.escape(messageId)}"]`);
+    if (!history || !row || history.clientHeight === 0) return;
     pendingOpenMessageIdRef.current = undefined;
     scrollTwice(() => {
-      // The row's own offset, straight from layout: rows are in normal flow, so this is exact on
-      // the first pass — there is no estimate to correct later. Left at the top of the pane with a
-      // small gap, the way Slack opens on the first unread.
+      // The row's own offset, straight from layout: every row is in normal flow and laid out at
+      // its real height, so this is exact — there is no estimate to correct later.
       const offset =
-        message.getBoundingClientRect().top -
-        history.getBoundingClientRect().top +
-        history.scrollTop;
+        row.getBoundingClientRect().top - history.getBoundingClientRect().top + history.scrollTop;
       history.scrollTo({ top: Math.max(0, offset - ROW_TOP_GAP_PX) });
     });
   }
@@ -962,11 +1002,16 @@ export function ConversationPane({
     history.scrollTop = history.scrollHeight;
   }
 
+  loadOlderRef.current = () => loadOlder();
+
   function trackReadingPosition() {
     const history = historyRef.current;
     if (!history) return;
-    if (history.scrollTop <= 80) void loadOlder();
-    const followingLatest = history.scrollHeight - history.scrollTop - history.clientHeight <= 48;
+    // Loading older history is the top sentinel's job (see its IntersectionObserver), not this
+    // scroll handler's.
+    const distance = history.scrollHeight - history.scrollTop - history.clientHeight;
+    bottomDistanceRef.current = distance;
+    const followingLatest = distance <= 48;
     const wasFollowingLatest = followingLatestRef.current;
     setFollowingLatest(followingLatest);
     if (followingLatest) setNewMessageCount(0);
@@ -1123,15 +1168,12 @@ export function ConversationPane({
             </div>
           )}
           {!root && conversation.hasOlder && onLoadOlder && (
-            <div className="flex justify-center px-4 pt-4 md:px-6">
-              <Button
-                color="tertiary"
-                size="sm"
-                isDisabled={loadingOlder}
-                onPress={() => void loadOlder()}
-              >
-                {loadingOlder ? m.conversation_loading_older() : m.conversation_load_older()}
-              </Button>
+            <div
+              ref={olderSentinelRef}
+              aria-live="polite"
+              className="flex h-8 items-center justify-center px-4 pt-4 text-xs text-tertiary md:px-6"
+            >
+              {loadingOlder && m.conversation_loading_older()}
             </div>
           )}
           {conversation.messages.length === 0 ? (
@@ -1158,11 +1200,9 @@ export function ConversationPane({
               </EmptyHeader>
             </Empty>
           ) : (
-            // Every loaded row is rendered, in normal flow: the browser skips layout and paint for
-            // the rows off screen (`content-visibility: auto` on each row, see `MessageRow`) instead
-            // of a JS window unmounting them. Nothing here computes a row's position, so no
-            // measurement can shift one, and the scrollbar is the real content height from the first
-            // paint — the scroll position never has to be corrected while you read.
+            // Every loaded row is rendered, in normal flow. Nothing here computes a row's position
+            // or its height, so no measurement can shift a row under the reader and no scroll
+            // correction is needed while you read; the scrollbar is the real content height.
             <ol className="flex flex-col pt-6">
               {conversation.messages.map((message, index) => {
                 const key = message.id;
@@ -1182,7 +1222,6 @@ export function ConversationPane({
                   <MessageRow
                     key={key}
                     message={message}
-                    index={index}
                     own={own}
                     dayChanged={dayChanged}
                     grouped={grouped}

@@ -1,4 +1,4 @@
-import { useState, type ReactNode, type Ref } from "react";
+import { useState, type ReactNode } from "react";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import { Download01, XClose } from "@untitledui/icons";
@@ -435,19 +435,20 @@ function UnreadDivider() {
   );
 }
 
-/** One history row: optional day divider, then the message with its hover actions.
+/** A row is a plain flow item: its height is whatever its content needs, and nothing — neither
+ * this file nor the conversation around it — estimates that height in advance.
  *
- * The row is an ordinary flow item and carries its own off-screen skipping: `content-visibility:
- * auto` lets the browser lay out and paint a row only when it comes near the viewport, and
- * `contain-intrinsic-size: auto 160px` keeps the last laid-out height as the placeholder for the
- * rows it has never rendered, so the scrollbar stays close to the real height. Nothing outside
- * the row computes its position, so a row whose height is still an estimate can never be drawn
- * over its neighbour (`direct-conversation.tsx`). */
-const ROW_CLASS = "flex flex-col [content-visibility:auto] [contain-intrinsic-size:auto_160px]";
+ * Off-screen skipping (`content-visibility: auto` with `contain-intrinsic-size: auto 160px`) was
+ * tried here and removed: it gives every never-rendered row a 160px placeholder, and prepending
+ * older history at the top of the pane then forces a batch of those placeholders to resolve to
+ * their real heights inside the viewport. The resulting shift re-triggers scroll anchoring, which
+ * changes which rows count as near the viewport, which lays out more of them — a feedback loop
+ * that pins the main thread until the renderer is killed. */
+const ROW_CLASS = "flex flex-col";
 
+/** One history row: optional day divider, then the message with its hover actions. */
 export function MessageRow({
   message,
-  index,
   own,
   dayChanged,
   grouped,
@@ -456,7 +457,6 @@ export function MessageRow({
   agentDisplay,
   unreadStartsHere,
   dateLocale,
-  measureRef,
   threadEntry,
   threadPreview,
   messageFooter,
@@ -464,7 +464,6 @@ export function MessageRow({
   viewerHandle,
 }: {
   message: MessageView;
-  index: number;
   own: boolean;
   dayChanged: boolean;
   grouped: boolean;
@@ -479,7 +478,6 @@ export function MessageRow({
   /** The conversation's unread run begins at this row (ADR 0046): draws the divider above. */
   unreadStartsHere?: boolean;
   dateLocale?: string;
-  measureRef?: Ref<HTMLLIElement>;
   threadEntry?: (message: MessageView) => ReactNode;
   threadPreview?: (message: MessageView) => ReactNode;
   messageFooter?: (message: MessageView) => ReactNode;
@@ -534,7 +532,7 @@ export function MessageRow({
   // costs the browser exactly what a normal one does.
   if (message.senderKind === "system") {
     return (
-      <li data-message-id={message.id} data-index={index} ref={measureRef} className={ROW_CLASS}>
+      <li data-message-id={message.id} className={ROW_CLASS}>
         {dayChanged && (
           <div className="flex items-center gap-3 px-4 py-2 md:px-6">
             <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
@@ -564,7 +562,7 @@ export function MessageRow({
     );
   }
   return (
-    <li data-message-id={message.id} data-index={index} ref={measureRef} className={ROW_CLASS}>
+    <li data-message-id={message.id} className={ROW_CLASS}>
       {unreadStartsHere && <UnreadDivider />}
       {dayChanged && (
         <div className="flex items-center gap-3 px-4 py-2 md:px-6">
