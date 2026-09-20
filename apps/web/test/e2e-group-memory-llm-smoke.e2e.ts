@@ -134,6 +134,32 @@ if (!API_KEY) {
     const ingested = await ingestCompletedTask(db, { taskMessageId });
     expect(ingested.skipped).toBe(false);
 
+    // The critique cadence trips at CRITIQUE_CADENCE (5) distilled episodes;
+    // four more admitted windows around the same theme get the loop there so
+    // the sweep chain exercises outcome → critique → propose for real.
+    const { admitMemoryEpisode } =
+      await import("../src/server/group-memory/memory-episodes.server");
+    const extraBodies = [
+      "We skipped the migration again under deadline pressure; the deploy failed and we hotfixed production.",
+      "This time we ran the migration first, deployed in the quiet morning window, and the audit trail stayed clean.",
+      "The rollback rehearsal showed nobody had backed up the database before the cleanup job; we lost an hour.",
+      "After the checklist change the hotfix went smoothly: migrate first, deploy in the morning, verify the audit log.",
+    ];
+    let seq = transcript.length + 2;
+    for (const body of extraBodies) {
+      seq += 3;
+      await admitMemoryEpisode(db, {
+        workspaceId: workspace.id,
+        conversationId: channel.id,
+        kind: "quiet_window",
+        startSequence: seq - 2,
+        endSequence: seq,
+        title: "hotfix process window",
+        body,
+        participants: [{ kind: "human", id: user.id, handle: user.username }],
+      });
+    }
+
     await sweepMemoryDistillation(db, llm);
     const episode = await db.memoryEpisode.findFirstOrThrow({
       where: { workspaceId: workspace.id, taskMessageId },
@@ -177,7 +203,7 @@ if (!API_KEY) {
       startKey: `smoke-${suffix}`,
       query: "how do we deploy safely without breaking the audit trail",
       maxSteps: 2,
-      maxResults: 8,
+      maxResults: 20,
     });
     console.log(
       JSON.stringify({
