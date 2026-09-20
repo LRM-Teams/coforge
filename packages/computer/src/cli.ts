@@ -542,7 +542,7 @@ export async function restartSupervisor(
 ): Promise<void> {
   const foregroundRefusal = (cause: unknown): Error =>
     new Error(
-      "Cannot restart the supervisor of a foreground externally supervised Computer while it is running. Restart it through its external supervisor, or install the supported user service.",
+      `Cannot restart the supervisor of a foreground externally supervised Computer while it is running: ${cause instanceof Error ? cause.message : String(cause)} Restart it through its external supervisor, or install the supported user service with \`coforge-computer start\`.`,
       { cause },
     );
   // launchd only: refuse outright rather than silently falling back to bootstrapping a fresh
@@ -579,11 +579,10 @@ export async function restartSupervisor(
       );
     }
     io.stdout("Restarting the Computer supervisor...");
-    try {
-      await host.restart();
-    } catch (error) {
-      throw host.assertRestartable ? error : foregroundRefusal(error);
-    }
+    // The platform host already knows why its own restart failed and says so; rewriting that
+    // into a fixed sentence about foreground supervision is how a `systemctl --user` refusal
+    // came to read as a problem it was not. Only `assertRestartable` above can establish that.
+    await host.restart();
     io.stdout("Computer supervisor restarted and answered its local handshake.");
   } finally {
     if (held) await local.hold("release", "restart-supervisor").catch(() => {});
