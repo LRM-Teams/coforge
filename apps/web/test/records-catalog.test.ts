@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
 import type { PrismaClient } from "../generated/client";
-import { currentIsoWeek } from "../src/features/records/records-content";
 import { RecordCatalog } from "../src/server/records/record-catalog.server";
-import { zonedCalendarDate } from "../src/server/records/weekly-report-schedule-due";
 
 test("sendWeeklyAssignments creates a new parent and unread assignments for recipients", async () => {
   const created: Array<Record<string, unknown>> = [];
@@ -1080,11 +1078,6 @@ test("loadCatalog creates a personal format when send settings are applied", asy
 
 test("loadCatalog exposes one chip per applied settings stream", async () => {
   const created: Array<Record<string, unknown>> = [];
-  // `alreadySent` means "already sent in the *current* schedule week", so the cycle fixture has to
-  // be dated in that week: a hardcoded week only asserted the right thing while the clock was inside
-  // it, and went red the moment the schedule week rolled over.
-  const thisWeek = currentIsoWeek(zonedCalendarDate(new Date()));
-  const cycleTitle = `2026 W${thisWeek.week} 工作周报`;
   const db = {
     workspaceMembership: {
       findUnique: async () => ({ role: "member" }),
@@ -1093,15 +1086,15 @@ test("loadCatalog exposes one chip per applied settings stream", async () => {
       findMany: async () => [
         {
           id: "cycle-1",
-          year: thisWeek.year,
-          week: thisWeek.week,
-          title: cycleTitle,
+          year: 2026,
+          week: 38,
+          title: "2026 W38 工作周报",
           reports: [
             {
               id: "overview-algo",
               kind: "template",
               authorId: "leader-b",
-              title: cycleTitle,
+              title: "2026 W38 工作周报",
               status: "draft",
               content: { tabs: { Summary: { markdown: "" } } },
               sourceTemplateId: null,
@@ -1126,9 +1119,9 @@ test("loadCatalog exposes one chip per applied settings stream", async () => {
       ],
       findUnique: async () => ({
         id: "cycle-1",
-        year: thisWeek.year,
-        week: thisWeek.week,
-        title: cycleTitle,
+        year: 2026,
+        week: 38,
+        title: "2026 W38 工作周报",
       }),
     },
     weeklyReportFavorite: { findMany: async () => [] },
