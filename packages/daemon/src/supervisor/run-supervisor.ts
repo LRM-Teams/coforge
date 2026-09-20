@@ -191,7 +191,7 @@ async function runWithSupervisorLock(
       return await command.exited;
     });
   };
-  const upgradeLogger = getLogger(["coforge", "daemon", "supervisor"]);
+  const supervisorLogger = getLogger(["coforge", "daemon", "supervisor"]);
   /**
    * Asks one Workspace daemon to hold (or release) its runners. A Workspace that does not answer
    * inside `RUNNER_HOLD_WORKSPACE_TIMEOUT_MS`, answers `accepted: false`, or fails outright is
@@ -225,7 +225,7 @@ async function runWithSupervisorLock(
         unreachableWorkspaceIds: [],
       };
     } catch (error) {
-      upgradeLogger.warn("Workspace daemon did not answer the runner hold; treating as idle", {
+      supervisorLogger.warn("Workspace daemon did not answer the runner hold; treating as idle", {
         event: `${eventPrefix}:runner_hold_unreachable`,
         workspace_id: workspaceId,
         operation,
@@ -305,7 +305,7 @@ async function runWithSupervisorLock(
       if (!binding) return;
       await new DaemonConfigStore(workspaceDirectory(workspaceId)).save(buildChildConfig(binding));
     } catch (error) {
-      upgradeLogger.warn("Refreshing a Workspace's local upgrade config failed", {
+      supervisorLogger.warn("Refreshing a Workspace's local upgrade config failed", {
         event: "upgrade:child_config_refresh_failed",
         workspace_id: workspaceId,
         error_message: error instanceof Error ? error.message : String(error),
@@ -332,7 +332,7 @@ async function runWithSupervisorLock(
         ).state();
         if (health.status === "degraded") {
           const message = `Workspace ${binding.workspaceId} is degraded (${health.reason}); it will not restart automatically. Run '${workspaceHealthRecoveryCommand(binding.workspaceId)}' after fixing it.`;
-          upgradeLogger.error(message, {
+          supervisorLogger.error(message, {
             event: "workspace:degraded_start_refused",
             workspace_id: binding.workspaceId,
             reason: health.reason,
@@ -440,7 +440,7 @@ async function runWithSupervisorLock(
       ...(receipt.errorCode ? { errorCode: receipt.errorCode } : {}),
     });
     if (recorded) {
-      upgradeLogger.info("Computer upgrade operation reached its terminal state", {
+      supervisorLogger.info("Computer upgrade operation reached its terminal state", {
         event: "upgrade:operation_settled",
         request_id: requestId,
         workspace_id: workspaceId,
@@ -490,7 +490,7 @@ async function runWithSupervisorLock(
           throw new Error(`Computer upgrade receipt cannot release launch-hold: ${requestId}`);
       }
     } catch (error) {
-      upgradeLogger.error("Computer upgrade receipt sweep failed", {
+      supervisorLogger.error("Computer upgrade receipt sweep failed", {
         event: "upgrade:receipt_sweep_failed",
         error_message: error instanceof Error ? error.message : String(error),
       });
@@ -516,7 +516,7 @@ async function runWithSupervisorLock(
         ttlMs: UPGRADE_OPERATION_PENDING_TTL_MS,
       },
     ).catch((error) =>
-      upgradeLogger.error("Computer upgrade receipt watch failed", {
+      supervisorLogger.error("Computer upgrade receipt watch failed", {
         event: "upgrade:receipt_watch_failed",
         workspace_id: workspaceId,
         request_id: requestId,
@@ -575,7 +575,7 @@ async function runWithSupervisorLock(
       clearHold: () => rm(holdPath, { force: true }),
       isWorkspaceRecoveryError: (error) => error instanceof WorkspaceRecoveryError,
       onWorkspaceRecoveryError: (error) =>
-        upgradeLogger.error("Workspace recovery after Computer promotion was incomplete", {
+        supervisorLogger.error("Workspace recovery after Computer promotion was incomplete", {
           event: "upgrade:workspace_recovery_incomplete",
           error_message: error.message,
         }),
