@@ -442,7 +442,7 @@ export class DaemonRuntime {
   readonly #messageAttention: AgentMessageAttentionIndex;
   /** Busy-gated delivery holding for providers with no safe busy path (ADR 0048). */
   readonly #deliveryQueue = new AgentDeliveryQueue();
-  /** Per-Agent retryable-runtime-error bookkeeping (ADR 0054): consecutive-failure delivery
+  /** Per-Agent retryable-runtime-error bookkeeping (ADR 0055): consecutive-failure delivery
    * backoff and the same-fingerprint repeat fence — see agent-runtime/runtime-error-recovery.ts. */
   readonly #runtimeErrorDeliveryBackoff = new RuntimeErrorDeliveryBackoff();
   readonly #runtimeErrorFingerprintFence = new RuntimeErrorFingerprintFence();
@@ -2364,7 +2364,7 @@ export class DaemonRuntime {
       return;
     }
     if (event.type !== "completed") return;
-    // ADR 0054: only a genuinely successful turn clears the delivery-backoff streak and the
+    // ADR 0055: only a genuinely successful turn clears the delivery-backoff streak and the
     // fingerprint fence; a failed or interrupted turn leaves both exactly as they were, so a
     // still-active backoff correctly keeps holding across it.
     if (event.status === "completed") this.#resetRuntimeErrorRecovery(agentId);
@@ -2651,7 +2651,7 @@ export class DaemonRuntime {
     this.#messageAttention.clearAgent(agentId);
     // ADR 0048: explicit Stop discards anything a queue_until_idle provider was holding.
     this.#deliveryQueue.clearAgent(agentId);
-    // ADR 0054: an explicit Stop discards the runtime-error recovery streaks the same way — a
+    // ADR 0055: an explicit Stop discards the runtime-error recovery streaks the same way — a
     // fresh start should not inherit a backoff/fence from a process that no longer exists.
     this.#clearRuntimeErrorBackoffTimer(agentId);
     this.#runtimeErrorDeliveryBackoff.reset(agentId);
@@ -2750,7 +2750,7 @@ export class DaemonRuntime {
   }
 
   /**
-   * ADR 0054: decides what a mid-turn runtime error means for this Agent's queued deliveries —
+   * ADR 0055: decides what a mid-turn runtime error means for this Agent's queued deliveries —
    * retry after a backoff, stop retrying, or stop retrying because the same fingerprint has now
    * failed `RUNTIME_ERROR_FINGERPRINT_FENCE_THRESHOLD` times in a row — and returns the Activity
    * that should actually be reported (unchanged, unless the fence just tripped). The retry
@@ -2815,7 +2815,7 @@ export class DaemonRuntime {
     this.#runtimeErrorDeliveryBackoff.reset(agentId);
   }
 
-  /** A genuinely successful turn (ADR 0054): forgets both streaks entirely. */
+  /** A genuinely successful turn (ADR 0055): forgets both streaks entirely. */
   #resetRuntimeErrorRecovery(agentId: string): void {
     this.#stopRuntimeErrorDeliveryBackoff(agentId);
     this.#runtimeErrorFingerprintFence.reset(agentId);
@@ -2840,7 +2840,7 @@ export class DaemonRuntime {
 
   /** Attempts delivery of everything just released from an explicit or busy-gated hold, as one
    * coalesced notice — never blocking the caller on it. Shared by ordinary turn-end draining and
-   * the runtime-error delivery backoff (ADR 0048/0054). */
+   * the runtime-error delivery backoff (ADR 0048/0055). */
   #flushHeldDeliveries(agentId: string, held: AgentMessageDelivery[]): void {
     void this.#messageAttention.flush(agentId, held).catch((error: unknown) => {
       logger.warn("Held Agent deliveries were not accepted", {

@@ -6783,7 +6783,7 @@ describe("Agent delivery queue (ADR 0048)", () => {
     expect(fake.notices).toEqual(["STEERED-BUT-NEVER-INJECTED"]);
   });
 
-  describe("runtime-error delivery backoff and fingerprint fence (ADR 0054)", () => {
+  describe("runtime-error delivery backoff and fingerprint fence (ADR 0055)", () => {
     afterEach(() => jest.useRealTimers());
 
     test("a retryable runtime error holds a new delivery and releases it once the backoff elapses", async () => {

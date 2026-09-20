@@ -1,8 +1,8 @@
 /**
  * Per-Agent bookkeeping for a retryable runtime error observed mid-turn (a provider's `error`
  * event whose classified retry decision is `retry` — see `runtime-error-classification.ts`).
- * This is deliberately not about spawn failures: `agent-runtime/launch-failure-backoff.ts` (ADR
- * 0054) already owns the cooldown before a *launch* attempt even reaches a running process; this
+ * This is deliberately not about spawn failures: `agent-runtime/launch-failure-backoff.ts`
+ * already owns the cooldown before a *launch* attempt even reaches a running process; this
  * module only starts once a process is up and a turn fails.
  *
  * Pure bookkeeping on purpose, matching `LaunchFailureBackoff`'s shape: no timers, no I/O. The
