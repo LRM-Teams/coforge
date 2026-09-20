@@ -13,6 +13,7 @@ import {
   readFileStorageConfig,
   type FileStorage,
 } from "../src/server/files/file-storage.server";
+import { createOssFileStorage } from "../src/server/files/oss-file-storage.server";
 import { storeUserAvatar } from "../src/server/profiles/user-avatar.server";
 
 describe("file storage configuration", () => {
@@ -241,6 +242,27 @@ describe("oss file storage", () => {
       body: "again",
     });
     expect(conflict.status).toBe(409);
+  });
+
+  test("a presigned URL always answers the public endpoint while server traffic stays internal", async () => {
+    // `COFORGE_OSS_INTERNAL=1` must only ever move the server's own traffic onto the internal
+    // endpoint: the presigned PUT is consumed by a browser or the CLI, and an internal endpoint
+    // is reachable only from Aliyun products in the same region — handing one out is a
+    // guaranteed connection failure (the staging "Web can't upload, Agent can" bug).
+    const storage = await createOssFileStorage({
+      kind: "oss",
+      bucket: "coforge-files-staging",
+      region: "cn-beijing",
+      endpoint: null,
+      internal: true,
+      accessKey: { accessKeyId: "AKID", accessKeySecret: "SECRET" },
+    });
+    if (!storage.presignPut) throw new Error("expected presignPut to be implemented");
+    const { url } = await storage.presignPut("workspaces/w/attachments/x/original", {
+      contentType: "text/plain",
+      expiresInSeconds: 60,
+    });
+    expect(new URL(url).hostname).toBe("coforge-files-staging.oss-cn-beijing.aliyuncs.com");
   });
 
   function ossError(status: number, code: string) {

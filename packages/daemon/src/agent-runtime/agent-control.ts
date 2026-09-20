@@ -56,9 +56,6 @@ type Runtime = {
    */
   rebind(intent: AgentStartIntent, launchId: string): Promise<SessionIdentity | undefined>;
   result(result: AgentControlResult): Promise<void>;
-  /** True when `error` (from `stop`/`launch`'s cleanup) means the local process's exit could not
-   * be confirmed — the one case a stale-looking record must keep fencing rather than repair. */
-  cleanupUnconfirmed(agentId: string, error: unknown): boolean;
 };
 
 /** Injectable timer seam for the automatic launch retry: production uses plain `setTimeout`, and
@@ -93,13 +90,14 @@ export class AgentControl {
     return this.state.store;
   }
   /**
-   * A stale lifecycle fact is a bug in the writer that left it behind (a gone daemon instance, or
-   * a Stop whose failure receipt was never retried), so every repair is logged at error level —
-   * it must never become the silent normal path. Repairs only a record whose phase still claims
-   * the process is up or mid-transition, only when the process is confirmed not running, only
-   * when the last writer never flagged the exit itself as unconfirmed, and only when that phase
-   * is explained by a gone writer (a different daemon instance) or a stuck failed Stop receipt.
-   * Leaves everything else (notably "clearing", mid reset-workspace) untouched. Preserves scope,
+   * A stale lifecycle fact is a bug in the writer that left it behind, so every repair is logged
+   * at error level — it must never become the silent normal path. Repairs only a record whose
+   * phase still claims the process is up or mid-transition while the process is confirmed not
+   * running: with control records living only in this process (task #54 step 2), the only way a
+   * live phase outlives its meaning is a Stop whose failure receipt was never retried (a
+   * different-instance writer is impossible here — the memory store dies with its process, and
+   * a previous daemon's leftover process is reaped by boot cleanup, task #54 step 1). Leaves
+   * everything else (notably "clearing", mid reset-workspace) untouched. Preserves scope,
    * sequence, identity and every prior receipt so idempotency/monotonicity are unaffected; only
    * `phase` moves to "stopped".
    */
@@ -107,30 +105,22 @@ export class AgentControl {
     agentId: string,
     record: AgentRuntimeRecord | undefined,
   ): Promise<AgentRuntimeRecord | undefined> {
-    if (
-      !record ||
-      !LIVE_PHASES.has(record.phase) ||
-      record.exitUnconfirmed ||
-      this.runtime.running(agentId)
-    )
-      return record;
-    const staleWriter = record.daemonInstanceId !== this.instanceId;
+    if (!record || !LIVE_PHASES.has(record.phase) || this.runtime.running(agentId)) return record;
     const stuckStopping = record.phase === "stopping" && record.stopResult?.phase === "failed";
-    if (!staleWriter && !stuckStopping) return record;
+    if (!stuckStopping) return record;
     const previousPhase = record.phase;
-    const previousDaemonInstanceId = record.daemonInstanceId;
     const repaired: AgentRuntimeRecord = { ...record, phase: "stopped" };
     await this.store.write(agentId, repaired);
     logger.error("Stale Agent control record repaired", {
       event: "agent_control:stale_record_repaired",
       agent_id: agentId,
       previous_phase: previousPhase,
-      previous_daemon_instance_id: previousDaemonInstanceId,
       daemon_instance_id: this.instanceId,
       epoch: record.scope.epoch,
     });
     return repaired;
   }
+
   private fence(record: AgentRuntimeRecord | undefined, scope: AgentControlScope) {
     if (!record) return;
     const old = record.scope;
@@ -142,132 +132,45 @@ export class AgentControl {
       (old.epoch === scope.epoch && old.provider !== scope.provider)
     )
       throw new Error("stale_control_request");
-    if (
-      record.daemonInstanceId !== this.instanceId &&
-      ["running", "starting", "stopping"].includes(record.phase)
-    )
-      throw new Error("previous_process_stop_unconfirmed");
-  }
-  async initialize() {
-    for (const id of await this.store.listAgentIds()) {
-      const record = await this.store.read(id);
-      this.#known.add(id);
-      await this.#settleInterruptedOperation(id, record);
-    }
-  }
-
-  /** Boot-time settle results for records a gone daemon instance left in a live phase. `initialize`
-   * runs before the transport connects, so these are collected there and flushed once `#start` has
-   * completed the ready handshake — the same after-ready ordering the pre-ready publication buffer
-   * uses. `flushPendingBootResults` is idempotent and safe to call when the list is empty. */
-  readonly #pendingBootResults: AgentControlResult[] = [];
-
-  /** Sends every settle result `initialize` collected, logging (not swallowing) a per-result
-   * delivery failure with the facts a later investigation needs. */
-  async flushPendingBootResults(): Promise<void> {
-    const pending = this.#pendingBootResults.splice(0);
-    for (const result of pending) {
-      try {
-        await this.runtime.result(result);
-      } catch (error) {
-        logger.warning("Boot settle result for an interrupted Agent operation failed to deliver", {
-          event: "agent_control:boot_result_delivery_failed",
-          agent_id: result.agentId,
-          request_id: result.requestId,
-          result_phase: result.phase,
-          epoch: result.epoch,
-          error_code: diagnosticErrorCode(error),
-        });
-      }
-    }
-  }
-
-  /** Boot-time counterpart of the lazy `repairStaleRecord`: a record left in a live phase by a
-   * gone daemon instance otherwise sits there until some control operation touches the Agent —
-   * the UI keeps showing "Starting…"/"Stopping…" and the server's operation for the interrupted
-   * start stays non-terminal forever, because the automatic launch retry that would have
-   * settled it died with the old instance (Raft's wait states carry an instance id + deadline
-   * precisely so they cannot outlive their writer). Repair the record to its honest terminal
-   * phase and report a result under the interrupted operation's own scope, so the server
-   * settles it without waiting for a newer command; a result for an op the server already
-   * superseded is rejected and logged (ADR 0035's decision B) — harmless.
-   *
-   * The repaired phase is always "stopped" — never "failed": the server's `recover()` treats a
-   * failed state as terminal and starts fresh, but republishing the SAME epoch at a record that
-   * reads "failed" would be fenced as `previous_control_not_completed`, so a "failed" repair
-   * could block the very recovery that follows this boot. The reported result is still `failed`
-   * for an interrupted start — that is the honest outcome for the operation — while the local
-   * record stays startable. */
-  async #settleInterruptedOperation(
-    agentId: string,
-    record: AgentRuntimeRecord | undefined,
-  ): Promise<void> {
-    if (
-      !record ||
-      !LIVE_PHASES.has(record.phase) ||
-      record.exitUnconfirmed ||
-      this.runtime.running(agentId) ||
-      record.daemonInstanceId === this.instanceId
-    )
-      return;
-    const previousPhase = record.phase;
-    const repaired: AgentRuntimeRecord = { ...record, phase: "stopped" };
-    let result: AgentControlResult | undefined;
-    if (previousPhase === "starting") {
-      // A launch that never finished: settle the server's operation as failed under the op's own
-      // scope so its pending state resolves; the next Start (including the Daemon-ready recovery
-      // dispatch) starts fresh with a new epoch.
-      repaired.lastResult = {
-        ...record.scope,
-        phase: "failed",
-        launchId: record.launchId,
-        sequence: ++repaired.sequence,
-        errorCode: "daemon_restarted",
-      };
-      result = repaired.lastResult;
-    } else if (previousPhase === "stopping") {
-      result = record.stopResult;
-      if (!result) {
-        repaired.lastResult = {
-          ...record.scope,
-          phase: "stopped",
-          sequence: ++repaired.sequence,
-        };
-        result = repaired.lastResult;
-      }
-    }
-    await this.store.write(agentId, repaired);
-    logger.error("Agent control record left live by a gone daemon instance; repaired at boot", {
-      event: "agent_control:interrupted_operation_repaired",
-      agent_id: agentId,
-      previous_phase: previousPhase,
-      previous_daemon_instance_id: record.daemonInstanceId,
-      daemon_instance_id: this.instanceId,
-      epoch: record.scope.epoch,
-      ...(result ? { reported_result_phase: result.phase } : {}),
-    });
-    if (result) this.#pendingBootResults.push(result);
+    // No cross-instance fence: control records live only in this process (task #54 step 2), so
+    // every record here was written by this instance. A live process a previous daemon left
+    // behind is reaped by boot process cleanup (task #54 step 1) before any operation arrives.
   }
   managed(agentId: string) {
     return this.#known.has(agentId);
   }
-  private async requireRecord(
-    record: AgentRuntimeRecord | undefined,
-    agentId: string,
-    known: boolean,
-  ) {
-    if (
-      !record &&
-      (known || (!this.runtime.running(agentId) && (await this.store.workspaceExists(agentId))))
-    )
-      throw new Error("control_record_missing");
+  private async requireRecord(record: AgentRuntimeRecord | undefined, known: boolean) {
+    // A missing record is the normal state for an Agent this process has not operated on yet
+    // (the store is in-memory, task #54 step 2); only an agent this process already tracked
+    // losing its record is the invariant violation.
+    if (!record && known) throw new Error("control_record_missing");
   }
+  /**
+   * Invariant assertions (task #54 step 3): the record's phase and the live process must agree
+   * within this process lifetime — a terminal record with a live process, or a running record
+   * without one, is a bug in the transition that just wrote them. Logged at error level, never
+   * thrown: the assertion watches the boundary, it does not become a second failure path.
+   */
+  #assertPhaseInvariants(agentId: string, record: AgentRuntimeRecord | undefined) {
+    if (!record) return;
+    const running = this.runtime.running(agentId);
+    const terminal = !LIVE_PHASES.has(record.phase);
+    if (terminal === running)
+      logger.error("Agent control record phase disagrees with the live process", {
+        event: "agent_control:invariant_violation",
+        agent_id: agentId,
+        phase: record.phase,
+        process_running: running,
+        daemon_instance_id: this.instanceId,
+      });
+  }
+
   stop(scope: AgentControlScope): Promise<void> {
     const known = this.#known.has(scope.agentId);
     this.#known.add(scope.agentId);
     return this.state.run(scope.agentId, async () => {
       let record = await this.store.read(scope.agentId);
-      await this.requireRecord(record, scope.agentId, known);
+      await this.requireRecord(record, known);
       record = await this.repairStaleRecord(scope.agentId, record);
       this.fence(record, scope);
       if (record?.scope.epoch === scope.epoch && record.stopResult) {
@@ -317,17 +220,20 @@ export class AgentControl {
           errorCode: "stop_failed",
         };
         record.lastResult = record.stopResult;
-        const unconfirmed = this.runtime.cleanupUnconfirmed(scope.agentId, error);
-        if (unconfirmed) record.exitUnconfirmed = true;
+        // The failed receipt is terminal for the request. The process may still be alive — a
+        // genuine local Stop failure — but no persisted fence holds that uncertainty anymore:
+        // the record lives only in this process (task #54 step 2), the user's next Stop (new
+        // epoch) retries, and a daemon restart hands the question to boot process cleanup
+        // (task #54 step 1), which reaps what this stop could not confirm.
         logger.warning("Agent Stop did not confirm process exit", {
           event: "agent_control:stop_failed",
           agent_id: scope.agentId,
-          exit_unconfirmed: unconfirmed,
           error_code: diagnosticErrorCode(error),
         });
       }
       await this.store.write(scope.agentId, record);
       await this.runtime.result(record.lastResult).catch(() => {});
+      this.#assertPhaseInvariants(scope.agentId, record);
     });
   }
   resetWorkspace(scope: AgentWorkspaceResetRequest): Promise<void> {
@@ -398,7 +304,7 @@ export class AgentControl {
         epoch: intent.controlEpoch,
       };
       let record = await this.store.read(intent.agentId);
-      await this.requireRecord(record, intent.agentId, known);
+      await this.requireRecord(record, known);
       record = await this.repairStaleRecord(intent.agentId, record);
       this.fence(record, scope);
       if (record?.scope.epoch === scope.epoch && record.startResult) {
@@ -558,19 +464,19 @@ export class AgentControl {
       record.lastResult = record.startResult;
       this.sessions.capture(record, identity);
       await this.store.write(intent.agentId, record);
+      this.#assertPhaseInvariants(intent.agentId, record);
       this.#onLaunchSucceeded(intent.agentId);
     } catch (launchError) {
       try {
         await this.runtime.stop(intent.agentId);
       } catch (stopError) {
-        // Cleanup after a failed launch could not confirm the process exited: the record
-        // must keep fencing (phase stays "starting", already written above), not be repaired.
-        record.exitUnconfirmed = this.runtime.cleanupUnconfirmed(intent.agentId, stopError);
-        await this.store.write(intent.agentId, record).catch(() => {});
-        logger.error("Agent launch cleanup did not confirm process exit; record stays fenced", {
+        // Cleanup after a failed launch could not confirm the process exited. The record stays
+        // in phase "starting" (already written above): the launch retry/backoff owns the
+        // outcome within this process, and across a restart the question is boot process
+        // cleanup's (task #54 step 1) — no persisted fence holds the uncertainty anymore.
+        logger.error("Agent launch cleanup did not confirm process exit", {
           event: "agent_control:launch_cleanup_unconfirmed",
           agent_id: intent.agentId,
-          exit_unconfirmed: record.exitUnconfirmed,
           error_code: diagnosticErrorCode(stopError),
         });
         throw stopError;

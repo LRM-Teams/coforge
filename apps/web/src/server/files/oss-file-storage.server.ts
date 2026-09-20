@@ -17,9 +17,14 @@ type OssConfig = Extract<FileStorageConfig, { kind: "oss" }>;
  */
 export async function createOssFileStorage(config: OssConfig): Promise<FileStorage> {
   const region = `oss-${config.region}`;
-  const endpoint = config.endpoint
-    ? { endpoint: config.endpoint, cname: true }
-    : { internal: config.internal };
+  // Two clients, one credential source. Server-side traffic may use the region's internal
+  // endpoint (cheaper and faster from an Aliyun host); a presigned URL is handed to a browser or
+  // the CLI, which can only reach the public endpoint — an internal endpoint is reachable only
+  // from Aliyun products in the same region, so handing one to a browser is a guaranteed
+  // connection failure. A custom domain (CNAME) is publicly routable and applies to both.
+  const customDomain = config.endpoint ? { endpoint: config.endpoint, cname: true } : null;
+  const serverEndpoint = customDomain ?? { internal: config.internal };
+  const presignEndpoint = customDomain ?? {};
   if (config.accessKey) {
     return new OssFileStorage(
       new OSS({
@@ -27,7 +32,14 @@ export async function createOssFileStorage(config: OssConfig): Promise<FileStora
         bucket: config.bucket,
         region,
         authorizationV4: true,
-        ...endpoint,
+        ...serverEndpoint,
+      }),
+      new OSS({
+        ...config.accessKey,
+        bucket: config.bucket,
+        region,
+        authorizationV4: true,
+        ...presignEndpoint,
       }),
     );
   }
@@ -44,20 +56,25 @@ export async function createOssFileStorage(config: OssConfig): Promise<FileStora
     };
   };
   const initial = await readCredential();
+  const shared = {
+    bucket: config.bucket,
+    region,
+    authorizationV4: true,
+    ...(initial.stsToken ? { refreshSTSToken: readCredential } : {}),
+  };
   return new OssFileStorage(
-    new OSS({
-      ...initial,
-      bucket: config.bucket,
-      region,
-      authorizationV4: true,
-      ...endpoint,
-      ...(initial.stsToken ? { refreshSTSToken: readCredential } : {}),
-    }),
+    new OSS({ ...initial, ...shared, ...serverEndpoint }),
+    new OSS({ ...initial, ...shared, ...presignEndpoint }),
   );
 }
 
 export class OssFileStorage implements FileStorage {
-  constructor(private readonly client: OSS) {}
+  /** Server-side traffic (put/open/remove/head) may ride the internal endpoint; `presignPut`
+   * signs on the public-endpoint client because its URL is consumed outside this server. */
+  constructor(
+    private readonly client: OSS,
+    private readonly presignClient: OSS,
+  ) {}
 
   async put(objectKey: string, file: Blob, contentType: string) {
     await this.client.put(objectKey, Buffer.from(await file.arrayBuffer()), {
@@ -119,7 +136,8 @@ export class OssFileStorage implements FileStorage {
    */
   async presignPut(objectKey: string, input: { contentType: string; expiresInSeconds: number }) {
     const headers = { "Content-Type": input.contentType, "x-oss-forbid-overwrite": "true" };
-    const url = await this.client.signatureUrlV4(
+    // Signed on the public-endpoint client: the consumer of this URL is a browser or the CLI.
+    const url = await this.presignClient.signatureUrlV4(
       "PUT",
       input.expiresInSeconds,
       { headers },

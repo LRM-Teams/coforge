@@ -110,7 +110,7 @@ import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
 import { AgentSessions } from "../agent-runtime/agent-session";
 import { AgentRuntimeState } from "../agent-runtime/agent-runtime-state";
-import { FileAgentRuntimeStateStore } from "../persistence/agent-runtime-state-store";
+import { MemoryAgentRuntimeStateStore } from "../persistence/memory-agent-runtime-state-store";
 import { listAgentSkills } from "../code-agent/agent-skills";
 import {
   listAgentWorkspaceFiles,
@@ -584,11 +584,10 @@ export class DaemonRuntime {
       (job) => this.#acceptReminderDue(job),
     );
     const state = new AgentRuntimeState(
-      new FileAgentRuntimeStateStore(
-        stateDirectory,
-        connection.workspaceRoot,
-        connection.workspaceId,
-      ),
+      // Control state lives only in this process (ADR 0056 task #54 step ②): the server
+      // re-dispatches what should still be running after a restart, so a persisted record could
+      // only outlive the writer it was waiting on.
+      new MemoryAgentRuntimeStateStore(connection.workspaceRoot, connection.workspaceId),
     );
     this.#agentSessions = new AgentSessions(state, async (snapshot) => {
       await this.#transport.reportAgentSession?.({
@@ -609,7 +608,6 @@ export class DaemonRuntime {
     });
     this.#agentControl = new AgentControl(this.#runtimeInstanceId, state, this.#agentSessions, {
       running: (agentId) => Boolean(this.#agentProcessManager.session(agentId)),
-      cleanupUnconfirmed: (agentId, error) => this.#cleanupUnconfirmed(agentId, error),
       stop: async (agentId) => {
         const session = this.#agentProcessManager.session(agentId);
         await this.stopAgent(agentId);
@@ -846,7 +844,6 @@ export class DaemonRuntime {
 
   async #start(connection: DaemonConfig): Promise<void> {
     mkdirSync(connection.workspaceRoot, { recursive: true });
-    await this.#agentControl.initialize();
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace credential is missing");
     // Publications that arrive before the ready handshake completes are replayed afterwards:
@@ -1070,10 +1067,6 @@ export class DaemonRuntime {
       buffering = false;
       this.#started = true;
       this.#activityEnabled = true;
-      // Settle the operations a gone daemon instance interrupted before any buffered control
-      // intent (a Daemon-ready recovery Start among them) is replayed, so the server reads
-      // "the interrupted start failed" before "a new start is arriving".
-      await this.#agentControl.flushPendingBootResults();
       await Promise.all(buffered.map((flush) => flush()));
     } catch (error) {
       this.#unsubscribeAll();

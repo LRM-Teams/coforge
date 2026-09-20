@@ -46,7 +46,7 @@ ${role}
  * Writes the seeded MEMORY.md into an Agent's workspace on its first launch. Never overwrites an
  * existing file — once written, an Agent owns MEMORY.md and this seed step never touches it
  * again (`flag: "wx"` fails with `EEXIST`, which is swallowed here). After a Full Reset clears
- * the Agent workspace (`persistence/agent-runtime-state-store.ts#clearWorkspace`), MEMORY.md is
+ * the Agent workspace (the record store's `clearWorkspace`), MEMORY.md is
  * gone along with every other workspace file, so the next launch's call to this function seeds it
  * again with no special-casing required.
  *

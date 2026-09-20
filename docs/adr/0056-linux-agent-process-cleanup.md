@@ -1,7 +1,7 @@
 # ADR 0056: Linux reaps its own Workspace's Agent processes on daemon boot
 
-Status: proposed — the double-run boundary changes here, so this ADR is the approval surface; it
-becomes accepted when this PR is approved by Frank (the Workspace decision-maker) and merged.
+Status: accepted (2026-09-20; approved by Frank and merged as #506). The double-run boundary changes
+here, which is why it needed that approval.
 Date: 2026-09-20
 
 ## Context
