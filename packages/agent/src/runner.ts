@@ -311,12 +311,19 @@ async function refreshPiModelCatalog(
       .getProviders()
       .flatMap((provider) => (modelRuntime.hasConfiguredAuth(provider.id) ? [provider.id] : []));
   if (configuredProviders.length === 0) return;
-  await modelRuntime.refresh({
-    providers: configuredProviders,
-    allowNetwork: true,
-    force: true,
-    signal: AbortSignal.timeout(5_000),
-  });
+  // Best-effort and unforced. Without `force`, the SDK's own refresh interval decides when the
+  // network is worth hitting, so a slow, offline or hanging network can no longer make every Pi
+  // launch wait on (or fail through) a forced catalog fetch. The models already on disk stay
+  // usable; a genuinely missing model still fails later, deterministically, at model resolution.
+  try {
+    await modelRuntime.refresh({
+      providers: configuredProviders,
+      allowNetwork: true,
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {
+    // A catalog refresh must never fail the launch.
+  }
 }
 
 if (import.meta.main) {
