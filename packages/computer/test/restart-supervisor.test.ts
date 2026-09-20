@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { rejection } from "./rejection";
 import {
   restartSupervisor,
   type RestartSupervisorHost,
@@ -74,24 +75,28 @@ test("restart --supervisor refuses a foreground externally supervised Computer w
     },
   };
 
-  await expect(restartSupervisor(host, local, { stdout: () => {} })).rejects.toThrow(
-    "Cannot restart the supervisor of a foreground externally supervised Computer",
-  );
+  const error = await rejection(restartSupervisor(host, local, { stdout: () => {} }));
+  expect(error.message).toContain("foreground externally supervised Computer");
+  expect(error.message).toContain("launchctl print failed (113)");
+  expect(error.message).toContain("coforge-computer start");
   expect(restarted).toBe(false);
   expect(local.calls).toEqual([]);
 });
 
-test("restart --supervisor on a host with no in-place restartability check wraps any restart failure as the foreground case", async () => {
+test("restart --supervisor keeps the reason a host without an in-place restartability check reported", async () => {
   const local = fakeLocal();
   const host: RestartSupervisorHost = {
     async restart() {
-      throw new Error("could not restart the CoForge Daemon user service");
+      throw new Error(
+        "`systemctl --user restart coforge-daemon.service` failed (1): Failed to connect to bus: No medium found. This shell has no systemd user session.",
+      );
     },
   };
 
-  await expect(restartSupervisor(host, local, { stdout: () => {} })).rejects.toThrow(
-    "Cannot restart the supervisor of a foreground externally supervised Computer",
-  );
+  const error = await rejection(restartSupervisor(host, local, { stdout: () => {} }));
+  expect(error.message).toContain("Failed to connect to bus: No medium found");
+  expect(error.message).toContain("no systemd user session");
+  expect(error.message).not.toContain("foreground externally supervised");
 });
 
 test("restart --supervisor on a launchd host rethrows a restart failure unchanged once restartability is confirmed", async () => {

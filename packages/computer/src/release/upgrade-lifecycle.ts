@@ -14,6 +14,23 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * What a person is told when the Computer supervisor could not be stopped for an upgrade.
+ * `foregroundSupervised` is true only where CoForge has actually established that no user
+ * service owns this Coordinator - launchd's `assertRestartable`. Everywhere else the platform
+ * host already knows the real reason and says it in its own message, so repeating it is what
+ * leaves a person something to act on; claiming foreground supervision instead is how a
+ * `systemctl --user` refusal came to read as a problem it was not.
+ */
+export function coordinatorStopFailure(error: unknown, foregroundSupervised: boolean): Error {
+  return new Error(
+    foregroundSupervised
+      ? `Cannot upgrade a foreground externally supervised Computer while it is running: ${errorMessage(error)} Stop it through its external supervisor before upgrading, or install the supported user service with \`coforge-computer start\`.`
+      : `Cannot stop the Computer supervisor to upgrade it: ${errorMessage(error)}`,
+    { cause: error },
+  );
+}
+
 export type ManagedRuntimeBinding = {
   bindingId: string;
   running: boolean;
@@ -207,10 +224,7 @@ export function createSupervisorUpgradeLifecycle(
             operation: "stop",
             error_message: errorMessage(error),
           });
-          throw new Error(
-            "Cannot upgrade a foreground externally supervised Computer while it is running. Stop it through its external supervisor before upgrading, or install the supported user service.",
-            { cause: error },
-          );
+          throw coordinatorStopFailure(error, true);
         }
         logger.info("Computer coordinator is restartable in place", {
           event: "upgrade:coordinator_stopped",
@@ -231,10 +245,7 @@ export function createSupervisorUpgradeLifecycle(
           operation: "stop",
           error_message: errorMessage(error),
         });
-        throw new Error(
-          "Cannot upgrade a foreground externally supervised Computer while it is running. Stop it through its external supervisor before upgrading, or install the supported user service.",
-          { cause: error },
-        );
+        throw coordinatorStopFailure(error, false);
       });
       const deadline = Date.now() + 35_000;
       while (

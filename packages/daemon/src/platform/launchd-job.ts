@@ -3,8 +3,7 @@ import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 
 import type { NativeProcessIdentity } from "../supervisor/workspace-instance";
-
-export type NativeCommandResult = { code: number; stdout: string; stderr: string };
+import { nativeCommandDiagnostic, type NativeCommandResult } from "./native-command";
 
 /**
  * Native launchd access. Injectable so job lifecycle is testable without
@@ -181,17 +180,6 @@ async function capture(command: string[]) {
  * difference between an actionable log record and a bare exit code, so a
  * failed native command must never discard it.
  */
-export function nativeCommandDiagnostic(stderr: string): string {
-  return stderr
-    .trim()
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 4)
-    .join(" ")
-    .slice(0, 500);
-}
-
 async function launchctlCommand(args: string[]): Promise<NativeCommandResult> {
   return await capture(["/bin/launchctl", ...args]);
 }
