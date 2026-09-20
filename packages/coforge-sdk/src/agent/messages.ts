@@ -1,4 +1,5 @@
 import type { MessageTaskMetadata } from "../internal/local-daemon";
+import type { MessageSenderKind } from "../internal/message-sender";
 
 export type AgentMessageOperation = "read" | "search" | "send";
 
@@ -50,7 +51,11 @@ export type AgentMessagesReactionRequest = {
 export type AgentMessage = {
   id: string;
   sequence: number;
-  sender: string;
+  senderKind: MessageSenderKind;
+  /** Public handle without a leading "@"; required for "human"/"agent", empty for "system". */
+  senderHandle: string;
+  /** The sender's role text; empty when there is none. */
+  senderDescription: string;
   target: string;
   body: string;
   createdAt: string;

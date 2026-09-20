@@ -205,10 +205,10 @@ function buildStartupSequenceSection(): string {
  * What a received message looks like. The example lines are the shape `formatMessageLine`
  * (`packages/coforge/src/message-format.ts`) produces for `message check`, `message resolve` and
  * held Task context; `agent-instructions.test.ts` renders a fixture through that function, so the
- * examples cannot drift from the code. The sender kind is read from the text after `]`: `@handle`
- * for a human or an Agent, the word `system` for a system message. The opening paragraph defers
- * to `### Messages`: once a check returns pending messages, they are processed before the turn
- * ends.
+ * examples cannot drift from the code. `type=` in the bracket header states the sender's kind
+ * explicitly — `human`, `agent`, or `system` — so the model is never left to guess it from the
+ * sender text's shape (ADR 0052). The opening paragraph defers to `### Messages`: once a check
+ * returns pending messages, they are processed before the turn ends.
  */
 function buildMessagingSection(): string {
   return `## Messaging
@@ -218,21 +218,22 @@ People and agents collaborate asynchronously in CoForge. Keep making progress on
 A received message line looks like this:
 
 \`\`\`
-[target=@alice msg=10000001 time=2026-03-15 09:00:00Z] @alice: Can you look at the login bug?
-[target=#general msg=10000002 time=2026-03-15 09:00:05Z] @bob: morning all
-[target=#general:10000002 msg=10000003 time=2026-03-15 09:01:00Z] @bob: following up here
-[target=#general msg=10000004 time=2026-03-15 09:02:00Z] @scout: deploy finished, all green
-[target=#general msg=10000005 time=2026-03-15 09:03:00Z] system: @scout was assigned task #12.
+[target=@alice msg=10000001 time=2026-03-15 09:00:00Z type=human] @alice: Can you look at the login bug?
+[target=#general msg=10000002 time=2026-03-15 09:00:05Z type=human] @bob: morning all
+[target=#general:10000002 msg=10000003 time=2026-03-15 09:01:00Z type=human] @bob: following up here
+[target=#general msg=10000004 time=2026-03-15 09:02:00Z type=agent] @scout — release bot: deploy finished, all green
+[target=#general msg=10000005 time=2026-03-15 09:03:00Z type=system] system: @scout was assigned task #12.
 \`\`\`
 
 - \`target=\` — where the message came from; reuse this exact value as \`--target\` when replying. \`@handle\` is a direct chat with that human; \`#name\` is a public channel; either form with \`:\` plus 8 more hex characters appended is a thread rooted at that message.
 - \`msg=\` — the message's own short ID, the first 8 hexadecimal characters of its UUID.
 - \`time=\` — a UTC timestamp, \`YYYY-MM-DD HH:MM:SSZ\`.
-- After the closing \`]\`: the sender, then \`: \`, then the body. The sender is \`@handle\` for a human or another Agent, or the literal word \`system\` for a system-authored message.
+- \`type=\` — the sender's kind, one of \`human\`, \`agent\`, or \`system\`. Trust this field; never infer the kind from the sender text's shape.
+- After the closing \`]\`: the sender, then \`: \`, then the body. A \`human\` or \`agent\` sender renders as \`@handle\`, with \` — \` plus a short role description appended when the sender has one (for example \`@scout — release bot\`); a \`system\` sender renders as the literal word \`system\`.
 
 The IDs and handles above (\`10000001\`…\`10000005\`, \`@alice\`, \`@bob\`, \`@scout\`) are placeholders that only show the shape of a real line; they are not messages you received. Never cite them as evidence that a message, thread, or task exists — cite only an ID or handle you actually read in a message or a \`coforge message read\`/\`coforge message search\` result.
 
-System messages are covered under Messages, below.`;
+A \`type=system\` message reports a state change the server made on your behalf, such as a task assignment. Read it as information; reply to it only when its text plainly asks you to do something. System messages are covered further under Messages, below.`;
 }
 
 function buildMessagesSection(): string {

@@ -2,6 +2,7 @@ import {
   isChannelMessageTarget,
   isChannelTarget,
   isValidReactionEmoji,
+  type MessageSenderKind,
 } from "@lrm/coforge-sdk/internal";
 import {
   getAgentMessageHoldStore,
@@ -296,7 +297,11 @@ export async function readAgentMessages(
 export type AgentMessageRecord = {
   id: string;
   sequence: number;
-  sender: string;
+  senderKind: MessageSenderKind;
+  /** Public handle without a leading "@"; required for "human"/"agent", empty for "system". */
+  senderHandle: string;
+  /** The sender's role text; empty when there is none. */
+  senderDescription: string;
   target: string;
   body: string;
   createdAt: Date;

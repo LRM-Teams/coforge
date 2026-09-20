@@ -1,5 +1,6 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { parseActivityEntries, type ActivityTrajectoryEntry } from "./activity-entries";
+import { assertValidMessageSender, isValidMessageSender } from "./message-sender";
 import {
   ComputerRegisterRequestSchema,
   ComputerRegisterResponseSchema,
@@ -54,6 +55,7 @@ import type {
   AgentStopIntent,
   AgentActivityProbe,
   AgentRuntimeProviderConfig,
+  AgentRecoveryMessage,
   AgentMessageDelivery,
   AgentActivity,
   AgentStatus,
@@ -696,6 +698,11 @@ export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
   for (const message of recoveryMessages) {
     if (!message.body) throw new Error("Agent recovery body is required");
     assertUint(message.sequence, Number.MAX_SAFE_INTEGER, "Agent recovery sequence");
+    assertValidMessageSender(
+      message.latestSenderKind,
+      message.latestSenderHandle,
+      "Agent recovery message",
+    );
   }
   for (const count of Object.values(value.unreadSummary ?? {}))
     assertUint(count, 0xffff_ffff, "Agent unread count");
@@ -767,7 +774,8 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
         !message.body ||
         (!message.target.startsWith("@") && !isChannelMessageTarget(message.target)) ||
         message.sequence < 1n ||
-        message.sequence > BigInt(Number.MAX_SAFE_INTEGER),
+        message.sequence > BigInt(Number.MAX_SAFE_INTEGER) ||
+        !isValidMessageSender(message.latestSenderKind, message.latestSenderHandle),
     ) ||
     messageIds.size !== recoveryMessages.length ||
     deliveryIds.size !== recoveryMessages.length ||
@@ -788,7 +796,9 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     conversationId: message.conversationId,
     sequence: Number(message.sequence),
     target: message.target,
-    latestSender: message.latestSender,
+    latestSenderKind: message.latestSenderKind as AgentRecoveryMessage["latestSenderKind"],
+    latestSenderHandle: message.latestSenderHandle,
+    latestSenderDescription: message.latestSenderDescription,
     body: message.body,
   });
   return {
@@ -906,6 +916,12 @@ function parseAgentRuntimeProviderConfig(
 
 export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Array {
   assertUint(value.sequence, Number.MAX_SAFE_INTEGER, "Agent message sequence");
+  if (value.latestSenderKind !== undefined)
+    assertValidMessageSender(
+      value.latestSenderKind,
+      value.latestSenderHandle ?? "",
+      "Agent message delivery",
+    );
   return toBinary(
     AgentMessageDeliverySchema,
     create(AgentMessageDeliverySchema, {
@@ -920,7 +936,9 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
       body: value.body,
       method: value.method,
       target: value.target,
-      latestSender: value.latestSender,
+      latestSenderKind: value.latestSenderKind ?? "",
+      latestSenderHandle: value.latestSenderHandle ?? "",
+      latestSenderDescription: value.latestSenderDescription ?? "",
     }),
   );
 }
@@ -933,7 +951,9 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
     !value.workspaceId ||
     !value.conversationId ||
     !value.agentId ||
-    !value.body
+    !value.body ||
+    (value.latestSenderKind &&
+      !isValidMessageSender(value.latestSenderKind, value.latestSenderHandle))
   )
     throw new Error("invalid agent message delivery");
   return {
@@ -948,7 +968,13 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
     body: value.body,
     method: AGENT_MESSAGE_METHOD,
     ...(value.target ? { target: value.target } : {}),
-    ...(value.latestSender ? { latestSender: value.latestSender } : {}),
+    ...(value.latestSenderKind
+      ? {
+          latestSenderKind: value.latestSenderKind as AgentMessageDelivery["latestSenderKind"],
+          latestSenderHandle: value.latestSenderHandle,
+          latestSenderDescription: value.latestSenderDescription,
+        }
+      : {}),
   };
 }
 export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {

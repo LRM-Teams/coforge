@@ -1,5 +1,5 @@
 import { lockConversation } from "../../conversations/conversation-lock.server";
-import type { MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
+import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
 import { normalizeMentionBody } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AppError } from "../../../lib/app-error";
@@ -17,10 +17,33 @@ import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
 } from "../../conversations/message-reactions.server";
-import { browserSenderHandle, browserSenderName } from "../../conversations/sender-display.server";
+import {
+  agentMessageSender,
+  browserSenderHandle,
+  browserSenderName,
+  MESSAGE_SENDER_SELECT,
+} from "../../conversations/sender-display.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "../../attachments/attachment-view.server";
 import type { ActionCardView } from "../../conversations/action-cards.server";
+
+/** The three Agent-visible sender facts (ADR 0052), spread onto every Agent-facing message shape
+ * in this file so they cannot drift into three different field sets. */
+type AgentFacingSender = {
+  senderKind: MessageSenderKind;
+  senderHandle: string;
+  senderDescription: string;
+};
+
+/** The `latestSender`-prefixed sibling of `AgentFacingSender`: the same three facts, attached to
+ * a target's attention summary or delivery envelope rather than a specific message's own sender.
+ * Exported so `message-request-idempotency.server.ts` and `direct-message.server.ts` share this
+ * one field set instead of restating it. */
+export type LatestSenderFields = {
+  latestSenderKind: MessageSenderKind;
+  latestSenderHandle: string;
+  latestSenderDescription: string;
+};
 
 export type AgentMentionBinding = { type: "user" | "agent"; id: string; name: string };
 
@@ -35,17 +58,16 @@ export type AttachmentMetadata = {
 };
 
 export type DirectConversationPage = {
-  messages: {
+  messages: ({
     id: string;
     sequence: number;
-    sender: string;
     body: string;
     createdAt: Date;
     target: string;
     /** Always present, possibly empty; order matches send/upload order. */
     attachments: AttachmentMetadata[];
     task?: MessageTaskMetadata;
-  }[];
+  } & AgentFacingSender)[];
   hasOlder: boolean;
   hasNewer: boolean;
 };
@@ -71,15 +93,16 @@ export type AgentMessageSearchOptions = {
 };
 
 export type AgentRecoveryContext = {
-  resumeMessages: Array<{
-    messageId: string;
-    deliveryId: string;
-    conversationId: string;
-    sequence: number;
-    target: string;
-    latestSender: string;
-    body: string;
-  }>;
+  resumeMessages: Array<
+    {
+      messageId: string;
+      deliveryId: string;
+      conversationId: string;
+      sequence: number;
+      target: string;
+      body: string;
+    } & LatestSenderFields
+  >;
   unreadSummary: Readonly<Record<string, number>>;
 };
 
@@ -121,15 +144,6 @@ const BROWSER_MESSAGE_SELECT = {
   mentions: BROWSER_MESSAGE_MENTIONS_SELECT,
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
-
-/** Just enough of the sender to render its `@handle`. */
-const MESSAGE_SENDER_SELECT = {
-  select: {
-    agentId: true,
-    agent: { select: { name: true } },
-    user: { select: { username: true } },
-  },
-} satisfies NonNullable<Prisma.MessageInclude["sender"]>;
 
 const TASK_METADATA_SELECT = {
   select: {
@@ -180,20 +194,9 @@ function conversationTarget(conversation: {
     : `@${conversation.members[0]?.user?.username}`;
 }
 
-function agentSenderHandle(
-  sender: {
-    agentId: string | null;
-    agent: { name: string } | null;
-    user: { username: string } | null;
-  } | null,
-) {
-  if (!sender) return "system";
-  return sender.agentId ? `@${sender.agent?.name ?? "agent"}` : `@${sender.user?.username}`;
-}
-
 function toAgentMessage(
   row: Pick<DirectConversationMessageRow, "id" | "sequence" | "body" | "createdAt"> & {
-    sender: Parameters<typeof agentSenderHandle>[0];
+    sender: Parameters<typeof agentMessageSender>[0];
     task: Parameters<typeof messageTask>[0];
     attachments: AttachmentMetadata[];
     actionCard?: { state: string } | null;
@@ -202,13 +205,16 @@ function toAgentMessage(
   target: string,
 ) {
   const task = messageTask(row.task);
+  const sender = agentMessageSender(row.sender);
   // Agents read plain `@handle` text: the embedded-UUID token form is a storage/browser concern
   // and never crosses onto the Agent channel.
   const body = agentReadableBody(row.body, row.mentions ?? []);
   return {
     id: row.id,
     sequence: row.sequence,
-    sender: agentSenderHandle(row.sender),
+    senderKind: sender.kind,
+    senderHandle: sender.handle,
+    senderDescription: sender.description,
     // An Agent reads message text, not the browser card UI; append the card's current state so it
     // never claims a resource exists before a human has actually committed the card (ADR 0027).
     body: row.actionCard ? `${body} [action card: ${row.actionCard.state}]` : body,
@@ -274,15 +280,20 @@ function unreadForAgentWhere(agentId: string, isChannel: boolean) {
  * explicitly delivered to it; channels only count with a delivery row. Shared by
  * `readAgentRecoveryContext` and `drainAgentEvents` so the rule cannot drift between them.
  *
- * `senderUsername` is the message's own author (an Agent's name, else a human's username) and
- * `otherUsername` is the *recipient* — the conversation's other active member, which a DM target
- * needs and a message's sender cannot supply.
+ * `senderAgentName`/`senderAgentDescription` and `senderUsername`/`senderUserDescription` carry
+ * the message's own author (an Agent, else a human) as separate columns rather than one merged
+ * name, so the caller can tell which kind it is and attach its description (ADR 0052); a raw SQL
+ * statement cannot call the shared `agentMessageSender` projection directly. `otherUsername` is
+ * the *recipient* — the conversation's other active member, which a DM target needs and a
+ * message's sender cannot supply.
  */
 function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
   return Prisma.sql`
     SELECT m."id", m."sequence", m."body", m."conversationId", m."threadRootId",
       m."senderMemberId", COALESCE(r."sequence", 0) AS "rootSequence",
-      d."deliveryId", COALESCE(sa."name", su."username") AS "senderUsername", c."channelName",
+      d."deliveryId", sa."name" AS "senderAgentName", sa."description" AS "senderAgentDescription",
+      su."username" AS "senderUsername", su."description" AS "senderUserDescription",
+      c."channelName",
       (SELECT COALESCE(ou."username", oa."name")
         FROM "conversation_members" om
         LEFT JOIN "users" ou ON ou."id" = om."userId"
@@ -329,7 +340,10 @@ type AgentRecoveryRow = {
   threadRootId: string | null;
   senderMemberId: string | null;
   deliveryId: string | null;
+  senderAgentName: string | null;
+  senderAgentDescription: string | null;
   senderUsername: string | null;
+  senderUserDescription: string | null;
   channelName: string | null;
   /** The conversation's other active member: the address a DM reply targets. */
   otherUsername: string | null;
@@ -401,23 +415,24 @@ export type DirectConversationRepository = {
     body: string,
     attachmentIds?: string[],
     threadRootId?: string,
-  ): Promise<{
-    id: string;
-    body: string;
-    createdAt: Date;
-    sequence: number;
-    /** The message's thread anchor, or null for a top-level message. */
-    threadRootId: string | null;
-    deliveryId?: string;
-    workspaceId: string;
-    agentId: string;
-    computerId?: string;
-    target?: string;
-    latestSender?: string;
-    deliveryTarget?: string;
-    /** Always present, possibly empty; order matches send order. */
-    attachments: AttachmentMetadata[];
-  }>;
+  ): Promise<
+    {
+      id: string;
+      body: string;
+      createdAt: Date;
+      sequence: number;
+      /** The message's thread anchor, or null for a top-level message. */
+      threadRootId: string | null;
+      deliveryId?: string;
+      workspaceId: string;
+      agentId: string;
+      computerId?: string;
+      target?: string;
+      deliveryTarget?: string;
+      /** Always present, possibly empty; order matches send order. */
+      attachments: AttachmentMetadata[];
+    } & Partial<LatestSenderFields>
+  >;
   receiveDeliveryAck?(input: {
     workspaceId: string;
     computerId: string;
@@ -432,17 +447,16 @@ export type DirectConversationRepository = {
     target: string,
     page?: DirectConversationPageOptions,
   ): Promise<
-    {
+    ({
       id: string;
       sequence: number;
-      sender: string;
       body: string;
       createdAt: Date;
       target: string;
       /** Always present, possibly empty; order matches send/upload order. */
       attachments: AttachmentMetadata[];
       task?: MessageTaskMetadata;
-    }[]
+    } & AgentFacingSender)[]
   >;
   readMessagesPage?(
     workspaceId: string,
@@ -459,17 +473,18 @@ export type DirectConversationRepository = {
     workspaceId: string,
     agentId: string,
     anchor: string,
-  ): Promise<{
-    id: string;
-    sequence: number;
-    sender: string;
-    body: string;
-    createdAt: Date;
-    target: string;
-    /** Always present, possibly empty; order matches send/upload order. */
-    attachments: AttachmentMetadata[];
-    task?: MessageTaskMetadata;
-  }>;
+  ): Promise<
+    {
+      id: string;
+      sequence: number;
+      body: string;
+      createdAt: Date;
+      target: string;
+      /** Always present, possibly empty; order matches send/upload order. */
+      attachments: AttachmentMetadata[];
+      task?: MessageTaskMetadata;
+    } & AgentFacingSender
+  >;
   setAgentMessageReaction?(
     workspaceId: string,
     agentId: string,
@@ -496,17 +511,16 @@ export type DirectConversationRepository = {
     agentId: string,
     limit?: number,
   ): Promise<{
-    messages: {
+    messages: ({
       id: string;
       sequence: number;
-      sender: string;
       body: string;
       createdAt: Date;
       target: string;
       /** Always present, possibly empty; order matches send/upload order. */
       attachments: AttachmentMetadata[];
       task?: MessageTaskMetadata;
-    }[];
+    } & AgentFacingSender)[];
     hasMore: boolean;
   }>;
   readPendingAgentDeliveries?(
@@ -545,26 +559,27 @@ export type DirectConversationRepository = {
     attachmentIds?: string[],
     threadRootId?: string,
     mentions?: readonly AgentMentionBinding[],
-  ): Promise<{
-    id: string;
-    body: string;
-    createdAt: Date;
-    sequence: number;
-    /** The message's thread anchor, or null for a top-level message. */
-    threadRootId: string | null;
-    deliveryId?: string;
-    workspaceId: string;
-    agentId: string;
-    target: string;
-    /** `@name` of the sending Agent, for delivery envelopes. */
-    latestSender?: string;
-    /** Attention rows created for other Agents @mentioned in a channel message (never the sender). */
-    deliveries?: { deliveryId: string; agentId: string; computerId: string | null }[];
-    /** Resolved mention rows (empty for DMs); translates the body's embedded mention tokens. */
-    mentions?: { kind: string; actorId: string; handle: string }[];
-    /** Always present, possibly empty; order matches send order. */
-    attachments: AttachmentMetadata[];
-  }>;
+  ): Promise<
+    {
+      id: string;
+      body: string;
+      createdAt: Date;
+      sequence: number;
+      /** The message's thread anchor, or null for a top-level message. */
+      threadRootId: string | null;
+      deliveryId?: string;
+      workspaceId: string;
+      agentId: string;
+      target: string;
+      /** Attention rows created for other Agents @mentioned in a channel message (never the sender). */
+      deliveries?: { deliveryId: string; agentId: string; computerId: string | null }[];
+      /** Resolved mention rows (empty for DMs); translates the body's embedded mention tokens. */
+      mentions?: { kind: string; actorId: string; handle: string }[];
+      /** Always present, possibly empty; order matches send order. */
+      attachments: AttachmentMetadata[];
+      // The sending Agent's identity, for delivery envelopes (ADR 0052).
+    } & Partial<LatestSenderFields>
+  >;
   openForUser?(
     workspaceId: string,
     userId: string,
@@ -1133,7 +1148,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             id: true,
             userId: true,
             agentId: true,
-            user: { select: { username: true } },
+            user: { select: { username: true, description: true } },
             agent: { select: { name: true, computerId: true } },
           },
         },
@@ -1212,6 +1227,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       );
       return { ...created, attachments };
     });
+    const senderIdentity = agentMessageSender({ agentId: null, agent: null, user: sender.user });
     return {
       ...message,
       deliveryId: message.deliveries[0]!.deliveryId,
@@ -1219,8 +1235,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       agentId: agents[0].agentId,
       computerId: agents[0].agent?.computerId ?? undefined,
       target: `@${agents[0].agent?.name ?? "unknown"}`,
-      latestSender: `@${sender.user?.username}`,
-      deliveryTarget: deliveryTarget(`@${sender.user?.username}`, root?.id),
+      latestSenderKind: senderIdentity.kind,
+      latestSenderHandle: senderIdentity.handle,
+      latestSenderDescription: senderIdentity.description,
+      deliveryTarget: deliveryTarget(`@${senderIdentity.handle}`, root?.id),
       attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     };
   }
@@ -1282,21 +1300,23 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return deliveries.map((delivery) => {
       // An Agent-authored message has no `user` on its sender row, so a `user.username`-only
       // derivation produced a bare `@` and rejected every pending Agent message. Reuse the one
-      // sender-handle rule the other Agent read paths use (see `agentSenderHandle`).
-      const sender = agentSenderHandle(delivery.message.sender);
+      // sender projection every Agent read path calls (`agentMessageSender`, ADR 0052): it
+      // throws a named error rather than shipping a degraded identity, and the handle it
+      // returns is already checked against the public handle grammar.
+      const sender = agentMessageSender(delivery.message.sender);
       const target = deliveryTarget(
         conversationTarget(delivery.conversation),
         delivery.message.threadRootId,
       );
-      if (sender !== "system" && !PUBLIC_USERNAME_TARGET.test(sender))
-        throw new Error("pending Agent delivery sender must be a public @username");
       return {
         messageId: delivery.messageId,
         deliveryId: delivery.deliveryId,
         conversationId: delivery.conversationId,
         sequence: delivery.sequence,
         target,
-        latestSender: sender,
+        latestSenderKind: sender.kind,
+        latestSenderHandle: sender.handle,
+        latestSenderDescription: sender.description,
         body: agentReadableBody(delivery.message.body, delivery.message.mentions),
       };
     });
@@ -1454,7 +1474,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         FROM unread u
       )
       SELECT "id", "sequence", "body", "conversationId", "threadRootId", "senderMemberId",
-        "deliveryId", "senderUsername", "channelName", "otherUsername", "unreadCount", "globalRank"
+        "deliveryId", "senderAgentName", "senderAgentDescription", "senderUsername",
+        "senderUserDescription", "channelName", "otherUsername", "unreadCount", "globalRank"
       FROM ranked
       WHERE "globalRank" <= ${AGENT_RECOVERY_MESSAGE_LIMIT} OR "targetRank" = 1
       ORDER BY "globalRank"`;
@@ -1487,17 +1508,34 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       unreadSummary[target] ??= row.unreadCount;
       if (row.globalRank > AGENT_RECOVERY_MESSAGE_LIMIT) continue;
       if (!row.deliveryId) throw new Error(`Unread Agent message has no delivery: ${row.id}`);
+      // The author, read from the message in every conversation kind. A DM's other member is its
+      // *recipient*, so deriving the sender from the conversation attributes the message to the
+      // wrong side — and, in a conversation with no user member, to nothing at all. Routed through
+      // the shared projection (ADR 0052) so a missing name fails loudly rather than degrading.
+      const sender = agentMessageSender(
+        row.senderMemberId === null
+          ? null
+          : {
+              agentId: row.senderAgentName !== null ? row.senderMemberId : null,
+              agent:
+                row.senderAgentName !== null
+                  ? { name: row.senderAgentName, description: row.senderAgentDescription ?? "" }
+                  : null,
+              user:
+                row.senderUsername !== null
+                  ? { username: row.senderUsername, description: row.senderUserDescription ?? "" }
+                  : null,
+            },
+      );
       resumeMessages.push({
         messageId: row.id,
         deliveryId: row.deliveryId,
         conversationId: row.conversationId,
         sequence: row.sequence,
         target,
-        // The author, read from the message in every conversation kind. A DM's other member is
-        // its *recipient*, so deriving the sender from the conversation attributes the message
-        // to the wrong side — and, in a conversation with no user member, to nothing at all.
-        // `?? "agent"` mirrors `agentSenderHandle`'s fallback so no NULL handle reaches the daemon.
-        latestSender: row.senderMemberId === null ? "system" : `@${row.senderUsername ?? "agent"}`,
+        latestSenderKind: sender.kind,
+        latestSenderHandle: sender.handle,
+        latestSenderDescription: sender.description,
         body: agentReadableBody(row.body, mentionsByMessage.get(row.id) ?? []),
       });
     }
@@ -1705,15 +1743,20 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         mentions: MESSAGE_MENTIONS_SELECT,
       },
     });
-    return rows.reverse().map((m) => ({
-      id: m.id,
-      sequence: m.sequence,
-      sender: agentSenderHandle(m.sender),
-      body: agentReadableBody(m.body, m.mentions),
-      createdAt: m.createdAt,
-      target: canonicalTarget,
-      attachments: m.attachments,
-    }));
+    return rows.reverse().map((m) => {
+      const sender = agentMessageSender(m.sender);
+      return {
+        id: m.id,
+        sequence: m.sequence,
+        senderKind: sender.kind,
+        senderHandle: sender.handle,
+        senderDescription: sender.description,
+        body: agentReadableBody(m.body, m.mentions),
+        createdAt: m.createdAt,
+        target: canonicalTarget,
+        attachments: m.attachments,
+      };
+    });
   }
 
   /** Count of the same pending-agent-context scope `readPendingAgentContext` reads, unbounded by its 3-row window. */
@@ -1745,8 +1788,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       include: {
         members: {
           include: {
-            agent: { select: { name: true } },
-            user: { select: { username: true } },
+            agent: MESSAGE_SENDER_SELECT.select.agent,
+            user: MESSAGE_SENDER_SELECT.select.user,
           },
         },
       },
@@ -1920,13 +1963,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       );
       return { ...created, attachments };
     });
+    // Never falls back to the internal Agent id: a missing name fails loudly (ADR 0052, decision B).
+    const senderIdentity = agentMessageSender({ agentId, agent: sender.agent, user: null });
     return {
       ...result,
       // Agent-originated messages must never be enqueued back to the sender.
       deliveryId: undefined,
       workspaceId: conversation.workspaceId,
       agentId,
-      latestSender: `@${sender.agent?.name ?? agentId}`,
+      latestSenderKind: senderIdentity.kind,
+      latestSenderHandle: senderIdentity.handle,
+      latestSenderDescription: senderIdentity.description,
       deliveries: result.deliveries.map((delivery) => ({
         deliveryId: delivery.deliveryId,
         agentId: delivery.agentId,

@@ -38,14 +38,31 @@ message WorkspaceInfoResponse {
   repeated WorkspaceInfoProject projects = 5;
   repeated WorkspaceInfoAgent agents = 6;
 }
-message WorkspaceInfoHuman { string id = 1; string name = 2; string display_name = 3; string role = 4; }
+message WorkspaceInfoHuman {
+  string id = 1;
+  string name = 2;
+  string display_name = 3;
+  string role = 4;
+}
 message WorkspaceInfoAgent {
-  string id = 1; string name = 2; string display_name = 3; string role = 4;
-  string status = 5; string activity = 6; string activity_detail = 7; string runtime = 8;
-  string model = 9; string computer_name = 10; string daemon_version = 11;
+  string id = 1;
+  string name = 2;
+  string display_name = 3;
+  string role = 4;
+  string status = 5;
+  string activity = 6;
+  string activity_detail = 7;
+  string runtime = 8;
+  string model = 9;
+  string computer_name = 10;
+  string daemon_version = 11;
 }
 message WorkspaceInfoProject {
-  string id = 1; string name = 2; string slug = 3; string github_full_name = 4; string github_html_url = 5;
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  string github_full_name = 4;
+  string github_html_url = 5;
 }
 
 message Workspace {
@@ -163,9 +180,13 @@ message AgentRecoveryMessage {
   string conversation_id = 3;
   uint64 sequence = 4;
   string target = 5;
-  // Public @handle, or "system" for a server-authored Message.
-  string latest_sender = 6;
-  string body = 7;
+  // Closed vocabulary: "human", "agent", "system" (ADR 0052).
+  string latest_sender_kind = 6;
+  // Public handle without a leading "@"; required for "human"/"agent", empty for "system".
+  string latest_sender_handle = 7;
+  // The sender's role text; empty when there is none.
+  string latest_sender_description = 8;
+  string body = 9;
 }
 
 message AgentUnreadSummaryEntry {
@@ -205,8 +226,12 @@ message AgentMessageDelivery {
   uint64 sequence = 10;
   // Public target identity; never expose internal agent/user ids to Agents.
   string target = 11;
-  // Public @handle, or "system" for a server-authored Message.
-  string latest_sender = 12;
+  // Closed vocabulary: "human", "agent", "system" (ADR 0052).
+  string latest_sender_kind = 12;
+  // Public handle without a leading "@"; required for "human"/"agent", empty for "system".
+  string latest_sender_handle = 13;
+  // The sender's role text; empty when there is none.
+  string latest_sender_description = 14;
 }
 
 message AgentMessageDeliveryAck {

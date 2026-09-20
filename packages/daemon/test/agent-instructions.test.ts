@@ -605,31 +605,37 @@ test("Messaging's example lines are the real formatMessageLine shape, not a hand
   const fixture: AgentMessageRecord = {
     id: "11111111-2222-3333-4444-555555555555",
     sequence: 1,
-    sender: "@alice",
+    senderKind: "human",
+    senderHandle: "alice",
+    senderDescription: "",
     target: "@alice",
     body: "Can you look at the login bug?",
     createdAt: "2026-03-15T09:00:00.000Z",
     attachments: [],
   };
   const rendered = formatMessageLine(fixture);
-  // Structural shape shared by every example line: [target=<t> msg=<8 hex> time=<UTC>] <sender>: <body>
+  // Structural shape shared by every example line:
+  // [target=<t> msg=<8 hex> time=<UTC> type=<kind>] <sender>: <body>
   const lineShape =
-    /^\[target=\S+ msg=[0-9a-f]{8} time=\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z\] \S+: .+$/;
+    /^\[target=\S+ msg=[0-9a-f]{8} time=\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z type=(human|agent|system)\] \S+.*: .+$/;
   expect(rendered).toMatch(lineShape);
-  expect(rendered).not.toContain("type=");
+  expect(rendered).toContain("type=human");
 
   const messagingSection = buildCoforgeCliGuideSections().messaging;
   const exampleLines = messagingSection.split("\n").filter((line) => line.startsWith("[target="));
   expect(exampleLines.length).toBeGreaterThanOrEqual(4);
-  for (const line of exampleLines) {
-    expect(line).toMatch(lineShape);
-    expect(line).not.toContain("type=");
-  }
-  // Covers a DM, a channel, a channel thread, an Agent sender, and a system sender.
+  for (const line of exampleLines) expect(line).toMatch(lineShape);
+  // Covers a DM, a channel, a channel thread, an Agent sender (with a description), and a system sender.
   expect(exampleLines.some((line) => line.startsWith("[target=@"))).toBe(true);
   expect(exampleLines.some((line) => /^\[target=#\w+ /.test(line))).toBe(true);
   expect(exampleLines.some((line) => /^\[target=#\w+:[0-9a-f]{8} /.test(line))).toBe(true);
-  expect(exampleLines.some((line) => / system: /.test(line))).toBe(true);
+  expect(exampleLines.some((line) => line.includes("type=human"))).toBe(true);
+  expect(exampleLines.some((line) => line.includes("type=agent") && line.includes(" — "))).toBe(
+    true,
+  );
+  expect(exampleLines.some((line) => line.includes("type=system") && / system: /.test(line))).toBe(
+    true,
+  );
 });
 
 test("@Mentions omits the identity bullets when the launch identity has no name", () => {

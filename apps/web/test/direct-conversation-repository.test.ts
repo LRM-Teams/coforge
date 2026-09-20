@@ -31,7 +31,11 @@ describe("PrismaDirectConversationRepository", () => {
               body: "Release plan",
               createdAt: new Date("2026-09-07T10:00:00Z"),
               threadRootId: null,
-              sender: { agentId: null, agent: null, user: { username: "ada" } },
+              sender: {
+                agentId: null,
+                agent: null,
+                user: { username: "ada", description: "" },
+              },
               attachments: [],
               conversation: {
                 channelName: "general",
@@ -77,7 +81,9 @@ describe("PrismaDirectConversationRepository", () => {
       {
         id: "message-1",
         sequence: 41,
-        sender: "@ada",
+        senderKind: "human",
+        senderHandle: "ada",
+        senderDescription: "",
         target: "#general",
         body: "Release plan",
         createdAt: new Date("2026-09-07T10:00:00Z"),
@@ -325,8 +331,8 @@ describe("PrismaDirectConversationRepository", () => {
       createdAt: new Date(0),
       sender:
         sequence === 2
-          ? { agentId: "agent-1", agent: { name: "helper" } }
-          : { agentId: null, agent: null, user: { username: "alice" } },
+          ? { agentId: "agent-1", agent: { name: "helper", description: "" }, user: null }
+          : { agentId: null, agent: null, user: { username: "alice", description: "" } },
       attachments: [],
     }));
     const db = {
@@ -364,9 +370,15 @@ describe("PrismaDirectConversationRepository", () => {
       throughSequence: 3,
     });
 
-    expect(result.messages.map(({ sequence, sender }) => [sequence, sender])).toEqual([
-      [2, "@helper"],
-      [3, "@alice"],
+    expect(
+      result.messages.map(({ sequence, senderKind, senderHandle }) => [
+        sequence,
+        senderKind,
+        senderHandle,
+      ]),
+    ).toEqual([
+      [2, "agent", "helper"],
+      [3, "human", "alice"],
     ]);
     expect(queries[0]).toMatchObject({
       where: { conversationId: "conversation-1", sequence: { gte: 2, lte: 3 } },
@@ -424,7 +436,7 @@ describe("PrismaDirectConversationRepository", () => {
               sequence: read === 3 ? 2 : 1,
               body: "Ship the release",
               createdAt: new Date(0),
-              sender: { agentId: null, agent: null, user: { username: "frank" } },
+              sender: { agentId: null, agent: null, user: { username: "frank", description: "" } },
               attachments: [],
               task: read === 3 ? null : taskStates[Math.min(read++, 2)],
             },
@@ -476,7 +488,7 @@ describe("PrismaDirectConversationRepository", () => {
             sequence: 3,
             body: "pending",
             createdAt: new Date(0),
-            sender: { agentId: null, agent: null },
+            sender: { agentId: null, agent: null, user: { username: "alice", description: "" } },
             attachments: [],
           },
         ],
@@ -576,7 +588,10 @@ describe("PrismaDirectConversationRepository", () => {
       threadRootId: null,
       senderMemberId: "member-alice",
       deliveryId: "delivery",
+      senderAgentName: null,
+      senderAgentDescription: null,
       senderUsername: "alice",
+      senderUserDescription: "",
       channelName: null,
       otherUsername: "alice",
       unreadCount: 120,
@@ -637,7 +652,9 @@ describe("PrismaDirectConversationRepository", () => {
         conversationId: "conversation-0",
         sequence: 5,
         target: "@alice",
-        latestSender: "@alice",
+        latestSenderKind: "human",
+        latestSenderHandle: "alice",
+        latestSenderDescription: "",
         body: "body-5",
       },
       {
@@ -646,7 +663,9 @@ describe("PrismaDirectConversationRepository", () => {
         conversationId: "conversation-0",
         sequence: 6,
         target: "@alice",
-        latestSender: "@alice",
+        latestSenderKind: "human",
+        latestSenderHandle: "alice",
+        latestSenderDescription: "",
         body: "body-6",
       },
     ]);
@@ -665,7 +684,10 @@ describe("PrismaDirectConversationRepository", () => {
           threadRootId: "root-1",
           senderMemberId: "member-carol",
           deliveryId: "delivery-1",
+          senderAgentName: null,
+          senderAgentDescription: null,
           senderUsername: "carol",
+          senderUserDescription: "",
           channelName: "general",
           otherUsername: "ada",
           unreadCount: 2,
@@ -693,9 +715,11 @@ describe("PrismaDirectConversationRepository", () => {
       "agent-1",
     );
 
-    expect(result.resumeMessages.map((m) => [m.target, m.latestSender])).toEqual([
-      ["#general:root-1", "@carol"],
-      ["#general:root-1", "system"],
+    expect(
+      result.resumeMessages.map((m) => [m.target, m.latestSenderKind, m.latestSenderHandle]),
+    ).toEqual([
+      ["#general:root-1", "human", "carol"],
+      ["#general:root-1", "system", ""],
     ]);
     expect(result.unreadSummary).toEqual({ "#general:root-1": 2 });
   });
@@ -766,7 +790,10 @@ describe("PrismaDirectConversationRepository", () => {
           threadRootId: null,
           senderMemberId: "member-author",
           deliveryId: "delivery-1",
+          senderAgentName: null,
+          senderAgentDescription: null,
           senderUsername: "author-agent",
+          senderUserDescription: "",
           channelName: null,
           otherUsername: "recipient-agent",
           unreadCount: 1,
@@ -786,17 +813,19 @@ describe("PrismaDirectConversationRepository", () => {
         conversationId: "conversation-1",
         sequence: 1,
         target: "@recipient-agent",
-        latestSender: "@author-agent",
+        latestSenderKind: "human",
+        latestSenderHandle: "author-agent",
+        latestSenderDescription: "",
         body: "handoff",
       },
     ]);
     expect(recovery.unreadSummary).toEqual({ "@recipient-agent": 1 });
   });
 
-  test("falls back to a usable handle rather than a NULL sender", async () => {
-    // Mirrors `agentSenderHandle`'s `?? "agent"`: an author row the database cannot produce
-    // (both `users.username` and `agents.name` are NOT NULL) must still not put `@null` on the
-    // wire, which is the shape that poisoned daemon ready recovery.
+  test("fails closed rather than shipping a degraded sender when no name can be resolved", async () => {
+    // ADR 0052 (decision B): an author row the database cannot produce (both `users.username`
+    // and `agents.name` are NOT NULL) must fail with a named error rather than substitute
+    // `"@agent"` or a bare `"@"` — the shape that previously poisoned daemon ready recovery.
     const db = {
       messageMention: { findMany: async () => [] },
       $queryRaw: async () => [
@@ -808,7 +837,10 @@ describe("PrismaDirectConversationRepository", () => {
           threadRootId: null,
           senderMemberId: "member-author",
           deliveryId: "delivery-1",
+          senderAgentName: null,
+          senderAgentDescription: null,
           senderUsername: null,
+          senderUserDescription: null,
           channelName: null,
           otherUsername: "recipient",
           unreadCount: 1,
@@ -817,11 +849,9 @@ describe("PrismaDirectConversationRepository", () => {
       ],
     } as unknown as PrismaClient;
 
-    const recovery = await new PrismaDirectConversationRepository(db).readAgentRecoveryContext(
-      "workspace-1",
-      "agent-1",
-    );
-    expect(recovery.resumeMessages[0]?.latestSender).toBe("@agent");
+    await expect(
+      new PrismaDirectConversationRepository(db).readAgentRecoveryContext("workspace-1", "agent-1"),
+    ).rejects.toThrow("Agent message sender could not be resolved");
   });
 
   test("reads all scoped unacknowledged deliveries oldest-first", async () => {
@@ -839,7 +869,11 @@ describe("PrismaDirectConversationRepository", () => {
               conversation: { channelName: null, members: [{ user: { username: "alice" } }] },
               message: {
                 body: "pending body",
-                sender: { user: { username: "alice" } },
+                sender: {
+                  agentId: null,
+                  agent: null,
+                  user: { username: "alice", description: "" },
+                },
                 mentions: [],
               },
             },
@@ -869,7 +903,9 @@ describe("PrismaDirectConversationRepository", () => {
         conversationId: "conversation-1",
         sequence: 4,
         target: "@alice",
-        latestSender: "@alice",
+        latestSenderKind: "human",
+        latestSenderHandle: "alice",
+        latestSenderDescription: "",
         body: "pending body",
       },
     ]);
@@ -889,7 +925,7 @@ describe("PrismaDirectConversationRepository", () => {
               body: "@reviewer please review",
               sender: {
                 agentId: "sender-agent",
-                agent: { name: "helper" },
+                agent: { name: "helper", description: "" },
                 user: null,
               },
               mentions: [],
@@ -911,7 +947,9 @@ describe("PrismaDirectConversationRepository", () => {
         conversationId: "conversation-1",
         sequence: 5,
         target: "#general",
-        latestSender: "@helper",
+        latestSenderKind: "agent",
+        latestSenderHandle: "helper",
+        latestSenderDescription: "",
         body: "@reviewer please review",
       },
     ]);
@@ -993,7 +1031,12 @@ describe("PrismaDirectConversationRepository", () => {
           workspaceId: "workspace-1",
           channelName: null,
           members: [
-            { id: "member-agent", agentId: "agent-1", userId: null },
+            {
+              id: "member-agent",
+              agentId: "agent-1",
+              userId: null,
+              agent: { name: "agent-1", description: "" },
+            },
             { id: "member-user", agentId: null, userId: "user-1" },
           ],
         }),

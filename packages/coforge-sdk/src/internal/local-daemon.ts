@@ -23,6 +23,7 @@ import {
   DaemonHoldRequestSchema,
   DaemonHoldResponseSchema,
 } from "./gen/coforge/rpc/v1/local_rpc_pb";
+import { assertValidMessageSender, type MessageSenderKind } from "./message-sender";
 
 export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
 export const LOCAL_RPC_METHODS = {
@@ -74,6 +75,13 @@ export function decodeLocalInboxRequest(bytes: Uint8Array): LocalInboxRequest {
   };
 }
 export function encodeInboxResponse(value: InboxResponse): Uint8Array {
+  for (const entry of value.entries)
+    if (entry.kind === "message_target" && entry.messageTarget.latestSenderKind !== undefined)
+      assertValidMessageSender(
+        entry.messageTarget.latestSenderKind,
+        entry.messageTarget.latestSenderHandle ?? "",
+        "Inbox message-target",
+      );
   return toBinary(
     InboxResponseSchema,
     create(InboxResponseSchema, {
@@ -117,7 +125,14 @@ export function decodeInboxResponse(bytes: Uint8Array): InboxResponse {
     requestId: value.requestId,
     accepted: value.accepted,
     entries: value.entries.map((entry): InboxEntry => {
-      if (entry.value.case === "messageTarget")
+      if (entry.value.case === "messageTarget") {
+        const { latestSenderKind, latestSenderHandle } = entry.value.value;
+        if (latestSenderKind !== undefined)
+          assertValidMessageSender(
+            latestSenderKind,
+            latestSenderHandle ?? "",
+            "Inbox message-target",
+          );
         return {
           kind: "message_target",
           messageTarget: {
@@ -125,10 +140,16 @@ export function decodeInboxResponse(bytes: Uint8Array): InboxResponse {
             pendingCount: entry.value.value.pendingCount,
             firstPendingSequence: Number(entry.value.value.firstPendingSequence),
             latestSequence: Number(entry.value.value.latestSequence),
-            latestSender: entry.value.value.latestSender,
+            ...(latestSenderKind
+              ? {
+                  latestSenderKind: latestSenderKind as MessageAttentionSummary["latestSenderKind"],
+                  latestSenderHandle,
+                }
+              : {}),
             flags: entry.value.value.flags,
           },
         };
+      }
       if (entry.value.case !== "app") throw new Error("invalid Inbox entry");
       const app = entry.value.value;
       if (app.retention !== "until_explicit_ack" || app.actionKind !== "run_command")
@@ -227,7 +248,11 @@ export type LocalAttachment = {
 export type AgentMessageRecord = {
   id: string;
   sequence: number;
-  sender: string;
+  senderKind: MessageSenderKind;
+  /** Public handle without a leading "@"; required for "human"/"agent", empty for "system". */
+  senderHandle: string;
+  /** The sender's role text; empty when there is none. */
+  senderDescription: string;
   target: string;
   body: string;
   createdAt: string;
@@ -313,10 +338,14 @@ export type MessageAttentionSummary = {
   pendingCount: number;
   firstPendingSequence: number;
   latestSequence: number;
-  latestSender?: string;
+  latestSenderKind?: MessageSenderKind;
+  /** Public handle without a leading "@". No description on this summary (ADR 0052, decision D). */
+  latestSenderHandle?: string;
   flags: string[];
 };
 function encodeAgentMessageRecords(records: readonly AgentMessageRecord[]) {
+  for (const m of records)
+    assertValidMessageSender(m.senderKind, m.senderHandle, "Agent message record");
   return records.map((m) => ({
     ...m,
     sequence: BigInt(m.sequence),
@@ -330,7 +359,9 @@ function decodeAgentMessageRecords(
   records: readonly {
     id: string;
     sequence: bigint;
-    sender: string;
+    senderKind: string;
+    senderHandle: string;
+    senderDescription: string;
     target: string;
     body: string;
     createdAt: string;
@@ -338,16 +369,21 @@ function decodeAgentMessageRecords(
     task?: Parameters<typeof decodeMessageTask>[0];
   }[],
 ): AgentMessageRecord[] {
-  return records.map((m) => ({
-    id: m.id,
-    sequence: Number(m.sequence),
-    sender: m.sender,
-    target: m.target,
-    body: m.body,
-    createdAt: m.createdAt,
-    attachments: decodeLocalAttachments(m.attachments),
-    ...(m.task ? { task: decodeMessageTask(m.task) } : {}),
-  }));
+  return records.map((m) => {
+    assertValidMessageSender(m.senderKind, m.senderHandle, "Agent message record");
+    return {
+      id: m.id,
+      sequence: Number(m.sequence),
+      senderKind: m.senderKind,
+      senderHandle: m.senderHandle,
+      senderDescription: m.senderDescription,
+      target: m.target,
+      body: m.body,
+      createdAt: m.createdAt,
+      attachments: decodeLocalAttachments(m.attachments),
+      ...(m.task ? { task: decodeMessageTask(m.task) } : {}),
+    };
+  });
 }
 
 export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Array {
@@ -372,11 +408,19 @@ export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Ar
       ...safeValue,
       messages: encodeAgentMessageRecords(safeValue.messages),
       recentUnread: encodeAgentMessageRecords(safeValue.recentUnread ?? []),
-      summaries: safeValue.summaries.map((summary) => ({
-        ...summary,
-        firstPendingSequence: BigInt(summary.firstPendingSequence),
-        latestSequence: BigInt(summary.latestSequence),
-      })),
+      summaries: safeValue.summaries.map((summary) => {
+        if (summary.latestSenderKind !== undefined)
+          assertValidMessageSender(
+            summary.latestSenderKind,
+            summary.latestSenderHandle ?? "",
+            "message attention summary",
+          );
+        return {
+          ...summary,
+          firstPendingSequence: BigInt(summary.firstPendingSequence),
+          latestSequence: BigInt(summary.latestSequence),
+        };
+      }),
       seenUpToSequence:
         safeValue.seenUpToSequence === undefined ? undefined : BigInt(safeValue.seenUpToSequence),
       anywayAllowed: safeValue.anywayAllowed ?? false,
@@ -410,14 +454,28 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
     accepted: v.accepted,
     attentionCount: v.attentionCount,
     messageId: v.messageId,
-    summaries: v.summaries.map((summary) => ({
-      target: summary.target,
-      pendingCount: summary.pendingCount,
-      firstPendingSequence: Number(summary.firstPendingSequence),
-      latestSequence: Number(summary.latestSequence),
-      ...(summary.latestSender !== undefined ? { latestSender: summary.latestSender } : {}),
-      flags: summary.flags,
-    })),
+    summaries: v.summaries.map((summary) => {
+      if (summary.latestSenderKind !== undefined)
+        assertValidMessageSender(
+          summary.latestSenderKind,
+          summary.latestSenderHandle ?? "",
+          "message attention summary",
+        );
+      return {
+        target: summary.target,
+        pendingCount: summary.pendingCount,
+        firstPendingSequence: Number(summary.firstPendingSequence),
+        latestSequence: Number(summary.latestSequence),
+        ...(summary.latestSenderKind
+          ? {
+              latestSenderKind:
+                summary.latestSenderKind as MessageAttentionSummary["latestSenderKind"],
+              latestSenderHandle: summary.latestSenderHandle,
+            }
+          : {}),
+        flags: summary.flags,
+      };
+    }),
     messages: decodeAgentMessageRecords(v.messages),
     recentUnread: v.recentUnread.length ? decodeAgentMessageRecords(v.recentUnread) : undefined,
     sideEffectDecision: v.sideEffectDecision

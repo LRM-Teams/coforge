@@ -15,7 +15,9 @@ function message(overrides: Partial<AgentMessageRecord> = {}): AgentMessageRecor
   return {
     id: "aaaaaaaa-0000-4000-8000-000000000001",
     sequence: 1,
-    sender: "@ada",
+    senderKind: "human",
+    senderHandle: "ada",
+    senderDescription: "",
     target: "#general",
     body: "hello there",
     createdAt: "2026-09-07T10:00:00Z",
@@ -31,7 +33,7 @@ test("formatUtcTimestamp renders ISO input as UTC YYYY-MM-DD HH:MM:SSZ", () => {
 
 test("formatMessageLine renders the shared bracket line with attachment and task suffixes", () => {
   expect(formatMessageLine(message())).toBe(
-    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z] @ada: hello there",
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there",
   );
 
   const withOneAttachment = message({
@@ -45,7 +47,7 @@ test("formatMessageLine renders the shared bracket line with attachment and task
     ],
   });
   expect(formatMessageLine(withOneAttachment)).toBe(
-    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z] @ada: hello there" +
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
       " [1 attachment: log.txt (id:aaaa1111-0000-4000-8000-000000000001) —" +
       " use `coforge attachment view --id <attachmentId> --output <path>` to download]",
   );
@@ -67,7 +69,7 @@ test("formatMessageLine renders the shared bracket line with attachment and task
     ],
   });
   expect(formatMessageLine(withTwoAttachments)).toBe(
-    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z] @ada: hello there" +
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
       " [2 attachments: spec.md (id:aaaa1111-0000-4000-8000-000000000001)," +
       " diagram.png (id:bbbb2222-0000-4000-8000-000000000002) —" +
       " use `coforge attachment view --id <attachmentId> --output <path>` to download]",
@@ -77,14 +79,46 @@ test("formatMessageLine renders the shared bracket line with attachment and task
     task: { number: 12, status: "in_progress", owner: { displayName: "Ada", handle: "ada" } },
   });
   expect(formatMessageLine(withTask)).toBe(
-    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z] @ada: hello there" +
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
       " [task #12 status=in_progress owner=@ada]",
   );
 
   const withTaskNoOwner = message({ task: { number: 3, status: "todo" } });
   expect(formatMessageLine(withTaskNoOwner)).toBe(
-    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z] @ada: hello there" +
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=human] @ada: hello there" +
       " [task #3 status=todo]",
+  );
+});
+
+test("formatMessageLine renders an Agent sender with its description and a system sender plainly", () => {
+  const fromAgent = message({
+    senderKind: "agent",
+    senderHandle: "scout",
+    senderDescription: "release bot",
+    target: "#general",
+    body: "deploy finished, all green",
+  });
+  expect(formatMessageLine(fromAgent)).toBe(
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=agent] @scout — release bot: deploy finished, all green",
+  );
+
+  const fromAgentNoDescription = message({
+    senderKind: "agent",
+    senderHandle: "scout",
+    senderDescription: "",
+  });
+  expect(formatMessageLine(fromAgentNoDescription)).toBe(
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=agent] @scout: hello there",
+  );
+
+  const fromSystem = message({
+    senderKind: "system",
+    senderHandle: "",
+    senderDescription: "",
+    body: "@scout was assigned task #12.",
+  });
+  expect(formatMessageLine(fromSystem)).toBe(
+    "[target=#general msg=aaaaaaaa time=2026-09-07 10:00:00Z type=system] system: @scout was assigned task #12.",
   );
 });
 
@@ -103,10 +137,10 @@ test("formatReadWindow reports older/newer availability and includes an around l
   expect(lines[1]).toBe("Around: 22222222.");
   expect(lines[2]).toBe("");
   expect(lines[3]).toBe(
-    "[1/2 msg=11111111-0000-4000-8000-000000000001 time=2026-09-07 10:00:00Z replyTarget=#general:11111111] @ada: first",
+    "[1/2 msg=11111111-0000-4000-8000-000000000001 time=2026-09-07 10:00:00Z type=human replyTarget=#general:11111111] @ada: first",
   );
   expect(lines[4]).toBe(
-    "[2/2 msg=22222222-0000-4000-8000-000000000002 time=2026-09-07 10:00:00Z replyTarget=#general:22222222] @ada: second",
+    "[2/2 msg=22222222-0000-4000-8000-000000000002 time=2026-09-07 10:00:00Z type=human replyTarget=#general:22222222] @ada: second",
   );
   expect(lines.at(-2)).toBe("");
   expect(lines.at(-1)).toBe("End of window: 2/2 shown.");
@@ -239,7 +273,9 @@ test("formatSendSuccess appends a recentUnread section only when non-empty", () 
     {
       id: "message-2",
       sequence: 5,
-      sender: "@frank",
+      senderKind: "human",
+      senderHandle: "frank",
+      senderDescription: "",
       target: "@user:11111111",
       body: "missed while held",
       createdAt: "2026-09-17T10:00:00Z",
@@ -253,8 +289,8 @@ test("formatSendSuccess appends a recentUnread section only when non-empty", () 
 
 test("formatHeldSend lists held messages oldest first and offers the anyway escape hatch only when allowed", () => {
   const held = [
-    message({ sender: "@ada", body: "first note", createdAt: "2026-09-07T10:01:00Z" }),
-    message({ sender: "@bob", body: "second note", createdAt: "2026-09-07T10:02:00Z" }),
+    message({ senderHandle: "ada", body: "first note", createdAt: "2026-09-07T10:01:00Z" }),
+    message({ senderHandle: "bob", body: "second note", createdAt: "2026-09-07T10:02:00Z" }),
   ];
   const withoutAnyway = formatHeldSend("#general", { attentionCount: 2, messages: held });
   expect(withoutAnyway).toContain(
@@ -279,7 +315,7 @@ test("formatHeldSend truncates a long preview with a remaining-character marker"
   const body = "a".repeat(170);
   const output = formatHeldSend("@ada", {
     attentionCount: 1,
-    messages: [message({ sender: "@ada", body, createdAt: "2026-09-07T09:00:00Z" })],
+    messages: [message({ senderHandle: "ada", body, createdAt: "2026-09-07T09:00:00Z" })],
   });
   expect(output).toContain(`  │ @ada 09:00  ${"a".repeat(160)}…⟨10 more chars⟩`);
 });
@@ -289,7 +325,7 @@ test("formatHeldSend collapses newlines and runs of whitespace in the preview", 
     attentionCount: 1,
     messages: [
       message({
-        sender: "@ada",
+        senderHandle: "ada",
         body: "  line one\n\nline   two  ",
         createdAt: "2026-09-07T09:00:00Z",
       }),

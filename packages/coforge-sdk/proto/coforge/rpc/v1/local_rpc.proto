@@ -15,13 +15,17 @@ message LocalRpcResponse {
 message AgentMessageRecord {
   string id = 1;
   uint64 sequence = 2;
-  // Public @handle, or "system" for a server-authored Message.
-  string sender = 3;
-  string target = 4;
-  string body = 5;
-  string created_at = 6;
-  repeated LocalAttachmentMetadata attachments = 7;
-  LocalMessageTaskMetadata task = 8;
+  // Closed vocabulary: "human", "agent", "system" (ADR 0052).
+  string sender_kind = 3;
+  // Public handle without a leading "@"; required for "human"/"agent", empty for "system".
+  string sender_handle = 4;
+  // The sender's role text; empty when there is none.
+  string sender_description = 5;
+  string target = 6;
+  string body = 7;
+  string created_at = 8;
+  repeated LocalAttachmentMetadata attachments = 9;
+  LocalMessageTaskMetadata task = 10;
 }
 
 message LocalAttachmentMetadata {
@@ -47,8 +51,11 @@ message MessageAttentionSummary {
   uint32 pending_count = 2;
   uint64 first_pending_sequence = 3;
   uint64 latest_sequence = 4;
-  optional string latest_sender = 5;
-  repeated string flags = 6;
+  // Closed vocabulary: "human", "agent", "system" (ADR 0052). No description on this summary.
+  optional string latest_sender_kind = 5;
+  // Public handle without a leading "@".
+  optional string latest_sender_handle = 6;
+  repeated string flags = 7;
 }
 
 message AgentMessageResponse {

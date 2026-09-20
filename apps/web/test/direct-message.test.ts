@@ -21,7 +21,9 @@ const persisted = {
   sequence: 1,
   threadRootId: null,
   target: "@agent",
-  latestSender: "@ada",
+  latestSenderKind: "human" as const,
+  latestSenderHandle: "ada",
+  latestSenderDescription: "",
   attachments: [],
 };
 
@@ -63,7 +65,8 @@ describe("SendDirectMessage", () => {
     });
     expect(decodeAgentMessageDelivery(publication!)).toMatchObject({
       target: "@ada:12345678",
-      latestSender: "@ada",
+      latestSenderKind: "human",
+      latestSenderHandle: "ada",
     });
   });
 
@@ -162,7 +165,9 @@ describe("SendDirectMessage", () => {
       body: "Hello Agent",
       method: "agent:v1:message:deliver",
       target: "@ada",
-      latestSender: "@ada",
+      latestSenderKind: "human",
+      latestSenderHandle: "ada",
+      latestSenderDescription: "",
     });
     expect(JSON.stringify(decodeAgentMessageDelivery(publication!.data))).not.toContain("user-a");
   });
@@ -207,16 +212,26 @@ describe("SendDirectMessage", () => {
     expect(calls).toEqual(["persist", "browser:conversation-a:message-a:1", "daemon"]);
   });
 
-  test.each([undefined, "2c9d2c18-2a0b-4a95-9e5a-111111111111"])(
-    "does not publish without a valid public sender target: %s",
-    async (latestSender) => {
+  test.each([
+    // No sender kind resolved at all.
+    { latestSenderKind: undefined, latestSenderHandle: undefined },
+    // An Agent kind on this human-send path (never expected, so treated as unresolved).
+    { latestSenderKind: "agent" as const, latestSenderHandle: "ada" },
+    // An internal id in place of a public handle must never publish.
+    {
+      latestSenderKind: "human" as const,
+      latestSenderHandle: "2c9d2c18-2a0b-4a95-9e5a-111111111111",
+    },
+  ])(
+    "does not publish without a valid public sender target: %j",
+    async ({ latestSenderKind, latestSenderHandle }) => {
       let published = false;
       const repository = {
         async getOrCreateUserAgent() {
           return { id: "conversation-a" };
         },
         async sendMessage() {
-          return { ...persisted, latestSender };
+          return { ...persisted, latestSenderKind, latestSenderHandle };
         },
       } satisfies DirectConversationRepository;
       const useCase = new SendDirectMessage(repository, new MemoryMessageRequestIdempotency(), {
@@ -689,7 +704,9 @@ describe("ReadDirectMessages", () => {
       {
         id: "message-a",
         sequence: 1,
-        sender: "@ada",
+        senderKind: "human" as const,
+        senderHandle: "ada",
+        senderDescription: "",
         body: "Hello",
         createdAt: new Date("2026-08-28T00:00:00Z"),
         target: "@user",

@@ -609,7 +609,9 @@ export type AgentRecoveryMessage = {
   conversationId: string;
   sequence: number;
   target: string;
-  latestSender: string;
+  latestSenderKind: import("./message-sender").MessageSenderKind;
+  latestSenderHandle: string;
+  latestSenderDescription: string;
   body: string;
 };
 export type AgentMessageDelivery = {
@@ -624,7 +626,9 @@ export type AgentMessageDelivery = {
   body: string;
   method: typeof AGENT_MESSAGE_METHOD;
   target?: string;
-  latestSender?: string;
+  latestSenderKind?: import("./message-sender").MessageSenderKind;
+  latestSenderHandle?: string;
+  latestSenderDescription?: string;
 };
 export type AgentMessageDeliveryAck = Omit<
   AgentMessageDelivery,
@@ -864,6 +868,7 @@ export * from "./tasks";
 export * from "./task-codec";
 export * from "./channel-command";
 export * from "./agent-display";
+export * from "./message-sender";
 export * from "./codec";
 export * from "./validation";
 export * from "./weekly-report";

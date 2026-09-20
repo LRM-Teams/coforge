@@ -1,3 +1,5 @@
+import type { LatestSenderFields } from "../db/repositories/direct-conversation.repositories.server";
+
 export type PersistedDirectMessage = {
   id: string;
   body: string;
@@ -21,8 +23,7 @@ export type PersistedDirectMessage = {
   workspaceId: string;
   agentId?: string;
   target?: string;
-  latestSender?: string;
-};
+} & Partial<LatestSenderFields>;
 
 export type MessageRequestScope = {
   workspaceId: string;

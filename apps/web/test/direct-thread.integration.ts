@@ -50,8 +50,8 @@ test("thread send and unread ranges stay separate from the main conversation", a
     );
     await repo.sendMessage(opened.conversationId, opened.senderMemberId, user.id, "main unread");
     const thread = await repo.readMessages(workspace.id, agent.id, shortTarget);
-    expect(thread.map((m) => [m.body, m.sender, m.target])).toEqual([
-      ["thread only", `@${username}`, target],
+    expect(thread.map((m) => [m.body, m.senderHandle, m.target])).toEqual([
+      ["thread only", username, target],
     ]);
     expect(
       (await repo.readMessages(workspace.id, agent.id, `@${username}`)).map((m) => m.body),
@@ -118,8 +118,8 @@ test("thread send and unread ranges stay separate from the main conversation", a
       [target]: 1,
       [otherTarget]: 1,
     });
-    expect(recovery.resumeMessages.find((m) => m.target === target)?.latestSender).toBe(
-      `@${username}`,
+    expect(recovery.resumeMessages.find((m) => m.target === target)?.latestSenderHandle).toBe(
+      username,
     );
     await repo.advanceAgentReadThrough(workspace.id, agent.id, target, 999);
     expect((await repo.readAgentRecoveryContext(workspace.id, agent.id)).unreadSummary).toEqual({
@@ -172,8 +172,8 @@ test("thread send and unread ranges stay separate from the main conversation", a
     expect((await sendTo(shortTarget)).accepted).toBe(true);
     const hold = await sendTo(otherTarget);
     expect(hold.sideEffectDecision).toBe("hold");
-    expect(hold.messages.map((m) => [m.body, m.target, m.sender])).toEqual([
-      ["other thread", otherTarget, `@${username}`],
+    expect(hold.messages.map((m) => [m.body, m.target, m.senderHandle])).toEqual([
+      ["other thread", otherTarget, username],
     ]);
     expect((await sendTo(`@${username}`, hold.holdToken)).messages.map((m) => m.body)).toEqual([
       "root",

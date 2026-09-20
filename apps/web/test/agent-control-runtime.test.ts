@@ -341,7 +341,9 @@ test("a Start that meets an already-running process rebinds it: one process, pre
             conversationId: "conversation-1",
             sequence: 1,
             target: "@a",
-            latestSender: "@owner",
+            latestSenderKind: "human",
+            latestSenderHandle: "owner",
+            latestSenderDescription: "",
             body: "hello again",
           },
         };
