@@ -26,6 +26,7 @@ import {
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "../../attachments/attachment-view.server";
 import type { ActionCardView } from "../../conversations/action-cards.server";
+import { windowPageFlags } from "../../../lib/conversation-window";
 
 /** The three Agent-visible sender facts (ADR 0052), spread onto every Agent-facing message shape
  * in this file so they cannot drift into three different field sets. */
@@ -584,7 +585,7 @@ export type DirectConversationRepository = {
     workspaceId: string,
     userId: string,
     agentId: string,
-    page?: { beforeSequence?: number; limit?: number },
+    page?: { beforeSequence?: number; afterSequence?: number; limit?: number },
   ): Promise<{
     conversationId: string;
     senderMemberId: string;
@@ -952,10 +953,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     workspaceId: string,
     userId: string,
     agentId: string,
-    page: { beforeSequence?: number; limit?: number } = {},
+    page: { beforeSequence?: number; afterSequence?: number; limit?: number } = {},
   ) {
     const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
     const limit = Math.min(page.limit ?? 50, 100);
+    // A forward fetch reads towards the live end, from the newest sequence the retained window
+    // still holds; a backward fetch reads history upwards from its oldest. Neither is the initial
+    // (uncursored) load, which lands on the newest page (see `lib/conversation-window.ts`).
+    const forward = page.afterSequence !== undefined;
     const row = await this.db.conversation.findUnique({
       where: { id: conversation.id },
       select: {
@@ -977,9 +982,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         messages: {
           where: {
             threadRootId: null,
-            sequence: page.beforeSequence ? { lt: page.beforeSequence } : undefined,
+            sequence: forward
+              ? { gt: page.afterSequence }
+              : page.beforeSequence
+                ? { lt: page.beforeSequence }
+                : undefined,
           },
-          orderBy: { sequence: "desc" },
+          // Both directions take `limit + 1` rows to learn whether one more remains; the page
+          // itself is re-sorted by sequence below, so only the overflow row's presence matters.
+          orderBy: { sequence: forward ? ("asc" as const) : ("desc" as const) },
           take: limit + 1,
           select: {
             ...BROWSER_MESSAGE_SELECT,
@@ -992,10 +1003,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const agentMember = row?.members.find((member) => member.agentId === agentId);
     if (!row || !sender || !agentMember?.agent)
       throw new Error("conversation scope is not authorized");
-    const hasOlder = row.messages.length > limit;
-    const messages = row.messages
-      .slice(0, limit)
-      .reverse()
+    const overflow = row.messages.length > limit;
+    const { hasOlder, hasNewer } = windowPageFlags(
+      forward ? "forward" : page.beforeSequence ? "backward" : "initial",
+      overflow,
+    );
+    // The overflow row is always the newest of the fetched rows, so dropping the tail of the
+    // ordered list keeps the reader's side of the window and drops the row that only proved there
+    // was more.
+    const pageRows = row.messages.slice(0, limit);
+    const messages = (forward ? pageRows : pageRows.reverse())
       .flatMap((message) => [message, ...message.replies])
       .sort((left, right) => left.sequence - right.sequence);
     return {
@@ -1009,7 +1026,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       ),
       agent: agentMember.agent,
       hasOlder,
-      hasNewer: false,
+      hasNewer,
       messages: messages.map((message) => toBrowserMessage(message, workspaceId)),
     };
   }

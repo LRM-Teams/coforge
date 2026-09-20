@@ -274,13 +274,26 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
     ).rejects.toThrow("ACCESS_DENIED");
     const latestPage = await channels.open(workspace.id, alice.id, engineering.id, { limit: 2 });
     expect(latestPage.hasOlder).toBe(true);
+    // The initial (uncursored) page is the live tail: nothing newer to fetch.
+    expect(latestPage.hasNewer).toBe(false);
     expect(latestPage.messages.map((message) => message.sequence)).toEqual([5, 6]);
     const olderPage = await channels.open(workspace.id, alice.id, engineering.id, {
       beforeSequence: 5,
       limit: 2,
     });
     expect(olderPage.hasOlder).toBe(true);
+    // A backward page always has newer content above it, so the bounded window knows the tail it
+    // retained is no longer the live end.
+    expect(olderPage.hasNewer).toBe(true);
     expect(olderPage.messages.map((message) => message.sequence)).toEqual([3, 4]);
+    // Reading back towards the live end from the retained page recovers the tail.
+    const newerPage = await channels.open(workspace.id, alice.id, engineering.id, {
+      afterSequence: 4,
+      limit: 2,
+    });
+    expect(newerPage.hasOlder).toBe(true);
+    expect(newerPage.hasNewer).toBe(false);
+    expect(newerPage.messages.map((message) => message.sequence)).toEqual([5, 6]);
     expect(
       (await channels.updates(workspace.id, alice.id, engineering.id, 4)).map(
         (message) => message.sequence,

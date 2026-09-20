@@ -8,7 +8,7 @@ import { AppError } from "../../lib/app-error";
 import { PublicChannels } from "../../server/conversations/public-channels.server";
 import { attachActionCardViews } from "../../server/conversations/action-cards.server";
 import { attachmentView } from "../../server/attachments/attachment-view.server";
-import { attachmentIdsSchema } from "./conversation.schemas";
+import { attachmentIdsSchema, conversationPageInputSchema } from "./conversation.schemas";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
@@ -16,9 +16,7 @@ import { browserMessageMention } from "../../server/conversations/mentions";
 import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
 
 const channelInput = z.object({ channelId: z.uuid() });
-const channelPageInput = channelInput.extend({
-  beforeSequence: z.number().int().positive().optional(),
-});
+const channelPageInput = channelInput.extend(conversationPageInputSchema);
 const channelUpdatesInput = channelInput.extend({
   afterSequence: z.number().int().nonnegative(),
 });
@@ -70,6 +68,8 @@ export const loadPublicChannel = createServerFn({ method: "GET" })
     const { channels, db, workspaceId, userId } = channelScope(context);
     const page = await channels.open(workspaceId, userId, data.channelId, {
       beforeSequence: data.beforeSequence,
+      afterSequence: data.afterSequence,
+      limit: data.limit,
     });
     return {
       ...page,

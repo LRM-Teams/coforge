@@ -146,6 +146,7 @@ export function ChannelConversation({
   onMutedChange,
   onLeft,
   onLoadOlder,
+  onLoadNewer,
   onLoadOwnMessages,
   onLoadMessageAround,
   onShowLatest,
@@ -172,6 +173,8 @@ export function ChannelConversation({
   /** Called after the current user successfully leaves the channel via the Members dialog. */
   onLeft?: () => Promise<void>;
   onLoadOlder?: () => Promise<void>;
+  /** Fetch the next page towards the live end once the bounded window pushed the tail out. */
+  onLoadNewer?: () => Promise<void>;
   onLoadOwnMessages?: (beforeSequence?: number) => Promise<{
     messages: Array<{
       id: string;
@@ -215,6 +218,7 @@ export function ChannelConversation({
       conversation={conversation}
       onSend={onSend}
       onLoadOlder={onLoadOlder}
+      onLoadNewer={onLoadNewer}
       onLoadOwnMessages={onLoadOwnMessages}
       onLoadMessageAround={onLoadMessageAround}
       onShowLatest={onShowLatest}

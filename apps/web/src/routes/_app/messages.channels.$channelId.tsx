@@ -54,7 +54,7 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   }),
   remountDeps: ({ params }) => params.channelId,
   loader: ({ context, params }) =>
-    context.queryClient.infiniteQuery(publicChannelQuery(params.channelId)),
+    context.queryClient.infiniteQuery(publicChannelQuery(params.channelId).query),
   pendingMs: 300,
   pendingMinMs: 0,
   pendingComponent: ConversationPending,
@@ -75,7 +75,7 @@ function ChannelPage() {
   const setMuted = useServerFn(setPublicChannelMuted);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
   const page = useConversationQuery({
-    query: publicChannelQuery(channelId),
+    ...publicChannelQuery(channelId),
     loadUpdates: publicChannelUpdates(channelId),
     onRealtime: () => taskView.refresh(),
   });
@@ -216,6 +216,7 @@ function ChannelPage() {
       onShowLatest={page.showLatest}
       onReadLatest={readLatest}
       onLoadOlder={page.loadOlder}
+      onLoadNewer={page.loadNewer}
       onOpenAgentProfile={openAgentProfile}
       agentProfile={{ agentId: profileAgentId, tab: agentTab }}
       onAgentProfileTabChange={setAgentProfileTab}
