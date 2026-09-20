@@ -600,10 +600,18 @@ test("applyTeamKeyPointExtraction parks side-chat-confirm delivery as awaiting_c
   process.env.REDIS_URL = "redis://127.0.0.1:9";
 
   const originalFromAgent = SendDirectMessage.prototype.executeFromAgent;
-  SendDirectMessage.prototype.executeFromAgent = async function (input: { body: string }) {
+  SendDirectMessage.prototype.executeFromAgent = (async (input: { body: string }) => {
     agentBody = input.body;
-    return { id: "msg-1" };
-  };
+    return {
+      id: "msg-1",
+      body: input.body,
+      createdAt: new Date(0),
+      sequence: 1,
+      threadRootId: null,
+      attachments: [],
+      workspaceId: "ws-1",
+    };
+  }) as typeof originalFromAgent;
 
   try {
     const result = await applyTeamKeyPointExtraction(db, {
@@ -622,8 +630,8 @@ test("applyTeamKeyPointExtraction parks side-chat-confirm delivery as awaiting_c
         delivery: "side-chat-confirm",
       },
     });
-    expect(agentBody).toContain("key-point-edit");
-    expect(agentBody).toContain("完成侧栏确认流");
+    expect(agentBody ?? "").toContain("key-point-edit");
+    expect(agentBody ?? "").toContain("完成侧栏确认流");
   } finally {
     SendDirectMessage.prototype.executeFromAgent = originalFromAgent;
     if (previousEnv.centrifugoUrl === undefined) delete process.env.COFORGE_CENTRIFUGO_API_URL;
