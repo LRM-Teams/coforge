@@ -742,7 +742,7 @@ function claudeRateLimitWindow(info: Record<string, unknown> | undefined):
   return {
     key,
     window: {
-      status: info.status === "rejected" ? "rate-limited" : "available",
+      status: info.status === "rejected" ? "limit_reached" : "ok",
       windowDurationMinutes: key === "primary" ? 300 : 10_080,
       resetsAt: reset.toISOString(),
     },

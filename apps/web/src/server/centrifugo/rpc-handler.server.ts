@@ -751,6 +751,17 @@ function decodeUsageSnapshot(
     return undefined;
   const accountLabel = snapshot.accountLabel;
   if (accountLabel !== undefined && !isValidAccountLabel(accountLabel)) return undefined;
+  const health = snapshot.health;
+  if (
+    health !== undefined &&
+    (typeof health !== "string" ||
+      (health !== "ok" &&
+        health !== "rate_limited" &&
+        health !== "reauth_required" &&
+        health !== "unsupported" &&
+        health !== "error"))
+  )
+    return undefined;
   return {
     provider: expectedProvider,
     ...(typeof planType === "string" ? { planType } : {}),
@@ -760,6 +771,7 @@ function decodeUsageSnapshot(
     ...(creditUsage ? { creditUsage } : {}),
     ...(typeof collectedAt === "string" ? { collectedAt } : {}),
     ...(typeof accountLabel === "string" ? { accountLabel } : {}),
+    ...(typeof health === "string" ? { health } : {}),
   };
 }
 
@@ -783,26 +795,44 @@ function usageWindow(value: unknown): UsageSnapshot["primary"] | undefined {
     typeof window.windowDurationMinutes !== "number" ||
     !Number.isFinite(window.windowDurationMinutes) ||
     window.windowDurationMinutes <= 0 ||
-    typeof window.resetsAt !== "string" ||
-    window.resetsAt.length > 100 ||
-    Number.isNaN(Date.parse(window.resetsAt)) ||
+    (window.resetsAt !== undefined &&
+      (typeof window.resetsAt !== "string" ||
+        window.resetsAt.length > 100 ||
+        Number.isNaN(Date.parse(window.resetsAt)))) ||
     (window.usedPercent !== undefined &&
       (typeof window.usedPercent !== "number" ||
         !Number.isFinite(window.usedPercent) ||
         window.usedPercent < 0 ||
         window.usedPercent > 100)) ||
     (window.status !== undefined &&
+      // `available` / `rate-limited` are the pre-Raft vocabulary an un-upgraded Computer still
+      // sends; they normalize to `ok` / `limit_reached` below so those snapshots keep ingesting
+      // during the Web-first deploy window.
+      window.status !== "ok" &&
+      window.status !== "limit_reached" &&
+      window.status !== "parse_unavailable" &&
       window.status !== "available" &&
       window.status !== "rate-limited")
   )
     return undefined;
+  const status =
+    window.status === "ok" ||
+    window.status === "limit_reached" ||
+    window.status === "parse_unavailable"
+      ? window.status
+      : window.status === "rate-limited"
+        ? "limit_reached"
+        : window.status === "available"
+          ? "ok"
+          : undefined;
   return {
     windowDurationMinutes: window.windowDurationMinutes,
-    resetsAt: window.resetsAt,
+    ...(typeof window.resetsAt === "string" ? { resetsAt: window.resetsAt } : {}),
     ...(typeof window.usedPercent === "number" ? { usedPercent: window.usedPercent } : {}),
-    ...(window.status === "available" || window.status === "rate-limited"
-      ? { status: window.status }
+    ...(typeof window.id === "string" && window.id.length > 0 && window.id.length <= 100
+      ? { id: window.id }
       : {}),
+    ...(status ? { status } : {}),
   };
 }
 

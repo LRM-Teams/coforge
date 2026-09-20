@@ -1,5 +1,6 @@
 import type { UsageSnapshot, UsageWindow } from "../contract";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { maskEmail } from "../mask-email";
 import { claudeCliEnvironment, runClaudeCli as run } from "./process";
 
 export async function readClaudeCodeUsage(
@@ -63,13 +64,6 @@ function account(output: string): Pick<UsageSnapshot, "planType" | "accountLabel
   } catch {
     return {};
   }
-}
-
-/** `frank.an@example.com` → `fr****@example.com`; anything that is not one plain address is dropped. */
-function maskEmail(email: string): string | undefined {
-  const match = /^([^\s@]+)@([^\s@]+\.[^\s@]+)$/.exec(email.trim());
-  if (!match || email.length > 70) return undefined;
-  return `${match[1]!.slice(0, 2)}****@${match[2]!.toLowerCase()}`;
 }
 
 function parseUsage(output: string): UsageSnapshot | null {

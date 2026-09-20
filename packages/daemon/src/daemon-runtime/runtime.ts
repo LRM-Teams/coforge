@@ -2,6 +2,7 @@ import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
   UsageUnavailableError,
+  UsageUnsupportedError,
   AgentContextReportTimeoutError,
   type AgentRuntimeConfig,
   type AgentRuntimeEvent,
@@ -718,6 +719,10 @@ export class DaemonRuntime {
         ? result("available", stamp(snapshot))
         : result("reauth", undefined, "Provider usage is unavailable");
     } catch (error) {
+      // A non-subscription account has no plan usage at all — answering `unsupported` wins
+      // over a stale observed snapshot, which a reading like this can never have produced.
+      if (error instanceof UsageUnsupportedError)
+        return result("unsupported", undefined, "Usage scanning is unsupported for this account");
       const snapshot = this.#currentObservedUsage(provider);
       if (snapshot) return result("available", stamp(snapshot));
       return error instanceof UsageUnavailableError
@@ -4121,7 +4126,9 @@ function runtimeFailureDiagnostic(message: string) {
 }
 
 function validUsageWindow(window: UsageSnapshot["primary"], now: number): UsageSnapshot["primary"] {
-  return window && Date.parse(window.resetsAt) > now ? window : undefined;
+  return window && window.resetsAt !== undefined && Date.parse(window.resetsAt) > now
+    ? window
+    : undefined;
 }
 
 export type { CodeAgentProviderFactory, AgentRuntime, AgentRuntimeConfig, CodeAgentProvider };

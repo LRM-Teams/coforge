@@ -3179,7 +3179,7 @@ describe("DaemonRuntime", () => {
         snapshot: {
           provider: "claude-code",
           primary: {
-            status: "available",
+            status: "ok",
             windowDurationMinutes: 300,
             resetsAt: "2099-09-04T03:00:00.000Z",
           },
@@ -3194,7 +3194,7 @@ describe("DaemonRuntime", () => {
     expect(snapshot).toEqual({
       provider: "claude-code",
       primary: {
-        status: "available",
+        status: "ok",
         windowDurationMinutes: 300,
         resetsAt: "2099-09-04T03:00:00.000Z",
       },
@@ -3245,7 +3245,7 @@ describe("DaemonRuntime", () => {
           snapshot: {
             provider: "claude-code",
             primary: {
-              status: "available",
+              status: "ok",
               windowDurationMinutes: 300,
               resetsAt: "2099-09-04T03:00:00.000Z",
             },

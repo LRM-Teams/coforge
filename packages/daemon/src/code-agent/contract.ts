@@ -74,6 +74,14 @@ export class UsageUnavailableError extends Error {
     super("Provider usage is unavailable");
   }
 }
+/** The signed-in account has no plan usage to scan at all (Raft-aligned: a Codex API-key or
+ * Bedrock account, or `requiresOpenaiAuth === false`, has no rate-limit windows) — mapped to
+ * the `unsupported` scan status like Pi's static answer, not a misleading empty reading. */
+export class UsageUnsupportedError extends Error {
+  constructor() {
+    super("Usage scanning is unsupported for this account");
+  }
+}
 
 /** A `readContextReport` call did not finish before its timeout (ADR 0051); the caller reports
  * this as `timeout`, distinct from `unparsed` (ran, produced nothing parseable) or a generic

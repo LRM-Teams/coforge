@@ -470,7 +470,7 @@ test("Claude Code exposes account rate-limit events as partial usage snapshots",
       snapshot: {
         provider: "claude-code",
         primary: {
-          status: "rate-limited",
+          status: "limit_reached",
           windowDurationMinutes: 300,
           resetsAt: "2026-09-04T03:00:00.000Z",
         },

@@ -14,6 +14,12 @@ const threadId = expectedSession && expectedSession !== "new" ? expectedSession 
 const usageUnavailable = process.argv.includes("usage-unavailable");
 const usageUnsupported = process.argv.includes("usage-unsupported");
 const usageTimeout = process.argv.includes("usage-timeout");
+const usageApikeyAccount = process.argv.includes("usage-apikey");
+const usageNoauthAccount = process.argv.includes("usage-noauth");
+const usageLegacyAccount = process.argv.includes("usage-legacy");
+const usageAuthRequired = process.argv.includes("usage-auth");
+const usageRatelimited = process.argv.includes("usage-ratelimited");
+const usageEmpty = process.argv.includes("usage-empty");
 const usageClient = process.argv.some((argument) => argument.startsWith("usage"));
 const skillsDirectory = join(process.cwd(), ".agents", "skills");
 let skills: string[] = [];
@@ -58,7 +64,7 @@ function handle(request: Request): void {
       clientInfo?.name !== expectedClient.name ||
       clientInfo.title !== expectedClient.title ||
       typeof clientInfo.version !== "string" ||
-      capabilities?.experimentalApi !== false
+      capabilities?.experimentalApi !== (usageClient ? true : false)
     ) {
       write({
         id: request.id,
@@ -73,8 +79,44 @@ function handle(request: Request): void {
     initialized = true;
     return;
   }
+  if (request.method === "account/read" && request.id && usageClient) {
+    if (usageLegacyAccount) {
+      write({ id: request.id, error: { code: -32601, message: "method not found" } });
+      return;
+    }
+    if (usageApikeyAccount) {
+      write({ id: request.id, result: { account: { type: "apiKey" } } });
+      return;
+    }
+    if (usageNoauthAccount) {
+      write({
+        id: request.id,
+        result: {
+          account: { type: "chatgpt", email: "codexuser@example.com" },
+          requiresOpenaiAuth: false,
+        },
+      });
+      return;
+    }
+    write({
+      id: request.id,
+      result: { account: { type: "chatgpt", email: "codexuser@example.com" } },
+    });
+    return;
+  }
   if (request.method === "account/rateLimits/read" && request.id) {
     if (usageTimeout) return;
+    if (usageEmpty) {
+      write({ id: request.id, result: {} });
+      return;
+    }
+    if (usageAuthRequired) {
+      write({
+        id: request.id,
+        error: { code: -32001, message: "authentication required" },
+      });
+      return;
+    }
     if (usageUnavailable || usageUnsupported) {
       write({
         id: request.id,
@@ -87,8 +129,9 @@ function handle(request: Request): void {
       result: {
         planType: "plus",
         rateLimits: {
+          limitId: "codex",
           primary: {
-            usedPercent: 25,
+            usedPercent: usageRatelimited ? 100 : 25,
             windowDurationMins: 300,
             resetsAt: 1_735_780_800,
           },
