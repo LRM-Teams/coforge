@@ -36,10 +36,10 @@ test("startWeeklyReportScheduleTick runs due work on each interval and skips ove
   const events: Array<Record<string, unknown>> = [];
   const { stop } = startWeeklyReportScheduleTick({
     intervalMs: 10,
-    setIntervalFn: ((fn: TimerHandler) => {
-      calls.push(fn as () => void);
+    setIntervalFn: (fn) => {
+      calls.push(fn);
       return 1 as unknown as ReturnType<typeof setInterval>;
-    }) as typeof setInterval,
+    },
     log: (event) => events.push(event),
     runDue: async () => {
       runCount += 1;

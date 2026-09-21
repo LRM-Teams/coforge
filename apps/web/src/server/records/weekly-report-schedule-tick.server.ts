@@ -25,7 +25,8 @@ export function readWeeklyReportScheduleTickMs(
 export type WeeklyReportScheduleTickDeps = {
   intervalMs: number;
   runDue: () => Promise<unknown>;
-  setIntervalFn?: typeof setInterval;
+  /** Test seam: defaults to global `setInterval`. */
+  setIntervalFn?: (handler: () => void, ms: number) => ReturnType<typeof setInterval>;
   log?: (event: Record<string, unknown>) => void;
 };
 

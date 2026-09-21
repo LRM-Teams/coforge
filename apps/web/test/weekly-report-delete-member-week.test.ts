@@ -195,7 +195,14 @@ test("deleteMemberWeek removes cycle when the viewer owned the only reports", as
 test("deleteOverviewReport drops the leader week node but keeps member reports and favorites", async () => {
   const deletedReports: string[] = [];
   const unlinked: string[] = [];
-  const reports = [
+  const reports: Array<{
+    id: string;
+    workspaceId: string;
+    cycleId: string;
+    kind: string;
+    authorId: string;
+    sourceTemplateId?: string | null;
+  }> = [
     {
       id: "overview-1",
       workspaceId: "ws-1",
