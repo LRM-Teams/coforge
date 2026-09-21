@@ -85,6 +85,36 @@ test("a body with an invalid command shape is rejected before the board is calle
   expect(called).toBe(false);
 });
 
+test("a resource receipt accepts an ISO expiry with a timezone offset", async () => {
+  let received: unknown;
+  const result = await handleAgentTaskPost(
+    request({
+      idempotencyKey: "request-1",
+      operation: "receipt",
+      target: "#general",
+      receipt: {
+        object: "staging bucket",
+        purpose: "release verification",
+        teardownOwner: "@alice",
+        securityPrivacy: "private test data",
+        expiry: "2030-03-04T05:06:00+08:00",
+        runbook: "delete the bucket",
+        tracking: "task-123",
+      },
+    }),
+    principal,
+    {
+      execute: async (_principal, command) => {
+        received = command;
+        return { tasks: [] };
+      },
+    },
+  );
+
+  expect(result.status).toBe(200);
+  expect(received).toMatchObject({ receipt: { expiry: "2030-03-04T05:06:00+08:00" } });
+});
+
 test("the board receives an agent-scoped principal — never the owner's userId alongside it", async () => {
   // The HTTP auth principal carries the agent AND its owner (`userId`). The real board's scope()
   // throws ACCESS_DENIED unless EXACTLY ONE of the two is set, so a pass-through principal makes

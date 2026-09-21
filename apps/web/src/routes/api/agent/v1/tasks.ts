@@ -44,7 +44,7 @@ const taskRequestSchema = z
         purpose: z.string().min(1),
         teardownOwner: z.string().min(1),
         securityPrivacy: z.string().min(1),
-        expiry: z.iso.datetime(),
+        expiry: z.iso.datetime({ offset: true }),
         runbook: z.string().min(1),
         tracking: z.string().min(1),
       })
