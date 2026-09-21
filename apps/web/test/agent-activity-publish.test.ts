@@ -49,6 +49,7 @@ describe("Agent activity publication", () => {
     const received: unknown[] = [];
     const response = await handleAgentActivityPublication(request(), {
       proxySecret: "test-secret",
+      agentVisibility: async () => "public",
       agentBelongsToWorkspace: async () => true,
       agentBelongsToComputer: async () => true,
       computerBelongsToWorkspace: async () => true,
@@ -81,6 +82,7 @@ describe("Agent activity publication", () => {
     const history: unknown[] = [];
     const response = await handleAgentActivityPublication(request({ b64data: btoa(binary) }), {
       proxySecret: "test-secret",
+      agentVisibility: async () => "public",
       agentBelongsToWorkspace: async () => true,
       agentBelongsToComputer: async () => true,
       computerBelongsToWorkspace: async () => true,
@@ -106,6 +108,7 @@ describe("Agent activity publication", () => {
     let reduced = false;
     await handleAgentActivityPublication(request(), {
       proxySecret: "test-secret",
+      agentVisibility: async () => "public",
       agentBelongsToWorkspace: async () => true,
       agentBelongsToComputer: async () => true,
       computerBelongsToWorkspace: async () => true,
@@ -130,6 +133,7 @@ describe("Agent activity publication", () => {
       request({ b64data: encodedBase64({ ...activity, isHeartbeat: true, entries: [] }) }),
       {
         proxySecret: "test-secret",
+        agentVisibility: async () => "public",
         agentBelongsToWorkspace: async () => true,
         agentBelongsToComputer: async () => true,
         computerBelongsToWorkspace: async () => true,
@@ -177,6 +181,7 @@ describe("Agent activity publication", () => {
       }),
       {
         proxySecret: "test-secret",
+        agentVisibility: async () => "public",
         agentBelongsToWorkspace: async () => true,
         agentBelongsToComputer: async () => true,
         computerBelongsToWorkspace: async () => true,
@@ -222,6 +227,7 @@ describe("Agent activity publication", () => {
         }),
         {
           proxySecret: "test-secret",
+          agentVisibility: async () => "public",
           agentBelongsToWorkspace: async () => true,
           agentBelongsToComputer: async () => true,
           computerBelongsToWorkspace: async () => true,
@@ -245,6 +251,7 @@ describe("Agent activity publication", () => {
         }),
         {
           proxySecret: "test-secret",
+          agentVisibility: async () => "public",
           agentBelongsToWorkspace: async () => true,
           agentBelongsToComputer: async () => true,
           computerBelongsToWorkspace: async () => true,
@@ -271,6 +278,7 @@ describe("Agent activity publication", () => {
       }),
       {
         proxySecret: "test-secret",
+        agentVisibility: async () => "public",
         agentBelongsToWorkspace: async () => true,
         agentBelongsToComputer: async () => true,
         computerBelongsToWorkspace: async () => true,
@@ -301,6 +309,7 @@ describe("Agent activity publication", () => {
         }),
         {
           proxySecret: "test-secret",
+          agentVisibility: async () => "public",
           agentBelongsToWorkspace: async () => true,
           agentBelongsToComputer: async () => true,
           computerBelongsToWorkspace: async () => true,
@@ -329,6 +338,7 @@ describe("Agent activity publication", () => {
         }),
         {
           proxySecret: "test-secret",
+          agentVisibility: async () => "public",
           agentBelongsToWorkspace: async () => true,
           agentBelongsToComputer: async () => true,
           computerBelongsToWorkspace: async () => true,
@@ -350,6 +360,7 @@ describe("Agent activity publication", () => {
       }),
       {
         proxySecret: "test-secret",
+        agentVisibility: async () => "public",
         agentBelongsToWorkspace: async () => true,
         agentBelongsToComputer: async () => true,
         computerBelongsToWorkspace: async () => true,
@@ -375,6 +386,7 @@ describe("Agent activity publication", () => {
       request({ b64data: encodedBase64(withEntries) }),
       {
         proxySecret: "test-secret",
+        agentVisibility: async () => "public",
         agentBelongsToWorkspace: async () => true,
         agentBelongsToComputer: async () => true,
         computerBelongsToWorkspace: async () => true,
@@ -396,6 +408,7 @@ describe("Agent activity publication", () => {
   test("rejects an untrusted proxy or mismatched connection scope", async () => {
     const dependencies = {
       proxySecret: "test-secret",
+      agentVisibility: async () => "public",
       agentBelongsToWorkspace: async () => true,
       agentBelongsToComputer: async () => true,
       computerBelongsToWorkspace: async () => true,
@@ -425,6 +438,7 @@ describe("Agent activity publication", () => {
     for (const dependencies of [
       {
         proxySecret: "test-secret",
+        agentVisibility: async () => "public",
         agentBelongsToWorkspace: async () => false,
         agentBelongsToComputer: async () => true,
         computerBelongsToWorkspace: async () => true,
@@ -432,6 +446,7 @@ describe("Agent activity publication", () => {
       },
       {
         proxySecret: "test-secret",
+        agentVisibility: async () => "public",
         agentBelongsToWorkspace: async () => true,
         computerBelongsToWorkspace: async () => false,
         agentBelongsToComputer: async () => true,
@@ -446,6 +461,7 @@ describe("Agent activity publication", () => {
   test("rejects an Agent bound to another authenticated Computer", async () => {
     const response = await handleAgentActivityPublication(request(), {
       proxySecret: "test-secret",
+      agentVisibility: async () => "public",
       agentBelongsToWorkspace: async () => true,
       computerBelongsToWorkspace: async () => true,
       agentBelongsToComputer: async () => false,
@@ -584,18 +600,27 @@ describe("Agent activity publication", () => {
       expect(published[0]!.channel).toBe("agent:activity:workspace-1:agent-1");
     });
 
-    test("keeps a missing agentVisibility dependency on the existing public/shared path", async () => {
-      // No `agentVisibility` supplied at all: every existing test above this block relies on this
-      // staying the public/shared behavior unchanged.
+    // `agentVisibility` is a required dependency (no `?`): a caller that cannot answer the
+    // visibility question must not silently fall back to the shared channel.
+    // `agentBelongsToWorkspace` already rejects an Agent that is not in the workspace; this is
+    // the only other path to `agentVisibility` resolving to `undefined`, and it is rejected the
+    // same way rather than treated as public.
+    test("rejects the publication outright when the visibility lookup finds nothing to route by", async () => {
+      const observed: unknown[] = [];
       const response = await handleAgentActivityPublication(request(), {
         proxySecret: "test-secret",
+        agentVisibility: async () => undefined,
         agentBelongsToWorkspace: async () => true,
         agentBelongsToComputer: async () => true,
         computerBelongsToWorkspace: async () => true,
-        observe: async () => {},
+        observe: async (value) => {
+          observed.push(value);
+        },
       });
-      const body = (await response.json()) as { result?: { skip_history: boolean } };
-      expect(body.result?.skip_history).toBe(true);
+      expect(await response.json()).toEqual({
+        error: { code: 403, message: "activity publication is not authorized" },
+      });
+      expect(observed).toHaveLength(0);
     });
   });
 });

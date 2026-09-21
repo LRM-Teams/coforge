@@ -27,9 +27,12 @@ export type AgentRecord = {
   deletedAt?: Date | null;
   /** ADR 0059; optional on this shared record type — every creation path but the weekly-report
    * Collector (created `"private"`) still omits it and gets the schema's `"public"` default. A
-   * row actually read through `mapAgent` always carries a real value: `"public"` unless the
+   * row actually read through `mapAgent` always carries a real value — `"public"` unless the
    * persisted column reads exactly `"private"`, which fails closed the same way
-   * `canSeeAgent`/`visibleAgentWhere` treat an unrecognized value as not-public. */
+   * `canSeeAgent`/`visibleAgentWhere` treat an unrecognized value as not-public. Realtime call
+   * sites that need a guaranteed value still read it through their own required
+   * `agentVisibility` dependency (see `agent-activity-publish.server.ts` and siblings), never by
+   * trusting this field to be present on a hand-built fixture elsewhere in the codebase. */
   visibility?: AgentVisibility;
 };
 
@@ -67,14 +70,14 @@ function mapAgent(agent: {
     runtimeConfig,
     stoppedAt: agent.stoppedAt ?? null,
     deletedAt: agent.deletedAt ?? null,
-    ...(agent.visibility === undefined
-      ? {}
-      : {
-          visibility:
-            agent.visibility === AGENT_VISIBILITY.PUBLIC
-              ? AGENT_VISIBILITY.PUBLIC
-              : AGENT_VISIBILITY.PRIVATE,
-        }),
+    // A real row's column is `NOT NULL DEFAULT 'public'`, so `agent.visibility` is always a real
+    // string in production; a hand-built fixture that omits it reads as `"public"`, matching the
+    // column's own default. Anything else — including an unrecognized persisted value — fails
+    // closed to `"private"`, the same way `canSeeAgent`/`visibleAgentWhere` do.
+    visibility:
+      agent.visibility === undefined || agent.visibility === AGENT_VISIBILITY.PUBLIC
+        ? AGENT_VISIBILITY.PUBLIC
+        : AGENT_VISIBILITY.PRIVATE,
   };
 }
 

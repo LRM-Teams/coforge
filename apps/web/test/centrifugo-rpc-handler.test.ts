@@ -275,6 +275,7 @@ describe("CentrifugoRpcHandler", () => {
           workspaceId: "workspace-1",
           ownerId: "another-workspace-member",
           computerId: "computer-1",
+          visibility: "public",
         }),
       },
       {
@@ -433,11 +434,22 @@ describe("CentrifugoRpcHandler", () => {
     ]);
   });
 
-  test("keeps the shared status channel when the Agent row carries no visibility field", async () => {
+  // Never optional in effect: a lookup that cannot answer the visibility question must not
+  // silently fall back to publishing on the shared channel. The process lease is still accepted
+  // independently of this decision.
+  test("skips fan-out (but still accepts the process lease) when the Agent row carries no visibility field", async () => {
+    const statuses: unknown[] = [];
     const publications: Array<{ channel: string }> = [];
     const method = createAgentStatusMethod(
       { getById: async () => ({ workspaceId: "workspace-1", computerId: "computer-1" }) },
-      { put: async () => true, get: async () => "inactive", snapshot: async () => undefined },
+      {
+        put: async (status) => {
+          statuses.push(status);
+          return true;
+        },
+        get: async () => "inactive",
+        snapshot: async () => undefined,
+      },
       { publish: async (channel) => void publications.push({ channel }) },
     );
     const payload = encodeAgentStatus({
@@ -454,7 +466,8 @@ describe("CentrifugoRpcHandler", () => {
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
 
-    expect(publications).toEqual([{ channel: "agent:status:workspace-1" }]);
+    expect(statuses).toHaveLength(1);
+    expect(publications).toHaveLength(0);
   });
 
   test("updates Agent display even when status channel publish fails", async () => {

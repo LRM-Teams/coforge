@@ -20,13 +20,17 @@ import type { CentrifugoRpcMethod } from "./rpc-handler.server";
  */
 export function createAgentContextUsageMethod(
   agents: Pick<AgentControlStore, "get">,
-  display?: Pick<AgentDisplay, "putContextUsage">,
-  displayEvents?: Pick<CentrifugoServerApi, "publishJson">,
-  /** ADR 0059: the Agent's current visibility, read fresh (no cache). Omitted (dependency not
-   * supplied, or its lookup found nothing to route by) keeps this display push on the shared
-   * status channel; a recognized non-`"public"` value routes it to the per-Agent one instead,
-   * the same as the publish proxy and the Activity sweep. */
-  agentVisibility?: (workspaceId: string, agentId: string) => Promise<string | undefined>,
+  // `= undefined` rather than `?:` so the required `agentVisibility` below can follow them
+  // (TypeScript only rejects a required parameter after a true `?:` optional one, not after one
+  // with a default); callers may still omit both exactly as before.
+  display: Pick<AgentDisplay, "putContextUsage"> | undefined = undefined,
+  displayEvents: Pick<CentrifugoServerApi, "publishJson"> | undefined = undefined,
+  /** ADR 0059: the Agent's current visibility, read fresh (no cache) — never optional in effect:
+   * a lookup that finds nothing to route by skips the display push entirely (fails closed) the
+   * same way the unknown-Agent/foreign-scope/stale-launch checks above are a no-op, rather than
+   * defaulting to the shared channel. A recognized non-`"public"` value routes it to the
+   * per-Agent one instead, the same as the publish proxy and the Activity sweep. */
+  agentVisibility: (workspaceId: string, agentId: string) => Promise<string | undefined>,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     if (
@@ -60,15 +64,17 @@ export function createAgentContextUsageMethod(
       if (display) {
         const snapshot = await display.putContextUsage(message);
         if (snapshot && displayEvents) {
-          const visibility = await agentVisibility?.(message.workspaceId, message.agentId);
-          const isPrivate = visibility !== undefined && visibility !== AGENT_VISIBILITY.PUBLIC;
-          const channel = isPrivate
-            ? agentStatusChannelForAgent(message.workspaceId, message.agentId)
-            : agentStatusChannel(message.workspaceId);
-          await displayEvents.publishJson(channel, {
-            type: "agent:display",
-            ...snapshot,
-          });
+          const visibility = await agentVisibility(message.workspaceId, message.agentId);
+          if (visibility !== undefined) {
+            const isPrivate = visibility !== AGENT_VISIBILITY.PUBLIC;
+            const channel = isPrivate
+              ? agentStatusChannelForAgent(message.workspaceId, message.agentId)
+              : agentStatusChannel(message.workspaceId);
+            await displayEvents.publishJson(channel, {
+              type: "agent:display",
+              ...snapshot,
+            });
+          }
         }
       }
       return new Uint8Array();

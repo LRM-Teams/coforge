@@ -61,10 +61,11 @@ export class AgentActivitySweep {
     private readonly clock: () => number = Date.now,
     private readonly instanceId: string = crypto.randomUUID(),
     /** ADR 0059: the Agent's current visibility, read fresh (no cache) for every synthesized
-     * display push. Omitted (dependency not supplied, or its lookup found nothing to route by)
-     * keeps this push on the shared status channel; a recognized non-`"public"` value routes it
-     * to the per-Agent one instead, same as the publish proxy. */
-    private readonly visibility?: (scope: Scope) => Promise<string | undefined>,
+     * display push — never optional in effect: a lookup that finds nothing to route by skips
+     * the publish entirely (fails closed) rather than defaulting to the shared channel. A
+     * recognized non-`"public"` value routes it to the per-Agent one instead, same as the
+     * publish proxy. */
+    private readonly visibility: (scope: Scope) => Promise<string | undefined>,
   ) {}
 
   start(): void {
@@ -139,8 +140,12 @@ export class AgentActivitySweep {
       return;
     }
     if (result.outcome === "expired") {
-      const visibility = await this.visibility?.(scope);
-      const isPrivate = visibility !== undefined && visibility !== AGENT_VISIBILITY.PUBLIC;
+      // ADR 0059: fail closed. A lookup that finds nothing to route by skips the publish
+      // entirely rather than guessing the shared channel — the stale badge self-corrects on a
+      // later tick once the lookup can answer.
+      const visibility = await this.visibility(scope);
+      if (visibility === undefined) return;
+      const isPrivate = visibility !== AGENT_VISIBILITY.PUBLIC;
       const channel = isPrivate
         ? agentStatusChannelForAgent(scope.workspaceId, scope.agentId)
         : agentStatusChannel(scope.workspaceId);

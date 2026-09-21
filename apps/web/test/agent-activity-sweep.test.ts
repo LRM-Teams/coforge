@@ -143,7 +143,14 @@ describe.skipIf(!redisServer)("AgentActivitySweep", () => {
     now = 2_000_000;
     const subject = await staleBusyLease();
     const { api, published } = fakeApi();
-    const sweep = new AgentActivitySweep(subject, api, permissiveLock, () => now);
+    const sweep = new AgentActivitySweep(
+      subject,
+      api,
+      permissiveLock,
+      () => now,
+      undefined,
+      async () => "public",
+    );
 
     await sweep.tick();
     expect(published).toHaveLength(1);
@@ -163,7 +170,14 @@ describe.skipIf(!redisServer)("AgentActivitySweep", () => {
     now = 2_500_000;
     const subject = await staleBusyLease();
     const { api, published, publishedJson } = fakeApi();
-    const sweep = new AgentActivitySweep(subject, api, permissiveLock, () => now);
+    const sweep = new AgentActivitySweep(
+      subject,
+      api,
+      permissiveLock,
+      () => now,
+      undefined,
+      async () => "public",
+    );
 
     await sweep.tick();
     expect(published).toHaveLength(1);
@@ -183,7 +197,14 @@ describe.skipIf(!redisServer)("AgentActivitySweep", () => {
     now = 3_000_000;
     const subject = await staleBusyLease();
     const { api, published, publishedJson } = fakeApi();
-    const sweep = new AgentActivitySweep(subject, api, permissiveLock, () => now);
+    const sweep = new AgentActivitySweep(
+      subject,
+      api,
+      permissiveLock,
+      () => now,
+      undefined,
+      async () => "public",
+    );
 
     await sweep.tick();
     const probe = decodeAgentActivityProbe(published[0]!.data);
@@ -215,6 +236,7 @@ describe.skipIf(!redisServer)("AgentActivitySweep", () => {
       new RedisAgentActivitySweepLock(redis),
       () => now,
       "instance-a",
+      async () => "public",
     );
     const sweepB = new AgentActivitySweep(
       subject,
@@ -222,6 +244,7 @@ describe.skipIf(!redisServer)("AgentActivitySweep", () => {
       new RedisAgentActivitySweepLock(redis),
       () => now,
       "instance-b",
+      async () => "public",
     );
 
     await sweepA.tick();
@@ -322,7 +345,9 @@ test("sweepOne keeps publishing a public Agent's synthesized display to the shar
   expect(publishedJson[0]!.channel).toBe(agentStatusChannel(publicScope.workspaceId));
 });
 
-test("sweepOne defaults to the shared status channel when no visibility dependency is supplied", async () => {
+// `visibility` is a required dependency (no `?`): a lookup that cannot answer the visibility
+// question must not silently fall back to publishing on the shared channel.
+test("sweepOne skips the publish when the visibility lookup finds nothing to route by (fail closed)", async () => {
   const scopeWithoutVisibility = {
     workspaceId: "workspace-r",
     computerId: "computer-r",
@@ -334,12 +359,18 @@ test("sweepOne defaults to the shared status channel when no visibility dependen
     sweepStale: async () => ({ outcome: "expired" as const, snapshot }),
   };
   const { api, publishedJson } = fakeApi();
-  const sweep = new AgentActivitySweep(display, api, permissiveLock, () => now);
+  const sweep = new AgentActivitySweep(
+    display,
+    api,
+    permissiveLock,
+    () => now,
+    undefined,
+    async () => undefined,
+  );
 
   await sweep.tick();
 
-  expect(publishedJson).toHaveLength(1);
-  expect(publishedJson[0]!.channel).toBe(agentStatusChannel(scopeWithoutVisibility.workspaceId));
+  expect(publishedJson).toHaveLength(0);
 });
 
 test("tick() resolves and completes the other scopes when one scope's sweepStale throws", async () => {
@@ -359,7 +390,14 @@ test("tick() resolves and completes the other scopes when one scope's sweepStale
   const { api, published } = fakeApi();
   const errorSpy = spyOn(console, "error").mockImplementation(() => {});
   try {
-    const sweep = new AgentActivitySweep(display, api, permissiveLock, () => now);
+    const sweep = new AgentActivitySweep(
+      display,
+      api,
+      permissiveLock,
+      () => now,
+      undefined,
+      async () => "public",
+    );
     await expect(sweep.tick()).resolves.toBeUndefined();
     expect(published).toHaveLength(1);
     expect(decodeAgentActivityProbe(published[0]!.data)).toMatchObject({
@@ -387,7 +425,14 @@ test("tick() never rejects even when staleLeases itself throws", async () => {
   const { api } = fakeApi();
   const errorSpy = spyOn(console, "error").mockImplementation(() => {});
   try {
-    const sweep = new AgentActivitySweep(display, api, permissiveLock, () => now);
+    const sweep = new AgentActivitySweep(
+      display,
+      api,
+      permissiveLock,
+      () => now,
+      undefined,
+      async () => "public",
+    );
     await expect(sweep.tick()).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalledTimes(1);
     const logged = JSON.parse(errorSpy.mock.calls[0]![0] as string) as Record<string, unknown>;
@@ -415,7 +460,14 @@ test("tick() skips a concurrent call while a previous tick is still in flight", 
     sweepStale: async () => ({ outcome: "fresh" as const }),
   };
   const { api } = fakeApi();
-  const sweep = new AgentActivitySweep(display, api, permissiveLock, () => now);
+  const sweep = new AgentActivitySweep(
+    display,
+    api,
+    permissiveLock,
+    () => now,
+    undefined,
+    async () => "public",
+  );
   const first = sweep.tick();
   const second = sweep.tick(); // should skip immediately, not wait on the gate
   await second;
@@ -430,7 +482,14 @@ test("stop() clears the interval timer without waiting for it to fire, and start
     sweepStale: async () => ({ outcome: "fresh" as const }),
   };
   const noopApi = { publish: async () => {}, publishJson: async () => {} };
-  const sweep = new AgentActivitySweep(noopDisplay, noopApi, permissiveLock, () => now);
+  const sweep = new AgentActivitySweep(
+    noopDisplay,
+    noopApi,
+    permissiveLock,
+    () => now,
+    undefined,
+    async () => "public",
+  );
   const setSpy = spyOn(globalThis, "setInterval");
   const clearSpy = spyOn(globalThis, "clearInterval");
   try {

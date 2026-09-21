@@ -44,12 +44,13 @@ type AgentActivityPublicationDependencies = {
   display?: Pick<AgentDisplay, "observeActivity">;
   publishJson?(channel: string, data: unknown): Promise<void>;
   /** ADR 0059: the Agent's current visibility, read fresh (no cache) for every publication —
-   * never assumed from a prior request. Omitted (dependency not supplied, or its lookup found
-   * nothing to route by) keeps this frame on the shared channels, same as before this ADR
-   * existed; a recognized non-`"public"` value routes it to the per-Agent channels instead, and
-   * an unrecognized persisted value fails closed the same way `canSeeAgent`/`visibleAgentWhere`
-   * treat it. */
-  agentVisibility?(workspaceId: string, agentId: string): Promise<string | undefined>;
+   * never assumed from a prior request, and never optional: a caller that cannot answer this
+   * question must not silently fall back to the shared channel. A recognized non-`"public"`
+   * value routes the frame to the per-Agent channels; an unrecognized persisted value fails
+   * closed the same way `canSeeAgent`/`visibleAgentWhere` treat it. `undefined` — the lookup
+   * found nothing to route by — is rejected outright; `agentBelongsToWorkspace` already rejects
+   * an Agent that is not in the workspace, so this is the only other path to it. */
+  agentVisibility(workspaceId: string, agentId: string): Promise<string | undefined>;
   /** Raw binary republish (Centrifugo server API `publish`, not the JSON `publishJson`) used only
    * to re-route a private Agent's frame to its own per-Agent activity channel — the public path
    * still lets Centrifugo do the actual shared-channel publish via the returned `result.b64data`. */
@@ -122,12 +123,14 @@ export async function handleAgentActivityPublication(
       activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS ||
       isRunStartMarker(activity.detailKind, activity.entries) ||
       Boolean(activity.probeId);
-    // ADR 0059: read fresh, no cache. Undefined (dependency omitted, or the Agent's row carries
-    // no recognized value) reads as "public" — the routing this file performed before visibility
-    // existed. Anything else, including an unrecognized persisted value, fails closed to private
-    // the same way `canSeeAgent`/`visibleAgentWhere` do.
-    const visibility = await dependencies.agentVisibility?.(workspaceId, activity.agentId);
-    const isPrivate = visibility !== undefined && visibility !== AGENT_VISIBILITY.PUBLIC;
+    // ADR 0059: read fresh, no cache. `agentBelongsToWorkspace` above already rejected an Agent
+    // that is not in the workspace; "lookup found nothing to route by" here is the only other
+    // way to reach `undefined`, and it is rejected the same way — never assumed public. A
+    // recognized non-"public" value routes to the per-Agent channels; an unrecognized persisted
+    // value fails closed to private the same way `canSeeAgent`/`visibleAgentWhere` do.
+    const visibility = await dependencies.agentVisibility(workspaceId, activity.agentId);
+    if (visibility === undefined) return unauthorized();
+    const isPrivate = visibility !== AGENT_VISIBILITY.PUBLIC;
     const statusChannel = isPrivate
       ? agentStatusChannelForAgent(workspaceId, activity.agentId)
       : agentStatusChannel(workspaceId);

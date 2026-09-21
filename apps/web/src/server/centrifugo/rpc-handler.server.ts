@@ -222,14 +222,17 @@ export function createAgentStatusMethod(
       }
     }
     // ADR 0059: folded into the Agent row already fetched above for authorization — no extra
-    // query. Missing (never happens once the authorization check above passed) reads as public,
-    // the same fail-open default the other three `agentStatusChannel` publishers use.
-    const isPrivate =
-      agent.visibility !== undefined && agent.visibility !== AGENT_VISIBILITY.PUBLIC;
+    // query, and never optional in effect: `visibility === undefined` (the lookup found nothing
+    // to route by; never happens once the authorization check above passed for a real Agent row)
+    // skips fan-out entirely — fails closed — rather than guessing the shared channel. The
+    // process lease above is still accepted independently of this decision.
+    const visibility = agent.visibility;
+    const isPrivate = visibility !== undefined && visibility !== AGENT_VISIBILITY.PUBLIC;
     const channel = isPrivate
       ? agentStatusChannelForAgent(status.workspaceId, status.agentId)
       : agentStatusChannel(status.workspaceId);
     try {
+      if (visibility === undefined) return new Uint8Array();
       if (events) {
         await events.publish(
           channel,
