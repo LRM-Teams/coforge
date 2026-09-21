@@ -17,6 +17,7 @@ import {
   MESSAGE_REACTIONS_SELECT,
   reactionSummaries,
 } from "../../conversations/message-reactions.server";
+import { toggleUserMessageReaction } from "../../conversations/user-message-reactions.server";
 import {
   agentMessageSender,
   browserSenderHandle,
@@ -885,6 +886,31 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         where: { messageId: row.id, memberId: member.id, emoji },
       });
     return { messageId: row.id };
+  }
+
+  /**
+   * The browser's own emoji reaction in this user's DM with one Agent. Read-only
+   * conversation lookup: reacting must never start a DM as a side effect. Scope
+   * authorization stays with the caller (`ownedConversations` in the function layer).
+   */
+  async setUserMessageReaction(
+    workspaceId: string,
+    userId: string,
+    agentId: string,
+    messageId: string,
+    emoji: string,
+    active: boolean,
+  ) {
+    const conversation = await this.findUserAgentConversation(workspaceId, userId, agentId);
+    if (!conversation) throw new AppError("NOT_FOUND");
+    return toggleUserMessageReaction(this.db, {
+      workspaceId,
+      conversationId: conversation.id,
+      userId,
+      messageId,
+      emoji,
+      active,
+    });
   }
 
   private async advanceThreadRead(

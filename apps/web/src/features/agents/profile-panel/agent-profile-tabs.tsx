@@ -46,7 +46,9 @@ export function AgentProfileTabs({
     <nav
       ref={navRef}
       aria-label={m.agent_profile_panel_tabs()}
-      className="flex w-max shrink-0 items-center gap-1"
+      // Borderless tab strip: the -ml-3 cancels the first button's px-3 so its icon lands on the
+      // panel gutter (docs/ui-guidelines.md §3 optical alignment).
+      className="-ml-3 flex w-max shrink-0 items-center gap-1"
     >
       <Button
         type="button"

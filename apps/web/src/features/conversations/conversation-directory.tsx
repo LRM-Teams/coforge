@@ -24,7 +24,7 @@ type DirectoryChannel = {
 };
 
 /** Slack-style badge: the count up to 99, then "99+". Hidden from AT by the row's label. */
-function UnreadBadge({ count }: { count: number }) {
+export function UnreadBadge({ count }: { count: number }) {
   return (
     <span
       aria-hidden="true"
