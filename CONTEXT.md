@@ -201,9 +201,17 @@ not shared between Users and are not independently managed from Members. Its
 Computer and Agent runtime remain the existing configurable Agent resources.
 In the collect→synthesize flow ([ADR 0032](docs/adr/0032-weekly-report-collectors-and-collect-run.md)),
 this Agent is the synthesizer and side-chat voice only — it does not harvest
-another Computer's OS.
+another Computer's OS. For this Agent only, each Records page subject
+(report or cycle) owns its own Agent session so week nodes do not share one
+long transcript ([ADR 0059](docs/adr/0059-weekly-assistant-per-subject-runtime-session.md)).
 _Avoid_: Workspace-wide report Agent, shared report bot, Agent runtime,
 WeeklyReportCollector
+
+**WeeklyReportAssistantChatSession**:
+The human-visible side-chat thread between a User and their
+WeeklyReportAssistant for one Records page subject (one report or cycle). It is
+not the Agent session the runtime resumes.
+_Avoid_: Agent session, Message channel, WeeklyReportCollectRun
 
 **WeeklyReportCollector**:
 A User-owned Agent bound to exactly one Computer the User owns, dedicated to
