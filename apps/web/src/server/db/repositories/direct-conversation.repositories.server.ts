@@ -3,6 +3,7 @@ import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/co
 import { normalizeMentionBody } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AppError } from "../../../lib/app-error";
+import { canDirectMessageAgent } from "../../agents/agent-visibility.server";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { messageAnchorWhere } from "../message-anchor";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
@@ -595,6 +596,8 @@ export type DirectConversationRepository = {
     readThroughSequence?: number;
     threadReadThrough?: Record<string, number>;
     agent: { id: string; name: string; displayName: string; deletedAt: Date | null };
+    /** Whether this viewer may still send here (ADR 0059); see `PrismaDirectConversationRepository`. */
+    dmWritable: boolean;
     hasOlder: boolean;
     hasNewer?: boolean;
     messages: Array<{
@@ -925,12 +928,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     // unreachable anyway — the DM list and profile affordances no longer offer one.
     const agent = await this.db.agent.findFirst({
       where: { id: agentId, workspaceId, workspace: { members: { some: { userId } } } },
-      select: { id: true },
+      select: { id: true, ownerId: true, visibility: true },
     });
     if (!agent) throw new Error("conversation scope is not authorized");
     const where = { workspaceId_directKey: { workspaceId, directKey: keyFor(userId, agentId) } };
     const existing = await this.db.conversation.findUnique({ where, select: { id: true } });
     if (existing) return existing;
+    // A brand-new DM with a private Agent may only ever be started by its own creator (ADR 0059):
+    // an existing DM someone else already had stays readable/read-only (handled above by
+    // returning it unconditionally), but nobody else may open a first one.
+    if (!canDirectMessageAgent(userId, agent)) throw new AppError("AGENT_DM_RESTRICTED");
     try {
       return await this.db.conversation.create({
         data: buildUserAgentConversationCreateInput(workspaceId, userId, agentId),
@@ -1009,6 +1016,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 displayName: true,
                 description: true,
                 deletedAt: true,
+                // Not sent to the browser (see the trimmed `agent:` field below); read only to
+                // compute `dmWritable` (ADR 0059).
+                ownerId: true,
+                visibility: true,
               },
             },
           },
@@ -1058,7 +1069,18 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       threadReadThrough: Object.fromEntries(
         sender.threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),
-      agent: agentMember.agent,
+      // Never `agentMember.agent` wholesale: `ownerId`/`visibility` are read above only to
+      // compute `dmWritable` (ADR 0059) and must not reach the browser payload.
+      agent: {
+        id: agentMember.agent.id,
+        name: agentMember.agent.name,
+        displayName: agentMember.agent.displayName,
+        deletedAt: agentMember.agent.deletedAt,
+      },
+      // Whether this viewer may still send here (ADR 0059): a private Agent's DM stays scoped to
+      // its own creator, so an existing DM held by anyone else reads read-only once it goes
+      // private. Independent of `deletedAt`'s own read-only rule (ADR 0044).
+      dmWritable: canDirectMessageAgent(userId, agentMember.agent),
       viewerHandle: sender.user?.username,
       // Who a mention here can be resolved to. A direct conversation has no candidate affinity to
       // rank (see `mentionAffinityScores`), so every member scores 0 and handle order is the whole
@@ -1234,7 +1256,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             userId: true,
             agentId: true,
             user: { select: { username: true, description: true } },
-            agent: { select: { name: true, computerId: true } },
+            agent: { select: { name: true, computerId: true, ownerId: true, visibility: true } },
           },
         },
       },
@@ -1247,6 +1269,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     if (!sender) throw new Error("sender is not a conversation member");
     if (conversation.members.length !== 2 || agents.length !== 1 || !agents[0]?.agentId)
       throw new Error("only User-Agent direct conversations are supported");
+    // A private Agent's direct conversation stays scoped to its own creator (ADR 0059): once it
+    // goes private, an existing DM held by anyone else stops accepting new messages, though its
+    // history stays readable.
+    if (agents[0].agent && !canDirectMessageAgent(senderUserId, agents[0].agent))
+      throw new AppError("AGENT_DM_RESTRICTED");
     const root = threadRootId
       ? await this.resolveMessage(conversationId, threadRootId, true)
       : undefined;
@@ -1935,6 +1962,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const user = conversation.members.find((m) => m.userId && !m.leftAt);
     if (!sender || (!conversation.channelName && !user))
       throw new Error("agent is not a conversation member");
+    // A private Agent's own outbound DM is just as read-only as the human side of it (ADR 0059:
+    // "neither side can send"). Channels are unaffected — a private Agent is never a channel
+    // member in the first place, so this only ever narrows the direct-conversation case.
+    if (!conversation.channelName && user) {
+      const self = await this.db.agent.findUnique({
+        where: { id: agentId },
+        select: { ownerId: true, visibility: true },
+      });
+      if (self && !canDirectMessageAgent(user.userId!, self))
+        throw new AgentSendRejectedError(403, "this Agent is private; the direct message is read-only");
+    }
     const root = threadRootId
       ? await this.resolveMessage(conversationId, threadRootId, true)
       : undefined;

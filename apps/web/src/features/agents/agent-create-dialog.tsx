@@ -9,10 +9,12 @@ import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/mod
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { HintText } from "@/components/base/input/hint-text";
 import { Input } from "@/components/base/input/input";
+import { RadioButton, RadioGroup } from "@/components/base/radio-buttons/radio-buttons";
 import { Select } from "@/components/base/select/select";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { StatusDot } from "@/components/ui/status-dot";
 import { m } from "@/paraglide/messages";
+import { AGENT_VISIBILITY, type AgentVisibility } from "./agent-visibility";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
 
@@ -51,6 +53,7 @@ export function AgentCreateDialog({
   const [submitting, guard] = useSubmitGuard();
   const [error, setError] = useState("");
   const [computerId, setComputerId] = useState(defaults?.computerId ?? computers[0]?.id ?? "");
+  const [visibility, setVisibility] = useState<AgentVisibility>(AGENT_VISIBILITY.PUBLIC);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -75,8 +78,10 @@ export function AgentCreateDialog({
           apiKey: String(form.get("apiKey") ?? "").trim() || undefined,
           computerId: String(form.get("computerId") ?? ""),
           actionCardMessageId,
+          visibility,
         });
         formElement.reset();
+        setVisibility(AGENT_VISIBILITY.PUBLIC);
         onOpenChange(false);
         onCreated?.(result);
       } catch {
@@ -165,6 +170,27 @@ export function AgentCreateDialog({
                       catalogs: await onLoadRuntimeCatalog(id),
                     })}
                   />
+                  <div className="grid gap-1.5 sm:col-span-2">
+                    <span className="text-sm font-medium text-secondary">
+                      {m.agent_form_visibility()}
+                    </span>
+                    <RadioGroup
+                      aria-label={m.agent_form_visibility()}
+                      value={visibility}
+                      onChange={(value) => setVisibility(value as AgentVisibility)}
+                    >
+                      <RadioButton
+                        value={AGENT_VISIBILITY.PUBLIC}
+                        label={m.agent_form_visibility_public()}
+                        hint={m.agent_form_visibility_public_hint()}
+                      />
+                      <RadioButton
+                        value={AGENT_VISIBILITY.PRIVATE}
+                        label={m.agent_form_visibility_private()}
+                        hint={m.agent_form_visibility_private_hint()}
+                      />
+                    </RadioGroup>
+                  </div>
                   {error && (
                     <HintText isInvalid role="alert" className="sm:col-span-2">
                       {error}

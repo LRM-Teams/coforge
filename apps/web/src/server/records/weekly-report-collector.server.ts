@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../../../generated/client";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { AppError } from "../../lib/app-error";
+import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import { enrollGeneralChannel } from "../conversations/public-channels.server";
 
 export const WEEKLY_REPORT_COLLECTOR_DISPLAY_NAME_PREFIX = "采集 · ";
@@ -113,6 +114,11 @@ export async function ensureCollector(
             name: agentName,
             displayName: weeklyReportCollectorDisplayName(label),
             description: "",
+            // ADR 0059: a Collector works on its owning User's own records and should not appear
+            // to the rest of the Workspace at all. NOTE: until Slice A's `enrollGeneralChannel`
+            // learns to skip private Agents, this Collector is still enrolled in #general below —
+            // tracked as a known follow-up, not fixed here (Slice A owns that call site).
+            visibility: AGENT_VISIBILITY.PRIVATE,
             runtimeConfig: {
               runtime: RUNTIME_PROVIDER.COFORGE,
               provider: { kind: "default" },
