@@ -59,7 +59,13 @@ re-held draft could not be forced once its token expired, and the CLI could not 
   recovery actions. `--anyway` no longer depends on a server token's TTL.
 - Deleting the token means the server no longer needs Redis for holds; the daemon owns draft state
   (it already owned the read boundary).
-- **Still to land (PR 2 of task #58):** Raft decides the hold inside the computer/daemon
+- **Landed after this ADR was written** (task #58, tracked here rather than in a changelog): the
+  daemon-side decision (`#524`/`#534` — a locally decided hold is terminal and never issued), the
+  draft's Raft file shape and `seenUpToSeq` (`#537`), the held-window bound (`#535`), and the
+  freshness-decision activity projection (its own follow-up PR, `projectApmHeldFreshnessActivity`,
+  bundle **L812425**: `detailKind: "freshness_hold"`, `Send held by freshness check`, and Raft's
+  `producerFactId`).
+- **PR 2 of task #58 (the reason this item was once "still to land"):** Raft decides the hold inside the computer/daemon
   (`planAgentInboxSideEffect` + a local `freshness_hold` response, bundle **L816274**), while CoForge
   still decides it in the server. This ADR fixes the contract and the semantics; moving the decision
   into the daemon's inbox state machine, and projecting the freshness decision into Agent Activity
@@ -70,3 +76,25 @@ re-held draft could not be forced once its token expired, and the CLI could not 
   inferred from the planner's client side plus the wire schema; the corroborating newer source
   (`server/internal/daemon/message_send_proxy.go`) was used only as supporting evidence, never for
   field names.
+
+## Addendum (2026-09-21, task #58 ④): the send body's field names
+
+Raft's send contract carries **`idempotencyKey`** — the name its body schema gives the request's
+idempotency key (`agentApiSendBodyKnownSchema`, bundle **L16728**, in the v1 *and* v2 schema alike).
+CoForge called the same key `requestId`, and the idempotency key is exactly what makes a retried send
+one message instead of two, so the name matters more than it looks.
+
+- **The body is Raft's, and it travels on our own route.** The daemon posts to
+  `POST /api/agent/v1/messages` (`agentApiRoutes.cloud.messages.send`) with `idempotencyKey`,
+  `target`, `content`, `continueAnyway`, `sendDraft`, `draftReholdCount`, `draftReplacedExisting`,
+  `seenUpToSeq`, `freshnessContextMode`, `attachmentIds`, `mentions`. CoForge **does not adopt
+  Raft's `/v2/send` route**: the route is ours, the body is his.
+- **One spelling, not two.** `idempotencyKey` is the only name the server reads; `requestId` is not
+  accepted alongside it, so one request cannot be deduplicated under two keys (the alternative —
+  accepting both while Computers and the server upgrade independently — was considered and
+  rejected).
+- `sendDraft` is carried for the first time (the server already understood it; the daemon never sent
+  it), which is what marks a resend of a held draft as one.
+- Raft's schema also declares `continue` (1.0.32 **L16724**). Its own CLI never sets it and its
+  semantics are unverified, so CoForge neither sends nor interprets it; the force-send flag is
+  `continueAnyway`, as in Raft.

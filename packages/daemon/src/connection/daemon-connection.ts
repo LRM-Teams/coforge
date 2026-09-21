@@ -865,11 +865,17 @@ export const createAgentMessageHttpClient = (
       {
         method: "POST",
         headers: agentHeaders(keys, true),
+        // Raft's `agentApiSendV2BodySchema` field names (1.0.32 bundle 16728-16744): the idempotency
+        // key is `idempotencyKey` (our request id travels as it), `sendDraft` is declared when this
+        // send is the resend of a held draft, and `mentions` is the structured list. Raft also
+        // declares `continue`, which its own CLI never sets and whose semantics are unverified — we
+        // neither send nor interpret it (the force-send flag is `continueAnyway`, as in Raft).
         body: JSON.stringify({
-          requestId: request.requestId,
+          idempotencyKey: request.requestId,
           target: request.target,
           content: request.content,
           continueAnyway: request.continueAnyway,
+          sendDraft: request.sendDraft,
           draftReholdCount: request.draftReholdCount,
           draftReplacedExisting: request.draftReplacedExisting,
           seenUpToSeq: request.seenUpToSeq,

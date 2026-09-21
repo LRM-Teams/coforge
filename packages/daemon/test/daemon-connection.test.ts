@@ -2375,8 +2375,12 @@ test.each(sendAdapterCases)(
   "adapts the send route's AgentSendResponse ($label) into the transport shape",
   async ({ response, expected }) => {
     const fake = fakeClient();
+    let sendUrl: string | undefined;
     const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
-      requestSend: async () => response,
+      requestSend: async ({ url }) => {
+        sendUrl = url;
+        return response;
+      },
     });
     await transport.start("daemon-token", {
       ...config,
@@ -2396,8 +2400,65 @@ test.each(sendAdapterCases)(
     );
     expect(result).toMatchObject(expected);
     expect(result.messages).toEqual(response.state === "held" ? (response.heldMessages ?? []) : []);
+    // The send body is Raft's; the route stays our own (task #58 ④: no `/v2/send`).
+    expect(sendUrl).toBe("https://server.example/api/agent/v1/messages");
   },
 );
+
+test("requestSend posts Raft's send body: idempotencyKey, sendDraft and structured mentions", async () => {
+  let capturedBody: Record<string, unknown> | undefined;
+  const client = createAgentMessageHttpClient(async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-send",
+      state: "sent",
+      decision: "forward",
+      messageId: "message-1",
+      heldMessages: [],
+    });
+  });
+  await client.requestSend!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-send",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "send",
+      target: "@ada",
+      content: "hi",
+      continueAnyway: true,
+      sendDraft: true,
+      draftReholdCount: 2,
+      draftReplacedExisting: false,
+      seenUpToSeq: 7,
+      freshnessContextMode: "inline",
+      attachmentIds: ["11111111-1111-4111-8111-111111111111"],
+      mentions: [{ type: "user", id: "22222222-2222-4222-8222-222222222222", name: "ada" }],
+    },
+  });
+  // Raft's `agentApiSendBodyKnownSchema` names: the idempotency key is `idempotencyKey` and it is the
+  // only spelling on the wire, the resend flag is `sendDraft`, and `continueAnyway` keeps its own
+  // name. Raft's declared-but-unused `continue` is deliberately neither sent nor interpreted.
+  expect(capturedBody).toEqual({
+    idempotencyKey: "request-send",
+    target: "@ada",
+    content: "hi",
+    continueAnyway: true,
+    sendDraft: true,
+    draftReholdCount: 2,
+    draftReplacedExisting: false,
+    seenUpToSeq: 7,
+    freshnessContextMode: "inline",
+    attachmentIds: ["11111111-1111-4111-8111-111111111111"],
+    mentions: [{ type: "user", id: "22222222-2222-4222-8222-222222222222", name: "ada" }],
+  });
+  expect(capturedBody).not.toHaveProperty("requestId");
+  expect(capturedBody).not.toHaveProperty("continue");
+});
 
 test("requestSend rejects a response whose state is not sent/held/denied instead of returning it untyped", async () => {
   // The exact incident: upstream answers 200, but the body has no `state` (or `context`) the
