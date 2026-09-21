@@ -66,9 +66,7 @@ const USER_ALICE = {
 /** `#general`: caller + alice + scout. `#secret`: alice + scout, but NOT the caller — this
  * conversation must never be returned by `conversation.findMany`'s own caller-membership filter,
  * so the service can never see it, let alone leak it. */
-function baseDb(
-  overrides: { agent?: unknown; membership?: unknown; callerAgent?: unknown } = {},
-) {
+function baseDb(overrides: { agent?: unknown; membership?: unknown; callerAgent?: unknown } = {}) {
   return {
     agent: {
       findFirst: async ({

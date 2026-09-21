@@ -222,7 +222,12 @@ test("profile update: never accepts a name/Username field (the request type has 
 });
 
 test("profile show: a private target Agent invisible to the caller answers user_not_found (ADR 0059)", async () => {
-  const ghost = { ...AGENT_SCOUT, name: "ghost", ownerId: "user-someone-else", visibility: "private" };
+  const ghost = {
+    ...AGENT_SCOUT,
+    name: "ghost",
+    ownerId: "user-someone-else",
+    visibility: "private",
+  };
   const outcome = await resolveAgentProfileShow(
     baseDb({ agent: ghost }) as never,
     { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },

@@ -281,7 +281,12 @@ describe("viewer builders", () => {
     } as unknown as Pick<PrismaClient, "workspaceMembership" | "agent">;
 
     const viewer = await agentVisibilityViewerForActor(db, WORKSPACE_ID, { agentId: "agent-1" });
-    expect(viewer).toEqual({ kind: "agent", agentId: "agent-1", ownerId: "owner-1", role: "admin" });
+    expect(viewer).toEqual({
+      kind: "agent",
+      agentId: "agent-1",
+      ownerId: "owner-1",
+      role: "admin",
+    });
   });
 
   test("agentVisibilityViewerForActor fails closed when the Agent actor cannot be found", async () => {
