@@ -64,24 +64,23 @@ export type Mentionable = {
 };
 
 /**
- * The @-completion query at the caret: the in-progress token starts at `@` and runs to the caret
- * using handle characters only. Returns the token's start offset (the `@` itself) and the typed
- * query without it. `undefined` when the caret is not inside such a token — inside an email
- * address, inside a handle-shaped word, or past a completed mention followed by more handle
- * characters.
+ * The @-completion query at the caret: the in-progress token starts at `@` (at the text start or
+ * after whitespace) and runs to the caret using handle characters only. Returns the token's start
+ * offset (the `@` itself) and the typed query without it. `undefined` when the caret is not inside
+ * such a token — e.g. after another word, inside an email address, or past a completed mention
+ * followed by more handle characters.
  *
- * A mention may start at the beginning of the text, after whitespace, or after any character that
- * cannot itself be part of a handle. That last case is what makes "写点东西@alice" work: typing `@`
- * directly against Chinese text (or after punctuation, or an emoji) is how a mention is normally
- * written there, and requiring a space before it silently produced no popup at all. `foo@bar` and
- * a second `@` inside a mention stay plain text, because a handle character is not a boundary.
+ * The boundary is deliberately the strict one (Slack's and Discord's): `@` opens the popup only at
+ * the start of a word, never against the end of one. A looser boundary (`@` after any non-handle
+ * character, which would also fire straight after CJK text) was tried for task #64 and rejected —
+ * align with the convention rather than inventing a house rule.
  */
 export function activeMentionQuery(
   value: string,
   caret: number,
 ): { start: number; query: string } | undefined {
   const beforeCaret = value.slice(0, caret);
-  const match = /(?:^|[^a-z0-9_-])@([a-z0-9_-]*)$/.exec(beforeCaret);
+  const match = /(?:^|[\s])@([a-z0-9_-]*)$/.exec(beforeCaret);
   if (!match) return undefined;
   return { start: caret - match[1].length - 1, query: match[1] };
 }

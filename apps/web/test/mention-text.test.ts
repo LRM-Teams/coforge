@@ -188,17 +188,18 @@ test("an @query is found at the start of the text and after a space", () => {
   expect(activeMentionQuery("hi @", 4)).toEqual({ start: 3, query: "" });
 });
 
-test("a mention may start right after text, which is how it is written next to Chinese", () => {
-  // The reported bug: type the message first, then @-mention someone — with no space, because
-  // after CJK text a space is not how anyone writes it. The popup never appeared.
-  expect(activeMentionQuery("写点东西@alice", "写点东西@alice".length)).toEqual({
-    start: 4,
+test("a mention starts only at the start of the text or after whitespace (the strict convention)", () => {
+  // Task #64: typing the message first and then @-mentioning without a space does NOT open the
+  // popup, because that is Slack's and Discord's boundary. The looser rule (fire after any
+  // non-handle character, which would also cover CJK text) was tried and rejected in favour of
+  // aligning with the convention.
+  expect(activeMentionQuery("写点东西@alice", "写点东西@alice".length)).toBeUndefined();
+  expect(activeMentionQuery("写点东西 @alice", "写点东西 @alice".length)).toEqual({
+    start: 5,
     query: "alice",
   });
-  expect(activeMentionQuery("看看这个。@al", "看看这个。@al".length)).toEqual({
-    start: 5,
-    query: "al",
-  });
+  expect(activeMentionQuery("done!@al", 7)).toBeUndefined();
+  expect(activeMentionQuery("done! @al", "done! @al".length)).toEqual({ start: 6, query: "al" });
 });
 
 test("a handle-shaped character is not a boundary, so an email or a second @ stays plain text", () => {
