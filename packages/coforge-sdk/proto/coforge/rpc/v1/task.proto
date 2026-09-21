@@ -2,48 +2,6 @@ syntax = "proto3";
 
 package coforge.rpc.v1;
 
-import "coforge/rpc/v1/local_rpc.proto";
-
-message TaskRequest {
-  uint32 protocol_major = 1;
-  string request_id = 2;
-  string workspace_id = 3;
-  string agent_id = 4;
-  string operation = 5;
-  optional string target = 6;
-  optional uint32 number = 7;
-  optional string message_id = 8;
-  optional string title = 9;
-  optional string status = 10;
-  optional uint32 expected_revision = 11;
-  repeated string titles = 12;
-  repeated uint32 numbers = 13;
-  repeated string message_ids = 14;
-  optional bool mine = 15;
-  optional string assignee = 16;
-  optional string description = 17;
-  optional bool creates_resource = 18;
-  TaskResourceReceipt receipt = 19;
-  optional string freshness_context_mode = 20;
-  bool clear_assignee = 21;
-  bool clear_description = 22;
-}
-
-message TaskResponse {
-  uint32 protocol_major = 1;
-  string request_id = 2;
-  repeated TaskView tasks = 3;
-  repeated TaskClaimResult claims = 4;
-  repeated TaskHistoryEvent history = 5;
-  TaskAssignmentReceipt assignment_receipt = 6;
-  TaskResourceFollowup resource_followup = 7;
-  optional string state = 8;
-  optional string freshness_context_mode = 9;
-  optional uint32 withheld_message_count = 10;
-  repeated AgentMessageRecord held_messages = 11;
-  optional uint32 new_message_count = 12;
-  TaskClaimConflict claim_conflict = 13;
-}
 
 message TaskView {
   string message_id = 1;

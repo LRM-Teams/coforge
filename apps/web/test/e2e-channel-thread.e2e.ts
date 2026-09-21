@@ -254,7 +254,7 @@ test("channel threads cross real WSS and Agent HTTP transport without notificati
       { workspaceId: workspace.id, userId: user.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: general.id,
         title: "Verify Task transport",
       },
@@ -354,7 +354,7 @@ test("channel threads cross real WSS and Agent HTTP transport without notificati
     expect(doneOutputs[1]).toContain("done");
     const final = await board.execute(
       { workspaceId: workspace.id, userId: user.id },
-      { operation: "list", requestId: crypto.randomUUID(), conversationId: general.id },
+      { operation: "list", idempotencyKey: crypto.randomUUID(), conversationId: general.id },
     );
     expect(final.tasks.map(({ status }) => status)).toEqual(["done", "todo"]);
     expect(final.tasks[0]?.owner?.kind).toBe("agent");

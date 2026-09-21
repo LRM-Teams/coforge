@@ -80,7 +80,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
   });
   const command = {
     operation: "create" as const,
-    requestId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
     conversationId: channel.id,
     title: "Ship Task backend",
   };
@@ -116,7 +116,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, userId: alice.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: direct.id,
         title: "DM attachment task",
         attachmentId: attachment.id,
@@ -139,7 +139,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `@${alice.username}`,
         title: "DM temporary resource",
         assignee: `@${agent.name}`,
@@ -148,7 +148,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
     );
     const directReceiptCommand = {
       operation: "receipt" as const,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: `@${alice.username}`,
       number: directResource.tasks[0]!.number,
       receipt: {
@@ -199,7 +199,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, userId },
           {
             operation: "claim",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             conversationId: channel.id,
             number: 1,
           },
@@ -213,7 +213,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "convert",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         messageId: ordinary.id.slice(0, 8),
       },
@@ -229,7 +229,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, agentId: agent.id },
           {
             operation: "claim",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${channel.channelName}`,
             number: 2,
           },
@@ -246,7 +246,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         { workspaceId: workspace.id, userId: bob.id },
         {
           operation: "claim",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: channel.id,
           number: 2,
         },
@@ -256,7 +256,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: 2,
         status: "in_review",
@@ -268,7 +268,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         { workspaceId: workspace.id, agentId: agent.id },
         {
           operation: "update",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           target: `#${channel.channelName}`,
           number: 2,
           status: "done",
@@ -282,7 +282,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, agentId: agent.id },
           {
             operation: "update",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${channel.channelName}`,
             number: 2,
             status: "done",
@@ -298,7 +298,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, userId: alice.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         title: "Close without claiming",
       },
@@ -307,7 +307,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, userId: alice.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         number: unowned.tasks[0]!.number,
         status: "closed",
@@ -321,7 +321,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, userId: bob.id },
           {
             operation: "update",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             conversationId: channel.id,
             number: closed.tasks[0]!.number,
             status: "todo",
@@ -333,7 +333,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
 
     const postCommitCommand = {
       operation: "create" as const,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       conversationId: channel.id,
       title: "Committed despite side-effect failures",
     };
@@ -366,7 +366,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
     expect(recovered.tasks[0]!.messageId).toBe(committed.tasks[0]!.messageId);
     expect(
       await db.task.count({
-        where: { requestId: postCommitCommand.requestId },
+        where: { requestId: postCommitCommand.idempotencyKey },
       }),
     ).toBe(1);
 
@@ -378,7 +378,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         { workspaceId: workspace.id, userId: alice.id },
         {
           operation: "create",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: channel.id,
           title: "mixed singular",
           titles: ["mixed batch"],
@@ -391,7 +391,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         titles: ["batch one", "batch two"],
         assignee: `@${agent.name}`,
@@ -416,7 +416,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "list",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         status: "all",
       },
@@ -426,7 +426,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: batch.tasks[1]!.number,
         status: "closed",
@@ -436,7 +436,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "unclaim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: batchClosed.tasks[0]!.number,
       },
@@ -451,7 +451,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: batch.tasks[0]!.number,
         status: "in_review",
@@ -461,7 +461,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "unclaim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: releasedReview.tasks[0]!.number,
       },
@@ -470,7 +470,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         numbers: [releasedReview.tasks[0]!.number, batchClosed.tasks[0]!.number],
       },
@@ -493,7 +493,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: releasedReview.tasks[0]!.number,
         numbers: [releasedReview.tasks[0]!.number],
@@ -514,7 +514,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: releasedReview.tasks[0]!.number,
       },
@@ -531,7 +531,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         { workspaceId: workspace.id, agentId: agent.id },
         {
           operation: "claim",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           target: `#${channel.channelName}`,
           numbers: [batchClosed.tasks[0]!.number],
         },
@@ -547,7 +547,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, userId: alice.id },
           {
             operation: "amend",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             conversationId: channel.id,
             number: batch.tasks[1]!.number,
             ...changes,
@@ -560,7 +560,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "amend",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: batch.tasks[1]!.number,
         title: "batch two amended",
@@ -580,7 +580,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, agentId: agent.id },
           {
             operation: "amend",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${channel.channelName}`,
             number: batch.tasks[1]!.number,
             title,
@@ -595,7 +595,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         title: "temporary resource",
         assignee: `@${agent.name}`,
@@ -607,7 +607,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         { workspaceId: workspace.id, agentId: agent.id },
         {
           operation: "update",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           target: `#${channel.channelName}`,
           number: resource.tasks[0]!.number,
           status: "done",
@@ -618,7 +618,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "receipt",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: resource.tasks[0]!.number,
         receipt: {
@@ -646,7 +646,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
           { workspaceId: workspace.id, agentId: agent.id },
           {
             operation: "update",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${channel.channelName}`,
             number: resource.tasks[0]!.number,
             status: "done",
@@ -659,7 +659,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         title: "deleted number must stay reserved",
       },
@@ -668,7 +668,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "delete",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         number: deleted.tasks[0]!.number,
       },
@@ -677,7 +677,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       { workspaceId: workspace.id, agentId: agent.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${channel.channelName}`,
         title: "number after deletion",
       },
@@ -759,7 +759,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
   try {
     const command = {
       operation: "create" as const,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       conversationId: channel.id,
       titles: ["First reserved task", "Second reserved task"],
       assignee: `@${assigned!.name}`,
@@ -832,7 +832,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     await expect(
       board.execute(agentPrincipal, {
         ...command,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: undefined,
         target,
         assignee: `@${unrelated!.name}`,
@@ -840,7 +840,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     ).rejects.toThrow("ACCESS_DENIED");
     const changed = await board.execute(principal, {
       operation: "assign",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       conversationId: channel.id,
       number: created.tasks[0]!.number,
       assignee: `@${unrelated!.name}`,
@@ -849,7 +849,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     await expect(
       board.execute(agentPrincipal, {
         operation: "assign",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target,
         number: created.tasks[0]!.number,
         assignee: `@${assigned!.name}`,
@@ -880,7 +880,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
 
     const mine = await board.execute(agentPrincipal, {
       operation: "list",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       mine: true,
     });
     expect(mine.tasks).toEqual([
@@ -889,7 +889,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     const direct = await repo.getOrCreateUserAgent(workspace.id, human.id, assigned!.id);
     const directCreated = await board.execute(agentPrincipal, {
       operation: "create",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: `@${human.username}`,
       title: "Direct assignment",
       assignee: `@${assigned!.name}`,
@@ -907,7 +907,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     });
     const directMine = await board.execute(agentPrincipal, {
       operation: "list",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       mine: true,
     });
     expect(directMine.tasks.find((task) => task.conversationId === direct.id)?.channelRef).toBe(
@@ -926,7 +926,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     });
     await board.execute(agentPrincipal, {
       operation: "unclaim",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: `@${human.username}`,
       number: directCreated.tasks[0]!.number,
     });
@@ -938,7 +938,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     ).toBe("system");
     const selfAssignCommand = {
       operation: "assign" as const,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: `@${human.username}`,
       number: directCreated.tasks[0]!.number,
       assignee: `@${assigned!.name}`,
@@ -946,7 +946,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     const selfAssigned = await board.execute(agentPrincipal, selfAssignCommand);
     await board.execute(principal, {
       ...selfAssignCommand,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       target: undefined,
       conversationId: direct.id,
       assignee: `@${human.username}`,
@@ -957,7 +957,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     expect(signaled).toHaveLength(signalsBeforeRetry);
     await board.execute(principal, {
       operation: "delete",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       conversationId: direct.id,
       number: directCreated.tasks[0]!.number,
     });
@@ -974,12 +974,12 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
     await db.$executeRaw`ALTER TABLE "messages" ADD CONSTRAINT "test_reject_system_receipt" CHECK ("senderMemberId" IS NOT NULL) NOT VALID`;
     try {
       await expect(
-        board.execute(principal, { ...command, requestId: crypto.randomUUID() }),
+        board.execute(principal, { ...command, idempotencyKey: crypto.randomUUID() }),
       ).rejects.toThrow();
       await expect(
         board.execute(principal, {
           operation: "assign",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: channel.id,
           number: created.tasks[1]!.number,
           assignee: `@${unrelated!.name}`,
@@ -991,7 +991,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
       );
       const afterRollback = await board.execute(agentPrincipal, {
         operation: "list",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         mine: true,
       });
       expect(

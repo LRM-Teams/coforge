@@ -886,14 +886,14 @@ describe("Agent Task freshness", () => {
       },
       async (request) => {
         taskCalls.push(request);
-        return { protocolMajor: 1, requestId: request.requestId, tasks: [] };
+        return { protocolMajor: 1, idempotencyKey: request.idempotencyKey, tasks: [] };
       },
     );
     try {
       await harness.deliver(4, "#tasks");
       const command = {
         operation: "claim" as const,
-        requestId: "claim-withheld",
+        idempotencyKey: "claim-withheld",
         target: "#tasks",
         number: 7,
         freshnessContextMode: "withheld" as const,
@@ -922,7 +922,7 @@ describe("Agent Task freshness", () => {
     const messageCalls: AgentMessageRequest[] = [];
     const upstream = {
       protocolMajor: 1,
-      requestId: "claim-forward",
+      idempotencyKey: "claim-forward",
       tasks: [],
       claims: [],
       assignmentReceipt: {
@@ -949,7 +949,7 @@ describe("Agent Task freshness", () => {
       await harness.deliver(3, "#unrelated");
       const firstTouch = await harness.runtime.agentTask(
         harness.context,
-        { operation: "claim", requestId: "first-touch", target: "#tasks", number: 7 },
+        { operation: "claim", idempotencyKey: "first-touch", target: "#tasks", number: 7 },
         harness.apiKey,
       );
       expect(firstTouch).toMatchObject({ state: "held", freshnessContextMode: "inline" });
@@ -957,7 +957,7 @@ describe("Agent Task freshness", () => {
 
       const result = await harness.runtime.agentTask(
         harness.context,
-        { operation: "claim", requestId: "claim-forward", target: "#tasks", number: 7 },
+        { operation: "claim", idempotencyKey: "claim-forward", target: "#tasks", number: 7 },
         harness.apiKey,
       );
       expect(result).toBe(upstream);
@@ -982,14 +982,14 @@ describe("Agent Task freshness", () => {
       },
       async (request) => {
         taskCalls.push(request);
-        return { protocolMajor: 1, requestId: request.requestId, tasks: [] };
+        return { protocolMajor: 1, idempotencyKey: request.idempotencyKey, tasks: [] };
       },
     );
     try {
       await harness.deliver(5, "#tasks");
       const command = {
         operation: "update" as const,
-        requestId: "update",
+        idempotencyKey: "update",
         target: "#tasks",
         number: 7,
       };
@@ -1021,7 +1021,7 @@ describe("Agent Task freshness", () => {
     const messageCalls: AgentMessageRequest[] = [];
     const upstream = {
       protocolMajor: 1,
-      requestId: "amend",
+      idempotencyKey: "amend",
       tasks: [],
       history: [],
       resourceFollowup: {
@@ -1044,7 +1044,7 @@ describe("Agent Task freshness", () => {
       await harness.deliver(2, "#tasks");
       const result = await harness.runtime.agentTask(
         harness.context,
-        { operation: "amend", requestId: "amend", target: "#tasks", number: 7, title: "new" },
+        { operation: "amend", idempotencyKey: "amend", target: "#tasks", number: 7, title: "new" },
         harness.apiKey,
       );
       expect(result).toBe(upstream);

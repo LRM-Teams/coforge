@@ -26,11 +26,11 @@ export type TaskBoardProps = {
   error?: string;
   onOpenMessage: (messageId: string) => void | Promise<void>;
   onCommand: (
-    command: Omit<TaskCommand, "requestId" | "conversationId"> & { number: number },
+    command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
   ) => Promise<void>;
   onShowChat: () => void;
   conversationName?: string;
-  onCreateTask?: (title: string, requestId: string) => Promise<TaskView | void>;
+  onCreateTask?: (title: string, idempotencyKey: string) => Promise<TaskView | void>;
   layout?: TaskLayout;
   onLayoutChange?: (layout: TaskLayout) => void;
   header?: React.ReactNode;
@@ -127,8 +127,8 @@ export function TaskBoard({
         <CreateTaskDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
-          onCreate={async (title, requestId) => {
-            const task = await onCreateTask(title, requestId);
+          onCreate={async (title, idempotencyKey) => {
+            const task = await onCreateTask(title, idempotencyKey);
             if (task) await onOpenMessage(task.messageId);
           }}
         />

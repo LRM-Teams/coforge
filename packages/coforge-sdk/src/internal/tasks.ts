@@ -71,7 +71,7 @@ export type TaskCommand = {
     | "history"
     | "delete"
     | "receipt";
-  requestId: string;
+  idempotencyKey: string;
   /** Browser callers identify the conversation; Agent callers use its public target. */
   conversationId?: string;
   target?: string;
