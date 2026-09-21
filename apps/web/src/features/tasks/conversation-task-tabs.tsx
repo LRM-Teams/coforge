@@ -1,22 +1,30 @@
+import { CheckSquare as ListTodo, File02 as FileText, MessageChatSquare } from "@untitledui/icons";
+
 import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
 
 export function ConversationTaskTabs({
   active,
-  taskCount,
   onShowChat,
   onShowTasks,
   onShowFiles,
 }: {
   active: "chat" | "tasks" | "files";
-  taskCount: number;
   onShowChat?: () => void;
   onShowTasks?: () => void;
   onShowFiles?: () => void;
 }) {
+  // Callers omit the active view's handler (the Chat tab has no `onShowChat` on the chat view),
+  // so the Files tab cannot be gated on `onShowFiles` alone — on the Files view itself that
+  // would drop the very tab the user is on, leaving no tab highlighted.
+  const showFilesTab = Boolean(onShowFiles) || active === "files";
   return (
     <nav
-      aria-label={`${m.tasks_chat_tab()} / ${m.tasks_tab()}`}
+      aria-label={
+        showFilesTab
+          ? `${m.tasks_chat_tab()} / ${m.tasks_tab()} / ${m.files_tab()}`
+          : `${m.tasks_chat_tab()} / ${m.tasks_tab()}`
+      }
       className="flex items-center gap-1"
     >
       <Button
@@ -24,6 +32,7 @@ export function ConversationTaskTabs({
         color={active === "chat" ? "secondary" : "tertiary"}
         size="sm"
         aria-current={active === "chat" ? "page" : undefined}
+        iconLeading={MessageChatSquare}
         onPress={onShowChat}
       >
         {m.tasks_chat_tab()}
@@ -33,16 +42,18 @@ export function ConversationTaskTabs({
         color={active === "tasks" ? "secondary" : "tertiary"}
         size="sm"
         aria-current={active === "tasks" ? "page" : undefined}
+        iconLeading={ListTodo}
         onPress={onShowTasks}
       >
-        {m.tasks_tab()} {taskCount}
+        {m.tasks_tab()}
       </Button>
-      {onShowFiles && (
+      {showFilesTab && (
         <Button
           type="button"
           color={active === "files" ? "secondary" : "tertiary"}
           size="sm"
           aria-current={active === "files" ? "page" : undefined}
+          iconLeading={FileText}
           onPress={onShowFiles}
         >
           {m.files_tab()}

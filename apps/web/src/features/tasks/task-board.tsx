@@ -64,11 +64,7 @@ export function TaskBoard({
               </div>
             )}
             <div className="flex h-11 items-center border-t border-secondary">
-              <ConversationTaskTabs
-                active="tasks"
-                taskCount={tasks.length}
-                onShowChat={onShowChat}
-              />
+              <ConversationTaskTabs active="tasks" onShowChat={onShowChat} />
             </div>
           </>
         )}

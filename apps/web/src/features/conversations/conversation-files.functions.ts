@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { AppError } from "../../lib/app-error";
 import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { isInlineImage } from "../../server/attachments/attachment-response.server";
 
 export type ConversationFile = {
   id: string;
@@ -11,9 +12,12 @@ export type ConversationFile = {
   sizeBytes: number;
   createdAt: string;
   sender: string;
-  /** The sequence of the message this file was sent on, for scroll-to-message links; threads
-   * link through their root, orphaned files (message deleted) have none. */
-  messageSequence: number | null;
+  /** True only for the raster types `/api/attachments/:id` serves inline — an SVG "image/*"
+   * must render as the generic file icon, never as an `<img>` from the app origin. */
+  inlineImage: boolean;
+  /** The message this file was sent on, for locate-in-chat links; the hash anchor resolves a
+   * thread reply through its root, orphaned files (message deleted) have none. */
+  messageId: string | null;
 };
 
 /** Every file ever sent in one conversation, newest first, for the chat page's Files tab. */
@@ -41,7 +45,7 @@ export const loadConversationFiles = createServerFn({ method: "GET" })
         contentType: true,
         sizeBytes: true,
         createdAt: true,
-        message: { select: { sequence: true } },
+        message: { select: { id: true } },
         uploader: { select: { username: true, displayName: true } },
         uploaderAgent: { select: { displayName: true, name: true } },
       },
@@ -53,13 +57,14 @@ export const loadConversationFiles = createServerFn({ method: "GET" })
         contentType: attachment.contentType,
         sizeBytes: attachment.sizeBytes,
         createdAt: attachment.createdAt.toISOString(),
+        inlineImage: isInlineImage(attachment.contentType),
         sender:
           attachment.uploader?.displayName ||
           attachment.uploader?.username ||
           attachment.uploaderAgent?.displayName ||
           attachment.uploaderAgent?.name ||
           "",
-        messageSequence: attachment.message?.sequence ?? null,
+        messageId: attachment.message?.id ?? null,
       })),
     };
   });
