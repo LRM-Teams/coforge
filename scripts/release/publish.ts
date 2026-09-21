@@ -168,7 +168,8 @@ export function ossError(action: string, objectKey: string, error: unknown): Err
   const statusText = typeof status === "number" ? status : "unknown";
   const codeText = typeof code === "string" && code.length > 0 ? ` code=${code}` : "";
   // `Error` itself says nothing; a class name that differs from it is the interesting case.
-  const nameText = typeof name === "string" && name.length > 0 && name !== "Error" ? ` ${name}` : "";
+  const nameText =
+    typeof name === "string" && name.length > 0 && name !== "Error" ? ` ${name}` : "";
   const requestIdText =
     typeof requestId === "string" && requestId.length > 0 ? requestId : "unknown";
   return new Error(
