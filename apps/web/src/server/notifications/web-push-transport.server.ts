@@ -1,7 +1,7 @@
 import webPush from "web-push";
 
 import { assertVapidKeyPair } from "./vapid-key-pair.server";
-import { createWebPushEgressAgent } from "./web-push-egress.server";
+import { createWebPushEgressAgent, sendPinnedHttpsRequest } from "./web-push-egress.server";
 import {
   WebPushDeliveryError,
   type StoredWebPushSubscription,
@@ -62,33 +62,31 @@ export function createWebPushRequestDetails(
       urgency: "normal",
       contentEncoding: "aes128gcm",
       vapidDetails: config,
-      timeout: 10_000,
     },
   );
 }
 
+const DEFAULT_TIMEOUT_MS = 10_000;
+
 export class WebPushLibraryTransport implements WebPushTransport {
-  constructor(private readonly config: WebPushConfig) {}
+  constructor(
+    private readonly config: WebPushConfig,
+    private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    private readonly createAgent = createWebPushEgressAgent,
+    private readonly sendRequest = sendPinnedHttpsRequest,
+  ) {}
 
   async send(subscription: StoredWebPushSubscription, payload: WebPushPayload) {
+    const requestDetails = createWebPushRequestDetails(this.config, subscription, payload);
     try {
-      const agent = await createWebPushEgressAgent(subscription.endpoint);
-      await webPush.sendNotification(
-        {
-          endpoint: subscription.endpoint,
-          keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-        },
-        JSON.stringify(payload),
-        {
-          TTL: 60 * 60,
-          urgency: "normal",
-          contentEncoding: "aes128gcm",
-          vapidDetails: this.config,
-          timeout: 10_000,
-          agent,
-        },
-      );
+      const agent = await this.createAgent(subscription.endpoint);
+      const response = await this.sendRequest(agent, requestDetails, this.timeoutMs);
+      // Mirrors web-push 3.6.7's own success range (web-push-lib.js `sendNotification`).
+      if (response.statusCode < 200 || response.statusCode > 299) {
+        throw new WebPushDeliveryError(response.statusCode);
+      }
     } catch (error) {
+      if (error instanceof WebPushDeliveryError) throw error;
       const statusCode =
         typeof error === "object" && error && "statusCode" in error
           ? Number(error.statusCode)

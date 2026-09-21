@@ -1,6 +1,12 @@
-import { expect, test } from "bun:test";
+import { Agent } from "node:https";
 
-import { createWebPushEgressAgent } from "../src/server/notifications/web-push-egress.server";
+import { expect, test } from "bun:test";
+import type { RequestDetails } from "web-push";
+
+import {
+  createWebPushEgressAgent,
+  sendPinnedHttpsRequest,
+} from "../src/server/notifications/web-push-egress.server";
 
 test("rejects Web Push endpoints that resolve to non-public addresses", async () => {
   for (const address of [
@@ -69,4 +75,40 @@ test("rejects a DNS answer containing both public and private addresses", async 
       { address: "10.0.0.8", family: 4 },
     ]),
   ).rejects.toThrow("Web Push endpoint must resolve only to public addresses");
+});
+
+test("aborts a hung connect once the deadline elapses instead of hanging", async () => {
+  // Accepts the TCP connection but never answers, so the TLS handshake never completes:
+  // the same "hung connect" shape a blackholed push endpoint produces.
+  const server = Bun.listen({
+    hostname: "127.0.0.1",
+    port: 0,
+    socket: { data() {}, open() {} },
+  });
+  const agent = new Agent({
+    keepAlive: false,
+    lookup(_hostname, options, callback) {
+      if (options.all) callback(null, [{ address: "127.0.0.1", family: 4 }]);
+      else callback(null, "127.0.0.1", 4);
+    },
+  });
+  const requestDetails: RequestDetails = {
+    method: "POST",
+    headers: { TTL: "60" },
+    body: null,
+    endpoint: `https://push.example:${server.port}/subscription`,
+  };
+
+  try {
+    const startedAt = Date.now();
+    const error: unknown = await sendPinnedHttpsRequest(agent, requestDetails, 200).catch(
+      (caught: unknown) => caught,
+    );
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).name).toBe("AbortError");
+    expect((error as { statusCode?: unknown }).statusCode).toBeUndefined();
+  } finally {
+    server.stop(true);
+  }
 });
