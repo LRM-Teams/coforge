@@ -4,6 +4,7 @@ import {
   userConversationChannel,
   workspaceConversationChannel,
   type MessageAvailableEvent,
+  type MemberChangedEvent,
 } from "../../features/conversations/conversation-realtime";
 import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 
@@ -51,10 +52,25 @@ export async function messageSignalScope(
 
 export type ConversationRealtime = {
   messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }): Promise<void>;
+  /** A push telling open conversations their member directory is stale (join/leave/add/remove). */
+  memberChanged(input: { conversationId: string; workspaceId: string }): Promise<void>;
 };
 
 export class CentrifugoConversationRealtime implements ConversationRealtime {
   constructor(private readonly centrifugo: CentrifugoServerApi) {}
+
+  async memberChanged(input: { conversationId: string; workspaceId: string }) {
+    const event: MemberChangedEvent = {
+      type: "member.changed.v1",
+      conversationId: input.conversationId,
+      workspaceId: input.workspaceId,
+    };
+    await this.centrifugo.publishJson(
+      conversationRealtimeChannel(input.conversationId),
+      event,
+      crypto.randomUUID(),
+    );
+  }
 
   async messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }) {
     const { publicationId, ...message } = input;

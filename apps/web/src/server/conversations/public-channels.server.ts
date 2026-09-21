@@ -577,6 +577,7 @@ export class PublicChannels {
         data: { readThroughSequence: latest?.sequence ?? 0 },
       });
     });
+    await this.realtime?.memberChanged({ conversationId: channelId, workspaceId });
   }
 
   /**
@@ -621,6 +622,7 @@ export class PublicChannels {
     if (channel.channelName === "general") throw new AppError("CONFLICT");
     const wasMember = await softLeaveMember(this.db, channel.id, { userId });
     if (!wasMember) throw new AppError("ACCESS_DENIED");
+    await this.realtime?.memberChanged({ conversationId: channel.id, workspaceId });
     return { left: true };
   }
 
@@ -655,6 +657,7 @@ export class PublicChannels {
     );
     if (!authority.capabilities.remove_member) throw new AppError("ACCESS_DENIED");
     const wasMember = await softLeaveMember(this.db, channel.id, target);
+    if (wasMember) await this.realtime?.memberChanged({ conversationId: channel.id, workspaceId });
     return { removed: true, wasMember };
   }
 
@@ -890,6 +893,9 @@ export class PublicChannels {
         }),
       ),
     ]);
+    const added =
+      userIds.length - alreadyMemberUserIds.length + agentIds.length - alreadyMemberAgentIds.length;
+    if (added > 0) await this.realtime?.memberChanged({ conversationId: channelId, workspaceId });
 
     const result = await this.members(workspaceId, actor, channelId);
     return { ...result, alreadyMemberUserIds, alreadyMemberAgentIds };

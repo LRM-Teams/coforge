@@ -70,3 +70,33 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     ...(agentId ? { agentId } : {}),
   };
 }
+
+/**
+ * A membership-change signal for one conversation (join, leave, add, remove): a push in the
+ * IM style, telling an open conversation its member directory is stale. It carries no member
+ * payload — the client refetches the directory it already knows how to load — and only goes
+ * to the conversation's own channel: the sidebar does not render the composer's candidates.
+ */
+export type MemberChangedEvent = {
+  type: "member.changed.v1";
+  conversationId: string;
+  workspaceId?: string;
+};
+
+export function decodeMemberChangedEvent(value: unknown): MemberChangedEvent {
+  if (value instanceof Uint8Array)
+    return decodeMemberChangedEvent(JSON.parse(new TextDecoder().decode(value)) as unknown);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid conversation event");
+  const type = Reflect.get(value, "type");
+  const conversationId = Reflect.get(value, "conversationId");
+  const workspaceId = Reflect.get(value, "workspaceId");
+  if (
+    type !== "member.changed.v1" ||
+    typeof conversationId !== "string" ||
+    !conversationId ||
+    (workspaceId !== undefined && (typeof workspaceId !== "string" || !workspaceId))
+  )
+    throw new Error("invalid conversation event");
+  return { type, conversationId, ...(workspaceId ? { workspaceId } : {}) };
+}

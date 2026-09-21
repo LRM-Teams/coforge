@@ -95,6 +95,7 @@ async function setup() {
 
   const realtimeEvents: Array<{ conversationId: string; messageId: string; sequence: number }> = [];
   const actionCards = new ActionCards(db, new PrismaDirectConversationRepository(db), {
+    async memberChanged() {},
     async messageAvailable(event) {
       realtimeEvents.push(event);
     },
