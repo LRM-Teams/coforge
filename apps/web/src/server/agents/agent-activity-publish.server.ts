@@ -216,14 +216,10 @@ export function createAgentActivityPublicationHandler() {
           }),
         ),
       observe: (observation) => activity.record(observation),
-      // ADR 0059. A dedicated `select` rather than folding into `agents.getById` (which maps the
-      // full `AgentRecord` shape): this handler only ever needs the one column, read fresh on
-      // every publication, never cached.
+      // ADR 0059. The same `agents.getById` lookup `agentBelongsToWorkspace`/
+      // `agentBelongsToComputer` already run above — no dedicated query, never cached.
       agentVisibility: async (workspaceId, agentId) => {
-        const agent = await db.agent.findUnique({
-          where: { id: agentId },
-          select: { workspaceId: true, visibility: true },
-        });
+        const agent = await agents.getById(agentId);
         return agent?.workspaceId === workspaceId ? agent.visibility : undefined;
       },
       publish: centrifugo ? (channel, data) => centrifugo.publish(channel, data) : undefined,
