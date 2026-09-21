@@ -31,6 +31,27 @@ test("round-trips an unmanaged start intent without launchId or controlEpoch", (
   });
 });
 
+test("round-trips the causal-memory tool profile and rejects unknown profiles", () => {
+  const fenced = { ...base, toolProfile: "causal-memory" as const };
+  expect(decodeAgentStartIntent(encodeAgentStartIntent(fenced))).toEqual({
+    ...fenced,
+    modelProvider: "",
+    providerConfig: undefined,
+  });
+  expect(() =>
+    encodeAgentStartIntent({ ...base, toolProfile: "all-tools" as "causal-memory" }),
+  ).toThrow("unsupported Agent tool profile");
+  const encoded = toBinary(
+    AgentStartIntentSchema,
+    create(AgentStartIntentSchema, {
+      ...base,
+      messageType: AGENT_START_MESSAGE_TYPE,
+      toolProfile: "all-tools",
+    }),
+  );
+  expect(() => decodeAgentStartIntent(encoded)).toThrow("unsupported Agent tool profile");
+});
+
 test("rejects encoding a managed start intent with no launchId", () => {
   expect(() => encodeAgentStartIntent({ ...base, controlEpoch: 1 })).toThrow("launchId");
   expect(() => encodeAgentStartIntent({ ...base, controlEpoch: 1, launchId: "  " })).toThrow(

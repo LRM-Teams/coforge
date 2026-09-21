@@ -739,3 +739,17 @@ test("states true facts an Agent would otherwise have to guess", () => {
   // The Agent CLI has no per-command help, so the prompt must not promise one.
   expect(instructions).not.toContain("--help");
 });
+
+test("the causal-memory profile requires an @memory query and never mentions tenant tokens", () => {
+  const fenced = buildCoforgeAgentInstructions({
+    agentWorkspaceDirectory: AGENT_WORKSPACES[0],
+    toolProfile: "causal-memory",
+  });
+  expect(fenced).toContain("## Team memory (Memory Agent)");
+  expect(fenced).toContain("explicit @memory question requires a causal query");
+  expect(fenced).not.toContain("Bearer");
+  expect(fenced).not.toContain("CAUSAL_MEMORY_TOKENS");
+  expect(
+    buildCoforgeAgentInstructions({ agentWorkspaceDirectory: AGENT_WORKSPACES[0] }),
+  ).not.toContain("## Team memory (Memory Agent)");
+});

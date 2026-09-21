@@ -55,6 +55,7 @@ import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
 import { Route as ApiWorkspacesSlugRouteImport } from './routes/api/workspaces.$slug'
 import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
 import { Route as AppProjectsProjectSlugSettingsRouteImport } from './routes/_app/projects.$projectSlug_.settings'
+import { Route as ApiAgentV1CausalRouteImport } from './routes/api/agent/v1/causal'
 import { Route as ApiAgentV1ChannelsRouteImport } from './routes/api/agent/v1/channels'
 import { Route as ApiAgentV1EventsRouteImport } from './routes/api/agent/v1/events'
 import { Route as ApiAgentV1GithubCommitTrailersRouteImport } from './routes/api/agent/v1/github-commit-trailers'
@@ -335,6 +336,11 @@ const AppProjectsProjectSlugSettingsRoute =
     path: '/projects/$projectSlug/settings',
     getParentRoute: () => AppRoute,
   } as any)
+const ApiAgentV1CausalRoute = ApiAgentV1CausalRouteImport.update({
+  id: '/api/agent/v1/causal',
+  path: '/api/agent/v1/causal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAgentV1ChannelsRoute = ApiAgentV1ChannelsRouteImport.update({
   id: '/api/agent/v1/channels',
   path: '/api/agent/v1/channels',
@@ -627,6 +633,7 @@ export interface FileRoutesByFullPath {
   '/records/': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
+  '/api/agent/v1/causal': typeof ApiAgentV1CausalRoute
   '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
@@ -714,6 +721,7 @@ export interface FileRoutesByTo {
   '/records': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/projects/$projectSlug/settings': typeof AppProjectsProjectSlugSettingsRoute
+  '/api/agent/v1/causal': typeof ApiAgentV1CausalRoute
   '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
@@ -806,6 +814,7 @@ export interface FileRoutesById {
   '/_app/records/': typeof AppRecordsIndexRoute
   '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/_app/projects/$projectSlug_/settings': typeof AppProjectsProjectSlugSettingsRoute
+  '/api/agent/v1/causal': typeof ApiAgentV1CausalRoute
   '/api/agent/v1/channels': typeof ApiAgentV1ChannelsRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/github-commit-trailers': typeof ApiAgentV1GithubCommitTrailersRoute
@@ -898,6 +907,7 @@ export interface FileRouteTypes {
     | '/records/'
     | '/messages/channels/$channelId'
     | '/projects/$projectSlug/settings'
+    | '/api/agent/v1/causal'
     | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
     | '/api/agent/v1/github-commit-trailers'
@@ -985,6 +995,7 @@ export interface FileRouteTypes {
     | '/records'
     | '/messages/channels/$channelId'
     | '/projects/$projectSlug/settings'
+    | '/api/agent/v1/causal'
     | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
     | '/api/agent/v1/github-commit-trailers'
@@ -1076,6 +1087,7 @@ export interface FileRouteTypes {
     | '/_app/records/'
     | '/_app/messages/channels/$channelId'
     | '/_app/projects/$projectSlug_/settings'
+    | '/api/agent/v1/causal'
     | '/api/agent/v1/channels'
     | '/api/agent/v1/events'
     | '/api/agent/v1/github-commit-trailers'
@@ -1147,6 +1159,7 @@ export interface RootRouteChildren {
   ApiInternalCentrifugoConnectRoute: typeof ApiInternalCentrifugoConnectRoute
   ApiInternalWeeklyReportScheduleRoute: typeof ApiInternalWeeklyReportScheduleRoute
   ApiWorkspacesSlugRoute: typeof ApiWorkspacesSlugRoute
+  ApiAgentV1CausalRoute: typeof ApiAgentV1CausalRoute
   ApiAgentV1ChannelsRoute: typeof ApiAgentV1ChannelsRoute
   ApiAgentV1EventsRoute: typeof ApiAgentV1EventsRoute
   ApiAgentV1GithubCommitTrailersRoute: typeof ApiAgentV1GithubCommitTrailersRoute
@@ -1505,6 +1518,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/projects/$projectSlug/settings'
       preLoaderRoute: typeof AppProjectsProjectSlugSettingsRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/api/agent/v1/causal': {
+      id: '/api/agent/v1/causal'
+      path: '/api/agent/v1/causal'
+      fullPath: '/api/agent/v1/causal'
+      preLoaderRoute: typeof ApiAgentV1CausalRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/agent/v1/channels': {
       id: '/api/agent/v1/channels'
@@ -1984,6 +2004,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiInternalCentrifugoConnectRoute: ApiInternalCentrifugoConnectRoute,
   ApiInternalWeeklyReportScheduleRoute: ApiInternalWeeklyReportScheduleRoute,
   ApiWorkspacesSlugRoute: ApiWorkspacesSlugRoute,
+  ApiAgentV1CausalRoute: ApiAgentV1CausalRoute,
   ApiAgentV1ChannelsRoute: ApiAgentV1ChannelsRoute,
   ApiAgentV1EventsRoute: ApiAgentV1EventsRoute,
   ApiAgentV1GithubCommitTrailersRoute: ApiAgentV1GithubCommitTrailersRoute,

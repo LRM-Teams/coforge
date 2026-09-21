@@ -13,6 +13,7 @@
 #
 # Usage:
 #   remote-deploy.sh --image REGISTRY/REPOSITORY@sha256:... \
+#     --causal-memory-image REGISTRY/REPOSITORY@sha256:... \
 #     --compose-file ~/coforge-staging/infra/staging/docker-compose.yml \
 #     --secrets-dir ~/coforge-staging/infra/staging/secrets \
 #     --state-file ~/coforge-staging/state.env \
@@ -22,13 +23,14 @@
 set -euo pipefail
 
 usage() {
-	printf 'usage: %s --image IMAGE --compose-file FILE --secrets-dir DIR --state-file FILE --web-health-url URL --public-health-url URL [--project NAME] [--timeout SECONDS]\n' "$0" >&2
+	printf 'usage: %s --image IMAGE --causal-memory-image IMAGE --compose-file FILE --secrets-dir DIR --state-file FILE --web-health-url URL --public-health-url URL [--project NAME] [--timeout SECONDS]\n' "$0" >&2
 	exit 2
 }
 
 project=coforge-staging
 timeout=120
 image=
+causal_memory_image=
 compose_file=
 secrets_dir=
 state_file=
@@ -47,6 +49,10 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--image)
 		image="${2:?}"
+		shift 2
+		;;
+	--causal-memory-image)
+		causal_memory_image="${2:?}"
 		shift 2
 		;;
 	--compose-file)
@@ -77,6 +83,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$image" ] || usage
+[ -n "$causal_memory_image" ] || usage
 [ -n "$compose_file" ] || usage
 [ -n "$secrets_dir" ] || usage
 [ -n "$state_file" ] || usage
@@ -138,7 +145,8 @@ compose() {
 }
 
 # Fail closed on a mutable reference instead of guessing the intended digest.
-if ! printf '%s' "$image" | grep -Eq '@sha256:[0-9a-f]{64}$'; then
+if ! printf '%s' "$image" | grep -Eq '@sha256:[0-9a-f]{64}$' ||
+	! printf '%s' "$causal_memory_image" | grep -Eq '@sha256:[0-9a-f]{64}$'; then
 	printf 'outcome=failed\nhealth_result=mutable image reference rejected\nrollback_target=\nprevious_web_image=\n'
 	exit 0
 fi
@@ -153,10 +161,17 @@ read_state_value() {
 # bootstrap when the environment is verifiably empty; otherwise fail closed.
 current_image=""
 previous_image=""
+current_causal_memory_image=""
+previous_causal_memory_image=""
 if [ -f "$state_file" ]; then
 	current_image="$(read_state_value CURRENT_WEB_IMAGE)"
 	previous_image="$(read_state_value PREVIOUS_WEB_IMAGE)"
-	for value in "$current_image" "$previous_image"; do
+	# These keys were added with Causal Memory. Their absence is accepted only
+	# for the first deployment that introduces the runtime; its prior release
+	# snapshot has no Causal Memory service to restore.
+	current_causal_memory_image="$(read_state_value CURRENT_CAUSAL_MEMORY_IMAGE)"
+	previous_causal_memory_image="$(read_state_value PREVIOUS_CAUSAL_MEMORY_IMAGE)"
+	for value in "$current_image" "$previous_image" "$current_causal_memory_image" "$previous_causal_memory_image"; do
 		if [ -n "$value" ] && ! printf '%s' "$value" | grep -Eq '@sha256:[0-9a-f]{64}$'; then
 			printf 'outcome=failed\nhealth_result=failed: release state file holds a non-digest image; refusing to mutate\nrollback_target=\nprevious_web_image=\n'
 			exit 0
@@ -181,21 +196,25 @@ fi
 
 # The rollback target is the last known healthy image, not the one before it.
 last_healthy="$current_image"
+last_healthy_causal_memory="$current_causal_memory_image"
 
-if [ -n "$current_image" ] && [ "$current_image" = "$image" ]; then
+if [ -n "$current_image" ] && [ "$current_image" = "$image" ] &&
+	[ -n "$current_causal_memory_image" ] && [ "$current_causal_memory_image" = "$causal_memory_image" ]; then
 	printf 'previous_web_image=%s\nhealth_result=healthy\noutcome=healthy\nrollback_target=\n' "$current_image"
 	exit 0
 fi
 
 write_deploy_env() {
 	# Writes .env next to the compose file with chmod 600; never printed.
-	local web_image="$1" env_file env_file_tmp centrifugo_config_sha256
+	local web_image="$1" causal_image="$2" env_file env_file_tmp centrifugo_config_sha256
 	env_file="$(cd "$(dirname "$compose_file")" && pwd)/.env"
 	centrifugo_config_sha256="$(sha256sum "$(dirname "$compose_file")/centrifugo/config.yaml" | awk '{print $1}')"
 	umask 077
 	env_file_tmp="$(mktemp "${env_file}.XXXXXX")"
 	{
 			printf 'COFORGE_WEB_IMAGE=%s\n' "$web_image"
+			printf 'COFORGE_CAUSAL_MEMORY_IMAGE=%s\n' "$causal_image"
+			printf 'COFORGE_CAUSAL_MEMORY_URL=http://causal-memory:9938\n'
 		printf 'DATABASE_URL=postgresql://coforge:%s@postgres:5432/coforge\n' "$(cat "$secrets_dir/postgres_password")"
 		printf 'REDIS_URL=redis://:%s@redis:6379\n' "$(cat "$secrets_dir/redis_password")"
 		printf 'COFORGE_CENTRIFUGO_API_URL=http://centrifugo:8000/api\n'
@@ -256,6 +275,14 @@ compose_all_healthy() {
 		[ -n "$container" ] || return 1
 		[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = healthy ] || return 1
 	done
+	# The first Causal Memory deploy may roll back to a pre-W1-B Compose
+	# snapshot. Require its health only when that restored configuration owns the
+	# service; otherwise an otherwise healthy rollback would be misreported.
+	if compose config --services | grep -Fxq causal-memory; then
+		container="$(compose ps -q causal-memory)"
+		[ -n "$container" ] || return 1
+		[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = healthy ] || return 1
+	fi
 	return 0
 }
 
@@ -275,13 +302,16 @@ public_health() {
 }
 
 verify_running_digest() {
-	local container
-	container="$(compose ps -q web)"
-	[ -n "$container" ] || return 1
-	# The container must run the exact requested digest reference, and the
-	# local store must resolve that same immutable identity.
-	[ "$(docker inspect --format '{{.Config.Image}}' "$container")" = "$image" ] &&
-		docker image inspect "$image" >/dev/null 2>&1
+	local web_container causal_memory_container
+	web_container="$(compose ps -q web)"
+	causal_memory_container="$(compose ps -q causal-memory)"
+	[ -n "$web_container" ] && [ -n "$causal_memory_container" ] || return 1
+	# Both containers must run their exact requested digest references, and the
+	# local store must resolve those immutable identities.
+	[ "$(docker inspect --format '{{.Config.Image}}' "$web_container")" = "$image" ] &&
+		[ "$(docker inspect --format '{{.Config.Image}}' "$causal_memory_container")" = "$causal_memory_image" ] &&
+		docker image inspect "$image" >/dev/null 2>&1 &&
+		docker image inspect "$causal_memory_image" >/dev/null 2>&1
 }
 
 # Roll back to the last healthy release; with an empty environment, restore the
@@ -292,16 +322,16 @@ verify_running_digest() {
 # Caddy does not depend on web, and a Centrifugo config change only takes
 # effect when Centrifugo itself is recreated.
 rollback() {
-	local target="$1"
+	local target="$1" causal_target="$2"
 	if [ -n "$target" ]; then
 		if [ -d "$release_snapshot_dir" ]; then
 			restore_release_snapshot
 			printf 'restored the last healthy release configuration\n' >&2
-			write_deploy_env "$target"
-			compose up -d --wait --wait-timeout "$timeout" >/dev/null
+			write_deploy_env "$target" "$causal_target"
+			compose up -d --remove-orphans --wait --wait-timeout "$timeout" >/dev/null
 		else
 			printf 'no last healthy release snapshot; rolling back the image only\n' >&2
-			write_deploy_env "$target"
+			write_deploy_env "$target" "$causal_target"
 			compose up -d --wait --wait-timeout "$timeout" web >/dev/null
 		fi
 		if wait_for_health; then
@@ -354,7 +384,7 @@ candidate_diagnostics() {
 fail_deployment() {
 	local reason="$1"
 	candidate_diagnostics || true
-	if rollback "$last_healthy"; then
+	if rollback "$last_healthy" "$last_healthy_causal_memory"; then
 		public_health || true
 		report "$last_healthy" "$reason" "rolled_back" "$last_healthy"
 	elif [ -z "$last_healthy" ]; then
@@ -370,7 +400,7 @@ report() {
 		"${1:-}" "$2" "$3" "${4:-}"
 }
 
-write_deploy_env "$image"
+write_deploy_env "$image" "$causal_memory_image"
 
 # Validate the rendered base-plus-environment configuration before mutating.
 if ! compose config --quiet; then
@@ -402,7 +432,7 @@ if ! compose run --rm --no-deps --entrypoint sh centrifugo \
 	exit 0
 fi
 
-compose pull --quiet web >/dev/null
+compose pull --quiet web causal-memory >/dev/null
 
 if ! compose run --rm --entrypoint sh migrate \
 	-c 'cd .migrate && bun node_modules/prisma/build/index.js migrate deploy' </dev/null 1>&2; then
@@ -426,7 +456,9 @@ snapshot_release
 
 printf '%s\n' \
 	"PREVIOUS_WEB_IMAGE=$current_image" \
-	"CURRENT_WEB_IMAGE=$image" >"$state_file.tmp"
+	"CURRENT_WEB_IMAGE=$image" \
+	"PREVIOUS_CAUSAL_MEMORY_IMAGE=$current_causal_memory_image" \
+	"CURRENT_CAUSAL_MEMORY_IMAGE=$causal_memory_image" >"$state_file.tmp"
 chmod 600 "$state_file.tmp"
 mv "$state_file.tmp" "$state_file"
 

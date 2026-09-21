@@ -8,3 +8,4 @@ export * from "./manual";
 export * from "./version";
 export * from "./user-info";
 export * from "./profile";
+export * from "./causal-memory";

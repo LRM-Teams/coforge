@@ -43,6 +43,13 @@ model Workspace {
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   projects               Project[]
+  causalTenant           CausalWorkspaceTenant?
+  causalIngestLedgers    AdmittedSegmentIngestLedger[]
+  causalSegmentSources   SegmentSourceMessage[]
+  causalCitations        CausalCitationRecord[]
+  causalCorrectionProposals CausalCorrectionProposalRecord[]
+  causalSupersessions    CausalSupersessionResult[]
+  causalOffers           CausalOfferRecord[]
 
   @@map("workspaces")
 }
@@ -230,6 +237,7 @@ model Agent {
   reminders                 Reminder[]
   reminderOperationReceipts ReminderOperationReceipt[]
   preparedActionCards       ActionCard[]
+  causalMemoryTenants       CausalWorkspaceTenant[] @relation("CausalMemoryAgent")
   weeklyReportAssistant         WeeklyReportAssistant?
   weeklyReportCollectorBinding  WeeklyReportCollectorBinding?
   attachments               Attachment[]
@@ -1164,4 +1172,120 @@ model RecordComment {
   @@index([cycleId])
   @@index([assistantSessionId])
   @@map("record_comments")
+}
+
+/// Workspace → isolated Causal Memory tenant projection. Tokens never live here.
+model CausalWorkspaceTenant {
+  workspaceId   String    @id @map("workspace_id") @db.Uuid
+  tenantId      String    @map("tenant_id")
+  enabled       Boolean   @default(true)
+  memoryAgentId String?   @map("memory_agent_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  memoryAgent   Agent?    @relation("CausalMemoryAgent", fields: [memoryAgentId], references: [id], onDelete: SetNull)
+
+  @@index([memoryAgentId])
+  @@map("causal_workspace_tenants")
+}
+
+model AdmittedSegmentIngestLedger {
+  id                String    @id @default(uuid()) @db.Uuid
+  workspaceId       String    @map("workspace_id") @db.Uuid
+  admittedSegmentId String    @map("admitted_segment_id")
+  operationId       String    @map("operation_id")
+  kind              String
+  sourceMessageIds  String[]  @map("source_message_ids")
+  sourcePayloadHash String    @map("source_payload_hash")
+  state             String
+  attemptCount      Int       @default(0) @map("attempt_count")
+  sanitizedError    String?   @map("sanitized_error")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sources           SegmentSourceMessage[]
+
+  @@unique([workspaceId, operationId])
+  @@unique([workspaceId, admittedSegmentId])
+  @@index([workspaceId, state])
+  @@map("admitted_segment_ingest_ledgers")
+}
+
+model SegmentSourceMessage {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @map("workspace_id") @db.Uuid
+  admittedSegmentId String   @map("admitted_segment_id")
+  messageId         String   @map("message_id")
+  payloadHash       String   @map("payload_hash")
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  ledger            AdmittedSegmentIngestLedger @relation(fields: [workspaceId, admittedSegmentId], references: [workspaceId, admittedSegmentId], onDelete: Cascade)
+
+  @@unique([workspaceId, admittedSegmentId, messageId])
+  @@map("segment_source_messages")
+}
+
+model CausalCitationRecord {
+  id                 String    @id @default(uuid()) @db.Uuid
+  workspaceId        String    @map("workspace_id") @db.Uuid
+  citationId         String    @map("citation_id")
+  causalItemId       String    @map("causal_item_id")
+  causalPathId       String?   @map("causal_path_id")
+  admittedSegmentId  String    @map("admitted_segment_id")
+  sourceMessageIds   String[]  @map("source_message_ids")
+  boundOperationId   String    @map("bound_operation_id")
+  displayContent     String    @default("") @map("display_content")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, citationId])
+  @@index([workspaceId, boundOperationId])
+  @@map("causal_citation_records")
+}
+
+model CausalCorrectionProposalRecord {
+  id                       String    @id @default(uuid()) @db.Uuid
+  workspaceId              String    @map("workspace_id") @db.Uuid
+  proposalId               String    @map("proposal_id")
+  operationId              String    @map("operation_id")
+  causalItemId             String    @map("causal_item_id")
+  contradictoryCitationIds String[]  @map("contradictory_citation_ids")
+  rationale                String
+  createdAt                DateTime  @default(now()) @map("created_at")
+  workspace                Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  supersession             CausalSupersessionResult?
+
+  @@unique([workspaceId, proposalId])
+  @@unique([workspaceId, operationId])
+  @@map("causal_correction_proposal_records")
+}
+
+model CausalSupersessionResult {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  proposalId  String    @map("proposal_id")
+  verdict     String
+  superseded  Boolean
+  auditId     String    @map("audit_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  proposal    CausalCorrectionProposalRecord @relation(fields: [workspaceId, proposalId], references: [workspaceId, proposalId], onDelete: Cascade)
+
+  @@unique([workspaceId, proposalId])
+  @@map("causal_supersession_results")
+}
+
+model CausalOfferRecord {
+  id                 String   @id @default(uuid()) @db.Uuid
+  workspaceId        String   @map("workspace_id") @db.Uuid
+  operationId        String   @map("operation_id")
+  conversationId     String   @map("conversation_id")
+  recipientAgentId   String   @map("recipient_agent_id")
+  recipientRationale String   @map("recipient_rationale")
+  messageId          String   @map("message_id")
+  citationIds        String[] @map("citation_ids")
+  createdAt          DateTime @default(now()) @map("created_at")
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, operationId])
+  @@map("causal_offer_records")
 }

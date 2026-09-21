@@ -58,6 +58,7 @@ export class PiProvider implements CodeAgentProvider {
       instructions: options.instructions,
       environment,
       sessionKind: "pi",
+      toolProfile: runtime?.toolProfile,
     });
     try {
       await options.onSessionId?.(created.sessionId, created.replacedSessionId);
@@ -109,6 +110,7 @@ export class CoforgeProvider implements CodeAgentProvider {
         envVars: runtime.envVars,
         gitHooks: options.gitHooks,
       }),
+      toolProfile: runtime.toolProfile,
     });
     try {
       await options.onSessionId?.(session.sessionId, session.replacedSessionId);
@@ -214,6 +216,7 @@ class AgentSessionImpl implements AgentSession {
     if (this.#disposed || this.#interrupting || this.#runtime.session.isStreaming) {
       throw new Error("code agent cannot accept a new message");
     }
+    this.#runtime.resetCausalBudget?.();
     this.#setIdentity("unknown");
     try {
       await this.#trackPrompt(this.#runtime.session.prompt(message));

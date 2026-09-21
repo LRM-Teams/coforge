@@ -274,3 +274,39 @@ _Avoid_: installation token, Agent App, repository password
 **machine_id**:
 A stable internal registration identifier for one Computer installation profile. It supports identity reconciliation but is neither a credential, a user-facing Computer name, nor necessarily the primary key of a server-side Computer record.
 _Avoid_: Hardware fingerprint, machine secret, Computer token
+
+
+
+## Causal group memory
+
+**Causal Memory Tenant**:
+The Workspace-owned, isolated causal-memory store containing that Workspace's group-memory audit and retrieval data. A tenant belongs to one Workspace and never grants access to another Workspace.
+_Avoid_: Agent memory, Computer database, shared group-memory store
+
+**Fact Document**:
+The canonical tenant-local factual representation distilled by Causal Memory from one or more Admitted PublicChannel Segments. It retains the provenance needed to reconnect every recalled fact to its admitted source evidence. A Fact Document exists independently of any retrieval backend.
+_Avoid_: raw message, embedding record, vector row, adapter-specific document
+
+**Fact Index**:
+The rebuildable, tenant-isolated retrieval projection through which Causal Memory recalls Fact Documents. It helps Causal Memory find relevant evidence but does not distill facts or own source messages, Fact Documents, causal relationships, correction decisions, or the meaning of `trace` and `intervene`.
+_Avoid_: source of truth, fact distiller, causal graph, Memory Runtime, generic vector database
+
+**Admitted PublicChannel Segment**:
+A completed Task discussion window or a PublicChannel quiet window whose messages may be distilled into retrievable team knowledge. DirectConversation messages are never an admitted segment.
+_Avoid_: chat log, every message, unreviewed conversation
+
+**Causal Memory Citation**:
+An auditable reference from a Memory Offer or Causal Correction Proposal to a tenant-local causal item, the Admitted PublicChannel Segment that made it eligible, and that segment's source PublicChannel Messages. It never exposes a DirectConversation message.
+_Avoid_: free-form citation text, ungrounded memory identifier, transcript copy
+
+**Causal Correction Proposal**:
+A read-only Memory Agent's cited request for Web/backend to reconsider an existing causal-memory conclusion in light of contradictory admitted evidence. It is not itself an invalidation or a mutation of tenant data.
+_Avoid_: Agent-written correction, automatic edge deletion, fact rewrite
+
+**Memory Agent**:
+The managed Workspace-scoped Agent that observes PublicChannel messages and uses causal memory when helpful. An explicit `@memory` question requires a causal query before it answers; otherwise it autonomously decides whether retrieval or a Memory Offer is useful. It may submit Causal Correction Proposals but never writes, invalidates, or supersedes causal-memory data.
+_Avoid_: memory bot, distiller, causal-memory writer
+
+**Memory Offer**:
+A cited PublicChannel message from the Memory Agent that offers relevant causal-memory evidence or guidance to one recipient Agent. The Memory Agent may choose that recipient from active channel Agents, but the cited rationale for its selection is retained for audit. It is information, not an instruction, grant of authority, or proof of benefit.
+_Avoid_: skill offer, injection, broadcast

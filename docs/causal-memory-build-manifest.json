@@ -1,0 +1,33 @@
+{
+  "protocol": "coforge.causal.build.v1",
+  "implementationBase": {
+    "gitRef": "origin/main",
+    "legacyGroupMemory": "not-imported",
+    "legacyLearnedSkillWorktree": "read-only-reference-only"
+  },
+  "upstream": {
+    "repository": "https://github.com/JingxuanC/causal-memory",
+    "license": "Apache-2.0",
+    "reviewedCommit": "9657b2414ce7c56047d8273c9c0c8ebaf63985ee",
+    "reviewedCommitShort": "9657b24",
+    "localCheckout": "../causal-memory",
+    "pinPolicy": "exact-reviewed-commit",
+    "followMain": false
+  },
+  "patch": {
+    "branch": "coforge/v1-extension",
+    "stdioMcpBehavior": "unchanged",
+    "coforgeEvidencePath": "/coforge/v1",
+    "prohibitedEvidencePaths": ["/debug/*", "/mcp", "/"]
+  },
+  "runtimeDelivery": {
+    "service": "causal-memory",
+    "privateBaseUrl": "http://causal-memory:9938",
+    "imageEnvironmentKey": "COFORGE_CAUSAL_MEMORY_IMAGE",
+    "webBaseUrlEnvironmentKey": "COFORGE_CAUSAL_MEMORY_URL",
+    "webTenantTokensFileEnvironmentKey": "COFORGE_CAUSAL_MEMORY_TENANT_TOKENS_FILE",
+    "runtimeTenantTokensFileEnvironmentKey": "CAUSAL_MEMORY_TOKENS_FILE",
+    "runtimeDistillModelKeyFileEnvironmentKey": "CAUSAL_MEMORY_DISTILL_MODEL_API_KEY_FILE",
+    "sqliteVolume": "coforge_staging_causal_memory_data"
+  }
+}

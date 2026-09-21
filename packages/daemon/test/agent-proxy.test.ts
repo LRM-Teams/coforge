@@ -1740,3 +1740,46 @@ test("a GitHub credential failure is classified under its own route family", asy
   expect(body.code).toBe("agent_proxy_failed");
   expect(body.proxy.route_family).toBe("agent-api/github-credential");
 });
+
+test("the causal proxy rejects a malformed body and forwards a valid command", async () => {
+  const seen: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      agentCausal: async (_context, command) => {
+        seen.push(command);
+        return {
+          protocol: "coforge.causal.agent.v1",
+          op: "search",
+          operationId: command.operationId,
+          duplicate: false,
+          items: [],
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const url = proxy.url.replace(
+    agentApiRoutes.proxy.messages.path,
+    agentApiRoutes.proxy.causal.path,
+  );
+  const bad = await fetch(url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ op: "search" }),
+  });
+  expect(bad.status).toBe(400);
+  const ok = await fetch(url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      protocol: "coforge.causal.agent.v1",
+      op: "search",
+      operationId: "closing-work-items",
+      query: "rollback",
+    }),
+  });
+  expect(ok.status).toBe(200);
+  expect(seen).toHaveLength(1);
+});

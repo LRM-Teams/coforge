@@ -2,7 +2,7 @@
 
 状态：验证阶段架构基线
 
-更新时间：2026-09-07
+更新时间：2026-09-21
 
 适用范围：仓库结构、云端服务、本地进程、消息投递与开发工具链
 
@@ -1802,3 +1802,13 @@ machine-owner 授权模型仍未解决；在形成并批准该安全边界前，
 - [Multica Computer/Daemon/WorkspaceDaemon ownership ADR](https://github.com/LRM-Teams/multica/blob/dev/docs/adr/0020-converge-computer-daemon-workspace-daemon.md)
 
 这些资料只提供故障模式与 ownership 的历史参考。CoForge 当前 MVP 采用本文定义的易失 attention ACK、canonical Message/read-boundary 恢复，以及独立 HTTPS Agent read/send，不继承 Multica 的 durable inbox/outbox 或 delivery-ledger 设计。
+
+
+
+### Causal Memory group-memory runtime
+
+[ADR 0058](adr/0058-causal-memory-workspace-tenant.md) replaces the former Group Memory model with Causal Memory. Each deployment environment runs exactly one Rust Causal Memory HTTP runtime on the private deployment network with a persistent SQLite volume. The runtime is not a public Caddy route and is not a third local Computer/Daemon product component. Every CoForge Workspace maps to one authenticated, isolated tenant database; only Web/backend holds tenant credentials. Causal Memory owns causal-memory SQLite storage and graph retrieval, while Web/backend remains the owner of Workspace authorization, canonical PublicChannel messages, admission, ingest ledger, retry coordination, offers, and every external-facing HTTP contract.
+
+Web/backend uses its existing Redis-locked sweeps to admit completed Task discussions and PublicChannel quiet windows. It stores immutable source Message IDs/hash and stable operation IDs in a PostgreSQL ingest ledger, then sends quoted, untrusted message data to a pinned Causal Memory extension. That extension writes audit-only raw turns, explicitly distills admitted segments using a dedicated server-owned model credential, and returns structured causal citations. Memory failure never blocks message persistence or delivery; pending ingest is retried after recovery. DirectConversation data never enters a tenant.
+
+The Workspace-scoped Memory Agent observes PublicChannel traffic behind its existing capability fence. An explicit `@memory` question requires a causal query; otherwise the Agent decides whether bounded causal reads are useful. It may perform at most three reads and publish at most one public Memory Offer per triggering message. It remains read-only: correction proposals are cited requests, while Web/backend uses the server-owned adjudicator to soft-supersede causal conclusions. Offers select one active channel Agent, preserve citation and recipient-selection provenance, and have no cross-message cooldown. Legacy Group Memory data and Prisma tables are removed by the replacement migration without a backup or fallback path. Causal Memory volumes receive managed encrypted, application-consistent SQLite snapshots; recovery validates health, readiness, and tenant isolation before the internal endpoint changes.

@@ -159,6 +159,8 @@ message AgentStartIntent {
   // control_epoch is set (every managed start); absent only for an unmanaged
   // start, which this wire message no longer expects from a current server.
   optional string launch_id = 19;
+  // A recognized runtime tool fence. Absent retains the ordinary Agent tool profile.
+  optional string tool_profile = 20;
 }
 
 // Versioned server-to-daemon stop intent. A replacement is expressed as a

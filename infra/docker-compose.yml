@@ -81,16 +81,55 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  # One private, SQLite-owning Rust runtime per environment. Local development
+  # may expose it on loopback only for a host-run Web server; staging has no
+  # host port and attaches only Web plus this service to its internal network.
+  causal-memory:
+    image: ${COFORGE_CAUSAL_MEMORY_IMAGE:?COFORGE_CAUSAL_MEMORY_IMAGE must be a reviewed local image or immutable digest}
+    environment:
+      CAUSAL_MEMORY_DB: /data/causal-memory.sqlite
+      CAUSAL_MEMORY_TOKENS_FILE: /run/secrets/coforge_causal_memory_tenant_tokens
+      CAUSAL_MEMORY_DISTILL_MODEL_API_KEY_FILE: /run/secrets/coforge_causal_memory_distill_model_api_key
+      CAUSAL_MEMORY_ALLOWED_HOSTS: causal-memory,localhost,127.0.0.1,::1
+    ports:
+      - "127.0.0.1:${CAUSAL_MEMORY_PORT:-9938}:9938"
+    secrets:
+      - coforge_causal_memory_tenant_tokens
+      - coforge_causal_memory_distill_model_api_key
+    volumes:
+      - coforge_causal_memory_data:/data
+    networks:
+      - causal-memory
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:9938/healthz && curl --fail --silent --show-error http://127.0.0.1:9938/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
 networks:
   centrifugo:
     driver: bridge
     name: coforge_network
+  causal-memory:
+    internal: true
 
 volumes:
   coforge_redis_data:
     name: coforge_redis_data
   coforge_postgres_data:
     name: coforge_postgres_data
+  coforge_causal_memory_data:
+    name: coforge_causal_memory_data
 
 secrets:
   redis_password:
@@ -101,3 +140,7 @@ secrets:
     file: ./secrets/centrifugo_http_api_key
   postgres_password:
     file: ./secrets/postgres_password
+  coforge_causal_memory_tenant_tokens:
+    file: ./secrets/coforge_causal_memory_tenant_tokens
+  coforge_causal_memory_distill_model_api_key:
+    file: ./secrets/coforge_causal_memory_distill_model_api_key

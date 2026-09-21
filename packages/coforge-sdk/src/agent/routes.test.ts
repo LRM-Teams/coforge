@@ -42,6 +42,9 @@ test("uses versioned Agent API routes for the Proxy and cloud", () => {
   expect(agentApiRoutes.proxy.reminders.path).toBe("/api/agent/v1/reminders");
   expect(agentApiRoutes.proxy.inbox.path).toBe("/api/agent/v1/inbox");
   expect(agentApiRoutes.proxy.messages.path).toBe(agentApiRoutes.cloud.messages.list.path);
+  expect(agentApiRoutes.proxy.causal).toEqual({ method: "POST", path: "/api/agent/v1/causal" });
+  expect(agentApiRoutes.local.causal).toEqual(agentApiRoutes.proxy.causal);
+  expect(agentApiRoutes.cloud.causal).toEqual(agentApiRoutes.proxy.causal);
 });
 
 test("builds encoded resource paths from the shared contract", () => {

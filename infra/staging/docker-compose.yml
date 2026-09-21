@@ -52,6 +52,11 @@ services:
       COFORGE_GITHUB_WEBHOOK_SECRET_FILE: /run/secrets/coforge_github_webhook_secret
       COFORGE_CENTRIFUGO_API_URL: http://centrifugo:8000/api
       COFORGE_CENTRIFUGO_API_KEY: ${COFORGE_CENTRIFUGO_API_KEY:?deploy script writes .env}
+      # Private-only causal-memory dependency. It is intentionally not a
+      # depends_on prerequisite: an outage degrades memory work only and must
+      # not prevent group-chat traffic from serving.
+      COFORGE_CAUSAL_MEMORY_URL: ${COFORGE_CAUSAL_MEMORY_URL:-http://causal-memory:9938}
+      COFORGE_CAUSAL_MEMORY_TENANT_TOKENS_FILE: /run/secrets/coforge_causal_memory_tenant_tokens
       COFORGE_CENTRIFUGO_PROXY_SECRET: ${COFORGE_CENTRIFUGO_PROXY_SECRET:?deploy script writes .env}
       COFORGE_WORKER_JWT_KEY_ID: ${COFORGE_WORKER_JWT_KEY_ID:?deploy script writes .env}
       COFORGE_WORKER_JWT_PRIVATE_JWK: ${COFORGE_WORKER_JWT_PRIVATE_JWK:?deploy script writes .env}
@@ -130,6 +135,10 @@ services:
         uid: "1000"
         gid: "1000"
         mode: 0400
+      - source: coforge_causal_memory_tenant_tokens
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
     ports:
       # loopback diagnostics only; never public
       - "127.0.0.1:18080:3000"
@@ -148,6 +157,46 @@ services:
       start_period: 10s
     networks:
       - coforge
+      - causal-memory
+    restart: unless-stopped
+
+  # Exactly one Rust HTTP runtime per environment. It has no host port and is
+  # reachable only by Web through the internal causal-memory network; Caddy is
+  # deliberately not attached and no public route exists.
+  causal-memory:
+    image: ${COFORGE_CAUSAL_MEMORY_IMAGE:?COFORGE_CAUSAL_MEMORY_IMAGE must resolve to an immutable digest}
+    environment:
+      CAUSAL_MEMORY_DB: /data/causal-memory.sqlite
+      CAUSAL_MEMORY_TOKENS_FILE: /run/secrets/coforge_causal_memory_tenant_tokens
+      CAUSAL_MEMORY_DISTILL_MODEL_API_KEY_FILE: /run/secrets/coforge_causal_memory_distill_model_api_key
+      CAUSAL_MEMORY_ALLOWED_HOSTS: causal-memory,localhost,127.0.0.1,::1
+    secrets:
+      - source: coforge_causal_memory_tenant_tokens
+        uid: "0"
+        gid: "0"
+        mode: 0400
+      - source: coforge_causal_memory_distill_model_api_key
+        uid: "0"
+        gid: "0"
+        mode: 0400
+    volumes:
+      - coforge_staging_causal_memory_data:/data
+    networks:
+      - causal-memory
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:9938/healthz && curl --fail --silent --show-error http://127.0.0.1:9938/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
     restart: unless-stopped
 
   migrate:
@@ -247,6 +296,8 @@ services:
 
 networks:
   coforge: {}
+  causal-memory:
+    internal: true
 
 volumes:
   caddy_data: {}
@@ -255,6 +306,8 @@ volumes:
     name: coforge_staging_redis_data
   coforge_staging_postgres_data:
     name: coforge_staging_postgres_data
+  coforge_staging_causal_memory_data:
+    name: coforge_staging_causal_memory_data
 
 secrets:
   authing_app_id:
@@ -280,6 +333,10 @@ secrets:
   # 600 file, which the rootless daemon maps to root, so the `bun` user could not read it.
   coforge_file_delivery_key:
     environment: COFORGE_FILE_DELIVERY_KEY
+  coforge_causal_memory_tenant_tokens:
+    file: ./secrets/coforge_causal_memory_tenant_tokens
+  coforge_causal_memory_distill_model_api_key:
+    file: ./secrets/coforge_causal_memory_distill_model_api_key
   redis_password:
     file: ./secrets/redis_password
   postgres_password:

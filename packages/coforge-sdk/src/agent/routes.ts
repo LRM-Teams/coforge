@@ -20,6 +20,7 @@ export const agentApiRoutes = {
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
+    causal: { method: "POST", path: "/api/agent/v1/causal" },
     users: {
       method: "GET",
       path: (name: string) => `/api/agent/v1/users/${encodeURIComponent(name)}`,
@@ -41,6 +42,7 @@ export const agentApiRoutes = {
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
+    causal: { method: "POST", path: "/api/agent/v1/causal" },
     attachments: {
       method: "GET",
       path: (attachmentId: string) =>
@@ -166,6 +168,7 @@ export const agentApiRoutes = {
     weeklyReportKeyPoints: { method: "POST", path: "/api/agent/v1/weekly-report-key-points" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
+    causal: { method: "POST", path: "/api/agent/v1/causal" },
     attachments: {
       method: "GET",
       collectionPath: "/api/agent/v1/attachments",

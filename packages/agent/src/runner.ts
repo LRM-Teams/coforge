@@ -6,16 +6,230 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   createBashTool,
+  defineTool,
   getAgentDir,
   ModelRuntime,
   runRpcMode,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import {
+  CAUSAL_AGENT_PROTOCOL,
+  CAUSAL_OFFER_BUDGET_PER_TRIGGER,
+  CAUSAL_READ_BUDGET_PER_TRIGGER,
+  CAUSAL_TOOL_NAMES,
+  CAUSAL_TOOL_PROFILE,
+  decodeCausalAgentCommand,
+  decodeCausalAgentResponse,
+  type CausalAgentCommand,
+} from "@lrm/coforge-sdk/agent";
+import { Type } from "typebox";
 import { join, resolve } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory } from "./paths";
 import { API_KEY_ENV_BY_PROVIDER, configureRuntimeEnvironment } from "./runtime-provider";
 import { classifyPiLaunchFailure, PI_MODEL_UNAVAILABLE } from "./launch-error";
+
+export class CausalMemoryTurnBudget {
+  #causalReads = 0;
+  #offers = 0;
+
+  reset(): void {
+    this.#causalReads = 0;
+    this.#offers = 0;
+  }
+
+  consume(command: CausalAgentCommand): void {
+    if (["search", "trace", "intervene"].includes(command.op)) {
+      if (this.#causalReads >= CAUSAL_READ_BUDGET_PER_TRIGGER)
+        throw new Error("causal read budget exhausted for this triggering message");
+      this.#causalReads += 1;
+      return;
+    }
+    if (command.op === "offer") {
+      if (this.#offers >= CAUSAL_OFFER_BUDGET_PER_TRIGGER)
+        throw new Error("causal offer budget exhausted for this triggering message");
+      this.#offers += 1;
+    }
+  }
+
+  snapshot() {
+    return { causalReads: this.#causalReads, offers: this.#offers };
+  }
+}
+
+type ProxyToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  details: Record<string, never>;
+};
+
+function localProxyUrl(path: string): string {
+  const endpoint = Bun.env.COFORGE_AGENT_PROXY_URL;
+  const token = Bun.env.COFORGE_AGENT_CONTEXT;
+  if (!endpoint || !token) throw new Error("CoForge Agent proxy is not configured");
+  return new URL(path, endpoint).toString();
+}
+
+async function postLocalProxy(path: string, body: unknown): Promise<unknown> {
+  const response = await fetch(localProxyUrl(path), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${Bun.env.COFORGE_AGENT_CONTEXT!}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => undefined);
+  if (!response.ok)
+    throw new Error(
+      typeof payload === "object" &&
+        payload &&
+        "error" in payload &&
+        typeof payload.error === "string"
+        ? payload.error
+        : `CoForge Agent proxy request failed (${response.status})`,
+    );
+  return payload;
+}
+
+function toolResult(value: unknown): ProxyToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(value) }], details: {} };
+}
+
+/** The only model-callable tools available under the causal-memory fence. */
+export function createCausalMemoryTools(budget: CausalMemoryTurnBudget) {
+  const causalTool = <Params extends Record<string, unknown>>(
+    name: string,
+    label: string,
+    description: string,
+    op: CausalAgentCommand["op"],
+    parameters: Parameters<typeof Type.Object>[0],
+  ) =>
+    defineTool({
+      name,
+      label,
+      description,
+      parameters,
+      execute: async (_toolCallId, params) => {
+        const command = decodeCausalAgentCommand({
+          protocol: CAUSAL_AGENT_PROTOCOL,
+          op,
+          ...(params as Params),
+        });
+        budget.consume(command);
+        const response = await postLocalProxy("/api/agent/v1/causal", command);
+        return toolResult(decodeCausalAgentResponse(command.op, response));
+      },
+    });
+
+  const messageTool = (
+    name: string,
+    label: string,
+    description: string,
+    operation: "check" | "read" | "send",
+    parameters: Parameters<typeof Type.Object>[0],
+  ) =>
+    defineTool({
+      name,
+      label,
+      description,
+      parameters,
+      execute: async (_toolCallId, params) => {
+        const request = {
+          requestId: crypto.randomUUID(),
+          operation,
+          ...(params as { target?: string; content?: string }),
+        };
+        if (
+          operation === "send" &&
+          typeof request.target === "string" &&
+          !request.target.startsWith("#")
+        )
+          throw new Error("send_channel_message only sends to a public channel");
+        return toolResult(await postLocalProxy("/api/agent/v1/messages", request));
+      },
+    });
+
+  return [
+    causalTool(
+      CAUSAL_TOOL_NAMES.search,
+      "Causal search",
+      "Search cited causal memory for the current public-channel question.",
+      "search",
+      {
+        operationId: Type.String(),
+        query: Type.String(),
+        limit: Type.Optional(Type.Integer({ minimum: 1 })),
+      },
+    ),
+    causalTool(
+      CAUSAL_TOOL_NAMES.trace,
+      "Causal trace",
+      "Trace cited antecedents and consequences for a causal memory item.",
+      "trace",
+      { operationId: Type.String(), causalItemId: Type.String() },
+    ),
+    causalTool(
+      CAUSAL_TOOL_NAMES.intervene,
+      "Causal intervention",
+      "Evaluate a bounded causal intervention with cited results.",
+      "intervene",
+      { operationId: Type.String(), action: Type.String(), context: Type.Optional(Type.String()) },
+    ),
+    causalTool(
+      CAUSAL_TOOL_NAMES.offer,
+      "Publish Memory Offer",
+      "Publish one visible, cited Memory Offer for this triggering message.",
+      "offer",
+      {
+        operationId: Type.String(),
+        conversationId: Type.String(),
+        targetAgentId: Type.String(),
+        recipientRationale: Type.String(),
+        citationRefs: Type.Array(Type.String(), { minItems: 1 }),
+        body: Type.String(),
+      },
+    ),
+    causalTool(
+      CAUSAL_TOOL_NAMES.proposeCorrection,
+      "Propose causal correction",
+      "Submit a cited correction proposal; this cannot invalidate or supersede memory.",
+      "propose_correction",
+      {
+        operationId: Type.String(),
+        causalItemId: Type.String(),
+        contradictoryCitationRefs: Type.Array(Type.String(), { minItems: 1 }),
+        rationale: Type.String(),
+      },
+    ),
+    messageTool(
+      "message_check",
+      "Check messages",
+      "Check pending CoForge messages without shell or network access.",
+      "check",
+      {},
+    ),
+    messageTool(
+      "message_read",
+      "Read messages",
+      "Read public-channel messages through the CoForge message route.",
+      "read",
+      {
+        target: Type.String(),
+        before: Type.Optional(Type.String()),
+        after: Type.Optional(Type.String()),
+        around: Type.Optional(Type.String()),
+        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+      },
+    ),
+    messageTool(
+      "send_channel_message",
+      "Send channel message",
+      "Send a visible public-channel message through CoForge.",
+      "send",
+      { target: Type.String(), content: Type.String() },
+    ),
+  ];
+}
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   cwd,
@@ -55,6 +269,7 @@ export async function createSession(options: {
   instructions: string;
   environment?: Readonly<Record<string, string>>;
   sessionKind?: "coforge" | "pi";
+  toolProfile?: typeof CAUSAL_TOOL_PROFILE;
 }) {
   const cwd = options.cwd;
   const environment = options.environment
@@ -134,60 +349,74 @@ export async function createSession(options: {
   const extensionDefinesBash = services.resourceLoader
     .getExtensions()
     .extensions.some((extension) => extension.tools.has("bash"));
+  const causalBudget =
+    options.toolProfile === CAUSAL_TOOL_PROFILE ? new CausalMemoryTurnBudget() : undefined;
+  const causalTools = causalBudget ? createCausalMemoryTools(causalBudget) : [];
+  const customTools = [
+    ...(options.environment && !extensionDefinesBash && !causalBudget
+      ? [
+          createBashTool(cwd, {
+            shellPath: services.settingsManager.getShellPath(),
+            commandPrefix: services.settingsManager.getShellCommandPrefix(),
+            spawnHook: ({ env, ...context }) => {
+              const childEnv = { ...env };
+              for (const key of [
+                "COFORGE_AGENT_CONTEXT",
+                "COFORGE_AGENT_PROXY_URL",
+                "COFORGE_DAEMON_SOCKET",
+                "COFORGE_SUPERVISOR_SOCKET",
+                "COFORGE_CURRENT_AGENT_ID",
+                "COFORGE_CURRENT_AGENT_NAME",
+                "COFORGE_CURRENT_WORKSPACE_ID",
+                "COFORGE_CURRENT_WORKSPACE_SLUG",
+                "COFORGE_CURRENT_WORKSPACE_NAME",
+                "COFORGE_CURRENT_COMPUTER_ID",
+                "COFORGE_CURRENT_COMPUTER_NAME",
+                "COFORGE_CURRENT_COMPUTER_HOSTNAME",
+                "COFORGE_CURRENT_COMPUTER_OS",
+                "COFORGE_CURRENT_COMPUTER_VERSION",
+                "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
+              ])
+                delete childEnv[key];
+              Object.assign(childEnv, environment);
+              // Pi resolves current metadata before the hook, including absent values.
+              for (const key of [
+                "PI_SESSION_ID",
+                "PI_SESSION_FILE",
+                "PI_PROVIDER",
+                "PI_MODEL",
+                "PI_REASONING_LEVEL",
+              ]) {
+                if (env[key] === undefined) delete childEnv[key];
+                else childEnv[key] = env[key];
+              }
+              return { ...context, env: childEnv };
+            },
+          }),
+        ]
+      : []),
+    ...causalTools,
+  ];
   const created = await createAgentSessionFromServices({
     services,
     sessionManager,
     ...(model ? { model } : {}),
     ...(options.reasoning ? { thinkingLevel: options.reasoning as never } : {}),
-    ...(options.environment && !extensionDefinesBash
+    ...(causalBudget
       ? {
-          customTools: [
-            createBashTool(cwd, {
-              shellPath: services.settingsManager.getShellPath(),
-              commandPrefix: services.settingsManager.getShellCommandPrefix(),
-              spawnHook: ({ env, ...context }) => {
-                const childEnv = { ...env };
-                for (const key of [
-                  "COFORGE_AGENT_CONTEXT",
-                  "COFORGE_AGENT_PROXY_URL",
-                  "COFORGE_DAEMON_SOCKET",
-                  "COFORGE_SUPERVISOR_SOCKET",
-                  "COFORGE_CURRENT_AGENT_ID",
-                  "COFORGE_CURRENT_AGENT_NAME",
-                  "COFORGE_CURRENT_WORKSPACE_ID",
-                  "COFORGE_CURRENT_WORKSPACE_SLUG",
-                  "COFORGE_CURRENT_WORKSPACE_NAME",
-                  "COFORGE_CURRENT_COMPUTER_ID",
-                  "COFORGE_CURRENT_COMPUTER_NAME",
-                  "COFORGE_CURRENT_COMPUTER_HOSTNAME",
-                  "COFORGE_CURRENT_COMPUTER_OS",
-                  "COFORGE_CURRENT_COMPUTER_VERSION",
-                  "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
-                ])
-                  delete childEnv[key];
-                Object.assign(childEnv, environment);
-                // Pi resolves current metadata before the hook, including absent values.
-                for (const key of [
-                  "PI_SESSION_ID",
-                  "PI_SESSION_FILE",
-                  "PI_PROVIDER",
-                  "PI_MODEL",
-                  "PI_REASONING_LEVEL",
-                ]) {
-                  if (env[key] === undefined) delete childEnv[key];
-                  else childEnv[key] = env[key];
-                }
-                return { ...context, env: childEnv };
-              },
-            }),
-          ],
+          noTools: "all" as const,
+          tools: causalTools.map((tool) => tool.name),
+          customTools: causalTools,
         }
-      : {}),
+      : customTools.length > 0
+        ? { customTools }
+        : {}),
   });
   return {
     ...created,
     services,
     replacedSessionId,
+    resetCausalBudget: causalBudget ? () => causalBudget.reset() : undefined,
     get sessionId() {
       return sessionManager.getSessionId();
     },

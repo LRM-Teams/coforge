@@ -403,6 +403,7 @@ function runtimeConfigOf(intent: AgentStartIntent): AgentRuntimeConfig {
     modelProvider: intent.modelProvider,
     reasoning: intent.reasoning,
     providerConfig: intent.providerConfig,
+    toolProfile: intent.toolProfile,
   };
 }
 
@@ -3674,6 +3675,18 @@ export class DaemonRuntime {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.profileUpdate) throw new Error("Agent profile endpoint is not configured");
     return this.#transport.profileUpdate(request, agentApiKey);
+  }
+
+  async agentCausal(
+    context: string,
+    command: import("@lrm/coforge-sdk/agent").CausalAgentCommand,
+    agentApiKey: string,
+  ): Promise<import("@lrm/coforge-sdk/agent").CausalAgentResponse> {
+    this.#assertRunning();
+    this.#agentIdForContext(context);
+    if (!this.#transport.agentCausal) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.agentCausal(command, agentApiKey);
   }
 
   async agentTask(context: string, command: TaskCommand, agentApiKey: string): Promise<TaskResult> {

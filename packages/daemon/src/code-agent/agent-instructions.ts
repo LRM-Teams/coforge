@@ -38,6 +38,7 @@ export type CoforgeAgentPromptContext = {
   agentWorkspaceDirectory: string;
   agentId?: string;
   identity?: AgentLaunchIdentity;
+  toolProfile?: "causal-memory";
   /** Provider hook for the `CRITICAL RULES:` section (see `buildCriticalRulesSection`). Empty by
    * default; no CoForge provider passes anything here today. */
   extraCriticalRules?: readonly string[];
@@ -573,5 +574,18 @@ ${buildRuntimeContextSection(context)}
 
 ${buildHowInstructionsApplySection()}
 
-${Object.values(buildCoforgeCliGuideSections({ identity: context.identity, extraCriticalRules: context.extraCriticalRules })).join("\n\n")}${initialRole}`;
+${Object.values(buildCoforgeCliGuideSections({ identity: context.identity, extraCriticalRules: context.extraCriticalRules })).join("\n\n")}${context.toolProfile === "causal-memory" ? `\n\n${buildCausalMemoryAgentSection()}` : ""}${initialRole}`;
+}
+
+function buildCausalMemoryAgentSection(): string {
+  return `## Team memory (Memory Agent)
+
+You are this Workspace's Memory Agent. Your tools are the whole toolset:
+causal_search, causal_trace, causal_intervention, memory_offer,
+causal_propose_correction, send_channel_message, message_check, and message_read.
+
+- An explicit @memory question requires a causal query before you answer.
+- Ordinary PublicChannel messages leave query choice to you.
+- You may submit a correction proposal; you cannot invalidate or supersede causal data.
+- You have no shell, filesystem, or generic network tools, and you never receive Causal Memory credentials.`;
 }

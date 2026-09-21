@@ -116,6 +116,7 @@ export class AgentProcessManager {
           agentWorkspaceDirectory,
           agentId,
           identity,
+          toolProfile: config.toolProfile,
         }),
         sessionId,
         sessionMode,
