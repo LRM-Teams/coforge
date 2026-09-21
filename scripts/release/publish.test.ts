@@ -736,8 +736,50 @@ test("an objects-only publication uploads its files and never touches latest", a
     activate: false,
   });
 
-  expect(result.uploaded.length).toBe(tree.files.length);
+  // Every object except the manifest: its content is a hash of *all* targets, and each platform job
+  // compiles only its own, so writing it here would race five others with an incomplete marker.
+  expect(result.uploaded.length).toBe(tree.files.length - 1);
   expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+  // Scoped to writes: reading the manifest is expected (it is the completion marker the *next* publish
+  // probes). Writing it is what the objects-only job must not do.
+  expect(fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json"))).toBe(false);
   // The objects themselves still went up, and were verified by reading them back.
   expect(fake.calls.filter((call) => call.method === "PUT").length).toBeGreaterThan(0);
+});
+
+test("a finalize pass verifies an already-uploaded version and writes only the manifest and latest", async () => {
+  // The two-phase publication end to end: the per-platform jobs put the objects up and touch neither
+  // the manifest (their own copy would be incomplete - each compiles one target) nor `latest`; the
+  // finalize job recompiles the same tree, verifies every object against those bytes, writes the one
+  // true manifest, and only then moves `latest`.
+  const outputDirectory = await tempDir("coforge-publish-finalize-");
+  const tree = await fixtureTree("9.9.9-finalize", outputDirectory);
+  const manifestKey = `9.9.9-finalize/manifest.json`;
+  const fake = startFakeOssServer({});
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  const platform = await uploadReleaseTree(outputDirectory, tree, {
+    client,
+    connection,
+    activate: false,
+  });
+  const platformPuts = fake.calls.filter((call) => call.method === "PUT" && call.key !== LATEST_OBJECT_KEY);
+  expect(platformPuts.some((call) => call.key === manifestKey)).toBe(false);
+  expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+  expect(platform.uploaded.length).toBe(tree.files.length - 1);
+
+  const finalize = await uploadReleaseTree(outputDirectory, tree, {
+    client,
+    connection,
+    allowExisting: true,
+  });
+
+  const finalizePuts = fake.calls
+    .filter((call) => call.method === "PUT" && call.key !== LATEST_OBJECT_KEY)
+    .slice(platformPuts.length);
+  // No data object is rewritten: they are verified against the freshly compiled bytes, not re-uploaded.
+  expect(finalizePuts.map((call) => call.key)).toEqual([manifestKey]);
+  expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(true);
+  expect(finalize.uploaded.length).toBe(tree.files.length);
 });
