@@ -254,7 +254,11 @@ async function putObject(
         try {
           await client.multipartUpload(objectKey, buffer, {
             partSize: MULTIPART_PART_BYTES,
-            parallel: 1,
+            // Sequential parts were the publish's bottleneck once the link itself worked
+            // (dev.67: zero errors, just ~30 min without finishing one 28 MiB object at
+            // <=17.5 KB/s). Four concurrent part PUTs multiply the link throughput; with the
+            // fresh-connection-per-request agent below each stream gets its own socket.
+            parallel: 4,
             ...requestOptions,
             headers: { "Content-Type": "application/octet-stream" },
           });
