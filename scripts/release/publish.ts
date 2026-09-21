@@ -348,6 +348,16 @@ export interface UploadOptions {
    * deliberately slow fixture server can prove that a stalled link reports the timeout's name
    * instead of hanging the publish. */
   requestTimeoutMs?: number;
+  /** Tolerate objects that are already up, verifying them against the freshly compiled bytes instead
+   * of refusing the version. This is the finalize half of a split publication: a version whose
+   * per-platform jobs have already uploaded their objects is re-compiled once on a single job, every
+   * object is read back and compared, the manifest is written, and only then does `latest` move. */
+  allowExisting?: boolean;
+  /** Whether to move the feed's `latest` pointer once the objects are up. `false` uploads and
+   * verifies this version's objects only — what a per-platform job must do, because `latest` is the
+   * feed's only mutable object and docs/release.md requires it to be written last, never pointing at
+   * an incomplete version. The finalize job moves it once every platform's objects are up. */
+  activate?: boolean;
 }
 
 export interface UploadResult {
@@ -368,7 +378,10 @@ export async function uploadReleaseTree(
   const fetchImpl = options.fetchImpl ?? fetch;
   const log = options.log ?? ((): void => undefined);
 
-  await assertVersionIsUnpublished(tree.version, { client });
+  const allowExisting = options.allowExisting === true;
+  // A normal publication refuses a version the feed has already seen; a finalize pass is exactly that
+  // version, so it verifies the objects that are up instead (see `UploadOptions.allowExisting`).
+  if (!allowExisting) await assertVersionIsUnpublished(tree.version, { client });
 
   // The manifest is pinned last explicitly rather than relying on `tree.files` being sorted:
   // `build-release.ts` sorts the whole list, so "manifest.json" only happens to sort after the
@@ -381,13 +394,31 @@ export async function uploadReleaseTree(
   }
   const uploadOrder = [...tree.files.filter((file) => file !== manifestKey), manifestKey];
 
-  for (const relativePath of uploadOrder) {
+  // An objects-only job must not write the manifest either, even though the ordinary path pins it last.
+  // The manifest is the version's completion marker *and* a hash of every object, so a per-platform job
+  // - which compiles only its own target - would race five others and leave an incomplete manifest
+  // behind as the marker. The finalize job writes the one true manifest after every platform is up.
+  const objectsOnly = options.activate === false;
+  const files = objectsOnly ? tree.files.filter((file) => file !== manifestKey) : tree.files;
+
+  const uploads = objectsOnly ? uploadOrder.filter((file) => file !== manifestKey) : uploadOrder;
+  for (const relativePath of uploads) {
     const bytes = await readFile(join(outputDirectory, relativePath));
+    if (allowExisting && (await objectExists(client, relativePath))) {
+      const remote = await getObject(client, relativePath);
+      if (!bytesEqual(bytes, remote)) {
+        throw new Error(
+          `OSS object mismatch: ${relativePath} is up but does not match the freshly compiled bytes`,
+        );
+      }
+      log(`already present, verified ${relativePath}`);
+      continue;
+    }
     await putObject(client, relativePath, bytes, options.requestTimeoutMs);
     log(`uploaded ${relativePath}`);
   }
 
-  for (const relativePath of tree.files) {
+  for (const relativePath of objectsOnly ? files : tree.files) {
     const local = await readFile(join(outputDirectory, relativePath));
     const remote = await getObject(client, relativePath);
     if (!bytesEqual(local, remote)) {
@@ -413,8 +444,13 @@ export async function uploadReleaseTree(
     log(`verified private origin ${key}`);
   }
 
-  for (const key of tree.files) {
+  for (const key of files) {
     await verifyPrivateOrigin(key);
+  }
+  // Objects-only publication: stop before touching `latest`. See `UploadOptions.activate`.
+  if (objectsOnly) {
+    log(`uploaded ${files.length} objects; manifest and latest left to the finalize job`);
+    return { uploaded: [...files], latestKey: LATEST_OBJECT_KEY };
   }
 
   const previous = (await objectExists(client, LATEST_OBJECT_KEY))
@@ -488,6 +524,12 @@ export interface PublishOptions {
   targets: ReleaseTarget[];
   bucket: string;
   endpoint: string;
+  /** Finalize an already-uploaded version (see `UploadOptions.allowExisting`). */
+  allowExisting?: boolean;
+  /** Objects-only publication (see `UploadOptions.activate`): upload and verify this version's
+   * objects, leave `latest` alone. What each per-platform job does when the publication is split so
+   * a slow link no longer has to move ~186 MB inside one job's timeout. */
+  activate?: boolean;
   /** Overrides the region derived from `endpoint`; required for endpoints that do not name one. */
   region?: string;
   dryRun: boolean;
@@ -577,6 +619,8 @@ export async function runPublish(
       connection,
       fetchImpl: deps.fetchImpl,
       log,
+      ...(options.activate === false ? { activate: false } : {}),
+      ...(options.allowExisting === true ? { allowExisting: true } : {}),
     });
     log(`published ${result.uploaded.length} objects and ${result.latestKey} -> ${tree.version}`);
     return {
@@ -618,6 +662,12 @@ function parseArgv(argv: string[]): ParsedArgs {
     switch (flag) {
       case "--dry-run":
         result.dryRun = true;
+        break;
+      case "--no-activate":
+        result.activate = false;
+        break;
+      case "--allow-existing":
+        result.allowExisting = true;
         break;
       case "--version":
         result.version = requireValue(argv, (index += 1), flag);
