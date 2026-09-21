@@ -16,6 +16,7 @@ import {
 } from "@/features/conversations/conversation-queries";
 import { useConversationView } from "@/features/conversations/use-conversation-view";
 import { TaskBoard } from "@/features/tasks/task-board";
+import { ConversationFilesPanel } from "@/features/conversations/conversation-files";
 import { useTaskLayout } from "@/features/tasks/task-workflow";
 import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
 import { loadOwnConversationMessages } from "@/features/conversations/conversations.functions";
@@ -45,7 +46,7 @@ import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
-    view: z.enum(["chat", "tasks"]).optional().catch(undefined),
+    view: z.enum(["chat", "tasks", "files"]).optional().catch(undefined),
     layout: z.enum(["board", "list"]).optional().catch(undefined),
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
@@ -81,7 +82,7 @@ function ChannelPage() {
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
-  const { router, showChat, showTasks, changeLayout, openTask } = useConversationView(
+  const { router, showChat, showTasks, showFiles, changeLayout, openTask } = useConversationView(
     page.ensureLoaded,
   );
 
@@ -130,6 +131,25 @@ function ChannelPage() {
         ? current.followedThreadRootIds
         : [...current.followedThreadRootIds, threadRootId],
     }));
+  if (view === "files")
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ChannelConversationHeader
+          conversation={conversation}
+          tasks={taskView.tasks}
+          active="files"
+          onShowChat={showChat}
+          onShowTasks={showTasks}
+          onMutedChange={changeMuted}
+          onLeft={afterLeft}
+          onOpenAgentProfile={openAgentProfile}
+        />
+        <ConversationFilesPanel
+          conversationId={conversation.conversationId}
+          conversationName={`#${conversation.name}`}
+        />
+      </div>
+    );
   if (view === "tasks")
     return (
       <TaskBoard
@@ -174,6 +194,7 @@ function ChannelPage() {
       conversation={conversation}
       tasks={taskView.tasks}
       onShowTasks={showTasks}
+      onShowFiles={showFiles}
       onCreateTask={async (title, requestId, attachmentId) => {
         await taskView.command({ operation: "create", title, requestId, attachmentId });
         await page.invalidate();

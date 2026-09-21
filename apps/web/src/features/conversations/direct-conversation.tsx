@@ -157,6 +157,7 @@ type ConversationProps = {
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   onShowTasks?: () => void;
+  onShowFiles?: () => void;
   /** Opens the Agent profile panel from an Agent sender's avatar/name; absent where the
    * conversation route does not own that slot. See `features/agents/profile-panel/`. */
   onOpenAgentProfile?: (agentId: string) => void;
@@ -182,13 +183,15 @@ export function DirectConversationHeader({
   active,
   onShowChat,
   onShowTasks,
+  onShowFiles,
   onOpenAgentProfile,
 }: {
   conversation: DirectConversationView;
   tasks?: TaskView[];
-  active: "chat" | "tasks";
+  active: "chat" | "tasks" | "files";
   onShowChat?: () => void;
   onShowTasks?: () => void;
+  onShowFiles?: () => void;
   /** Opens the Agent profile panel from this DM's own Agent identity. */
   onOpenAgentProfile?: (agentId: string) => void;
 }) {
@@ -242,13 +245,14 @@ export function DirectConversationHeader({
           @{conversation.agent.name}
         </span>
       </div>
-      {(onShowChat || onShowTasks) && (
+      {(onShowChat || onShowTasks || onShowFiles) && (
         <div className="-mx-3 flex h-11 items-center px-3 sm:-mx-5 sm:px-5">
           <ConversationTaskTabs
             active={active}
             taskCount={tasks?.length ?? 0}
             onShowChat={onShowChat}
             onShowTasks={onShowTasks}
+            onShowFiles={onShowFiles}
           />
         </div>
       )}
@@ -269,6 +273,7 @@ export function DirectConversation(props: ConversationProps) {
           tasks={props.tasks}
           active="chat"
           onShowTasks={props.onShowTasks}
+          onShowFiles={props.onShowFiles}
           onOpenAgentProfile={props.onOpenAgentProfile}
         />
       }

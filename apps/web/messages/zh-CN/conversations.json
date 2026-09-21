@@ -169,5 +169,11 @@
   "action_card_required_computer": "必须运行在 {name}",
   "action_card_suggested_computer": "建议的电脑：{name}",
   "action_card_initial_members": "初始成员",
-  "conversation_mention_suggestions": "提及建议"
+  "conversation_mention_suggestions": "提及建议",
+  "files_tab": "文件",
+  "files_empty": "这个会话还没有发过文件。",
+  "files_download": "下载",
+  "files_title": "{name} 的文件",
+  "files_loading": "加载中…",
+  "files_load_failed": "文件加载失败"
 }

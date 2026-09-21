@@ -40,15 +40,17 @@ export function ChannelConversationHeader({
   active,
   onShowChat,
   onShowTasks,
+  onShowFiles,
   onMutedChange,
   onLeft,
   onOpenAgentProfile,
 }: {
   conversation: ChannelConversationView;
   tasks?: TaskView[];
-  active: "chat" | "tasks";
+  active: "chat" | "tasks" | "files";
   onShowChat?: () => void;
   onShowTasks?: () => void;
+  onShowFiles?: () => void;
   onMutedChange: (muted: boolean) => Promise<void>;
   /** Called after the current user successfully leaves the channel via the Members dialog. */
   onLeft?: () => Promise<void>;
@@ -115,6 +117,7 @@ export function ChannelConversationHeader({
             taskCount={tasks?.length ?? 0}
             onShowChat={onShowChat}
             onShowTasks={onShowTasks}
+            onShowFiles={onShowFiles}
           />
         </div>
       )}
@@ -156,6 +159,7 @@ export function ChannelConversation({
   tasks,
   onCreateTask,
   onShowTasks,
+  onShowFiles,
   onOpenAgentProfile,
   agentProfile,
   onAgentProfileTabChange,
@@ -194,6 +198,7 @@ export function ChannelConversation({
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   onShowTasks?: () => void;
+  onShowFiles?: () => void;
   /** Opens the Agent profile panel from an Agent sender's avatar/name in the message list. */
   onOpenAgentProfile?: (agentId: string) => void;
   agentProfile?: { agentId: string | undefined; tab: AgentProfileTab | undefined };
@@ -254,6 +259,7 @@ export function ChannelConversation({
           tasks={tasks}
           active="chat"
           onShowTasks={onShowTasks}
+          onShowFiles={onShowFiles}
           onMutedChange={onMutedChange}
           onLeft={onLeft}
           onOpenAgentProfile={onOpenAgentProfile}

@@ -6,11 +6,13 @@ export function ConversationTaskTabs({
   taskCount,
   onShowChat,
   onShowTasks,
+  onShowFiles,
 }: {
-  active: "chat" | "tasks";
+  active: "chat" | "tasks" | "files";
   taskCount: number;
   onShowChat?: () => void;
   onShowTasks?: () => void;
+  onShowFiles?: () => void;
 }) {
   return (
     <nav
@@ -35,6 +37,17 @@ export function ConversationTaskTabs({
       >
         {m.tasks_tab()} {taskCount}
       </Button>
+      {onShowFiles && (
+        <Button
+          type="button"
+          color={active === "files" ? "secondary" : "tertiary"}
+          size="sm"
+          aria-current={active === "files" ? "page" : undefined}
+          onPress={onShowFiles}
+        >
+          {m.files_tab()}
+        </Button>
+      )}
     </nav>
   );
 }

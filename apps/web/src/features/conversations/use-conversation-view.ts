@@ -1,6 +1,6 @@
 import { useRouter } from "@tanstack/react-router";
 
-type ConversationView = "chat" | "tasks";
+type ConversationView = "chat" | "tasks" | "files";
 type TaskLayout = "board" | "list";
 type ConversationSearch = {
   view?: ConversationView;
@@ -23,10 +23,11 @@ export function useConversationView(ensureLoaded: (messageId: string) => Promise
     });
   const showChat = () => void update({ view: "chat" });
   const showTasks = () => void update({ view: "tasks" });
+  const showFiles = () => void update({ view: "files" });
   const changeLayout = (layout: TaskLayout) => void update({ layout });
   const openTask = async (messageId: string) => {
     await ensureLoaded(messageId);
     await update({ view: "chat", threadRootId: messageId }, `message-${messageId}`);
   };
-  return { router, showChat, showTasks, changeLayout, openTask };
+  return { router, showChat, showTasks, showFiles, changeLayout, openTask };
 }

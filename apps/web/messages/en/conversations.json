@@ -170,5 +170,11 @@
   "action_card_required_computer": "Must run on {name}",
   "action_card_suggested_computer": "Suggested computer: {name}",
   "action_card_initial_members": "Initial members",
-  "conversation_mention_suggestions": "Mention suggestions"
+  "conversation_mention_suggestions": "Mention suggestions",
+  "files_tab": "Files",
+  "files_empty": "No files have been shared in this conversation yet.",
+  "files_download": "Download",
+  "files_title": "Files in {name}",
+  "files_loading": "Loading…",
+  "files_load_failed": "Failed to load files"
 }
