@@ -9,7 +9,7 @@ import {
   test,
 } from "bun:test";
 import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_STARTUP_TURN_TEXT, DaemonRuntime } from "../src/daemon-runtime/runtime";
@@ -84,8 +84,12 @@ const emptyCodeAgentDiscovery = {
 
 // macOS tmpdir lives under /var, a symlink; the state store rejects linked ancestors.
 const tempRoot = realpathSync(tmpdir());
-/** The state directory a `DaemonRuntime` falls back to when a test passes none. */
-const DEFAULT_STATE_DIRECTORY = ".coforge-daemon-state";
+/** Where the daemon's consumed cursor lands when a test passes no state directory: Raft's temporary
+ * root (`SLOCK_CLI_CONSUMED_SEQ_STATE_DIR ?? tmpdir()`), under CoForge's own directory name. */
+const CONSUMED_SEQ_ROOT = join(
+  tmpdir(),
+  `coforge-cli-consumed-seq-${encodeURIComponent(String(process.geteuid?.() ?? userInfo().username)).replaceAll(".", "%2E")}`,
+);
 const workspaceRoot = join(tempRoot, `coforge-daemon-runtime-${crypto.randomUUID()}`);
 const connection: WorkspaceConfig = {
   computerId: "computer-a",
@@ -102,13 +106,13 @@ const config: AgentRuntimeConfig = {
   reasoning: "balanced",
 };
 
-// The daemon's consumed cursor is durable now (Raft's `consumed-seqs.json`), so the state directory
-// most tests share — the constructor's implicit default — would carry one test's reviewed boundary
-// into the next: a delivery already "seen" by a previous test's Agent is suppressed, which is
-// correct in production and wrong here. Every test starts from a clean cursor, exactly as it
-// already starts from a fresh runtime.
+// The daemon's consumed cursor is durable now (Raft's `consumed-seqs.json`), and its home is the
+// temporary state root every runtime in this file shares by default. Left alone, one test's reviewed
+// boundary would reach the next and suppress a delivery its Agent was never shown — correct in
+// production, wrong here. Every test starts from a clean cursor, exactly as it already starts from a
+// fresh runtime.
 beforeEach(async () => {
-  await rm(join(DEFAULT_STATE_DIRECTORY, "agent-consumed-seqs"), { recursive: true, force: true });
+  await rm(CONSUMED_SEQ_ROOT, { recursive: true, force: true });
 });
 
 test("ready and reconnect snapshots report the executable version and observed OS", async () => {

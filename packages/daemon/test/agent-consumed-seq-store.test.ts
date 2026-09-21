@@ -18,12 +18,22 @@ const temporaryStateDirectory = () => {
   return path;
 };
 
-const storePath = (stateDirectory: string, agentId = "agent-1") =>
-  join(stateDirectory, "agent-consumed-seqs", "workspace-1", agentId, "consumed-seqs.json");
+/** Raft's location for the cursor is `tmpdir()/slock-cli-consumed-seq/<agentId>/consumed-seqs.json`
+ * (`SLOCK_CLI_CONSUMED_SEQ_STATE_DIR` overrides the root); CoForge's is the same idea with its own
+ * directory name, next to the draft store — so a state directory is the root here, and the two
+ * directory levels below it are the store's own. */
+const storeDirectory = (root: string, agentId = "agent-1") =>
+  join(
+    root,
+    `coforge-cli-consumed-seq-${encodeURIComponent(String(process.geteuid?.() ?? "")).replaceAll(".", "%2E")}`,
+    agentId,
+  );
+const storePath = (root: string, agentId = "agent-1") =>
+  join(storeDirectory(root, agentId), "consumed-seqs.json");
 
 test("persists the consumed cursor in Raft's consumed-seqs shape", async () => {
   const stateDirectory = temporaryStateDirectory();
-  const store = new AgentConsumedSeqStore(stateDirectory, "workspace-1");
+  const store = new AgentConsumedSeqStore(stateDirectory);
 
   store.recordConsumedSeqs("agent-1", { "@ada": 7 });
   store.recordConsumedRead("agent-1", "#general:abcd1234");
@@ -42,7 +52,7 @@ test("persists the consumed cursor in Raft's consumed-seqs shape", async () => {
 
 test("a lower sequence never lowers a cursor, and every record takes a new read order", async () => {
   const stateDirectory = temporaryStateDirectory();
-  const store = new AgentConsumedSeqStore(stateDirectory, "workspace-1");
+  const store = new AgentConsumedSeqStore(stateDirectory);
 
   store.recordConsumedSeqs("agent-1", { "@ada": 9 });
   store.recordConsumedSeqs("agent-1", { "@ada": 4 });
@@ -55,9 +65,7 @@ test("a lower sequence never lowers a cursor, and every record takes a new read 
 test("recomputes nextReadOrder from the orders the file holds, never trusting the stored one", async () => {
   const stateDirectory = temporaryStateDirectory();
   const path = storePath(stateDirectory);
-  await mkdir(join(stateDirectory, "agent-consumed-seqs", "workspace-1", "agent-1"), {
-    recursive: true,
-  });
+  await mkdir(storeDirectory(stateDirectory), { recursive: true });
   // A file whose `nextReadOrder` is behind the orders it carries — an older build's write, or an
   // edit. Raft's `normalizeState` starts the counter above everything it saw.
   await writeFile(
@@ -65,7 +73,7 @@ test("recomputes nextReadOrder from the orders the file holds, never trusting th
     JSON.stringify({ targets: { "@ada": { readOrder: 12 } }, nextReadOrder: 2 }),
   );
 
-  const store = new AgentConsumedSeqStore(stateDirectory, "workspace-1");
+  const store = new AgentConsumedSeqStore(stateDirectory);
   expect(store.read("agent-1").nextReadOrder).toBe(13);
 
   store.recordConsumedRead("agent-1", "@bea");
@@ -77,12 +85,10 @@ test("recomputes nextReadOrder from the orders the file holds, never trusting th
 
 test("a missing, unreadable or shapeless file is an empty cursor, never an error", async () => {
   const stateDirectory = temporaryStateDirectory();
-  const store = new AgentConsumedSeqStore(stateDirectory, "workspace-1");
+  const store = new AgentConsumedSeqStore(stateDirectory);
   expect(store.read("agent-1")).toEqual({ targets: {}, nextReadOrder: 1 });
 
-  await mkdir(join(stateDirectory, "agent-consumed-seqs", "workspace-1", "agent-1"), {
-    recursive: true,
-  });
+  await mkdir(storeDirectory(stateDirectory), { recursive: true });
   await writeFile(storePath(stateDirectory), "{ this is not json");
   expect(store.read("agent-1")).toEqual({ targets: {}, nextReadOrder: 1 });
 
@@ -98,7 +104,7 @@ test("an unwritable cursor is reported, not thrown: a lost cursor must not fail 
   const stateDirectory = temporaryStateDirectory();
   // The state root is a file, so the directory the cursor needs cannot exist.
   await writeFile(stateDirectory, "not a directory");
-  const store = new AgentConsumedSeqStore(stateDirectory, "workspace-1");
+  const store = new AgentConsumedSeqStore(stateDirectory);
 
   expect(() => store.recordConsumedSeqs("agent-1", { "@ada": 3 })).not.toThrow();
   expect(() => store.recordConsumedRead("agent-1", "@ada", 4)).not.toThrow();
@@ -106,7 +112,7 @@ test("an unwritable cursor is reported, not thrown: a lost cursor must not fail 
 });
 
 test("an Agent id that could not be a path segment is refused", () => {
-  const store = new AgentConsumedSeqStore(temporaryStateDirectory(), "workspace-1");
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
   expect(() => store.read("../../etc")).toThrow("invalid consumed-sequence Agent scope");
   expect(() => store.recordConsumedRead("", "@ada")).toThrow(
     "invalid consumed-sequence Agent scope",
@@ -115,10 +121,8 @@ test("an Agent id that could not be a path segment is refused", () => {
 
 test("leaves no temporary file behind once a cursor has been written", async () => {
   const stateDirectory = temporaryStateDirectory();
-  const store = new AgentConsumedSeqStore(stateDirectory, "workspace-1");
+  const store = new AgentConsumedSeqStore(stateDirectory);
   store.recordConsumedSeqs("agent-1", { "@ada": 1 });
 
-  expect(
-    (await readdir(join(stateDirectory, "agent-consumed-seqs", "workspace-1", "agent-1"))).sort(),
-  ).toEqual(["consumed-seqs.json"]);
+  expect((await readdir(storeDirectory(stateDirectory))).sort()).toEqual(["consumed-seqs.json"]);
 });

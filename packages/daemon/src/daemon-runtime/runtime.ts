@@ -606,8 +606,9 @@ export class DaemonRuntime {
         busy: (agentId) => this.#deliveryQueue.busy(agentId),
         // The consumed cursor outlives the process, in Raft's `consumed-seqs.json` shape: what an
         // Agent has already reviewed decides the next hold, the `seenUpToSeq` a fresh send inherits,
-        // and whether a top-level send under a thread-read parent needs confirming.
-        consumedSeqs: new AgentConsumedSeqStore(stateDirectory, connection.workspaceId),
+        // and whether a top-level send under a thread-read parent needs confirming. It lives beside
+        // the draft store in the temporary state root, not in this daemon's state directory.
+        consumedSeqs: new AgentConsumedSeqStore(),
       },
     );
     this.#reminders = new ReminderScheduler(
