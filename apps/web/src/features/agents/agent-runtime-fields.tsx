@@ -345,7 +345,7 @@ export function AgentRuntimeFields({
           size="sm"
           className="min-w-0"
           isDisabled={!options}
-          hint={isPi ? m.agent_form_pi_configured_help() : undefined}
+          hint={isPi && !piConfigured ? m.agent_form_pi_configured_help() : undefined}
           selectedKey={isPi ? piProviderChoice : modelProvider}
           onSelectionChange={(key) => {
             if (key === null) return;
