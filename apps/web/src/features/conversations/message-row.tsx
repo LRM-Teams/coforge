@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
-import { CornerUpLeft, Download01, XClose } from "@untitledui/icons";
+import { Code02, Copy01, CornerUpLeft, Download01, XClose } from "@untitledui/icons";
 
 import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { useAppToast } from "@/components/ui/toast";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
@@ -21,6 +22,7 @@ import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
 import { MessageReactionPicker } from "./message-reaction-picker";
+import { copyFragmentMarkdown, copyFragmentStyled, selectionFragmentHtml } from "./selection-copy";
 
 export type MessageView = {
   id: string;
@@ -568,8 +570,9 @@ export function MessageRow({
   // over this message while selecting another one never raises it.
   const bodyRef = useRef<HTMLDivElement>(null);
   const quoteAffordanceRef = useRef<HTMLDivElement>(null);
+  const toast = useAppToast();
   const [quoteOffer, setQuoteOffer] = useState<
-    { quote: string; top: number; left: number } | undefined
+    { quote: string; html: string; text: string; top: number; left: number } | undefined
   >(undefined);
   /**
    * Reads the current highlight, and offers the quote only when the whole selection lives inside
@@ -598,13 +601,20 @@ export function MessageRow({
       return;
     }
     // Anchored above the highlight and centered on it; the visible history scroller is the flip
-    // boundary, so the button only drops below the highlight when it would scroll out of view.
+    // boundary, so the bar only drops below the highlight when it would scroll out of view. The
+    // fragment and its text are captured now: clicking a bar button may collapse the live
+    // selection, but the copy actions must still carry what the reader highlighted.
     const placement = selectionAffordancePlacement(
       range.getBoundingClientRect(),
       container.getBoundingClientRect(),
       { top: visibleBoundaryTop(container) },
     );
-    setQuoteOffer({ quote, ...placement });
+    setQuoteOffer({
+      quote,
+      html: selectionFragmentHtml(range),
+      text: selection.toString(),
+      ...placement,
+    });
   }, [onQuoteSelection, displayName, message.createdAt, dateLocale]);
   // A gesture anywhere else (a click, a scroll, Escape) withdraws the offer. The affordance
   // itself is exempt: pointerdown on it would otherwise unmount the button before its click.
@@ -763,16 +773,43 @@ export function MessageRow({
                 <div
                   ref={quoteAffordanceRef}
                   style={{ top: quoteOffer.top, left: quoteOffer.left }}
-                  className="absolute z-10"
+                  className="absolute z-10 flex items-center gap-0.5 rounded-md border border-secondary bg-primary p-0.5 shadow-lg"
                 >
                   <ButtonUtility
                     size="xs"
-                    color="secondary"
+                    color="tertiary"
                     icon={CornerUpLeft}
                     tooltip={m.conversation_quote_selection()}
-                    className="border border-secondary bg-primary shadow-lg"
                     onClick={() => {
                       onQuoteSelection(quoteOffer.quote);
+                      setQuoteOffer(undefined);
+                    }}
+                  />
+                  <span aria-hidden="true" className="h-4 w-px shrink-0 bg-secondary" />
+                  <ButtonUtility
+                    size="xs"
+                    color="tertiary"
+                    icon={Copy01}
+                    tooltip={m.conversation_copy_as_style()}
+                    onClick={() => {
+                      void copyFragmentStyled(quoteOffer.html, quoteOffer.text).then((copied) => {
+                        if (copied) toast.success(m.conversation_copy_as_style_success());
+                        else toast.error(m.conversation_copy_failed());
+                      });
+                      setQuoteOffer(undefined);
+                    }}
+                  />
+                  <span aria-hidden="true" className="h-4 w-px shrink-0 bg-secondary" />
+                  <ButtonUtility
+                    size="xs"
+                    color="tertiary"
+                    icon={Code02}
+                    tooltip={m.conversation_copy_as_markdown()}
+                    onClick={() => {
+                      void copyFragmentMarkdown(quoteOffer.html).then((copied) => {
+                        if (copied) toast.success(m.conversation_copy_as_markdown_success());
+                        else toast.error(m.conversation_copy_failed());
+                      });
                       setQuoteOffer(undefined);
                     }}
                   />

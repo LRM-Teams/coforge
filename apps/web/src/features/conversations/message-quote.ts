@@ -49,9 +49,10 @@ export function formatSelectionQuote(source: SelectionQuoteSource, raw: string):
   return credit ? [credit, ...quoted].join("\n") : quoted.join("\n");
 }
 
-/** Rendered edge of the square reply-to-selection affordance, in px; used only to place and clamp
- * it, never to style it. */
-export const AFFORDANCE_SIZE = 32;
+/** Rendered size of the reply-to-selection affordance bar (three icon buttons with dividers in a
+ * bordered strip), in px; used only to place and clamp it, never to style it. */
+export const AFFORDANCE_WIDTH = 100;
+export const AFFORDANCE_HEIGHT = 34;
 
 /** The subset of `DOMRect` the placement math reads, so it stays testable without a DOM. */
 export type AffordanceRect = Pick<
@@ -74,16 +75,16 @@ export function selectionAffordancePlacement(
   container: AffordanceRect,
   boundary?: Pick<DOMRect, "top">,
 ): { top: number; left: number } {
-  const fitsAbove = !boundary || highlight.top - AFFORDANCE_SIZE - 4 >= boundary.top;
+  const fitsAbove = !boundary || highlight.top - AFFORDANCE_HEIGHT - 4 >= boundary.top;
   return {
     top: fitsAbove
-      ? highlight.top - container.top - AFFORDANCE_SIZE - 4
+      ? highlight.top - container.top - AFFORDANCE_HEIGHT - 4
       : highlight.bottom - container.top + 4,
     left: Math.max(
       0,
       Math.min(
-        highlight.left + highlight.width / 2 - container.left - AFFORDANCE_SIZE / 2,
-        container.width - AFFORDANCE_SIZE,
+        highlight.left + highlight.width / 2 - container.left - AFFORDANCE_WIDTH / 2,
+        container.width - AFFORDANCE_WIDTH,
       ),
     ),
   };
