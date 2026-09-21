@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Centered reading/editing column aligned with Multica Notes
+ * Centered reading/editing column
  * (`mx-auto max-w-4xl px-8 py-6` ≈ 896px).
  */
 export function RecordsReadingColumn({

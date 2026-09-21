@@ -1,10 +1,10 @@
 /**
  * TipTap Markdown content editor for weekly-report sections.
- * Mirrors Multica Notes editing: formulas, tables, images, code blocks,
- * slash commands, bubble menu, file paste/drop — without Multica product refs.
+ * Editing surface: formulas, tables, images, code blocks,
+ * slash commands, bubble menu, file paste/drop.
  *
  * This module is only rendered under `/records/$recordId` with `ssr: "data-only"`,
- * matching Multica Notes' client-only TipTap mount (static import, no lazy chunk).
+ * matching a client-only TipTap mount (static import, no lazy chunk).
  */
 
 import {

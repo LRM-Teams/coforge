@@ -271,7 +271,7 @@ function ReportDetail({
     writeReportDraft(reportIdRef.current, next);
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     const reportId = reportIdRef.current;
-    // Match Multica Notes autosave delay (900ms).
+    // Autosave delay: 900ms, debounced per keystroke.
     saveTimerRef.current = setTimeout(() => {
       void persist(contentRef.current, undefined, reportId);
     }, 900);

@@ -2,7 +2,7 @@
 
 /**
  * Simplified Attachment renderer for the report editor.
- * Renders images and file cards without Multica preview/download galleries.
+ * Renders images and file cards (no preview/download galleries).
  */
 
 import { Trash01 as Trash2 } from "@untitledui/icons";

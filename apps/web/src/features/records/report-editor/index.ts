@@ -1,5 +1,5 @@
 /**
- * Weekly-report TipTap editor (adapted from Multica Notes ContentEditor).
+ * Weekly-report TipTap editor.
  *
  * Enabled features:
  * - Markdown persistence via @tiptap/markdown
@@ -13,7 +13,7 @@
  * - Slash commands: /code /table /formula
  * - Selection bubble menu
  *
- * Stubbed / omitted vs Multica Notes:
+ * Stubbed / omitted features:
  * - @mentions, #issue/#channel refs, run refs
  * - Empty-line AI / selection AI rewrite
  * - Durable CDN attachment download signing (uploads use host onUploadFile)

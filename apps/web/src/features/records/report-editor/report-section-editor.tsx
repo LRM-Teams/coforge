@@ -13,7 +13,7 @@ export type ReportSectionEditorProps = {
 
 /**
  * Weekly-report TipTap body. Statically imported from `/records/$recordId`
- * (`ssr: "data-only"`), matching Multica Notes' client-only eager mount.
+ * (`ssr: "data-only"`), matching a client-only eager mount.
  */
 export function ReportSectionEditor({
   defaultValue,
