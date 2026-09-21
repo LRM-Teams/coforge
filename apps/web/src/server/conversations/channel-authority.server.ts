@@ -1,7 +1,7 @@
 import type { PrismaClient } from "../../../generated/client";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import type { ChannelActor } from "./public-channels.server";
-import { isAdminLike, isWorkspaceMemberRole } from "../workspaces/member-role.server";
+import { isElevatedServerRole } from "../workspaces/member-role.server";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 
 /**
@@ -39,10 +39,6 @@ export const CHANNEL_CAPABILITIES = [
 ] as const;
 export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number];
 export type ChannelCapabilities = Record<ChannelCapability, boolean>;
-
-function isElevatedServerRole(role: string | undefined): boolean {
-  return role !== undefined && isWorkspaceMemberRole(role) && isAdminLike(role);
-}
 
 /** Pure: which basis (if any) makes the actor a channel admin, given their server role and
  * their own membership's stored channel role. `server_role` wins when both apply. */

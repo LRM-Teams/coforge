@@ -14,6 +14,12 @@ export function isAdminLike(role: WorkspaceMemberRole): boolean {
   return role === "owner" || role === "admin";
 }
 
+/** An actor's stored server role (human `WorkspaceMembership.role` or `Agent.role`) counts as
+ * owner/admin only when it is a recognized role; a missing or unknown value fails closed. */
+export function isElevatedServerRole(role: string | undefined): boolean {
+  return role !== undefined && isWorkspaceMemberRole(role) && isAdminLike(role);
+}
+
 export function assertCanManageMembers(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
 }

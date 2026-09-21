@@ -102,8 +102,7 @@ seam (`visibleAgentWhere`, `canSeeAgent`, the publish proxy, the mention/roster 
 
 **Encoding "not visible" as a generic `NOT_FOUND` for lookups too.** Kept the same HTTP/status shape
 (404-equivalent, no detail leak) but as its own `AGENT_NOT_VISIBLE` code so the Web profile panel and
-the Agent CLI can render the specific "not visible" copy instead of a generic "not found," while
-while disclosing none of the Agent's details. Its existence is not secret: its past messages
+the Agent CLI can render the specific "not visible" copy instead of a generic "not found," while disclosing none of the Agent's details. Its existence is not secret: its past messages
 keep its name and avatar (E).
 
 ## Consequences and migration

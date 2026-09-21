@@ -2,28 +2,22 @@ import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import { AppError } from "../../lib/app-error";
 import { resolveActorServerRole } from "../conversations/channel-authority.server";
-import { isAdminLike, isWorkspaceMemberRole } from "../workspaces/member-role.server";
+import { isElevatedServerRole } from "../workspaces/member-role.server";
 
 /**
  * Who is asking whether they may see a given Agent (ADR 0059): a human Workspace member, or
- * another Agent acting through the Agent CLI/API. Carries exactly what `canSeeAgent` and
- * `visibleAgentWhere` need — never a full `User`/`Agent` row — so a caller that already
+ * another Agent acting through the Agent CLI/API. Carries what `canSeeAgent` and
+ * `visibleAgentWhere` need (plus the acting Agent's own id) — never a full `User`/`Agent` row — so a caller that already
  * authenticated an actor never has to re-fetch one to answer a visibility question.
  *
  * `role` is the viewer's own server role (a human's `WorkspaceMembership.role`, or an Agent's
  * own `Agent.role`; ADR 0024) exactly as `resolveActorServerRole` returns it: `undefined` when
  * the actor has no membership/Agent row, and never assumed to be a recognized
- * `WorkspaceMemberRole` — `isElevatedServerRole` below fails closed on anything else.
+ * `WorkspaceMemberRole` — `isElevatedServerRole` fails closed on anything else.
  */
 export type AgentVisibilityViewer =
   | { kind: "user"; userId: string; role: string | undefined }
   | { kind: "agent"; agentId: string; ownerId: string; role: string | undefined };
-
-/** Same fail-closed check `channel-authority.server.ts`'s private `isElevatedServerRole` uses:
- * an unrecognized or missing server role is never treated as owner/admin. */
-function isElevatedServerRole(role: string | undefined): boolean {
-  return role !== undefined && isWorkspaceMemberRole(role) && isAdminLike(role);
-}
 
 /** The Workspace-member id a private Agent must be owned by for `viewer` to count as its
  * creator: the human's own id, or the acting Agent's own `ownerId` (ADR 0059 — "same creator"
