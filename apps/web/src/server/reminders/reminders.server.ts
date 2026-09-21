@@ -17,6 +17,31 @@ export const MAX_ACTIVE_REMINDERS = 50;
 export const MAX_REMINDER_LOG_EVENTS = 100;
 export const DEFAULT_REMINDER_TIMEZONE = "Asia/Shanghai";
 
+/** Why the reminder domain refused a command, named once so both callers can report it. */
+export type ReminderRefusalCode =
+  | "INVALID_INPUT"
+  | "NOT_FOUND"
+  | "ACCESS_DENIED"
+  | "CONFLICT"
+  | "TEMPORARILY_UNAVAILABLE";
+
+/**
+ * A refusal the domain can name. The WebSocket path has always put the message in `reason`; the
+ * HTTP route flattened every refusal into one `400 invalid reminder request`, so a caller could not
+ * tell "not authorized" from "the connected Daemon is not capable" — and neither could the Daemon's
+ * own error log, which records the API's `code` field and nothing else. One named refusal, which
+ * both paths carry: the HTTP route answers with the `code`, the RPC path keeps the message.
+ */
+export class ReminderRefusal extends Error {
+  constructor(
+    readonly code: ReminderRefusalCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ReminderRefusal";
+  }
+}
+
 type Scope = {
   protocolMajor?: number;
   workspaceId: string;
@@ -190,7 +215,7 @@ export class Reminders {
     const scope = { ...request, userId };
     const fingerprint = JSON.stringify(request);
     if (!(await this.repository.authorize(scope)))
-      throw new Error("reminder operation is not authorized");
+      throw new ReminderRefusal("ACCESS_DENIED", "reminder operation is not authorized");
     if (!["list", "log"].includes(request.operation)) {
       const replay = await this.repository.replay?.(
         scope,
@@ -204,21 +229,26 @@ export class Reminders {
     let events: AgentReminderOperationResponse["events"] = [];
     if (request.operation === "schedule") {
       if (!(await this.capabilities.supports(request.workspaceId, request.computerId)))
-        throw new Error("connected Daemon does not support reminders");
+        throw new ReminderRefusal(
+          "TEMPORARILY_UNAVAILABLE",
+          "connected Daemon does not support reminders",
+        );
       const anchor = await this.repository.resolveAnchor(
         scope,
         request.target!,
         request.messageId!,
       );
       const zone = request.repeat ? (request.timezone ?? DEFAULT_REMINDER_TIMEZONE) : undefined;
-      if (zone && !validTimezone(zone)) throw new Error("invalid IANA timezone");
+      if (zone && !validTimezone(zone))
+        throw new ReminderRefusal("INVALID_INPUT", "invalid IANA timezone");
       const now = this.now();
       const first = request.fireAt
         ? new Date(request.fireAt)
         : request.delaySeconds
           ? new Date(now.getTime() + request.delaySeconds * 1000)
           : nextOccurrence(request.repeat!, zone!, now, now);
-      if (first.getTime() <= now.getTime()) throw new Error("reminder time must be in the future");
+      if (first.getTime() <= now.getTime())
+        throw new ReminderRefusal("INVALID_INPUT", "reminder time must be in the future");
       const created = await this.repository.create(scope, request.requestId, fingerprint, {
         ownerAgentId: request.agentId,
         computerId: request.computerId,
@@ -237,7 +267,7 @@ export class Reminders {
       events = await this.repository.events(scope, request.reminderId!, MAX_REMINDER_LOG_EVENTS);
     else {
       const current = await this.repository.get(scope, request.reminderId!);
-      if (!current) throw new Error("reminder not found");
+      if (!current) throw new ReminderRefusal("NOT_FOUND", "reminder not found");
       if (request.operation === "cancel") {
         const changed = await this.repository.update(
           scope,
@@ -259,7 +289,8 @@ export class Reminders {
         });
       } else {
         const zone = request.timezone;
-        if (zone && !validTimezone(zone)) throw new Error("invalid IANA timezone");
+        if (zone && !validTimezone(zone))
+          throw new ReminderRefusal("INVALID_INPUT", "invalid IANA timezone");
         const changed = await this.repository.update(
           scope,
           request.requestId,
@@ -303,7 +334,7 @@ export class Reminders {
 
   async snapshot(scope: Scope & { requestId: string }): Promise<Uint8Array> {
     if (!(await this.repository.authorize(scope)))
-      throw new Error("reminder snapshot is not authorized");
+      throw new ReminderRefusal("ACCESS_DENIED", "reminder snapshot is not authorized");
     const reminders = await this.repository.list(scope, "scheduled", true);
     return encodeReminderSync({
       protocolMajor: 1,
@@ -316,14 +347,14 @@ export class Reminders {
 
   async snapshotForDaemon(scope: DaemonScope & { requestId: string }): Promise<Uint8Array> {
     const agent = await this.repository.authorizeDaemon(scope);
-    if (!agent) throw new Error("reminder snapshot is not authorized");
+    if (!agent) throw new ReminderRefusal("ACCESS_DENIED", "reminder snapshot is not authorized");
     return this.snapshot({ ...scope, userId: agent.userId });
   }
 
   async fire(request: ReminderFireRequest, userId: string): Promise<Uint8Array> {
     const scope = { ...request, userId };
     if (!(await this.repository.authorize(scope)))
-      throw new Error("reminder fire is not authorized");
+      throw new ReminderRefusal("ACCESS_DENIED", "reminder fire is not authorized");
     const response = await this.repository.fire(scope, request, this.now());
     if (response.nextReminder) await this.bestEffort(upsertSync(request, response.nextReminder));
     return encodeReminderFireResponse(response.result);
@@ -331,7 +362,7 @@ export class Reminders {
 
   async fireFromDaemon(request: ReminderFireRequest): Promise<Uint8Array> {
     const agent = await this.repository.authorizeDaemon(request);
-    if (!agent) throw new Error("reminder fire is not authorized");
+    if (!agent) throw new ReminderRefusal("ACCESS_DENIED", "reminder fire is not authorized");
     return this.fire(request, agent.userId);
   }
 
