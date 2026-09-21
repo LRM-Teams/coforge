@@ -113,7 +113,6 @@
   "conversation_thread_unfollow": "取消关注讨论",
   "conversation_thread_following_agents": "关注中的 Agent",
   "conversation_thread_following_agents_count": "{count} 个关注中的 Agent",
-  "conversation_thread_following_agents_empty": "没有 Agent 关注此讨论。",
   "conversation_thread_following_agents_error": "无法加载关注此讨论的 Agent。",
   "conversation_thread_unfollow_agent": "停止 {name} 关注此讨论",
   "conversation_you": "我",
