@@ -468,7 +468,7 @@ export function AgentProfilePanel({
       <AgentControlDialogs agentName={knownName} control={controls} />
       {profile && visibilityTarget && (
         <AgentVisibilityConfirmDialog
-          agentName={profile.name}
+          agentName={profile.displayName || profile.name}
           target={visibilityTarget}
           open={visibilityTarget !== null}
           onOpenChange={(nextOpen) => {
@@ -479,10 +479,11 @@ export function AgentProfilePanel({
             await changeVisibility({ data: { agentId, visibility: visibilityTarget } });
             setVisibilityTarget(null);
             await invalidate();
+            const displayName = profile.displayName || profile.name;
             toast.success(
               visibilityTarget === "private"
-                ? m.agent_visibility_changed_private_toast({ name: profile.name })
-                : m.agent_visibility_changed_public_toast({ name: profile.name }),
+                ? m.agent_visibility_changed_private_toast({ name: displayName })
+                : m.agent_visibility_changed_public_toast({ name: displayName }),
             );
           }}
         />
