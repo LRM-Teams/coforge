@@ -22,7 +22,7 @@ const initial = {
   reasoning: "high",
 };
 
-test("renders the title, Provider and Model labels, and Cancel; Reasoning waits for the catalog", () => {
+test("renders the title, Provider and Model labels, and Save alone; Reasoning waits for the catalog", () => {
   const markup = renderToStaticMarkup(
     <AgentRuntimeConfigForm
       computerId="computer-1"
@@ -41,7 +41,9 @@ test("renders the title, Provider and Model labels, and Cancel; Reasoning waits 
   // `renderToStaticMarkup` never runs effects, so the catalog load never resolves and the
   // configured model is never confirmed against it. The Reasoning field must stay hidden here.
   expect(markup).not.toContain(m.agent_form_reasoning());
-  expect(markup).toContain(m.controls_cancel());
+  // Raft's footer is the save action alone: the dialog is dismissed by its header X, Esc, or the
+  // overlay, so there is no Cancel button to render.
+  expect(markup).not.toContain(m.controls_cancel());
   expect(markup).toContain(m.agent_profile_save_runtime_config());
 });
 
@@ -94,7 +96,7 @@ test("a failed save shows an inline alert line, never a toast", () => {
   expect(markup).toContain(m.agent_form_runtime_unavailable());
 });
 
-test("a non-owner viewer (no `environment` prop) never renders the Advanced env disclosure", () => {
+test("a non-owner viewer (no `environment` prop) never renders the env disclosure", () => {
   const markup = renderToStaticMarkup(
     <AgentRuntimeConfigForm
       computerId="computer-1"
@@ -105,10 +107,10 @@ test("a non-owner viewer (no `environment` prop) never renders the Advanced env 
       onSave={() => {}}
     />,
   );
-  expect(markup).not.toContain(m.agent_env_advanced());
+  expect(markup).not.toContain(m.agent_env_more());
 });
 
-test("the owner's Advanced disclosure renders closed by default with the hint copy", () => {
+test("the owner's env disclosure renders closed by default, with its section copy inside", () => {
   // The env rows themselves come from a `useEffect` seed (`environment.values` -> `envRows`),
   // which never runs under `renderToStaticMarkup` (no DOM, no effects) — same SSR limitation the
   // file header notes for `AgentRuntimeFields`. This asserts the static shell: the trigger, the
@@ -125,10 +127,11 @@ test("the owner's Advanced disclosure renders closed by default with the hint co
       onSave={() => {}}
     />,
   );
-  expect(markup).toContain(m.agent_env_advanced());
+  expect(markup).toContain(m.agent_env_more());
   expect(markup).toContain('hidden=""');
   expect(markup).not.toContain('data-expanded="true"');
-  expect(markup).toContain(m.agent_env_hint());
+  expect(markup).toContain(m.agent_env_title());
+  expect(markup).toContain(m.agent_env_description());
   expect(markup).toContain(m.agent_env_add());
 });
 
