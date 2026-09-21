@@ -43,6 +43,7 @@ import {
   reactionSummaries,
   type MessageReactionRow,
 } from "./message-reactions.server";
+import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
@@ -1309,6 +1310,30 @@ export class PublicChannels {
         ),
     );
     return message;
+  }
+
+  /**
+   * The browser's own emoji reaction on a channel message. Same visibility scope as the
+   * other per-message writes here; the shared toggle additionally requires the caller's
+   * active membership, so a reader who never joined cannot react.
+   */
+  async toggleUserReaction(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    messageId: string,
+    emoji: string,
+    active: boolean,
+  ) {
+    await this.channel(workspaceId, userId, channelId);
+    return toggleUserMessageReaction(this.db, {
+      workspaceId,
+      conversationId: channelId,
+      userId,
+      messageId,
+      emoji,
+      active,
+    });
   }
 
   async markThreadReadForUser(

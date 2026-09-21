@@ -51,3 +51,11 @@ export const readConversationThreadInputSchema = agentConversationInputSchema.ex
   threadRootId: uuid,
   throughSequence: z.number().int().positive(),
 });
+
+/** The viewer's own emoji reaction on one message. Finer emoji validity lives server-side
+ * (`isValidReactionEmoji`, shared with the Agent reaction API); this only bounds the shape. */
+export const toggleMessageReactionInputSchema = z.object({
+  messageId: uuid,
+  emoji: z.string().min(1).max(16),
+  active: z.boolean(),
+});

@@ -27,6 +27,7 @@ import {
   setPublicChannelThreadFollowed,
   setPublicChannelMuted,
   sendPublicChannelMessage,
+  toggleChannelMessageReaction,
 } from "@/features/conversations/channels.functions";
 import {
   agentIdFromProfileParam,
@@ -70,6 +71,7 @@ function ChannelPage() {
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
   const send = useServerFn(sendPublicChannelMessage);
+  const toggleReaction = useServerFn(toggleChannelMessageReaction);
   const join = useServerFn(joinPublicChannel);
   const markRead = useServerFn(markPublicChannelThreadRead);
   const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
@@ -205,6 +207,12 @@ function ChannelPage() {
         if (threadRootId) followThread(threadRootId);
         void page.reconciliation.reconcile().catch(() => {});
         return message;
+      }}
+      onToggleReaction={async (messageId, emoji, active) => {
+        await toggleReaction({ data: { channelId, messageId, emoji, active } });
+        // Reactions ride no realtime signal, so re-read the loaded pages (the sanctioned
+        // path for changes the feed does not carry) instead of patching one page's cache.
+        await page.invalidate();
       }}
       onJoin={async () => {
         await join({ data: { channelId } });

@@ -267,3 +267,25 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       actionCard: undefined,
     };
   });
+
+/** The viewer's own emoji reaction on a channel message; returns the message's fresh summaries. */
+export const toggleChannelMessageReaction = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    channelInput.extend({
+      messageId: z.uuid(),
+      emoji: z.string().min(1).max(16),
+      active: z.boolean(),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.toggleUserReaction(
+      workspaceId,
+      userId,
+      data.channelId,
+      data.messageId,
+      data.emoji,
+      data.active,
+    );
+  });

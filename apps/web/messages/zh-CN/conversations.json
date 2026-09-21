@@ -69,6 +69,8 @@
   "conversation_send": "发送",
   "conversation_sending": "发送中…",
   "conversation_send_error": "消息发送失败，请重试。",
+  "conversation_add_reaction": "添加表情",
+  "conversation_reaction_error": "表情更新失败，请重试。",
   "conversation_one_new_message": "1 条新消息",
   "conversation_new_messages": "{count} 条新消息",
   "conversation_back_to_bottom": "回到底部",

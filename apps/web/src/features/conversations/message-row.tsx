@@ -5,7 +5,6 @@ import { CornerUpLeft, Download01, XClose } from "@untitledui/icons";
 
 import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
 import { Avatar } from "@/components/base/avatar/avatar";
-import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -21,6 +20,7 @@ import { attachmentPreviewKind } from "./attachment-preview-kind";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
+import { MessageReactionPicker } from "./message-reaction-picker";
 
 export type MessageView = {
   id: string;
@@ -474,6 +474,7 @@ export function MessageRow({
   threadEntry,
   threadPreview,
   messageFooter,
+  onToggleReaction,
   onOpenAgentProfile,
   viewerHandle,
   plainMentions,
@@ -497,6 +498,8 @@ export function MessageRow({
   threadEntry?: (message: MessageView) => ReactNode;
   threadPreview?: (message: MessageView) => ReactNode;
   messageFooter?: (message: MessageView) => ReactNode;
+  /** Toggles the viewer's own emoji reaction on a message; the conversation refreshes it. */
+  onToggleReaction?: (messageId: string, emoji: string, active: boolean) => void;
   /** Opens the Agent profile panel; present only where the conversation owns that slot
    * (`features/agents/profile-panel/`'s `openAgentProfile`). Absent, the avatar/name render inert. */
   onOpenAgentProfile?: (agentId: string) => void;
@@ -772,23 +775,45 @@ export function MessageRow({
           ))}
           {message.reactions && message.reactions.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5">
-              {message.reactions.map((reaction) => (
-                <Tooltip key={reaction.emoji} title={reaction.reactors.join(", ")}>
-                  <TooltipTrigger>
-                    <Badge size="sm" color="gray">
-                      {reaction.emoji} {reaction.count}
-                    </Badge>
-                  </TooltipTrigger>
-                </Tooltip>
-              ))}
+              {message.reactions.map((reaction) => {
+                // The summaries spell a reactor as `@handle`; a badge counts as mine when it
+                // carries the viewer's own handle, and flips to brand to show it.
+                const mine = viewerHandle ? reaction.reactors.includes(`@${viewerHandle}`) : false;
+                return (
+                  <Tooltip key={reaction.emoji} title={reaction.reactors.join(", ")}>
+                    <TooltipTrigger>
+                      <Button
+                        color="tertiary"
+                        size="sm"
+                        noTextPadding
+                        onPress={() => onToggleReaction?.(message.id, reaction.emoji, !mine)}
+                        aria-pressed={mine}
+                        className={cn(
+                          "h-auto rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+                          mine
+                            ? "bg-utility-brand-50 text-utility-brand-700 ring-utility-brand-200 hover:bg-utility-brand-100"
+                            : "bg-utility-neutral-50 text-utility-neutral-700 ring-utility-neutral-200 hover:bg-utility-neutral-100",
+                        )}
+                      >
+                        {reaction.emoji} {reaction.count}
+                      </Button>
+                    </TooltipTrigger>
+                  </Tooltip>
+                );
+              })}
             </div>
           )}
           {messageFooter?.(message)}
           {threadPreview?.(message)}
         </div>
-        {threadEntry && (
-          <div className="absolute top-0.5 right-3 flex items-center opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 [@media(hover:none)]:opacity-100 [@media(any-pointer:coarse)]:opacity-100">
-            {threadEntry(message)}
+        {(threadEntry || onToggleReaction) && (
+          <div className="absolute top-0.5 right-3 flex items-center gap-0.5 rounded-lg border border-secondary bg-primary p-0.5 opacity-0 shadow-lg transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 has-[[data-thread-unread]]:opacity-100 [@media(hover:none)]:opacity-100 [@media(any-pointer:coarse)]:opacity-100">
+            {threadEntry?.(message)}
+            {onToggleReaction && (
+              <MessageReactionPicker
+                onPick={(emoji) => onToggleReaction(message.id, emoji, true)}
+              />
+            )}
           </div>
         )}
       </div>

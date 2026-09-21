@@ -155,6 +155,7 @@ export function ChannelConversation({
   onThreadFollowedChange,
   tasks,
   onCreateTask,
+  onToggleReaction,
   onShowTasks,
   onShowFiles,
   onOpenAgentProfile,
@@ -194,6 +195,8 @@ export function ChannelConversation({
   onThreadFollowedChange?: (rootMessageId: string, followed: boolean) => Promise<void>;
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
+  /** Toggles the viewer's own emoji reaction on a message; the route refreshes it. */
+  onToggleReaction?: (messageId: string, emoji: string, active: boolean) => Promise<void>;
   onShowTasks?: () => void;
   onShowFiles?: () => void;
   /** Opens the Agent profile panel from an Agent sender's avatar/name in the message list. */
@@ -252,6 +255,7 @@ export function ChannelConversation({
       onCloseAgentProfile={onCloseAgentProfile}
       tasks={tasks}
       onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
+      onToggleReaction={conversation.senderMemberId ? onToggleReaction : undefined}
       threadHeaderAction={(rootMessageId) => {
         const followed = conversation.followedThreadRootIds?.includes(rootMessageId) ?? false;
         return conversation.senderMemberId ? (
