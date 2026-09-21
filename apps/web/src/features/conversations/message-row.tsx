@@ -22,7 +22,13 @@ import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
 import { MessageReactionPicker } from "./message-reaction-picker";
-import { copyFragmentMarkdown, copyFragmentStyled, selectionFragmentHtml } from "./selection-copy";
+import {
+  copyFragmentMarkdown,
+  copyFragmentStyled,
+  messagePlainText,
+  selectionFragmentHtml,
+} from "./selection-copy";
+import { copyText } from "../records/report-editor/lib/clipboard";
 
 export type MessageView = {
   id: string;
@@ -792,7 +798,10 @@ export function MessageRow({
               onKeyUp={readQuoteSelection}
               className={cn(
                 "relative min-w-0 text-md leading-6 text-primary [overflow-wrap:anywhere]",
-                grouped && threadEntry && "pr-8",
+                // A grouped row has no sender header, so the touch-visible action strip would
+                // sit on its first text line; reserve the strip's width (copy + thread +
+                // reaction buttons) up front instead.
+                grouped && "pr-20",
               )}
             >
               <CollapsibleMessageBody
@@ -888,16 +897,27 @@ export function MessageRow({
           {messageFooter?.(message)}
           {threadPreview?.(message)}
         </div>
-        {(threadEntry || onToggleReaction) && (
-          <div className="absolute top-0.5 right-3 flex items-center gap-0.5 rounded-lg border border-secondary bg-primary p-0.5 opacity-0 shadow-lg transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 has-[[data-thread-unread]]:opacity-100 [@media(hover:none)]:opacity-100 [@media(any-pointer:coarse)]:opacity-100">
-            {threadEntry?.(message)}
-            {onToggleReaction && (
-              <MessageReactionPicker
-                onPick={(emoji) => onToggleReaction(message.id, emoji, true)}
-              />
-            )}
-          </div>
-        )}
+        {/* Hover/touch action strip: whole-message copy first (the IM-standard "Copy text", the
+            only copy path for a collapsed, unselectable body), then thread and reactions. */}
+        <div className="absolute top-0.5 right-3 flex items-center gap-0.5 rounded-lg border border-secondary bg-primary p-0.5 opacity-0 shadow-lg transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 has-[[data-thread-unread]]:opacity-100 [@media(hover:none)]:opacity-100 [@media(any-pointer:coarse)]:opacity-100">
+          <ButtonUtility
+            size="xs"
+            color="tertiary"
+            icon={Copy01}
+            tooltip={m.conversation_message_copy_text()}
+            onClick={() => {
+              void copyText(messagePlainText(message)).then((copied) => {
+                if (copied) toast.success(m.conversation_message_copied());
+                else toast.error(m.conversation_copy_failed());
+              });
+            }}
+            className="p-1 *:data-icon:size-3.5"
+          />
+          {threadEntry?.(message)}
+          {onToggleReaction && (
+            <MessageReactionPicker onPick={(emoji) => onToggleReaction(message.id, emoji, true)} />
+          )}
+        </div>
       </div>
     </li>
   );

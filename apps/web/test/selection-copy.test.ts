@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { fragmentHtmlToMarkdown } from "../src/features/conversations/selection-copy";
+import {
+  fragmentHtmlToMarkdown,
+  messagePlainText,
+} from "../src/features/conversations/selection-copy";
 
 describe("fragmentHtmlToMarkdown", () => {
   test("keeps emphasis as markdown marks", () => {
@@ -39,5 +42,37 @@ describe("fragmentHtmlToMarkdown", () => {
 
   test("drops the toolbar's own UI if it ever lands inside a fragment", () => {
     expect(fragmentHtmlToMarkdown("<p>clean</p>")).toBe("clean");
+  });
+});
+
+describe("messagePlainText", () => {
+  test("resolves mention tokens to their @label, matching ids case-insensitively", () => {
+    const text = messagePlainText({
+      body: "hey <@human:AbC12345-6789-4ABC-9DEF-0123456789AB> and <@agent:def45678-1234-1234-1234-abcdefabcdef>, look",
+      mentions: [
+        {
+          kind: "user",
+          actorId: "abc12345-6789-4abc-9def-0123456789ab",
+          handle: "alice",
+          label: "Alice",
+        },
+        {
+          kind: "agent",
+          actorId: "DEF45678-1234-1234-1234-ABCDEFABCDEF",
+          handle: "bot",
+          label: "Build Bot",
+        },
+      ],
+    });
+    expect(text).toBe("hey @Alice and @Build Bot, look");
+  });
+
+  test("keeps a token nobody resolved, so a stale mention never silently vanishes", () => {
+    const body = "ping <@human:00000000-0000-4000-8000-000000000000> now";
+    expect(messagePlainText({ body, mentions: [] })).toBe(body);
+  });
+
+  test("a body without tokens copies as written, markdown marks included", () => {
+    expect(messagePlainText({ body: "**bold** plan:\n- one" })).toBe("**bold** plan:\n- one");
   });
 });
