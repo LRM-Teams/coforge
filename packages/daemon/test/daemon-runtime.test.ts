@@ -7147,3 +7147,168 @@ test("a locally held send shows the unreviewed window, and a resend after it goe
     await harness.runtime.stop();
   }
 });
+
+test("a replayed older send can neither clobber nor clear a newer held draft (task #70)", async () => {
+  const calls: AgentMessageRequest[] = [];
+  const harness = await messageHarness(async (request) => {
+    calls.push(request);
+    return request.requestId === "send-held"
+      ? {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: false,
+          attentionCount: 1,
+          state: "held" as const,
+          decision: "local_hold" as const,
+          reason: "exact_target_pending",
+          continueAnywaySuggested: true,
+          newMessageCount: 1,
+          shownMessageCount: 1,
+          omittedMessageCount: 0,
+          seenUpToSeq: 7,
+          messages: [],
+        }
+      : {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          state: "sent" as const,
+          decision: "forward" as const,
+          messageId: "sent",
+          messages: [],
+        };
+  });
+  try {
+    const send = (requestId: string, body: string) => ({
+      requestId,
+      context: harness.context,
+      operation: "send" as const,
+      target: "@ada",
+      content: body,
+    });
+    // 1. An older send runs and is accepted; it owns the target's draft for now.
+    await harness.runtime.agentMessage(
+      harness.context,
+      send("send-old", "older body"),
+      harness.apiKey,
+    );
+    // 2. A newer send is held, so ITS content is what the Agent was told was saved as a draft.
+    const held = await harness.runtime.agentMessage(
+      harness.context,
+      send("send-held", "held body"),
+      harness.apiKey,
+    );
+    expect(held.state).toBe("held");
+    // 3. The transport retries the older send (same request id) and it is accepted.
+    await harness.runtime.agentMessage(
+      harness.context,
+      send("send-old", "older body"),
+      harness.apiKey,
+    );
+    // 4. The held draft is intact, and resending it sends the HELD content — before this fix the
+    //    replay above cleared the draft and the CLI answered SEND_DRAFT_NOT_FOUND.
+    const resent = await harness.runtime.agentMessage(
+      harness.context,
+      {
+        requestId: "send-resend",
+        context: harness.context,
+        operation: "send",
+        target: "@ada",
+        sendDraft: true,
+      },
+      harness.apiKey,
+    );
+    expect(resent.state).toBe("sent");
+    expect(calls.filter((call) => call.operation === "send").map((call) => call.content)).toEqual([
+      "older body",
+      "held body",
+      "older body",
+      "held body",
+    ]);
+  } finally {
+    await harness.runtime.stop();
+  }
+});
+
+test("a genuinely new send still replaces the target's draft, as Raft documents", async () => {
+  const calls: AgentMessageRequest[] = [];
+  const harness = await messageHarness(async (request) => {
+    calls.push(request);
+    // Both the first send and the newer one are held here, so what the resend carries is decided
+    // purely by whose content the target's draft holds.
+    return request.requestId !== "send-resend"
+      ? {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: false,
+          attentionCount: 1,
+          state: "held" as const,
+          decision: "local_hold" as const,
+          reason: "exact_target_pending",
+          continueAnywaySuggested: true,
+          newMessageCount: 1,
+          shownMessageCount: 1,
+          omittedMessageCount: 0,
+          seenUpToSeq: 7,
+          messages: [],
+        }
+      : {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          state: "sent" as const,
+          decision: "forward" as const,
+          messageId: "sent",
+          messages: [],
+        };
+  });
+  try {
+    await harness.runtime.agentMessage(
+      harness.context,
+      {
+        requestId: "send-held",
+        context: harness.context,
+        operation: "send",
+        target: "@ada",
+        content: "held body",
+      },
+      harness.apiKey,
+    );
+    // A brand-new request (new id) is the newest writer, so its content replaces the draft — the
+    // "new send replaces the stored draft" behaviour Raft documents (with its replaced-draft
+    // warning); it is only a *replay* of an older request that must leave the draft alone.
+    await harness.runtime.agentMessage(
+      harness.context,
+      {
+        requestId: "send-new",
+        context: harness.context,
+        operation: "send",
+        target: "@ada",
+        content: "newer body",
+      },
+      harness.apiKey,
+    );
+    const resent = await harness.runtime.agentMessage(
+      harness.context,
+      {
+        requestId: "send-resend",
+        context: harness.context,
+        operation: "send",
+        target: "@ada",
+        sendDraft: true,
+      },
+      harness.apiKey,
+    );
+    expect(resent.state).toBe("sent");
+    expect(
+      calls
+        .filter((call) => call.operation === "send")
+        .map((call) => call.content)
+        .at(-1),
+    ).toBe("newer body");
+  } finally {
+    await harness.runtime.stop();
+  }
+});
