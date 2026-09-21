@@ -1,8 +1,10 @@
 /**
- * Copying a highlight out of a message body, in the two shapes readers ask for: *styled* — the
- * rendered fragment as rich text (`text/html` with a `text/plain` fallback), so pasting into a
- * doc or another chat keeps bold/links/code — and *Markdown*, the fragment converted back to
- * Markdown source so it can be pasted into an editor as markup.
+ * Copying message text out of a message body, in the shapes readers ask for. A *highlight* copies
+ * as *styled* rich text (`text/html` with a `text/plain` fallback), so pasting into a doc or
+ * another chat keeps bold/links/code — or as *Markdown*, the fragment converted back to Markdown
+ * source so it can be pasted into an editor as markup. The *whole message* copies as plain text
+ * (`messagePlainText`) — the message-level "Copy text" common IM products put in the hover or
+ * long-press menu, which also answers a collapsed (unselectable) body.
  *
  * The fragment comes from the live selection (`Range.cloneContents`): the body it was copied out
  * of already passed through `rehype-sanitize` at render time, and the mention chips it may contain
@@ -12,6 +14,7 @@
  */
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
+import { replaceMentionTokens } from "@lrm/coforge-sdk/internal";
 
 import { copyText } from "../records/report-editor/lib/clipboard";
 
@@ -65,4 +68,22 @@ export async function copyFragmentStyled(html: string, plainText: string): Promi
 /** Writes the fragment's Markdown source as plain clipboard text. */
 export function copyFragmentMarkdown(html: string): Promise<boolean> {
   return copyText(fragmentHtmlToMarkdown(html));
+}
+
+/**
+ * The whole message as plain text: mention tokens resolved to their `@label`, Markdown source
+ * kept as typed — Discord's "Copy Text" copies the raw source too, and the composer round-trips
+ * it. A token nobody resolved stays as written rather than vanishing. This is also the only copy
+ * path for a collapsed long message, whose body is `inert` and cannot be highlighted at all.
+ */
+export function messagePlainText(message: {
+  body: string;
+  mentions?: { kind: "user" | "agent"; actorId: string; handle: string; label: string }[];
+}): string {
+  return replaceMentionTokens(message.body, (kind, id) => {
+    const mention = message.mentions?.find(
+      (candidate) => candidate.kind === kind && candidate.actorId.toLowerCase() === id,
+    );
+    return mention ? `@${mention.label}` : undefined;
+  });
 }

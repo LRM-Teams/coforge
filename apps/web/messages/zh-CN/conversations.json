@@ -69,6 +69,8 @@
   "conversation_copy_as_style_success": "已复制为带样式文本",
   "conversation_copy_as_markdown_success": "已复制为 Markdown",
   "conversation_copy_failed": "复制失败，请重试。",
+  "conversation_message_copy_text": "复制文本",
+  "conversation_message_copied": "已复制",
   "conversation_composer_actions": "添加到消息",
   "conversation_message_placeholder": "输入消息…",
   "conversation_send": "发送",
