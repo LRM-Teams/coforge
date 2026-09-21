@@ -20,6 +20,7 @@ import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 import { discoverKiroCatalog } from "./kiro/catalog";
 import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "./kiro/version";
 import { discoverCursorCatalog } from "./cursor/catalog";
+import { isOpenCodeVersionUnsupported, logOpenCodeVersionUnsupported } from "./opencode/version";
 import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";
@@ -67,6 +68,7 @@ const externalCodeAgents = [
   { provider: RUNTIME_PROVIDER.CLAUDE_CODE, executable: "claude" },
   { provider: RUNTIME_PROVIDER.KIRO, executable: "kiro-cli" },
   { provider: RUNTIME_PROVIDER.CURSOR, executable: "cursor-agent" },
+  { provider: RUNTIME_PROVIDER.OPENCODE, executable: "opencode" },
 ] as const;
 
 /** The subset of RuntimeProvider backed by an external executable this module probes. */
@@ -109,6 +111,10 @@ async function probeRuntimeVersion(
   if (!version) return undefined;
   if (provider === RUNTIME_PROVIDER.KIRO && isKiroVersionUnsupported(version)) {
     logKiroVersionUnsupported(name, version);
+    return undefined;
+  }
+  if (provider === RUNTIME_PROVIDER.OPENCODE && isOpenCodeVersionUnsupported(version)) {
+    logOpenCodeVersionUnsupported(name, version);
     return undefined;
   }
   return { provider, version, displayName: externalRuntimeDisplayName(provider) };
@@ -211,6 +217,7 @@ const CACHEABLE_CATALOG_PROVIDERS = [
   RUNTIME_PROVIDER.CODEX,
   RUNTIME_PROVIDER.KIRO,
   RUNTIME_PROVIDER.CURSOR,
+  RUNTIME_PROVIDER.OPENCODE,
 ] as const;
 
 function piAgentDirectory(environment: Readonly<Record<string, string | undefined>>): string {
@@ -713,6 +720,8 @@ function externalRuntimeDisplayName(provider: ExternalCodeAgentProvider): string
       return "Kiro";
     case RUNTIME_PROVIDER.CURSOR:
       return "Cursor CLI";
+    case RUNTIME_PROVIDER.OPENCODE:
+      return "OpenCode";
     default: {
       const unreachable: never = provider;
       throw new Error(`Unhandled external Code Agent provider: ${unreachable}`);
