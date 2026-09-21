@@ -14,9 +14,9 @@ test("readWeeklyReportScheduleTickMs accepts a positive interval and ignores uns
 });
 
 test("readWeeklyReportScheduleTickMs rejects non-positive or malformed values", () => {
-  expect(() =>
-    readWeeklyReportScheduleTickMs({ [WEEKLY_REPORT_SCHEDULE_TICK_ENV]: "0" }),
-  ).toThrow(/positive integer/);
+  expect(() => readWeeklyReportScheduleTickMs({ [WEEKLY_REPORT_SCHEDULE_TICK_ENV]: "0" })).toThrow(
+    /positive integer/,
+  );
   expect(() =>
     readWeeklyReportScheduleTickMs({ [WEEKLY_REPORT_SCHEDULE_TICK_ENV]: "1.5" }),
   ).toThrow(/positive integer/);
@@ -57,9 +57,7 @@ test("startWeeklyReportScheduleTick runs due work on each interval and skips ove
   calls[0]!();
   calls[0]!();
   expect(runCount).toBe(1);
-  expect(events.some((event) => event.event === "weekly_report_schedule_tick_skipped")).toBe(
-    true,
-  );
+  expect(events.some((event) => event.event === "weekly_report_schedule_tick_skipped")).toBe(true);
 
   release();
   await Bun.sleep(0);
