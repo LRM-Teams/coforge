@@ -675,3 +675,13 @@ test("a transport failure names its class, and still leaks nothing else", () => 
   // A bare `Error` says nothing, so it is not printed as if it were a diagnosis.
   expect(plain.message).not.toContain(" Error ");
 });
+
+test("the publish client gives an upload more than an interactive caller's budget", async () => {
+  // ali-oss's default is 60s per request. Three consecutive staging publishes died uploading the
+  // largest bundle with a transport failure that reports no status - what a timeout looks like - so
+  // the batch client must not inherit an interactive timeout.
+  const connection = fixtureConnection({ url: "https://oss.example" });
+  const client = await createOssClient(connection, CREDENTIALS);
+  const options = (client as unknown as { options: { timeout?: number } }).options;
+  expect(options.timeout).toBeGreaterThanOrEqual(5 * 60 * 1000);
+});

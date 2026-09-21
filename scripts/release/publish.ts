@@ -79,6 +79,10 @@ export function regionFromEndpoint(endpoint: string): string | undefined {
  * security token - the same pattern `apps/web`'s OSS file storage uses - so a client built from a
  * federated STS token does not start signing with an expired one partway through a publish that
  * compiled six targets before it ever made a network call. */
+/** A publish uploads whole platform bundles over a shared runner link; 60s (ali-oss's default) is
+ * an interactive request's budget, not this job's. See `createOssClient`. */
+const PUBLISH_OBJECT_TIMEOUT_MS = 10 * 60 * 1000;
+
 export async function createOssClient(
   connection: OssConnection,
   credentials?: OssCredentials,
@@ -97,6 +101,12 @@ export async function createOssClient(
     cname: connection.cname ?? false,
     secure: connection.secure ?? true,
     authorizationV4: true,
+    // ali-oss defaults every request to a 60s timeout, which is an interactive caller's budget. A
+    // publish is a batch job: it compiles six targets and then pushes the largest bundles over the
+    // runner's link, and the biggest of them (darwin-arm64) has now failed with `OSS upload failed:
+    // HTTP unknown ... request-id=unknown` — a transport failure with no HTTP status, which is what a
+    // timeout looks like — in three consecutive builds (dev.59, dev.60, dev.61). Give it room.
+    timeout: PUBLISH_OBJECT_TIMEOUT_MS,
   };
   if (credentials) {
     return new OSS({ ...credentials, ...base });
