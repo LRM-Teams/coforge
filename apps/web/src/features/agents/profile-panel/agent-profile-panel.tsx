@@ -267,7 +267,14 @@ export function AgentProfilePanel({
           displayName: knownName,
           description: profile?.description ?? undefined,
         }}
-        display={liveAgent?.display}
+        // ADR 0059: `liveAgent` (the shared realtime roster) is blank for an Agent outside the
+        // viewer's own `listAgents` roster until its first live publication arrives — e.g. an
+        // owner/admin's placeholder for another member's private Agent. `getAgentProfile`
+        // (`profile`, this panel's own authorized fetch) already computes an initial
+        // status/display snapshot for any Agent the viewer can see, exactly like `activity`'s
+        // fallback below; prefer the live one once a publication lands, but seed from the
+        // authorized fetch instead of showing nothing.
+        display={liveAgent?.display ?? profile?.display}
         timeZone={timeZone}
         controls={controls}
         onClose={onClose}

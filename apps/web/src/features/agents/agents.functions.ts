@@ -37,7 +37,9 @@ import { ActionCards } from "../../server/conversations/action-cards.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import {
+  agentVisibilityViewerForUser,
   assertAgentVisible,
+  visiblePrivateAgentWhere,
   type AgentVisibilityViewer,
 } from "../../server/agents/agent-visibility.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
@@ -70,11 +72,6 @@ import {
   issueAgentStatusSubscriptionToken,
   issueAgentStatusSubscriptionTokenForAgent,
 } from "../../server/auth/browser-realtime-token.server";
-import {
-  agentVisibilityViewerForUser,
-  assertAgentVisible,
-  visiblePrivateAgentWhere,
-} from "../../server/agents/agent-visibility.server";
 
 type Database = ReturnType<typeof requireDatabaseClient>;
 
