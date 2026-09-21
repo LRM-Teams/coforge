@@ -19,6 +19,7 @@ import { ActionCard, type ActionCardView } from "./action-card";
 import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
+import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote } from "./message-quote";
 
 export type MessageView = {
@@ -467,6 +468,7 @@ export function MessageRow({
   messageFooter,
   onOpenAgentProfile,
   viewerHandle,
+  plainMentions,
   onQuoteSelection,
 }: {
   message: MessageView;
@@ -492,6 +494,10 @@ export function MessageRow({
   onOpenAgentProfile?: (agentId: string) => void;
   /** The viewing user's handle; a mention of it renders with the stronger "me" chip. */
   viewerHandle?: string;
+  /** The conversation's member directory as handle → chip, so a plain `@handle` in the body
+   * (DM text, or a channel body written without the completion) still renders the member's
+   * display label. Absent, plain handles render as literal text. */
+  plainMentions?: Map<string, ChipMention>;
   /** Offers "reply to this selection" on a highlight inside this row's body: the row hands back
    * the finished markdown quote, credited to the message it came from. Absent (e.g. the
    * conversation has no composer to put it in), no affordance is offered and no selection is
@@ -730,6 +736,7 @@ export function MessageRow({
               <CollapsibleMessageBody
                 body={message.body}
                 mentions={message.mentions}
+                plainMentions={plainMentions}
                 viewerHandle={viewerHandle}
                 onOpenAgentProfile={onOpenAgentProfile}
                 expanded={expanded}

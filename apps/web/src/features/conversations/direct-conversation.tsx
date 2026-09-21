@@ -45,6 +45,7 @@ import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
 import { MessageComposer } from "./message-composer";
 import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
+import type { ChipMention } from "./message-markdown";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
 import { AttachmentCard, MessageRow, clockLabel, groupsWithPrevious } from "./message-row";
 import {
@@ -171,6 +172,9 @@ type ConversationProps = {
 
 export type ThreadedConversationProps = Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
+  /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Built by each
+   * wrapper — the DM from its Agent counterpart, a channel from its member directory. */
+  plainMentions?: Map<string, ChipMention>;
   header: React.ReactNode;
   readOnlyNotice?: React.ReactNode;
   emptyState: { title: string; description: string; media: React.ReactNode };
@@ -264,9 +268,29 @@ export function DirectConversation(props: ConversationProps) {
   const { conversation } = props;
   // ADR 0044: a deleted Agent's DM stays readable, but nothing new can be sent to it.
   const deleted = Boolean(conversation.agent.deletedAt);
+  // A DM carries no member directory: its only member counterpart is the conversation's own
+  // Agent, whose messages keep plain text by design. Chip that one handle (display-only) so the
+  // stream still reads the Agent's display label.
+  const plainMentions = useMemo(
+    () =>
+      deleted
+        ? undefined
+        : new Map([
+            [
+              conversation.agent.name,
+              {
+                handle: conversation.agent.name,
+                label: conversation.agent.displayName?.trim() || conversation.agent.name,
+                agentId: conversation.agent.id,
+              },
+            ],
+          ]),
+    [deleted, conversation.agent],
+  );
   return (
     <ThreadedConversation
       {...props}
+      plainMentions={plainMentions}
       header={
         <DirectConversationHeader
           conversation={conversation}
@@ -696,6 +720,7 @@ export function ConversationPane({
   onReadLatest,
   onCreateTask,
   onOpenAgentProfile,
+  plainMentions,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
   header?: React.ReactNode;
@@ -1326,6 +1351,7 @@ export function ConversationPane({
                     messageFooter={messageFooter}
                     onOpenAgentProfile={onOpenAgentProfile}
                     viewerHandle={conversation.viewerHandle}
+                    plainMentions={plainMentions}
                     onQuoteSelection={quoteSelection}
                   />
                 );

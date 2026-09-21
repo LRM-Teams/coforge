@@ -5,7 +5,12 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import type { Element } from "hast";
 
-import { escapeLiteralHtml, mentionHandlesByToken, rehypeMentionChips } from "./message-markdown";
+import {
+  escapeLiteralHtml,
+  mentionHandlesByToken,
+  rehypeMentionChips,
+  type ChipMention,
+} from "./message-markdown";
 import type { MentionRef } from "./mention-text";
 import "./message-markdown.css";
 
@@ -33,11 +38,15 @@ const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 export function MessageBody({
   body,
   mentions = [],
+  plainMentions,
   viewerHandle,
   onOpenAgentProfile,
 }: {
   body: string;
   mentions?: readonly MentionRef[];
+  /** Plain-`@handle` display resolution: every conversation member's handle → chip. Absent,
+   * plain handles render as literal text (the stored body is never rewritten either way). */
+  plainMentions?: Map<string, ChipMention>;
   viewerHandle?: string;
   /** Opens the Agent profile panel when an Agent mention chip is activated. Present only where
    * the conversation owns that slot; absent, Agent chips render as inert highlights (the
@@ -49,8 +58,8 @@ export function MessageBody({
   // Typed against react-markdown's own plugin list so the plugin-with-options tuple form
   // type-checks without a cast.
   const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(
-    () => [rehypeSanitize, [rehypeMentionChips, { handles, viewerHandle }]],
-    [handles, viewerHandle],
+    () => [rehypeSanitize, [rehypeMentionChips, { handles, viewerHandle, plain: plainMentions }]],
+    [handles, viewerHandle, plainMentions],
   );
   // The `span` override recognises the Agent mention chip (`data-mention-agent-id`, injected by
   // `rehypeMentionChips`) and makes it an accessible button; every other span passes through.

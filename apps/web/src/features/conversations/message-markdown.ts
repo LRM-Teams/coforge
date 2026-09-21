@@ -16,7 +16,7 @@
  * they need not pass the untrusted-content schema. Nothing sanitizer-relevant is added before
  * it runs.
  */
-import { MENTION_TOKEN_PATTERN, splitCodeSpans } from "@lrm/coforge-sdk/internal";
+import { MENTION_PATTERN, MENTION_TOKEN_PATTERN, splitCodeSpans } from "@lrm/coforge-sdk/internal";
 import type { Element, Root, Text } from "hast";
 
 import type { MentionRef } from "./mention-text";
@@ -92,13 +92,23 @@ export function mentionHandlesByToken(mentions: readonly MentionRef[]): Map<stri
  * Replaces resolved mention tokens with chips in an already-sanitized tree, skipping anything
  * inside `code` or `pre`. A mention is a reference, not a link, so a chip is a plain `span`
  * with no interaction — membership and wake rules live on the server.
+ *
+ * `plain` additionally chips a body's *plain* `@handle` spellings (no embedded token — a DM
+ * body, or a channel body whose author never used the completion): any `@handle` that matches a
+ * conversation member's exact handle renders the same chip with that member's display label.
+ * Display-only: storage and wake rules are unchanged, and the match reuses the shared
+ * `MENTION_PATTERN` grammar (so emails and `@@` never match) against the member directory only —
+ * an unknown handle stays literal text.
  */
 export function rehypeMentionChips(options: {
   handles: Map<string, ChipMention>;
   viewerHandle?: string;
+  plain?: Map<string, ChipMention>;
 }) {
-  const { handles, viewerHandle } = options;
+  const { handles, viewerHandle, plain } = options;
   const tokenPattern = new RegExp(MENTION_TOKEN_PATTERN.source, "gi");
+  const plainPattern =
+    plain && plain.size > 0 ? new RegExp(MENTION_PATTERN.source, "g") : undefined;
 
   return (tree: Root) => {
     const visit = (node: Root | Element, inCode: boolean) => {
@@ -107,8 +117,15 @@ export function rehypeMentionChips(options: {
       const next: Array<Element | Text> = [];
 
       for (const child of node.children as Array<Element | Text>) {
-        if (child.type === "text" && !code && child.value.includes("<@")) {
-          const parts = chipParts(child.value, tokenPattern, handles, viewerHandle);
+        if (child.type === "text" && !code && (child.value.includes("<@") || plainPattern)) {
+          const parts = chipParts(
+            child.value,
+            tokenPattern,
+            plainPattern,
+            handles,
+            plain,
+            viewerHandle,
+          );
           if (parts) {
             next.push(...parts);
             continue;
@@ -125,11 +142,13 @@ export function rehypeMentionChips(options: {
   };
 }
 
-/** The chip/text replacement for one text node, or `undefined` when it holds no token. */
+/** The chip/text replacement for one text node, or `undefined` when nothing matches. */
 function chipParts(
   value: string,
   tokenPattern: RegExp,
+  plainPattern: RegExp | undefined,
   handles: Map<string, ChipMention>,
+  plain: Map<string, ChipMention> | undefined,
   viewerHandle?: string,
 ): Array<Element | Text> | undefined {
   tokenPattern.lastIndex = 0;
@@ -137,14 +156,33 @@ function chipParts(
   let offset = 0;
   let matched = false;
 
+  // One merged scan: tokens take precedence (their span covers the whole `<@kind:uuid>` form, so
+  // a plain `@agent`-looking prefix inside an unresolved token is never chipped twice), and each
+  // plain `@handle` chips only when it names a conversation member exactly.
+  const matches: Array<{ index: number; text: string; mention?: ChipMention }> = [];
   for (const match of value.matchAll(tokenPattern)) {
-    matched = true;
     const kind = match[1]!.toLowerCase() === "human" ? "user" : "agent";
     const mention = handles.get(`${kind}:${match[2]!.toLowerCase()}`);
+    matches.push({ index: match.index, text: match[0], mention });
+  }
+  if (plainPattern && plain && plain.size > 0) {
+    for (const match of value.matchAll(plainPattern)) {
+      const index = match.index;
+      if (matches.some((token) => index >= token.index && index < token.index + token.text.length))
+        continue;
+      const chip = plain.get(match[1]!);
+      if (chip) matches.push({ index, text: match[0], mention: chip });
+    }
+    matches.sort((a, b) => a.index - b.index);
+  }
+
+  for (const match of matches) {
+    matched = true;
+    const mention = match.mention;
     if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
     if (mention === undefined) {
       // An unresolvable token stays as written rather than becoming a phantom highlight.
-      parts.push({ type: "text", value: match[0] });
+      parts.push({ type: "text", value: match.text });
     } else {
       const self = Boolean(viewerHandle) && mention.handle === viewerHandle;
       const className = (self ? MENTION_CHIP_SELF_CLASS : MENTION_CHIP_CLASS).split(" ");
@@ -161,7 +199,7 @@ function chipParts(
         children: [{ type: "text", value: `@${mention.label}` }],
       });
     }
-    offset = match.index + match[0].length;
+    offset = match.index + match.text.length;
   }
 
   if (!matched) return undefined;
