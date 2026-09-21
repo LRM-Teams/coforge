@@ -85,9 +85,12 @@ export function regionFromEndpoint(endpoint: string): string | undefined {
  * security token - the same pattern `apps/web`'s OSS file storage uses - so a client built from a
  * federated STS token does not start signing with an expired one partway through a publish that
  * compiled six targets before it ever made a network call. */
-/** A publish uploads whole platform bundles over a shared runner link; 60s (ali-oss's default) is
- * an interactive request's budget, not this job's. See `createOssClient`. */
-const PUBLISH_OBJECT_TIMEOUT_MS = 10 * 60 * 1000;
+/** urllib always applies *some* response timeout - unset, it falls back to its own 5 s/5 s
+ * default, which is useless here - and ali-oss would otherwise default the client to 60 s. Human
+ * directive 2026-09-21 is to publish without a request timeout, so the client gets a whole-day
+ * budget: in practice never reached (a publish finishes or dies in minutes), but a part that
+ * genuinely stalls still errors out within the run instead of hanging forever. */
+const PUBLISH_OBJECT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 export async function createOssClient(
   connection: OssConnection,
@@ -118,10 +121,7 @@ export async function createOssClient(
     agent: new HttpAgent({ keepAlive: false }),
     httpsAgent: new HttpsAgent({ keepAlive: false }),
     // ali-oss defaults every request to a 60s timeout, which is an interactive caller's budget. A
-    // publish is a batch job: it compiles six targets and then pushes the largest bundles over the
-    // runner's link, and the biggest of them (darwin-arm64) has now failed with `OSS upload failed:
-    // HTTP unknown ... request-id=unknown` — a transport failure with no HTTP status, which is what a
-    // timeout looks like — in three consecutive builds (dev.59, dev.60, dev.61). Give it room.
+    // publish is a batch job: see PUBLISH_OBJECT_TIMEOUT_MS below - a whole-day budget instead.
     timeout: PUBLISH_OBJECT_TIMEOUT_MS,
     // Transient transport errors (-1/-2: reset, connect timeout) retry at the SDK level. A response
     // timeout carries no status, so it is putObject's own retry loop that rescues it.
@@ -226,15 +226,10 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  * killed it with a `ResponseTimeoutError` (a `name`-only error, no status/code/request-id). */
 const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
 /** Per-part size for multipart uploads. Human directive 2026-09-21: use default-style small
- * parts (100 KiB) with the SDK's default 60 s budget. A 100 KiB part finishes inside 60 s on
- * any link above ~2 KB/s, so per-part timeouts stop being the binding constraint; fresh
- * connections per request (`createOssClient`) are what fix the zero-flow part-1 stall. */
+ * parts (100 KiB). With small parts a slow link just makes each part take a little longer
+ * instead of failing; fresh connections per request (`createOssClient`) are what fix the
+ * zero-flow part-1 stall. */
 const MULTIPART_PART_BYTES = 100 * 1024;
-/** Per-request timeout for each multipart part (and each read-back), in ms — ali-oss/urllib's
- * default 60 s, kept explicit. With 100 KiB parts a 60 s budget is generous; a stalled network
- * times out a single small part, not the whole object, and `ossError` records the `name` so the
- * log can show `ResponseTimeoutError`. */
-const OSS_REQUEST_TIMEOUT_MS = 60_000;
 /** Whole-multipart attempts before giving up. ali-oss's own retry never fires for a response
  * timeout: its guard only retries errors carrying status -1/-2, and a `ResponseTimeoutError`
  * carries none — so a timed-out part fails the whole call no matter what `retryMax` says. The
@@ -246,9 +241,13 @@ async function putObject(
   client: OSS,
   objectKey: string,
   bytes: Uint8Array,
-  requestTimeoutMs: number = OSS_REQUEST_TIMEOUT_MS,
+  requestTimeoutMs?: number,
 ): Promise<void> {
   const buffer = Buffer.from(bytes);
+  // Human directive 2026-09-21: no per-request timeout in production - a slow link should be
+  // allowed to finish however long it takes. `requestTimeoutMs` remains as a test-only hook so
+  // the stalled-server fixture can still pin the `ResponseTimeoutError` reporting path.
+  const requestOptions = requestTimeoutMs ? { timeout: requestTimeoutMs } : {};
   try {
     if (buffer.byteLength >= MULTIPART_MIN_BYTES) {
       for (let attempt = 1; ; attempt += 1) {
@@ -256,7 +255,7 @@ async function putObject(
           await client.multipartUpload(objectKey, buffer, {
             partSize: MULTIPART_PART_BYTES,
             parallel: 1,
-            timeout: requestTimeoutMs,
+            ...requestOptions,
             headers: { "Content-Type": "application/octet-stream" },
           });
           return;
@@ -277,7 +276,7 @@ async function putObject(
       }
     }
     await client.put(objectKey, buffer, {
-      timeout: requestTimeoutMs,
+      ...requestOptions,
       headers: { "Content-Type": "application/octet-stream" },
     });
   } catch (error) {
@@ -340,9 +339,10 @@ export interface UploadOptions {
   connection: OssConnection;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
-  /** Per-request upload timeout in ms. Defaults to `OSS_REQUEST_TIMEOUT_MS` (60 s). Tests pass a
-   * small value so a deliberately slow fixture server can prove that a stalled link reports the
-   * timeout's name instead of hanging the publish. */
+  /** Per-request upload timeout in ms. Production publishes set none (human directive
+   * 2026-09-21: uploads just take as long as the link needs). Tests pass a small value so a
+   * deliberately slow fixture server can prove that a stalled link reports the timeout's name
+   * instead of hanging the publish. */
   requestTimeoutMs?: number;
 }
 
@@ -377,10 +377,9 @@ export async function uploadReleaseTree(
   }
   const uploadOrder = [...tree.files.filter((file) => file !== manifestKey), manifestKey];
 
-  const requestTimeoutMs = options.requestTimeoutMs ?? OSS_REQUEST_TIMEOUT_MS;
   for (const relativePath of uploadOrder) {
     const bytes = await readFile(join(outputDirectory, relativePath));
-    await putObject(client, relativePath, bytes, requestTimeoutMs);
+    await putObject(client, relativePath, bytes, options.requestTimeoutMs);
     log(`uploaded ${relativePath}`);
   }
 
