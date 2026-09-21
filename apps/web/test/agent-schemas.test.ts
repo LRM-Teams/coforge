@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { updateAgentInputFromForm } from "../src/features/agents/agent-form";
 import {
+  changeAgentVisibilityInputSchema,
   createAgentInputSchema,
   updateAgentInputSchema,
 } from "../src/features/agents/agent.schemas";
@@ -20,7 +21,26 @@ const validUpdate = {
 
 describe("createAgentInputSchema", () => {
   test("accepts the public Agent creation shape", () => {
-    expect(createAgentInputSchema.parse(validInput)).toEqual(validInput);
+    expect(createAgentInputSchema.parse(validInput)).toEqual({
+      ...validInput,
+      visibility: "public",
+    });
+  });
+
+  test("defaults visibility to public when omitted", () => {
+    expect(createAgentInputSchema.parse(validInput).visibility).toBe("public");
+  });
+
+  test("accepts an explicit private visibility", () => {
+    expect(
+      createAgentInputSchema.parse({ ...validInput, visibility: "private" }).visibility,
+    ).toBe("private");
+  });
+
+  test("rejects an unrecognized visibility value", () => {
+    expect(
+      createAgentInputSchema.safeParse({ ...validInput, visibility: "hidden" }).success,
+    ).toBe(false);
   });
 
   test("accepts Kiro with its default credential configuration", () => {
@@ -254,5 +274,33 @@ describe("createAgentInputSchema", () => {
     form.set("description", "");
     form.set("provider", "coforge");
     expect(updateAgentInputFromForm(form, { agentId })).not.toHaveProperty("displayName");
+  });
+});
+
+describe("changeAgentVisibilityInputSchema", () => {
+  const agentId = "6f81050c-6ff3-4f17-b5f8-dc8eed8ea5da";
+
+  test("accepts public and private", () => {
+    expect(changeAgentVisibilityInputSchema.parse({ agentId, visibility: "public" })).toEqual({
+      agentId,
+      visibility: "public",
+    });
+    expect(changeAgentVisibilityInputSchema.parse({ agentId, visibility: "private" })).toEqual({
+      agentId,
+      visibility: "private",
+    });
+  });
+
+  test("rejects an unrecognized visibility value", () => {
+    expect(
+      changeAgentVisibilityInputSchema.safeParse({ agentId, visibility: "hidden" }).success,
+    ).toBe(false);
+  });
+
+  test("requires a valid Agent id", () => {
+    expect(
+      changeAgentVisibilityInputSchema.safeParse({ agentId: "not-a-uuid", visibility: "private" })
+        .success,
+    ).toBe(false);
   });
 });

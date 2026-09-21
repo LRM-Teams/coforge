@@ -5,6 +5,7 @@ import {
   RUNTIME_PROVIDER_VALUES,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
+import { AGENT_VISIBILITY, AGENT_VISIBILITY_VALUES } from "./agent-visibility";
 
 export const KEYED_MODEL_PROVIDERS = new Set([
   "deepseek",
@@ -99,6 +100,9 @@ export const createAgentInputSchema = z
     /** Present when this create submits an Agent-prepared `agent:create` action card
      * (ADR 0027 "Commit and cancel"); marks the card `executed` after the Agent is created. */
     actionCardMessageId: z.uuid().optional(),
+    /** Who can see this new Agent (ADR 0059); defaults to public, matching every creation path
+     * except the weekly-report Collector Agent, which is created private outside this schema. */
+    visibility: z.enum(AGENT_VISIBILITY_VALUES).default(AGENT_VISIBILITY.PUBLIC),
   })
   .superRefine(validateRuntimeKey);
 
@@ -131,6 +135,14 @@ export const updateAgentRoleInputSchema = z.object({
   role: z.enum(["admin", "member"]),
 });
 export type UpdateAgentRoleInput = z.infer<typeof updateAgentRoleInputSchema>;
+
+/** ADR 0059: changes an Agent's visibility, both directions. `changeAgentVisibility` is the only
+ * server function that writes this field; `createAgentInputSchema.visibility` is create-time only. */
+export const changeAgentVisibilityInputSchema = z.object({
+  agentId: agentIdSchema,
+  visibility: z.enum(AGENT_VISIBILITY_VALUES),
+});
+export type ChangeAgentVisibilityInput = z.infer<typeof changeAgentVisibilityInputSchema>;
 export const saveAgentRuntimeCredentialInputSchema = z.object({
   agentId: agentIdSchema,
   apiKey: z.string().trim().min(8).max(4096),
