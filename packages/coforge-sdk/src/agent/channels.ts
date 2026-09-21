@@ -150,3 +150,41 @@ export type AgentChannelRemoveMemberResponse = {
   removed: true;
   wasMember: boolean;
 };
+
+/** `agent_not_visible` (ADR 0059): `channel add-member --agent <handle>` resolves to a private
+ * Agent the calling Agent cannot see — the same stable outcome `user-info.ts`/`profile.ts` carry,
+ * distinct from the plain-text "member not found"/"channel not found" bodies every other channel
+ * command error still uses. */
+export const AGENT_CHANNEL_ERROR_CODES = ["agent_not_visible"] as const;
+export type AgentChannelErrorCode = (typeof AGENT_CHANNEL_ERROR_CODES)[number];
+
+export type AgentChannelErrorResponse = {
+  ok: false;
+  errorCode: AgentChannelErrorCode;
+  error: string;
+};
+
+function isChannelErrorCode(value: unknown): value is AgentChannelErrorCode {
+  return (
+    typeof value === "string" && (AGENT_CHANNEL_ERROR_CODES as readonly string[]).includes(value)
+  );
+}
+
+/** Decodes the one JSON-enveloped channel error body; every other channel command failure stays
+ * plain text (an HTTP status plus a message), so this returns `undefined` for those. */
+export function decodeAgentChannelErrorResponse(
+  value: unknown,
+): AgentChannelErrorResponse | undefined {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("ok" in value) ||
+    value.ok !== false ||
+    !("errorCode" in value) ||
+    !isChannelErrorCode(value.errorCode) ||
+    !("error" in value) ||
+    typeof value.error !== "string"
+  )
+    return undefined;
+  return { ok: false, errorCode: value.errorCode, error: value.error };
+}
