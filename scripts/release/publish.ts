@@ -150,23 +150,30 @@ function isMissingObject(error: unknown): boolean {
   return code === "NoSuchKey" || status === 404;
 }
 
-/** The only diagnostic a failed OSS call is allowed to surface: an HTTP status, the object key,
- * and OSS's own request id. It deliberately excludes the SDK error's `message` and any response
- * body/header - a real OSS `SignatureDoesNotMatch` error echoes the `StringToSign`, the supplied
- * `Signature`, and the `AccessKeyId` back to the caller, so surfacing that text would leak exactly
- * the material this function exists to protect. See publish.test.ts's credential-leak test, which
- * fails if this function is changed to include either. */
-function ossError(action: string, objectKey: string, error: unknown): Error {
-  const { status, code, requestId } =
+/** The only diagnostic a failed OSS call is allowed to surface: an HTTP status, OSS's own code, the
+ * error's *class name*, the object key, and OSS's request id. It deliberately excludes the SDK
+ * error's `message` and any response body/header - a real OSS `SignatureDoesNotMatch` error echoes
+ * the `StringToSign`, the supplied `Signature`, and the `AccessKeyId` back to the caller, so
+ * surfacing that text would leak exactly the material this function exists to protect. See
+ * publish.test.ts's credential-leak test, which fails if this function is changed to include either.
+ *
+ * The class name is in because it is the one part of an SDK error that is a *kind* rather than
+ * content: a transport failure reports no status at all (`HTTP unknown`), and `ResponseTimeoutError`
+ * versus `ConnectionTimeoutError` is the whole diagnosis. */
+export function ossError(action: string, objectKey: string, error: unknown): Error {
+  const { status, code, requestId, name } =
     typeof error === "object" && error !== null
-      ? (error as { status?: unknown; code?: unknown; requestId?: unknown })
+      ? (error as { status?: unknown; code?: unknown; requestId?: unknown; name?: unknown })
       : {};
   const statusText = typeof status === "number" ? status : "unknown";
   const codeText = typeof code === "string" && code.length > 0 ? ` code=${code}` : "";
+  // `Error` itself says nothing; a class name that differs from it is the interesting case.
+  const nameText =
+    typeof name === "string" && name.length > 0 && name !== "Error" ? ` ${name}` : "";
   const requestIdText =
     typeof requestId === "string" && requestId.length > 0 ? requestId : "unknown";
   return new Error(
-    `OSS ${action} failed: HTTP ${statusText}${codeText} ${objectKey} request-id=${requestIdText}`,
+    `OSS ${action} failed: HTTP ${statusText}${codeText}${nameText} ${objectKey} request-id=${requestIdText}`,
   );
 }
 
