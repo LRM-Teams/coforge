@@ -100,7 +100,6 @@ test("a member (non-manager) sees a read-only Profile: no pencils, no Actions se
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -122,7 +121,6 @@ test("the identity block (avatar, name heading, status badge, @handle) is not re
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -138,7 +136,6 @@ test("a manager (owner or admin-like) sees pencils and the Actions section", () 
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       onSaveRole={noop}
@@ -160,7 +157,6 @@ test("a stopped Agent's Actions section offers Start instead of Stop", () => {
       timeZone="UTC"
       canManage
       controls={controlsFixture(false)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -177,7 +173,6 @@ test("a viewer without visibility into the runtime's usage sees the plain Runtim
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -194,7 +189,6 @@ test('the runtime\'s owner gets a usage button labelled "<Runtime> · Usage" wra
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -220,7 +214,6 @@ test("a runtime without usage support keeps the plain badge even for its owner",
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -238,7 +231,6 @@ test("hides the context-usage badge entirely when there is no reading", () => {
         timeZone="UTC"
         canManage={false}
         controls={controlsFixture(true)}
-        onGotoActivity={() => {}}
         onSaveDisplayName={noop}
         onSaveDescription={noop}
         runtimeCredentialDialog={null}
@@ -262,7 +254,6 @@ test("shows the rounded, clamped percentage next to the Runtime badge when a rea
         timeZone="UTC"
         canManage={false}
         controls={controlsFixture(true)}
-        onGotoActivity={() => {}}
         onSaveDisplayName={noop}
         onSaveDescription={noop}
         runtimeCredentialDialog={null}
@@ -284,7 +275,6 @@ test("a manager with a Computer sees the Runtime config pencil", () => {
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       onStartRuntimeEdit={() => {}}
@@ -301,7 +291,6 @@ test("a non-manager never sees the Runtime config pencil", () => {
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       onStartRuntimeEdit={() => {}}
@@ -318,7 +307,6 @@ test("an Agent without a Computer shows no Runtime config pencil, even for a man
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       onStartRuntimeEdit={() => {}}
@@ -335,7 +323,6 @@ test("the Runtime config pencil never renders when the container gives no onStar
       timeZone="UTC"
       canManage
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -351,7 +338,6 @@ test("a non-Claude-Code Agent's context badge stays a tooltip trigger, not a pop
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
@@ -383,7 +369,6 @@ test("a Claude Code Agent's context badge becomes the breakdown popover trigger"
       timeZone="UTC"
       canManage={false}
       controls={controlsFixture(true)}
-      onGotoActivity={() => {}}
       onSaveDisplayName={noop}
       onSaveDescription={noop}
       runtimeCredentialDialog={null}
