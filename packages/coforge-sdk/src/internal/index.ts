@@ -637,6 +637,8 @@ export type AgentMessageDeliveryAck = Omit<
   "body" | "conversationId" | "method" | "requestId"
 > & { method: typeof AGENT_MESSAGE_ACK_METHOD; requestId: string };
 export { parseActivityEntries } from "./activity-entries";
+export { freshnessDecisionFactId, stableNormalizeFreshnessFact } from "./freshness-decision";
+export type { FreshnessDecisionAction, FreshnessDecisionFactInput } from "./freshness-decision";
 export { codePointLength, truncateCodePoints } from "./truncate";
 export {
   compareReleaseVersions,
@@ -663,6 +665,10 @@ export type AgentActivity = {
   isHeartbeat?: boolean;
   /** Set only on the daemon's reply to an AgentActivityProbe; echoes its probeId. */
   probeId?: string;
+  /** Raft's freshness-decision lineage (`buildApmFreshnessDecisionProducerFactId`):
+   * `freshness_decision_fact:<sha256>` for the decision this row narrates. A freshness-hold row
+   * only; absent otherwise. */
+  producerFactId?: string;
   runtimeError?: {
     errorClass: string;
     errorReason: string;

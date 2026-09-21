@@ -270,6 +270,10 @@ message AgentActivity {
   bool is_heartbeat = 18;
   // Set only on the daemon's reply to an AgentActivityProbe; echoes its probe_id.
   string probe_id = 19;
+  // Raft's freshness-decision lineage: `freshness_decision_fact:<sha256>` for the decision this
+  // row narrates (`buildApmFreshnessDecisionProducerFactId`). Set on a freshness-hold row only;
+  // empty otherwise.
+  string producer_fact_id = 20;
 }
 
 // Display-only trajectory. The oneof makes kind/payload mismatches impossible.
