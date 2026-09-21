@@ -469,14 +469,18 @@ PostgreSQL 的首要领域对象是：
 - `message`
 - Workspace Records（周报）：`weekly_report_cycles`、`weekly_reports`、
   `weekly_report_favorites`、`weekly_report_templates`、
-  `weekly_report_assistants`、`record_notes`、`record_comments`（见 ADR 0009 / ADR 0011；schema
+  `weekly_report_assistants`、`weekly_report_assistant_runtime_sessions`、
+  `record_notes`、`record_comments`（见 ADR 0009 / ADR 0011 / ADR 0059；schema
   变更需 Frank 批准）。`weekly_report_assistants` 将一个 User 在一个 Workspace
   内的固定周报助手 Agent 归属持久化为 `(workspaceId, userId)` 唯一关系；助手仍复用
   Agent 的 Computer/Runtime 生命周期，但不是 Workspace 共享 Agent，也不进入 Members
   的独立管理流程。该助手的 **Agent session** 按 Records 页面 subject
   （`report:<weeklyReportId>` / `cycle:<cycleId>`）隔离：同一周报节点复用同一会话，
-  不同节点不得共用一条长会话；侧栏 `WeeklyReportAssistantChatSession` 仍是按
-  subject 的 UI 线程，与运行时 Agent session 分工不同（见
+  不同节点不得共用一条长会话。映射表 `weekly_report_assistant_runtime_sessions`
+  保存 `(workspace, agent, subject) → sessionId`，供后续 launch/resume 选用，不替代
+  `Agent.currentSessionId` 对普通 Agent 的语义。侧栏
+  `WeeklyReportAssistantChatSession` 仍是按 subject 的 UI 线程，与运行时 Agent
+  session 分工不同（见
   [ADR 0059](adr/0059-weekly-assistant-per-subject-runtime-session.md)）。
   周报助手启动时，launch credential 可附带
   `assignedSkillPacks: ["weekly-report"]`；Daemon 在 native Skills discovery 前将这些

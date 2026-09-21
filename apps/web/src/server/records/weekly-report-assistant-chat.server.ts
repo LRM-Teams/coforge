@@ -7,6 +7,7 @@ import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 import { RecordCatalog } from "./record-catalog.server";
 import { ensureWeeklyReportAssistant } from "./weekly-report-assistant.server";
+import { ensureWeeklyReportAssistantRuntimeSession } from "./weekly-report-assistant-runtime-session.server";
 import {
   buildWeeklyReportAssistantRequestBody,
   isWeeklyReportPlatformTurn,
@@ -115,6 +116,13 @@ export class WeeklyReportAssistantChat {
     if (!agent || agent.ownerId !== input.userId) throw new AppError("ACCESS_DENIED");
     if (!agent.computerId) throw new AppError("INVALID_INPUT");
 
+    const runtimeSession = await ensureWeeklyReportAssistantRuntimeSession(this.db, {
+      workspaceId: input.workspaceId,
+      agentId: assistant.agentId,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+    });
+
     const catalog = new RecordCatalog(this.db);
     const contextManifest = await catalog.loadAssistantContextManifest({
       workspaceId: input.workspaceId,
@@ -150,6 +158,7 @@ export class WeeklyReportAssistantChat {
     return {
       agentId: assistant.agentId,
       conversationId: opened.conversationId,
+      runtimeSessionId: runtimeSession.sessionId,
       message: {
         id: message.id,
         sequence: message.sequence,

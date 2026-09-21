@@ -20,6 +20,7 @@ model Workspace {
   agents                 Agent[]
   weeklyReportAssistants       WeeklyReportAssistant[]
   weeklyReportAssistantChatSessions WeeklyReportAssistantChatSession[]
+  weeklyReportAssistantRuntimeSessions WeeklyReportAssistantRuntimeSession[]
   weeklyReportCollectorBindings WeeklyReportCollectorBinding[]
   weeklyReportCollectRuns      WeeklyReportCollectRun[]
   agentApiKeys           AgentApiKey[]
@@ -236,6 +237,7 @@ model Agent {
   reminderOperationReceipts ReminderOperationReceipt[]
   preparedActionCards       ActionCard[]
   weeklyReportAssistant         WeeklyReportAssistant?
+  weeklyReportAssistantRuntimeSessions WeeklyReportAssistantRuntimeSession[]
   weeklyReportCollectorBinding  WeeklyReportCollectorBinding?
   attachments               Attachment[]
   attachmentUploadSessions  AttachmentUploadSession[]
@@ -362,6 +364,27 @@ model WeeklyReportAssistantChatSession {
   @@index([workspaceId, userId, subjectType, subjectId, updatedAt])
   @@index([workspaceId, userId])
   @@map("weekly_report_assistant_chat_sessions")
+}
+
+/// Agent-session reservation for one WeeklyReportAssistant and one Records
+/// page subject (ADR 0059). Not the side-chat thread and not Agent.currentSessionId.
+model WeeklyReportAssistantRuntimeSession {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  agentId     String   @db.Uuid
+  /// report | cycle
+  subjectType String
+  subjectId   String   @db.Uuid
+  /// Provider session id reserved for create/resume of this subject.
+  sessionId   String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent       Agent     @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([workspaceId, agentId, subjectType, subjectId])
+  @@index([workspaceId, agentId])
+  @@map("weekly_report_assistant_runtime_sessions")
 }
 
 /// A provider-native Session belongs to the Agent and the Computer/runtime that created it.
