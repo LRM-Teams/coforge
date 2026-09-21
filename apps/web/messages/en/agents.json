@@ -51,7 +51,6 @@
   "agent_form_reasoning": "Reasoning",
   "agent_form_provider_default": "Use provider default",
   "agent_form_pi_provider_configured": "Configured",
-  "agent_form_pi_configured_help": "Configured uses this Computer's Pi setup (~/.pi/agent). Other options pass the API key you enter here to Pi, without changing the Computer's Pi files.",
   "agent_form_model_custom": "Custom…",
   "agent_form_model_custom_id": "Custom model ID",
   "agent_form_model_custom_error": "Enter the model as provider/model-id.",
