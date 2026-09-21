@@ -86,6 +86,10 @@ export type DirectConversationView = {
   hasOlder?: boolean;
   hasNewer?: boolean;
   agent: { id: string; name: string; displayName: string; deletedAt?: Date | null };
+  /** Whether the viewer may still send here (ADR 0059): a private Agent's DM stays scoped to its
+   * own creator, so an existing DM held by anyone else reads read-only once it goes private.
+   * The server enforces the same rule on send; this only chooses the composer or the notice. */
+  dmWritable?: boolean;
   /** The viewing user's `@handle`; powers the stronger "mentioned me" chip, and lets the composer
    * drop the viewer from its candidate list. Absent for a non-member. */
   viewerHandle?: string;
@@ -269,6 +273,9 @@ export function DirectConversation(props: ConversationProps) {
   const { conversation } = props;
   // ADR 0044: a deleted Agent's DM stays readable, but nothing new can be sent to it.
   const deleted = Boolean(conversation.agent.deletedAt);
+  // ADR 0059: a private Agent's DM stays scoped to its own creator; this viewer's existing DM
+  // reads read-only. Independent of, and checked after, the deletion case above.
+  const dmRestricted = !deleted && conversation.dmWritable === false;
   // A DM carries no member directory: its only member counterpart is the conversation's own
   // Agent, whose messages keep plain text by design. Chip that one handle (display-only) so the
   // stream still reads the Agent's display label.
@@ -305,6 +312,10 @@ export function DirectConversation(props: ConversationProps) {
         deleted ? (
           <div className="mx-4 mb-4 rounded-lg border border-secondary bg-secondary p-4 md:mx-6 md:mb-6">
             <p className="text-sm text-tertiary">{m.agent_deleted_conversation_notice()}</p>
+          </div>
+        ) : dmRestricted ? (
+          <div className="mx-4 mb-4 rounded-lg border border-secondary bg-secondary p-4 md:mx-6 md:mb-6">
+            <p className="text-sm text-tertiary">{m.agent_dm_restricted_notice()}</p>
           </div>
         ) : undefined
       }

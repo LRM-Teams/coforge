@@ -1372,11 +1372,7 @@ describe("PrismaDirectConversationRepository", () => {
   });
 
   describe("getOrCreateUserAgent (ADR 0059)", () => {
-    function fixture(options: {
-      visibility: string;
-      ownerId: string;
-      existing?: { id: string };
-    }) {
+    function fixture(options: { visibility: string; ownerId: string; existing?: { id: string } }) {
       const created: unknown[] = [];
       const db = {
         agent: {

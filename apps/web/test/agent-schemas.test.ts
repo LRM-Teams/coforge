@@ -32,15 +32,15 @@ describe("createAgentInputSchema", () => {
   });
 
   test("accepts an explicit private visibility", () => {
-    expect(
-      createAgentInputSchema.parse({ ...validInput, visibility: "private" }).visibility,
-    ).toBe("private");
+    expect(createAgentInputSchema.parse({ ...validInput, visibility: "private" }).visibility).toBe(
+      "private",
+    );
   });
 
   test("rejects an unrecognized visibility value", () => {
-    expect(
-      createAgentInputSchema.safeParse({ ...validInput, visibility: "hidden" }).success,
-    ).toBe(false);
+    expect(createAgentInputSchema.safeParse({ ...validInput, visibility: "hidden" }).success).toBe(
+      false,
+    );
   });
 
   test("accepts Kiro with its default credential configuration", () => {

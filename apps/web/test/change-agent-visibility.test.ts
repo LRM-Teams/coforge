@@ -53,9 +53,13 @@ function fixture(options?: { record?: AgentRecord; changed?: boolean }) {
       return { changed: options?.changed ?? true };
     },
   };
-  const useCase = new ChangeAgentVisibility(repositoryFor(record), store, async (workspaceId, agentId) => {
-    notified.push({ workspaceId, agentId });
-  });
+  const useCase = new ChangeAgentVisibility(
+    repositoryFor(record),
+    store,
+    async (workspaceId, agentId) => {
+      notified.push({ workspaceId, agentId });
+    },
+  );
   return { useCase, applied, notified, record };
 }
 

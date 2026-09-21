@@ -23,6 +23,7 @@ import { AgentContextPopoverContent } from "@/features/agents/agent-context-popo
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "@/features/agents/agents.functions";
 import { AgentSkills, type AgentSkillsLoadResult } from "@/features/agents/agent-skills";
+import { AGENT_VISIBILITY, type AgentVisibility } from "@/features/agents/agent-visibility";
 import { InlineEditField, SECTION_CAPTION_CLASS, SUBFIELD_LABEL_CLASS } from "./inline-edit-field";
 
 /** Values are never shown in the chip; the dot count hints at length without revealing it. */
@@ -149,6 +150,7 @@ export function AgentProfileTab({
   onSaveDisplayName,
   onSaveDescription,
   onSaveRole,
+  onRequestVisibilityChange,
   runtimeCredentialDialog,
   onStartRuntimeEdit,
   onLoadSkills,
@@ -167,6 +169,9 @@ export function AgentProfileTab({
   onSaveDisplayName: (value: string) => Promise<void>;
   onSaveDescription: (value: string) => Promise<void>;
   onSaveRole?: (role: "admin" | "member") => Promise<void>;
+  /** Opens the container's `AgentVisibilityConfirmDialog` for the given target visibility (ADR
+   * 0059). Present only for the creator or a human Workspace owner/admin. */
+  onRequestVisibilityChange?: (target: AgentVisibility) => void;
   runtimeCredentialDialog: ReactNode;
   /** Opens the container's `AgentRuntimeConfigDialog` (see `agent-profile-panel.tsx`). The
    * RUNTIME CONFIG badges below never change; only the pencil does anything. */
@@ -232,6 +237,10 @@ export function AgentProfileTab({
           <RoleField
             role={profile.role}
             onSave={profile.canManageAgentRole ? onSaveRole : undefined}
+          />
+          <VisibilityField
+            visibility={profile.visibility}
+            onRequest={profile.canChangeVisibility ? onRequestVisibilityChange : undefined}
           />
         </div>
         <div className="mt-4">
@@ -420,6 +429,48 @@ export function AgentProfileTab({
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+/**
+ * Visibility (ADR 0059) reads as a badge, same as Role; an authorized viewer (creator or
+ * Workspace owner/admin) gets a single action button naming the opposite state — "Make private"
+ * or "Make public" — that opens the container's confirmation dialog rather than applying
+ * immediately, since both directions have real consequences worth a confirm step.
+ */
+function VisibilityField({
+  visibility,
+  onRequest,
+}: {
+  visibility: AgentVisibility;
+  onRequest?: (target: AgentVisibility) => void;
+}) {
+  const isPrivate = visibility === AGENT_VISIBILITY.PRIVATE;
+  return (
+    <div>
+      <p className={SUBFIELD_LABEL_CLASS}>{m.agent_profile_visibility()}</p>
+      <div className="mt-1 flex items-center gap-2">
+        <Badge color={isPrivate ? "gray" : "brand"} size="sm">
+          {isPrivate ? m.agent_visibility_label_private() : m.agent_visibility_label_public()}
+        </Badge>
+        {onRequest && (
+          <Button
+            color="link-color"
+            size="sm"
+            noTextPadding
+            aria-label={m.agent_profile_edit_visibility()}
+            className="h-auto p-0 font-medium"
+            onPress={() =>
+              onRequest(isPrivate ? AGENT_VISIBILITY.PUBLIC : AGENT_VISIBILITY.PRIVATE)
+            }
+          >
+            {isPrivate
+              ? m.agent_visibility_confirm_public_submit()
+              : m.agent_visibility_confirm_private_submit()}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

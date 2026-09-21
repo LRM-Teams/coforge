@@ -9,18 +9,14 @@ import { canDirectMessageAgent } from "../src/server/agents/agent-visibility.ser
  */
 describe("canDirectMessageAgent", () => {
   test("a public Agent can always be direct-messaged", () => {
-    expect(
-      canDirectMessageAgent("user-2", { visibility: "public", ownerId: "user-1" }),
-    ).toBeTrue();
+    expect(canDirectMessageAgent("user-2", { visibility: "public", ownerId: "user-1" })).toBeTrue();
   });
 
   test("the creator can always direct-message their own Agent, public or private", () => {
     expect(
       canDirectMessageAgent("user-1", { visibility: "private", ownerId: "user-1" }),
     ).toBeTrue();
-    expect(
-      canDirectMessageAgent("user-1", { visibility: "public", ownerId: "user-1" }),
-    ).toBeTrue();
+    expect(canDirectMessageAgent("user-1", { visibility: "public", ownerId: "user-1" })).toBeTrue();
   });
 
   test("a Workspace owner/admin who is not the creator cannot direct-message a private Agent", () => {
@@ -30,8 +26,6 @@ describe("canDirectMessageAgent", () => {
   });
 
   test("an unrecognized visibility value fails closed, like canSeeAgent", () => {
-    expect(
-      canDirectMessageAgent("user-2", { visibility: "weird", ownerId: "user-1" }),
-    ).toBeFalse();
+    expect(canDirectMessageAgent("user-2", { visibility: "weird", ownerId: "user-1" })).toBeFalse();
   });
 });

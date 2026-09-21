@@ -1971,7 +1971,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         select: { ownerId: true, visibility: true },
       });
       if (self && !canDirectMessageAgent(user.userId!, self))
-        throw new AgentSendRejectedError(403, "this Agent is private; the direct message is read-only");
+        throw new AgentSendRejectedError(
+          403,
+          "this Agent is private; the direct message is read-only",
+        );
     }
     const root = threadRootId
       ? await this.resolveMessage(conversationId, threadRootId, true)
