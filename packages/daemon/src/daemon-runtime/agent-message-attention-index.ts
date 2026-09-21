@@ -42,6 +42,15 @@ const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 /** One unreviewed delivery plus the moment this daemon learned about it. Deliveries carry no
  * message timestamp of their own (only the server knows when a message was written), so the
  * arrival time is what a locally built preview can honestly show. */
+
+/** The fields `#localViewRows` reads — a live delivery or a recovery message. */
+type LocalViewItem = {
+  target?: string;
+  messageId: string;
+  latestSenderKind?: MessageSenderKind;
+  latestSenderHandle?: string;
+};
+
 export type PendingWindowEntry = { delivery: AgentMessageDelivery; receivedAt: number };
 
 /**
@@ -252,7 +261,6 @@ export class AgentMessageAttentionIndex {
     const byTarget = new Map(currentAttention);
     const recoveredTargets = new Set<string>();
     const suppliedTargets = new Set<string>();
-    const recoveredCountByTarget = new Map<string, number>();
     const recoveredMessages: AgentRecoveryMessage[] = [];
     for (const message of [...messages].sort(
       (left, right) =>
@@ -276,10 +284,6 @@ export class AgentMessageAttentionIndex {
         continue;
       recoveredMessages.push(message);
       recoveredTargets.add(message.target);
-      recoveredCountByTarget.set(
-        message.target,
-        (recoveredCountByTarget.get(message.target) ?? 0) + 1,
-      );
       const previous = byTarget.get(message.target);
       byTarget.set(message.target, {
         target: message.target,
@@ -307,54 +311,36 @@ export class AgentMessageAttentionIndex {
         count > 0,
     );
     if (!recoveredTargets.size && !summaryOnly.length) return;
-    const lines = recoveredMessages
-      .filter((message) => !isChannelMessageTarget(message.target))
-      .map(
-        (message) =>
-          `[target=${message.target} msg=${message.messageId.slice(0, 8)} seq=${message.sequence} type=${message.latestSenderKind}] ${renderMessageSender(message.latestSenderKind, message.latestSenderHandle, message.latestSenderDescription)}: ${message.body}`,
-      );
-    const instructions = Object.entries(unreadSummary)
-      .filter(
-        ([target, count]) =>
-          recoveredTargets.has(target) &&
-          (target.startsWith("@") || isChannelMessageTarget(target)) &&
-          count > (recoveredCountByTarget.get(target) ?? 0),
-      )
-      .map(
-        ([target]) =>
-          `Run \`coforge message read --target ${isChannelMessageTarget(target) ? `"${target}"` : target}\` to read additional messages.`,
-      );
-    for (const [target, count] of summaryOnly)
-      instructions.push(
-        `${target} has ${count} unread message${count === 1 ? "" : "s"}; run \`coforge message read --target ${isChannelMessageTarget(target) ? `"${target}"` : target}\` to read them.`,
-      );
-    for (const [target, count] of recoveredCountByTarget) {
-      if (isChannelMessageTarget(target))
-        instructions.push(
-          `${target} has ${count} pending notification${count === 1 ? "" : "s"}. Run \`coforge message check\` to read pending messages. Use \`coforge channel mute --target "${target}"\` to stop future ordinary notifications; human @mentions still notify you.`,
-        );
-    }
-    const concrete = lines.length
-      ? `${lines.length === 1 ? "New message received:" : "New messages received:"}\n\n${lines.join("\n")}\n\nRespond as appropriate. Complete all your work before stopping.`
-      : "New messages received:";
+    // Recovery is a wakeup, not a second copy of the bodies: the same messages will come back
+    // through `coforge message check`. DM and channel share `#localViewRows` (one target per
+    // line, no body). `recordModelSeen` is not advanced here — the server cursor has not moved,
+    // and `check` is what advances both.
+    const rows = [
+      ...this.#localViewRows(recoveredMessages, []),
+      ...summaryOnly.map(
+        ([target, count]) => `${target}  new: ${count} message${count === 1 ? "" : "s"}`,
+      ),
+    ];
+    const totalCount =
+      recoveredMessages.length + summaryOnly.reduce((sum, [, count]) => sum + count, 0);
+    const notice = `[CoForge inbox notice (restart recovery):
+Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or held for you
+${rows.join("\n")}
+Run \`coforge message check\` (or \`check --target @x\`) to read pending messages.]`;
     // ADR 0048: same synchronous-busy rule as `#notify` — this is also a `session.notify` call.
     this.hold.busy(agentId);
-    await session.notify(
-      `${concrete}${instructions.length ? `\n\n${instructions.join("\n")}` : ""}`,
-    );
+    await session.notify(notice);
     if (this.#generations.get(agentId) !== generation) return;
     this.#attention.set(agentId, byTarget);
     for (const message of recoveredMessages) {
       this.#recordLatest(agentId, message.target, message.sequence);
       this.#remember(generation, message.deliveryId, message.messageId);
       generation.notified.add(message.deliveryId);
-      if (isChannelMessageTarget(message.target)) {
-        const byTarget = this.#pendingSequences.get(agentId) ?? new Map<string, Set<number>>();
-        const pending = byTarget.get(message.target) ?? new Set<number>();
-        pending.add(message.sequence);
-        byTarget.set(message.target, pending);
-        this.#pendingSequences.set(agentId, byTarget);
-      } else this.recordModelSeen(agentId, message.target, message.sequence);
+      const pendingByTarget = this.#pendingSequences.get(agentId) ?? new Map<string, Set<number>>();
+      const pending = pendingByTarget.get(message.target) ?? new Set<number>();
+      pending.add(message.sequence);
+      pendingByTarget.set(message.target, pending);
+      this.#pendingSequences.set(agentId, pendingByTarget);
     }
     if (recoveredMessages.length) this.messageReceived(agentId);
   }
@@ -369,10 +355,7 @@ export class AgentMessageAttentionIndex {
    * while the lines showed only the announced ones left the reader unable to tell where the rest
    * were, which is the same kind of unexplainable number this change exists to remove.
    */
-  #localViewRows(
-    announced: readonly AgentMessageDelivery[],
-    queued: readonly AgentMessageDelivery[],
-  ): string[] {
+  #localViewRows(announced: readonly LocalViewItem[], queued: readonly LocalViewItem[]): string[] {
     const announcedIds = new Set(announced.map((delivery) => delivery.messageId));
     type Row = {
       newIds: Set<string>;

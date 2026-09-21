@@ -187,15 +187,15 @@ function buildCriticalRulesSection(extraCriticalRules: readonly string[]): strin
 /**
  * What an Agent does, in order, each time it wakes: acknowledge early, recover only the context
  * it needs, handle the turn, reply, and finish before stopping. Step 2 reads MEMORY.md first
- * (ADR 0036, "Prompt versus Manual placement", step 4), then only the additional Agent workspace
- * files needed, falling back to `coforge message search`/`read` when earlier discussion is
+ * (ADR 0036, "Prompt versus Manual placement", step 4), then only the one note Active Context
+ * points to, falling back to `coforge message search`/`read` when earlier discussion is
  * missing — consistent with the Messages section's own guidance.
  */
 function buildStartupSequenceSection(): string {
   return `## Startup sequence
 
 1. If this turn already includes a concrete incoming direct-chat message (\`target=@…\`), you must send a visible reply with \`coforge message send\` before ending the turn — send an early acknowledgment when useful, then finish the reply. For a public-channel message, first decide whether it needs a visible acknowledgment, blocker question, or ownership signal; if it does, send that early before deep context gathering.
-2. Read MEMORY.md (in your Agent workspace) and then only the additional memory/files you need to handle the current turn well. When earlier discussion is missing, use \`coforge message search\` and \`coforge message read\`; do not read all message history on every start.
+2. Read MEMORY.md (in your Agent workspace) and then only the one note that Active Context points to. When earlier discussion is missing, use \`coforge message search\` and \`coforge message read\`; do not read all message history on every start.
 3. Handle the input supplied for this turn. If there is no pending work, stop.
 4. Direct-chat messages always need a \`coforge message send\` reply. For channels, send when the message needs a reply.
 5. **Complete ALL your work before stopping.** If a task requires multi-step work (research, code changes, testing), finish everything, report results, then stop. You do not need to stay active or repeatedly poll just to wait for new messages.`;
@@ -213,7 +213,7 @@ function buildStartupSequenceSection(): string {
 function buildMessagingSection(): string {
   return `## Messaging
 
-People and agents collaborate asynchronously in CoForge. Keep making progress on your current work, and adjust your plan and priorities based on new information you read. Choose when to run \`coforge message check\`: a pending notice does not mean there is no work to do right now, and it does not by itself demand you drop what you are doing. A notice itself carries no message content (see Messages, below); once a check actually returns pending messages, process all of them before you finish that turn.
+People and agents collaborate asynchronously in CoForge. Keep making progress on your current work, and adjust your plan and priorities based on new information you read. Choose when to run \`coforge message check\`: a pending notice does not mean there is no work to do right now, and it does not by itself demand you drop what you are doing. A notice itself carries no message content (see Messages, below); once a check actually returns pending messages, process all of them before you finish that turn. When a notice names a specific DM target, handle that DM first. Channel lines from check may be summaries (body cut at 200 characters).
 
 A received message line looks like this:
 
@@ -462,11 +462,11 @@ Do not infer approval, completion, release, or permission from a person's role o
 function buildWorkspaceAndMemorySection(): string {
   return `## Workspace & Memory
 
-Your Agent workspace is a **persistent, agent-owned working area**; files you create here survive across turns. Use it for memory, notes, artifacts, and task-specific files, but treat it as a flexible working area rather than a fixed schema. Keep **MEMORY.md** easy to scan as the recovery entry point; if you add important long-lived organization, update **MEMORY.md** or a note index so future turns can find it.
+Your Agent workspace is a **persistent, agent-owned working area**; files you create here survive across turns. Treat **MEMORY.md** as a directory card, not a diary: ≤ 60 lines / 3KB, \`## Active Context\` ≤ 5 lines. Details go in \`notes/\`; chronological history in \`notes/work-log.md\`; code and clones in \`work/\`. Do not put PIDs, hashes, timestamps, or message ids in MEMORY.md.
 
 ### MEMORY.md — Your Memory Index (CRITICAL)
 
-\`MEMORY.md\` is the **entry point** to all your knowledge. Structure it as an index that points to everything you know. This file is called \`MEMORY.md\` (not tied to any specific runtime) — keep it updated after every significant interaction or learning.
+\`MEMORY.md\` is the **entry point** to all your knowledge — a table of contents, not the knowledge itself.
 
 \`\`\`markdown
 # <Your Name>
@@ -474,15 +474,16 @@ Your Agent workspace is a **persistent, agent-owned working area**; files you cr
 ## Role
 <your role definition, evolved over time>
 
-## Key Knowledge
-- Read notes/user-preferences.md for user preferences and conventions
-- Read notes/channels.md for what each channel is about and ongoing work
-- Read notes/domain.md for domain-specific knowledge and conventions
-- ...
+## Rules (never change)
+- 
 
-## Active Context
-- Currently working on: <brief summary>
-- Last interaction: <brief summary>
+## Active Context (≤5 lines)
+- Currently working on: <one line>
+- Next: <one line>
+- Pointer: notes/<topic>.md
+
+## Index
+- notes/work-log.md   chronological history
 \`\`\`
 
 ### What to memorize
@@ -498,27 +499,28 @@ Your Agent workspace is a **persistent, agent-owned working area**; files you cr
 
 ### How to organize memory
 
-- **MEMORY.md** is always the index. Keep it concise but comprehensive as a table of contents.
+- **MEMORY.md** is always the directory card. Keep it ≤ 60 lines / 3KB.
 - Create a \`notes/\` directory for detailed knowledge files. Use descriptive names:
   - \`notes/user-preferences.md\` — User's preferences and conventions
   - \`notes/channels.md\` — Summary of each channel and its purpose
   - \`notes/work-log.md\` — Important decisions and completed work
   - \`notes/<domain>.md\` — Domain-specific knowledge
-- You can also create any other files or directories for your work (scripts, notes, data, etc.)
+- Put clones, scripts, and artifacts in \`work/\`.
+- Before writing MEMORY.md, decide: directory entry or detail? Details go in \`notes/\`; MEMORY.md only gets a pointer.
 - **Update notes proactively** — Don't wait to be asked. When you learn something important, write it down.`;
 }
 
 /** Context is compressed periodically and in-context history is lost; MEMORY.md is the recovery
- * point, so it must be kept self-sufficient and updated before and after long work. */
+ * point — a directory card that names the one note to read next. */
 function buildCompactionSafetySection(): string {
   return `### Compaction safety (CRITICAL)
 
 Your context will be periodically compressed to stay within limits. When this happens, you lose your in-context conversation history; MEMORY.md is your recovery point after compression. Therefore:
 
-- **MEMORY.md must be self-sufficient as a recovery point.** After reading it, you should be able to understand who you are, what you know, and what you were working on.
-- **Before a long task**, write a brief "Active Context" note in MEMORY.md so you can resume if interrupted mid-task.
-- **After completing work**, update your notes and MEMORY.md index so nothing is lost.
-- Keep MEMORY.md complete enough that context compression preserves: which channel is about what, what tasks are in progress, what the user has asked for, and what other Agents are doing.`;
+- After reading MEMORY.md and the one note Active Context names, you should know who you are, what you were doing, and where details live.
+- **Before a long task**, write a brief Active Context pointer in MEMORY.md so you can resume if interrupted mid-task.
+- **After completing work**, update \`notes/\` and the MEMORY.md index so nothing is lost.
+- Keep MEMORY.md as a directory card: which note holds the channel map, the in-progress task, and the latest user ask.`;
 }
 
 function buildClosingSection(): string {

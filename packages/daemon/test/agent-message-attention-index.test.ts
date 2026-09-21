@@ -88,6 +88,8 @@ test("channel delivery and restart recovery notify the same session without inje
   index.clearAgent("agent-1");
   await index.recover("agent-1", [message], { "#general": 1 });
   expect(notices.join("\n")).not.toContain("private body");
+  expect(notices.at(-1)).toContain("[CoForge inbox notice (restart recovery):");
+  expect(notices.at(-1)).toContain("#general  new: 1 message");
   expect(index.modelSeenSequence("agent-1", "#general")).toBe(0);
   expect(index.check("agent-1")[0]?.pendingCount).toBe(1);
   index.recordModelSeen("agent-1", "#general", 1);
@@ -200,7 +202,10 @@ test("a replacement session receives the same recovery IDs while duplicates stay
   await index.recover("agent-1", [message], { "@ada": 1 });
 
   expect(notices).toHaveLength(2);
-  expect(notices.every((notice) => notice.includes("recover this body"))).toBe(true);
+  expect(notices.every((notice) => notice.includes("restart recovery"))).toBe(true);
+  expect(notices.every((notice) => notice.includes("@ada  new: 1 message"))).toBe(true);
+  expect(notices.every((notice) => !notice.includes("recover this body"))).toBe(true);
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(0);
 });
 
 test("an old notification completion cannot mark a replacement generation notified", async () => {
@@ -406,16 +411,14 @@ test("recovery directs every target with messages beyond the batch to canonical 
   );
 
   expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("New message received:");
-  expect(notices[0]).toContain(
-    "[target=@ada msg=message- seq=1 type=human] @ada: Please resume this work",
-  );
-  expect(notices[0]).toContain("Respond as appropriate. Complete all your work before stopping.");
-  expect(notices[0]).toContain(
-    "Run `coforge message read --target @ada` to read additional messages.",
-  );
-  expect(notices[0]).toContain("run `coforge message read --target @grace` to read them.");
-  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(1);
+  expect(notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+  expect(notices[0]).toContain("@ada  new: 1 message");
+  expect(notices[0]).toContain("@grace  new: 1 message");
+  expect(notices[0]).toContain("Run `coforge message check` (or `check --target @x`)");
+  expect(notices[0]).not.toContain("Please resume this work");
+  expect(notices[0]).not.toContain("New message received:");
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(0);
+  expect(index.check("agent-1")[0]).toMatchObject({ target: "@ada", pendingCount: 1 });
 });
 
 test("recover also marks busy — it is a session.notify call like any other (ADR 0048)", async () => {
@@ -485,7 +488,8 @@ test("recovery rejected by the model remains unseen and retryable", async () => 
   reject = false;
   await index.recover("agent-1", [message], { "@ada": 1 });
   expect(notices).toHaveLength(2);
-  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(3);
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(0);
+  expect(index.check("agent-1")[0]).toMatchObject({ target: "@ada", pendingCount: 1 });
 });
 
 test("forgets the oldest deliveries so a long-lived Agent does not grow without bound", async () => {

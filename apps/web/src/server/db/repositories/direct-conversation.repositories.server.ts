@@ -1588,12 +1588,13 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   /**
    * Drains up to `limit` messages the Agent still owes attention to, in global
    * `(conversation, thread root, sequence)` order, and advances its read boundary for exactly the
-   * targets returned (ack-on-drain). Boundaries only move forward.
+   * targets returned (ack-on-drain). Boundaries only move forward. Default page is 20 (capped at
+   * 100) so an unscoped check does not dump a 50-row wall of full bodies into the transcript.
    */
   async drainAgentEvents(
     workspaceId: string,
     agentId: string,
-    limit = 50,
+    limit = 20,
   ): Promise<{ messages: ReturnType<typeof toAgentMessage>[]; hasMore: boolean }> {
     const bounded = Math.min(Math.max(limit, 1), 100);
     return this.db.$transaction(async (tx) => {

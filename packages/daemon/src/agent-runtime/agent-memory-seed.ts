@@ -1,5 +1,5 @@
 import { getLogger } from "@logtape/logtape";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { collapseWhitespace, stripHeadingMarkers } from "../code-agent/agent-instructions";
 
@@ -14,10 +14,19 @@ export type AgentMemorySeedIdentity = {
   description?: string;
 };
 
+const WORK_LOG_SEED = `# Work log
+
+Chronological history. Append only. Do not read this file every turn — follow the pointer in MEMORY.md Active Context.
+`;
+
+const GITIGNORE_SEED = `work/
+.pi-sessions/
+`;
+
 /**
- * Builds the content of a freshly seeded MEMORY.md for one Agent: a title, a Role section, an
- * empty Key Knowledge index, and an Active Context marking first startup — the structure the
- * standing prompt's "Workspace & Memory" section tells the Agent to keep.
+ * Builds the content of a freshly seeded MEMORY.md for one Agent: a title, a Role section, a
+ * Rules slot, a five-line Active Context, and an Index pointing at notes/work-log.md — the
+ * directory-card shape the standing prompt's "Workspace & Memory" section tells the Agent to keep.
  *
  * User-written identity text is sanitised the same way the standing prompt sanitises it: the
  * name is collapsed to a single line so it cannot break the `# <name>` heading, and the
@@ -34,36 +43,57 @@ export function buildInitialMemoryMd(identity: AgentMemorySeedIdentity): string 
 ## Role
 ${role}
 
-## Key Knowledge
-- No notes yet.
+## Rules (never change)
+- 
 
-## Active Context
+## Active Context (≤5 lines)
 - First startup.
+
+## Index
+- notes/work-log.md   按时间的完整历史
 `;
 }
 
+async function writeNewFile(path: string, content: string): Promise<void> {
+  try {
+    await writeFile(path, content, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+  } catch (error) {
+    if ((error as { code?: string }).code === "EEXIST") return;
+    throw error;
+  }
+}
+
 /**
- * Writes the seeded MEMORY.md into an Agent's workspace on its first launch. Never overwrites an
- * existing file — once written, an Agent owns MEMORY.md and this seed step never touches it
- * again (`flag: "wx"` fails with `EEXIST`, which is swallowed here). After a Full Reset clears
- * the Agent workspace (the record store's `clearWorkspace`), MEMORY.md is
- * gone along with every other workspace file, so the next launch's call to this function seeds it
- * again with no special-casing required.
+ * Writes the seeded MEMORY.md into an Agent's workspace on its first launch, and creates the
+ * `notes/` / `work/` layout plus a root `.gitignore`. Never overwrites an existing file — once
+ * written, an Agent owns MEMORY.md and this seed step never touches it again (`flag: "wx"` fails
+ * with `EEXIST`, which is swallowed here). After a Full Reset clears the Agent workspace (the
+ * record store's `clearWorkspace`), MEMORY.md is gone along with every other workspace file, so
+ * the next launch's call to this function seeds it again with no special-casing required.
  *
- * A seeding failure (anything other than the file already existing) is logged and swallowed: it
- * must never fail the Agent launch that is already under way.
+ * Missing directories (`notes/`, `work/`) are created even when MEMORY.md already exists, so an
+ * older workspace still gets the layout. A seeding failure (anything other than the file already
+ * existing) is logged and swallowed: it must never fail the Agent launch that is already under way.
  */
 export async function seedAgentMemory(
   agentWorkspaceDirectory: string,
   identity: AgentMemorySeedIdentity,
 ): Promise<void> {
   const memoryPath = join(agentWorkspaceDirectory, "MEMORY.md");
+  const notesDirectory = join(agentWorkspaceDirectory, "notes");
+  const workDirectory = join(agentWorkspaceDirectory, "work");
   try {
-    await writeFile(memoryPath, buildInitialMemoryMd(identity), {
-      encoding: "utf8",
-      mode: 0o600,
-      flag: "wx",
-    });
+    // MEMORY.md first: a missing workspace directory fails here with ENOENT and is swallowed,
+    // matching the previous seed (it must not mkdir the Agent workspace into existence).
+    await writeNewFile(memoryPath, buildInitialMemoryMd(identity));
+    await mkdir(notesDirectory, { recursive: true });
+    await mkdir(workDirectory, { recursive: true });
+    await writeNewFile(join(notesDirectory, "work-log.md"), WORK_LOG_SEED);
+    await writeNewFile(join(agentWorkspaceDirectory, ".gitignore"), GITIGNORE_SEED);
   } catch (error) {
     if ((error as { code?: string }).code === "EEXIST") return;
     logger.error("Agent memory seed did not complete", {
