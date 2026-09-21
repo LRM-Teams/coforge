@@ -202,7 +202,15 @@ export class PrismaAgentControlStore implements AgentControlStore {
         },
         data: {
           controlState: controlState(checked),
-          ...(clearSession || changedRequest ? { runtimeSession: Prisma.DbNull } : {}),
+          // The `runtimeSession` launch fence belongs to the operation, not the Session
+          // association: only a changed `requestId` (a superseding operation, whose
+          // `prepare()` re-mints the reference before the Daemon launches) may clear it.
+          // `clearSession` (`agent:session:invalidate`, the reset chains) detaches only the
+          // association — ADR 0040 decision B guarantees the invalidate "never blocks or fails
+          // the launch it precedes", and the daemon sends it *before* that launch's Session
+          // report, whose `AgentSessions.verify` fence is exactly this reference. Clearing it
+          // here rejected the very report that followed and failed the launch.
+          ...(changedRequest ? { runtimeSession: Prisma.DbNull } : {}),
           ...(clearSession ? { currentSessionId: null } : {}),
           // ADR 0038: last-writer-wins, not part of the CAS predicate above — the caller already
           // decided this write is safe to make in the same statement as the control state.

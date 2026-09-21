@@ -192,6 +192,19 @@ convention PR #321 introduced for `agent_control:result_rejected`/`agent_session
 so it is diagnosable instead of silently vanishing into a bare 403; the wire response is
 unchanged either way.
 
+> Amended 2026-09-21: the `clearSession` primitive no longer clears the `runtimeSession` fence —
+> that detail of decision E contradicted decision B's own invariant ("never blocking or failing
+> the launch it precedes"). The daemon sends the invalidate *before* the launch's Session report,
+> and `AgentSessions.verify` requires the `runtimeSession` reference that `prepare()` persisted
+> for exactly that launch; clearing it on the invalidate's exact-match path rejected the report
+> that followed (observed live as `agent_session:snapshot_rejected` with `reference: null` on
+> every driver-reported session replacement) and failed the launch. `clearSession` now detaches
+> only the association (`currentSessionId`, identity); the fence is cleared solely by a changed
+> `requestId` in `PrismaAgentControlStore.replace` — a superseding operation whose `prepare()`
+> re-mints the reference — which is also the only case the reset chains can reach, since their
+> own `begin()` already clears it there. The replacement itself is carried by the report's
+> `replacedSessionId` (decision F), which `verify`'s exact-match already accepts.
+
 **F. `replacedSessionId` on `AgentSessionReport` is unchanged and stays the compatibility path.**
 An old daemon never sends `agent:session:invalidate`; the server keeps accepting
 `replaced_session_id` exactly as before (`AgentSessions.verify`/`accept`,

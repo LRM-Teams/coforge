@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Prisma } from "../generated/client";
 import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
 import {
   agentControlRevision,
@@ -48,6 +49,8 @@ const legacyStoredState = {
  * parsing and compare-and-swap logic without a live Postgres. */
 function fakeDb(initialControlState: unknown) {
   let storedControlState: unknown = initialControlState;
+  let lastUpdateData: Record<string, unknown> | undefined;
+  let createdSessionRows = 0;
   const base = {
     id: "a",
     ownerId: "owner",
@@ -73,23 +76,25 @@ function fakeDb(initialControlState: unknown) {
       data,
     }: {
       where: { controlState: { equals: unknown } };
-      data: { controlState: unknown };
+      data: Record<string, unknown>;
     }) => {
       // The real predicate compares the JSONB column with Postgres `=` — structural equality,
       // not "same keys after reconstruction." Bun.deepEquals mirrors that here.
       if (!Bun.deepEquals(where.controlState.equals, storedControlState, true)) return { count: 0 };
       storedControlState = data.controlState;
+      lastUpdateData = data;
       return { count: 1 };
     },
-    update: async () => {
-      throw new Error("not expected by this fixture (no Session row involved)");
-    },
+    update: async () => ({}),
   };
   const db = {
     agent,
     agentSession: {
+      // `replace()` mints a fresh Session row when a cleared association coexists with a
+      // "starting" phase (the mid-launch invalidate shape below); record instead of throwing.
       create: async () => {
-        throw new Error("not expected by this fixture (no Session row involved)");
+        createdSessionRows++;
+        return { id: `minted-session-${createdSessionRows}` };
       },
       updateMany: async () => {
         throw new Error("not expected by this fixture (no Session row involved)");
@@ -98,7 +103,11 @@ function fakeDb(initialControlState: unknown) {
     $queryRaw: async () => [],
     $transaction: async (fn: (tx: unknown) => unknown) => fn(db),
   } as unknown as PrismaClient;
-  return { db, currentStoredControlState: () => storedControlState };
+  return {
+    db,
+    currentStoredControlState: () => storedControlState,
+    lastUpdate: () => lastUpdateData,
+  };
 }
 
 test("a legacy row with updatedAtMs parses through get(), stripped from the resulting state", async () => {
@@ -137,4 +146,38 @@ test("replace() against a legacy row would lose the CAS if the predicate were re
   // row (with it) is exactly the bug `storedControlState` fixes.
   const { updatedAtMs: _updatedAtMs, ...reconstructed } = legacyStoredState;
   expect(Bun.deepEquals(reconstructed, legacyStoredState, true)).toBe(false);
+});
+
+test("clearSession detaches only the Session association — an invalidate can never clear the in-flight launch's runtimeSession fence (ADR 0040-B)", async () => {
+  const { db, lastUpdate } = fakeDb(legacyStoredState);
+  const store = new PrismaAgentControlStore(db);
+  const before = await store.get("a");
+  if (!before) throw new Error("fixture agent missing");
+  // The `AgentSessionReceiver.invalidate` shape: the SAME requestId (no superseding operation),
+  // identity dropped from the state, and `{ clearSession: true }`. The daemon sends this before
+  // the launch's own Session report; `AgentSessions.verify` needs the persisted reference.
+  const { identity: _identity, ...fields } = before.state as AgentControlState;
+  const ok = await store.replace(before, { ...fields }, { clearSession: true });
+  expect(ok).toBe(true);
+  const data = lastUpdate()!;
+  expect(data.currentSessionId).toBeNull();
+  expect(data).not.toHaveProperty("runtimeSession");
+});
+
+test("a superseding requestId still clears the runtimeSession fence — the one writer that may", async () => {
+  const { db, lastUpdate } = fakeDb(legacyStoredState);
+  const store = new PrismaAgentControlStore(db);
+  const before = await store.get("a");
+  if (!before) throw new Error("fixture agent missing");
+  const next: AgentControlState = {
+    ...(before.state as AgentControlState),
+    requestId: "superseding",
+    epoch: 5,
+    action: "start",
+    phase: "starting",
+  };
+  const ok = await store.replace(before, next);
+  expect(ok).toBe(true);
+  const data = lastUpdate()!;
+  expect(data.runtimeSession).toBe(Prisma.DbNull);
 });
