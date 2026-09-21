@@ -818,9 +818,13 @@ function TemplateReportDetail({
     if (!isOverviewLeader || teamKeyPointBusy) return;
     setTeamKeyPointBusy(true);
     try {
-      await startTeamKeyPoints({
+      const result = await startTeamKeyPoints({
         data: { overviewReportId: report.id, force: true },
       });
+      if (result.error === "no_submitted_member_reports") {
+        toast.error(m.records_key_points_team_none_submitted());
+        return;
+      }
       await router.invalidate({ sync: true });
     } finally {
       setTeamKeyPointBusy(false);

@@ -425,6 +425,54 @@ test("startTeamKeyPointExtraction is idempotent when already generating", async 
   expect(result).toEqual({ started: false, status: "generating" });
 });
 
+test("startTeamKeyPointExtraction returns no_submitted without persisting a failed panel state", async () => {
+  let writeCount = 0;
+  const db = {
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "overview-1",
+        content: {
+          tabs: { Summary: { markdown: "" } },
+          keyPointExtraction: {
+            status: "failed",
+            error: "no_submitted_member_reports",
+            promptSnapshot: "旧提示",
+          },
+        },
+        authorId: "leader-1",
+        settingsId: "settings-1",
+        cycle: { year: 2026, week: 39 },
+      }),
+      count: async () => 2,
+      findMany: async () => [],
+      update: async () => {
+        writeCount += 1;
+        throw new Error("should not persist no_submitted failure");
+      },
+    },
+    weeklyReportSettings: {
+      findUnique: async () => ({
+        keyPointPrompts: emptyKeyPointPrompts(),
+      }),
+    },
+  } as unknown as PrismaClient;
+
+  const result = await startTeamKeyPointExtraction(db, {
+    workspaceId: "ws-1",
+    overviewReportId: "overview-1",
+    force: true,
+    wake: async () => {
+      throw new Error("should not wake");
+    },
+  });
+  expect(result).toEqual({
+    started: false,
+    status: "failed",
+    error: "no_submitted_member_reports",
+  });
+  expect(writeCount).toBe(0);
+});
+
 test("startTeamKeyPointExtraction marks pending_setup when Leader assistant is not ready", async () => {
   let written: unknown;
   const db = {
