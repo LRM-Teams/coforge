@@ -60,7 +60,6 @@ export const loadDirectConversation = createServerFn({ method: "GET" })
       limit: data.limit,
     });
     return {
-      viewerHandle: user.username,
       ...page,
       messages: await attachActionCardViews(db, workspaceId, user.id, page.messages),
     };

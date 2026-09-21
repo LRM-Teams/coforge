@@ -86,9 +86,11 @@ export type DirectConversationView = {
   hasOlder?: boolean;
   hasNewer?: boolean;
   agent: { id: string; name: string; displayName: string; deletedAt?: Date | null };
-  /** The viewing user's `@handle`; powers the stronger "mentioned me" chip. Channels only. */
+  /** The viewing user's `@handle`; powers the stronger "mentioned me" chip, and lets the composer
+   * drop the viewer from its candidate list. Absent for a non-member. */
   viewerHandle?: string;
-  /** The composer's @-completion source: every active member's public handle. Channels only. */
+  /** The composer's @-completion source *and* the resolver for a body's `<@kind:uuid>` tokens:
+   * every active member, the viewer included. Absent for a non-member. */
   mentionables?: Mentionable[];
   messages: Array<{
     id: string;
@@ -106,7 +108,7 @@ export type DirectConversationView = {
     senderAvatarUrl?: string | null;
     body: string;
     createdAt: Date | string;
-    /** Resolved mention rows for the body's embedded `<@kind:uuid>` tokens (channels only). */
+    /** Resolved mention rows for the body's embedded `<@kind:uuid>` tokens. */
     mentions?: {
       kind: "user" | "agent";
       actorId: string;

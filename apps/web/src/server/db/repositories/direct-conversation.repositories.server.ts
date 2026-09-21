@@ -1001,8 +1001,27 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             threadReads: {
               select: { rootMessageId: true, readThroughSequence: true },
             },
-            user: { select: { username: true } },
-            agent: { select: { id: true, name: true, displayName: true, deletedAt: true } },
+            // The full public profile: the pane resolves stored `<@kind:uuid>` tokens (and offers
+            // @-completion) from these rows, so a mention of the viewer — the row that used to be
+            // missing — is resolvable without a second query.
+            user: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                description: true,
+                avatarObjectKey: true,
+              },
+            },
+            agent: {
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                description: true,
+                deletedAt: true,
+              },
+            },
           },
         },
         messages: {
@@ -1051,6 +1070,40 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         sender.threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),
       agent: agentMember.agent,
+      viewerHandle: sender.user?.username,
+      // Who a mention here can be resolved to. A direct conversation has no candidate affinity to
+      // rank (see `mentionAffinityScores`), so every member scores 0 and handle order is the whole
+      // ordering; the viewer's own row is included because this list is also what *resolves* a
+      // mention of them — leaving it out rendered `<@human:uuid>` raw in their own pane.
+      mentionables: row.members
+        .map((member) =>
+          member.user
+            ? {
+                kind: "user" as const,
+                id: member.user.id,
+                handle: member.user.username,
+                label: member.user.displayName?.trim() || member.user.username,
+                description: member.user.description?.trim() ?? "",
+                avatarUrl: workspaceUserAvatarUrl(
+                  workspaceId,
+                  member.user.id,
+                  member.user.avatarObjectKey ?? null,
+                ),
+                mentionScore: 0,
+              }
+            : member.agent
+              ? {
+                  kind: "agent" as const,
+                  id: member.agent.id,
+                  handle: member.agent.name,
+                  label: member.agent.displayName?.trim() || member.agent.name,
+                  description: member.agent.description?.trim() ?? "",
+                  mentionScore: 0,
+                }
+              : undefined,
+        )
+        .filter((mentionable) => mentionable !== undefined)
+        .sort((left, right) => left.handle.localeCompare(right.handle)),
       hasOlder,
       hasNewer,
       messages: messages.map((message) => toBrowserMessage(message, workspaceId)),

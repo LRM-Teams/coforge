@@ -299,7 +299,13 @@ describe("PrismaDirectConversationRepository", () => {
                   userId: "user-1",
                   agentId: null,
                   threadReads: [],
-                  user: { username: "alice" },
+                  user: {
+                    id: "user-1",
+                    username: "alice",
+                    displayName: "Alice",
+                    description: "",
+                    avatarObjectKey: null,
+                  },
                   agent: null,
                 },
                 {
@@ -308,7 +314,12 @@ describe("PrismaDirectConversationRepository", () => {
                   agentId: "agent-1",
                   threadReads: [],
                   user: null,
-                  agent: { id: "agent-1", name: "helper", displayName: "Helper" },
+                  agent: {
+                    id: "agent-1",
+                    name: "helper",
+                    displayName: "Helper",
+                    description: "",
+                  },
                 },
               ],
               messages,
@@ -342,6 +353,28 @@ describe("PrismaDirectConversationRepository", () => {
     expect(midWindow.messages.map(({ id, sequence }) => [id, sequence])).toEqual([
       ["root-5", 5],
       ["reply-6", 6],
+    ]);
+    // The viewer's own row is in the list — that is what makes a mention *of the viewer*
+    // resolvable, and what the pane's formatter and the composer both read.
+    expect(midWindow.viewerHandle).toBe("alice");
+    expect(midWindow.mentionables).toEqual([
+      {
+        kind: "user",
+        id: "user-1",
+        handle: "alice",
+        label: "Alice",
+        description: "",
+        avatarUrl: null,
+        mentionScore: 0,
+      },
+      {
+        kind: "agent",
+        id: "agent-1",
+        handle: "helper",
+        label: "Helper",
+        description: "",
+        mentionScore: 0,
+      },
     ]);
 
     // No overflow: this page is the live tail.
