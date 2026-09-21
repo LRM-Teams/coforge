@@ -211,10 +211,16 @@ const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
  * GitHub-runner-to-OSS link (measured at well under 100 KB/s when dev.59→64 kept dying) finishes
  * one part inside the request timeout with room to spare. */
 const MULTIPART_PART_BYTES = 100 * 1024;
-/** Per-request timeout for each multipart part (and each read-back), in ms. Keeping it explicit
- * makes the per-part timing intent clear: a stalled network times out a single small part, not
- * the whole object, and `ossError` records the `name` so the log can show `ResponseTimeoutError`. */
-const OSS_REQUEST_TIMEOUT_MS = 60_000;
+/** Per-request timeout for each multipart part (and each read-back), in ms.
+ *
+ * Frank, 2026-09-21: "不要给超时时间没必要" - and the evidence agrees. The runner-to-OSS path here is
+ * throttled to tens of KB/s rather than broken: dev.67 ran ~36 minutes with **no** timeout warning at
+ * all (no `ResponseTimeoutError`, no `partNumber` stall) and was cancelled, not failed. Every earlier
+ * "failure" was a parameter window - 60 s, then 120 s - cutting off a transfer that was still moving.
+ * A window only decides how long to wait before throwing away progress, so this is effectively none:
+ * a day is long enough to be no timeout in practice while still bounding an absurdity, and the outer
+ * multipart retry still covers a genuinely dead connection. */
+const OSS_REQUEST_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 /** Whole-multipart attempts before giving up. ali-oss's own retry never fires for a response
  * timeout: its guard only retries errors carrying status -1/-2, and a `ResponseTimeoutError`
  * carries none — so a timed-out part fails the whole call no matter what `retryMax` says. The
@@ -320,9 +326,9 @@ export interface UploadOptions {
   connection: OssConnection;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
-  /** Per-request upload timeout in ms. Defaults to `OSS_REQUEST_TIMEOUT_MS` (60 s). Tests pass a
-   * small value so a deliberately slow fixture server can prove that a stalled link reports the
-   * timeout's name instead of hanging the publish. */
+  /** Per-request upload timeout in ms. Defaults to `OSS_REQUEST_TIMEOUT_MS` (effectively none - see
+   * its comment). Tests pass a small value so a deliberately slow fixture server can prove that a
+   * stalled link reports the timeout's name instead of hanging the publish. */
   requestTimeoutMs?: number;
 }
 
