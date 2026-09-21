@@ -12,6 +12,7 @@ import {
   renderMessageSender,
 } from "@lrm/coforge-sdk/internal";
 import type { AgentProcessManager } from "../agent-runtime/agent-process-manager";
+import { HELD_CONTEXT_LIMIT } from "./agent-inbox-freshness";
 
 const logger = getLogger(["coforge", "daemon", "message-attention"]);
 
@@ -33,9 +34,10 @@ export type MessageAttention = Readonly<{
 const REMEMBERED_DELIVERIES = 4096;
 
 /** How many of the newest unreviewed deliveries per target the index keeps for a locally decided
- * freshness hold to show. Raft's `DEFAULT_HELD_CONTEXT_LIMIT` is 3; the two extra entries keep a
- * usable window while an earlier hold's window is still being pruned. */
-const PENDING_WINDOW_LIMIT = 5;
+ * freshness hold to show: exactly Raft's `DEFAULT_HELD_CONTEXT_LIMIT` (`HELD_CONTEXT_LIMIT` in
+ * `agent-inbox-freshness.ts`), because the hold shows the newest that many and no more — and
+ * anything older is consumed by the same frontier anyway. No invented slack. */
+const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 
 /** One unreviewed delivery plus the moment this daemon learned about it. Deliveries carry no
  * message timestamp of their own (only the server knows when a message was written), so the
