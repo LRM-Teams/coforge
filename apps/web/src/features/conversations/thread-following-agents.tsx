@@ -60,32 +60,29 @@ function FollowingAgentRow({
   const live = useLiveAgent(agent.id);
   const identity = (
     <>
-      <AgentDisplayAvatar name={agent.displayName} display={live?.display} size="sm" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-primary">{agent.displayName}</span>
-        <span className="block truncate text-xs text-tertiary">@{agent.name}</span>
-      </span>
+      <AgentDisplayAvatar name={agent.displayName} display={live?.display} size="xs" />
+      <span className="min-w-0 truncate text-sm font-medium text-primary">{agent.displayName}</span>
     </>
   );
   return (
-    <li className="flex items-center gap-3 px-3 py-2">
+    <li className="flex items-center gap-2 px-2 py-1.5">
       {onOpenProfile ? (
         <Button
           color="tertiary"
           noTextPadding
           aria-label={m.agent_open_profile({ name: agent.displayName })}
           onPress={() => onOpenProfile(agent.id)}
-          className="h-auto min-w-0 flex-1 justify-start gap-3 rounded p-0 hover:bg-transparent"
+          className="h-auto min-w-0 flex-1 justify-start gap-2 rounded p-0 hover:bg-transparent"
         >
           {identity}
         </Button>
       ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-3">{identity}</div>
+        <div className="flex min-w-0 flex-1 items-center gap-2">{identity}</div>
       )}
       {canUnfollow && (
         <ButtonUtility
           icon={XClose}
-          size="sm"
+          size="xs"
           color="tertiary"
           tooltip={m.conversation_thread_unfollow_agent({ name: agent.displayName })}
           onClick={() => onUnfollow(agent.id)}
@@ -107,8 +104,8 @@ export function ThreadFollowingAgentHandles({
   const agents = query.data?.agents ?? [];
   if (agents.length === 0) return null;
   return (
-    <span className="min-w-0 truncate font-semibold text-primary">
-      <span aria-hidden="true">— </span>
+    <span className="min-w-0 truncate font-normal text-tertiary">
+      <span aria-hidden="true"> — </span>
       {agents.map((agent) => `@${agent.name}`).join(" ")}
     </span>
   );
@@ -157,13 +154,13 @@ export function ThreadFollowingAgents({
   return (
     <AriaDialogTrigger>
       <Button
-        color="secondary"
+        color="tertiary"
         size="sm"
         aria-label={m.conversation_thread_following_agents_count({ count })}
-        className="gap-1.5 px-2"
+        className="h-8 min-w-8 gap-1 rounded-md p-1.5! *:data-icon:size-5"
       >
         {lead ? <LeadFollowingAgentAvatar agent={lead} /> : <Cpu data-icon />}
-        {count}
+        <span className="text-xs font-medium tabular-nums">{count}</span>
       </Button>
       <AriaPopover
         placement="bottom end"
@@ -175,7 +172,7 @@ export function ThreadFollowingAgents({
               "duration-150 ease-out animate-in fade-in placement-bottom:slide-in-from-top-0.5",
             state.isExiting &&
               "duration-100 ease-in animate-out fade-out placement-bottom:slide-out-to-top-0.5",
-            "w-[min(20rem,calc(100vw-2.5rem))]",
+            "w-[min(18rem,calc(100vw-2.5rem))]",
           )
         }
       >
@@ -185,7 +182,7 @@ export function ThreadFollowingAgents({
         >
           {({ close }) => (
             <>
-              <div className="border-b border-secondary bg-secondary px-3 py-2.5">
+              <div className="border-b border-secondary px-3 py-2">
                 <Heading slot="title" className="text-sm font-semibold text-primary">
                   {m.conversation_thread_following_agents()}
                 </Heading>
