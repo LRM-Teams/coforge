@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  activeMentionQuery,
   filterMentionables,
   makeMentionBodyFormatter,
   type Mentionable,
@@ -179,4 +180,39 @@ test("makeMentionBodyFormatter leaves an unknown token intact rather than droppi
 
 test("makeMentionBodyFormatter returns undefined when there is nothing to resolve", () => {
   expect(makeMentionBodyFormatter([])).toBeUndefined();
+});
+
+test("an @query is found at the start of the text and after a space", () => {
+  expect(activeMentionQuery("@al", 3)).toEqual({ start: 0, query: "al" });
+  expect(activeMentionQuery("hi @al", 6)).toEqual({ start: 3, query: "al" });
+  expect(activeMentionQuery("hi @", 4)).toEqual({ start: 3, query: "" });
+});
+
+test("a mention may start right after text, which is how it is written next to Chinese", () => {
+  // The reported bug: type the message first, then @-mention someone — with no space, because
+  // after CJK text a space is not how anyone writes it. The popup never appeared.
+  expect(activeMentionQuery("写点东西@alice", "写点东西@alice".length)).toEqual({
+    start: 4,
+    query: "alice",
+  });
+  expect(activeMentionQuery("看看这个。@al", "看看这个。@al".length)).toEqual({
+    start: 5,
+    query: "al",
+  });
+});
+
+test("a handle-shaped character is not a boundary, so an email or a second @ stays plain text", () => {
+  expect(activeMentionQuery("foo@bar", 7)).toBeUndefined();
+  expect(activeMentionQuery("@ada@b", 6)).toBeUndefined();
+  expect(activeMentionQuery("no at sign here", 15)).toBeUndefined();
+});
+
+test("the query ends at the caret, not at the end of the text", () => {
+  expect(activeMentionQuery("@alice wrote", 3)).toEqual({ start: 0, query: "al" });
+  expect(activeMentionQuery("hi @alice more", 6)).toEqual({ start: 3, query: "al" });
+  expect(activeMentionQuery("hi @alice more", 5)).toEqual({ start: 3, query: "a" });
+});
+
+test("a caret before any @ finds nothing", () => {
+  expect(activeMentionQuery("@alice", 0)).toBeUndefined();
 });
