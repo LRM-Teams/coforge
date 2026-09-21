@@ -172,9 +172,14 @@ export class PrismaAgentSessionRepository implements AgentSessionRepository {
 }
 
 export function createAgentSessions(db: PrismaClient) {
-  return new AgentSessions(
+  const sessions = new AgentSessions(
     new PrismaAgentSessionRepository(db),
     async (workspaceId, computerId) =>
       (await getComputerRestartStore().identity?.({ workspaceId, computerId }))?.workerInstanceId,
   );
+  return Object.assign(sessions, {
+    referenceOf: async (agentId: string) =>
+      (await db.agent.findUnique({ where: { id: agentId }, select: { runtimeSession: true } }))
+        ?.runtimeSession ?? null,
+  });
 }

@@ -29,7 +29,9 @@ function rejectionReason(error: unknown): string {
 }
 
 export function createAgentSessionMethod(
-  sessions: Pick<AgentSessions, "accept" | "verify">,
+  sessions: Pick<AgentSessions, "accept" | "verify"> & {
+    referenceOf?: (agentId: string) => Promise<unknown>;
+  },
   receiver?: AgentSessionReceiver,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
@@ -78,6 +80,15 @@ export function createAgentSessionMethod(
           computer_id: metadata.principal.computerId,
           epoch: report?.controlEpoch,
           sequence: report?.sequence,
+          report_launch_id: report?.launchId,
+          report_previous_launch_id: report?.previousLaunchId,
+          report_session_id: report?.sessionId,
+          report_replaced_session_id: report?.replacedSessionId,
+          report_start_request_id: report?.startRequestId,
+          report_daemon_instance_id: report?.daemonInstanceId,
+          reference: sessions.referenceOf
+            ? await sessions.referenceOf(report?.agentId ?? "").catch(() => undefined)
+            : undefined,
           reason: rejectionReason(error),
         }),
       );

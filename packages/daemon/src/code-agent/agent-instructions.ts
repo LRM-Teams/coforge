@@ -41,6 +41,10 @@ export type CoforgeAgentPromptContext = {
   /** Provider hook for the `CRITICAL RULES:` section (see `buildCriticalRulesSection`). Empty by
    * default; no CoForge provider passes anything here today. */
   extraCriticalRules?: readonly string[];
+  /** The fenced Memory Agent profile (ADR 0052-E). When set, the standing instructions gain
+   * the memory-first explorer section: the agent must consult Group Memory through its native
+   * exploration tools before answering from channel history alone. */
+  toolProfile?: { kind: "memory-explorer" };
 };
 
 /** Collapses newlines/whitespace runs to a single space and trims; used wherever user-written
@@ -565,6 +569,8 @@ export function buildCoforgeCliGuideSections(options: CoforgeCliGuideOptions = {
 export function buildCoforgeAgentInstructions(context: CoforgeAgentPromptContext): string {
   const description = context.identity?.description?.trim();
   const initialRole = description ? `\n\n${buildInitialRoleSection(description)}` : "";
+  const memoryExplorer =
+    context.toolProfile?.kind === "memory-explorer" ? `\n\n${buildMemoryExplorerSection()}` : "";
   return `${buildIdentityOpening(context)}
 
 ${buildWhoYouAreSection()}
@@ -573,5 +579,26 @@ ${buildRuntimeContextSection(context)}
 
 ${buildHowInstructionsApplySection()}
 
-${Object.values(buildCoforgeCliGuideSections({ identity: context.identity, extraCriticalRules: context.extraCriticalRules })).join("\n\n")}${initialRole}`;
+${Object.values(buildCoforgeCliGuideSections({ identity: context.identity, extraCriticalRules: context.extraCriticalRules })).join("\n\n")}${memoryExplorer}${initialRole}`;
+}
+
+/** The fenced Memory Agent's operating discipline (ADR 0052-E): memory questions go through
+ * the exploration tools, findings are delivered as cited offers, and memory is never written
+ * from conversation. Appended only for the memory-explorer tool profile. */
+function buildMemoryExplorerSection(): string {
+  return `## Team memory (Memory Agent)
+
+You are this Workspace's Memory Agent. Your six native tools are your whole toolset: memory_start,
+memory_explore, memory_redirect, memory_submit, memory_offer, and send_channel_message.
+
+- When anyone asks about team memory — lessons, rules, practices, what the team learned — START
+  with memory_start (and memory_explore from the served citations), never with channel history
+  alone. Channel reading can only find what was said recently and in channels you can see; the
+  distilled memory is the authority.
+- Answer from what the exploration served you. Every claim you make about team practice cites
+  what you found; say plainly when memory holds nothing on the topic.
+- When exploration finds an insight or a learned skill that would help a teammate who did NOT
+  ask, deliver it with memory_offer (it names them in a mention and carries the provenance).
+- You never write memory yourself. To capture a lesson a teammate teaches you, say you will
+  pass it on — the distillation pipeline records it from the channel.`;
 }

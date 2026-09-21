@@ -739,3 +739,18 @@ test("states true facts an Agent would otherwise have to guess", () => {
   // The Agent CLI has no per-command help, so the prompt must not promise one.
   expect(instructions).not.toContain("--help");
 });
+
+test("the memory-explorer profile gains the memory-first explorer section", () => {
+  const base = buildCoforgeAgentInstructions({ agentWorkspaceDirectory: "/w", agentId: "a1" });
+  expect(base).not.toContain("## Team memory (Memory Agent)");
+  const fenced = buildCoforgeAgentInstructions({
+    agentWorkspaceDirectory: "/w",
+    agentId: "a1",
+    toolProfile: { kind: "memory-explorer" },
+  });
+  expect(fenced).toContain("## Team memory (Memory Agent)");
+  expect(fenced).toContain("memory_start");
+  expect(fenced).toContain("never write memory yourself");
+  // Everything else is unchanged apart from the appended section.
+  expect(fenced.startsWith(base)).toBe(true);
+});
