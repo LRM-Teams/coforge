@@ -345,7 +345,9 @@ export function AgentRuntimeFields({
           size="sm"
           className="min-w-0"
           isDisabled={!options}
-          hint={isPi ? m.agent_form_pi_configured_help() : undefined}
+          // The Pi provider picker carries no hint: the sentence that used to sit here explained
+          // Configured by contrast with the key-passing choices, which the picker and the API-key
+          // field already say on their own.
           selectedKey={isPi ? piProviderChoice : modelProvider}
           onSelectionChange={(key) => {
             if (key === null) return;

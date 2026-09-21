@@ -150,11 +150,10 @@ test("Save stays disabled while the owner's env query has not loaded yet, showin
 });
 
 /**
- * The Pi Provider picker's option set and its Configured hint don't depend on the Computer's
- * catalog (only the Model list does), so they render even though `renderToStaticMarkup` never
- * runs the catalog-loading effect.
+ * The Pi Provider picker's option set doesn't depend on the Computer's catalog (only the Model list
+ * does), so it renders even though `renderToStaticMarkup` never runs the catalog-loading effect.
  */
-test("Pi offers Configured, DeepSeek and OpenRouter as Provider options, with the Configured hint", () => {
+test("Pi offers Configured, DeepSeek and OpenRouter as Provider options, with no hint line", () => {
   const piInitial = {
     provider: RUNTIME_PROVIDER.PI,
     modelProvider: "",
@@ -175,9 +174,9 @@ test("Pi offers Configured, DeepSeek and OpenRouter as Provider options, with th
   expect(markup).toContain(m.agent_form_pi_provider_configured());
   expect(markup).toContain("DeepSeek");
   expect(markup).toContain("OpenRouter");
-  // The rendered attribute HTML-escapes the apostrophes in the message text, so assert a
-  // substring that doesn't cross one rather than the raw `m.agent_form_pi_configured_help()`.
-  expect(markup).toContain("~/.pi/agent");
+  // The explanation line that used to sit under the picker is gone (the picker's own labels and
+  // the API-key field cover it), so the Pi setup path appears nowhere in the form.
+  expect(markup).not.toContain("~/.pi/agent");
   // Configured mode never shows the "{provider} API key" field.
   expect(markup).not.toContain(m.agent_form_api_key_preserve_help());
 });
@@ -203,6 +202,9 @@ test("a saved Pi built-in provider with a stored credential shows the preserve-k
   expect(markup).toContain(m.agent_runtime_api_key({ provider: "deepseek" }));
   expect(markup).toContain(m.agent_form_api_key_preserve_help());
   expect(markup).not.toContain(' required=""');
+  // A key-passing choice gets no Pi-setup explanation either: the line was removed for every Pi
+  // provider, not just Configured.
+  expect(markup).not.toContain("~/.pi/agent");
 });
 
 test("a saved Pi provider outside the built-in set (e.g. zai) is still offered, so opening the dialog doesn't silently change it", () => {

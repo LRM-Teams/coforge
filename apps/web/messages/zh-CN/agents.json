@@ -51,7 +51,6 @@
   "agent_form_reasoning": "推理强度",
   "agent_form_provider_default": "使用运行时默认值",
   "agent_form_pi_provider_configured": "已配置",
-  "agent_form_pi_configured_help": "已配置将使用此电脑现有的 Pi 设置（~/.pi/agent）。其他选项会将此处填写的 API Key 传递给 Pi，不会更改该电脑的 Pi 文件。",
   "agent_form_model_custom": "自定义…",
   "agent_form_model_custom_id": "自定义模型 ID",
   "agent_form_model_custom_error": "请按 provider/model-id 的格式输入模型。",
