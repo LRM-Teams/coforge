@@ -102,3 +102,19 @@ Scenario tests assert all three metric layers plus every discipline probe
 against the scratch database; the protocol e2e asserts fence, idempotency,
 and the full tool chain over real HTTP; the manual smoke reuses the
 scenario assertions against a real model run.
+
+Live half record (decision G's full-stack smoke, 2026-09-21): the fenced
+Memory Agent answered an explicit @-mention over the full dev stack (real
+LLM, daemon host, local proxy, transport, web, Postgres) — message_check →
+memory_start (a self-invented slug start key) → memory_explore from a
+`skill:` anchor → memory_submit with citations → a cited channel answer;
+exploration sessions recorded in the database and zero proxy failures.
+That run was the live conviction for the memory wire's three contract gaps
+(skill citations undecodable at the SDK codec, the operation-key slug
+contract missing from the fenced tool schema and instructions, the
+`offer` op missing at the daemon proxy, and the transport flattening the
+server's errorCode) — fixed with layer-pinning tests in `c2cd4e5f`.
+The triage method that convicted them — replaying the transport's exact
+request shape (minted agent key + daemon key, camelCase command JSON)
+directly at the live web route — remains the fastest loop for any future
+memory-wire regression.
