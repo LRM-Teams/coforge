@@ -92,8 +92,7 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
   });
 });
 
-test("sendWeeklyAssignments notifies the channel delivery after assignments exist", async () => {
-  const notified: Array<Record<string, unknown>> = [];
+test("sendWeeklyAssignments does not post a #general notice", async () => {
   const db = {
     workspaceMembership: {
       findUnique: async () => ({ role: "owner" }),
@@ -128,84 +127,22 @@ test("sendWeeklyAssignments notifies the channel delivery after assignments exis
     },
     user: {
       findMany: async () => [{ id: "member-a", displayName: "Alice", username: "alice" }],
-      findUnique: async () => ({ displayName: "Boss", username: "boss" }),
+    },
+    conversation: {
+      findFirst: async () => {
+        throw new Error("weekly send must not look up a public channel");
+      },
     },
   } as unknown as PrismaClient;
 
-  await new RecordCatalog(db, {
-    notifyChannel: async (input) => {
-      notified.push(input);
-    },
-  }).sendWeeklyAssignments({
+  const result = await new RecordCatalog(db).sendWeeklyAssignments({
     workspaceId: "workspace-1",
     userId: "leader",
     sourceReportId: "source-1",
     now: new Date("2026-09-14T12:00:00+08:00"),
   });
 
-  expect(notified).toEqual([
-    {
-      workspaceId: "workspace-1",
-      senderUserId: "leader",
-      parentReportId: "parent-1",
-      week: 38,
-      senderDisplayName: "Boss",
-    },
-  ]);
-});
-
-test("sendWeeklyAssignments still succeeds when channel delivery fails", async () => {
-  const db = {
-    workspaceMembership: {
-      findUnique: async () => ({ role: "owner" }),
-      findMany: async () => [{ userId: "leader" }, { userId: "member-a" }],
-    },
-    weeklyReport: {
-      findFirst: async () => ({
-        id: "source-1",
-        settingsId: "settings-1",
-        content: { tabs: { Summary: { markdown: "# Outline" } } },
-      }),
-      update: async () => ({}),
-      create: async (query: { data: Record<string, unknown> }) => ({
-        id: query.data.kind === "template" ? "parent-1" : "child-1",
-        title: query.data.title,
-      }),
-    },
-    weeklyReportCycle: {
-      findUnique: async () => ({
-        id: "cycle-1",
-        year: 2026,
-        week: 38,
-        title: "2026 W38 工作周报",
-      }),
-    },
-    weeklyReportTemplate: {
-      findFirst: async () => ({
-        id: "settings-1",
-        allMembers: false,
-        recipients: [{ userId: "member-a" }],
-      }),
-    },
-    user: {
-      findMany: async () => [{ id: "member-a", displayName: "Alice", username: "alice" }],
-      findUnique: async () => ({ displayName: "Boss", username: "boss" }),
-    },
-  } as unknown as PrismaClient;
-
-  const result = await new RecordCatalog(db, {
-    notifyChannel: async () => {
-      throw new Error("channel down");
-    },
-  }).sendWeeklyAssignments({
-    workspaceId: "workspace-1",
-    userId: "leader",
-    sourceReportId: "source-1",
-    now: new Date("2026-09-14T12:00:00+08:00"),
-  });
-
-  expect(result.parentId).toBe("parent-1");
-  expect(result.assignmentCount).toBe(1);
+  expect(result).toMatchObject({ parentId: "parent-1", assignmentCount: 1, week: 38 });
 });
 
 test("sendWeeklyAssignments rejects when no send settings are applied", async () => {
@@ -1297,6 +1234,9 @@ test("getSubject rejects unrelated members opening another member's assignment",
         cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38 工作周报" },
       }),
     },
+    weeklyReportFavorite: {
+      findUnique: async () => null,
+    },
   } as unknown as PrismaClient;
 
   await expect(
@@ -1571,6 +1511,44 @@ test("sendWeeklyAssignments rejects sending another leader's format", async () =
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
 });
 
+test("getSubject still opens a favorited member report after its overview parent is gone", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "assignment-1",
+        kind: "member",
+        title: "Alice 2026 W38 工作周报",
+        status: "submitted",
+        content: { tabs: { Summary: { markdown: "Done" } } },
+        submittedAt: new Date("2026-09-18T08:00:00.000Z"),
+        updatedAt: new Date("2026-09-18T08:00:00.000Z"),
+        sourceTemplateId: null,
+        sourceTemplate: null,
+        author: { id: "member-a", username: "alice", displayName: "Alice" },
+        cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38 工作周报" },
+      }),
+      count: async () => 0,
+    },
+    weeklyReportFavorite: {
+      findUnique: async () => ({ userId: "leader", reportId: "assignment-1" }),
+    },
+  } as unknown as PrismaClient;
+
+  const subject = await new RecordCatalog(db).getSubject({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    id: "assignment-1",
+  });
+
+  expect(subject).toMatchObject({
+    type: "report",
+    report: { id: "assignment-1", kind: "member", favorited: true },
+  });
+});
+
 test("getSubject reports whether the viewer favorited a member report", async () => {
   const db = {
     workspaceMembership: {
@@ -1680,6 +1658,7 @@ test("setReportFavorite rejects reports the viewer cannot open", async () => {
       }),
     },
     weeklyReportFavorite: {
+      findUnique: async () => null,
       upsert: async () => {
         throw new Error("should not upsert");
       },

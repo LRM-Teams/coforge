@@ -34,6 +34,7 @@ import {
 } from "./report-draft-cache";
 import {
   deleteMemberWeeklyReport,
+  deleteOverviewReport,
   deleteRecordNote,
   markWeeklyAssignmentOpened,
   restartPersonalKeyPointExtraction,
@@ -574,6 +575,8 @@ function TemplateReportDetail({
   const save = useServerFn(saveWeeklyReportContent);
   const sendAssignments = useServerFn(sendWeeklyReportAssignments);
   const startTeamKeyPoints = useServerFn(startTeamKeyPointExtraction);
+  const removeOverview = useServerFn(deleteOverviewReport);
+  const navigate = useNavigate();
   const isOverview = report.surface === "overview";
   const isOverviewLeader = isOverview && report.editable === true;
   const formatSurface = isOverview ? ("plain" as const) : ("format" as const);
@@ -791,6 +794,26 @@ function TemplateReportDetail({
     return () => clearInterval(timer);
   }, [isOverviewLeader, content.keyPointExtraction?.status, router]);
 
+  async function removeOverviewNode() {
+    if (!isOverviewLeader || saving || sending) return;
+    setSaving(true);
+    try {
+      await removeOverview({ data: { reportId: report.id } });
+      clearReportDraft(report.id);
+      await router.invalidate({ sync: true });
+      void navigate({
+        to: "/records",
+        search: (previous) => ({
+          tab: previous.tab === "notes" ? "notes" : "weekly",
+        }),
+      });
+    } catch {
+      toast.error(m.records_week_delete_failed());
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function onStartTeamKeyPoints() {
     if (!isOverviewLeader || teamKeyPointBusy) return;
     setTeamKeyPointBusy(true);
@@ -848,7 +871,24 @@ function TemplateReportDetail({
               aria-pressed={sideOpen}
               onClick={() => setSideOpen((open) => !open)}
             />
-            {isOverview ? null : (
+            {isOverview ? (
+              isOverviewLeader ? (
+                <Dropdown.Root>
+                  <ButtonUtility
+                    size="sm"
+                    color="tertiary"
+                    icon={DotsHorizontal}
+                    aria-label={m.records_report_actions()}
+                    isDisabled={saving || sending}
+                  />
+                  <Dropdown.Popover placement="bottom end" className="w-44">
+                    <Dropdown.Menu onAction={() => void removeOverviewNode()}>
+                      <Dropdown.Item id="delete" icon={Trash} label={m.records_week_delete()} />
+                    </Dropdown.Menu>
+                  </Dropdown.Popover>
+                </Dropdown.Root>
+              ) : null
+            ) : (
               <Dropdown.Root>
                 <ButtonUtility
                   size="sm"

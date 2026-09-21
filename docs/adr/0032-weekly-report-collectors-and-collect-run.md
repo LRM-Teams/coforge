@@ -183,8 +183,8 @@ schema CR) persisted in PostgreSQL:
   design boards; may extend Action Card patterns or Records-specific card
   parts — implementation choice, same human-commit spirit as ADR 0027.
 - `docs/architecture.md` and `CONTEXT.md` record this decision.
-- Does **not** change Leader assignment, cron send, or `#general`
-  notification behavior.
+- Does **not** change Leader assignment or cron send. Weekly-report flows do
+  not post to `#general` (ADR 0011).
 
 ## Validation
 

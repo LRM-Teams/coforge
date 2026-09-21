@@ -1,5 +1,6 @@
 import type { PrismaClient } from "../../../generated/client";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { AppError } from "../../lib/app-error";
 import { enrollGeneralChannel } from "../conversations/public-channels.server";
 
 export const WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME = "周报助手";
@@ -20,6 +21,10 @@ export type WeeklyReportAssistantRecord = {
 /**
  * Returns the User's stable weekly-report Agent, creating its unconfigured
  * Agent identity atomically on first use.
+ *
+ * Reclaims an orphan Agent left by a previous partial create (Agent row exists,
+ * WeeklyReportAssistant link missing) so Members loader does not die on
+ * `agents_workspaceId_name_key`.
  */
 export async function ensureWeeklyReportAssistant(
   db: PrismaClient,
@@ -38,28 +43,52 @@ export async function ensureWeeklyReportAssistant(
       });
       if (existing) return existing;
 
-      const agent = await tx.agent.create({
-        data: {
-          workspaceId: input.workspaceId,
-          ownerId: input.userId,
-          name: agentName,
-          displayName: WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME,
-          description: "",
-          runtimeConfig: {
-            runtime: RUNTIME_PROVIDER.COFORGE,
-            provider: { kind: "default" },
-            model: "",
-            modelProvider: "",
-            reasoning: "",
-          },
+      const orphan = await tx.agent.findUnique({
+        where: {
+          workspaceId_name: { workspaceId: input.workspaceId, name: agentName },
         },
+        select: { id: true, ownerId: true, deletedAt: true },
       });
+
+      let agentId: string;
+      if (orphan) {
+        if (orphan.ownerId !== input.userId) throw new AppError("ACCESS_DENIED");
+        if (orphan.deletedAt) {
+          await tx.agent.update({
+            where: { id_workspaceId: { id: orphan.id, workspaceId: input.workspaceId } },
+            data: {
+              deletedAt: null,
+              displayName: WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME,
+            },
+          });
+        }
+        agentId = orphan.id;
+      } else {
+        const agent = await tx.agent.create({
+          data: {
+            workspaceId: input.workspaceId,
+            ownerId: input.userId,
+            name: agentName,
+            displayName: WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME,
+            description: "",
+            runtimeConfig: {
+              runtime: RUNTIME_PROVIDER.COFORGE,
+              provider: { kind: "default" },
+              model: "",
+              modelProvider: "",
+              reasoning: "",
+            },
+          },
+        });
+        agentId = agent.id;
+      }
+
       await enrollGeneralChannel(tx, input.workspaceId);
       return tx.weeklyReportAssistant.create({
         data: {
           workspaceId: input.workspaceId,
           userId: input.userId,
-          agentId: agent.id,
+          agentId,
         },
       });
     });

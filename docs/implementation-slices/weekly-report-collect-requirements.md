@@ -146,7 +146,7 @@ ADR: [ADR 0032（accepted）](../adr/0032-weekly-report-collectors-and-collect-r
 | 周报助手 Computer/Runtime 未配置提示 | **并存**：助手自身要能聊/合成；采集员是另一套每机 Agent |
 | `coforge weekly-report context\|list\|read` | 合成仍可用；另增 collect submit-pack / failure |
 | suggestion Confirm 写 body | 合成输出继续走该信封 |
-| Leader 发送 / cron / `#general` | 不变 |
+| Leader 发送 / cron | 不变。不往 `#general` 发周报通知（ADR 0011）。 |
 | Action Card（ADR 0027） | 计划/配置卡可复用「人确认」精神；种类可以是 Records 专用卡，不必塞进 `channel:create` 族 |
 
 ---
