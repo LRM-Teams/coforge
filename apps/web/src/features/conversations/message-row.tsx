@@ -637,6 +637,41 @@ export function MessageRow({
       window.removeEventListener("scroll", dismiss, true);
     };
   }, [quoteOffer]);
+  // Touch selection ends without a mouseup: the long-press and the OS selection handles fire no
+  // usable mouse events, so on touch the offer is driven by `selectionchange` (debounced, so a
+  // handle drag settles first) and by pointer release. While a pointer is down — a mouse drag
+  // mid-selection — selection events are ignored and `onMouseUp` stays the trigger, keeping the
+  // desktop bar tied to the completed gesture.
+  const pointerDownRef = useRef(false);
+  useEffect(() => {
+    if (!onQuoteSelection) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(readQuoteSelection, 200);
+    };
+    const onPointerDown = () => {
+      pointerDownRef.current = true;
+    };
+    const onPointerUp = () => {
+      pointerDownRef.current = false;
+      schedule();
+    };
+    const onSelectionChange = () => {
+      if (!pointerDownRef.current) schedule();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("pointercancel", onPointerUp, true);
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerUp, true);
+      document.removeEventListener("selectionchange", onSelectionChange);
+    };
+  }, [onQuoteSelection, readQuoteSelection]);
   // A system message (task/membership notices, etc.) is not a person talking: it carries no
   // avatar and no sender heading, and renders as a compact, muted line in the stream — like
   // Slack's channel notices. The body still goes through `MessageBody` so a `@handle` mention in
