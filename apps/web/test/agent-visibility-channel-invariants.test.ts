@@ -5,6 +5,7 @@ import {
   enrollGeneralChannel,
   PublicChannels,
 } from "../src/server/conversations/public-channels.server";
+import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
 
 const WORKSPACE_ID = "workspace-1";
 
@@ -44,6 +45,51 @@ test("enrollGeneralChannel excludes a private Agent but keeps enrolling public o
     where: { workspaceId: WORKSPACE_ID, visibility: "public", deletedAt: null },
   });
   expect(createdMemberAgentIds).toEqual(["agent-public"]);
+});
+
+test("PrismaAgentRepository.create() with visibility 'private' never enrolls the new Agent in #general (ADR 0059)", async () => {
+  let createdMemberAgentIds: string[] | undefined;
+  const db = {
+    $transaction: async (work: (tx: PrismaClient) => Promise<unknown>) => work(db),
+    agent: {
+      create: async ({ data }: { data: Record<string, unknown> }) => ({
+        id: "agent-new",
+        createdAt: new Date(),
+        ...data,
+      }),
+      // Simulates Prisma applying the real `visibility: "public"` filter: the just-created
+      // private Agent is never in this result, even though it exists in the same Workspace.
+      findMany: async () => [],
+    },
+    conversation: {
+      createMany: async () => {},
+      findUniqueOrThrow: async () => ({ id: "general-1", channelName: "general" }),
+    },
+    workspaceMembership: { findMany: async () => [] },
+    message: { findFirst: async () => null },
+    conversationMember: {
+      createMany: async ({ data }: { data: Array<{ agentId?: string }> }) => {
+        createdMemberAgentIds = data.flatMap((row) => (row.agentId ? [row.agentId] : []));
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await new PrismaAgentRepository(db).create({
+    workspaceId: WORKSPACE_ID,
+    name: "collector",
+    displayName: "Collector",
+    ownerId: "user-1",
+    visibility: "private",
+    runtimeConfig: {
+      runtime: "pi",
+      provider: { kind: "default" },
+      model: "",
+      modelProvider: "",
+      reasoning: "",
+    },
+  });
+
+  expect(createdMemberAgentIds).toEqual([]);
 });
 
 function publicChannelsFixture(target: { id: string; visibility: string }) {
