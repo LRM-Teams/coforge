@@ -477,8 +477,11 @@ PostgreSQL 的首要领域对象是：
   的独立管理流程。该助手的 **Agent session** 按 Records 页面 subject
   （`report:<weeklyReportId>` / `cycle:<cycleId>`）隔离：同一周报节点复用同一会话，
   不同节点不得共用一条长会话。映射表 `weekly_report_assistant_runtime_sessions`
-  保存 `(workspace, agent, subject) → sessionId`，供后续 launch/resume 选用，不替代
-  `Agent.currentSessionId` 对普通 Agent 的语义。侧栏
+  保存 `(workspace, agent, subject) → sessionId`。唤醒（要点提炼、采集合成、侧栏）
+  在投递 DM 之前按该映射对齐 Daemon：已在该 session 上运行则直接投递；否则先停掉
+  当前进程，再以映射的 `sessionId` 启动（新建映射用 `create`，已有映射用 `resume`）。
+  Daemon 收到带有不同 `sessionId` 的 Start 时，也不会把新 scope 重绑到正在运行的旧进程上，
+  而是先停掉该进程再启动目标会话。这不替代 `Agent.currentSessionId` 对普通 Agent 的语义。侧栏
   `WeeklyReportAssistantChatSession` 仍是按 subject 的 UI 线程，与运行时 Agent
   session 分工不同（见
   [ADR 0059](adr/0059-weekly-assistant-per-subject-runtime-session.md)）。

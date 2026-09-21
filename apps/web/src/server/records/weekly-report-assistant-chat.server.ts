@@ -2,12 +2,23 @@ import { AppError } from "../../lib/app-error";
 import type { PrismaClient } from "../../../generated/client";
 import { SendDirectMessage } from "../conversations/direct-message.server";
 import type { MessageRequestIdempotency } from "../conversations/message-request-idempotency.server";
-import type { ConversationRealtime } from "../conversations/conversation-realtime.server";
-import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
+import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
+import {
+  CentrifugoConversationRealtime,
+  type ConversationRealtime,
+} from "../conversations/conversation-realtime.server";
+import {
+  createCentrifugoServerApi,
+  type CentrifugoServerApi,
+} from "../centrifugo/server-api.server";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 import { RecordCatalog } from "./record-catalog.server";
 import { ensureWeeklyReportAssistant } from "./weekly-report-assistant.server";
 import { ensureWeeklyReportAssistantRuntimeSession } from "./weekly-report-assistant-runtime-session.server";
+import {
+  alignWeeklyReportAssistantSubjectRuntime,
+  createWeeklyReportAssistantSubjectRuntime,
+} from "./weekly-report-assistant-subject-launch.server";
 import {
   buildWeeklyReportAssistantRequestBody,
   isWeeklyReportPlatformTurn,
@@ -90,6 +101,7 @@ export class WeeklyReportAssistantChat {
     private readonly idempotency: MessageRequestIdempotency,
     private readonly centrifugo: Pick<CentrifugoServerApi, "publish">,
     private readonly realtime?: ConversationRealtime,
+    private readonly alignSubject: boolean = false,
   ) {}
 
   async postRequest(input: {
@@ -122,6 +134,18 @@ export class WeeklyReportAssistantChat {
       subjectType: input.subjectType,
       subjectId: input.subjectId,
     });
+    if (this.alignSubject) {
+      await alignWeeklyReportAssistantSubjectRuntime(
+        createWeeklyReportAssistantSubjectRuntime(this.db),
+        {
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          agentId: assistant.agentId,
+          sessionId: runtimeSession.sessionId,
+          created: runtimeSession.created,
+        },
+      );
+    }
 
     const catalog = new RecordCatalog(this.db);
     const contextManifest = await catalog.loadAssistantContextManifest({
@@ -206,4 +230,17 @@ export class WeeklyReportAssistantChat {
       ),
     };
   }
+}
+
+/** Page wakes align the assistant onto that subject's Agent session before the DM is delivered. */
+export function openWeeklyReportAssistantChat(db: PrismaClient) {
+  const centrifugo = createCentrifugoServerApi();
+  return new WeeklyReportAssistantChat(
+    db,
+    new PrismaDirectConversationRepository(db),
+    getMessageRequestIdempotency(),
+    centrifugo,
+    new CentrifugoConversationRealtime(centrifugo),
+    true,
+  );
 }

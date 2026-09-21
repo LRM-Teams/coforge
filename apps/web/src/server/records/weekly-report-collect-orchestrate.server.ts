@@ -22,7 +22,6 @@ import {
 } from "./weekly-report-collect-run.server";
 import { resolveCollectWindow } from "../../features/records/weekly-report-collect-window";
 import { RecordCatalog } from "./record-catalog.server";
-import { WeeklyReportAssistantChat } from "./weekly-report-assistant-chat.server";
 import { resolveLatestChatSessionId } from "./weekly-report-assistant-chat-session.server";
 
 /** Wake text for a per-Computer collector Agent (ADR 0032). */
@@ -360,14 +359,8 @@ async function wakeCollectSynthesizer(
       subjectType: "report",
       subjectId: input.reportId,
     }));
-  const centrifugo = createCentrifugoServerApi();
-  const chat = new WeeklyReportAssistantChat(
-    db,
-    new PrismaDirectConversationRepository(db),
-    getMessageRequestIdempotency(),
-    centrifugo,
-    new CentrifugoConversationRealtime(centrifugo),
-  );
+  const { openWeeklyReportAssistantChat } = await import("./weekly-report-assistant-chat.server");
+  const chat = openWeeklyReportAssistantChat(db);
   await chat.postRequest({
     workspaceId: input.workspaceId,
     userId: input.userId,

@@ -9,12 +9,8 @@ import {
   ensureWeeklyReportAssistant,
   WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME,
 } from "../../server/records/weekly-report-assistant.server";
-import { WeeklyReportAssistantChat } from "../../server/records/weekly-report-assistant-chat.server";
+import { openWeeklyReportAssistantChat } from "../../server/records/weekly-report-assistant-chat.server";
 import { parseAgentRuntimeConfig } from "../../server/agents/agent-runtime-config.server";
-import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
-import { getMessageRequestIdempotency } from "../../server/conversations/redis-message-request-idempotency.server";
-import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
 import {
   looksLikeMemberReportRuleIntent,
   looksLikeSideChatGreeting,
@@ -596,14 +592,7 @@ export const addRecordComment = createServerFn({ method: "POST" })
   });
 
 function weeklyReportAssistantChat(db: Parameters<typeof recordCatalog>[0]) {
-  const centrifugo = createCentrifugoServerApi();
-  return new WeeklyReportAssistantChat(
-    db,
-    new PrismaDirectConversationRepository(db),
-    getMessageRequestIdempotency(),
-    centrifugo,
-    new CentrifugoConversationRealtime(centrifugo),
-  );
+  return openWeeklyReportAssistantChat(db);
 }
 
 export const ensureWeeklyReportAssistantChatSessions = createServerFn({ method: "POST" })
