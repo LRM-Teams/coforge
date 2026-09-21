@@ -51,7 +51,7 @@ test("assigned skill packs install into provider-native workspace roots", async 
   }
 });
 
-test("assigned skill install never overwrites an existing same-named skill", async () => {
+test("assigned skill install never overwrites an Agent-owned same-named skill", async () => {
   const root = await mkdtemp(join(tmpdir(), "coforge-assigned-skills-skip-"));
   try {
     const skillPath = join(root, ".pi", "skills", "weekly-report-privacy", "SKILL.md");
@@ -66,6 +66,62 @@ test("assigned skill install never overwrites an existing same-named skill", asy
     });
     expect(result.skipped).toContain("weekly-report-privacy");
     expect(await Bun.file(skillPath).text()).toContain("KEEP");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("assigned skill sync overwrites a managed skill and deletes a managed leftover", async () => {
+  const root = await createFixtureRoot("coforge-assigned-skills-sync-");
+  try {
+    const first = await installAssignedSkills({
+      provider: "coforge",
+      agentWorkspaceDirectory: root,
+      packs: ["weekly-report"],
+    });
+    expect(first.written).toContain("weekly-report-privacy");
+    const skillDir = join(root, ".pi", "skills", "weekly-report-privacy");
+    expect(await Bun.file(join(skillDir, ".coforge-managed")).text()).toBe("");
+    await Bun.write(join(skillDir, "SKILL.md"), "STALE");
+
+    const leftover = join(root, ".pi", "skills", "old-managed");
+    await Bun.write(join(leftover, "SKILL.md"), "gone");
+    await Bun.write(join(leftover, ".coforge-managed"), "");
+    const agentOwned = join(root, ".pi", "skills", "my-own-skill");
+    await Bun.write(join(agentOwned, "SKILL.md"), "KEEP ME");
+
+    const second = await installAssignedSkills({
+      provider: "coforge",
+      agentWorkspaceDirectory: root,
+      packs: ["weekly-report"],
+    });
+    expect(second.updated).toContain("weekly-report-privacy");
+    expect(second.removed).toEqual(["old-managed"]);
+    expect(await Bun.file(join(skillDir, "SKILL.md")).text()).not.toContain("STALE");
+    expect(await Bun.file(join(agentOwned, "SKILL.md")).text()).toBe("KEEP ME");
+    expect(await Bun.file(join(leftover, "SKILL.md")).exists()).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an empty pack list still deletes leftover managed skills", async () => {
+  const root = await createFixtureRoot("coforge-assigned-skills-empty-");
+  try {
+    await installAssignedSkills({
+      provider: "coforge",
+      agentWorkspaceDirectory: root,
+      packs: ["weekly-report"],
+    });
+    const empty = await installAssignedSkills({
+      provider: "coforge",
+      agentWorkspaceDirectory: root,
+      packs: [],
+    });
+    expect(empty.removed.length).toBeGreaterThan(0);
+    expect(
+      await Bun.file(join(root, ".pi", "skills", "weekly-report-privacy", "SKILL.md")).exists(),
+    ).toBe(false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

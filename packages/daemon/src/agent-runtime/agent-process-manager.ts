@@ -95,13 +95,11 @@ export class AgentProcessManager {
       displayName: identity?.displayName,
       description: identity?.description,
     });
-    if (assignedSkillPacks.length > 0) {
-      await installAssignedSkills({
-        provider: config.provider,
-        agentWorkspaceDirectory,
-        packs: assignedSkillPacks,
-      });
-    }
+    await installAssignedSkills({
+      provider: config.provider,
+      agentWorkspaceDirectory,
+      packs: assignedSkillPacks,
+    });
     // Probed against the same PATH the Agent's own git calls will search.
     const gitHooks = await this.#resolveGitHooks(
       agentEnvironment(environment, Bun.env, process.platform, { envVars: config.envVars }).PATH,
