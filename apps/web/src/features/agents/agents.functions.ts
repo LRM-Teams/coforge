@@ -35,6 +35,10 @@ import {
 import { ActionCards } from "../../server/conversations/action-cards.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
+import {
+  assertAgentVisible,
+  type AgentVisibilityViewer,
+} from "../../server/agents/agent-visibility.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
 import { workspaceMemberRole } from "../../server/workspaces/members.server";
@@ -338,46 +342,63 @@ export const updateAgentRole = createServerFn({ method: "POST" })
 async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: string) {
   const { user, db, workspaceId } = context;
   const activity = new AgentActivityRepository(db);
+  // Fetched once, ahead of `AgentDetailQuery` so `findAuthorized`'s visibility gate (ADR 0059)
+  // and `canManageAgentRole` below share this single membership lookup.
+  const viewerMembership = await db.workspaceMembership.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: user.id } },
+    select: { role: true },
+  });
+  const viewer: AgentVisibilityViewer = {
+    kind: "user",
+    userId: user.id,
+    role: viewerMembership?.role,
+  };
   const query = new AgentDetailQuery(
     {
-      findAuthorized: (workspaceId, id, userId) =>
-        db.agent
-          .findFirst({
-            where: {
-              id,
-              workspaceId,
-              workspace: { members: { some: { userId } } },
-              // ADR 0044: a deleted Agent has no profile to open; its history stays readable
-              // through the conversation views instead.
-              ...ACTIVE_AGENT_WHERE,
-            },
-            select: {
-              id: true,
-              workspaceId: true,
-              name: true,
-              displayName: true,
-              description: true,
-              role: true,
-              createdAt: true,
-              computerId: true,
-              computer: {
-                select: {
-                  id: true,
-                  name: true,
-                  displayName: true,
-                  kind: true,
-                  computerVersion: true,
-                },
-              },
-              runtimeConfig: true,
-              stoppedAt: true,
-              weeklyReportAssistant: { select: { id: true } },
-              owner: {
-                select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+      findAuthorized: async (workspaceId, id, userId) => {
+        const agent = await db.agent.findFirst({
+          where: {
+            id,
+            workspaceId,
+            workspace: { members: { some: { userId } } },
+            // ADR 0044: a deleted Agent has no profile to open; its history stays readable
+            // through the conversation views instead.
+            ...ACTIVE_AGENT_WHERE,
+          },
+          select: {
+            id: true,
+            workspaceId: true,
+            name: true,
+            displayName: true,
+            description: true,
+            role: true,
+            visibility: true,
+            createdAt: true,
+            computerId: true,
+            computer: {
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                kind: true,
+                computerVersion: true,
               },
             },
-          })
-          .then((agent) => agent ?? undefined),
+            runtimeConfig: true,
+            stoppedAt: true,
+            weeklyReportAssistant: { select: { id: true } },
+            owner: {
+              select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+            },
+          },
+        });
+        if (!agent) return undefined;
+        // ADR 0059: an existing-but-invisible Agent answers a stable "not visible" result, never
+        // its details — distinct from the plain absence above so the profile panel can render
+        // the specific "not visible" copy instead of a generic "not found".
+        assertAgentVisible(viewer, { visibility: agent.visibility, ownerId: agent.owner.id });
+        return agent;
+      },
       listActivity: (workspaceId, id) => activity.list(workspaceId, id),
     },
     {
@@ -393,10 +414,6 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
   const runtimeCredential = ownedByCurrentUser
     ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
     : null;
-  const viewerMembership = await db.workspaceMembership.findUnique({
-    where: { workspaceId_userId: { workspaceId, userId: user.id } },
-    select: { role: true },
-  });
   const canManageAgentRole = viewerMembership
     ? isAdminLike(viewerMembership.role as WorkspaceMemberRole)
     : false;
