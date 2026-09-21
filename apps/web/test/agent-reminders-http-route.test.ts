@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { AppError } from "../src/lib/app-error";
 import { handleAgentReminderPost } from "../src/routes/api/agent/v1/reminders";
 
 const principal = {
@@ -57,4 +58,56 @@ test("a reminder command without a key is still refused, and never reaches the s
   expect(reached).toBe(false);
   expect(response.status).toBe(400);
   expect(await response.json()).toEqual({ error: "invalid reminder request" });
+});
+
+test("a command outside the authenticated Agent scope is rejected before the service", async () => {
+  let reached = false;
+  const response = await handleAgentReminderPost(
+    request({
+      ...scheduleBody,
+      agentId: "99999999-9999-4999-8999-999999999999",
+      idempotencyKey: "99999999-9999-4999-8999-999999999999",
+    }),
+    principal,
+    async () => {
+      reached = true;
+      return {};
+    },
+  );
+
+  expect(reached).toBe(false);
+  expect(response.status).toBe(403);
+  expect(await response.json()).toEqual({ error: "reminder scope denied" });
+});
+
+test("an authorized command that the reminder service rejects is a 403, not malformed input", async () => {
+  const response = await handleAgentReminderPost(
+    request({ ...scheduleBody, idempotencyKey: "77777777-7777-4777-8777-777777777777" }),
+    principal,
+    async () => {
+      throw new Error("reminder operation is not authorized");
+    },
+  );
+
+  expect(response.status).toBe(403);
+  expect(await response.json()).toEqual({
+    error: "reminder access denied",
+    code: "ACCESS_DENIED",
+  });
+});
+
+test("an AppError access denial from the reminder service stays a 403", async () => {
+  const response = await handleAgentReminderPost(
+    request({ ...scheduleBody, idempotencyKey: "88888888-8888-4888-8888-888888888888" }),
+    principal,
+    async () => {
+      throw new AppError("ACCESS_DENIED");
+    },
+  );
+
+  expect(response.status).toBe(403);
+  expect(await response.json()).toEqual({
+    error: "reminder access denied",
+    code: "ACCESS_DENIED",
+  });
 });
