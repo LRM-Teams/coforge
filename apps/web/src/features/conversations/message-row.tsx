@@ -7,6 +7,7 @@ import { getReadableFileSize } from "@/components/application/file-upload/file-u
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { useAppToast } from "@/components/ui/toast";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
@@ -569,6 +570,7 @@ export function MessageRow({
   // over this message while selecting another one never raises it.
   const bodyRef = useRef<HTMLDivElement>(null);
   const quoteAffordanceRef = useRef<HTMLDivElement>(null);
+  const toast = useAppToast();
   const [quoteOffer, setQuoteOffer] = useState<
     { quote: string; html: string; text: string; top: number; left: number } | undefined
   >(undefined);
@@ -790,7 +792,10 @@ export function MessageRow({
                     icon={Copy01}
                     tooltip={m.conversation_copy_as_style()}
                     onClick={() => {
-                      void copyFragmentStyled(quoteOffer.html, quoteOffer.text);
+                      void copyFragmentStyled(quoteOffer.html, quoteOffer.text).then((copied) => {
+                        if (copied) toast.success(m.conversation_copy_as_style_success());
+                        else toast.error(m.conversation_copy_failed());
+                      });
                       setQuoteOffer(undefined);
                     }}
                   />
@@ -801,7 +806,10 @@ export function MessageRow({
                     icon={Code02}
                     tooltip={m.conversation_copy_as_markdown()}
                     onClick={() => {
-                      void copyFragmentMarkdown(quoteOffer.html);
+                      void copyFragmentMarkdown(quoteOffer.html).then((copied) => {
+                        if (copied) toast.success(m.conversation_copy_as_markdown_success());
+                        else toast.error(m.conversation_copy_failed());
+                      });
                       setQuoteOffer(undefined);
                     }}
                   />
