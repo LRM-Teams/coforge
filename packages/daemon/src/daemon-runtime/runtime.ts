@@ -3816,13 +3816,11 @@ export class DaemonRuntime {
   #agentInbox(agentId: string): AgentInboxStateMachine {
     const existing = this.#agentInboxes.get(agentId);
     if (existing) return existing;
-    // The draft file is the daemon's own continuation state, so it lives under the daemon's state
-    // directory rather than the OS temp directory: one file per Agent either way, but now scoped to
-    // the daemon instance that wrote it (and to a test's own state directory) instead of being
-    // shared by every process on the machine.
-    const inbox = new AgentInboxStateMachine(
-      new AgentMessageDraftStore(agentId, this.stateDirectory),
-    );
+    // Raft's local draft state (`continue-state.json`): one file per Agent under the OS temp
+    // directory, with `COFORGE_CLI_DRAFT_STATE_DIR` as the documented override (`SLOCK_CLI_DRAFT_
+    // STATE_DIR` on Raft's side). Deliberately not the daemon's state directory: this is short-lived
+    // continuation state, not daemon state, and tests point it at their own directory.
+    const inbox = new AgentInboxStateMachine(new AgentMessageDraftStore(agentId));
     this.#agentInboxes.set(agentId, inbox);
     return inbox;
   }
