@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-  AgentTaskUpstreamError,
-  defaultAgentTaskHttpClient,
-} from "../src/connection/daemon-connection";
+import { AgentTaskUpstreamError } from "../src/connection/agent-task-upstream-error";
+import { defaultAgentTaskHttpClient } from "../src/connection/daemon-connection";
 
 const request = {
   protocolMajor: 1,

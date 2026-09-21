@@ -7,7 +7,7 @@ import {
 import { AgentTransportError } from "../src/connection/agent-transport-error";
 import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
 import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
-import { AgentTaskUpstreamError } from "../src/connection/daemon-connection";
+import { AgentTaskUpstreamError } from "../src/connection/agent-task-upstream-error";
 
 const context = {
   method: "POST",

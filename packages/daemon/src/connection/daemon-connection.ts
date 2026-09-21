@@ -1,4 +1,5 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
+import { AgentTaskUpstreamError } from "./agent-task-upstream-error";
 import {
   agentApiRoutes,
   decodeGitHubCredentialResponse,
@@ -774,18 +775,6 @@ async function getAgentEnvelopeJson<Result extends { ok: true }>(
  * key `requestId` (that name also crosses the local RPC to the CLI), while the agent HTTP API names
  * it `idempotencyKey` — so the wire carries the API's single name, and the two never ride together.
  */
-/** An upstream refusal whose cause is kept for the daemon's log, never for the caller. */
-export class AgentTaskUpstreamError extends Error {
-  constructor(
-    message: string,
-    /** The `code` the server's JSON error body carried, when it carried one. */
-    readonly upstreamCode?: string,
-  ) {
-    super(message);
-    this.name = "AgentTaskUpstreamError";
-  }
-}
-
 /** Reads the `code` out of an agent API error body; a body that is absent, empty or not JSON is
  * simply a refusal without a named code, which is exactly what the caller already sees. */
 async function readUpstreamErrorCode(response: Response): Promise<string | undefined> {

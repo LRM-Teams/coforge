@@ -4,7 +4,7 @@ import {
 } from "./connection/agent-transport-error";
 import { AgentMessageRequestError } from "./connection/agent-message-request-error";
 import { AgentTaskRequestError } from "./connection/agent-task-request-error";
-import { AgentTaskUpstreamError } from "./connection/daemon-connection";
+import { AgentTaskUpstreamError } from "./connection/agent-task-upstream-error";
 import { AgentWeeklyReportRequestError } from "./connection/agent-weekly-report-request-error";
 import { AgentPreflightError } from "./daemon-runtime/agent-preflight-error";
 
