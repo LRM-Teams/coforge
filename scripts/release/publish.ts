@@ -28,6 +28,8 @@ import { join } from "node:path";
 
 import Credential from "@alicloud/credentials";
 import OSS from "ali-oss";
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
 
 import {
   buildReleaseTree,
@@ -101,12 +103,25 @@ export async function createOssClient(
     cname: connection.cname ?? false,
     secure: connection.secure ?? true,
     authorizationV4: true,
+    // ali-oss defaults to a global *keep-alive* agent. dev.65 showed why that is poison on this
+    // route: the InitiateMultipartUpload POST answers fine, then the first part PUT rides the same
+    // keep-alive socket and never gets a response at all — urllib's own log shows `connected:
+    // true`, the request fully written (`socketHandledRequests: 2`), and only one response ever
+    // received. A connection that answers one request and silently swallows the next is the
+    // cross-border middlebox pattern, and no part size or retry can rescue a socket like that; a
+    // fresh connection per request turns the same fault into a loud connect-time failure, which
+    // (unlike a response timeout) carries the -1/-2 status ali-oss's own retryMax can work with.
+    agent: new HttpAgent({ keepAlive: false }),
+    httpsAgent: new HttpsAgent({ keepAlive: false }),
     // ali-oss defaults every request to a 60s timeout, which is an interactive caller's budget. A
     // publish is a batch job: it compiles six targets and then pushes the largest bundles over the
     // runner's link, and the biggest of them (darwin-arm64) has now failed with `OSS upload failed:
     // HTTP unknown ... request-id=unknown` — a transport failure with no HTTP status, which is what a
     // timeout looks like — in three consecutive builds (dev.59, dev.60, dev.61). Give it room.
     timeout: PUBLISH_OBJECT_TIMEOUT_MS,
+    // Transient transport errors (-1/-2: reset, connect timeout) retry at the SDK level. A response
+    // timeout carries no status, so it is putObject's own retry loop that rescues it.
+    retryMax: 2,
   };
   if (credentials) {
     return new OSS({ ...credentials, ...base });
