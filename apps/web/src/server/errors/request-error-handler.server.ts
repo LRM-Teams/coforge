@@ -31,6 +31,9 @@ export function handleRequestError(error: unknown): HandledRequestError {
       AGENT_CONTEXT_UNAVAILABLE: 404,
       // A private Agent the viewer cannot see (ADR 0059): 404 status, no Agent details.
       AGENT_NOT_VISIBLE: 404,
+      // A private Agent's direct conversation is scoped to its creator (ADR 0059): the caller can
+      // see the Agent but its DM stays read-only for them, so this is a 403, not a 404.
+      AGENT_DM_RESTRICTED: 403,
     }[error.code];
     return { code, message: error.message };
   }
