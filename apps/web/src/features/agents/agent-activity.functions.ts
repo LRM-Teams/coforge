@@ -4,6 +4,10 @@ import { workspaceUserMiddleware } from "@/server/auth/function-auth";
 import { AgentActivityRepository } from "@/server/db/repositories/agent-activity.repositories.server";
 import { agentIdSchema } from "./agent.schemas";
 import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
+import {
+  agentVisibilityViewerForUser,
+  assertAgentVisible,
+} from "../../server/agents/agent-visibility.server";
 
 export const getWorkspaceActivity = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
@@ -33,9 +37,13 @@ export const getAgentActivityFeed = createServerFn({ method: "GET" })
         workspace: { members: { some: { userId: user.id } } },
         ...ACTIVE_AGENT_WHERE,
       },
-      select: { id: true },
+      select: { id: true, ownerId: true, visibility: true },
     });
     if (!agent) throw new Error("Agent not found");
+    // ADR 0059: reached directly (not only through the profile panel that normally gated this
+    // tab), so the same visibility check applies here too.
+    const viewer = await agentVisibilityViewerForUser(db, workspaceId, user.id);
+    assertAgentVisible(viewer, agent);
     setResponseHeader("cache-control", "no-store");
     return new AgentActivityRepository(db).list(workspaceId, agentId);
   });
