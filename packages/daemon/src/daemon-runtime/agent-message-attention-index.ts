@@ -77,6 +77,11 @@ export class AgentMessageAttentionIndex {
   readonly #attention = new Map<string, Map<string, MessageAttention>>();
   readonly #modelSeen = new Map<string, Map<string, number>>();
   readonly #pendingSequences = new Map<string, Map<string, Set<number>>>();
+  /** The newest sequence ever seen per (agent, target), reviewed or not. Unlike `#attention` (which
+   * is cleared once the boundary catches up) this is only forgotten with the Agent, so a settled
+   * target still reports the context it once held — the daemon's own answer to "is there anything
+   * here for this target at all", which its freshness decision needs. */
+  readonly #latestKnown = new Map<string, Map<string, number>>();
   readonly #readContext = new Map<string, Map<string, number>>();
   readonly #readContextCounters = new Map<string, number>();
   readonly #workspaceId: string;
@@ -177,6 +182,7 @@ export class AgentMessageAttentionIndex {
     };
     byTarget.set(target, current);
     this.#attention.set(message.agentId, byTarget);
+    this.#recordLatest(message.agentId, target, message.sequence);
     if (this.hold.shouldHold(message.agentId)) {
       this.hold.enqueue(message.agentId, message);
       return;
@@ -320,6 +326,7 @@ export class AgentMessageAttentionIndex {
     if (this.#generations.get(agentId) !== generation) return;
     this.#attention.set(agentId, byTarget);
     for (const message of recoveredMessages) {
+      this.#recordLatest(agentId, message.target, message.sequence);
       this.#remember(generation, message.deliveryId, message.messageId);
       generation.notified.add(message.deliveryId);
       if (isChannelMessageTarget(message.target)) {
@@ -520,6 +527,26 @@ already have been read. A notice you have not acted on does not establish that t
     return this.#modelSeen.get(agentId)?.get(target) ?? 0;
   }
 
+  /** Messages the Agent has not been shown yet for this exact target. A target with no attention
+   * entry has none: entries are created by a delivery and cleared once the boundary catches up. */
+  pendingMessageCount(agentId: string, target: string): number {
+    return this.#attention.get(agentId)?.get(target)?.pendingCount ?? 0;
+  }
+
+  /** The newest sequence this Agent has ever seen for `target`, reviewed or not; 0 means the daemon
+   * has never carried anything for it. */
+  latestSequence(agentId: string, target: string): number {
+    return this.#latestKnown.get(agentId)?.get(target) ?? 0;
+  }
+
+  #recordLatest(agentId: string, target: string, sequence: number): void {
+    if (!Number.isInteger(sequence) || sequence < 1) return;
+    const byTarget = this.#latestKnown.get(agentId) ?? new Map<string, number>();
+    if ((byTarget.get(target) ?? 0) >= sequence) return;
+    byTarget.set(target, sequence);
+    this.#latestKnown.set(agentId, byTarget);
+  }
+
   recordModelSeen(agentId: string, target: string, sequence: number): void {
     if (!Number.isInteger(sequence) || sequence < 1) return;
     const byTarget = this.#modelSeen.get(agentId) ?? new Map<string, number>();
@@ -581,6 +608,7 @@ already have been read. A notice you have not acted on does not establish that t
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
     this.#pendingSequences.delete(agentId);
+    this.#latestKnown.delete(agentId);
     this.#readContext.delete(agentId);
     this.#readContextCounters.delete(agentId);
   }
