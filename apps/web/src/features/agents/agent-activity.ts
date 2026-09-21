@@ -17,6 +17,9 @@ export type ActivityEntry = {
   observedAtMs: number;
   entries?: ActivityTrajectoryEntry[];
   runtimeError?: { errorClass: string; errorReason: string; fingerprint: string };
+  /** Raft's freshness-decision lineage (`freshness_decision_fact:<sha256>`); set on a
+   * freshness-hold row only. */
+  producerFactId?: string;
   createdAt?: Date;
 };
 
@@ -109,6 +112,7 @@ export function decodeActivityObservation(
         observedAtMs: event.observedAtMs,
         entries: event.entries,
         runtimeError: event.runtimeError,
+        producerFactId: event.producerFactId,
       },
     };
   } catch {

@@ -1,4 +1,5 @@
 import {
+  freshnessDecisionFactId,
   isChannelMessageTarget,
   isChannelTarget,
   isValidReactionEmoji,
@@ -134,55 +135,10 @@ const HELD_SEND_AVAILABLE_ACTIONS = ["check_messages", "send_draft", "send_anywa
 /** Raft 1.0.32 `DEFAULT_HELD_CONTEXT_LIMIT`. */
 const HELD_CONTEXT_LIMIT = 3;
 
-/** Raft 1.0.32's `stableNormalizeApmHeldFreshness`: keys sorted recursively, `undefined` dropped, so
- * the same decision always serializes to the same bytes. */
-function stableNormalizeFreshnessFact(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableNormalizeFreshnessFact);
-  if (!value || typeof value !== "object") return value;
-  const record = value as Record<string, unknown>;
-  const normalized: Record<string, unknown> = {};
-  for (const key of Object.keys(record).sort()) {
-    const child = record[key];
-    if (child === undefined) continue;
-    normalized[key] = stableNormalizeFreshnessFact(child);
-  }
-  return normalized;
-}
-
-/** Raft 1.0.32's `buildApmFreshnessDecisionProducerFactId`: the `freshness_decision_fact:` prefix
- * plus the full SHA-256 of the stable decision input. The Agent identity is part of it, so two
- * Agents making the "same" decision never share a fact id. */
-async function freshnessDecisionFactId(input: {
-  agentId: string;
-  decision: AgentSendMessageResult["decision"];
-  reason: string;
-  target: string;
-  freshnessContextMode?: "inline" | "withheld";
-  pendingMaxSeq?: number;
-  modelSeenSeq?: number;
-  heldMessageCount?: number;
-  omittedMessageCount?: number;
-}): Promise<string> {
-  const stableInput = {
-    agentId: input.agentId,
-    action: "send",
-    decision: input.decision,
-    ...(input.freshnessContextMode === "withheld"
-      ? { freshnessContextMode: "withheld" as const }
-      : {}),
-    target: input.target ?? null,
-    reason: input.reason,
-    pendingMaxSeq: input.pendingMaxSeq ?? null,
-    modelSeenSeq: input.modelSeenSeq ?? null,
-    heldMessageCount: input.heldMessageCount ?? null,
-    omittedMessageCount: input.omittedMessageCount ?? null,
-  };
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(JSON.stringify(stableNormalizeFreshnessFact(stableInput))),
-  );
-  return `freshness_decision_fact:${Buffer.from(digest).toString("hex")}`;
-}
+/** Raft 1.0.32's `stableNormalizeApmHeldFreshness` and
+ * `buildApmFreshnessDecisionProducerFactId` now live in the SDK
+ * (`@lrm/coforge-sdk/internal`), because a daemon that decides a hold locally never reaches the
+ * server's code path and still has to produce the same `freshness_decision_fact:` id. */
 
 export async function executeAgentSendMessage(
   sender: {
