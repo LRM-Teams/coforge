@@ -35,6 +35,12 @@ type UnknownAgentStatusView = Omit<AgentStatusView, "value"> & {
 
 export const agentStatusChannel = (workspaceId: string) => `agent:status:${workspaceId}`;
 
+/** The re-routed destination for a private Agent's `agent:display` snapshot (ADR 0059), the
+ * status-channel sibling of `agentActivityChannelForAgent`: only a viewer who can currently see
+ * that Agent is ever issued a subscription token for it. */
+export const agentStatusChannelForAgent = (workspaceId: string, agentId: string) =>
+  `agent:status:${workspaceId}:${agentId}`;
+
 // Must match ACTIVITY_PROBE_TIMEOUT_MS in
 // `server/agents/agent-activity-sweep.server.ts`. Duplicated here rather than
 // imported because browser code cannot import a `.server.ts` module.

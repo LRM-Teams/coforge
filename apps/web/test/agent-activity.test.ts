@@ -1,11 +1,22 @@
 import { expect, test } from "bun:test";
 import { encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 import {
+  agentActivityChannel,
+  agentActivityChannelForAgent,
   decodeActivityObservation,
   latestActivityError,
   mergeAgentActivity,
   type ActivityEntry,
 } from "../src/features/agents/agent-activity";
+
+test("agentActivityChannelForAgent names the per-Agent re-routing destination (ADR 0059)", () => {
+  expect(agentActivityChannelForAgent("workspace-1", "agent-1")).toBe(
+    "agent:activity:workspace-1:agent-1",
+  );
+  expect(agentActivityChannelForAgent("workspace-1", "agent-1")).not.toBe(
+    agentActivityChannel("workspace-1"),
+  );
+});
 
 function entry(clientSeq: number, id = `live-${clientSeq}`): ActivityEntry {
   return {
