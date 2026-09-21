@@ -44,31 +44,46 @@ const OTHER_AGENT = {
   stoppedAt: null,
 };
 
-function baseDb(selfAgent: unknown) {
+let lastRosterQuery: unknown;
+
+function baseDb(selfAgent: unknown, rosterOverride?: unknown[]) {
   return {
     workspace: { findUnique: async () => WORKSPACE },
     workspaceMembership: { findMany: async () => [] },
     agent: {
-      findMany: async () => [
-        {
-          id: "agent-1",
-          name: "scout",
-          displayName: "Scout",
-          description: "Reviews pull requests.",
-          computerId: "computer-1",
-          stoppedAt: null,
-        },
-        OTHER_AGENT,
-      ],
+      findMany: async (query: unknown) => {
+        lastRosterQuery = query;
+        return (
+          rosterOverride ?? [
+            {
+              id: "agent-1",
+              name: "scout",
+              displayName: "Scout",
+              description: "Reviews pull requests.",
+              computerId: "computer-1",
+              stoppedAt: null,
+            },
+            OTHER_AGENT,
+          ]
+        );
+      },
       findUnique: async () => selfAgent,
+      // ADR 0059: `agentVisibilityViewerForActor` resolving the calling Agent's own ownerId/role;
+      // `agent-1` (the caller in every test here) owns nothing else in the fixtures below, so a
+      // fixed, non-elevated identity that never matches another Agent's `ownerId` is enough.
+      findFirst: async () => ({ ownerId: "user-scout-owner", role: "member" }),
     },
     project: { findMany: async () => [] },
   };
 }
 
-function request(principal: { workspaceId: string; agentId: string }, selfAgent: unknown) {
+function request(
+  principal: { workspaceId: string; agentId: string },
+  selfAgent: unknown,
+  rosterOverride?: unknown[],
+) {
   return get({
-    context: { principal, db: baseDb(selfAgent) },
+    context: { principal, db: baseDb(selfAgent, rosterOverride) },
   } as unknown as Parameters<typeof get>[0]);
 }
 
@@ -191,4 +206,15 @@ test("workspace info omits runtimeContext entirely when the calling Agent record
   expect(response.status).toBe(200);
   const body = await response.json();
   expect(body.runtimeContext).toBeUndefined();
+});
+
+test("workspace info roster query hides a private Agent the caller cannot see (ADR 0059)", async () => {
+  await request(PRINCIPAL, { id: "agent-1", name: "scout", runtimeConfig: {}, computerId: null });
+  expect(lastRosterQuery).toMatchObject({
+    where: {
+      workspaceId: "workspace-1",
+      deletedAt: null,
+      OR: [{ visibility: "public" }, { ownerId: "user-scout-owner" }],
+    },
+  });
 });
