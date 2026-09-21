@@ -5,6 +5,7 @@ import {
   type ActionCardKind,
   type ResolvedActionCardPayload,
 } from "@lrm/coforge-sdk/agent";
+import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
@@ -700,14 +701,23 @@ export class ActionCards {
     const agent = UUID_PATTERN.test(bare)
       ? await this.db.agent.findFirst({
           where: { id: bare, workspaceId, ...ACTIVE_AGENT_WHERE },
-          select: { id: true },
+          select: { id: true, visibility: true },
         })
       : await this.db.agent.findFirst({
           where: { name: bare, workspaceId, ...ACTIVE_AGENT_WHERE },
-          select: { id: true },
+          select: { id: true, visibility: true },
         });
     if (!agent)
       throw new ActionCardError(422, "INVALID_HANDLE", `unknown agent handle: ${value}`, { field });
+    // Every Agent an action card names becomes a channel member, and a private Agent never is one
+    // (ADR 0059). Refusing here also keeps its display name out of a card rendered to the channel.
+    if (agent.visibility !== AGENT_VISIBILITY.PUBLIC)
+      throw new ActionCardError(
+        422,
+        "INVALID_HANDLE",
+        `${value} is private and cannot be a channel member`,
+        { field },
+      );
     return agent.id;
   }
 

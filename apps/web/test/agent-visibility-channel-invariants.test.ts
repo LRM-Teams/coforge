@@ -162,7 +162,7 @@ test("PublicChannels.members never offers a private Agent as an add-candidate (A
   ]);
 });
 
-function agentChannelManagementFixture(callerVisibility: string) {
+function agentChannelManagementFixture(callerVisibility: string | undefined) {
   const db = {
     conversation: {
       findUnique: async () => ({
@@ -172,7 +172,10 @@ function agentChannelManagementFixture(callerVisibility: string) {
       }),
     },
     agent: {
-      findFirst: async () => ({ id: "caller-agent", visibility: callerVisibility }),
+      findFirst: async () =>
+        callerVisibility === undefined
+          ? null
+          : { id: "caller-agent", visibility: callerVisibility },
     },
     conversationMember: {
       findFirst: async () => null,
@@ -191,6 +194,16 @@ test("AgentChannelManagement.join rejects a private calling Agent (ADR 0059)", a
 
   expect(error).toBeInstanceOf(AgentChannelManagementError);
   expect((error as InstanceType<typeof AgentChannelManagementError>).status).toBe(403);
+});
+
+test("AgentChannelManagement.join refuses a calling Agent it cannot resolve", async () => {
+  const management = agentChannelManagementFixture(undefined);
+
+  const error = await management
+    .join(WORKSPACE_ID, "caller-agent", "#general")
+    .catch((cause: unknown) => cause);
+
+  expect(error).toBeInstanceOf(AgentChannelManagementError);
 });
 
 test("AgentChannelManagement.join allows a public calling Agent", async () => {

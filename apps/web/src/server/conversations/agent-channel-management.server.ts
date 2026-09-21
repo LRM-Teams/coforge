@@ -418,7 +418,7 @@ export class AgentChannelManagement {
       where: { id: agentId, workspaceId, ...ACTIVE_AGENT_WHERE },
       select: { visibility: true },
     });
-    if (agent && agent.visibility !== AGENT_VISIBILITY.PUBLIC)
+    if (!agent || agent.visibility !== AGENT_VISIBILITY.PUBLIC)
       throw new AgentChannelManagementError(403, `a private Agent cannot ${operation} a channel`);
   }
 

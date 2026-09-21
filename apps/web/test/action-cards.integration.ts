@@ -275,6 +275,30 @@ test("prepare rejects an unknown handle with a field-scoped INVALID_HANDLE error
   }
 });
 
+test("prepare refuses a private Agent as a channel member without naming it", async () => {
+  const ctx = await setup();
+  try {
+    await ctx.db.agent.update({ where: { id: ctx.bobsAgent.id }, data: { visibility: "private" } });
+    await expectActionCardError(
+      ctx.actionCards.prepare(ctx.principal, {
+        target: `#${ctx.hub.channelName}`,
+        action: {
+          type: "channel:add_member",
+          channel: ctx.hub.channelName!,
+          agents: [`@${ctx.bobsAgent.name}`],
+        },
+      }),
+      {
+        code: "INVALID_HANDLE",
+        field: "action.agents[0]",
+        message: `@${ctx.bobsAgent.name} is private and cannot be a channel member`,
+      },
+    );
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
 test("prepare rejects a private channel:create as not-yet-supported", async () => {
   const ctx = await setup();
   try {
