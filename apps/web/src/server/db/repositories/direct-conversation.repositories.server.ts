@@ -1037,6 +1037,21 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     // The overflow row is always the newest of the fetched rows, so dropping the tail of the
     // ordered list keeps the reader's side of the window and drops the row that only proved there
     // was more.
+    const mentionRows = await this.db.conversationMember.findMany({
+      where: { conversationId: conversation.id, ...ACTIVE_MEMBER_WHERE },
+      select: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            description: true,
+            avatarObjectKey: true,
+          },
+        },
+        agent: { select: { id: true, name: true, displayName: true, description: true } },
+      },
+    });
     const pageRows = row.messages.slice(0, limit);
     const messages = (forward ? pageRows : pageRows.reverse())
       .flatMap((message) => [message, ...message.replies])
@@ -1051,6 +1066,37 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         sender.threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
       ),
       agent: agentMember.agent,
+      viewerHandle: sender.user?.username,
+      // Who a mention here can be resolved to. A direct conversation has no candidate affinity to
+      // rank (see `mentionAffinityScores`), so every member scores 0 and handle order is the whole
+      // ordering; the viewer's own row is included because this list is also what *resolves* a
+      // mention of them — leaving it out rendered `<@human:uuid>` raw in their own pane.
+      mentionables: mentionRows
+        .map((mentionRow) =>
+          mentionRow.user
+            ? {
+                kind: "user" as const,
+                id: mentionRow.user.id,
+                handle: mentionRow.user.username,
+                label: mentionRow.user.displayName?.trim() || mentionRow.user.username,
+                description: mentionRow.user.description.trim(),
+                avatarUrl: workspaceUserAvatarUrl(
+                  workspaceId,
+                  mentionRow.user.id,
+                  mentionRow.user.avatarObjectKey,
+                ),
+                mentionScore: 0,
+              }
+            : {
+                kind: "agent" as const,
+                id: mentionRow.agent!.id,
+                handle: mentionRow.agent!.name,
+                label: mentionRow.agent!.displayName?.trim() || mentionRow.agent!.name,
+                description: mentionRow.agent!.description.trim(),
+                mentionScore: 0,
+              },
+        )
+        .sort((left, right) => left.handle.localeCompare(right.handle)),
       hasOlder,
       hasNewer,
       messages: messages.map((message) => toBrowserMessage(message, workspaceId)),
