@@ -1319,6 +1319,64 @@ test("a Start that meets an already-running process under an older, terminal ope
   });
 });
 
+test("a Start for a different native session stops the running process instead of rebinding", async () => {
+  let record: AgentRuntimeRecord | undefined;
+  let active = false;
+  let launches = 0;
+  let rebinds = 0;
+  let stops = 0;
+  const store: AgentRuntimeStateStore = {
+    listAgentIds: async () => [],
+    read: async () => record && structuredClone(record),
+    write: async (_id, value) => {
+      record = structuredClone(value);
+    },
+    clearWorkspace: async () => {},
+  };
+  const state = new AgentRuntimeState(store);
+  const control = new AgentControl("daemon", state, new AgentSessions(state, async () => {}), {
+    running: () => active,
+    async stop() {
+      stops++;
+      active = false;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async launch(intent) {
+      launches++;
+      active = true;
+      return { sessionId: intent.sessionId ?? "native-1", state: "resumable" };
+    },
+    async rebind() {
+      rebinds++;
+      return { sessionId: "native-1", state: "resumable" };
+    },
+    async result() {},
+  });
+
+  await control.start(rebindScope({ sessionId: "native-1" }));
+  expect(launches).toBe(1);
+  expect(record?.identity?.sessionId).toBe("native-1");
+
+  await control.start(
+    rebindScope({
+      requestId: "start-2",
+      controlEpoch: 2,
+      launchId: "launch-new",
+      sessionId: "subject-b",
+      sessionMode: "resume",
+    }),
+  );
+
+  expect(stops).toBe(1);
+  expect(rebinds).toBe(0);
+  expect(launches).toBe(2);
+  expect(record).toMatchObject({
+    phase: "running",
+    launchId: "launch-new",
+    identity: { sessionId: "subject-b", state: "resumable" },
+  });
+});
+
 test("an equal-epoch replay after a rebind re-sends the rebound result without rebinding again", async () => {
   let record: AgentRuntimeRecord | undefined;
   let active = false;

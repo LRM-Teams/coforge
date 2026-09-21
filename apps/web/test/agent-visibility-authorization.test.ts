@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Prisma, PrismaClient } from "../generated/client";
 import { isAppError } from "../src/lib/app-error";
 import {
+  agentVisibilityViewerForActor,
   agentVisibilityViewerForAgent,
   agentVisibilityViewerForUser,
   assertAgentVisible,
@@ -248,5 +249,55 @@ describe("viewer builders", () => {
       ownerId: "owner-1",
       role: "member",
     });
+  });
+
+  test("agentVisibilityViewerForActor resolves a human actor through the Workspace membership lookup", async () => {
+    const db = {
+      workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
+      agent: {
+        findFirst: async () => {
+          throw new Error("must not query the Agent table for a human actor");
+        },
+      },
+    } as unknown as Pick<PrismaClient, "workspaceMembership" | "agent">;
+
+    const viewer = await agentVisibilityViewerForActor(db, WORKSPACE_ID, { userId: "user-1" });
+    expect(viewer).toEqual({ kind: "user", userId: "user-1", role: "owner" });
+  });
+
+  test("agentVisibilityViewerForActor resolves an Agent actor's own ownerId and role in one query", async () => {
+    const db = {
+      workspaceMembership: {
+        findUnique: async () => {
+          throw new Error("must not query WorkspaceMembership for an Agent actor");
+        },
+      },
+      agent: {
+        findFirst: async (query: { where: { id: string; workspaceId: string } }) => {
+          expect(query.where).toMatchObject({ id: "agent-1", workspaceId: WORKSPACE_ID });
+          return { ownerId: "owner-1", role: "admin" };
+        },
+      },
+    } as unknown as Pick<PrismaClient, "workspaceMembership" | "agent">;
+
+    const viewer = await agentVisibilityViewerForActor(db, WORKSPACE_ID, { agentId: "agent-1" });
+    expect(viewer).toEqual({
+      kind: "agent",
+      agentId: "agent-1",
+      ownerId: "owner-1",
+      role: "admin",
+    });
+  });
+
+  test("agentVisibilityViewerForActor fails closed when the Agent actor cannot be found", async () => {
+    const db = {
+      workspaceMembership: { findUnique: async () => null },
+      agent: { findFirst: async () => null },
+    } as unknown as Pick<PrismaClient, "workspaceMembership" | "agent">;
+
+    const viewer = await agentVisibilityViewerForActor(db, WORKSPACE_ID, { agentId: "unknown" });
+    // No real owner can ever equal the empty string, so this viewer sees only public Agents —
+    // the same fail-closed shape `isElevatedServerRole` already uses for an unrecognized role.
+    expect(viewer).toEqual({ kind: "agent", agentId: "unknown", ownerId: "", role: undefined });
   });
 });

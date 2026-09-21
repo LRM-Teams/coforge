@@ -95,6 +95,7 @@ async function setup() {
 
   const realtimeEvents: Array<{ conversationId: string; messageId: string; sequence: number }> = [];
   const actionCards = new ActionCards(db, new PrismaDirectConversationRepository(db), {
+    async memberChanged() {},
     async messageAvailable(event) {
       realtimeEvents.push(event);
     },
@@ -269,6 +270,30 @@ test("prepare rejects an unknown handle with a field-scoped INVALID_HANDLE error
         },
       }),
       { code: "INVALID_HANDLE", field: "action.humans[0]" },
+    );
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test("prepare refuses a private Agent as a channel member without naming it", async () => {
+  const ctx = await setup();
+  try {
+    await ctx.db.agent.update({ where: { id: ctx.bobsAgent.id }, data: { visibility: "private" } });
+    await expectActionCardError(
+      ctx.actionCards.prepare(ctx.principal, {
+        target: `#${ctx.hub.channelName}`,
+        action: {
+          type: "channel:add_member",
+          channel: ctx.hub.channelName!,
+          agents: [`@${ctx.bobsAgent.name}`],
+        },
+      }),
+      {
+        code: "INVALID_HANDLE",
+        field: "action.agents[0]",
+        message: `@${ctx.bobsAgent.name} is private and cannot be a channel member`,
+      },
     );
   } finally {
     await ctx.cleanup();

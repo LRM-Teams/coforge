@@ -1,7 +1,15 @@
 import { expect, test } from "bun:test";
-import { WEEKLY_REPORT_PROTOCOL_MAJOR } from "@lrm/coforge-sdk/internal";
+import {
+  WEEKLY_REPORT_PROTOCOL_MAJOR,
+  validateWeeklyReportRequest,
+} from "@lrm/coforge-sdk/internal";
 import { AppError } from "../src/lib/app-error";
-import { executeAgentWeeklyReport } from "../src/server/agents/agent-weekly-report-http.server";
+import {
+  executeAgentWeeklyReport,
+  weeklyReportWireRequest,
+} from "../src/server/agents/agent-weekly-report-http.server";
+import { weeklyReportKeyPointsHttpResponse } from "../src/routes/api/agent/v1/weekly-report-key-points";
+import { weeklyReportCollectHttpResponse } from "../src/routes/api/agent/v1/weekly-report-collect";
 
 const request = {
   protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
@@ -88,4 +96,65 @@ test("weekly-report Agent reads do not leak unauthorized report existence", asyn
     },
   );
   expect(outcome).toEqual({ error: { code: 400, message: "Weekly report not found" } });
+});
+
+const REPORT = "33333333-3333-4333-8333-333333333333";
+
+test("weekly-report HTTP echoes the caller's idempotencyKey after requestId validation", async () => {
+  const validated = validateWeeklyReportRequest({
+    protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
+    requestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    workspaceId: "workspace",
+    agentId: "assistant",
+    operation: "read",
+    reportId: REPORT,
+    section: "Progress",
+  });
+  const wire = weeklyReportWireRequest(validated);
+  expect(wire.idempotencyKey).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  expect("requestId" in wire).toBe(false);
+
+  const outcome = await executeAgentWeeklyReport(
+    {
+      loadAssistantContextManifest: async () => ({}),
+      listAssistantVisibleReports: async () => ({ reports: [], nextCursor: null }),
+      readAssistantReportSection: async () => ({ markdown: "ok", truncated: false }),
+    },
+    {
+      computerIdForAuthorizedAgent: async () => "computer",
+      weeklyReportAssistantOwner: async () => ({ userId: "owner" }),
+    },
+    wire,
+    {
+      userId: "owner",
+      workspaceId: "workspace",
+      computerId: "computer",
+      agentId: "assistant",
+    },
+  );
+  expect(outcome).toMatchObject({
+    response: { idempotencyKey: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+  });
+});
+
+test("key-point and collect HTTP responses echo idempotencyKey for the daemon proxy", () => {
+  const key = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  expect(
+    weeklyReportKeyPointsHttpResponse({
+      idempotencyKey: key,
+      reportId: REPORT,
+      status: "ready",
+    }),
+  ).toMatchObject({ idempotencyKey: key, requestId: key, reportId: REPORT, status: "ready" });
+  expect(
+    weeklyReportCollectHttpResponse({
+      idempotencyKey: key,
+      runId: REPORT,
+      status: "settled",
+      allTerminal: true,
+      canSynthesize: true,
+      newlyAccepted: true,
+      synthesisStarted: false,
+    }),
+  ).toMatchObject({ idempotencyKey: key, requestId: key });
 });

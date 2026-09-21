@@ -86,9 +86,11 @@ export type DirectConversationView = {
   hasOlder?: boolean;
   hasNewer?: boolean;
   agent: { id: string; name: string; displayName: string; deletedAt?: Date | null };
-  /** The viewing user's `@handle`; powers the stronger "mentioned me" chip. Channels only. */
+  /** The viewing user's `@handle`; powers the stronger "mentioned me" chip, and lets the composer
+   * drop the viewer from its candidate list. Absent for a non-member. */
   viewerHandle?: string;
-  /** The composer's @-completion source: every active member's public handle. Channels only. */
+  /** The composer's @-completion source *and* the resolver for a body's `<@kind:uuid>` tokens:
+   * every active member, the viewer included. Absent for a non-member. */
   mentionables?: Mentionable[];
   messages: Array<{
     id: string;
@@ -106,7 +108,7 @@ export type DirectConversationView = {
     senderAvatarUrl?: string | null;
     body: string;
     createdAt: Date | string;
-    /** Resolved mention rows for the body's embedded `<@kind:uuid>` tokens (channels only). */
+    /** Resolved mention rows for the body's embedded `<@kind:uuid>` tokens. */
     mentions?: {
       kind: "user" | "agent";
       actorId: string;
@@ -501,6 +503,10 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             : m.conversation_thread_replies({
                 count: threadReplies.length,
               });
+        const unread = threadReplies.filter(
+          (reply) =>
+            reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
+        ).length;
         // The newest few only; the side pane holds the full thread.
         const visible = threadReplies.slice(-3);
         return (
@@ -512,7 +518,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             className="mt-1.5 block h-auto w-full rounded-lg bg-secondary p-2 text-left font-normal hover:bg-secondary_hover"
           >
             <span className="flex items-center gap-0.5 text-sm font-medium text-brand-secondary">
-              {label}
+              {unread > 0 ? `${label} · ${m.conversation_thread_unread({ count: unread })}` : label}
               <ChevronRight aria-hidden="true" className="size-4" />
             </span>
             <span className="mt-1 flex flex-col gap-1.5">
@@ -706,6 +712,14 @@ export function ConversationPane({
   plainMentions?: Map<string, ChipMention>;
 }) {
   const openMode = useConversationOpenMode();
+  // The candidate list keeps every member, the viewer included, because it is also what *resolves*
+  // a mention of the viewer in a body or preview. Offering the viewer to the viewer is a different
+  // question, and the composer answers it with its own rule: you never mention yourself.
+  const mentionCandidates = useMemo(
+    () =>
+      conversation.mentionables?.filter((mention) => mention.handle !== conversation.viewerHandle),
+    [conversation.mentionables, conversation.viewerHandle],
+  );
   const [dateLocale, setDateLocale] = useState<string>();
   useEffect(() => setDateLocale(getLocale()), []);
   const toast = useAppToast();
@@ -1381,7 +1395,7 @@ export function ConversationPane({
           conversationId={conversation.conversationId}
           threadRootId={root?.id}
           inThread={Boolean(root)}
-          mentionables={conversation.mentionables}
+          mentionables={mentionCandidates}
           recentHandles={recentHandles}
           onSend={onSend}
           onCreateTask={onCreateTask}

@@ -3,7 +3,11 @@ import { useServerFn } from "@tanstack/react-start";
 
 import { useBrowserRealtime, type BrowserRealtimeSubscription } from "../realtime/browser-realtime";
 import { getConversationRealtimeToken } from "../realtime/realtime.functions";
-import { conversationRealtimeChannel, decodeMessageAvailableEvent } from "./conversation-realtime";
+import {
+  conversationRealtimeChannel,
+  decodeMemberChangedEvent,
+  decodeMessageAvailableEvent,
+} from "./conversation-realtime";
 
 type RealtimeSubscription = {
   on(
@@ -33,6 +37,9 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
     conversationId: string;
     getToken: () => Promise<string>;
     reconcile: () => void;
+    /** A membership change in this conversation (join/leave/add/remove): the member directory
+     * (composer candidates, plain-@handle resolution) is stale and must be refetched. */
+    onMemberChanged?: () => void;
   },
 ) {
   const channel = conversationRealtimeChannel(input.conversationId);
@@ -51,6 +58,13 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
     try {
       const event = decodeMessageAvailableEvent(data);
       if (event.conversationId === input.conversationId) requestReconciliation();
+      return;
+    } catch {}
+    // Not a message event: the other payload this channel carries is a membership change,
+    // which stale-dates the member directory but not the message window.
+    try {
+      const event = decodeMemberChangedEvent(data);
+      if (event.conversationId === input.conversationId) input.onMemberChanged?.();
     } catch {}
   });
   const onVisibilityChange = () => requestReconciliation();
@@ -68,11 +82,17 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
   };
 }
 
-export function useConversationRealtime(conversationId: string, reconcile: () => Promise<void>) {
+export function useConversationRealtime(
+  conversationId: string,
+  reconcile: () => Promise<void>,
+  onMemberChanged?: () => void,
+) {
   const client = useBrowserRealtime();
   const getToken = useServerFn(getConversationRealtimeToken);
   const reconcileRef = useRef(reconcile);
   reconcileRef.current = reconcile;
+  const memberChangedRef = useRef(onMemberChanged);
+  memberChangedRef.current = onMemberChanged;
 
   useEffect(() => {
     if (!client || !conversationId) return;
@@ -80,6 +100,7 @@ export function useConversationRealtime(conversationId: string, reconcile: () =>
       conversationId,
       getToken: () => getToken({ data: { conversationId } }),
       reconcile: () => void reconcileRef.current().catch(() => {}),
+      onMemberChanged: () => memberChangedRef.current?.(),
     });
   }, [client, conversationId, getToken]);
 }

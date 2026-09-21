@@ -14,6 +14,7 @@ import {
   encodeReminderSync,
   isReminderMessageAnchor,
   isValidReminderStatusFilter,
+  validateAgentReminderOperationRequest,
 } from "./index";
 
 const scope = {
@@ -356,4 +357,32 @@ test("canonical responses and local receipts reject non-canonical business data"
       title: "extraneous",
     }),
   ).toThrow();
+});
+
+test("validateAgentReminderOperationRequest applies the codec's rules to plain JSON", () => {
+  // The HTTP contract: same rules as the codec, no protobuf. A route that encodes to bytes only to
+  // decode them back speaks the wrong shape for an HTTP handler.
+  const request = {
+    protocolMajor: 1,
+    requestId: "11111111-1111-4111-8111-111111111111",
+    workspaceId: "22222222-2222-4222-8222-222222222222",
+    computerId: "33333333-3333-4333-8333-333333333333",
+    agentId: "44444444-4444-4444-8444-444444444444",
+    operation: "list",
+    status: "scheduled",
+  } as const;
+
+  expect(validateAgentReminderOperationRequest(request)).toEqual(request);
+  // A scope id is an opaque token, not a UUID — but it has to *be* one. `RegExp.test(undefined)`
+  // stringifies to "undefined" and matches the pattern, so an absent id is the case worth pinning:
+  // the protobuf encoder refused it by field type, and the JSON path has to refuse it on its own.
+  const { requestId: _requestId, ...withoutRequestId } = request;
+  expect(() => validateAgentReminderOperationRequest(withoutRequestId)).toThrow();
+  expect(() =>
+    validateAgentReminderOperationRequest({ ...request, workspaceId: undefined }),
+  ).toThrow();
+  expect(() =>
+    validateAgentReminderOperationRequest({ ...request, operation: "explode" }),
+  ).toThrow();
+  expect(() => validateAgentReminderOperationRequest(null)).toThrow();
 });

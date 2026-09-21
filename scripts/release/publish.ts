@@ -79,6 +79,10 @@ export function regionFromEndpoint(endpoint: string): string | undefined {
  * security token - the same pattern `apps/web`'s OSS file storage uses - so a client built from a
  * federated STS token does not start signing with an expired one partway through a publish that
  * compiled six targets before it ever made a network call. */
+/** A publish uploads whole platform bundles over a shared runner link; 60s (ali-oss's default) is
+ * an interactive request's budget, not this job's. See `createOssClient`. */
+const PUBLISH_OBJECT_TIMEOUT_MS = 10 * 60 * 1000;
+
 export async function createOssClient(
   connection: OssConnection,
   credentials?: OssCredentials,
@@ -97,6 +101,12 @@ export async function createOssClient(
     cname: connection.cname ?? false,
     secure: connection.secure ?? true,
     authorizationV4: true,
+    // ali-oss defaults every request to a 60s timeout, which is an interactive caller's budget. A
+    // publish is a batch job: it compiles six targets and then pushes the largest bundles over the
+    // runner's link, and the biggest of them (darwin-arm64) has now failed with `OSS upload failed:
+    // HTTP unknown ... request-id=unknown` — a transport failure with no HTTP status, which is what a
+    // timeout looks like — in three consecutive builds (dev.59, dev.60, dev.61). Give it room.
+    timeout: PUBLISH_OBJECT_TIMEOUT_MS,
   };
   if (credentials) {
     return new OSS({ ...credentials, ...base });
@@ -150,24 +160,27 @@ function isMissingObject(error: unknown): boolean {
   return code === "NoSuchKey" || status === 404;
 }
 
-/** The only diagnostic a failed OSS call is allowed to surface: an HTTP status, the object key,
- * OSS's own request id, and the SDK error's stable `name` (a class label like
- * `ResponseTimeoutError`, never user data). It deliberately excludes the SDK error's `message`
- * and any response body/header - a real OSS `SignatureDoesNotMatch` error echoes the
- * `StringToSign`, the supplied `Signature`, and the `AccessKeyId` back to the caller, so surfacing
- * that text would leak exactly the material this function exists to protect. The `name` is safe:
- * ali-oss fills in `message`/`code`/`status` for server responses but leaves only `name` for a
- * transport timeout, which is precisely the failure mode the log needs to distinguish. See
- * publish.test.ts's credential-leak test, which fails if this function is changed to include the
- * `message` or any response body/header. */
-function ossError(action: string, objectKey: string, error: unknown): Error {
+/** The only diagnostic a failed OSS call is allowed to surface: an HTTP status, OSS's own code, the
+ * error's *class name*, the object key, and OSS's request id. It deliberately excludes the SDK
+ * error's `message` and any response body/header - a real OSS `SignatureDoesNotMatch` error echoes
+ * the `StringToSign`, the supplied `Signature`, and the `AccessKeyId` back to the caller, so
+ * surfacing that text would leak exactly the material this function exists to protect. See
+ * publish.test.ts's credential-leak test, which fails if this function is changed to include either.
+ *
+ * The class name is in because it is the one part of an SDK error that is a *kind* rather than
+ * content: a transport failure reports no status at all (`HTTP unknown`), and `ResponseTimeoutError`
+ * versus `ConnectionTimeoutError` is the whole diagnosis. */
+export function ossError(action: string, objectKey: string, error: unknown): Error {
   const { status, code, requestId, name } =
     typeof error === "object" && error !== null
-      ? (error as { status?: unknown; code?: unknown; requestId?: unknown; name?: string })
+      ? (error as { status?: unknown; code?: unknown; requestId?: unknown; name?: unknown })
       : {};
   const statusText = typeof status === "number" ? status : "unknown";
   const codeText = typeof code === "string" && code.length > 0 ? ` code=${code}` : "";
-  const nameText = typeof name === "string" && name.length > 0 ? ` name=${name}` : "";
+  // `Error` itself says nothing; a class name that differs from it is the interesting case.
+  const nameText =
+    typeof name === "string" && name.length > 0 && name !== "Error" ? ` ${name}` : "";
+
   const requestIdText =
     typeof requestId === "string" && requestId.length > 0 ? requestId : "unknown";
   return new Error(

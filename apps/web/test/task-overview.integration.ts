@@ -82,7 +82,7 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
   const createTask = (userId: string, workspaceId: string, conversationId: string, title: string) =>
     board.execute(
       { workspaceId, userId },
-      { operation: "create", requestId: crypto.randomUUID(), conversationId, title },
+      { operation: "create", idempotencyKey: crypto.randomUUID(), conversationId, title },
     );
 
   try {

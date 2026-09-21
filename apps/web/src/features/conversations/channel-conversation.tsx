@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bell01 as Bell,
   BellOff01 as BellOff,
@@ -12,6 +13,7 @@ import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ChannelMembersDialog } from "./channel-members-dialog";
 import { ConversationListButton } from "./conversation-navigation";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
+import { loadPublicChannelMentionables } from "./channels.functions";
 import {
   ThreadedConversation,
   type DirectConversationView,
@@ -211,6 +213,26 @@ export function ChannelConversation({
 }) {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState(false);
+  // The @-completion directory refreshes while the conversation stays open: the page payload
+  // carries it once per load, so members who joined after that would otherwise only appear in
+  // the composer (and in mention resolution) after a full refresh. Bounded staleness — a short
+  // stale window, a refetch when the tab regains focus, and a slow background poll — keeps the
+  // list current without hammering the directory on every keystroke.
+  const freshMentionables = useQuery({
+    queryKey: ["conversation", "mentionables", conversation.conversationId],
+    queryFn: () =>
+      loadPublicChannelMentionables({ data: { channelId: conversation.conversationId } }),
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
+  });
+  const conversationWithFreshDirectory = useMemo(
+    () =>
+      freshMentionables.data
+        ? { ...conversation, mentionables: freshMentionables.data }
+        : conversation,
+    [conversation, freshMentionables.data],
+  );
   async function join() {
     setJoining(true);
     setError(false);
@@ -227,9 +249,9 @@ export function ChannelConversation({
   // label. Display-only — bodies, wake rules and mention rows are unchanged.
   const plainMentions = useMemo(
     () =>
-      conversation.mentionables?.length
+      conversationWithFreshDirectory.mentionables?.length
         ? new Map(
-            conversation.mentionables.map((mentionable) => [
+            conversationWithFreshDirectory.mentionables.map((mentionable) => [
               mentionable.handle,
               {
                 handle: mentionable.handle,
@@ -239,11 +261,11 @@ export function ChannelConversation({
             ]),
           )
         : undefined,
-    [conversation.mentionables],
+    [conversationWithFreshDirectory.mentionables],
   );
   return (
     <ThreadedConversation
-      conversation={conversation}
+      conversation={conversationWithFreshDirectory}
       plainMentions={plainMentions}
       onSend={onSend}
       onLoadOlder={onLoadOlder}

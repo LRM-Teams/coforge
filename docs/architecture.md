@@ -469,11 +469,23 @@ PostgreSQL 的首要领域对象是：
 - `message`
 - Workspace Records（周报）：`weekly_report_cycles`、`weekly_reports`、
   `weekly_report_favorites`、`weekly_report_templates`、
-  `weekly_report_assistants`、`record_notes`、`record_comments`（见 ADR 0009 / ADR 0011；schema
+  `weekly_report_assistants`、`weekly_report_assistant_runtime_sessions`、
+  `record_notes`、`record_comments`（见 ADR 0009 / ADR 0011 / ADR 0060；schema
   变更需 Frank 批准）。`weekly_report_assistants` 将一个 User 在一个 Workspace
   内的固定周报助手 Agent 归属持久化为 `(workspaceId, userId)` 唯一关系；助手仍复用
   Agent 的 Computer/Runtime 生命周期，但不是 Workspace 共享 Agent，也不进入 Members
-  的独立管理流程。周报助手启动时，launch credential 可附带
+  的独立管理流程。该助手的 **Agent session** 按 Records 页面 subject
+  （`report:<weeklyReportId>` / `cycle:<cycleId>`）隔离：同一周报节点复用同一会话，
+  不同节点不得共用一条长会话。映射表 `weekly_report_assistant_runtime_sessions`
+  保存 `(workspace, agent, subject) → sessionId`。唤醒（要点提炼、采集合成、侧栏）
+  在投递 DM 之前按该映射对齐 Daemon：已在该 session 上运行则直接投递；否则先停掉
+  当前进程，再以映射的 `sessionId` 启动（新建映射用 `create`，已有映射用 `resume`）。
+  Daemon 收到带有不同 `sessionId` 的 Start 时，也不会把新 scope 重绑到正在运行的旧进程上，
+  而是先停掉该进程再启动目标会话。这不替代 `Agent.currentSessionId` 对普通 Agent 的语义。侧栏
+  `WeeklyReportAssistantChatSession` 仍是按 subject 的 UI 线程，与运行时 Agent
+  session 分工不同（见
+  [ADR 0060](adr/0060-weekly-assistant-per-subject-runtime-session.md)）。
+  周报助手启动时，launch credential 可附带
   `assignedSkillPacks: ["weekly-report"]`；Daemon 在 native Skills discovery 前将这些
   CoForge 分配的 Skills 写入该 Agent workspace 的 provider 原生 project scope，且不覆盖
   已有同名 skill。页级助手请求复用现有 User–Agent DM（不新增浏览器 WebSocket）；请求正文

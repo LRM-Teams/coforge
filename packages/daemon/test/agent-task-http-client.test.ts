@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
+import { AgentTaskUpstreamError } from "../src/connection/agent-task-upstream-error";
 import { defaultAgentTaskHttpClient } from "../src/connection/daemon-connection";
 
 const request = {
   protocolMajor: 1,
-  requestId: "request-1",
+  idempotencyKey: "request-1",
   workspaceId: "workspace-1",
   agentId: "agent-1",
   operation: "list",
@@ -14,7 +15,7 @@ test("Agent Task HTTP client rejects a response for a different request", async 
   const server = Bun.serve({
     port: 0,
     fetch() {
-      return Response.json({ requestId: "request-2", tasks: [] });
+      return Response.json({ idempotencyKey: "request-2", tasks: [] });
     },
   });
   try {
@@ -25,7 +26,7 @@ test("Agent Task HTTP client rejects a response for a different request", async 
         daemonApiKey: "daemon-key",
         request,
       }),
-    ).rejects.toThrow("Task response request ID does not match request");
+    ).rejects.toThrow("Task response idempotency key does not match request");
   } finally {
     await server.stop();
   }
@@ -72,3 +73,35 @@ test("Agent Task HTTP client abandons a server request at its deadline", async (
     await server.stop(true);
   }
 }, 11_000);
+
+test("Agent Task HTTP client keeps the server's refusal code for the daemon log only", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      return Response.json(
+        { error: "invalid task request", code: "ACCESS_DENIED" },
+        { status: 400 },
+      );
+    },
+  });
+  try {
+    const error = await defaultAgentTaskHttpClient
+      .execute({
+        url: `${server.url}api/agent/v1/tasks`,
+        agentApiKey: "agent-key",
+        daemonApiKey: "daemon-key",
+        request,
+      })
+      .catch((thrown: unknown) => thrown);
+
+    // The caller-facing message stays exactly what it was — a test above pins that an upstream's
+    // details are not published — and the cause is carried alongside it for the log.
+    expect(error).toBeInstanceOf(AgentTaskUpstreamError);
+    expect((error as AgentTaskUpstreamError).message).toBe(
+      "server Agent Task request failed (400)",
+    );
+    expect((error as AgentTaskUpstreamError).upstreamCode).toBe("ACCESS_DENIED");
+  } finally {
+    await server.stop();
+  }
+});

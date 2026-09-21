@@ -9,6 +9,7 @@ import { recordCatalog } from "#/server/records/record-catalog.server";
 import { weeklyReportAssistantOwner } from "#/server/records/weekly-report-assistant.server";
 import {
   executeAgentWeeklyReport,
+  weeklyReportWireRequest,
   type WeeklyReportWireRequest,
 } from "#/server/agents/agent-weekly-report-http.server";
 
@@ -33,7 +34,7 @@ export const Route = createFileRoute("/api/agent/v1/weekly-reports")({
               weeklyReportAssistantOwner: (workspaceId, agentId) =>
                 weeklyReportAssistantOwner(db, { workspaceId, agentId }),
             },
-            command,
+            weeklyReportWireRequest(command),
             principal,
           );
           if ("error" in result)

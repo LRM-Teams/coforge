@@ -11,7 +11,7 @@ import { m } from "@/paraglide/messages";
 import { executeTask } from "./tasks.functions";
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 
-type DetailCommand = Omit<TaskCommand, "requestId" | "conversationId"> & { number: number };
+type DetailCommand = Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number };
 
 export function TaskDetailMenu({
   task,
@@ -269,7 +269,7 @@ export function TaskDetailDialog({
       const result = await execute({
         data: {
           operation: "history",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: task.conversationId,
           number: task.number,
         },

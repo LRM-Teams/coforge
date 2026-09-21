@@ -50,6 +50,7 @@ function observationRace() {
     agent: {
       id: "a",
       ownerId: "owner",
+      visibility: "public",
       workspaceId: "w",
       computerId: "c",
       runtimeConfig,
@@ -281,6 +282,7 @@ test("a deleted Agent has no user-initiated control, but an internal Stop still 
     workspaceId: "workspace-a",
     computerId: "computer-a",
     ownerId: "owner-a",
+    visibility: "public",
     deletedAt: new Date("2026-09-18T04:00:00Z"),
     runtimeConfig: {
       runtime: "pi",
@@ -351,6 +353,7 @@ test("reset is one confirmed-stop then fresh-start operation and retains no old 
     workspaceId: "workspace-a",
     computerId: "computer-a",
     ownerId: "owner-a",
+    visibility: "public",
     runtimeConfig: {
       runtime: "pi",
       provider: { kind: "default" },
@@ -437,6 +440,7 @@ test.each([undefined, "pi", "codex", "claude-code", "coforge"] as const)(
       workspaceId: "workspace-a",
       computerId: "computer-a",
       ownerId: "owner-a",
+      visibility: "public",
       runtimeConfig: {
         runtime: provider ?? "pi",
         provider: { kind: "default" },
@@ -517,6 +521,7 @@ test("a Session snapshot cannot complete control, and recovered identity binds o
     workspaceId: "workspace-a",
     computerId: "computer-a",
     ownerId: "owner-a",
+    visibility: "public",
     runtimeConfig: config,
     state: {
       version: 1,
@@ -608,6 +613,7 @@ test("start wakes retain the completed launch fence while ready recovery creates
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig,
@@ -662,6 +668,7 @@ test("Full Reset halts on a terminal failure and a legacy failed reset-workspace
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: {
@@ -739,6 +746,7 @@ test("a failed operation never latches: start, stop, restart, reset-session, and
     let agent: AgentControlAgent = {
       id: "a",
       ownerId: "owner",
+      visibility: "public",
       workspaceId: "w",
       computerId: "c",
       runtimeConfig: {
@@ -913,6 +921,7 @@ test("Full Reset completes when the workspace clear could not finish, and the Ag
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     identity: { sessionId: "old", state: "resumable" },
@@ -994,6 +1003,7 @@ test("Clear Session and advancement commit together; recovery retries that step,
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     identity: { sessionId: "old", state: "resumable" },
@@ -1060,6 +1070,7 @@ test("a signal-driven wakeup trusts the ACK path and never republishes the comma
     workspaceId: "workspace-a",
     computerId: "computer-a",
     ownerId: "owner-a",
+    visibility: "public",
     runtimeConfig: {
       runtime: "pi",
       provider: { kind: "default" },
@@ -1150,12 +1161,16 @@ function executeAuthorizationFixture(options: {
   ownerId: string;
   role: WorkspaceMemberRole | undefined;
   stoppedAt?: Date;
+  /** ADR 0059; defaults "public" so every existing fixture stays visible to any current member,
+   * exactly as before this option existed. */
+  visibility?: string;
 }) {
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: options.ownerId,
     workspaceId: "w",
     computerId: "c",
+    visibility: options.visibility ?? "public",
     runtimeConfig: {
       runtime: "pi",
       provider: { kind: "default" },
@@ -1213,6 +1228,41 @@ test("a Workspace member who does not own the Agent can Restart and Reset sessio
       agentId: "a",
       requestId: "reset-req",
       action: "reset-session",
+    }),
+  ).resolves.toMatchObject({ phase: "pending" });
+});
+
+test("a Workspace member who cannot see a private Agent gets NOT_FOUND from execute (ADR 0059)", async () => {
+  const { control } = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: "member",
+    visibility: "private",
+  });
+  const error = await control
+    .execute({
+      userId: "member-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "restart-req",
+      action: "restart",
+    })
+    .catch((cause: unknown) => cause);
+  expect(isAppError(error) && error.code === "NOT_FOUND").toBe(true);
+});
+
+test("a Workspace admin can still Restart another member's private Agent (ADR 0059)", async () => {
+  const { control } = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: "admin",
+    visibility: "private",
+  });
+  await expect(
+    control.execute({
+      userId: "admin-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "restart-req",
+      action: "restart",
     }),
   ).resolves.toMatchObject({ phase: "pending" });
 });
@@ -1356,6 +1406,7 @@ test("a fresh pending operation is superseded immediately by a different request
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1426,6 +1477,7 @@ function pendingFullResetFixture(phase: "stopping" | "clearing" | "starting") {
   return pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1640,6 +1692,7 @@ test("same requestId stays idempotent while pending and after completion (no new
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1708,6 +1761,7 @@ test("the superseded waiter resolves phase: 'superseded' instead of throwing (AD
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1760,6 +1814,7 @@ test("an old stop result after a supersede is rejected as stale and leaves the n
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1817,6 +1872,7 @@ test("an old authorizeLaunch after a supersede is rejected as stale and leaves t
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1869,6 +1925,7 @@ test("an old started result after a supersede is rejected and leaves the new epo
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1929,6 +1986,7 @@ test("recover republishes a pending start unchanged, without superseding it", as
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -1985,6 +2043,7 @@ test("publishStop drives a pending starting Agent through stop then a fresh star
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -2177,6 +2236,7 @@ test("a user-initiated Start carries the same recovery context a Daemon-ready re
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner-user",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: {
@@ -2264,6 +2324,7 @@ test("a pending operation is superseded by a user-initiated Stop (ADR 0039)", as
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -2306,6 +2367,7 @@ test("a pending operation is superseded by a user-initiated Start (ADR 0039)", a
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -2352,6 +2414,7 @@ test("a user Start that meets an Agent already starting joins that launch instea
     pendingOpStore({
       id: "a",
       ownerId: "owner",
+      visibility: "public",
       workspaceId: "w",
       computerId: "c",
       runtimeConfig: pendingRuntimeConfig,
@@ -2438,6 +2501,7 @@ test("authorizeLaunch verifies without writing (ADR 0041): a concurrent Session 
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig,
@@ -2510,6 +2574,7 @@ test("authorizeLaunch rejects a launch that is no longer current, without writin
   const agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig,
@@ -2565,6 +2630,7 @@ test.each(["start", "restart", "reset-session", "full-reset"] as const)(
     const { store } = pendingOpStore({
       id: "a",
       ownerId: "owner",
+      visibility: "public",
       workspaceId: "w",
       computerId: "c",
       runtimeConfig: pendingRuntimeConfig,
@@ -2644,6 +2710,7 @@ test("a launchId is minted once per operation and stays stable across a republis
   const { store, current } = pendingOpStore({
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,
@@ -2695,6 +2762,7 @@ test("publishCurrent mints and persists a launchId for a legacy 'starting' row t
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: pendingRuntimeConfig,

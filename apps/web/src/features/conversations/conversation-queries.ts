@@ -218,13 +218,22 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
       })),
     }));
   };
-  useConversationRealtime(conversationId, async () => {
-    await Promise.all([
-      reconciliation.reconcile(),
-      onRealtimeRef.current?.(),
-      refreshActionCards(),
-    ]);
-  });
+  useConversationRealtime(
+    conversationId,
+    async () => {
+      await Promise.all([
+        reconciliation.reconcile(),
+        onRealtimeRef.current?.(),
+        refreshActionCards(),
+      ]);
+    },
+    // A membership change stale-dates the composer's @-directory (and plain-@handle
+    // resolution); the next render picks the refetched directory up. Inert for DMs.
+    () =>
+      void queryClient
+        .invalidateQueries({ queryKey: ["conversation", "mentionables", conversationId] })
+        .catch(() => {}),
+  );
 
   /** Replace the loaded history with a window around one message. */
   const loadMessageAround = async (messageId: string) => {

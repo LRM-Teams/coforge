@@ -15,11 +15,14 @@ test("buildInitialMemoryMd renders the displayName, role, and first-startup cont
 ## Role
 Reviews pull requests for the platform team.
 
-## Key Knowledge
-- No notes yet.
+## Rules (never change)
+-
 
-## Active Context
+## Active Context (≤5 lines)
 - First startup.
+
+## Index
+- notes/work-log.md   按时间的完整历史
 `);
 });
 
@@ -54,6 +57,11 @@ test("seedAgentMemory writes MEMORY.md into the Agent workspace with owner-only 
     );
     const stats = await stat(memoryPath);
     expect(stats.mode & 0o777).toBe(0o600);
+    expect(await readFile(join(workspace, "notes", "work-log.md"), "utf8")).toContain(
+      "Chronological history",
+    );
+    expect(await readFile(join(workspace, ".gitignore"), "utf8")).toBe("work/\n.pi-sessions/\n");
+    expect((await stat(join(workspace, "work"))).isDirectory()).toBe(true);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -69,6 +77,11 @@ test("seedAgentMemory never overwrites an existing MEMORY.md, byte for byte", as
     await seedAgentMemory(workspace, { name: "scout", description: "A different description." });
 
     expect(await readFile(memoryPath, "utf8")).toBe(ownedContent);
+    expect((await stat(join(workspace, "notes"))).isDirectory()).toBe(true);
+    expect((await stat(join(workspace, "work"))).isDirectory()).toBe(true);
+    expect(await readFile(join(workspace, "notes", "work-log.md"), "utf8")).toContain(
+      "Chronological history",
+    );
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

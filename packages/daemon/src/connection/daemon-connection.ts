@@ -1,4 +1,5 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
+import { AgentTaskUpstreamError } from "./agent-task-upstream-error";
 import {
   agentApiRoutes,
   decodeGitHubCredentialResponse,
@@ -774,6 +775,17 @@ async function getAgentEnvelopeJson<Result extends { ok: true }>(
  * key `requestId` (that name also crosses the local RPC to the CLI), while the agent HTTP API names
  * it `idempotencyKey` — so the wire carries the API's single name, and the two never ride together.
  */
+/** Reads the `code` out of an agent API error body; a body that is absent, empty or not JSON is
+ * simply a refusal without a named code, which is exactly what the caller already sees. */
+async function readUpstreamErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { code?: unknown };
+    return typeof body.code === "string" && body.code.length > 0 ? body.code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function agentWireBody(request: unknown): string {
   if (!request || typeof request !== "object") return JSON.stringify(request);
   const { requestId, ...rest } = request as Record<string, unknown>;
@@ -1155,16 +1167,28 @@ export const defaultAgentWeeklyReportKeyPointsHttpClient: AgentWeeklyReportKeyPo
 
 export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
   async execute({ url, request, ...keys }) {
+    // `TaskRequest` already names the key `idempotencyKey` (the one HTTP name), so the body goes up
+    // as-is; the response echoes it for correlation.
     const response = await fetch(url, {
       method: "POST",
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
       headers: agentHeaders(keys, true),
-      body: agentWireBody(request),
+      body: JSON.stringify(request),
     });
-    if (!response.ok) throw new Error(`server Agent Task request failed (${response.status})`);
+    if (!response.ok) {
+      // The upstream body names *why* the server refused (`{"error":…,"code":…}`). It must not ride
+      // in the caller-facing message — an upstream's internals are not this API's to publish, and a
+      // test pins that — but it is the only record of the cause that exists anywhere, so it is
+      // attached for the daemon's own log (see `classifyAgentProxyFailure`).
+      const upstreamCode = await readUpstreamErrorCode(response);
+      throw new AgentTaskUpstreamError(
+        `server Agent Task request failed (${response.status})`,
+        upstreamCode,
+      );
+    }
     const result = (await response.json()) as TaskResponse;
-    if ((result as { idempotencyKey?: string }).idempotencyKey !== request.requestId)
-      throw new Error("Task response request ID does not match request");
+    if (result.idempotencyKey !== request.idempotencyKey)
+      throw new Error("Task response idempotency key does not match request");
     return result;
   },
 };

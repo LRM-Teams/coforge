@@ -11,6 +11,8 @@ import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/se
 import type { AgentRuntimeConfig } from "./agent-runtime-config.server";
 import { runtimeStartFields } from "./manage-agents.server";
 import { assertAgentLive } from "./active-agent.server";
+import { AppError } from "../../lib/app-error";
+import { canSeeAgent } from "./agent-visibility.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentSessions } from "./agent-sessions.server";
 import { LocalAgentControlSignal, type AgentControlSignal } from "./agent-control-signal.server";
@@ -86,6 +88,10 @@ export type AgentControlAgent = {
   workspaceId: string;
   computerId: string;
   ownerId: string;
+  /** ADR 0059. Required, not defaulted: `authorizedForExecute` reads this directly with no
+   * `?? "public"` fallback, so a select that ever forgot to fetch it fails a type check instead
+   * of silently failing open and treating an unseen private Agent as visible. */
+  visibility: string;
   runtimeConfig: AgentRuntimeConfig;
   /** Opaque persisted representation used only for compare-and-swap. */
   storedRuntimeConfig?: unknown;
@@ -224,6 +230,12 @@ export class AgentControl {
      * and the internal `recover`/`publishStart` paths are unchanged (ADR 0038). */
     private readonly conversations?: AgentControlRecoveryReader,
   ) {}
+
+  /** WeeklyReportAssistant subject launches override the global current session for one start. */
+  readonly #subjectSessionByRequest = new Map<
+    string,
+    { sessionId: string; sessionMode: "create" | "resume" }
+  >();
 
   private clock(): number {
     return (this.timing.now ?? Date.now)();
@@ -367,6 +379,11 @@ export class AgentControl {
     const role = await this.store.memberRole(workspaceId, userId);
     if (!role) throw new Error("Agent is not authorized or assigned");
     assertHasAgentControlCapability(role, EXECUTE_CAPABILITY[action]);
+    // ADR 0059: "any current member may control" stops at a private Agent the actor cannot see —
+    // the same absent shape every other visibility failure uses, never a detail leak. Owner/admin
+    // always passes (`canSeeAgent`'s elevated-role branch), matching the ADR's one carve-out that
+    // manage authority does not itself grant DM/open access.
+    if (!canSeeAgent({ kind: "user", userId, role }, agent)) throw new AppError("NOT_FOUND");
     return agent;
   }
   private async begin(
@@ -492,6 +509,58 @@ export class AgentControl {
       );
   }
 
+  /** Native session and control phase used to decide a WeeklyReportAssistant subject switch. */
+  async readLaunchPresence(input: { userId: string; workspaceId: string; agentId: string }) {
+    const agent = await this.authorized(input.userId, input.workspaceId, input.agentId);
+    return {
+      phase: agent.state?.phase ?? null,
+      action: agent.state?.action ?? null,
+      sessionId: agent.identity?.sessionId ?? null,
+      stoppedByUser: Boolean(agent.stoppedAt),
+    };
+  }
+
+  /**
+   * Start this Agent on an explicit native session and wait until the launch completes.
+   * Used when a WeeklyReportAssistant wake must not resume `Agent.currentSessionId`.
+   */
+  async startOnSession(input: {
+    userId: string;
+    workspaceId: string;
+    agentId: string;
+    sessionId: string;
+    sessionMode: "create" | "resume";
+  }): Promise<void> {
+    const requestId = crypto.randomUUID();
+    this.#subjectSessionByRequest.set(requestId, {
+      sessionId: input.sessionId,
+      sessionMode: input.sessionMode,
+    });
+    let drivenRequestId: string = requestId;
+    try {
+      await this.runtimeLock.run(input.agentId, async () => {
+        const agent = await this.authorized(input.userId, input.workspaceId, input.agentId);
+        assertAgentLive(agent);
+        const inFlight = agent.state;
+        if (
+          inFlight &&
+          inFlight.phase === "starting" &&
+          current(agent, inFlight) &&
+          agent.identity?.sessionId === input.sessionId &&
+          !agent.stoppedAt
+        ) {
+          drivenRequestId = inFlight.requestId;
+          return;
+        }
+        await this.begin(agent, "start", requestId, 1, null);
+      });
+      const result = await this.drive(input.agentId, drivenRequestId);
+      if (result.phase !== "completed") throw new AppError("TEMPORARILY_UNAVAILABLE");
+    } finally {
+      this.#subjectSessionByRequest.delete(requestId);
+    }
+  }
+
   private async publishCurrent(agentId: string, requestId: string, recovery?: AgentRecoveryFields) {
     const agent = await this.store.get(agentId);
     const state = agent?.state;
@@ -536,11 +605,13 @@ export class AgentControl {
         ...runtimeStartFields(agent.runtimeConfig),
         controlEpoch: state.epoch,
         ...(launchId ? { launchId } : {}),
-        ...(!reset &&
-        identity?.sessionId &&
-        (identity.state !== "empty" || state.phase === "completed")
-          ? { sessionId: identity.sessionId }
-          : {}),
+        ...(this.#subjectSessionByRequest.get(requestId)
+          ? this.#subjectSessionByRequest.get(requestId)
+          : !reset &&
+              identity?.sessionId &&
+              (identity.state !== "empty" || state.phase === "completed")
+            ? { sessionId: identity.sessionId }
+            : {}),
         ...(recovery
           ? {
               wakeMessage: recovery.wakeMessage,

@@ -12,6 +12,7 @@ import {
   resolveChannelAuthority,
 } from "./channel-authority.server";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import {
   agentMessageSender,
   browserSenderHandle,
@@ -220,8 +221,10 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
     })),
     skipDuplicates: true,
   });
+  // ADR 0059: a private Agent is never an active channel member, including #general — creating
+  // one must not enroll it here, and it stays out on every later repair/backfill pass too.
   const agents = await db.agent.findMany({
-    where: { workspaceId, ...ACTIVE_AGENT_WHERE },
+    where: { workspaceId, visibility: AGENT_VISIBILITY.PUBLIC, ...ACTIVE_AGENT_WHERE },
     select: { id: true },
   });
   await db.conversationMember.createMany({
@@ -577,6 +580,7 @@ export class PublicChannels {
         data: { readThroughSequence: latest?.sequence ?? 0 },
       });
     });
+    await this.realtime?.memberChanged({ conversationId: channelId, workspaceId });
   }
 
   /**
@@ -621,6 +625,7 @@ export class PublicChannels {
     if (channel.channelName === "general") throw new AppError("CONFLICT");
     const wasMember = await softLeaveMember(this.db, channel.id, { userId });
     if (!wasMember) throw new AppError("ACCESS_DENIED");
+    await this.realtime?.memberChanged({ conversationId: channel.id, workspaceId });
     return { left: true };
   }
 
@@ -655,6 +660,7 @@ export class PublicChannels {
     );
     if (!authority.capabilities.remove_member) throw new AppError("ACCESS_DENIED");
     const wasMember = await softLeaveMember(this.db, channel.id, target);
+    if (wasMember) await this.realtime?.memberChanged({ conversationId: channel.id, workspaceId });
     return { removed: true, wasMember };
   }
 
@@ -701,8 +707,16 @@ export class PublicChannels {
         select: { id: true, username: true, displayName: true, avatarObjectKey: true },
         orderBy: [{ username: "asc" }, { id: "asc" }],
       }),
+      // ADR 0059: a private Agent can never join a channel, so it is never an add-candidate
+      // either — unconditionally, the same "channels never contain a private Agent" invariant
+      // `enrollGeneralChannel`/`addMembers` enforce, not a viewer-scoped visibility read.
       this.db.agent.findMany({
-        where: { workspaceId, weeklyReportAssistant: null, ...ACTIVE_AGENT_WHERE },
+        where: {
+          workspaceId,
+          weeklyReportAssistant: null,
+          visibility: AGENT_VISIBILITY.PUBLIC,
+          ...ACTIVE_AGENT_WHERE,
+        },
         select: { id: true, name: true, displayName: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
@@ -833,10 +847,15 @@ export class PublicChannels {
       if (validUsers !== userIds.length) throw new AppError("INVALID_INPUT");
     }
     if (agentIds.length) {
-      const validAgents = await this.db.agent.count({
+      const targetAgents = await this.db.agent.findMany({
         where: { workspaceId, id: { in: agentIds }, ...ACTIVE_AGENT_WHERE },
+        select: { id: true, visibility: true },
       });
-      if (validAgents !== agentIds.length) throw new AppError("INVALID_INPUT");
+      if (targetAgents.length !== agentIds.length) throw new AppError("INVALID_INPUT");
+      // ADR 0059: a private Agent is never an active channel member — reject the whole add
+      // rather than silently drop it, with a stable code + explanation for the caller.
+      if (targetAgents.some((agent) => agent.visibility !== AGENT_VISIBILITY.PUBLIC))
+        throw new AppError("INVALID_INPUT", { errorId: "agent-private" });
     }
 
     // Read who was already an active member before writing, so a caller (the Agent CLI) can
@@ -890,6 +909,9 @@ export class PublicChannels {
         }),
       ),
     ]);
+    const added =
+      userIds.length - alreadyMemberUserIds.length + agentIds.length - alreadyMemberAgentIds.length;
+    if (added > 0) await this.realtime?.memberChanged({ conversationId: channelId, workspaceId });
 
     const result = await this.members(workspaceId, actor, channelId);
     return { ...result, alreadyMemberUserIds, alreadyMemberAgentIds };
@@ -995,9 +1017,11 @@ export class PublicChannels {
         (member?.threadReads ?? []).map((read) => [read.rootMessageId, read.readThroughSequence]),
       ),
       followedThreadRootIds: (member?.threadFollows ?? []).map((follow) => follow.rootMessageId),
-      // The viewer never mentions themself, so their own row is left out of the candidate list.
+      // Every active member, the viewer included: this list is what *resolves* a stored mention
+      // token, and a mention of the viewer is the most common one to render — leaving their row
+      // out leaked the raw `<@human:uuid>` token in their own view. The composer's rule that you
+      // never mention yourself is applied where it belongs, in the composer's candidate list.
       mentionables: mentionRows
-        .filter((row) => row.user?.id !== userId)
         .map((row) =>
           row.user
             ? {
@@ -1027,6 +1051,63 @@ export class PublicChannels {
       hasNewer,
       messages: pageMessages.map((message) => channelMessageView(message, workspaceId)),
     };
+  }
+
+  /**
+   * The composer's @-completion directory for one channel, fetched on demand: every active
+   * member (the viewer included, per #574 — this list also resolves stored mention tokens)
+   * scored by the viewer's recent mentions. The conversation payload carries it once per
+   * load, so members who join while the page is open would otherwise only appear after a
+   * full refresh; the composer refetches this while the conversation stays open.
+   */
+  async mentionDirectory(workspaceId: string, userId: string, channelId: string) {
+    await this.channel(workspaceId, userId, channelId);
+    const [mentionRows, viewerRecentMentions] = await Promise.all([
+      this.db.conversationMember.findMany({
+        where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
+        select: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              description: true,
+              avatarObjectKey: true,
+            },
+          },
+          agent: { select: { id: true, name: true, displayName: true, description: true } },
+        },
+      }),
+      this.db.messageMention.findMany({
+        where: { conversationId: channelId, message: { sender: { userId } } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: { kind: true, actorId: true, createdAt: true },
+      }),
+    ]);
+    const mentionScores = mentionAffinityScores(viewerRecentMentions);
+    return mentionRows
+      .map((row) =>
+        row.user
+          ? {
+              kind: "user" as const,
+              id: row.user.id,
+              handle: row.user.username,
+              label: row.user.displayName?.trim() || row.user.username,
+              description: row.user.description.trim(),
+              avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user.id, row.user.avatarObjectKey),
+              mentionScore: mentionScores.get(`user:${row.user.id}`) ?? 0,
+            }
+          : {
+              kind: "agent" as const,
+              id: row.agent!.id,
+              handle: row.agent!.name,
+              label: row.agent!.displayName?.trim() || row.agent!.name,
+              description: row.agent!.description.trim(),
+              mentionScore: mentionScores.get(`agent:${row.agent!.id}`) ?? 0,
+            },
+      )
+      .sort((left, right) => left.handle.localeCompare(right.handle));
   }
 
   async updates(workspaceId: string, userId: string, channelId: string, afterSequence: number) {

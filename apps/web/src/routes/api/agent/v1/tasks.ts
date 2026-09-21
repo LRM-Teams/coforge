@@ -1,29 +1,34 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentTaskRequest } from "@lrm/coforge-sdk/agent";
-import type { TaskCommand, TaskPrincipal, TaskResult } from "@lrm/coforge-sdk/internal";
+import type { TaskPrincipal, TaskResult } from "@lrm/coforge-sdk/internal";
+import { AppError } from "#/lib/app-error";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { TaskBoard } from "#/server/tasks/task-board.server";
 
 /**
- * The Agent API's body names the request's idempotency key `idempotencyKey`; the Task board's own
- * command shape — shared with the protobuf codec — names it `requestId`, and refuses a command
- * without one (`invalid Task request`). The two names meet here.
- *
- * Exported and taking its board as an argument so this boundary is testable on its own: the route
- * below is a thin wrapper, and a mismatch here silently turns every Task command into a 400.
+ * The Agent API's task body is the board's own command — the request's idempotency key is named
+ * `idempotencyKey` on both sides, so the route passes the body through and echoes the key back.
+ * No protobuf here: HTTP speaks JSON; the WebSocket path's protobuf contract is a different
+ * surface. The board is the validator, and its `AppError` codes are the caller's diagnosis — a
+ * malformed command says *which* way it was malformed; anything else is a fault of ours, is
+ * logged, and is answered 500, answering 400 for it would blame the caller.
  */
 export async function handleAgentTaskPost(
   request: Request,
   principal: TaskPrincipal,
-  board: { execute(principal: TaskPrincipal, command: TaskCommand): Promise<TaskResult> },
+  board: {
+    execute(principal: TaskPrincipal, command: AgentTaskRequest): Promise<TaskResult>;
+  },
 ): Promise<Response> {
   try {
-    const body = (await request.json()) as AgentTaskRequest;
-    const { idempotencyKey, ...command } = body;
-    const result = await board.execute(principal, { ...command, requestId: idempotencyKey });
-    return Response.json({ idempotencyKey, ...result });
-  } catch {
-    return Response.json({ error: "invalid task request" }, { status: 400 });
+    const command = (await request.json()) as AgentTaskRequest;
+    const result = await board.execute(principal, command);
+    return Response.json({ ...result, idempotencyKey: command.idempotencyKey });
+  } catch (error) {
+    if (error instanceof AppError)
+      return Response.json({ error: "invalid task request", code: error.code }, { status: 400 });
+    console.error("[agent] Task command failed", error);
+    return Response.json({ error: "Task command failed" }, { status: 500 });
   }
 }
 

@@ -90,6 +90,30 @@ test("formatMessageLine renders the shared bracket line with attachment and task
   );
 });
 
+test("formatMessageLine summarizes a long plain-channel body and keeps DM/thread text intact", () => {
+  const longBody = `${"频道闲聊。".repeat(80)}结尾`;
+  const channel = message({
+    id: "bbbbbbbb-0000-4000-8000-000000000002",
+    target: "#general",
+    body: longBody,
+  });
+  const rendered = formatMessageLine(channel);
+  expect(rendered).toContain("…(+");
+  expect(rendered).toContain('read: coforge message read --target "#general" --around bbbbbbbb');
+  expect(rendered).not.toContain("结尾");
+  expect(Array.from(rendered.slice(rendered.indexOf("@ada: ") + 6).split("…")[0]!).length).toBe(
+    200,
+  );
+
+  const dm = message({ target: "@ada", body: longBody });
+  expect(formatMessageLine(dm)).toContain("结尾");
+  expect(formatMessageLine(dm)).not.toContain("…(+");
+
+  const thread = message({ target: "#general:aaaaaaaa", body: longBody });
+  expect(formatMessageLine(thread)).toContain("结尾");
+  expect(formatMessageLine(thread)).not.toContain("…(+");
+});
+
 test("formatMessageLine renders an Agent sender with its description and a system sender plainly", () => {
   const fromAgent = message({
     senderKind: "agent",

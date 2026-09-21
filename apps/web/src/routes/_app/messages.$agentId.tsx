@@ -146,8 +146,8 @@ function DirectConversationPage() {
         error={taskView.error}
         onOpenMessage={openTask}
         onShowChat={showChat}
-        onCreateTask={async (title, requestId) => {
-          const [task] = await taskView.command({ operation: "create", title, requestId });
+        onCreateTask={async (title, idempotencyKey) => {
+          const [task] = await taskView.command({ operation: "create", title, idempotencyKey });
           await page.invalidate();
           return task;
         }}
@@ -164,8 +164,8 @@ function DirectConversationPage() {
       tasks={taskView.tasks}
       onShowTasks={showTasks}
       onShowFiles={showFiles}
-      onCreateTask={async (title, requestId, attachmentId) => {
-        await taskView.command({ operation: "create", title, requestId, attachmentId });
+      onCreateTask={async (title, idempotencyKey, attachmentId) => {
+        await taskView.command({ operation: "create", title, idempotencyKey, attachmentId });
         await page.invalidate();
       }}
       onSend={async (body, requestId, attachmentIds, threadRootId) => {

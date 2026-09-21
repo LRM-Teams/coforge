@@ -35,8 +35,9 @@ export function UnreadBadge({ count }: { count: number }) {
   );
 }
 
-/** A muted channel de-emphasises its badge to a bare dot (Slack's muted treatment). */
-function UnreadDot() {
+/** The unread marker without a number: "there is something here", not "how much". Used where the
+ * marker sits on an icon — a count on a small glyph is noise, and the sidebar keeps the numbers. */
+export function UnreadDot() {
   return (
     <span aria-hidden="true" className="inline-flex size-2 shrink-0 rounded-full bg-brand-solid" />
   );

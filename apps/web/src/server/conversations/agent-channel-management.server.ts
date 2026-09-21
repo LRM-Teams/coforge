@@ -1,6 +1,9 @@
 import type { Conversation, PrismaClient } from "../../../generated/client";
 import { isAppError } from "../../lib/app-error";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
+import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
+import { agentVisibilityViewerForActor, canSeeAgent } from "../agents/agent-visibility.server";
 import {
   AgentChannelManagementError,
   channelAuthorityDeniedError,
@@ -141,6 +144,7 @@ export class AgentChannelManagement {
     const channelName = this.parseChannelTarget(target);
     const channel = await this.findChannel(workspaceId, channelName);
     if (channel.archivedAt) throw new AgentChannelManagementError(409, "channel is archived");
+    await this.assertCallerNotPrivate(workspaceId, agentId, "join");
     const existing = await this.db.conversationMember.findFirst({
       where: { conversationId: channel.id, agentId, ...ACTIVE_MEMBER_WHERE },
       select: { id: true },
@@ -179,6 +183,7 @@ export class AgentChannelManagement {
     });
     if (!agent)
       throw new AgentChannelManagementError(403, "this Agent does not belong to the Workspace");
+    await this.assertCallerNotPrivate(workspaceId, agentId, "create");
     const name = this.normalizeChannelName(rawName);
     if (name === "general")
       throw new AgentChannelManagementError(409, "general is reserved for automatic enrollment");
@@ -288,10 +293,31 @@ export class AgentChannelManagement {
       userId = user.id;
     } else {
       const agentRow = await this.db.agent.findFirst({
-        where: { workspaceId, name: handle },
-        select: { id: true },
+        where: { workspaceId, name: handle, ...ACTIVE_AGENT_WHERE },
+        select: { id: true, ownerId: true, visibility: true },
       });
       if (!agentRow) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
+      // ADR 0059 §B: a private Agent the calling Agent cannot see answers the stable
+      // `agent_not_visible` outcome with an explanation, distinct from a genuinely nonexistent
+      // handle's plain "member not found" — the same distinction `user info`/`profile show`
+      // make. A private Agent the caller CAN see (its own creator, or an owner/admin) still
+      // cannot be added to any channel; `PublicChannels.addMembers` below is the unconditional
+      // enforcement, but rejecting it here with a clear reason avoids a confusing generic error
+      // for a target the caller already knows exists.
+      const viewer = await agentVisibilityViewerForActor(this.db, workspaceId, {
+        agentId: callingAgentId,
+      });
+      if (!canSeeAgent(viewer, agentRow))
+        throw new AgentChannelManagementError(
+          404,
+          `@${handle} is not visible to you.`,
+          "agent_not_visible",
+        );
+      if (agentRow.visibility !== AGENT_VISIBILITY.PUBLIC)
+        throw new AgentChannelManagementError(
+          400,
+          `@${handle} is private and cannot be added to a channel`,
+        );
       resolvedAgentId = agentRow.id;
     }
     let alreadyMember = false;
@@ -379,6 +405,21 @@ export class AgentChannelManagement {
       wasMember = result.count > 0;
     }
     return { target: `#${channel.channelName}`, removed: true as const, wasMember };
+  }
+
+  /** ADR 0059: a private Agent can neither join nor create a channel — the acting Agent's OWN
+   * visibility, independent of any target. Reused by `join()` and `create()`. */
+  private async assertCallerNotPrivate(
+    workspaceId: string,
+    agentId: string,
+    operation: "join" | "create",
+  ): Promise<void> {
+    const agent = await this.db.agent.findFirst({
+      where: { id: agentId, workspaceId, ...ACTIVE_AGENT_WHERE },
+      select: { visibility: true },
+    });
+    if (!agent || agent.visibility !== AGENT_VISIBILITY.PUBLIC)
+      throw new AgentChannelManagementError(403, `a private Agent cannot ${operation} a channel`);
   }
 
   private async findChannel(workspaceId: string, channelName: string): Promise<Conversation> {

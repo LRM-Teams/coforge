@@ -2,6 +2,11 @@ import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 import { parseActivityEntries, type AgentActivity } from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "../../../../generated/client";
 import { activityKindForObservation } from "../../agents/agent-display.server";
+import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
+import {
+  agentVisibilityViewerForUser,
+  visibleAgentWhere,
+} from "../../agents/agent-visibility.server";
 
 export type TrustedAgentActivity = AgentActivity & { computerId: string };
 
@@ -42,6 +47,17 @@ export class AgentActivityRepository {
   constructor(private readonly db: PrismaClient) {}
 
   async listForMember(workspaceId: string, userId: string) {
+    // ADR 0059: a private Agent the viewer cannot see never contributes an Activity row here —
+    // the same `visibleAgentWhere` predicate every Agent list applies, resolved once against the
+    // viewer's own Workspace role and reused as a plain id filter inside the CTE below (SQL never
+    // re-derives the visibility rule itself, so the two can never disagree).
+    const viewer = await agentVisibilityViewerForUser(this.db, workspaceId, userId);
+    const visibleAgents = await this.db.agent.findMany({
+      where: { workspaceId, ...ACTIVE_AGENT_WHERE, ...visibleAgentWhere(viewer) },
+      select: { id: true },
+    });
+    const visibleAgentIds = visibleAgents.map((agent) => agent.id);
+    if (visibleAgentIds.length === 0) return [];
     // Excluded from the popover's top-5 selection only (ADR 0021, amended): tool_end,
     // thinking_end and compaction_finished are ordinary, persisted status rows in the Agent
     // detail Activity feed (AgentActivityRepository.list), but they occur once per tool call
@@ -59,6 +75,7 @@ export class AgentActivityRepository {
         WHERE agent."workspaceId" = ${workspaceId}::uuid
           AND agent."deletedAt" IS NULL
           AND membership."userId" = ${userId}::uuid
+          AND agent."id" = ANY(${visibleAgentIds}::uuid[])
       ),
       ranked AS (
         SELECT

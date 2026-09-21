@@ -4,6 +4,7 @@ import {
 } from "./connection/agent-transport-error";
 import { AgentMessageRequestError } from "./connection/agent-message-request-error";
 import { AgentTaskRequestError } from "./connection/agent-task-request-error";
+import { AgentTaskUpstreamError } from "./connection/agent-task-upstream-error";
 import { AgentWeeklyReportRequestError } from "./connection/agent-weekly-report-request-error";
 import { AgentPreflightError } from "./daemon-runtime/agent-preflight-error";
 
@@ -91,6 +92,9 @@ export function classifyAgentProxyFailure(
       responseStarted?: boolean;
       responseComplete?: boolean;
       draftSaved?: boolean;
+      /** Log only: the upstream body's own `code`, which explains a refusal that the caller is
+       * deliberately not shown the internals of. Never enters `body`. */
+      upstreamCode?: string;
     } = {},
   ): AgentProxyClassifiedFailure => {
     const body: AgentProxyFailureBody = {
@@ -121,6 +125,7 @@ export function classifyAgentProxyFailure(
         cause_code: body.proxy.cause_code,
         ...(options.detail !== undefined ? { detail: options.detail } : {}),
         upstream_status: body.proxy.upstream_status,
+        ...(options.upstreamCode !== undefined ? { upstream_code: options.upstreamCode } : {}),
         response_started: body.proxy.response_started,
         response_complete: body.proxy.response_complete,
         method: context.method,
@@ -182,5 +187,11 @@ export function classifyAgentProxyFailure(
 
   return build(502, "unclassified", "UNCLASSIFIED_PROXY_FAILURE", {
     detail: boundedDetail(error instanceof Error ? error.message : String(error)),
+    // A refusal this layer could not classify is exactly the case where the server's own code is
+    // the only thing that says what happened; the caller still gets the correlation id and nothing
+    // else, and the code is written to the daemon log beside it.
+    ...(error instanceof AgentTaskUpstreamError && error.upstreamCode !== undefined
+      ? { upstreamCode: error.upstreamCode }
+      : {}),
   });
 }

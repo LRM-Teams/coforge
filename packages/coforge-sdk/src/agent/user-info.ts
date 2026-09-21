@@ -48,7 +48,10 @@ export type AgentUserInfoResponse = {
   memberships: AgentUserInfoMembership[];
 };
 
-export const AGENT_USER_INFO_ERROR_CODES = ["user_not_found"] as const;
+/** `agent_not_visible` (ADR 0059): the name resolves to a private Agent the caller cannot see —
+ * a stable, distinct outcome from `user_not_found` (which also covers a name that genuinely
+ * matches nothing). Reused by `profile show` (`profile.ts`). */
+export const AGENT_USER_INFO_ERROR_CODES = ["user_not_found", "agent_not_visible"] as const;
 export type AgentUserInfoErrorCode = (typeof AGENT_USER_INFO_ERROR_CODES)[number];
 
 export type AgentUserInfoErrorResponse = {

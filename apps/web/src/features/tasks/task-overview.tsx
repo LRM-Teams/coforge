@@ -42,7 +42,7 @@ export function TaskOverview({
   onLayoutChange?: (layout: TaskLayout) => void;
   onCommand?: (
     task: TaskOverviewItem,
-    command: Omit<TaskCommand, "requestId" | "conversationId"> & { number: number },
+    command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
   ) => Promise<void>;
 }) {
   layout ??= "board";
@@ -109,7 +109,7 @@ function TaskOverviewLink({
   controls: TaskControls;
   list: boolean;
   onCommand?: (
-    command: Omit<TaskCommand, "requestId" | "conversationId"> & { number: number },
+    command: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number },
   ) => Promise<void>;
 }) {
   const content = (

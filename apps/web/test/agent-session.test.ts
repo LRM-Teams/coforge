@@ -44,6 +44,7 @@ test("Session RPC preserves control state and rejects stale scope, revoked acces
     workspaceId: "workspace",
     computerId: "computer",
     ownerId: "owner",
+    visibility: "public",
     runtimeConfig: config,
     state: {
       ...snapshot,
@@ -158,6 +159,7 @@ function invalidateFixture() {
     workspaceId: "workspace",
     computerId: "computer",
     ownerId: "owner",
+    visibility: "public",
     runtimeConfig: config,
     state,
     identity: state.identity,

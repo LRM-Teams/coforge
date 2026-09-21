@@ -337,7 +337,9 @@ test("a duplicate fenced start wakes the managed runtime without replaying recov
     });
     expect(sessions).toBe(1);
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("wake only");
+    expect(notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+    expect(notices[0]).toContain("@ada  new: 1 message");
+    expect(notices[0]).not.toContain("wake only");
     expect(notices[0]).not.toContain("must be ignored");
     expect(notices[0]).not.toContain("@grace");
   } finally {
@@ -884,14 +886,14 @@ describe("Agent Task freshness", () => {
       },
       async (request) => {
         taskCalls.push(request);
-        return { protocolMajor: 1, requestId: request.requestId, tasks: [] };
+        return { protocolMajor: 1, idempotencyKey: request.idempotencyKey, tasks: [] };
       },
     );
     try {
       await harness.deliver(4, "#tasks");
       const command = {
         operation: "claim" as const,
-        requestId: "claim-withheld",
+        idempotencyKey: "claim-withheld",
         target: "#tasks",
         number: 7,
         freshnessContextMode: "withheld" as const,
@@ -920,7 +922,7 @@ describe("Agent Task freshness", () => {
     const messageCalls: AgentMessageRequest[] = [];
     const upstream = {
       protocolMajor: 1,
-      requestId: "claim-forward",
+      idempotencyKey: "claim-forward",
       tasks: [],
       claims: [],
       assignmentReceipt: {
@@ -947,7 +949,7 @@ describe("Agent Task freshness", () => {
       await harness.deliver(3, "#unrelated");
       const firstTouch = await harness.runtime.agentTask(
         harness.context,
-        { operation: "claim", requestId: "first-touch", target: "#tasks", number: 7 },
+        { operation: "claim", idempotencyKey: "first-touch", target: "#tasks", number: 7 },
         harness.apiKey,
       );
       expect(firstTouch).toMatchObject({ state: "held", freshnessContextMode: "inline" });
@@ -955,7 +957,7 @@ describe("Agent Task freshness", () => {
 
       const result = await harness.runtime.agentTask(
         harness.context,
-        { operation: "claim", requestId: "claim-forward", target: "#tasks", number: 7 },
+        { operation: "claim", idempotencyKey: "claim-forward", target: "#tasks", number: 7 },
         harness.apiKey,
       );
       expect(result).toBe(upstream);
@@ -980,14 +982,14 @@ describe("Agent Task freshness", () => {
       },
       async (request) => {
         taskCalls.push(request);
-        return { protocolMajor: 1, requestId: request.requestId, tasks: [] };
+        return { protocolMajor: 1, idempotencyKey: request.idempotencyKey, tasks: [] };
       },
     );
     try {
       await harness.deliver(5, "#tasks");
       const command = {
         operation: "update" as const,
-        requestId: "update",
+        idempotencyKey: "update",
         target: "#tasks",
         number: 7,
       };
@@ -1019,7 +1021,7 @@ describe("Agent Task freshness", () => {
     const messageCalls: AgentMessageRequest[] = [];
     const upstream = {
       protocolMajor: 1,
-      requestId: "amend",
+      idempotencyKey: "amend",
       tasks: [],
       history: [],
       resourceFollowup: {
@@ -1042,7 +1044,7 @@ describe("Agent Task freshness", () => {
       await harness.deliver(2, "#tasks");
       const result = await harness.runtime.agentTask(
         harness.context,
-        { operation: "amend", requestId: "amend", target: "#tasks", number: 7, title: "new" },
+        { operation: "amend", idempotencyKey: "amend", target: "#tasks", number: 7, title: "new" },
         harness.apiKey,
       );
       expect(result).toBe(upstream);
@@ -4417,7 +4419,9 @@ describe("DaemonRuntime", () => {
     );
     await Bun.sleep(10);
     expect(harness.notices).toHaveLength(1);
-    expect(harness.notices[0]).toContain("wake only");
+    expect(harness.notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+    expect(harness.notices[0]).toContain("@ada  new: 1 message");
+    expect(harness.notices[0]).not.toContain("wake only");
     await harness.runtime.stop();
   });
 
@@ -4477,8 +4481,8 @@ describe("DaemonRuntime", () => {
     release(`sk_agent_${"a".repeat(43)}`);
     const [started, recovered] = await Promise.all([launch, recoveryForLaunch, live]);
     expect(recovered).toBe(started);
-    expect(harness.notices[0]).toContain("New message received:");
-    expect(harness.notices[0]).toContain("hello");
+    expect(harness.notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+    expect(harness.notices[0]).not.toContain("hello from recovery");
     expect(harness.notices[1]).toContain("CoForge inbox notice");
     expect(harness.acknowledgements).toEqual(["delivery-2"]);
     expect(harness.sessions()).toBe(1);
@@ -4596,7 +4600,8 @@ describe("DaemonRuntime", () => {
     );
     expect(harness.sessions()).toBe(2);
     expect(harness.notices).toHaveLength(2);
-    expect(harness.notices.every((notice) => notice.includes("retry this recovery body"))).toBe(
+    expect(harness.notices.every((notice) => notice.includes("restart recovery"))).toBe(true);
+    expect(harness.notices.every((notice) => !notice.includes("retry this recovery body"))).toBe(
       true,
     );
     expect(received).toEqual(["Message received"]);
@@ -4688,15 +4693,17 @@ describe("DaemonRuntime", () => {
     const live = harness.delivery(4);
     await Bun.sleep(0);
 
-    expect(harness.notices).toHaveLength(1);
-    expect(harness.notices[0]).toContain("wake only");
+    expect(harness.notices).toHaveLength(2);
+    expect(harness.notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+    expect(harness.notices[0]).toContain("@ada  new: 1 message");
+    expect(harness.notices[0]).not.toContain("wake only");
     expect(harness.notices[0]).not.toContain("must be ignored");
     expect(harness.notices[0]).not.toContain("@grace");
-    expect(harness.acknowledgements).toEqual([]);
+    expect(harness.notices[1]).toContain("CoForge inbox notice");
+    expect(harness.acknowledgements).toEqual(["delivery-4"]);
     releaseRecovery();
     expect(await rebound).toBe(active);
     await live;
-    expect(harness.notices[1]).toContain("CoForge inbox notice");
     expect(harness.acknowledgements).toEqual(["delivery-4"]);
     expect(harness.sessions()).toBe(1);
     expect(harness.mints()).toBe(1);

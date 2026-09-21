@@ -13,6 +13,7 @@ import {
   regionFromEndpoint,
   LATEST_OBJECT_KEY,
   manifestObjectKey,
+  ossError,
   parseTargets,
   runCli,
   runPublish,
@@ -688,4 +689,33 @@ test("regionFromEndpoint reads the region a public OSS endpoint names and nothin
       CREDENTIALS,
     ),
   ).rejects.toThrow("cannot derive the OSS region");
+});
+
+test("a transport failure names its class, and still leaks nothing else", () => {
+  // The OSS SDK's own message and response body are never surfaced (a `SignatureDoesNotMatch` echoes
+  // the signature material back), but the error's *class* is a kind, not content - and it is the only
+  // diagnosis a transport failure has, since it reports no status at all.
+  const timeout = ossError("upload", "1.2.3/darwin-arm64/coforge-computer.gz", {
+    name: "ResponseTimeoutError",
+    message: "ResponseTimeoutError: connect ETIMEDOUT 1.2.3.4:443",
+  });
+  expect(timeout.message).toContain("ResponseTimeoutError");
+  expect(timeout.message).toContain("HTTP unknown");
+  expect(timeout.message).not.toContain("1.2.3.4");
+
+  const plain = ossError("upload", "key", new Error("Signature=abc123 AccessKeyId=LTAI-secret"));
+  expect(plain.message).not.toContain("Signature=abc123");
+  expect(plain.message).not.toContain("LTAI-secret");
+  // A bare `Error` says nothing, so it is not printed as if it were a diagnosis.
+  expect(plain.message).not.toContain(" Error ");
+});
+
+test("the publish client gives an upload more than an interactive caller's budget", async () => {
+  // ali-oss's default is 60s per request. Three consecutive staging publishes died uploading the
+  // largest bundle with a transport failure that reports no status - what a timeout looks like - so
+  // the batch client must not inherit an interactive timeout.
+  const connection = fixtureConnection({ url: "https://oss.example" });
+  const client = await createOssClient(connection, CREDENTIALS);
+  const options = (client as unknown as { options: { timeout?: number } }).options;
+  expect(options.timeout).toBeGreaterThanOrEqual(5 * 60 * 1000);
 });

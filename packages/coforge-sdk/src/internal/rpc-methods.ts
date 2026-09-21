@@ -55,6 +55,5 @@ export const RPC_METHODS = {
   agentReminder: "agent:v1:reminder:deliver",
   reminderFire: "reminder:v1:fire",
   reminderSnapshot: "reminder:v1:snapshot",
-  agentTask: "agent:v1:task:get",
   agentWeeklyReport: "agent:v1:weekly_report:get",
 } as const;

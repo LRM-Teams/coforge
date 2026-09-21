@@ -22,6 +22,7 @@ import type {
 } from "../index";
 import {
   agentApiRoutes,
+  decodeAgentChannelErrorResponse,
   decodeAgentManualErrorResponse,
   decodeAgentManualGetResponse,
   decodeAgentManualSearchResponse,
@@ -1078,6 +1079,23 @@ export function connectLocal(
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
+      const rawText = await response.text();
+      // ADR 0059: a JSON-enveloped `errorCode` (currently only `agent_not_visible`) is a real
+      // wire field the CLI renders directly, checked ahead of every other rule below — its own
+      // explanation must never be discarded in favor of a fixed "Channel not found" message.
+      let parsedBody: unknown;
+      try {
+        parsedBody = JSON.parse(rawText);
+      } catch {
+        parsedBody = undefined;
+      }
+      const envelopeError = decodeAgentChannelErrorResponse(parsedBody);
+      if (envelopeError)
+        throw new CliError({
+          code: envelopeError.errorCode.toUpperCase(),
+          message: envelopeError.error,
+          retryable: false,
+        });
       // Raft parity: an unknown channel is CliError code NOT_FOUND with a fixed message, not a
       // generic transport failure — for the operations that resolve a single #channel target
       // the same way Raft's join/leave/update/lifecycle/add-member/remove-member do.
@@ -1097,7 +1115,7 @@ export function connectLocal(
           retryable: false,
         });
       throw new Error(
-        `agent channel ${command.operation} request failed (${response.status}): ${await response.text()}`,
+        `agent channel ${command.operation} request failed (${response.status}): ${rawText}`,
       );
     }
     return response.json();

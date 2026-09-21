@@ -82,6 +82,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       undefined,
       undefined,
       {
+        async memberChanged() {},
         async messageAvailable(event) {
           realtimeEvents.push(event);
         },
