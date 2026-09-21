@@ -87,6 +87,9 @@ interface FakeOssOptions {
   preexistingKeys?: Set<string>;
   /** Keys whose existence probe answers with an ambiguous status instead of 200/404. */
   failProbeKeys?: Set<string>;
+  /** Delay every authenticated upload response by this many ms, simulating a slow link. Used by
+   * the slow-server regression test to prove a stalled upload reports the timeout's `name`. */
+  delayUploadMs?: number;
 }
 
 interface FakeOss {
@@ -129,6 +132,9 @@ function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
         return new Response(null, { status: 204 });
       }
       if (method === "PUT") {
+        if (options.delayUploadMs) {
+          await Bun.sleep(options.delayUploadMs);
+        }
         if (options.failUploadKeys?.has(objectKey)) {
           return new Response("<Error><Code>InternalError</Code></Error>", {
             status: 500,
@@ -301,6 +307,34 @@ test("a failed object upload never writes latest, and stops before uploading lat
     fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json")),
   ).toBe(false);
   expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+});
+
+test("a stalled upload reports the timeout's name, not an opaque HTTP unknown", async () => {
+  const outputDirectory = await tempDir("coforge-publish-slowtimeout-");
+  const tree = await fixtureTree("9.9.9-slow-timeout", outputDirectory);
+  // The fixture never responds within the test's tiny per-request timeout, so ali-oss aborts the
+  // request with a name-only ResponseTimeoutError (no status/code/request-id - see publish.ts's
+  // ossError comment). This pins the regression: the message has to say *which* failure it was.
+  const fake = startFakeOssServer({ delayUploadMs: 500 });
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  const rejection = await uploadReleaseTree(outputDirectory, tree, {
+    client,
+    connection,
+    requestTimeoutMs: 50,
+  }).catch((error: unknown) => error as Error);
+  expect(rejection).toBeInstanceOf(Error);
+  expect(rejection.message).toMatch(/OSS upload failed:/);
+  // The timeout surfaces its stable class name, so the log can say "it timed out" rather than
+  // leaving a bare `HTTP unknown` that is indistinguishable from any other opaque transport error.
+  expect(rejection.message).toMatch(/ResponseTimeoutError/);
+
+  // A failed publish must not have advanced `latest` or left the manifest behind.
+  expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+  expect(
+    fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json")),
+  ).toBe(false);
 });
 
 test("republishing a version that already completed is refused before anything is uploaded", async () => {

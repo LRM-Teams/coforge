@@ -180,6 +180,7 @@ export function ossError(action: string, objectKey: string, error: unknown): Err
   // `Error` itself says nothing; a class name that differs from it is the interesting case.
   const nameText =
     typeof name === "string" && name.length > 0 && name !== "Error" ? ` ${name}` : "";
+
   const requestIdText =
     typeof requestId === "string" && requestId.length > 0 ? requestId : "unknown";
   return new Error(
@@ -199,9 +200,41 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-async function putObject(client: OSS, objectKey: string, bytes: Uint8Array): Promise<void> {
+/** Objects at or above this size are uploaded as several parts so a slow link cannot blow one
+ * request's timeout on the whole multi-megabyte object. The staging feed's largest object - the
+ * darwin-arm64 computer binary, ~28 MiB and the first one uploaded - exceeded ali-oss's default
+ * 60 s per-request timeout when the GitHub-runner-to-OSS path slowed below ~0.5 MB/s, and the SDK
+ * killed it with a `ResponseTimeoutError` (a `name`-only error, no status/code/request-id). */
+const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
+/** Per-part size for multipart uploads. A 28 MiB binary splits into ~4 parts, each of which is its
+ * own signed request with its own timeout, so even a degraded link completes one part well under
+ * the 60 s window and ali-oss retries a part that does time out instead of failing the whole
+ * object. */
+const MULTIPART_PART_BYTES = 8 * 1024 * 1024;
+/** Per-request timeout for each multipart part (and each read-back), in ms. Keeping it explicit
+ * makes the per-part timing intent clear: a stalled network times out a single small part, not
+ * the whole object, and `ossError` now records the `name` so the log can show `ResponseTimeoutError`. */
+const OSS_REQUEST_TIMEOUT_MS = 60_000;
+
+async function putObject(
+  client: OSS,
+  objectKey: string,
+  bytes: Uint8Array,
+  requestTimeoutMs: number = OSS_REQUEST_TIMEOUT_MS,
+): Promise<void> {
+  const buffer = Buffer.from(bytes);
   try {
-    await client.put(objectKey, Buffer.from(bytes), {
+    if (buffer.byteLength >= MULTIPART_MIN_BYTES) {
+      await client.multipartUpload(objectKey, buffer, {
+        partSize: MULTIPART_PART_BYTES,
+        parallel: 1,
+        timeout: requestTimeoutMs,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      return;
+    }
+    await client.put(objectKey, buffer, {
+      timeout: requestTimeoutMs,
       headers: { "Content-Type": "application/octet-stream" },
     });
   } catch (error) {
@@ -264,6 +297,10 @@ export interface UploadOptions {
   connection: OssConnection;
   fetchImpl?: typeof fetch;
   log?: (line: string) => void;
+  /** Per-request upload timeout in ms. Defaults to `OSS_REQUEST_TIMEOUT_MS` (60 s). Tests pass a
+   * small value so a deliberately slow fixture server can prove that a stalled link reports the
+   * timeout's name instead of hanging the publish. */
+  requestTimeoutMs?: number;
 }
 
 export interface UploadResult {
@@ -297,9 +334,10 @@ export async function uploadReleaseTree(
   }
   const uploadOrder = [...tree.files.filter((file) => file !== manifestKey), manifestKey];
 
+  const requestTimeoutMs = options.requestTimeoutMs ?? OSS_REQUEST_TIMEOUT_MS;
   for (const relativePath of uploadOrder) {
     const bytes = await readFile(join(outputDirectory, relativePath));
-    await putObject(client, relativePath, bytes);
+    await putObject(client, relativePath, bytes, requestTimeoutMs);
     log(`uploaded ${relativePath}`);
   }
 
