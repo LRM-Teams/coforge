@@ -123,7 +123,6 @@
       }
     }
   ],
-  "conversation_thread_following_agents_empty": "No Agents are following this thread.",
   "conversation_thread_following_agents_error": "Could not load following Agents.",
   "conversation_thread_unfollow_agent": "Stop {name} following this thread",
   "conversation_you": "You",

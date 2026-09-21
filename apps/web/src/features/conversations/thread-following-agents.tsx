@@ -137,6 +137,7 @@ export function ThreadFollowingAgents({
   const canUnfollow = query.data?.canUnfollow ?? false;
   const count = agents.length;
   const lead = agents[0];
+  const empty = !query.isPending && !query.isError && count === 0;
 
   async function unfollowAgent(agentId: string) {
     try {
@@ -150,6 +151,8 @@ export function ThreadFollowingAgents({
       toast.error(m.conversation_thread_following_agents_error(), cause);
     }
   }
+
+  if (empty) return null;
 
   return (
     <AriaDialogTrigger>
@@ -197,10 +200,6 @@ export function ThreadFollowingAgents({
               ) : query.isError ? (
                 <p role="alert" className="px-3 py-3 text-sm text-error-primary">
                   {m.conversation_thread_following_agents_error()}
-                </p>
-              ) : agents.length === 0 ? (
-                <p className="px-3 py-3 text-sm text-tertiary">
-                  {m.conversation_thread_following_agents_empty()}
                 </p>
               ) : (
                 <ul className="max-h-72 overflow-y-auto py-1 [scrollbar-width:thin]">
