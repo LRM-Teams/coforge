@@ -59,7 +59,13 @@ re-held draft could not be forced once its token expired, and the CLI could not 
   recovery actions. `--anyway` no longer depends on a server token's TTL.
 - Deleting the token means the server no longer needs Redis for holds; the daemon owns draft state
   (it already owned the read boundary).
-- **Still to land (PR 2 of task #58):** Raft decides the hold inside the computer/daemon
+- **Landed after this ADR was written** (task #58, tracked here rather than in a changelog): the
+  daemon-side decision (`#524`/`#534` — a locally decided hold is terminal and never issued), the
+  draft's Raft file shape and `seenUpToSeq` (`#537`), the held-window bound (`#535`), and the
+  freshness-decision activity projection (its own follow-up PR, `projectApmHeldFreshnessActivity`,
+  bundle **L812425**: `detailKind: "freshness_hold"`, `Send held by freshness check`, and Raft's
+  `producerFactId`).
+- **PR 2 of task #58 (the reason this item was once "still to land"):** Raft decides the hold inside the computer/daemon
   (`planAgentInboxSideEffect` + a local `freshness_hold` response, bundle **L816274**), while CoForge
   still decides it in the server. This ADR fixes the contract and the semantics; moving the decision
   into the daemon's inbox state machine, and projecting the freshness decision into Agent Activity
@@ -70,3 +76,21 @@ re-held draft could not be forced once its token expired, and the CLI could not 
   inferred from the planner's client side plus the wire schema; the corroborating newer source
   (`server/internal/daemon/message_send_proxy.go`) was used only as supporting evidence, never for
   field names.
+
+## Addendum (2026-09-21, task #58 ④): the route and the idempotency key
+
+The contract above is Raft's **`POST /v2/send`**. CoForge served the same body at
+`POST /api/agent/v1/messages`, so this addendum aligns the route and the one field name that differs:
+
+- `POST /api/agent/v2/send` (`agentApiRoutes.cloud.messages.sendV2`) is served by **the same handler**
+  as the v1 route. Both routes stay live: a Computer that still speaks v1 keeps sending while it
+  upgrades, and the server can therefore deploy this before any Computer does (the lesson of the
+  earlier `content`-rename incident, where a server-side contract change silenced every old
+  Computer).
+- The daemon now sends Raft's v2 body: `idempotencyKey` (our request id travels as it), `target`,
+  `content`, `continueAnyway`, `sendDraft`, `draftReholdCount`, `draftReplacedExisting`,
+  `seenUpToSeq`, `freshnessContextMode`, `attachmentIds`, `mentions`. The server accepts
+  `idempotencyKey` **or** `requestId` on either route, so the two spellings cannot disagree.
+- Raft's schema also declares `continue` (1.0.32, **L16724**). Its own CLI never sets it and its
+  semantics are unverified, so CoForge neither sends nor interprets it; the force-send flag is
+  `continueAnyway`, as in Raft.

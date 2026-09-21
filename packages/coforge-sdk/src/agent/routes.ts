@@ -30,7 +30,11 @@ export const agentApiRoutes = {
     },
   },
   local: {
-    messages: { method: "POST", path: "/api/agent/v1/messages" },
+    messages: {
+      method: "POST",
+      path: "/api/agent/v1/messages",
+      sendV2: { method: "POST", path: "/api/agent/v2/send" },
+    },
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
@@ -85,6 +89,9 @@ export const agentApiRoutes = {
       list: { method: "GET", path: "/api/agent/v1/messages" },
       search: { method: "GET", path: "/api/agent/v1/messages/search" },
       send: { method: "POST", path: "/api/agent/v1/messages" },
+      // Raft's versioned typed-mention send contract (`POST /v2/send`); the CoForge server serves
+      // it alongside the v1 route so a Computer that still speaks v1 keeps working (task #58 ④).
+      sendV2: { method: "POST", path: "/api/agent/v2/send" },
       resolve: {
         method: "GET",
         path: (messageId: string) =>

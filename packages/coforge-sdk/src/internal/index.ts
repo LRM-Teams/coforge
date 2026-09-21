@@ -707,6 +707,8 @@ export type AgentMessageRequest = {
   draftReholdCount?: number;
   /** `send` only: a normal send that replaced an already-held draft. */
   draftReplacedExisting?: boolean;
+  /** `send` only: this is the resend of a held draft (Raft's `sendDraft` in the v2 send body). */
+  sendDraft?: boolean;
   before?: string;
   after?: string;
   around?: string;

@@ -68,6 +68,7 @@ import { Route as ApiAgentV1WeeklyReportCollectRouteImport } from './routes/api/
 import { Route as ApiAgentV1WeeklyReportKeyPointsRouteImport } from './routes/api/agent/v1/weekly-report-key-points'
 import { Route as ApiAgentV1WeeklyReportsRouteImport } from './routes/api/agent/v1/weekly-reports'
 import { Route as ApiAgentV1WorkspaceRouteImport } from './routes/api/agent/v1/workspace'
+import { Route as ApiAgentV2SendRouteImport } from './routes/api/agent/v2/send'
 import { Route as ApiComputersComputerIdCreatorAvatarRouteImport } from './routes/api/computers/$computerId/creator-avatar'
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
@@ -404,6 +405,11 @@ const ApiAgentV1WorkspaceRoute = ApiAgentV1WorkspaceRouteImport.update({
   path: '/api/agent/v1/workspace',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentV2SendRoute = ApiAgentV2SendRouteImport.update({
+  id: '/api/agent/v2/send',
+  path: '/api/agent/v2/send',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiComputersComputerIdCreatorAvatarRoute =
   ApiComputersComputerIdCreatorAvatarRouteImport.update({
     id: '/api/computers/$computerId/creator-avatar',
@@ -640,6 +646,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/weekly-report-key-points': typeof ApiAgentV1WeeklyReportKeyPointsRoute
   '/api/agent/v1/weekly-reports': typeof ApiAgentV1WeeklyReportsRoute
   '/api/agent/v1/workspace': typeof ApiAgentV1WorkspaceRoute
+  '/api/agent/v2/send': typeof ApiAgentV2SendRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
@@ -727,6 +734,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/weekly-report-key-points': typeof ApiAgentV1WeeklyReportKeyPointsRoute
   '/api/agent/v1/weekly-reports': typeof ApiAgentV1WeeklyReportsRoute
   '/api/agent/v1/workspace': typeof ApiAgentV1WorkspaceRoute
+  '/api/agent/v2/send': typeof ApiAgentV2SendRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
@@ -819,6 +827,7 @@ export interface FileRoutesById {
   '/api/agent/v1/weekly-report-key-points': typeof ApiAgentV1WeeklyReportKeyPointsRoute
   '/api/agent/v1/weekly-reports': typeof ApiAgentV1WeeklyReportsRoute
   '/api/agent/v1/workspace': typeof ApiAgentV1WorkspaceRoute
+  '/api/agent/v2/send': typeof ApiAgentV2SendRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
@@ -911,6 +920,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/weekly-report-key-points'
     | '/api/agent/v1/weekly-reports'
     | '/api/agent/v1/workspace'
+    | '/api/agent/v2/send'
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
     | '/api/integrations/github/callback'
@@ -998,6 +1008,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/weekly-report-key-points'
     | '/api/agent/v1/weekly-reports'
     | '/api/agent/v1/workspace'
+    | '/api/agent/v2/send'
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
     | '/api/integrations/github/callback'
@@ -1089,6 +1100,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/weekly-report-key-points'
     | '/api/agent/v1/weekly-reports'
     | '/api/agent/v1/workspace'
+    | '/api/agent/v2/send'
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
     | '/api/integrations/github/callback'
@@ -1160,6 +1172,7 @@ export interface RootRouteChildren {
   ApiAgentV1WeeklyReportKeyPointsRoute: typeof ApiAgentV1WeeklyReportKeyPointsRoute
   ApiAgentV1WeeklyReportsRoute: typeof ApiAgentV1WeeklyReportsRoute
   ApiAgentV1WorkspaceRoute: typeof ApiAgentV1WorkspaceRoute
+  ApiAgentV2SendRoute: typeof ApiAgentV2SendRoute
   ApiComputersComputerIdCreatorAvatarRoute: typeof ApiComputersComputerIdCreatorAvatarRoute
   ApiE2eWorkspacesSlugRoute: typeof ApiE2eWorkspacesSlugRoute
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
@@ -1597,6 +1610,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1WorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v2/send': {
+      id: '/api/agent/v2/send'
+      path: '/api/agent/v2/send'
+      fullPath: '/api/agent/v2/send'
+      preLoaderRoute: typeof ApiAgentV2SendRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/computers/$computerId/creator-avatar': {
       id: '/api/computers/$computerId/creator-avatar'
       path: '/api/computers/$computerId/creator-avatar'
@@ -1997,6 +2017,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1WeeklyReportKeyPointsRoute: ApiAgentV1WeeklyReportKeyPointsRoute,
   ApiAgentV1WeeklyReportsRoute: ApiAgentV1WeeklyReportsRoute,
   ApiAgentV1WorkspaceRoute: ApiAgentV1WorkspaceRoute,
+  ApiAgentV2SendRoute: ApiAgentV2SendRoute,
   ApiComputersComputerIdCreatorAvatarRoute:
     ApiComputersComputerIdCreatorAvatarRoute,
   ApiE2eWorkspacesSlugRoute: ApiE2eWorkspacesSlugRoute,

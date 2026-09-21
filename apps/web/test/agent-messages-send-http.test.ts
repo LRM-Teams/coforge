@@ -9,6 +9,72 @@ const request = (body: unknown) =>
     body: JSON.stringify(body),
   });
 
+const requestV2 = (body: unknown) =>
+  new Request("https://server.example/api/agent/v2/send", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+test("accepts Raft's v2 send body: idempotencyKey is the request id, structured mentions forward", async () => {
+  const mentions = [
+    { type: "user" as const, id: "11111111-1111-4111-8111-111111111111", name: "ada" },
+  ];
+  let receivedMentions: unknown;
+  const result = await handleAgentMessagesPost(
+    requestV2({
+      target: "@ada",
+      content: "hello @ada",
+      idempotencyKey: "idem-1",
+      sendDraft: true,
+      mentions,
+    }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      repository: {},
+      sender: {
+        executeFromAgent: async (input: { mentions?: unknown }) => {
+          receivedMentions = input.mentions;
+          return { id: "sent-1" };
+        },
+      },
+    },
+  );
+  expect(result.status).toBe(200);
+  // Raft's `idempotencyKey` is the key this request is deduplicated by (task #58 ④), and the
+  // response echoes it as our `requestId`.
+  expect(await result.json()).toMatchObject({ requestId: "idem-1", state: "sent" });
+  expect(receivedMentions).toEqual(mentions);
+});
+
+test("tolerates Raft's declared `continue` field without inventing semantics for it", async () => {
+  const result = await handleAgentMessagesPost(
+    requestV2({ target: "@ada", content: "hello", idempotencyKey: "idem-2", continue: true }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      repository: {
+        readPendingAgentContext: async () => [
+          {
+            id: "message-1",
+            sequence: 1,
+            senderKind: "human" as const,
+            senderHandle: "bea",
+            senderDescription: "",
+            target: "@ada",
+            body: "unreviewed",
+            createdAt: new Date("2026-09-10T00:00:00Z"),
+            attachments: [],
+          },
+        ],
+      },
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+    },
+  );
+  expect(result.status).toBe(200);
+  // Raft's own CLI never sets `continue` (1.0.32) and its semantics are unverified, so it must not
+  // behave as the force-send flag: the only bypass is `continueAnyway`.
+  expect(await result.json()).toMatchObject({ requestId: "idem-2", state: "held" });
+});
+
 test("rejects an unsupported freshnessContextMode with 400", async () => {
   const result = await handleAgentMessagesPost(
     request({ target: "@ada", content: "hello", freshnessContextMode: "secret" }),

@@ -240,6 +240,9 @@ export type AgentApiClient = {
     read(request: AgentMessagesReadRequest): Promise<AgentHistoryResponse>;
     search(request: AgentMessagesSearchRequest): Promise<AgentSearchResponse>;
     send(request: AgentMessagesSendRequest): Promise<AgentSendResponse>;
+    /** Raft's `/v2/send`: the same body plus structured `mentions` (which CoForge's single send
+     * request already carries). */
+    sendV2(request: AgentMessagesSendRequest): Promise<AgentSendResponse>;
     resolve(request: AgentMessagesResolveRequest): Promise<AgentResolveResponse>;
     addReaction(request: AgentMessagesReactionRequest): Promise<AgentReactionResponse>;
     removeReaction(request: AgentMessagesReactionRequest): Promise<AgentReactionResponse>;
@@ -320,6 +323,7 @@ export type RawAgentApiClient = {
     read(request: AgentMessagesReadRequest): Promise<AgentApiResult<AgentHistoryResponse>>;
     search(request: AgentMessagesSearchRequest): Promise<AgentApiResult<AgentSearchResponse>>;
     send(request: AgentMessagesSendRequest): Promise<AgentApiResult<AgentSendResponse>>;
+    sendV2(request: AgentMessagesSendRequest): Promise<AgentApiResult<AgentSendResponse>>;
     resolve(request: AgentMessagesResolveRequest): Promise<AgentApiResult<AgentResolveResponse>>;
     addReaction(
       request: AgentMessagesReactionRequest,
@@ -511,6 +515,7 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
       read: async (request) => unwrap(await rawClient.messages.read(request)),
       search: async (request) => unwrap(await rawClient.messages.search(request)),
       send: async (request) => unwrap(await rawClient.messages.send(request)),
+      sendV2: async (request) => unwrap(await rawClient.messages.sendV2(request)),
       resolve: async (request) => unwrap(await rawClient.messages.resolve(request)),
       addReaction: async (request) => unwrap(await rawClient.messages.addReaction(request)),
       removeReaction: async (request) => unwrap(await rawClient.messages.removeReaction(request)),
@@ -618,6 +623,10 @@ function messageResources(transport: AgentApiTransport): RawAgentApiClient["mess
       >,
     send: (request) =>
       transport.request(agentApiRoutes.cloud.messages.send, request) as Promise<
+        AgentApiResult<AgentSendResponse>
+      >,
+    sendV2: (request) =>
+      transport.request(agentApiRoutes.cloud.messages.sendV2, request) as Promise<
         AgentApiResult<AgentSendResponse>
       >,
     resolve: ({ messageId }) =>

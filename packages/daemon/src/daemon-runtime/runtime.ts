@@ -3301,6 +3301,7 @@ export class DaemonRuntime {
               continueAnyway: request.continueAnyway,
               draftReholdCount,
               draftReplacedExisting: !request.sendDraft && draftReholdCount > 0,
+              sendDraft: request.sendDraft,
               seenUpToSeq,
               freshnessContextMode: request.freshnessContextMode,
               attachmentIds: attachmentIds ? [...attachmentIds] : undefined,

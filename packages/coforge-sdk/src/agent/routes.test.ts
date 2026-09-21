@@ -25,6 +25,19 @@ test("exposes a dedicated cloud message search route distinct from read", () => 
   );
 });
 
+test("exposes Raft's versioned send route next to the v1 one", () => {
+  expect(agentApiRoutes.cloud.messages.sendV2).toEqual({
+    method: "POST",
+    path: "/api/agent/v2/send",
+  });
+  expect(agentApiRoutes.local.messages.sendV2).toEqual({
+    method: "POST",
+    path: "/api/agent/v2/send",
+  });
+  // The v1 route stays: a Computer that still speaks it must keep sending while it upgrades.
+  expect(agentApiRoutes.cloud.messages.send.path).toBe("/api/agent/v1/messages");
+});
+
 test("uses versioned Agent API routes for the Proxy and cloud", () => {
   expect(agentApiRoutes.proxy.messages.path).toBe("/api/agent/v1/messages");
   expect(agentApiRoutes.proxy.tasks.path).toBe("/api/agent/v1/tasks");

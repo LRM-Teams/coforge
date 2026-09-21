@@ -865,11 +865,17 @@ export const createAgentMessageHttpClient = (
       {
         method: "POST",
         headers: agentHeaders(keys, true),
+        // Raft's `agentApiSendV2BodySchema` field names (1.0.32 bundle 16728-16744): the idempotency
+        // key is `idempotencyKey` (our request id travels as it), `sendDraft` is declared when this
+        // send is the resend of a held draft, and `mentions` is the structured list. Raft also
+        // declares `continue`, which its own CLI never sets and whose semantics are unverified — we
+        // neither send nor interpret it (the force-send flag is `continueAnyway`, as in Raft).
         body: JSON.stringify({
-          requestId: request.requestId,
+          idempotencyKey: request.requestId,
           target: request.target,
           content: request.content,
           continueAnyway: request.continueAnyway,
+          sendDraft: request.sendDraft,
           draftReholdCount: request.draftReholdCount,
           draftReplacedExisting: request.draftReplacedExisting,
           seenUpToSeq: request.seenUpToSeq,
@@ -1825,9 +1831,11 @@ export class DaemonConnection implements DaemonConnectionClient {
     }
     if (request.operation === "send") {
       if (!requestSend) throw new Error("unsupported Agent message operation: send");
+      // Raft's versioned send route (task #58 ④). The CoForge server keeps serving the v1 route as
+      // well, so the server can deploy this before any Computer does.
       const url = this.#serverEndpoint(
         "Agent message HTTP",
-        agentApiRoutes.cloud.messages.send.path,
+        agentApiRoutes.cloud.messages.sendV2.path,
       );
       return adaptAgentSendResponse(
         await requestSend({ url, ...this.#agentKeys(agentApiKey), request }),
