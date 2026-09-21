@@ -40,18 +40,17 @@ const REMEMBERED_DELIVERIES = 4096;
  * anything older is consumed by the same frontier anyway. No invented slack. */
 const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 
-/** How long to wait after a silent channel delivery before a completed turn may merge-notify. */
-export const CHANNEL_DIGEST_INTERVAL_MS = 30 * 60 * 1000;
-
-/** Parent-channel chatter that is not a personal @mention and not a system message. */
+/**
+ * Agent-authored parent-channel chatter should not wake other Agents unless it personally
+ * @mentions them. Human ordinary channel messages still wake every delivered Agent so each can
+ * decide whether to participate; #general's default mute is what suppresses that special channel.
+ */
 function shouldWakeForDelivery(message: AgentMessageDelivery): boolean {
   const target = message.target ?? "";
   if (!isChannelMessageTarget(target)) return true;
   if (target.includes(":")) return true;
   if (message.latestSenderKind === "system") return true;
-  // Absent (older server) keeps the previous wake-everyone behaviour; only an explicit
-  // `false` from a current Web means ordinary channel chatter.
-  return message.mentionsAgent !== false;
+  return !(message.latestSenderKind === "agent" && message.mentionsAgent === false);
 }
 
 /** One unreviewed delivery plus the moment this daemon learned about it. Deliveries carry no
@@ -63,6 +62,15 @@ export type PendingWindowEntry = { delivery: AgentMessageDelivery; receivedAt: n
 type LocalViewItem = {
   target?: string;
   messageId: string;
+  sequence?: number;
+  latestSenderKind?: MessageSenderKind;
+  latestSenderHandle?: string;
+};
+
+type LocalViewRow = {
+  target: string;
+  newIds: Set<string>;
+  heldIds: Set<string>;
   latestSenderKind?: MessageSenderKind;
   latestSenderHandle?: string;
 };
@@ -135,12 +143,7 @@ export class AgentMessageAttentionIndex {
   readonly #hydrated = new Set<string>();
   readonly #workspaceId: string;
   readonly #runtimes: Pick<AgentProcessManager, "session">;
-  /** Parent-channel targets that were acked without a wakeup (ADR 0061). */
-  readonly #silentTargets = new Map<string, Set<string>>();
-  readonly #lastDigestAt = new Map<string, number>();
   readonly #memoryReminders = new Map<string, string>();
-  readonly #now: () => number;
-  readonly #digestIntervalMs: number;
 
   constructor(
     workspaceId: string,
@@ -172,13 +175,10 @@ export class AgentMessageAttentionIndex {
        * exactly as volatile as it was: the cursor then only lives as long as this process. */
       consumedSeqs?: AgentConsumedSeqPort;
     } = { shouldHold: () => false, enqueue: () => {}, busy: () => {} },
-    options: { now?: () => number; digestIntervalMs?: number } = {},
   ) {
     this.#workspaceId = workspaceId;
     this.#runtimes = runtimes;
     this.#consumedSeqs = hold.consumedSeqs;
-    this.#now = options.now ?? Date.now;
-    this.#digestIntervalMs = options.digestIntervalMs ?? CHANNEL_DIGEST_INTERVAL_MS;
   }
 
   /** Appended once to the next notice; the daemon never edits the Agent's MEMORY.md. */
@@ -252,7 +252,6 @@ export class AgentMessageAttentionIndex {
     this.#recordLatest(message.agentId, target, message.sequence);
     this.#recordPendingWindow(message.agentId, target, message);
     if (!shouldWakeForDelivery(message)) {
-      this.#markSilent(message.agentId, target);
       generation.notified.add(message.deliveryId);
       await this.sendAck({
         ...message,
@@ -272,28 +271,6 @@ export class AgentMessageAttentionIndex {
       method: AGENT_MESSAGE_ACK_METHOD,
       requestId: message.requestId,
     });
-  }
-
-  /**
-   * After a turn completes: if silent channel deliveries have piled up and the digest interval
-   * has elapsed, send one coalesced notice (ADR 0061). Already-acked; this is only a wakeup.
-   */
-  async digestSilent(agentId: string): Promise<void> {
-    const silent = this.#silentTargets.get(agentId);
-    if (!silent?.size) return;
-    const now = this.#now();
-    const last = this.#lastDigestAt.get(agentId) ?? 0;
-    if (now - last < this.#digestIntervalMs) return;
-    const announced: AgentMessageDelivery[] = [];
-    for (const target of silent)
-      for (const entry of this.pendingWindow(agentId, target, PENDING_WINDOW_LIMIT))
-        announced.push(entry.delivery);
-    if (!announced.length) {
-      this.#silentTargets.delete(agentId);
-      return;
-    }
-    this.#lastDigestAt.set(agentId, now);
-    await this.#notify(announced[announced.length - 1]!, undefined, announced);
   }
 
   /**
@@ -387,8 +364,9 @@ export class AgentMessageAttentionIndex {
     // through `coforge message check`. DM and channel share `#localViewRows` (one target per
     // line, no body). `recordModelSeen` is not advanced here — the server cursor has not moved,
     // and `check` is what advances both.
+    const recoveryRows = this.#localViewRows(recoveredMessages, []);
     const rows = [
-      ...this.#localViewRows(recoveredMessages, []),
+      ...this.#renderLocalViewRows(recoveryRows.rows),
       ...summaryOnly.map(
         ([target, count]) => `${target}  new: ${count} message${count === 1 ? "" : "s"}`,
       ),
@@ -417,31 +395,7 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
       pendingByTarget.set(message.target, pending);
       this.#pendingSequences.set(agentId, pendingByTarget);
     }
-    this.#silentTargets.delete(agentId);
     if (recoveredMessages.length) this.messageReceived(agentId);
-  }
-
-  #markSilent(agentId: string, target: string): void {
-    const targets = this.#silentTargets.get(agentId) ?? new Set<string>();
-    targets.add(target);
-    this.#silentTargets.set(agentId, targets);
-  }
-
-  /** Channel targets that were acked without a wakeup, shown as `held` on the next notice. */
-  #silentViewRows(agentId: string, already: readonly string[]): { rows: string[]; count: number } {
-    const silent = this.#silentTargets.get(agentId);
-    if (!silent?.size) return { rows: [], count: 0 };
-    const shown = new Set(already.map((row) => row.split("  ")[0]));
-    const rows: string[] = [];
-    let count = 0;
-    for (const target of silent) {
-      if (shown.has(target)) continue;
-      const pending = this.pendingMessageCount(agentId, target);
-      if (!pending) continue;
-      count += pending;
-      rows.push(`${target}  held: ${pending} message${pending === 1 ? "" : "s"}`);
-    }
-    return { rows, count };
   }
 
   #withMemoryReminder(agentId: string, notice: string): string {
@@ -461,19 +415,21 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
    * while the lines showed only the announced ones left the reader unable to tell where the rest
    * were, which is the same kind of unexplainable number this change exists to remove.
    */
-  #localViewRows(announced: readonly LocalViewItem[], queued: readonly LocalViewItem[]): string[] {
+  #localViewRows(
+    announced: readonly LocalViewItem[],
+    queued: readonly LocalViewItem[],
+  ): {
+    rows: LocalViewRow[];
+    countedIds: Set<string>;
+  } {
     const announcedIds = new Set(announced.map((delivery) => delivery.messageId));
-    type Row = {
-      newIds: Set<string>;
-      heldIds: Set<string>;
-      latestSenderKind?: MessageSenderKind;
-      latestSenderHandle?: string;
-    };
-    const byTarget = new Map<string, Row>();
+    const countedIds = new Set<string>();
+    const byTarget = new Map<string, LocalViewRow>();
     const rowFor = (target: string) => {
       const existing = byTarget.get(target);
       if (existing) return existing;
-      const created: Row = {
+      const created: LocalViewRow = {
+        target,
         newIds: new Set<string>(),
         heldIds: new Set<string>(),
       };
@@ -486,6 +442,7 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
       if (!delivery.target) continue;
       const row = rowFor(delivery.target);
       row.newIds.add(delivery.messageId);
+      countedIds.add(delivery.messageId);
       const sender = printableSender(delivery.latestSenderKind, delivery.latestSenderHandle);
       if (sender) {
         row.latestSenderKind = sender.kind;
@@ -496,13 +453,18 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
       if (!delivery.target || announcedIds.has(delivery.messageId)) continue;
       const row = rowFor(delivery.target);
       row.heldIds.add(delivery.messageId);
+      countedIds.add(delivery.messageId);
       const sender = printableSender(delivery.latestSenderKind, delivery.latestSenderHandle);
       if (sender) {
         row.latestSenderKind = sender.kind;
         row.latestSenderHandle = sender.handle;
       }
     }
-    return [...byTarget].map(([target, row]) => {
+    return { rows: [...byTarget.values()], countedIds };
+  }
+
+  #renderLocalViewRows(rows: readonly LocalViewRow[]): string[] {
+    return rows.map((row) => {
       const parts: string[] = [];
       if (row.newIds.size)
         parts.push(`new: ${row.newIds.size} message${row.newIds.size === 1 ? "" : "s"}`);
@@ -512,7 +474,7 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
         parts.push(
           `latest sender ${renderMessageSender(row.latestSenderKind, row.latestSenderHandle ?? "")}`,
         );
-      return `${target}  ${parts.join(" · ")}`;
+      return `${row.target}  ${parts.join(" · ")}`;
     });
   }
 
@@ -543,10 +505,9 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
     // advanced that cursor. Only those commands answer what is left, and either may answer
     // "nothing".
     const queued = this.hold.queued?.(message.agentId) ?? [];
-    const rows = this.#localViewRows(announced, queued);
-    const silentExtra = this.#silentViewRows(message.agentId, rows);
-    rows.push(...silentExtra.rows);
-    const totalCount = countDistinctMessages([...announced, ...queued]) + silentExtra.count;
+    const view = this.#localViewRows(announced, queued);
+    const rows = this.#renderLocalViewRows(view.rows);
+    const totalCount = countDistinctMessages([...announced, ...queued]);
     const notice = this.#withMemoryReminder(
       message.agentId,
       `[CoForge inbox notice:
@@ -561,7 +522,6 @@ already have been read. A notice you have not acted on does not establish that t
       .then(() => {
         if (this.#generations.get(message.agentId) === generation) {
           generation.notified.add(message.deliveryId);
-          this.#silentTargets.delete(message.agentId);
           this.messageReceived(message.agentId);
         }
         logger.info("Agent accepted inbox notice", {
@@ -812,8 +772,6 @@ already have been read. A notice you have not acted on does not establish that t
     this.#latestKnown.delete(agentId);
     this.#readContext.delete(agentId);
     this.#readContextCounters.delete(agentId);
-    this.#silentTargets.delete(agentId);
-    this.#lastDigestAt.delete(agentId);
     this.#memoryReminders.delete(agentId);
   }
 

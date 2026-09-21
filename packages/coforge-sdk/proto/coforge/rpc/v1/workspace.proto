@@ -232,8 +232,8 @@ message AgentMessageDelivery {
   string latest_sender_handle = 13;
   // The sender's role text; empty when there is none.
   string latest_sender_description = 14;
-  // True when this delivery is a personal @mention of the recipient Agent (ADR 0061).
-  bool mentions_agent = 15;
+  // Present when the sender knows whether this delivery personally @mentioned the recipient Agent (ADR 0061).
+  optional bool mentions_agent = 15;
 }
 
 message AgentMessageDeliveryAck {

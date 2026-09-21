@@ -976,7 +976,7 @@ test("a coalesced flush spanning targets gives each target its own line", async 
   expect(notices[0]).toContain("@ada  new: 1 message · latest sender @ada");
 });
 
-test("ordinary channel chatter is acked without a wakeup (ADR 0061)", async () => {
+test("ordinary human channel chatter wakes a delivered Agent (ADR 0061)", async () => {
   const notices: string[] = [];
   const acks: string[] = [];
   const index = new AgentMessageAttentionIndex(
@@ -989,17 +989,39 @@ test("ordinary channel chatter is acked without a wakeup (ADR 0061)", async () =
 
   await index.receive({
     ...delivery("chatter", "human", "alice"),
-    target: "#general",
+    target: "#team",
+    mentionsAgent: false,
+  });
+
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain("#team  new: 1 message · latest sender @alice");
+  expect(acks).toEqual(["delivery-chatter"]);
+});
+
+test("ordinary Agent channel chatter is acked without waking peer Agents (ADR 0061)", async () => {
+  const notices: string[] = [];
+  const acks: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async (ack) => {
+      acks.push(ack.deliveryId);
+    },
+  );
+
+  await index.receive({
+    ...delivery("chatter", "agent", "helper"),
+    target: "#team",
     mentionsAgent: false,
   });
 
   expect(notices).toEqual([]);
   expect(acks).toEqual(["delivery-chatter"]);
-  expect(index.check("agent-1")[0]).toMatchObject({ target: "#general", pendingCount: 1 });
-  expect(index.modelSeenSequence("agent-1", "#general")).toBe(0);
+  expect(index.check("agent-1")[0]).toMatchObject({ target: "#team", pendingCount: 1 });
+  expect(index.modelSeenSequence("agent-1", "#team")).toBe(0);
 });
 
-test("a channel @mention still wakes, and a later DM notice lists the silent channel", async () => {
+test("a channel @mention still wakes after earlier silent Agent mail", async () => {
   const notices: string[] = [];
   const index = new AgentMessageAttentionIndex(
     "workspace-1",
@@ -1008,7 +1030,7 @@ test("a channel @mention still wakes, and a later DM notice lists the silent cha
   );
 
   await index.receive({
-    ...delivery("chatter", "human", "alice"),
+    ...delivery("chatter", "agent", "helper"),
     target: "#general",
     mentionsAgent: false,
   });
@@ -1019,42 +1041,8 @@ test("a channel @mention still wakes, and a later DM notice lists the silent cha
     mentionsAgent: true,
   });
   expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("#general  new: 1 message");
-
-  await index.receive({ ...delivery("dm", "human", "ada"), sequence: 3, target: "@ada" });
-  expect(notices).toHaveLength(2);
-  expect(notices[1]).toContain("@ada  new: 1 message");
-});
-
-test("digestSilent merges silent channel mail after the interval, not before", async () => {
-  let now = 1_000;
-  const notices: string[] = [];
-  const index = new AgentMessageAttentionIndex(
-    "workspace-1",
-    { session: () => session((notice) => notices.push(notice)) },
-    async () => {},
-    () => {},
-    undefined,
-    { now: () => now, digestIntervalMs: 30 * 60 * 1000 },
-  );
-
-  await index.receive({
-    ...delivery("chatter", "human", "alice"),
-    target: "#general",
-    mentionsAgent: false,
-  });
-  await index.digestSilent("agent-1");
-  expect(notices).toEqual([]);
-
-  now += 30 * 60 * 1000;
-  await index.digestSilent("agent-1");
-  expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("#general  new: 1 message");
-  expect(notices[0]).not.toContain("private body");
-
-  now += 30 * 60 * 1000;
-  await index.digestSilent("agent-1");
-  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain("#general  new: 1 message · latest sender @alice");
+  expect(notices[0]).not.toContain(" · held:");
 });
 
 test("the next notice appends a MEMORY.md over-limit reminder once", async () => {

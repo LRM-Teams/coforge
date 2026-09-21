@@ -26,8 +26,8 @@ message AgentMessageRecord {
   string created_at = 8;
   repeated LocalAttachmentMetadata attachments = 9;
   LocalMessageTaskMetadata task = 10;
-  // True when this message personally @mentioned the reading Agent (ADR 0061).
-  bool mentions_agent = 11;
+  // Present when the sender knows whether this message personally @mentioned the reading Agent (ADR 0061).
+  optional bool mentions_agent = 11;
 }
 
 message LocalAttachmentMetadata {

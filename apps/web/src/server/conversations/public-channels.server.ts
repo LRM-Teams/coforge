@@ -81,13 +81,6 @@ export async function softLeaveMember(
   return result.count > 0;
 }
 
-/** Nested creation keeps default enrollment inside the Workspace creation transaction. */
-export function generalChannelForCreator(userId: string) {
-  return {
-    create: { channelName: "general", members: { create: { userId } } },
-  };
-}
-
 /** Enroll Workspace humans and Agents. Membership alone never creates attention. */
 /** Just the columns channelMessageView renders; the Agent row carries runtime JSON we never send. */
 const CHANNEL_MESSAGE_SELECT = {
@@ -195,10 +188,8 @@ export function channelMessageView(message: ChannelMessageRow, workspaceId: stri
 }
 
 /**
- * Enroll every Workspace human and Agent in #general. Called from the write
- * points that add members (invitation acceptance, Agent creation); Workspace
- * creation enrolls the creator inline and the 20260915120000 migration
- * backfilled older rows, so reads never enroll.
+ * Legacy/test helper for explicitly creating a `#general` fixture. Production Workspace/member/
+ * Agent creation no longer auto-creates or auto-enrolls #general.
  */
 export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspaceId: string) {
   await db.conversation.createMany({
@@ -239,8 +230,6 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
       workspaceId,
       conversationId: general.id,
       agentId,
-      // ADR 0061: new Agents join #general muted so ordinary chatter does not wake them.
-      channelMuted: true,
     })),
     skipDuplicates: true,
   });
@@ -586,7 +575,7 @@ export class PublicChannels {
   ) {
     await this.authorize(workspaceId, userId);
     if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) throw new AppError("INVALID_INPUT");
-    // general is reserved for automatic enrollment, including before the first list request.
+    // The built-in #general channel was removed; keep the old reserved name from coming back.
     if (name === "general") throw new AppError("CONFLICT");
     if (projectId) {
       const project = await this.db.project.findFirst({
@@ -722,7 +711,7 @@ export class PublicChannels {
   /**
    * A human leaves a public channel they are an active member of themselves ("Leave a channel",
    * Slack: any member may leave a channel they belong to). Never `#general` (`CONFLICT`, Slack:
-   * "It's not possible to leave the default #general channel"). Soft-left (`leftAt` set), not
+   * "It's not possible to leave a reserved legacy #general channel"). Soft-left (`leftAt` set), not
    * deleted: the same row's mute preference and read boundary survive a later `join`, which clears
    * `leftAt` again. ADR 0031.
    */
@@ -815,7 +804,7 @@ export class PublicChannels {
       }),
       // ADR 0059: a private Agent can never join a channel, so it is never an add-candidate
       // either — unconditionally, the same "channels never contain a private Agent" invariant
-      // `enrollGeneralChannel`/`addMembers` enforce, not a viewer-scoped visibility read.
+      // `addMembers` enforces, not a viewer-scoped visibility read.
       this.db.agent.findMany({
         where: {
           workspaceId,

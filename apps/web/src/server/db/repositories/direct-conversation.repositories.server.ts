@@ -1449,7 +1449,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         latestSenderHandle: sender.handle,
         latestSenderDescription: sender.description,
         body: agentReadableBody(delivery.message.body, delivery.message.mentions),
-        mentionsAgent: deliveryMentionsAgent(delivery.message.mentions, agentId),
+        ...(deliveryMentionsAgent(delivery.message.mentions, agentId)
+          ? { mentionsAgent: true }
+          : {}),
       };
     });
   }

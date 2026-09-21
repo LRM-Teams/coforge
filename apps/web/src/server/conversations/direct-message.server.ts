@@ -259,7 +259,6 @@ export class SendDirectMessage {
         latestSenderKind: message.latestSenderKind,
         latestSenderHandle: message.latestSenderHandle,
         latestSenderDescription: message.latestSenderDescription,
-        mentionsAgent: deliveryMentionsAgent(message.mentions, message.agentId),
       }),
     );
   }

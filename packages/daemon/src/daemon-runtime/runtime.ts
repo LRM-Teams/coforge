@@ -2432,13 +2432,6 @@ export class DaemonRuntime {
     // coalesced notice for the next turn — never blocking this turn-end Activity on it.
     const held = this.#deliveryQueue.idle(agentId);
     if (held.length) this.#flushHeldDeliveries(agentId, held);
-    void this.#messageAttention.digestSilent(agentId).catch((error: unknown) => {
-      logger.warn("Silent channel digest was not accepted", {
-        event: "agent.inbox_digest.rejected",
-        agent_id: agentId,
-        error_code: error instanceof Error ? error.name : "UnknownError",
-      });
-    });
     // Checked after the flush call above, not before: `flush` (via `#notify`) marks busy again
     // synchronously, in the same tick, whenever it actually has something to deliver — so a held
     // app item correctly re-holds itself (via `#notifyAppItem`'s own `shouldHold` check) for the

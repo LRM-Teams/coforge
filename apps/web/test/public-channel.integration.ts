@@ -567,19 +567,9 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       userId: user.id,
       channelId: general.id,
       requestId: crypto.randomUUID(),
-      body: "A default muted Agent does not receive ordinary #general chatter",
-    });
-    expect(published.slice(start).map((m) => m.agentId)).toEqual([]);
-    await channels.setAgentMuted(workspace.id, second.id, "#general", false);
-    const unmutedStart = published.length;
-    await channels.send({
-      workspaceId: workspace.id,
-      userId: user.id,
-      channelId: general.id,
-      requestId: crypto.randomUUID(),
       body: "A default unmuted channel update",
     });
-    expect(published.slice(unmutedStart).map((m) => m.agentId)).toEqual([second.id]);
+    expect(published.slice(start).map((m) => m.agentId)).toEqual([second.id]);
 
     const other = await channels.create(workspace.id, user.id, "not-joined");
     await expect(repo.readMessages(workspace.id, agent.id, "#not-joined")).rejects.toThrow(

@@ -37,7 +37,6 @@ test("owner invites by username and invitee accepts into membership", async () =
   });
   expect(accepted.role).toBe("member");
   expect(store.members.get(`${workspaceId}:${outsiderId}`)?.role).toBe("member");
-  expect(store.generalEnrollments).toEqual([{ workspaceId, userId: outsiderId }]);
 });
 
 test("cannot invite as owner or invite an existing member", async () => {
@@ -132,7 +131,6 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
   members: Map<string, WorkspaceMemberRecord>;
   invitations: Map<string, WorkspaceInvitationRecord>;
   users: Map<string, { id: string; username: string }>;
-  generalEnrollments: { workspaceId: string; userId: string }[];
   seedMember(input: {
     workspaceId: string;
     userId: string;
@@ -144,14 +142,12 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
   const members = new Map<string, WorkspaceMemberRecord>();
   const invitations = new Map<string, WorkspaceInvitationRecord>();
   const users = new Map<string, { id: string; username: string }>();
-  const generalEnrollments: { workspaceId: string; userId: string }[] = [];
   let invitationSeq = 0;
 
   return {
     members,
     invitations,
     users,
-    generalEnrollments,
     seedMember(input) {
       users.set(input.userId, { id: input.userId, username: input.username });
       members.set(`${input.workspaceId}:${input.userId}`, {
@@ -218,7 +214,6 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
         avatarUrl: null,
       };
       members.set(`${member.workspaceId}:${member.userId}`, member);
-      generalEnrollments.push({ workspaceId: member.workspaceId, userId: member.userId });
       return member;
     },
     async revokeInvitation(invitationId) {

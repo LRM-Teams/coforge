@@ -8,10 +8,7 @@ import {
 } from "../src/server/db/repositories/agent-visibility-change.repositories.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
-import {
-  enrollGeneralChannel,
-  PublicChannels,
-} from "../src/server/conversations/public-channels.server";
+import { PublicChannels } from "../src/server/conversations/public-channels.server";
 import { workspaceMemberRole } from "../src/server/workspaces/members.server";
 
 /**
@@ -59,7 +56,6 @@ async function setup() {
       },
     },
   });
-  await enrollGeneralChannel(db, workspace.id);
   const channels = new PublicChannels(db);
   const team = await channels.create(workspace.id, owner.id, "team");
   await channels.addMembers(workspace.id, { userId: owner.id }, team.id, {
@@ -76,7 +72,7 @@ async function teardown(db: PrismaClient, workspaceId: string, userIds: string[]
 }
 
 test.skipIf(!connectionString)(
-  "public->private soft-leaves channels and read-onlys other members' DMs; private->public re-joins #general only",
+  "public->private soft-leaves channels and read-onlys other members' DMs; private->public does not restore channels",
   async () => {
     const { db, workspace, owner, admin, member, agent } = await setup();
     try {
@@ -100,13 +96,13 @@ test.skipIf(!connectionString)(
         "hello while public",
       );
 
-      // The preview lists #general and #team, and counts the member's DM as one that would
-      // become read-only (the member is not the creator).
+      // The preview lists #team and counts the member's DM as one that would become read-only
+      // (the member is not the creator).
       const previewBefore = await previewAgentVisibilityChange(db, {
         workspaceId: workspace.id,
         agentId: agent.id,
       });
-      expect(previewBefore.channelNames.sort()).toEqual(["general", "team"]);
+      expect(previewBefore.channelNames).toEqual(["team"]);
       expect(previewBefore.readOnlyDirectMessageCount).toBe(1);
 
       // The owner (creator) makes the Agent private.
@@ -123,7 +119,7 @@ test.skipIf(!connectionString)(
         "private",
       );
 
-      // Every active channel membership, including #general, is soft-left.
+      // Every active channel membership is soft-left.
       const memberships = await db.conversationMember.findMany({
         where: {
           workspaceId: workspace.id,
@@ -132,7 +128,7 @@ test.skipIf(!connectionString)(
         },
         select: { leftAt: true, conversation: { select: { channelName: true } } },
       });
-      expect(memberships).toHaveLength(2);
+      expect(memberships).toHaveLength(1);
       expect(memberships.every((m) => m.leftAt !== null)).toBe(true);
 
       // The member's existing DM stays readable...
@@ -179,7 +175,7 @@ test.skipIf(!connectionString)(
       );
       expect(backToPublic).toEqual({ visibility: "public", changed: true });
 
-      // Only #general is restored; #team stays left (ADR 0059: re-join #general only).
+      // No channel membership is automatically restored.
       const membershipsAfter = await db.conversationMember.findMany({
         where: {
           workspaceId: workspace.id,
@@ -188,9 +184,7 @@ test.skipIf(!connectionString)(
         },
         select: { leftAt: true, conversation: { select: { channelName: true } } },
       });
-      const general = membershipsAfter.find((m) => m.conversation.channelName === "general");
       const teamAfter = membershipsAfter.find((m) => m.conversation.channelName === "team");
-      expect(general?.leftAt).toBeNull();
       expect(teamAfter?.leftAt).not.toBeNull();
 
       // The member can send again now that the Agent is public.

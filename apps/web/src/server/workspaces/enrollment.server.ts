@@ -1,6 +1,5 @@
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
-import { generalChannelForCreator } from "../conversations/public-channels.server";
 import { WorkspaceCatalog, PrismaWorkspaceCatalogStore } from "./catalog.server";
 
 export type EnrollmentUser = {
@@ -76,7 +75,6 @@ export class PrismaWorkspaceEnrollmentStore implements WorkspaceEnrollmentStore 
         slug: input.slug,
         name: input.name,
         members: { create: { userId: input.userId, role: "owner" } },
-        conversations: generalChannelForCreator(input.userId),
       },
       select: { id: true },
     });
