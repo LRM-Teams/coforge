@@ -34,7 +34,7 @@ test("the Task route hands the board the body it expects, key named idempotencyK
   expect(result.status).toBe(200);
   // One name, no rename at this boundary: the board's command carries `idempotencyKey` exactly as
   // the wire did, and the route echoes the same key back.
-  expect(received).toMatchObject({
+  expect(received).toEqual({
     idempotencyKey: "request-1",
     operation: "list",
     target: "#general",
@@ -42,20 +42,104 @@ test("the Task route hands the board the body it expects, key named idempotencyK
   expect(await result.json()).toMatchObject({ idempotencyKey: "request-1", tasks: [] });
 });
 
-test("a Task command without a key reaches the board unchanged, and its refusal is a 400", async () => {
-  let received: unknown;
+test("a Task command without a key is rejected before the board is called", async () => {
+  let called = false;
   const result = await handleAgentTaskPost(request({ operation: "list" }), principal, {
-    execute: async (_principal, command) => {
-      received = command;
-      // The real board refuses a command without an `idempotencyKey` exactly like this.
+    execute: async () => {
+      called = true;
       throw new AppError("INVALID_INPUT");
     },
   });
 
-  // The route invents nothing: it passes the body through as-is so the board's own validation is
-  // the one that decides.
-  expect(received).toEqual({ operation: "list" });
   expect(result.status).toBe(400);
+  expect(called).toBe(false);
+});
+
+test("malformed JSON is rejected before the board is called", async () => {
+  let called = false;
+  const result = await handleAgentTaskPost(
+    new Request("https://server.example/api/agent/v1/tasks", {
+      method: "POST",
+      body: "{not-json",
+    }),
+    principal,
+    {
+      execute: async () => {
+        called = true;
+        return { tasks: [] };
+      },
+    },
+  );
+
+  expect(result.status).toBe(400);
+  expect(called).toBe(false);
+});
+
+test("a body with an invalid command shape is rejected before the board is called", async () => {
+  let called = false;
+  const result = await handleAgentTaskPost(request({ operation: "not-a-task" }), principal, {
+    execute: async () => {
+      called = true;
+      return { tasks: [] };
+    },
+  });
+
+  expect(result.status).toBe(400);
+  expect(called).toBe(false);
+});
+
+test("a resource receipt accepts an ISO expiry with a timezone offset", async () => {
+  let received: unknown;
+  const result = await handleAgentTaskPost(
+    request({
+      idempotencyKey: "request-1",
+      operation: "receipt",
+      target: "#general",
+      receipt: {
+        object: "staging bucket",
+        purpose: "release verification",
+        teardownOwner: "@alice",
+        securityPrivacy: "private test data",
+        expiry: "2030-03-04T05:06:00+08:00",
+        runbook: "delete the bucket",
+        tracking: "task-123",
+      },
+    }),
+    principal,
+    {
+      execute: async (_principal, command) => {
+        received = command;
+        return { tasks: [] };
+      },
+    },
+  );
+
+  expect(result.status).toBe(200);
+  expect(received).toMatchObject({ receipt: { expiry: "2030-03-04T05:06:00+08:00" } });
+});
+
+test("a mismatched daemon envelope is rejected before the board is called", async () => {
+  let called = false;
+  const result = await handleAgentTaskPost(
+    request({
+      protocolMajor: 1,
+      idempotencyKey: "request-1",
+      workspaceId: "workspace-1",
+      agentId: "another-agent",
+      operation: "list",
+      target: "#general",
+    }),
+    principal,
+    {
+      execute: async () => {
+        called = true;
+        return { tasks: [] };
+      },
+    },
+  );
+
+  expect(result.status).toBe(403);
+  expect(called).toBe(false);
 });
 
 test("the board receives an agent-scoped principal — never the owner's userId alongside it", async () => {
