@@ -29,6 +29,9 @@ export function handleRequestError(error: unknown): HandledRequestError {
       COMPUTER_IDENTITY_UNKNOWN: 409,
       RELEASE_FEED_UNAVAILABLE: 503,
       AGENT_CONTEXT_UNAVAILABLE: 404,
+      // A private Agent a viewer cannot see answers the same "absent" shape a real 404 would
+      // (ADR 0059); it never discloses that the Agent exists.
+      AGENT_NOT_VISIBLE: 404,
     }[error.code];
     return { code, message: error.message };
   }
