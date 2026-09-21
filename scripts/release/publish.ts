@@ -210,15 +210,18 @@ const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
  * own signed request with its own timeout, so even a degraded link completes one part well under
  * the 60 s window and ali-oss retries a part that does time out instead of failing the whole
  * object. */
-const MULTIPART_PART_BYTES = 2 * 1024 * 1024;
-// 8 MiB was not small enough: dev.64 died at ~89 s with `ResponseTimeoutError` on this object's
-// *first* part, i.e. a single 8 MiB request did not clear the 60 s window on that link. The objects
-// that upload reliably are a few megabytes, so a part is now that size - the same 60 s window then
-// covers four times less data per request.
+const MULTIPART_PART_BYTES = 100 * 1024;
+// The documented part size: ali-oss's own README splits an object at `partSize = 100 * 1024`, which is
+// also OSS's minimum part. Ours was 8 MiB - 80x that - and dev.64 died at ~89 s with
+// `ResponseTimeoutError` on the object's *first* part, i.e. one 8 MiB request did not clear the 60 s
+// window on that link. At 100 KiB a part is the same order as the objects that upload reliably.
 /** Per-request timeout for each multipart part (and each read-back), in ms. Keeping it explicit
  * makes the per-part timing intent clear: a stalled network times out a single small part, not
  * the whole object, and `ossError` now records the `name` so the log can show `ResponseTimeoutError`. */
 const OSS_REQUEST_TIMEOUT_MS = 60_000;
+/** How many times a multipart part is retried before the object fails. One extra attempt is enough to
+ * survive a stall (the next connection is either fine or the link is genuinely down). */
+const OSS_UPLOAD_RETRY_MAX = 1;
 
 async function putObject(
   client: OSS,
@@ -233,6 +236,11 @@ async function putObject(
         partSize: MULTIPART_PART_BYTES,
         parallel: 1,
         timeout: requestTimeoutMs,
+        // ali-oss's README: "retryMax: used by auto retry send request count when request error is net
+        // error or timeout" - exactly this failure. It defaults to 0, so until now the first stalled
+        // part failed the whole object (dev.64, ~89 s). Only the multipart call gets it: the
+        // small-object path has always been reliable.
+        retryMax: OSS_UPLOAD_RETRY_MAX,
         headers: { "Content-Type": "application/octet-stream" },
       });
       return;
