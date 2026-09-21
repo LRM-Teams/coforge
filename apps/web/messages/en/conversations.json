@@ -70,6 +70,8 @@
   "conversation_send": "Send",
   "conversation_sending": "Sending…",
   "conversation_send_error": "The message could not be sent. Try again.",
+  "conversation_add_reaction": "Add reaction",
+  "conversation_reaction_error": "The reaction could not be updated. Try again.",
   "conversation_one_new_message": "1 new message",
   "conversation_new_messages": "{count} new messages",
   "conversation_back_to_bottom": "Back to bottom",

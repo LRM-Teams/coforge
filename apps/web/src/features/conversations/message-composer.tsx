@@ -27,6 +27,12 @@ import {
   filesFromPaste,
   shouldSendOnEnter,
 } from "./composer-behavior";
+import {
+  clearComposerDraft,
+  composerDraftKey,
+  readComposerDraft,
+  writeComposerDraft,
+} from "./composer-draft";
 import type { Mentionable } from "./mention-text";
 import { useMentionCompletion } from "./use-mention-completion";
 import { MentionSuggestionList } from "./mention-suggestions";
@@ -212,6 +218,7 @@ function AttachmentChip({
  */
 export function MessageComposer({
   conversationId,
+  threadRootId,
   inThread,
   mentionables,
   recentHandles,
@@ -221,6 +228,10 @@ export function MessageComposer({
   onSent,
 }: {
   conversationId: string;
+  /** The thread root this composer replies to; absent for the main pane. Together with
+   * `conversationId` it scopes the device-local draft, so the main pane and each thread
+   * keep their own unsent text. */
+  threadRootId?: string;
   /** Thread composers cannot create Tasks. */
   inThread: boolean;
   /** The channel's @-completion candidates; absent outside channels (no popup, no mention). */
@@ -244,11 +255,21 @@ export function MessageComposer({
   const composerId = useId();
   const hydrated = useHydrated();
   const toast = useAppToast();
-  const [body, setBody] = useState("");
+  // Device-local draft, scoped to this chat (and thread): typing here never touches another
+  // conversation, and the text survives switching chats, reloads, and restarts on this device.
+  const draftKey = composerDraftKey(conversationId, threadRootId);
   // A failed send keeps its request id so a retry of the same text is idempotent.
   const retryRef = useRef<{ body: string; requestId: string; asTask: boolean } | undefined>(
     undefined,
   );
+  const [body, setBody] = useState(() => readComposerDraft(draftKey));
+  useEffect(() => {
+    setBody(readComposerDraft(draftKey));
+    retryRef.current = undefined;
+  }, [draftKey]);
+  useEffect(() => {
+    writeComposerDraft(draftKey, body);
+  }, [draftKey, body]);
   // @-completion (channels only): query tracking, popup state, and keyboard interaction.
   const mention = useMentionCompletion({
     mentionables,
@@ -361,6 +382,7 @@ export function MessageComposer({
         if (sentMessage) onSent?.(sentMessage);
         retryRef.current = undefined;
         setBody("");
+        clearComposerDraft(draftKey);
         mention.close();
         setAttachments([]);
         setAsTask(false);

@@ -25,6 +25,7 @@ import {
   loadOwnConversationMessages,
   markDirectThreadRead,
   sendDirectConversationMessage,
+  toggleDirectMessageReaction,
 } from "@/features/conversations/conversations.functions";
 import {
   agentIdFromProfileParam,
@@ -70,6 +71,7 @@ function DirectConversationPage() {
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
   const send = useServerFn(sendDirectConversationMessage);
+  const toggleReaction = useServerFn(toggleDirectMessageReaction);
   const markRead = useServerFn(markDirectThreadRead);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
   const page = useConversationQuery({
@@ -173,6 +175,12 @@ function DirectConversationPage() {
         page.mergeUpdates([message]);
         void page.reconciliation.reconcile().catch(() => {});
         return message;
+      }}
+      onToggleReaction={async (messageId, emoji, active) => {
+        await toggleReaction({ data: { agentId, messageId, emoji, active } });
+        // Reactions ride no realtime signal, so re-read the loaded pages (the sanctioned
+        // path for changes the feed does not carry) instead of patching one page's cache.
+        await page.invalidate();
       }}
       onReadThread={(threadRootId, throughSequence) =>
         markRead({ data: { agentId, threadRootId, throughSequence } })

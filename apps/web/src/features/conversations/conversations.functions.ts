@@ -13,6 +13,7 @@ import {
   ownMessageIndexInputSchema,
   readConversationThreadInputSchema,
   sendConversationMessageInputSchema,
+  toggleMessageReactionInputSchema,
 } from "./conversation.schemas";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { SendDirectMessage } from "../../server/conversations/direct-message.server";
@@ -59,6 +60,7 @@ export const loadDirectConversation = createServerFn({ method: "GET" })
       limit: data.limit,
     });
     return {
+      viewerHandle: user.username,
       ...page,
       messages: await attachActionCardViews(db, workspaceId, user.id, page.messages),
     };
@@ -99,6 +101,7 @@ export const loadConversationAround = createServerFn({ method: "GET" })
       data.messageId,
     );
     return {
+      viewerHandle: user.username,
       ...page,
       messages: await attachActionCardViews(db, workspaceId, user.id, page.messages),
     };
@@ -220,5 +223,22 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           actionCard: undefined,
         };
       },
+    );
+  });
+
+/** The viewer's own emoji reaction on a DM message; returns the message's fresh summaries. */
+export const toggleDirectMessageReaction = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(agentConversationInputSchema.extend(toggleMessageReactionInputSchema.shape))
+  .handler(async ({ context, data }) => {
+    const { user, workspaceId } = context;
+    const conversations = await ownedConversations(context, data.agentId);
+    return conversations.setUserMessageReaction(
+      workspaceId,
+      user.id,
+      data.agentId,
+      data.messageId,
+      data.emoji,
+      data.active,
     );
   });

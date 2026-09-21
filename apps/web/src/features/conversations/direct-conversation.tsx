@@ -5,7 +5,7 @@ import { ClientOnly, getRouteApi } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowLeft,
-  DotsHorizontal,
+  ChevronRight,
   MessageSquare01 as MessageSquare,
 } from "@untitledui/icons";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
@@ -41,8 +41,8 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { RelativeTime } from "@/components/ui/relative-time";
-import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
+import { UnreadBadge } from "./conversation-directory";
 import { MessageComposer } from "./message-composer";
 import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
@@ -156,6 +156,8 @@ type ConversationProps = {
   onReadLatest?: (throughSequence: number) => void;
   tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
+  /** Toggles the viewer's own emoji reaction on a message; the route refreshes it. */
+  onToggleReaction?: (messageId: string, emoji: string, active: boolean) => Promise<void>;
   onShowTasks?: () => void;
   onShowFiles?: () => void;
   /** Opens the Agent profile panel from an Agent sender's avatar/name; absent where the
@@ -358,6 +360,12 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     return byRoot;
   }, [conversation.messages]);
   const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
+  // Preview rows would otherwise spell a mention as its raw `<@kind:uuid>` token; resolve
+  // those to `@handle` the way the message list does.
+  const formatPreviewBody = useMemo(
+    () => makeMentionBodyFormatter(conversation.mentionables ?? []),
+    [conversation.mentionables],
+  );
   const selected = resolveConversationThreadRoot({
     searchThreadRootId,
     messages: conversation.messages,
@@ -460,34 +468,26 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
         ).length;
         const label = m.conversation_thread_reply();
+        // The badge below already shows the count visually, so it stays out of the tooltip;
+        // screen readers still get it through the accessible name.
         const accessibleLabel = unread
           ? `${label} · ${m.conversation_thread_unread({ count: unread })}`
           : label;
         return (
           <span className="relative inline-flex">
-            <Dropdown.Root>
-              <ButtonUtility
-                icon={DotsHorizontal}
-                size="sm"
-                color="tertiary"
-                aria-label={m.conversation_message_actions()}
-              />
-              <Dropdown.Popover placement="bottom end">
-                <Dropdown.Menu>
-                  <Dropdown.Item
-                    id="reply"
-                    label={accessibleLabel}
-                    icon={MessageSquare}
-                    onAction={() => openThread(message.id)}
-                  />
-                </Dropdown.Menu>
-              </Dropdown.Popover>
-            </Dropdown.Root>
+            <ButtonUtility
+              icon={MessageSquare}
+              size="xs"
+              color="tertiary"
+              tooltip={label}
+              aria-label={accessibleLabel}
+              onClick={() => openThread(message.id)}
+              className="p-1 *:data-icon:size-3.5"
+            />
             {unread > 0 && (
-              <span
-                aria-hidden="true"
-                className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-brand-solid"
-              />
+              <span data-thread-unread className="absolute -top-1.5 -right-1">
+                <UnreadBadge count={unread} />
+              </span>
             )}
           </span>
         );
@@ -501,53 +501,53 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             : m.conversation_thread_replies({
                 count: threadReplies.length,
               });
-        const lastReply = threadReplies.at(-1)!;
-        // Carry each replier's deleted flag and avatar alongside its name so the preview stack
-        // shows the same picture the message rows do, and greys a deleted Agent (ADR 0044)
-        // instead of losing the distinction when it dedupes.
-        const repliers: { name: string; deleted: boolean; avatarUrl: string | null | undefined }[] =
-          [];
-        const seenRepliers = new Set<string>();
-        for (const reply of [...threadReplies].reverse()) {
-          const key = reply.senderHandle ?? reply.senderName;
-          if (seenRepliers.has(key)) continue;
-          seenRepliers.add(key);
-          repliers.push({
-            name: reply.senderName,
-            deleted: Boolean(reply.senderDeleted),
-            avatarUrl: reply.senderAvatarUrl,
-          });
-          if (repliers.length === 3) break;
-        }
+        const unread = threadReplies.filter(
+          (reply) =>
+            reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
+        ).length;
+        // The newest few only; the side pane holds the full thread.
+        const visible = threadReplies.slice(-3);
         return (
           <Button
             color="tertiary"
             size="sm"
-            onPress={() => openThread(message.id)}
             noTextPadding
-            className="h-auto w-fit min-w-0 justify-start gap-2 rounded-md px-1 py-1 text-left font-normal hover:bg-secondary focus-visible:outline-2 focus-visible:outline-brand"
+            onPress={() => openThread(message.id)}
+            className="mt-1.5 block h-auto w-full rounded-lg bg-secondary p-2 text-left font-normal hover:bg-secondary_hover"
           >
-            <span className="flex shrink-0 -space-x-2">
-              {repliers.map((replier) => (
-                <Avatar
-                  key={replier.name}
-                  size="xs"
-                  alt={replier.name}
-                  src={replier.avatarUrl}
-                  initials={avatarInitial(replier.name)}
-                  contentClassName={
-                    replier.deleted ? DELETED_AGENT_AVATAR_CLASS : avatarToneClassName(replier.name)
-                  }
-                  className="ring-2 ring-primary"
-                />
+            <span className="flex items-center gap-0.5 text-sm font-medium text-brand-secondary">
+              {unread > 0 ? `${label} · ${m.conversation_thread_unread({ count: unread })}` : label}
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </span>
+            <span className="mt-1 flex flex-col gap-1.5">
+              {visible.map((reply) => (
+                <span key={reply.id} className="flex min-w-0 items-center gap-2">
+                  <Avatar
+                    size="xs"
+                    alt={reply.senderName}
+                    src={reply.senderAvatarUrl}
+                    initials={avatarInitial(reply.senderName)}
+                    contentClassName={
+                      reply.senderDeleted
+                        ? DELETED_AGENT_AVATAR_CLASS
+                        : avatarToneClassName(reply.senderName)
+                    }
+                    className="shrink-0"
+                  />
+                  <span className="shrink-0 text-sm font-medium text-primary">
+                    {reply.senderName}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-secondary">
+                    {formatPreviewBody?.(reply.body) ?? reply.body}
+                  </span>
+                  <RelativeTime
+                    value={reply.createdAt}
+                    plain
+                    className="shrink-0 text-xs whitespace-nowrap text-tertiary"
+                  />
+                </span>
               ))}
             </span>
-            <span className="text-xs font-medium text-brand-secondary">{label}</span>
-            <RelativeTime
-              value={lastReply.createdAt}
-              plain
-              className="text-xs whitespace-nowrap text-tertiary"
-            />
           </Button>
         );
       }}
@@ -691,6 +691,7 @@ export function ConversationPane({
   onShowLatest,
   onReadLatest,
   onCreateTask,
+  onToggleReaction,
   onOpenAgentProfile,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
@@ -719,6 +720,16 @@ export function ConversationPane({
     quoteSequenceRef.current += 1;
     setQuotedDraft({ id: quoteSequenceRef.current, text });
   }, []);
+  const toggleReaction = useCallback(
+    (messageId: string, emoji: string, active: boolean) => {
+      if (!onToggleReaction) return;
+      void onToggleReaction(messageId, emoji, active).catch((cause: unknown) => {
+        const message = m.conversation_reaction_error();
+        toast.error(message, cause);
+      });
+    },
+    [onToggleReaction, toast],
+  );
   const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
   const [, loadingNewerRef, setLoadingNewer] = useStateWithRef(false);
@@ -1320,6 +1331,7 @@ export function ConversationPane({
                     threadEntry={threadEntry}
                     threadPreview={threadPreview}
                     messageFooter={messageFooter}
+                    onToggleReaction={onToggleReaction ? toggleReaction : undefined}
                     onOpenAgentProfile={onOpenAgentProfile}
                     viewerHandle={conversation.viewerHandle}
                     onQuoteSelection={quoteSelection}
@@ -1394,6 +1406,7 @@ export function ConversationPane({
       {readOnlyNotice ?? (
         <MessageComposer
           conversationId={conversation.conversationId}
+          threadRootId={root?.id}
           inThread={Boolean(root)}
           mentionables={conversation.mentionables}
           recentHandles={recentHandles}
