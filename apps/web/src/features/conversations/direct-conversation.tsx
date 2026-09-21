@@ -17,7 +17,7 @@ import {
   useLiveAgents,
 } from "@/features/agents/workspace-agents-realtime";
 import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
-import { AgentActivityAvatar, AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
+import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
@@ -45,14 +45,7 @@ import { useAppToast } from "@/components/ui/toast";
 import { MessageComposer } from "./message-composer";
 import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
-import { CollapsibleMessageBody } from "./collapsible-message-body";
-import {
-  AttachmentCard,
-  MessageRow,
-  clockLabel,
-  groupsWithPrevious,
-  type MessageThreadEntry,
-} from "./message-row";
+import { MessageRow, groupsWithPrevious, type MessageThreadEntry } from "./message-row";
 import {
   OwnMessagesMenu,
   useOwnMessagesIndex,
@@ -1220,63 +1213,32 @@ export function ConversationPane({
           className="h-full overflow-y-auto pb-6 [scrollbar-width:thin]"
         >
           {root && (
-            <div
-              aria-label={m.conversation_thread_root()}
-              className="mt-4 flex gap-3 bg-secondary px-4 py-2 md:px-6"
-            >
-              <div className="flex w-9 shrink-0 items-start justify-center">
-                {/* Same presence dot as the rows below, so the thread root does not read as a
-                    different kind of sender. */}
-                {root.senderKind === "agent" && root.senderAgentId ? (
-                  <AgentDisplayAvatar
-                    name={root.senderName}
-                    src={root.senderAvatarUrl}
-                    display={agentDisplayFor(root.senderAgentId)}
-                    deleted={root.senderDeleted}
-                    size="sm"
-                  />
-                ) : (
-                  <Avatar
-                    size="sm"
-                    alt={root.senderName}
-                    src={root.senderAvatarUrl}
-                    initials={avatarInitial(root.senderName)}
-                    contentClassName={
-                      root.senderDeleted
-                        ? DELETED_AGENT_AVATAR_CLASS
-                        : avatarToneClassName(root.senderName)
-                    }
-                  />
-                )}
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <p className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold text-primary">
-                    {isOwn(root) ? m.conversation_you() : root.senderName}
-                  </span>
-                  {root.senderDeleted && <DeletedAgentBadge />}
-                  <time
-                    dateTime={new Date(root.createdAt).toISOString()}
-                    className="text-xs text-tertiary tabular-nums"
-                  >
-                    {clockLabel(root.createdAt, dateLocale)}
-                  </time>
-                </p>
-                <div className="min-w-0 text-md leading-6 text-primary [overflow-wrap:anywhere]">
-                  {/* The root collapses exactly like the rows below it: opening a thread whose root
-                      is a wall of text should not bury the replies. */}
-                  <CollapsibleMessageBody
-                    body={root.body}
-                    mentions={root.mentions}
-                    viewerHandle={conversation.viewerHandle}
-                    expanded={expandedMessages.has(root.id)}
-                    onToggleExpanded={() => toggleExpandedMessage(root.id)}
-                  />
-                </div>
-                {root.attachments.map((attachment) => (
-                  <AttachmentCard key={attachment.id} attachment={attachment} />
-                ))}
-              </div>
+            <div aria-label={m.conversation_thread_root()} className="mt-4 bg-secondary">
+              {/* The root is an ordinary message row so it keeps every message affordance
+                  (hover toolbar on wide shells, tap action sheet below `lg`, reactions, action
+                  cards, quote-selection) instead of being a bespoke display-only block. Only the
+                  thread entry is held back: this pane already is that message's thread. The one-
+                  item list keeps the li valid; the band keeps the root visually distinct from its
+                  replies. */}
+              <ol className="flex flex-col">
+                <MessageRow
+                  message={root}
+                  own={isOwn(root)}
+                  dayChanged={false}
+                  grouped={false}
+                  unreadStartsHere={false}
+                  expanded={expandedMessages.has(root.id)}
+                  onToggleExpanded={() => toggleExpandedMessage(root.id)}
+                  agentDisplay={agentDisplayFor}
+                  dateLocale={dateLocale}
+                  messageFooter={messageFooter}
+                  onToggleReaction={onToggleReaction ? toggleReaction : undefined}
+                  onOpenAgentProfile={onOpenAgentProfile}
+                  viewerHandle={conversation.viewerHandle}
+                  plainMentions={plainMentions}
+                  onQuoteSelection={quoteSelection}
+                />
+              </ol>
             </div>
           )}
           {!root && conversation.hasOlder && onLoadOlder && (
