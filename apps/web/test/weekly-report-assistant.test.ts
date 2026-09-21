@@ -208,9 +208,39 @@ test("ensureWeeklyReportAssistant creates one assistant per User in a Workspace"
       },
     },
     agent: {
+      findUnique: async ({
+        where,
+      }: {
+        where: { workspaceId_name: { workspaceId: string; name: string } };
+      }) => {
+        const agent = agents.find(
+          (row) =>
+            row.workspaceId === where.workspaceId_name.workspaceId &&
+            row.name === where.workspaceId_name.name,
+        );
+        return agent
+          ? {
+              id: agent.id as string,
+              ownerId: agent.ownerId as string,
+              deletedAt: (agent.deletedAt as Date | null | undefined) ?? null,
+            }
+          : null;
+      },
       create: async ({ data }: { data: Record<string, unknown> }) => {
-        const agent = { ...data, id: `agent-${++agentSequence}` };
+        const agent = { ...data, id: `agent-${++agentSequence}`, deletedAt: null };
         agents.push(agent);
+        return agent;
+      },
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { id_workspaceId: { id: string; workspaceId: string } };
+        data: Record<string, unknown>;
+      }) => {
+        const agent = agents.find((row) => row.id === where.id_workspaceId.id);
+        if (!agent) throw new Error("missing agent");
+        Object.assign(agent, data);
         return agent;
       },
       findMany: async () => agents.map((agent) => ({ id: agent.id })),
@@ -257,9 +287,112 @@ test("ensureWeeklyReportAssistant creates one assistant per User in a Workspace"
     runtimeConfig: {
       runtime: "coforge",
       provider: { kind: "default" },
-      model: "",
-      modelProvider: "",
-      reasoning: "",
     },
   });
+});
+
+test("ensureWeeklyReportAssistant reclaims an orphan Agent left without an assistant row", async () => {
+  const agentName = weeklyReportAssistantAgentName("user-1");
+  const assistants: Array<{
+    id: string;
+    workspaceId: string;
+    userId: string;
+    agentId: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }> = [];
+  const agents: Array<Record<string, unknown>> = [
+    {
+      id: "orphan-agent",
+      workspaceId: "workspace-1",
+      ownerId: "user-1",
+      name: agentName,
+      deletedAt: null,
+    },
+  ];
+  let createdAgents = 0;
+  const tx = {
+    weeklyReportAssistant: {
+      findUnique: async ({
+        where,
+      }: {
+        where: { workspaceId_userId: { workspaceId: string; userId: string } };
+      }) =>
+        assistants.find(
+          (assistant) =>
+            assistant.workspaceId === where.workspaceId_userId.workspaceId &&
+            assistant.userId === where.workspaceId_userId.userId,
+        ) ?? null,
+      create: async ({
+        data,
+      }: {
+        data: { workspaceId: string; userId: string; agentId: string };
+      }) => {
+        const record = {
+          id: "assistant-1",
+          workspaceId: data.workspaceId,
+          userId: data.userId,
+          agentId: data.agentId,
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+        };
+        assistants.push(record);
+        return record;
+      },
+    },
+    agent: {
+      findUnique: async ({
+        where,
+      }: {
+        where: { workspaceId_name: { workspaceId: string; name: string } };
+      }) => {
+        const agent = agents.find(
+          (row) =>
+            row.workspaceId === where.workspaceId_name.workspaceId &&
+            row.name === where.workspaceId_name.name,
+        );
+        return agent
+          ? {
+              id: agent.id as string,
+              ownerId: agent.ownerId as string,
+              deletedAt: (agent.deletedAt as Date | null | undefined) ?? null,
+            }
+          : null;
+      },
+      create: async () => {
+        createdAgents += 1;
+        throw new Error("must not create a second Agent for the same assistant name");
+      },
+      update: async () => {
+        throw new Error("orphan was not soft-deleted");
+      },
+      findMany: async () => agents.map((agent) => ({ id: agent.id })),
+    },
+    conversation: {
+      createMany: async () => ({ count: 1 }),
+      findUniqueOrThrow: async () => ({ id: "general-1" }),
+    },
+    workspaceMembership: {
+      findMany: async () => [],
+    },
+    conversationMember: {
+      createMany: async () => ({ count: 0 }),
+    },
+    message: {
+      findFirst: async () => undefined,
+    },
+  };
+  const db = {
+    $transaction: async <T>(callback: (transaction: typeof tx) => Promise<T>) => callback(tx),
+    weeklyReportAssistant: tx.weeklyReportAssistant,
+  };
+
+  const row = await ensureWeeklyReportAssistant(db as never, {
+    workspaceId: "workspace-1",
+    userId: "user-1",
+  });
+
+  expect(row.agentId).toBe("orphan-agent");
+  expect(createdAgents).toBe(0);
+  expect(assistants).toHaveLength(1);
 });

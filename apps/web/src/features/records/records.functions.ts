@@ -5,7 +5,6 @@ import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { AppError } from "../../lib/app-error";
 
 import { recordCatalog } from "../../server/records/record-catalog.server";
-import { tryCreateWeeklyAssignmentDelivery } from "../../server/records/weekly-assignment-delivery-composition.server";
 import {
   ensureWeeklyReportAssistant,
   WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME,
@@ -139,6 +138,18 @@ export const deleteWeeklyCycle = createServerFn({ method: "POST" })
       workspaceId,
       userId: user.id,
       cycleId: data.cycleId,
+    });
+  });
+
+/** Deletes the Leader overview week node without removing member or favorited reports. */
+export const deleteOverviewReport = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ reportId: z.string().uuid() }))
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).deleteOverviewReport({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
     });
   });
 
@@ -298,7 +309,7 @@ export const sendWeeklyReportAssignments = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
-    return recordCatalog(db, tryCreateWeeklyAssignmentDelivery(db)).sendWeeklyAssignments({
+    return recordCatalog(db).sendWeeklyAssignments({
       workspaceId,
       userId: user.id,
       sourceReportId: data.sourceReportId,

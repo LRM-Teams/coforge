@@ -192,6 +192,100 @@ test("deleteMemberWeek removes cycle when the viewer owned the only reports", as
   expect(deletedCycles).toEqual(["cycle-1"]);
 });
 
+test("deleteOverviewReport drops the leader week node but keeps member reports and favorites", async () => {
+  const deletedReports: string[] = [];
+  const unlinked: string[] = [];
+  const reports = [
+    {
+      id: "overview-1",
+      workspaceId: "ws-1",
+      cycleId: "cycle-1",
+      kind: "template",
+      authorId: "user-1",
+    },
+    {
+      id: "format-1",
+      workspaceId: "ws-1",
+      cycleId: "cycle-1",
+      kind: "template",
+      authorId: "user-1",
+    },
+    {
+      id: "kept-favorite",
+      workspaceId: "ws-1",
+      cycleId: "cycle-1",
+      kind: "member",
+      authorId: "user-2",
+      sourceTemplateId: "overview-1",
+    },
+    {
+      id: "removed-child",
+      workspaceId: "ws-1",
+      cycleId: "cycle-1",
+      kind: "member",
+      authorId: "user-3",
+      sourceTemplateId: "overview-1",
+    },
+  ];
+
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async () => reports.find((row) => row.id === "overview-1"),
+      findMany: async () =>
+        reports.filter((row) => row.kind === "member" && row.sourceTemplateId === "overview-1"),
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { sourceTemplateId?: string; kind?: string };
+        data: { sourceTemplateId: null };
+      }) => {
+        const matched = reports.filter(
+          (row) =>
+            row.kind === where.kind &&
+            "sourceTemplateId" in row &&
+            row.sourceTemplateId === where.sourceTemplateId,
+        );
+        for (const row of matched) {
+          if ("sourceTemplateId" in row) row.sourceTemplateId = data.sourceTemplateId;
+          unlinked.push(row.id);
+        }
+        return { count: matched.length };
+      },
+      deleteMany: async ({ where }: { where: { id?: { in: string[] } } }) => {
+        for (const id of where.id?.in ?? []) deletedReports.push(id);
+        return { count: where.id?.in.length ?? 0 };
+      },
+      count: async () => reports.filter((row) => !deletedReports.includes(row.id)).length,
+    },
+    weeklyReportFavorite: {
+      findMany: async () => [{ reportId: "kept-favorite" }],
+    },
+    weeklyReportCycle: {
+      delete: async () => {
+        throw new Error("cycle must stay while a favorited report remains");
+      },
+    },
+    $transaction: async (fn: (tx: typeof db) => Promise<unknown>) => fn(db),
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).deleteOverviewReport({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    reportId: "overview-1",
+  });
+
+  expect(result).toEqual({ ok: true });
+  expect(deletedReports).toEqual(["overview-1"]);
+  expect(unlinked.sort()).toEqual(["kept-favorite", "removed-child"].sort());
+  expect(deletedReports).not.toContain("kept-favorite");
+  expect(deletedReports).not.toContain("removed-child");
+  expect(deletedReports).not.toContain("format-1");
+});
+
 test("deleteMemberWeek refuses a cycle where the viewer owns no template parent", async () => {
   const db = {
     workspaceMembership: {

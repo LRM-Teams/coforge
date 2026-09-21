@@ -246,6 +246,7 @@
   "records_key_points_team_restart": "重新整理",
   "records_key_points_team_generating": "正在整理全员要点…",
   "records_key_points_team_waiting": "点击上方按钮，让周报助手整理本周已提交成员的周报。",
+  "records_key_points_team_none_submitted": "还没有收到员工的周报",
   "records_key_points_team_restart_confirm_title": "重新整理？",
   "records_key_points_team_restart_confirm_body": "重新整理会覆盖当前已生成的全员要点内容，确定继续吗？",
   "records_key_points_suggestion_preview": "要点预览",

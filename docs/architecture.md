@@ -483,7 +483,9 @@ PostgreSQL 的首要领域对象是：
   平台用窄域 `weekly_report_collect_runs` + `weekly_report_collect_slots` 做并行采集 settle（每波
   15 分钟上限、每槽位至多一次自动重试、部分成功仍合成）；扫盘路径以 Computer 本地
   collect-roots 为准，Run slot 只存当次路径快照；合成仍由 WeeklyReportAssistant 经确认
-  suggestion 写入成员周报，助手不得自动发送。Collect Run **不是** Workspace 通用
+  suggestion 写入成员周报，助手不得自动发送。周报发送、提交、采集和要点都不往
+  `#general` 或其他公开频道发通知（[ADR 0011](adr/0011-leader-weekly-report-assignment.md)）；
+  成员从「我的周报」看到指派。Collect Run **不是** Workspace 通用
   job/workflow，也不是 durable command mailbox。
 
 `run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 内容由 backend 设计评审确定，数据访问标准为 Prisma。

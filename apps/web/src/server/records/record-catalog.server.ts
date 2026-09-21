@@ -41,7 +41,6 @@ import {
 import { isVisibleTemplateSubmission } from "./template-submission-visibility";
 import { canEditWeeklyReportContent } from "./weekly-report-editability";
 import { recipientUserIdsForSend } from "./weekly-report-send-recipients";
-import type { WeeklyAssignmentDelivery } from "./weekly-assignment-channel-delivery.server";
 import { isWeeklyScheduleDue, zonedCalendarDate } from "./weekly-report-schedule-due";
 
 type Db = PrismaClient;
@@ -95,10 +94,7 @@ function templateWriteData(input: TemplateInput, sections: TemplateOutlineSectio
 }
 
 export class RecordCatalog {
-  constructor(
-    private readonly db: Db,
-    private readonly delivery?: WeeklyAssignmentDelivery,
-  ) {}
+  constructor(private readonly db: Db) {}
 
   private async loadFormatSendState(input: {
     workspaceId: string;
@@ -894,24 +890,6 @@ export class RecordCatalog {
       throw new AppError("INVALID_INPUT", { errorId: "weekly-send-no-recipients" });
     }
 
-    if (this.delivery) {
-      try {
-        const sender = await this.db.user.findUnique({
-          where: { id: input.userId },
-          select: { displayName: true, username: true },
-        });
-        await this.delivery.notifyChannel({
-          workspaceId: input.workspaceId,
-          senderUserId: input.userId,
-          parentReportId: parent.id,
-          week: cycle.week,
-          senderDisplayName: sender?.displayName ?? sender?.username ?? "Leader",
-        });
-      } catch {
-        // Assignments already persisted; channel notice is best-effort only.
-      }
-    }
-
     return {
       parentId: parent.id,
       title: parent.title,
@@ -1102,7 +1080,13 @@ export class RecordCatalog {
     if (!report) throw new AppError("NOT_FOUND");
     const canAccess =
       report.authorId === input.userId || report.sourceTemplate?.authorId === input.userId;
-    if (!canAccess) throw new AppError("NOT_FOUND");
+    if (!canAccess) {
+      const favorite = await this.db.weeklyReportFavorite.findUnique({
+        where: { userId_reportId: { userId: input.userId, reportId: report.id } },
+        select: { reportId: true },
+      });
+      if (!favorite) throw new AppError("NOT_FOUND");
+    }
 
     if (input.favorited) {
       await this.db.weeklyReportFavorite.upsert({
@@ -1145,6 +1129,45 @@ export class RecordCatalog {
     });
     if (!cycle) throw new AppError("NOT_FOUND");
     await this.db.weeklyReportCycle.delete({ where: { id: cycle.id } });
+    return { ok: true as const };
+  }
+
+  /**
+   * Deletes the Leader's overview week node only. Member submissions stay so
+   * the author's「我的周报」copy and any「已收藏的周报」row remain; they are
+   * unlinked from this parent so they leave the Leader's member-week tree.
+   * The live format template in the same cycle is not this node.
+   */
+  async deleteOverviewReport(input: { workspaceId: string; userId: string; reportId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const overview = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        kind: "template",
+        authorId: input.userId,
+      },
+      select: { id: true, cycleId: true },
+    });
+    if (!overview) throw new AppError("NOT_FOUND");
+
+    await this.db.$transaction(async (tx) => {
+      await tx.weeklyReport.updateMany({
+        where: {
+          workspaceId: input.workspaceId,
+          kind: "member",
+          sourceTemplateId: overview.id,
+        },
+        data: { sourceTemplateId: null },
+      });
+      await tx.weeklyReport.deleteMany({ where: { id: { in: [overview.id] } } });
+      const remaining = await tx.weeklyReport.count({
+        where: { workspaceId: input.workspaceId, cycleId: overview.cycleId },
+      });
+      if (remaining === 0) {
+        await tx.weeklyReportCycle.delete({ where: { id: overview.cycleId } });
+      }
+    });
     return { ok: true as const };
   }
 
@@ -1380,7 +1403,15 @@ export class RecordCatalog {
       } else if (report.kind === "member") {
         const isAuthor = report.author.id === input.userId;
         const isTemplateOwner = report.sourceTemplate?.authorId === input.userId;
-        if (!isAuthor && !isTemplateOwner) throw new AppError("NOT_FOUND");
+        if (!isAuthor && !isTemplateOwner) {
+          const favorite = await this.db.weeklyReportFavorite.findUnique({
+            where: {
+              userId_reportId: { userId: input.userId, reportId: report.id },
+            },
+            select: { reportId: true },
+          });
+          if (!favorite) throw new AppError("NOT_FOUND");
+        }
       }
 
       const isTemplateAuthor = report.author.id === input.userId;
@@ -2975,6 +3006,6 @@ function isoWeeksTouchingMonth(year: number, month: number): Array<{ year: numbe
   return result;
 }
 
-export function recordCatalog(db: Db, delivery?: WeeklyAssignmentDelivery) {
-  return new RecordCatalog(db, delivery);
+export function recordCatalog(db: Db) {
+  return new RecordCatalog(db);
 }

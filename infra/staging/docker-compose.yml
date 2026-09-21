@@ -58,6 +58,11 @@ services:
       COFORGE_WEB_PUSH_PUBLIC_KEY: ${COFORGE_WEB_PUSH_PUBLIC_KEY:?deploy script loads staging variable}
       COFORGE_WEB_PUSH_PRIVATE_KEY_FILE: /run/secrets/coforge_web_push_private_key
       COFORGE_WEB_PUSH_SUBJECT: https://coforge.cn
+      # In-process weekly-report schedule clock (ADR 0011). Staging has no separate
+      # cron sidecar; one minute matches the local/dev default. Deployments that
+      # later add an external HTTP cron should unset this to avoid double ticks
+      # (idempotent, but wasteful).
+      COFORGE_WEEKLY_REPORT_SCHEDULE_TICK_MS: "60000"
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_FILE: /run/secrets/otel_traces_endpoint
       OTEL_SERVICE_NAME: coforge-web
       OTEL_DEPLOYMENT_ENVIRONMENT: staging

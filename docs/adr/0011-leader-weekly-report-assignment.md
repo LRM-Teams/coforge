@@ -35,12 +35,12 @@ matches the product.
    template author; unrelated Workspace members get not-found. Leader review of
    a submission is read-only: the body cannot be edited, and send/delete stay
    with the author.
-5. **Delivery**: After a successful Leader send, Web/backend posts **one**
-   best-effort message to Workspace `#general` as the Leader (body names the
-   sender and week; members still use「我的周报」as the inbox). Channel failure
-   must not roll back assignments. Dedicated DM or alternate channels remain
-   follow-ups. Channel notice wiring is best-effort and is skipped when
-   Centrifugo is not configured; missing realtime config must not block send.
+5. **No channel notice**: Weekly-report send, submission, collection, and key-point
+   flows do not post to Workspace `#general` or any other public channel. A
+   `#general` message wakes every unmuted Agent, so a fill-in notice there makes
+   unrelated Agents treat the assignment as their own work. Members see new
+   assignments under「我的周报」; Leaders see submissions under the weekly parent.
+   Assistant and collector turns stay on their existing direct conversations.
 6. **Send settings**: A User may have **zero or more** `WeeklyReportTemplate`
    rows `applied` within a Workspace (no longer limited to one). Each applied
    row is an independent send stream: its own recipients, schedule, outline,
@@ -61,7 +61,7 @@ matches the product.
 2. Unread highlight,「已发送」, open-clears-unread, resend overwrite.
 3. Leader **manual** send: new weekly parent + member assignments from the latest
    `WeeklyReportTemplate` recipients.
-4. Wire `#general` channel notice after manual send.
+4. Do not post a `#general` (or other public-channel) notice after send.
 5. Scheduled send: product「是否启用」keeps `applied` (sidebar chip) and
    `scheduleEnabled` (cron) in lockstep (WR-33). Dialog and table expose one
    Yes/No; create/update/apply write both columns. Cron still requires
@@ -79,6 +79,9 @@ matches the product.
   overwritten on resend.
 - Title based on Leader or template name only: rejected; product requires the
   member’s display name plus week.
+- Post the assignment to `#general` or another public channel: rejected. That
+  message wakes every unmuted Agent, including ones with no weekly-report role,
+  and they treat “请填写” as their own task.
 
 ## Consequences
 

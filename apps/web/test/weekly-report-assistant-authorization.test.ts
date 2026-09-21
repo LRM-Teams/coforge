@@ -36,6 +36,9 @@ test("assistant section reads deny member reports the User cannot see", async ()
         },
       }),
     },
+    weeklyReportFavorite: {
+      findUnique: async () => null,
+    },
   } as unknown as PrismaClient;
 
   await expect(

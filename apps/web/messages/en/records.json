@@ -246,6 +246,7 @@
   "records_key_points_team_restart": "Re-summarize",
   "records_key_points_team_generating": "Summarizing team key points…",
   "records_key_points_team_waiting": "Use the button above to have the assistant summarize submitted member reports.",
+  "records_key_points_team_none_submitted": "No employee weekly reports have been received yet.",
   "records_key_points_team_restart_confirm_title": "Re-summarize?",
   "records_key_points_team_restart_confirm_body": "Re-summarizing will overwrite the current team key points. Continue?",
   "records_key_points_suggestion_preview": "Key points preview",

@@ -103,7 +103,10 @@ export function KeyPointExtractionPanel({
           ) : null}
         </div>
       ) : null}
-      {status === "failed" ? (
+      {status === "failed" && extraction?.error === "no_submitted_member_reports" ? (
+        <p className="text-sm text-tertiary">{m.records_key_points_team_none_submitted()}</p>
+      ) : null}
+      {status === "failed" && extraction?.error !== "no_submitted_member_reports" ? (
         <p className="text-sm text-error-primary">
           {extraction?.error?.trim() || m.records_key_points_failed()}
         </p>

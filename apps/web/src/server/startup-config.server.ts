@@ -1,6 +1,7 @@
 import { readFileDeliveryConfig } from "./files/file-delivery.server";
 import { readPublicImageDeliveryConfig } from "./files/public-image-delivery.server";
 import { readPublicImageStorageConfig } from "./files/public-image-storage.server";
+import { readWeeklyReportScheduleTickMs } from "./records/weekly-report-schedule-tick.server";
 
 /**
  * Deployment configuration that must be valid before the server accepts a single request.
@@ -19,12 +20,14 @@ export function assertStartupConfig(env: NodeJS.ProcessEnv = process.env): void 
   const delivery = readFileDeliveryConfig(env);
   const imageDelivery = readPublicImageDeliveryConfig(env);
   const imageStorage = readPublicImageStorageConfig(env);
+  const weeklyReportScheduleTickMs = readWeeklyReportScheduleTickMs(env);
   console.info(
     JSON.stringify({
       event: "startup_config_checked",
       file_delivery: delivery ? "configured" : "disabled",
       public_image_delivery: imageDelivery ? "configured" : "disabled",
       public_image_bucket: imageStorage ? "configured" : "shared",
+      weekly_report_schedule_tick_ms: weeklyReportScheduleTickMs ?? null,
     }),
   );
 }
