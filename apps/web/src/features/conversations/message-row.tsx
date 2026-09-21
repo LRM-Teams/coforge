@@ -225,8 +225,15 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
   // Prefer the signed CDN preview URL so the image never round-trips the backend; fall back to
   // the authenticated proxy once (it expires after a fixed TTL, or may not be configured).
   const [previewFailed, setPreviewFailed] = useState(false);
+  // Both sources failed (or the "image" is one the route will not serve inline, such as SVG —
+  // it streams as octet-stream, which <img> refuses): drop to the plain file row below rather
+  // than leaving a broken thumbnail behind.
+  const [imgBroken, setImgBroken] = useState(false);
   const previewSrc = !previewFailed && attachment.previewUrl ? attachment.previewUrl : href;
-  const handlePreviewError = () => setPreviewFailed(true);
+  const handlePreviewError = () => {
+    if (previewFailed || !attachment.previewUrl) setImgBroken(true);
+    else setPreviewFailed(true);
+  };
   const downloadButton = (className?: string) => (
     <ButtonUtility
       icon={Download01}
@@ -253,7 +260,7 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
    * Bounded width so a long name cannot stretch the bubble, and the name truncates inside it. */
   const attachmentRowClassName =
     "group/attachment mt-1 flex w-full max-w-sm min-w-0 items-center rounded-xl bg-primary ring-1 ring-secondary ring-inset";
-  if (attachment.contentType.startsWith("image/"))
+  if (attachment.contentType.startsWith("image/") && !imgBroken)
     return (
       <div className="group/attachment relative mt-1 w-fit max-w-full">
         {/* Clicking the preview opens the image at full size in a lightbox. */}
@@ -262,7 +269,10 @@ export function AttachmentCard({ attachment }: { attachment: MessageView["attach
             color="tertiary"
             noTextPadding
             aria-label={attachment.fileName}
-            className="block h-auto overflow-hidden rounded-lg p-0 ring-1 ring-secondary ring-inset hover:bg-transparent"
+            // The min footprint centers degenerate images (a 1×1 png, a still-loading one) inside
+            // a card-sized box: without it the card collapses around them and the absolutely
+            // positioned download overlay escapes over the next row's avatar.
+            className="grid h-auto min-h-16 min-w-16 place-items-center overflow-hidden rounded-lg p-0 ring-1 ring-secondary ring-inset hover:bg-transparent"
           >
             <img
               src={previewSrc}
