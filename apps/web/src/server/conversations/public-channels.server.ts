@@ -50,6 +50,11 @@ import { AgentMessageValidationError } from "./agent-message-validation-error.se
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { attachmentView } from "../attachments/attachment-view.server";
 import type { ActionCardView } from "./action-cards.server";
+import {
+  agentVisibilityViewerForUser,
+  canSeeAgent,
+  visibleAgentWhere,
+} from "../agents/agent-visibility.server";
 
 /** A channel actor is either a human (by Workspace `userId`) or an Agent (by `agentId`); the
  * human/Web UI and the Agent CLI share `PublicChannels.members`/`addMembers` through this. */
@@ -362,6 +367,109 @@ export class PublicChannels {
     const root = await this.threadRoot(channelId, rootMessageId);
     await this.setThreadFollowed(member.id, workspaceId, channelId, root.id, followed);
     return { followed };
+  }
+
+  /**
+   * Agents currently following this channel Thread that the viewer may see (ADR 0059).
+   * Workspace members can read the list with the parent channel; only an active channel
+   * member may later unfollow one of them.
+   */
+  async threadFollowingAgents(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    rootMessageId: string,
+  ) {
+    await this.channel(workspaceId, userId, channelId);
+    const root = await this.threadRoot(channelId, rootMessageId);
+    const viewer = await agentVisibilityViewerForUser(this.db, workspaceId, userId);
+    const [actor, follows] = await Promise.all([
+      this.db.conversationMember.findFirst({
+        where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
+        select: { id: true },
+      }),
+      this.db.threadFollow.findMany({
+        where: {
+          rootMessageId: root.id,
+          conversationId: channelId,
+          member: {
+            agentId: { not: null },
+            ...ACTIVE_MEMBER_WHERE,
+            agent: {
+              workspaceId,
+              ...ACTIVE_AGENT_WHERE,
+              ...visibleAgentWhere(viewer),
+            },
+          },
+        },
+        select: {
+          member: {
+            select: {
+              agent: {
+                select: { id: true, name: true, displayName: true },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+    const agents = follows
+      .flatMap((follow) => {
+        const agent = follow.member.agent;
+        if (!agent) return [];
+        return [
+          {
+            id: agent.id,
+            name: agent.name,
+            displayName: agent.displayName.trim() || agent.name,
+          },
+        ];
+      })
+      .sort(
+        (left, right) =>
+          left.displayName.localeCompare(right.displayName) || left.name.localeCompare(right.name),
+      );
+    return { canUnfollow: Boolean(actor), agents };
+  }
+
+  /**
+   * A human channel member removes an Agent from this Thread's follow set. The Agent stays a
+   * channel member; only subsequent ordinary thread notices stop. The viewer must be allowed
+   * to see that Agent (ADR 0059) — a private Agent they cannot see is `NOT_FOUND`.
+   */
+  async unfollowAgentFromThread(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    rootMessageId: string,
+    agentId: string,
+  ) {
+    await this.channel(workspaceId, userId, channelId);
+    const actor = await this.db.conversationMember.findFirst({
+      where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
+      select: { id: true },
+    });
+    if (!actor) throw new AppError("ACCESS_DENIED");
+    const root = await this.threadRoot(channelId, rootMessageId);
+    const agentMember = await this.db.conversationMember.findFirst({
+      where: {
+        conversationId: channelId,
+        agentId,
+        ...ACTIVE_MEMBER_WHERE,
+        agent: { workspaceId, ...ACTIVE_AGENT_WHERE },
+      },
+      select: {
+        id: true,
+        agent: { select: { visibility: true, ownerId: true } },
+      },
+    });
+    const viewer = await agentVisibilityViewerForUser(this.db, workspaceId, userId);
+    // Same answer for a missing Agent and a private Agent the viewer cannot see, so the
+    // unfollow path cannot be used to probe ADR 0059 visibility.
+    if (!agentMember?.agent || !canSeeAgent(viewer, agentMember.agent))
+      throw new AppError("NOT_FOUND");
+    await this.setThreadFollowed(agentMember.id, workspaceId, channelId, root.id, false);
+    return { followed: false };
   }
 
   private async setThreadFollowed(

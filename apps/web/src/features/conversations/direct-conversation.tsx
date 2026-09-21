@@ -181,6 +181,8 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
   readOnlyNotice?: React.ReactNode;
   emptyState: { title: string; description: string; media: React.ReactNode };
   threadHeaderAction?: (rootMessageId: string) => React.ReactNode;
+  /** Optional title suffix in the thread pane header, e.g. following Agent @handles. */
+  threadHeaderTitle?: (rootMessageId: string) => React.ReactNode;
 };
 
 export function DirectConversationHeader({
@@ -338,6 +340,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     onReadThread,
     header,
     threadHeaderAction,
+    threadHeaderTitle,
     agentProfile,
     onAgentProfileTabChange,
     onCloseAgentProfile,
@@ -602,6 +605,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
                 conversationProps.onSend(body, requestId, attachmentIds, rootId)
               }
               threadHeaderAction={threadHeaderAction?.(rootId)}
+              threadHeaderTitle={threadHeaderTitle?.(rootId)}
             />
           </section>
         );
@@ -685,6 +689,7 @@ export function ConversationPane({
   threadEntry,
   threadPreview,
   threadHeaderAction,
+  threadHeaderTitle,
   messageFooter,
   onLoadOlder,
   onLoadNewer,
@@ -706,6 +711,7 @@ export function ConversationPane({
   threadEntry?: (message: DirectConversationView["messages"][number]) => MessageThreadEntry;
   threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   threadHeaderAction?: React.ReactNode;
+  threadHeaderTitle?: React.ReactNode;
   messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Built by each
    * wrapper — the DM from its Agent counterpart, a channel from its member directory. */
@@ -1204,7 +1210,10 @@ export function ConversationPane({
             onClick={onClose}
             aria-label={m.conversation_thread_back()}
           />
-          <h2 className="text-base font-semibold">{m.conversation_thread()}</h2>
+          <h2 className="flex min-w-0 flex-1 items-baseline text-base font-semibold">
+            <span className="shrink-0">{m.conversation_thread()}</span>
+            {threadHeaderTitle}
+          </h2>
           {threadHeaderAction}
         </header>
       ) : (
