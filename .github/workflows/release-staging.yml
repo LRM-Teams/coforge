@@ -32,8 +32,15 @@ jobs:
 
   publish:
     name: Build and publish Computer
+    # macos-15-intel (x64), not ubuntu-latest, on purpose - and it is a network experiment, not a
+    # preference. Every staging publish since dev.59 stalls its *first* OSS upload on an established
+    # keep-alive socket (2 MiB in 120 s: under 17 KB/s, `ResponseTimeoutError`, no HTTP status), while
+    # the same script and the same ali-oss version published dev.58 fine 25 minutes earlier. Part size,
+    # timeouts, retries, artifact volume and the manual are all measured out (see the PR body); what is
+    # left is the runner's egress to oss-cn-beijing. A different runner image is a different network
+    # path, and the six targets cross-compile from any host, so this changes exactly one variable.
     needs: gates
-    runs-on: ubuntu-latest
+    runs-on: macos-15-intel
     environment: staging
     # `id-token: write` lets this job mint the GitHub OIDC token it exchanges for the Alibaba
     # Cloud STS credential below; the validation job does not need it.
