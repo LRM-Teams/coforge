@@ -41,6 +41,25 @@ export const agentStatusChannel = (workspaceId: string) => `agent:status:${works
 export const agentStatusChannelForAgent = (workspaceId: string, agentId: string) =>
   `agent:status:${workspaceId}:${agentId}`;
 
+/**
+ * ADR 0059: the id-only event a visibility change publishes on the shared status channel. A
+ * browser that receives it refetches its Agent list, drops the Agent from caches if it can no
+ * longer see it, or (re)subscribes to its per-Agent channels if it still can.
+ */
+export type AgentVisibilityChangedEvent = { type: "agent:visibility_changed"; agentId: string };
+
+export function isAgentVisibilityChangedEvent(
+  value: unknown,
+): value is AgentVisibilityChangedEvent {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Reflect.get(value as object, "type") === "agent:visibility_changed" &&
+    typeof Reflect.get(value as object, "agentId") === "string"
+  );
+}
+
 // Must match ACTIVITY_PROBE_TIMEOUT_MS in
 // `server/agents/agent-activity-sweep.server.ts`. Duplicated here rather than
 // imported because browser code cannot import a `.server.ts` module.
@@ -316,7 +335,13 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
           publication.data instanceof Uint8Array
             ? (JSON.parse(new TextDecoder().decode(publication.data)) as unknown)
             : publication.data;
-        if (Reflect.get(value as object, "type") === "agent:display") {
+        if (isAgentVisibilityChangedEvent(value)) {
+          // ADR 0059: refetch immediately rather than waiting for the next scheduled refresh —
+          // `mergeAgentStatusSnapshot` already drops any Agent absent from the fresh list, and
+          // subscribing/unsubscribing its per-Agent channels follows from that same fresh list
+          // wherever it is consumed (see `WorkspaceAgentsProvider`).
+          void refreshSnapshot().catch(() => {});
+        } else if (Reflect.get(value as object, "type") === "agent:display") {
           const snapshot = parseAgentDisplaySnapshot(value);
           setVisibleAgents((current) => applyAgentDisplaySnapshot(current, snapshot, workspaceId));
         } else {

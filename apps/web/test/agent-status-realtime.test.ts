@@ -8,6 +8,7 @@ const {
   applyAgentStatusEvent,
   decodeAgentStatusEvent,
   expireAgentStatuses,
+  isAgentVisibilityChangedEvent,
   mergeAgentStatusSnapshot,
   nextDisplayRefreshDelayMs,
 } = await import("../src/features/agents/agent-status-realtime");
@@ -24,6 +25,17 @@ test("agentStatusChannelForAgent names the per-Agent re-routing destination (ADR
   expect(agentStatusChannelForAgent("workspace-1", "agent-1")).not.toBe(
     agentStatusChannel("workspace-1"),
   );
+});
+
+test("isAgentVisibilityChangedEvent recognizes the id-only visibility-change event (ADR 0059)", () => {
+  expect(
+    isAgentVisibilityChangedEvent({ type: "agent:visibility_changed", agentId: "agent-1" }),
+  ).toBe(true);
+  expect(isAgentVisibilityChangedEvent({ type: "agent:display", agentId: "agent-1" })).toBe(false);
+  expect(isAgentVisibilityChangedEvent({ type: "agent:visibility_changed" })).toBe(false);
+  expect(isAgentVisibilityChangedEvent(null)).toBe(false);
+  expect(isAgentVisibilityChangedEvent("agent:visibility_changed")).toBe(false);
+  expect(isAgentVisibilityChangedEvent([])).toBe(false);
 });
 
 const ordering = {
