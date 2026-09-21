@@ -199,6 +199,11 @@ model Agent {
   /// practice today, since only a human is ever created as a Workspace owner). Independent of
   /// `Agent.ownerId`'s WorkspaceMembership role; see ADR 0024.
   role                      String                     @default("member")
+  /// Who can see this Agent at all (CoForge only; Raft has no per-Agent equivalent): "public" is
+  /// visible workspace-wide; "private" is visible only to its creator (`ownerId`), other Agents
+  /// sharing that same creator, and a viewer whose own server role is owner/admin. Existing rows
+  /// default to "public". See ADR 0059.
+  visibility                String                     @default("public")
   createdAt                 DateTime                   @default(now())
   ownerId                   String                     @db.Uuid
   computerId                String?                    @db.Uuid
