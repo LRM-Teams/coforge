@@ -6,6 +6,8 @@ import {
   PublicChannels,
 } from "../src/server/conversations/public-channels.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
+import { AgentChannelManagement } from "../src/server/conversations/agent-channel-management.server";
+import { AgentChannelManagementError } from "../src/server/conversations/agent-channel-management-error.server";
 
 const WORKSPACE_ID = "workspace-1";
 
@@ -148,4 +150,104 @@ test("PublicChannels.members never offers a private Agent as an add-candidate (A
   expect(roster.candidates.agents).toEqual([
     { id: "agent-public", name: undefined, displayName: undefined },
   ]);
+});
+
+function agentChannelManagementFixture(callerVisibility: string) {
+  const db = {
+    conversation: {
+      findUnique: async () => ({
+        id: "channel-1",
+        channelName: "general",
+        archivedAt: null,
+      }),
+    },
+    agent: {
+      findFirst: async () => ({ id: "caller-agent", visibility: callerVisibility }),
+    },
+    conversationMember: {
+      findFirst: async () => null,
+      upsert: async () => ({}),
+    },
+  } as unknown as PrismaClient;
+  return new AgentChannelManagement(db);
+}
+
+test("AgentChannelManagement.join rejects a private calling Agent (ADR 0059)", async () => {
+  const management = agentChannelManagementFixture("private");
+
+  const error = await management
+    .join(WORKSPACE_ID, "caller-agent", "#general")
+    .catch((cause: unknown) => cause);
+
+  expect(error).toBeInstanceOf(AgentChannelManagementError);
+  expect((error as InstanceType<typeof AgentChannelManagementError>).status).toBe(403);
+});
+
+test("AgentChannelManagement.join allows a public calling Agent", async () => {
+  const management = agentChannelManagementFixture("public");
+  const result = await management.join(WORKSPACE_ID, "caller-agent", "#general");
+  expect(result.joined).toBe(true);
+});
+
+test("AgentChannelManagement.create rejects a private calling Agent (ADR 0059)", async () => {
+  const management = agentChannelManagementFixture("private");
+
+  const error = await management
+    .create(WORKSPACE_ID, "caller-agent", "new-channel", undefined)
+    .catch((cause: unknown) => cause);
+
+  expect(error).toBeInstanceOf(AgentChannelManagementError);
+  expect((error as InstanceType<typeof AgentChannelManagementError>).status).toBe(403);
+});
+
+function agentChannelManagementAddMemberFixture(options: {
+  callerOwnerId: string;
+  callerRole?: string;
+  target: { id: string; ownerId: string; visibility: string };
+}) {
+  const db = {
+    conversation: {
+      findUnique: async () => ({ id: "channel-1", channelName: "general", archivedAt: null }),
+    },
+    agent: {
+      findFirst: async ({ where }: { where: { id?: string; name?: string } }) =>
+        where.name !== undefined
+          ? {
+              id: options.target.id,
+              ownerId: options.target.ownerId,
+              visibility: options.target.visibility,
+            }
+          : { ownerId: options.callerOwnerId, role: options.callerRole ?? "member" },
+    },
+  } as unknown as PrismaClient;
+  return new AgentChannelManagement(db);
+}
+
+test("AgentChannelManagement.addMember treats an invisible private target as not found (ADR 0059)", async () => {
+  const management = agentChannelManagementAddMemberFixture({
+    callerOwnerId: "user-caller",
+    target: { id: "agent-ghost", ownerId: "user-someone-else", visibility: "private" },
+  });
+
+  const error = await management
+    .addMember(WORKSPACE_ID, "caller-agent", "#general", { agent: "@ghost" })
+    .catch((cause: unknown) => cause);
+
+  expect(error).toBeInstanceOf(AgentChannelManagementError);
+  expect((error as InstanceType<typeof AgentChannelManagementError>).status).toBe(404);
+});
+
+test("AgentChannelManagement.addMember rejects a visible-but-private target with a clear reason (ADR 0059)", async () => {
+  const management = agentChannelManagementAddMemberFixture({
+    callerOwnerId: "user-caller",
+    target: { id: "agent-mine", ownerId: "user-caller", visibility: "private" },
+  });
+
+  const error = await management
+    .addMember(WORKSPACE_ID, "caller-agent", "#general", { agent: "@mine" })
+    .catch((cause: unknown) => cause);
+
+  expect(error).toBeInstanceOf(AgentChannelManagementError);
+  expect((error as InstanceType<typeof AgentChannelManagementError>).status).toBe(400);
+  expect((error as InstanceType<typeof AgentChannelManagementError>).message).toContain("private");
 });
