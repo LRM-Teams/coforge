@@ -458,7 +458,7 @@ export function MessageComposer({
       onDragLeave={dragLeave}
       onDrop={drop}
       className={cx(
-        "relative mx-3 mt-2 mb-3 flex shrink-0 flex-col gap-1 rounded-xl border border-primary bg-primary p-2 focus-within:ring-2 focus-within:ring-brand md:mx-6",
+        "relative mx-4 mt-2 mb-3 flex shrink-0 flex-col gap-1 rounded-xl border border-primary bg-primary p-2 focus-within:ring-2 focus-within:ring-brand md:mx-6",
         draggingFile && "ring-2 ring-brand",
       )}
     >

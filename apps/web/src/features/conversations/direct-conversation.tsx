@@ -202,8 +202,8 @@ export function DirectConversationHeader({
   const openProfile =
     onOpenAgentProfile && !deleted ? () => onOpenAgentProfile(conversation.agent.id) : undefined;
   return (
-    <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
-      <div className="-mx-3 flex h-12 items-center gap-2 border-b border-secondary px-3 sm:-mx-5 sm:gap-3 sm:px-5">
+    <header className="shrink-0 border-b border-secondary px-4 md:px-6">
+      <div className="-mx-4 flex h-12 items-center gap-2 border-b border-secondary px-4 md:-mx-6 md:gap-3 md:px-6">
         <ConversationListButton />
         <AgentActivityAvatar
           agent={conversation.agent}
@@ -244,7 +244,7 @@ export function DirectConversationHeader({
         </span>
       </div>
       {(onShowChat || onShowTasks || onShowFiles) && (
-        <div className="-mx-3 flex h-11 items-center px-3 sm:-mx-5 sm:px-5">
+        <div className="-mx-4 flex h-11 items-center px-4 md:-mx-6 md:px-6">
           <ConversationTaskTabs
             active={active}
             onShowChat={onShowChat}
@@ -1168,7 +1168,7 @@ export function ConversationPane({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {root ? (
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-3">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-4 md:px-6">
           <ButtonUtility
             icon={ArrowLeft}
             size="sm"

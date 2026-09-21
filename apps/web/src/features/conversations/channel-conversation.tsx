@@ -58,8 +58,8 @@ export function ChannelConversationHeader({
   const [savingMute, setSavingMute] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   return (
-    <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
-      <div className="-mx-3 flex h-12 items-center gap-3 border-b border-secondary px-3 sm:-mx-5 sm:px-5">
+    <header className="shrink-0 border-b border-secondary px-4 md:px-6">
+      <div className="-mx-4 flex h-12 items-center gap-3 border-b border-secondary px-4 md:-mx-6 md:px-6">
         <ConversationListButton />
         <h1 className="truncate text-base font-semibold">#{conversation.name}</h1>
         {conversation.project && (
@@ -109,7 +109,7 @@ export function ChannelConversationHeader({
         )}
       </div>
       {(onShowChat || onShowTasks || onShowFiles) && (
-        <div className="-mx-3 flex h-11 items-center px-3 sm:-mx-5 sm:px-5">
+        <div className="-mx-4 flex h-11 items-center px-4 md:-mx-6 md:px-6">
           <ConversationTaskTabs
             active={active}
             onShowChat={onShowChat}

@@ -17,7 +17,7 @@ export function MessagesPending() {
 export function ConversationPending() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 md:px-6">
         <ConversationListButton />
         <p role="status" className="sr-only">
           {m.conversation_loading()}
@@ -26,7 +26,7 @@ export function ConversationPending() {
       <div
         aria-busy="true"
         aria-label={m.conversation_history()}
-        className="min-h-0 flex-1 overflow-hidden p-4 sm:p-5"
+        className="min-h-0 flex-1 overflow-hidden p-4 md:p-6"
       >
         <div aria-hidden="true" className="space-y-8 motion-safe:animate-pulse">
           {["w-4/5", "w-3/5", "w-2/3", "w-1/2"].map((width) => (
@@ -50,7 +50,7 @@ export function ConversationLoadError({ error }: { error: unknown }) {
   const routeId = useMatch({ strict: false, select: (match) => match.routeId });
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 md:px-6">
         <ConversationListButton />
         <h1 className="text-base font-semibold">{m.messages_title()}</h1>
       </header>

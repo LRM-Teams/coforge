@@ -93,7 +93,7 @@ function FilesSkeleton() {
       </p>
       <ul
         aria-hidden="true"
-        className="flex flex-col gap-2 overflow-y-auto px-4 pt-4 pb-3 motion-safe:animate-pulse sm:px-6"
+        className="flex flex-col gap-2 overflow-y-auto px-4 pt-4 pb-3 motion-safe:animate-pulse md:px-6"
       >
         {["w-44", "w-56", "w-36"].map((nameWidth) => (
           <li
@@ -128,14 +128,14 @@ export function ConversationFilesPanel({
     return <FilesSkeleton />;
   }
   if (isError) {
-    return <p className="p-4 text-sm text-destructive">{m.files_load_failed()}</p>;
+    return <p className="p-4 text-sm text-destructive md:px-6">{m.files_load_failed()}</p>;
   }
   if (!files || files.length === 0) {
-    return <p className="p-4 text-sm text-tertiary">{m.files_empty()}</p>;
+    return <p className="p-4 text-sm text-tertiary md:px-6">{m.files_empty()}</p>;
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ul className="flex flex-col gap-2 overflow-y-auto px-4 pt-4 pb-3 sm:px-6">
+      <ul className="flex flex-col gap-2 overflow-y-auto px-4 pt-4 pb-3 md:px-6">
         {files.map((file) => (
           <FileRow key={file.id} file={file} timeZone={timeZone} onOpenMessage={onOpenMessage} />
         ))}
