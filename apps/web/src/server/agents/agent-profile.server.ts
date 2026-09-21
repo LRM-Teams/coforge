@@ -7,6 +7,11 @@ import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import type { PrismaClient } from "../../../generated/client";
 import { AGENT_DISPLAY_NAME_MAX_LENGTH } from "../../features/agents/agent.schemas";
 import { findWorkspaceUser, resolveAgentStatus } from "./agent-user-info.server";
+import {
+  agentVisibilityViewerForActor,
+  visibleAgentWhere,
+  type AgentVisibilityViewer,
+} from "./agent-visibility.server";
 
 /** Same cap as `agentInputShape.description` (`agent.schemas.ts`), reused here so an Agent's
  * self-service profile description and its owner's full Agent-edit form never disagree. */
@@ -32,14 +37,19 @@ function invalidProfileUpdate(error: string): AgentProfileUpdateOutcome {
 
 /** Agents this human owns (`Agent.ownerId`), each with its live status. CoForge Agents can never
  * own another Agent (`Agent.ownerId` always references a human `User`; see ADR 0025), so this is
- * only ever populated for a human profile view — an Agent's own view never carries it. */
-async function createdAgentsFor(
+ * only ever populated for a human profile view — an Agent's own view never carries it.
+ *
+ * ADR 0059: filtered by the CALLER's own visibility, not the profile owner's — a private Agent
+ * this human created is listed back to themself (or to an owner/admin), but stays absent from
+ * this same list shown to any other caller. */
+export async function createdAgentsFor(
   db: PrismaClient,
   workspaceId: string,
   ownerId: string,
+  viewer: AgentVisibilityViewer,
 ): Promise<AgentProfileCreatedAgent[]> {
   const owned = await db.agent.findMany({
-    where: { workspaceId, ownerId, ...ACTIVE_AGENT_WHERE },
+    where: { workspaceId, ownerId, ...ACTIVE_AGENT_WHERE, ...visibleAgentWhere(viewer) },
     select: { id: true, name: true, displayName: true, computerId: true, stoppedAt: true },
     orderBy: { name: "asc" },
   });
@@ -64,6 +74,7 @@ async function buildProfileView(
   db: PrismaClient,
   principal: { workspaceId: string; agentId: string },
   target: NonNullable<Awaited<ReturnType<typeof findWorkspaceUser>>>,
+  viewer: AgentVisibilityViewer,
 ): Promise<AgentProfileView> {
   if (target.kind === "human") {
     return {
@@ -74,7 +85,7 @@ async function buildProfileView(
       description: target.description,
       role: target.role,
       isSelf: false,
-      createdAgents: await createdAgentsFor(db, principal.workspaceId, target.id),
+      createdAgents: await createdAgentsFor(db, principal.workspaceId, target.id, viewer),
     };
   }
   const [{ status, availability }, creator] = await Promise.all([
@@ -109,6 +120,9 @@ export async function resolveAgentProfileShow(
   principal: { workspaceId: string; agentId: string },
   target: string | undefined,
 ): Promise<AgentProfileShowOutcome> {
+  const viewer = await agentVisibilityViewerForActor(db, principal.workspaceId, {
+    agentId: principal.agentId,
+  });
   if (!target) {
     // Self is looked up by id, not by name (an Agent's own Username is always known already).
     const selfAgent = await db.agent.findUnique({
@@ -127,7 +141,7 @@ export async function resolveAgentProfileShow(
       };
     target = selfAgent.name;
   }
-  const resolved = await findWorkspaceUser(db, principal.workspaceId, target);
+  const resolved = await findWorkspaceUser(db, principal.workspaceId, target, viewer);
   if (!resolved)
     return {
       status: 404,
@@ -137,7 +151,7 @@ export async function resolveAgentProfileShow(
         error: `No human or Agent named "${target}" in this Workspace.`,
       },
     };
-  const profile = await buildProfileView(db, principal, resolved);
+  const profile = await buildProfileView(db, principal, resolved, viewer);
   return { status: 200, body: { ok: true, profile } };
 }
 
@@ -188,10 +202,16 @@ export async function resolveAgentProfileUpdate(
     },
     select: { name: true },
   });
-  const resolved = await findWorkspaceUser(db, principal.workspaceId, agent.name);
+  // Self-service: an Agent updating its own profile always sees the result it just wrote back
+  // (ADR 0059's "same creator" rule covers an Agent seeing itself), never a second membership
+  // lookup beyond the one `agentVisibilityViewerForActor` already makes.
+  const viewer = await agentVisibilityViewerForActor(db, principal.workspaceId, {
+    agentId: principal.agentId,
+  });
+  const resolved = await findWorkspaceUser(db, principal.workspaceId, agent.name, viewer);
   if (!resolved || resolved.kind !== "agent")
     return invalidProfileUpdate("Updated Agent profile could not be re-read.");
-  const profile = await buildProfileView(db, principal, resolved);
+  const profile = await buildProfileView(db, principal, resolved, viewer);
   if (profile.kind !== "agent")
     return invalidProfileUpdate("Updated Agent profile could not be re-read.");
   return { status: 200, body: { ok: true, profile } };

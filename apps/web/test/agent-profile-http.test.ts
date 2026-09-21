@@ -23,6 +23,7 @@ const AGENT_SCOUT = {
   computerId: null as string | null,
   stoppedAt: null,
   ownerId: "user-alice",
+  visibility: "public",
   runtimeConfig: {
     runtime: "claude-code",
     provider: { kind: "default" },
@@ -37,8 +38,12 @@ function baseDb(overrides: { update?: (data: Record<string, unknown>) => void } 
   const state = { ...AGENT_SCOUT };
   return {
     agent: {
-      findFirst: async ({ where }: { where: { name: string } }) =>
-        where.name === "scout" ? state : null,
+      findFirst: async ({ where }: { where: { name?: string } }) => {
+        // A `name`-less `findFirst` is `agentVisibilityViewerForActor` resolving the calling
+        // Agent's own ownerId/role (ADR 0059); the caller here always is `scout` itself.
+        if (where.name === undefined) return { ownerId: state.ownerId, role: state.role };
+        return where.name === "scout" ? state : null;
+      },
       findUnique: async () => ({ name: "scout" }),
       findMany: async () => [],
       update: async ({ data }: { data: Record<string, unknown> }) => {

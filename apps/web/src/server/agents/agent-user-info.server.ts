@@ -9,6 +9,11 @@ import type { PrismaClient } from "../../../generated/client";
 import { agentDisplay } from "../../features/agents/agent-activity-presentation";
 import { getAgentDisplay } from "./agent-display.server";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
+import {
+  agentVisibilityViewerForActor,
+  canSeeAgent,
+  type AgentVisibilityViewer,
+} from "./agent-visibility.server";
 
 export type AgentUserInfoErrorBody = { ok: false; errorCode: "user_not_found"; error: string };
 
@@ -70,11 +75,16 @@ export type ResolvedWorkspaceUser =
 
 /** Finds a human or Agent by Username in one Workspace. Agent names and human usernames are
  * disjoint identifier spaces (see CONTEXT.md), so an Agent match always wins first with no
- * ambiguity in practice. Shared by `user info` and `profile show`. */
+ * ambiguity in practice. Shared by `user info` and `profile show`.
+ *
+ * ADR 0059: a private Agent `viewer` cannot see answers exactly the same "not found" outcome as a
+ * genuinely nonexistent name — the same no-leak rule the Web profile panel's lookup follows,
+ * spelled here as a plain `undefined` since this seam has no exception type of its own. */
 export async function findWorkspaceUser(
   db: PrismaClient,
   workspaceId: string,
   name: string,
+  viewer: AgentVisibilityViewer,
 ): Promise<ResolvedWorkspaceUser | undefined> {
   const agent = await db.agent.findFirst({
     where: { workspaceId, name, ...ACTIVE_AGENT_WHERE },
@@ -88,10 +98,12 @@ export async function findWorkspaceUser(
       stoppedAt: true,
       runtimeConfig: true,
       ownerId: true,
+      visibility: true,
       computer: { select: { name: true, displayName: true } },
     },
   });
   if (agent) {
+    if (!canSeeAgent(viewer, agent)) return undefined;
     let runtime: string | undefined;
     let model: string | undefined;
     try {
@@ -180,7 +192,10 @@ export async function resolveAgentUserInfo(
   principal: { workspaceId: string; agentId: string },
   name: string,
 ): Promise<AgentUserInfoOutcome> {
-  const target = await findWorkspaceUser(db, principal.workspaceId, name);
+  const viewer = await agentVisibilityViewerForActor(db, principal.workspaceId, {
+    agentId: principal.agentId,
+  });
+  const target = await findWorkspaceUser(db, principal.workspaceId, name, viewer);
   if (!target)
     return {
       status: 404,
