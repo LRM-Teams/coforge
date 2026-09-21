@@ -1719,7 +1719,35 @@ test("Agent events HTTP GET request carries the request id and limit", async () 
   });
   expect(capturedUrl?.searchParams.get("idempotencyKey")).toBe("request-events-1");
   expect(capturedUrl?.searchParams.get("limit")).toBe("25");
+  expect(capturedUrl?.searchParams.get("target")).toBeNull();
   expect(result.hasMore).toBe(true);
+});
+
+test("Agent events HTTP GET request forwards a non-empty check target", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-events-2",
+      events: [],
+      hasMore: false,
+    });
+  });
+  await client.requestEvents!({
+    url: "https://server.example/api/agent/v1/events",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-events-2",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "check",
+      target: "@ada",
+    },
+  });
+  expect(capturedUrl?.searchParams.get("target")).toBe("@ada");
 });
 
 test.each(["mute", "unmute"] as const)(

@@ -82,7 +82,7 @@ export type MessageSearchOptions = {
   offset?: number;
 };
 export type MessageInvocation =
-  | { command: "check" }
+  | { command: "check"; target?: string }
   | {
       command: "read";
       target: string;
@@ -217,7 +217,7 @@ export type ProfileUpdateInvocation = {
 };
 
 export type MessageTransport = {
-  check(): Promise<{ messages: AgentMessageRecord[]; hasMore?: boolean }>;
+  check(target?: string): Promise<{ messages: AgentMessageRecord[]; hasMore?: boolean }>;
   read(
     target: string,
     options?: { before?: string; after?: string; around?: string; limit?: number },
@@ -411,7 +411,11 @@ export function parseArgs(
     };
   }
   if (args[0] === "message" && isMessageCommand(args[1])) {
-    if (args[1] === "check" && args.length === 2) return { command: "check" };
+    if (args[1] === "check") {
+      if (args.length === 2) return { command: "check" };
+      if (args[2] === "--target" && args[3] && args.length === 4)
+        return { command: "check", target: args[3] };
+    }
     if (args[1] === "resolve") {
       const messageId = args[2];
       if (messageId && args.length === 3 && MESSAGE_ANCHOR_PATTERN.test(messageId))
@@ -592,7 +596,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list|create|convert|claim|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --request-id <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json]",
   );
 }
 
@@ -1311,7 +1315,7 @@ export async function run(args: readonly string[], transport: MessageTransport):
     await transport.react(invocation.messageId, invocation.emoji, invocation.remove === true);
     return formatReaction(invocation.messageId, invocation.emoji, invocation.remove === true);
   }
-  if (command === "check") return formatMessageCheck(await transport.check());
+  if (command === "check") return formatMessageCheck(await transport.check(invocation.target));
   const readOptions = invocation.command === "read" ? invocation : undefined;
   const readResponse = (await transport.read(invocation.target, readOptions)) as {
     messages: AgentMessageRecord[];

@@ -21,7 +21,24 @@ test("forwards the requested limit and scope to the repository drain", async () 
       },
     },
   );
-  expect(received).toEqual(["workspace-1", "agent-1", 10]);
+  expect(received).toEqual(["workspace-1", "agent-1", 10, undefined]);
+  expect(result.status).toBe(200);
+});
+
+test("forwards an optional target query to the repository drain", async () => {
+  let received: unknown;
+  const result = await handleAgentEventsGet(
+    request("?requestId=request-1&target=@ada"),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      ...baseRepository,
+      drainAgentEvents: async (...args) => {
+        received = args;
+        return { messages: [], hasMore: false };
+      },
+    },
+  );
+  expect(received).toEqual(["workspace-1", "agent-1", undefined, "@ada"]);
   expect(result.status).toBe(200);
 });
 

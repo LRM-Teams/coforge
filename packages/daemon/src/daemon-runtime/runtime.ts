@@ -3344,7 +3344,7 @@ export class DaemonRuntime {
           agentId,
           workspaceId: this.#connection.workspaceId,
           operation: "check",
-          target: "",
+          target: request.target || "",
           limit: request.limit,
         },
         agentApiKey,

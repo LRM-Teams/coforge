@@ -1366,9 +1366,27 @@ test("Agent thread unfollow changes only the exact channel thread", async () => 
   expect(() => parseArgs(["thread", "unfollow", "--target", "@alice:12345678"])).toThrow("Usage:");
 });
 
-test("message check has no target arguments", () => {
+test("message check accepts an optional --target", () => {
   expect(parseArgs(["message", "check"])).toEqual({ command: "check" });
-  expect(() => parseArgs(["message", "check", "--target", "@ada"])).toThrow("Usage:");
+  expect(parseArgs(["message", "check", "--target", "@ada"])).toEqual({
+    command: "check",
+    target: "@ada",
+  });
+  expect(() => parseArgs(["message", "check", "--target"])).toThrow("Usage:");
+});
+
+test("message check --target is forwarded to the transport", async () => {
+  const targets: Array<string | undefined> = [];
+  await run(["message", "check", "--target", "@ada"], {
+    check: async (target) => {
+      targets.push(target);
+      return { messages: [] };
+    },
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  expect(targets).toEqual(["@ada"]);
 });
 
 test("message search aligns with Raft lexical search options and dispatches them", async () => {
