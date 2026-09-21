@@ -12,7 +12,6 @@ import type { AgentRuntimeConfig } from "./agent-runtime-config.server";
 import { runtimeStartFields } from "./manage-agents.server";
 import { assertAgentLive } from "./active-agent.server";
 import { AppError } from "../../lib/app-error";
-import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import { canSeeAgent } from "./agent-visibility.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentSessions } from "./agent-sessions.server";
@@ -90,9 +89,10 @@ export type AgentControlAgent = {
   workspaceId: string;
   computerId: string;
   ownerId: string;
-  /** ADR 0059; optional only so pre-existing fixtures in tests that predate visibility keep
-   * compiling. A real persisted row always carries `"public"` or `"private"`, never absent. */
-  visibility?: string;
+  /** ADR 0059. Required, not defaulted: `authorizedForExecute` reads this directly with no
+   * `?? "public"` fallback, so a select that ever forgot to fetch it fails a type check instead
+   * of silently failing open and treating an unseen private Agent as visible. */
+  visibility: string;
   runtimeConfig: AgentRuntimeConfig;
   /** Opaque persisted representation used only for compare-and-swap. */
   storedRuntimeConfig?: unknown;
@@ -384,13 +384,7 @@ export class AgentControl {
     // the same absent shape every other visibility failure uses, never a detail leak. Owner/admin
     // always passes (`canSeeAgent`'s elevated-role branch), matching the ADR's one carve-out that
     // manage authority does not itself grant DM/open access.
-    if (
-      !canSeeAgent(
-        { kind: "user", userId, role },
-        { visibility: agent.visibility ?? AGENT_VISIBILITY.PUBLIC, ownerId: agent.ownerId },
-      )
-    )
-      throw new AppError("NOT_FOUND");
+    if (!canSeeAgent({ kind: "user", userId, role }, agent)) throw new AppError("NOT_FOUND");
     return agent;
   }
   private async begin(

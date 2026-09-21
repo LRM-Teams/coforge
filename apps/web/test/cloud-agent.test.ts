@@ -316,6 +316,7 @@ describe("PublishAgentRuntimeControl", () => {
     let controlAgent: AgentControlAgent = {
       id: "agent-stopped-running",
       ownerId: "owner-1",
+      visibility: "public",
       workspaceId: "workspace-1",
       computerId: "computer-1",
       runtimeConfig: {

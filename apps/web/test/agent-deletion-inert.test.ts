@@ -27,6 +27,7 @@ function controlAgent(deletedAt: Date | null): AgentControlAgent {
     workspaceId: "workspace-1",
     computerId: "computer-1",
     ownerId: "user-1",
+    visibility: "public",
     deletedAt,
     runtimeConfig: {
       runtime: "pi",

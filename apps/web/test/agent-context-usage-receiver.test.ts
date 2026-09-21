@@ -36,6 +36,7 @@ function fixture() {
     workspaceId: "workspace",
     computerId: "computer",
     ownerId: "owner",
+    visibility: "public",
     runtimeConfig: config,
     state,
   };
