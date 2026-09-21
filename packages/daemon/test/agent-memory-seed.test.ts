@@ -6,6 +6,9 @@ import {
   buildInitialMemoryMd,
   memoryIndexReminder,
   seedAgentMemory,
+  WORKSPACE_SIZE_WARN_BYTES,
+  warnIfWorkspaceLarge,
+  workspaceSizeBytes,
 } from "#src/agent-runtime/agent-memory-seed";
 
 test("buildInitialMemoryMd renders the displayName, role, and first-startup context", () => {
@@ -114,4 +117,18 @@ test("seedAgentMemory does not throw when the workspace directory does not exist
     `coforge-agent-memory-seed-missing-${crypto.randomUUID()}`,
   );
   await expect(seedAgentMemory(missingWorkspace, { name: "scout" })).resolves.toBeUndefined();
+});
+
+test("workspaceSizeBytes reports a positive size under the 500MB watch and never deletes", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "coforge-agent-workspace-du-"));
+  try {
+    await writeFile(join(workspace, "note.txt"), "hello", { encoding: "utf8" });
+    const bytes = await workspaceSizeBytes(workspace);
+    expect(bytes).toBeGreaterThan(0);
+    expect(bytes).toBeLessThan(WORKSPACE_SIZE_WARN_BYTES);
+    await expect(warnIfWorkspaceLarge(workspace, "agent-1")).resolves.toBeUndefined();
+    expect(await Bun.file(join(workspace, "note.txt")).text()).toBe("hello");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 });

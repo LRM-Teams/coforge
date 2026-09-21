@@ -9,7 +9,7 @@ import {
 import { installAssignedSkills, type AssignedSkillPack } from "#src/code-agent/assigned-skills";
 import { agentEnvironment } from "#src/code-agent/environment";
 import { resolveGitHookInjectionForLaunch } from "#src/code-agent/git-hooks";
-import { seedAgentMemory } from "./agent-memory-seed";
+import { seedAgentMemory, warnIfWorkspaceLarge } from "./agent-memory-seed";
 import { mkdir } from "node:fs/promises";
 
 export type { AgentStatus } from "./agent-state-machine";
@@ -95,13 +95,12 @@ export class AgentProcessManager {
       displayName: identity?.displayName,
       description: identity?.description,
     });
-    if (assignedSkillPacks.length > 0) {
-      await installAssignedSkills({
-        provider: config.provider,
-        agentWorkspaceDirectory,
-        packs: assignedSkillPacks,
-      });
-    }
+    await installAssignedSkills({
+      provider: config.provider,
+      agentWorkspaceDirectory,
+      packs: assignedSkillPacks,
+    });
+    await warnIfWorkspaceLarge(agentWorkspaceDirectory, agentId);
     // Probed against the same PATH the Agent's own git calls will search.
     const gitHooks = await this.#resolveGitHooks(
       agentEnvironment(environment, Bun.env, process.platform, { envVars: config.envVars }).PATH,

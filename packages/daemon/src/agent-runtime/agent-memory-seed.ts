@@ -96,6 +96,42 @@ export async function memoryIndexReminder(
   }
 }
 
+/** Watch threshold for an Agent workspace. Over this, `start()` logs a warning and does not delete. */
+export const WORKSPACE_SIZE_WARN_BYTES = 500 * 1024 * 1024;
+
+/** `du -sb` of the Agent workspace. `undefined` if `du` is missing or fails — never throws. */
+export async function workspaceSizeBytes(
+  agentWorkspaceDirectory: string,
+): Promise<number | undefined> {
+  try {
+    const proc = Bun.spawn(["du", "-sb", agentWorkspaceDirectory], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, exit] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    if (exit !== 0) return undefined;
+    const bytes = Number(stdout.trim().split(/\s+/)[0]);
+    return Number.isFinite(bytes) ? bytes : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Logs when the workspace is over 500MB. Never throws and never deletes files. */
+export async function warnIfWorkspaceLarge(
+  agentWorkspaceDirectory: string,
+  agentId?: string,
+): Promise<void> {
+  const bytes = await workspaceSizeBytes(agentWorkspaceDirectory);
+  if (bytes === undefined || bytes <= WORKSPACE_SIZE_WARN_BYTES) return;
+  logger.warn("Agent workspace exceeds the 500MB watch threshold", {
+    event: "agent_workspace:size_warning",
+    agent_workspace_directory: agentWorkspaceDirectory,
+    ...(agentId ? { agent_id: agentId } : {}),
+    size_bytes: bytes,
+  });
+}
+
 export async function seedAgentMemory(
   agentWorkspaceDirectory: string,
   identity: AgentMemorySeedIdentity,
