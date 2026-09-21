@@ -115,6 +115,9 @@ export const updateAgentInputSchema = z
 export type UpdateAgentInput = z.infer<typeof updateAgentInputSchema>;
 
 export const agentIdSchema = z.uuid();
+/** ADR 0059's per-Agent realtime subscription token endpoints; any Server Function that only
+ * needs an authorized Agent id shares this shape rather than repeating the object literal. */
+export const agentIdInputSchema = z.object({ agentId: agentIdSchema });
 /** ADR 0044: deleting an Agent is name-confirmed, the same guard `ProjectSettings.delete` uses —
  * the server re-checks the typed name against the current row in the delete itself, so a
  * concurrent rename cannot bypass confirmation. */

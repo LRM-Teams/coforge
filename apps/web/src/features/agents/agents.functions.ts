@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
+  agentIdInputSchema,
   agentIdSchema,
   createAgentInputSchema,
   deleteAgentInputSchema,
@@ -65,8 +66,14 @@ import { getAgentDisplay } from "../../server/agents/agent-display.server";
 import { AgentEnvironment } from "../../server/agents/agent-environment.server";
 import {
   issueAgentActivitySubscriptionToken,
+  issueAgentActivitySubscriptionTokenForAgent,
   issueAgentStatusSubscriptionToken,
+  issueAgentStatusSubscriptionTokenForAgent,
 } from "../../server/auth/browser-realtime-token.server";
+import {
+  agentVisibilityViewerForUser,
+  assertAgentVisible,
+} from "../../server/agents/agent-visibility.server";
 
 type Database = ReturnType<typeof requireDatabaseClient>;
 
@@ -260,6 +267,53 @@ export const getAgentActivitySubscriptionToken = createServerFn({
   .handler(async ({ context }) => {
     const { user, workspaceId } = context;
     return issueAgentActivitySubscriptionToken({ userId: user.id, workspaceId });
+  });
+
+/** The minimal row `assertAgentVisible` (ADR 0059) needs for the per-Agent subscription-token
+ * endpoints below — never the full `AgentRecord`, and never cached. */
+async function agentVisibilityRow(db: Database, agentId: string) {
+  return db.agent.findUnique({
+    where: { id: agentId },
+    select: { workspaceId: true, ownerId: true, visibility: true },
+  });
+}
+
+/**
+ * ADR 0059: a per-Agent realtime subscription token is only ever issued to a viewer who can
+ * currently see that Agent — an unrecognized/missing Agent and an invisible one answer the same
+ * `AGENT_NOT_VISIBLE`, so neither leaks which case applies.
+ */
+export const getAgentActivitySubscriptionTokenForAgent = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(agentIdInputSchema)
+  .handler(async ({ data, context }) => {
+    const { user, workspaceId, db } = context;
+    const agent = await agentVisibilityRow(db, data.agentId);
+    if (!agent || agent.workspaceId !== workspaceId) throw new AppError("AGENT_NOT_VISIBLE");
+    const viewer = await agentVisibilityViewerForUser(db, workspaceId, user.id);
+    assertAgentVisible(viewer, agent);
+    return issueAgentActivitySubscriptionTokenForAgent({
+      userId: user.id,
+      workspaceId,
+      agentId: data.agentId,
+    });
+  });
+
+/** The per-Agent status-channel sibling of `getAgentActivitySubscriptionTokenForAgent`. */
+export const getAgentStatusSubscriptionTokenForAgent = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(agentIdInputSchema)
+  .handler(async ({ data, context }) => {
+    const { user, workspaceId, db } = context;
+    const agent = await agentVisibilityRow(db, data.agentId);
+    if (!agent || agent.workspaceId !== workspaceId) throw new AppError("AGENT_NOT_VISIBLE");
+    const viewer = await agentVisibilityViewerForUser(db, workspaceId, user.id);
+    assertAgentVisible(viewer, agent);
+    return issueAgentStatusSubscriptionTokenForAgent({
+      userId: user.id,
+      workspaceId,
+      agentId: data.agentId,
+    });
   });
 
 export const createAgent = createServerFn({ method: "POST" })
