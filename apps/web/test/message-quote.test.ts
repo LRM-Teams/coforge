@@ -29,23 +29,33 @@ describe("quoteSelectionText", () => {
 });
 
 describe("formatSelectionQuote", () => {
+  const source = { author: "Alice", time: "10:32" };
+
+  test("credits the message's author and clock on the quote's first line", () => {
+    expect(formatSelectionQuote(source, "我觉得是a")).toBe("> **Alice** 10:32:\n> 我觉得是a");
+  });
+
   test("quotes every highlighted line, so a multi-line highlight stays one block", () => {
-    expect(formatSelectionQuote("one\ntwo")).toBe("> one\n> two");
+    expect(formatSelectionQuote(source, "one\ntwo")).toBe("> **Alice** 10:32:\n> one\n> two");
   });
 
   test("an inner blank line becomes a bare quote marker instead of breaking the block", () => {
-    expect(formatSelectionQuote("one\n\ntwo")).toBe("> one\n>\n> two");
-  });
-
-  test("the quote carries no attribution: the reader can see whose message it is", () => {
-    expect(formatSelectionQuote("我觉得是a")).toBe("> 我觉得是a");
+    expect(formatSelectionQuote(source, "one\n\ntwo")).toBe("> **Alice** 10:32:\n> one\n>\n> two");
   });
 
   test("a blank selection quotes nothing", () => {
-    expect(formatSelectionQuote("   \n  ")).toBe("");
+    expect(formatSelectionQuote(source, "   \n  ")).toBe("");
+  });
+
+  test("no author (a server-authored message) leaves the quote without a credit line", () => {
+    expect(formatSelectionQuote({ author: "  ", time: "10:32" }, "notice")).toBe("> notice");
+  });
+
+  test("no clock label still credits the author", () => {
+    expect(formatSelectionQuote({ author: "Alice", time: "" }, "hi")).toBe("> **Alice**:\n> hi");
   });
 
   test("trailing space inside a highlighted line is trimmed per line", () => {
-    expect(formatSelectionQuote("one  \ntwo ")).toBe("> one\n> two");
+    expect(formatSelectionQuote(source, "one  \ntwo ")).toBe("> **Alice** 10:32:\n> one\n> two");
   });
 });
