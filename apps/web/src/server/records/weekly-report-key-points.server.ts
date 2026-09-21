@@ -282,7 +282,11 @@ export async function startTeamKeyPointExtraction(
       body: string;
     }) => Promise<void>;
   },
-): Promise<{ started: boolean; status: KeyPointExtractionMeta["status"] }> {
+): Promise<{
+  started: boolean;
+  status: KeyPointExtractionMeta["status"];
+  error?: string;
+}> {
   const overview = await db.weeklyReport.findFirst({
     where: {
       id: input.overviewReportId,
@@ -333,6 +337,16 @@ export async function startTeamKeyPointExtraction(
     },
   });
 
+  if (submitted.length === 0) {
+    // Ephemeral: toast on the click path only — do not park this on the overview
+    // panel (it would stick after members later submit).
+    return {
+      started: false,
+      status: "failed",
+      error: "no_submitted_member_reports",
+    };
+  }
+
   const leaderUserId = overview.authorId;
   const promptState = await loadPromptForLeader(db, {
     workspaceId: input.workspaceId,
@@ -341,19 +355,6 @@ export async function startTeamKeyPointExtraction(
     slot: "team",
   });
   const promptSnapshot = promptState.text.trim() || DEFAULT_TEAM_KEY_POINT_PROMPT;
-
-  if (submitted.length === 0) {
-    await writeKeyPointExtraction(db, {
-      reportId: overview.id,
-      content,
-      extraction: {
-        status: "failed",
-        promptSnapshot,
-        error: "no_submitted_member_reports",
-      },
-    });
-    return { started: false, status: "failed" };
-  }
 
   const assistant = await ensureWeeklyReportAssistant(db, {
     workspaceId: input.workspaceId,

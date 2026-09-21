@@ -11,6 +11,13 @@ import { m } from "@/paraglide/messages";
 import type { KeyPointExtractionMeta } from "./records-content";
 import { KeyPointExtractionPanel } from "./key-point-extraction-panel";
 
+/** Failed because nobody submitted — toast-only, never a parked panel state. */
+export function isNoneSubmittedKeyPointFailure(
+  extraction: KeyPointExtractionMeta | undefined,
+): boolean {
+  return extraction?.status === "failed" && extraction.error === "no_submitted_member_reports";
+}
+
 /** Overview-page team key-point block: start button + shared extraction panel. */
 export function TeamKeyPointSection({
   overviewReportId,
@@ -26,7 +33,9 @@ export function TeamKeyPointSection({
   onStart: () => void;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const status = extraction?.status;
+  // Stale persisted none-submitted failures stay invisible; waiting copy replaces them.
+  const panelExtraction = isNoneSubmittedKeyPointFailure(extraction) ? undefined : extraction;
+  const status = panelExtraction?.status;
   const canStart =
     status !== "generating" &&
     (status === undefined ||
@@ -82,7 +91,7 @@ export function TeamKeyPointSection({
 
       {status ? (
         <KeyPointExtractionPanel
-          extraction={extraction}
+          extraction={panelExtraction}
           assistantAgentId={assistantAgentId}
           waitingLabel={m.records_key_points_team_waiting()}
           framed={false}
