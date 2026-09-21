@@ -1,10 +1,47 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   AgentMessageDelivery,
   AgentRecoveryMessage,
   MessageSenderKind,
 } from "@lrm/coforge-sdk/internal";
 import { AgentMessageAttentionIndex } from "../src/daemon-runtime/agent-message-attention-index";
+import { AgentConsumedSeqStore } from "../src/persistence/agent-consumed-seq-store";
+
+const stateDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    stateDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  );
+});
+
+const temporaryStateDirectory = () => {
+  const path = join(tmpdir(), `coforge-attention-${crypto.randomUUID()}`);
+  stateDirectories.push(path);
+  return path;
+};
+
+/** An index composed exactly as the runtime composes it, with a durable consumed cursor. */
+const indexWithConsumedSeqs = (
+  store: AgentConsumedSeqStore,
+  sessionFor: () => ReturnType<typeof session> = () => session(),
+  notices: string[] = [],
+) =>
+  new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => sessionFor() ?? session((notice) => notices.push(notice)) },
+    async () => {},
+    () => {},
+    {
+      shouldHold: () => false,
+      enqueue: () => {},
+      busy: () => {},
+      consumedSeqs: store,
+    },
+  );
 
 const delivery = (
   id: string,
@@ -507,6 +544,73 @@ test("forgets the oldest deliveries so a long-lived Agent does not grow without 
   // The oldest one was forgotten: its redelivery is treated as new.
   await index.receive({ ...delivery("1"), sequence: 1 });
   expect(notices).toBe(remembered + 2);
+});
+
+test("the consumed cursor survives a restart, in Raft's consumed-seqs file", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory(), "workspace-1");
+  const before = indexWithConsumedSeqs(store);
+  before.recordModelSeen("agent-1", "@ada", 7);
+  before.recordReadContext("agent-1", "#general:11111111");
+
+  // A new daemon process: no deliveries, no reads, only the file Raft names.
+  const after = indexWithConsumedSeqs(store);
+  expect(after.modelSeenSequence("agent-1", "@ada")).toBe(7);
+  expect(after.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
+    "#general:11111111",
+  );
+  // A review after the restart sorts above every order the previous process handed out.
+  after.recordReadContext("agent-1", "#general");
+  expect(after.readOrder("agent-1", "#general")!).toBeGreaterThan(
+    after.readOrder("agent-1", "#general:11111111")!,
+  );
+});
+
+test("a restart keeps the read context a thread-target confirmation is decided from", () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory(), "workspace-1");
+  const before = indexWithConsumedSeqs(store);
+  // The Agent read a thread under the channel and never read the channel itself: exactly the shape
+  // that makes a top-level send to the channel ask for confirmation (Raft's
+  // `detectThreadContextParentSend`).
+  before.recordReadContext("agent-1", "#general:11111111");
+  expect(before.readOrder("agent-1", "#general")).toBeUndefined();
+
+  const after = indexWithConsumedSeqs(store);
+  expect(after.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
+    "#general:11111111",
+  );
+  expect(after.readOrder("agent-1", "#general")).toBeUndefined();
+});
+
+test("stopping an Agent drops its volatile bookkeeping, not its durable cursor", async () => {
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory(), "workspace-1");
+  const index = indexWithConsumedSeqs(store);
+  await index.receive(delivery("1"));
+  index.recordModelSeen("agent-1", "@ada", 4);
+  expect(index.check("agent-1").length).toBeGreaterThan(0);
+
+  index.clearAgent("agent-1");
+
+  // The attention index is volatile and gone; the consumed cursor is durable, so it comes straight
+  // back from the file rather than reading as "this Agent never saw anything".
+  expect(index.check("agent-1")).toEqual([]);
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(4);
+});
+
+test("without a durable cursor the index stays exactly as volatile as it was", () => {
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session() },
+    async () => {},
+  );
+  index.recordModelSeen("agent-1", "@ada", 7);
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(7);
+  expect(
+    new AgentMessageAttentionIndex(
+      "workspace-1",
+      { session: () => session() },
+      async () => {},
+    ).modelSeenSequence("agent-1", "@ada"),
+  ).toBe(0);
 });
 
 test("recordReadContext tracks a monotonically increasing per-Agent read order", () => {

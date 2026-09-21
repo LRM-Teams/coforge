@@ -126,6 +126,7 @@ import {
   planAgentInboxFreshness,
 } from "./agent-inbox-freshness";
 import { heldFreshnessActivity, heldFreshnessMessageCount } from "./agent-inbox-freshness-activity";
+import { AgentConsumedSeqStore } from "../persistence/agent-consumed-seq-store";
 import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
 import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
 import { isAgentApiKey } from "../credentials/agent-api-key";
@@ -603,6 +604,10 @@ export class DaemonRuntime {
         queued: (agentId) => this.#deliveryQueue.pending(agentId),
         enqueue: (agentId, message) => this.#deliveryQueue.enqueue(agentId, message),
         busy: (agentId) => this.#deliveryQueue.busy(agentId),
+        // The consumed cursor outlives the process, in Raft's `consumed-seqs.json` shape: what an
+        // Agent has already reviewed decides the next hold, the `seenUpToSeq` a fresh send inherits,
+        // and whether a top-level send under a thread-read parent needs confirming.
+        consumedSeqs: new AgentConsumedSeqStore(stateDirectory, connection.workspaceId),
       },
     );
     this.#reminders = new ReminderScheduler(
