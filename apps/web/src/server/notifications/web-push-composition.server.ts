@@ -3,6 +3,12 @@ import { PrismaWebPushSubscriptionStore } from "./prisma-web-push-subscriptions.
 import { WebPushNotifications } from "./web-push-notifications.server";
 import { readWebPushConfig, WebPushLibraryTransport } from "./web-push-transport.server";
 
+/**
+ * A message notifier starts best-effort Web Push delivery and returns before
+ * that delivery completes. Callers on the message send path may await
+ * `notifyMessage` without the response waiting on push delivery; delivery
+ * failures are only logged in the background.
+ */
 export type MessageNotifier = {
   notifyMessage(messageId: string): Promise<unknown>;
 };
@@ -15,14 +21,19 @@ export async function createWebPushNotifications(db: PrismaClient) {
   );
 }
 
-export function bestEffortMessageNotifier(db: PrismaClient): MessageNotifier {
+export function bestEffortMessageNotifier(
+  db: PrismaClient,
+  notifications: (db: PrismaClient) => Promise<MessageNotifier> = createWebPushNotifications,
+): MessageNotifier {
   return {
     async notifyMessage(messageId) {
-      try {
-        await (await createWebPushNotifications(db)).notifyMessage(messageId);
-      } catch {
-        console.warn(JSON.stringify({ event: "web_push.unavailable", messageId }));
-      }
+      void (async () => {
+        try {
+          await (await notifications(db)).notifyMessage(messageId);
+        } catch {
+          console.warn(JSON.stringify({ event: "web_push.unavailable", messageId }));
+        }
+      })();
     },
   };
 }

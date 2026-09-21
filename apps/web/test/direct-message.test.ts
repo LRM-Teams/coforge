@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
+import type { PrismaClient } from "../generated/client";
 import {
   ReadDirectMessages,
   SendDirectMessage,
@@ -9,6 +10,7 @@ import type {
   MessageRequestScope,
 } from "../src/server/conversations/message-request-idempotency.server";
 import type { DirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
+import { bestEffortMessageNotifier } from "../src/server/notifications/web-push-composition.server";
 
 const persisted = {
   id: "message-a",
@@ -346,6 +348,42 @@ describe("SendDirectMessage", () => {
       },
       idempotencyKey: "message-a",
     });
+  });
+
+  test("resolves an Agent send promptly even when Web Push delivery never settles", async () => {
+    const repository = {
+      async sendMessage() {
+        throw new Error("not used");
+      },
+      async userIdForUsername() {
+        return "internal-user";
+      },
+      async getOrCreateUserAgent() {
+        return { id: "conversation-a" };
+      },
+      async sendAgentMessage() {
+        return { ...persisted, deliveryId: undefined, target: "@user" };
+      },
+    } satisfies DirectConversationRepository;
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      { async publish() {} },
+      { async messageAvailable() {} },
+      bestEffortMessageNotifier({} as PrismaClient, async () => ({
+        notifyMessage: () => new Promise(() => {}),
+      })),
+    );
+
+    await expect(
+      useCase.executeFromAgent({
+        requestId: "request-a",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        target: "@user",
+        body: "Hi",
+      }),
+    ).resolves.toMatchObject({ id: "message-a" });
   });
 
   test("routes an Agent channel-thread reply through the parent channel and preserves the root", async () => {
