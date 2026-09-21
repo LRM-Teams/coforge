@@ -457,4 +457,145 @@ describe("Agent activity publication", () => {
       message: "activity publication is not authorized",
     });
   });
+
+  // ADR 0059: a private Agent still records history/display exactly like a public one, but its
+  // frame is re-routed to its own per-Agent channel instead of the shared broadcast, and the
+  // shared publish itself is refused. Centrifugo's publish proxy accepts an `error` result as a
+  // plain denial without touching the connection (see
+  // https://centrifugal.dev/docs/server/proxy#publish-proxy) — the least noisy refusal, unlike a
+  // `disconnect` result, which would drop the Daemon's whole connection over one re-routed Agent.
+  describe("a private Agent (ADR 0059)", () => {
+    test("re-routes the frame to its per-Agent activity channel and refuses the shared broadcast", async () => {
+      const history: unknown[] = [];
+      const published: Array<{ channel: string; data: Uint8Array }> = [];
+      const response = await handleAgentActivityPublication(request(), {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        agentVisibility: async () => "private",
+        observe: async (value) => {
+          history.push(value);
+        },
+        publish: async (channel, data) => {
+          published.push({ channel, data });
+        },
+      });
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { error?: { code: number; message: string } };
+      expect(body.error).toBeDefined();
+      expect(body.error?.code).toBeGreaterThanOrEqual(400);
+      expect(body.error?.code).toBeLessThan(2000);
+      expect(history).toHaveLength(1);
+      expect(published).toHaveLength(1);
+      expect(published[0]!.channel).toBe("agent:activity:workspace-1:agent-1");
+      expect(decodeAgentActivity(published[0]!.data).activityKind).toBe("working");
+    });
+
+    test("reduces its display snapshot to its per-Agent status channel, not the shared one", async () => {
+      const publishedJson: Array<{ channel: string; data: unknown }> = [];
+      await handleAgentActivityPublication(request(), {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        agentVisibility: async () => "private",
+        observe: async () => {},
+        publish: async () => {},
+        currentRuntimeFence: async () => ({ daemonInstanceId: "daemon-1", launchId: "launch-1" }),
+        display: {
+          observeActivity: async () => ({
+            protocolMajor: 1,
+            workspaceId: "workspace-1",
+            computerId: "computer-1",
+            agentId: "agent-1",
+            revision: 1,
+            activityKind: "working",
+            detailKind: activity.detailKind,
+            detail: "",
+            entries: [],
+            expiresAt: Date.now() + 90_000,
+          }),
+        },
+        publishJson: async (channel, data) => {
+          publishedJson.push({ channel, data });
+        },
+      });
+
+      expect(publishedJson).toHaveLength(1);
+      expect(publishedJson[0]!.channel).toBe("agent:status:workspace-1:agent-1");
+    });
+
+    test("does not publish to the shared activity or status channel", async () => {
+      const publishedJson: Array<{ channel: string }> = [];
+      const response = await handleAgentActivityPublication(request(), {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        agentVisibility: async () => "private",
+        observe: async () => {},
+        publish: async () => {},
+        currentRuntimeFence: async () => ({ daemonInstanceId: "daemon-1", launchId: "launch-1" }),
+        display: {
+          observeActivity: async () => ({
+            protocolMajor: 1,
+            workspaceId: "workspace-1",
+            computerId: "computer-1",
+            agentId: "agent-1",
+            revision: 1,
+            activityKind: "working",
+            detailKind: activity.detailKind,
+            detail: "",
+            entries: [],
+            expiresAt: Date.now() + 90_000,
+          }),
+        },
+        publishJson: async (channel) => {
+          publishedJson.push({ channel });
+        },
+      });
+
+      const body = (await response.json()) as { result?: unknown };
+      expect(body.result).toBeUndefined();
+      expect(publishedJson.every((entry) => entry.channel !== "agent:status:workspace-1")).toBe(
+        true,
+      );
+    });
+
+    test("treats an unrecognized visibility value as private (fail closed)", async () => {
+      const published: Array<{ channel: string }> = [];
+      const response = await handleAgentActivityPublication(request(), {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        agentVisibility: async () => "not-a-real-value",
+        observe: async () => {},
+        publish: async (channel) => {
+          published.push({ channel });
+        },
+      });
+      const body = (await response.json()) as { result?: unknown; error?: unknown };
+      expect(body.result).toBeUndefined();
+      expect(body.error).toBeDefined();
+      expect(published).toHaveLength(1);
+      expect(published[0]!.channel).toBe("agent:activity:workspace-1:agent-1");
+    });
+
+    test("keeps a missing agentVisibility dependency on the existing public/shared path", async () => {
+      // No `agentVisibility` supplied at all: every existing test above this block relies on this
+      // staying the public/shared behavior unchanged.
+      const response = await handleAgentActivityPublication(request(), {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        observe: async () => {},
+      });
+      const body = (await response.json()) as { result?: { skip_history: boolean } };
+      expect(body.result?.skip_history).toBe(true);
+    });
+  });
 });

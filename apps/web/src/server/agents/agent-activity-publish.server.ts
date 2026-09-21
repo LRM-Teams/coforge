@@ -14,8 +14,16 @@ import {
 } from "./agent-display.server";
 import { ensureAgentActivitySweep } from "./agent-activity-sweep.server";
 import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
-import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
-import { agentActivityChannel, isRunStartMarker } from "../../features/agents/agent-activity";
+import {
+  agentStatusChannel,
+  agentStatusChannelForAgent,
+} from "../../features/agents/agent-status-realtime";
+import {
+  agentActivityChannel,
+  agentActivityChannelForAgent,
+  isRunStartMarker,
+} from "../../features/agents/agent-activity";
+import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import type { AgentActivityKind } from "@lrm/coforge-sdk/internal";
 
 type AgentActivityPublicationDependencies = {
@@ -35,6 +43,15 @@ type AgentActivityPublicationDependencies = {
   ): Promise<{ daemonInstanceId: string; launchId: string } | undefined>;
   display?: Pick<AgentDisplay, "observeActivity">;
   publishJson?(channel: string, data: unknown): Promise<void>;
+  /** ADR 0059: the Agent's current visibility, read fresh (no cache) for every publication —
+   * never assumed from a prior request. Omitted (dependency not supplied) or anything other than
+   * `"public"` routes this frame to its per-Agent channels instead of the shared ones, the same
+   * fail-closed rule `canSeeAgent`/`visibleAgentWhere` apply to an unrecognized persisted value. */
+  agentVisibility?(workspaceId: string, agentId: string): Promise<string | undefined>;
+  /** Raw binary republish (Centrifugo server API `publish`, not the JSON `publishJson`) used only
+   * to re-route a private Agent's frame to its own per-Agent activity channel — the public path
+   * still lets Centrifugo do the actual shared-channel publish via the returned `result.b64data`. */
+  publish?(channel: string, data: Uint8Array): Promise<void>;
 };
 
 function bytesToBase64(bytes: Uint8Array) {
@@ -103,6 +120,15 @@ export async function handleAgentActivityPublication(
       activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS ||
       isRunStartMarker(activity.detailKind, activity.entries) ||
       Boolean(activity.probeId);
+    // ADR 0059: read fresh, no cache. Undefined (dependency omitted, or the Agent's row carries
+    // no recognized value) reads as "public" — the routing this file performed before visibility
+    // existed. Anything else, including an unrecognized persisted value, fails closed to private
+    // the same way `canSeeAgent`/`visibleAgentWhere` do.
+    const visibility = await dependencies.agentVisibility?.(workspaceId, activity.agentId);
+    const isPrivate = visibility !== undefined && visibility !== AGENT_VISIBILITY.PUBLIC;
+    const statusChannel = isPrivate
+      ? agentStatusChannelForAgent(workspaceId, activity.agentId)
+      : agentStatusChannel(workspaceId);
     const history = isFillerActivity
       ? Promise.resolve()
       : dependencies.observe({ ...cloudActivity, computerId }).catch(() => {});
@@ -119,12 +145,33 @@ export async function handleAgentActivityPublication(
         fence,
       );
       if (snapshot && dependencies.publishJson)
-        await dependencies.publishJson(agentStatusChannel(workspaceId), {
+        await dependencies.publishJson(statusChannel, {
           type: "agent:display",
           ...snapshot,
         });
     })().catch(() => {});
     await Promise.all([history, reduce]);
+
+    if (isPrivate) {
+      // The frame still reaches its own audience — just not the shared broadcast. Best-effort,
+      // like every other Activity delivery in this file: a failed re-publish here does not turn
+      // into a retry or a spool, it only means this one frame is missed live (history already
+      // recorded it above).
+      await dependencies
+        .publish?.(
+          agentActivityChannelForAgent(workspaceId, activity.agentId),
+          encodeAgentActivity(cloudActivity),
+        )
+        .catch(() => {});
+      // Centrifugal's publish proxy treats an `error` result as a plain denial that leaves the
+      // connection open (https://centrifugal.dev/docs/server/proxy#publish-proxy) — the least
+      // noisy refusal available, unlike a `disconnect` result, which would drop the Daemon's
+      // entire WSS connection over one re-routed Agent.
+      return Response.json({
+        error: { code: 1000, message: "activity re-routed to a private channel" },
+      });
+    }
+
     return Response.json({
       result: {
         skip_history: true,
@@ -167,6 +214,17 @@ export function createAgentActivityPublicationHandler() {
           }),
         ),
       observe: (observation) => activity.record(observation),
+      // ADR 0059. A dedicated `select` rather than folding into `agents.getById` (which maps the
+      // full `AgentRecord` shape): this handler only ever needs the one column, read fresh on
+      // every publication, never cached.
+      agentVisibility: async (workspaceId, agentId) => {
+        const agent = await db.agent.findUnique({
+          where: { id: agentId },
+          select: { workspaceId: true, visibility: true },
+        });
+        return agent?.workspaceId === workspaceId ? agent.visibility : undefined;
+      },
+      publish: centrifugo ? (channel, data) => centrifugo.publish(channel, data) : undefined,
       currentRuntimeFence: async (workspaceId, computerId, agentId) => {
         const agent = await db.agent.findUnique({
           where: { id: agentId },
