@@ -7,7 +7,10 @@ import {
 } from "#/server/db/repositories/agent.repositories.server";
 import { recordCatalog } from "#/server/records/record-catalog.server";
 import { weeklyReportAssistantOwner } from "#/server/records/weekly-report-assistant.server";
-import { executeAgentWeeklyReport } from "#/server/agents/agent-weekly-report-http.server";
+import {
+  executeAgentWeeklyReport,
+  type WeeklyReportWireRequest,
+} from "#/server/agents/agent-weekly-report-http.server";
 
 export const Route = createFileRoute("/api/agent/v1/weekly-reports")({
   server: {
@@ -15,8 +18,12 @@ export const Route = createFileRoute("/api/agent/v1/weekly-reports")({
     handlers: {
       POST: async ({ request, context: { principal, db } }) => {
         try {
-          const body = (await request.json()) as WeeklyReportRequest;
-          const command = validateWeeklyReportRequest(body);
+          const body = (await request.json()) as WeeklyReportWireRequest;
+          // The validator speaks the shared shape, whose key is `requestId`.
+          const command = validateWeeklyReportRequest({
+            ...body,
+            requestId: body.idempotencyKey,
+          } as WeeklyReportRequest);
           const authorization = new RepositoryAgentAuthorization(new PrismaAgentRepository(db));
           const result = await executeAgentWeeklyReport(
             recordCatalog(db),

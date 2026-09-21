@@ -150,7 +150,7 @@ test("thread send and unread ranges stay separate from the main conversation", a
       executeAgentSendMessageWithPolicy(
         { repository: repo, sender },
         {
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           workspaceId: workspace.id,
           agentId: agent.id,
           target: destination,
@@ -321,7 +321,7 @@ test("thread send and unread ranges stay separate from the main conversation", a
       executeAgentSendMessageWithPolicy(
         { repository: repo, sender },
         {
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           workspaceId: workspace.id,
           agentId: agent.id,
           target: withheldTarget,

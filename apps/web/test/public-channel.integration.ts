@@ -510,7 +510,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     const reply = await executeAgentSendMessageWithPolicy(
       { repository: repo, sender: agentSender },
       {
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         workspaceId: workspace.id,
         agentId: agent.id,
         target: "#general",

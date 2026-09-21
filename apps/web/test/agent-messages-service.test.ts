@@ -136,7 +136,7 @@ test("send policy forwards a clean message to the sender", async () => {
       },
     },
     {
-      requestId: "request-1",
+      idempotencyKey: "request-1",
       workspaceId: "workspace-1",
       agentId: "agent-1",
       target: "#general",
@@ -176,7 +176,7 @@ test("send policy forwards multiple attachmentIds to the sender in order", async
       },
     },
     {
-      requestId: "request-1",
+      idempotencyKey: "request-1",
       workspaceId: "workspace-1",
       agentId: "agent-1",
       target: "#general",
@@ -283,7 +283,7 @@ test("send policy advances the read-through boundary before reading pending cont
       sender: { executeFromAgent: async () => ({ id: "message-1" }) },
     },
     {
-      requestId: "request-1",
+      idempotencyKey: "request-1",
       workspaceId: "workspace-1",
       agentId: "agent-a",
       target: "@user",
@@ -310,7 +310,7 @@ test("send policy fails closed when a trusted seen sequence cannot be advanced",
         sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
       },
       {
-        requestId: "request-1",
+        idempotencyKey: "request-1",
         workspaceId: "workspace-1",
         agentId: "agent-a",
         target: "@user",
@@ -336,7 +336,7 @@ function pendingRow(sequence: number, body: string) {
 }
 
 const sendInput = (overrides: Record<string, unknown> = {}) => ({
-  requestId: "request-1",
+  idempotencyKey: "request-1",
   workspaceId: "workspace-1",
   agentId: "agent-a",
   target: "@user",

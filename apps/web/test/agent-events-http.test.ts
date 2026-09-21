@@ -11,7 +11,7 @@ const baseRepository = {
 test("forwards the requested limit and scope to the repository drain", async () => {
   let received: unknown;
   const result = await handleAgentEventsGet(
-    request("?requestId=request-1&limit=10"),
+    request("?idempotencyKey=request-1&limit=10"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       ...baseRepository,
@@ -27,7 +27,7 @@ test("forwards the requested limit and scope to the repository drain", async () 
 
 test("returns the canonical response shape with hasMore passthrough", async () => {
   const result = await handleAgentEventsGet(
-    request("?requestId=request-2"),
+    request("?idempotencyKey=request-2"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       ...baseRepository,
@@ -53,7 +53,7 @@ test("returns the canonical response shape with hasMore passthrough", async () =
   const body = await result.json();
   expect(body).toEqual({
     protocolMajor: 1,
-    requestId: "request-2",
+    idempotencyKey: "request-2",
     hasMore: true,
     events: [
       {
@@ -81,8 +81,8 @@ test("generates a request id when the daemon omits one", async () => {
     },
   );
   const body = await result.json();
-  expect(typeof body.requestId).toBe("string");
-  expect(body.requestId.length).toBeGreaterThan(0);
+  expect(typeof body.idempotencyKey).toBe("string");
+  expect(body.idempotencyKey.length).toBeGreaterThan(0);
 });
 
 test("passes hasMore false through when the drain is exhausted", async () => {

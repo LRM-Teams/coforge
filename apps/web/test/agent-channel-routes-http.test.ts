@@ -14,7 +14,7 @@ const post = (path: string, body?: unknown) =>
 test("mute forwards the decoded channel target and returns the accepted envelope", async () => {
   const calls: unknown[] = [];
   const result = await handleAgentChannelMutePost(
-    post("/api/agent/v1/channels/%23general/mute", { requestId: "r-1" }),
+    post("/api/agent/v1/channels/%23general/mute", { idempotencyKey: "r-1" }),
     "#general",
     true,
     principal,
@@ -29,7 +29,7 @@ test("mute forwards the decoded channel target and returns the accepted envelope
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
     protocolMajor: 1,
-    requestId: "r-1",
+    idempotencyKey: "r-1",
     target: "#general",
     muted: true,
   });
@@ -44,8 +44,8 @@ test("mute generates a request id from an empty body", async () => {
     { setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} },
   );
   const body = await result.json();
-  expect(typeof body.requestId).toBe("string");
-  expect(body.requestId.length).toBeGreaterThan(0);
+  expect(typeof body.idempotencyKey).toBe("string");
+  expect(body.idempotencyKey.length).toBeGreaterThan(0);
 });
 
 test("mute returns the exact validation text as a plain-text 400 body", async () => {
@@ -97,7 +97,7 @@ test("mute surfaces an AgentMessageValidationError verbatim", async () => {
 test("unmute forwards muted=false for the decoded channel target", async () => {
   const calls: unknown[] = [];
   const result = await handleAgentChannelUnmutePost(
-    post("/api/agent/v1/channels/%23general/unmute", { requestId: "r-2" }),
+    post("/api/agent/v1/channels/%23general/unmute", { idempotencyKey: "r-2" }),
     "#general",
     principal,
     {
@@ -111,7 +111,7 @@ test("unmute forwards muted=false for the decoded channel target", async () => {
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
     protocolMajor: 1,
-    requestId: "r-2",
+    idempotencyKey: "r-2",
     target: "#general",
     muted: false,
   });
@@ -132,7 +132,7 @@ test("unfollow forwards the decoded channel thread target", async () => {
   const calls: unknown[] = [];
   const target = "#general:12345678-0000-4000-8000-000000000001";
   const result = await handleAgentThreadUnfollowPost(
-    post(`/api/agent/v1/threads/${encodeURIComponent(target)}/unfollow`, { requestId: "r-3" }),
+    post(`/api/agent/v1/threads/${encodeURIComponent(target)}/unfollow`, { idempotencyKey: "r-3" }),
     target,
     principal,
     {
@@ -146,7 +146,7 @@ test("unfollow forwards the decoded channel thread target", async () => {
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
     protocolMajor: 1,
-    requestId: "r-3",
+    idempotencyKey: "r-3",
     target,
     followed: false,
   });

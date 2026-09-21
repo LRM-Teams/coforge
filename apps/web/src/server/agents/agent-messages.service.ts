@@ -90,7 +90,7 @@ export type AgentMessagesPage = {
 export type AgentMentionSelector = { type: "user" | "agent"; id: string; name: string };
 
 export type AgentSendMessageInput = {
-  requestId: string;
+  idempotencyKey: string;
   workspaceId: string;
   agentId: string;
   target: string;
@@ -142,6 +142,8 @@ const HELD_CONTEXT_LIMIT = 3;
 
 export async function executeAgentSendMessage(
   sender: {
+    // The domain layer (the shared `SendDirectMessage`) calls this key `requestId`; the Agent API
+    // calls it `idempotencyKey`, so the two names meet here and nowhere else.
     executeFromAgent(input: {
       requestId: string;
       workspaceId: string;
@@ -155,7 +157,7 @@ export async function executeAgentSendMessage(
   input: AgentSendMessageInput,
 ): Promise<{ messageId: string }> {
   const message = await sender.executeFromAgent({
-    requestId: input.requestId,
+    requestId: input.idempotencyKey,
     workspaceId: input.workspaceId,
     agentId: input.agentId,
     target: input.target,

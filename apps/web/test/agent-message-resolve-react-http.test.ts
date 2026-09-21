@@ -8,7 +8,7 @@ const principal = { workspaceId: "workspace-1", agentId: "agent-1" };
 test("resolve returns one canonical message record", async () => {
   const calls: unknown[] = [];
   const result = await handleAgentMessageResolveGet(
-    new Request("https://server.example/api/agent/v1/messages/abcd1234/resolve?requestId=r-1"),
+    new Request("https://server.example/api/agent/v1/messages/abcd1234/resolve?idempotencyKey=r-1"),
     "abcd1234",
     principal,
     {
@@ -34,7 +34,7 @@ test("resolve returns one canonical message record", async () => {
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
     protocolMajor: 1,
-    requestId: "r-1",
+    idempotencyKey: "r-1",
     message: {
       id: "abcd1234-0000-4000-8000-000000000001",
       sequence: 1,
@@ -71,8 +71,8 @@ test("resolve generates a request id when the daemon omits one", async () => {
     },
   );
   const body = await result.json();
-  expect(typeof body.requestId).toBe("string");
-  expect(body.requestId.length).toBeGreaterThan(0);
+  expect(typeof body.idempotencyKey).toBe("string");
+  expect(body.idempotencyKey.length).toBeGreaterThan(0);
 });
 
 test("resolve returns the exact validation text as a plain-text 400 body", async () => {
@@ -114,7 +114,7 @@ test("react adds a reaction and returns the canonical response shape with the me
   const result = await handleAgentMessageReaction(
     new Request("https://server.example/api/agent/v1/messages/abcd1234/reactions", {
       method: "POST",
-      body: JSON.stringify({ requestId: "r-2", emoji: "👍" }),
+      body: JSON.stringify({ idempotencyKey: "r-2", emoji: "👍" }),
     }),
     "abcd1234",
     true,
@@ -132,7 +132,7 @@ test("react adds a reaction and returns the canonical response shape with the me
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
     protocolMajor: 1,
-    requestId: "r-2",
+    idempotencyKey: "r-2",
     messageId: "abcd1234-0000-4000-8000-000000000001",
     emoji: "👍",
     active: true,

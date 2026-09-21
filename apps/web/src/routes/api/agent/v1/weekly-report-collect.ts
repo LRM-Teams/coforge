@@ -5,7 +5,7 @@ import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { reportCollectSlotOutcome } from "#/server/records/weekly-report-collect-orchestrate.server";
 
 const bodySchema = z.object({
-  requestId: z.string().uuid(),
+  idempotencyKey: z.string().uuid(),
   runId: z.string().uuid(),
   outcome: z.enum(["ready", "empty", "failed"]),
   packMarkdown: z.string().max(500_000).optional(),
@@ -27,7 +27,7 @@ export const Route = createFileRoute("/api/agent/v1/weekly-report-collect")({
             workspaceId: principal.workspaceId,
             agentId: principal.agentId,
             computerId: principal.computerId,
-            requestId: body.requestId,
+            requestId: body.idempotencyKey,
             runId: body.runId,
             outcome: body.outcome,
             packMarkdown: body.packMarkdown,
@@ -36,7 +36,7 @@ export const Route = createFileRoute("/api/agent/v1/weekly-report-collect")({
           const view = accepted.run;
 
           return Response.json({
-            requestId: body.requestId,
+            requestId: body.idempotencyKey,
             runId: view.id,
             status: view.status,
             allTerminal: view.allTerminal,

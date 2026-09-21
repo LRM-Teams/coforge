@@ -147,7 +147,13 @@ export type WorkspaceInfoOptions = {
   offset?: number;
 };
 export type WorkspaceInfoInvocation = { command: "workspace.info" } & WorkspaceInfoOptions;
-export type WorkspaceInfoResult = WorkspaceInfoResponse & { computers?: unknown[] };
+/** `whoami`'s view: the shared shape minus the key our HTTP names `idempotencyKey` (the Agent API's
+ * own `workspace_info` result carries that name, not `requestId`). */
+export type WorkspaceInfoResult = Omit<WorkspaceInfoResponse, "requestId"> & {
+  /** The Agent API's own name for the request id it echoes (the local hop carries `requestId`). */
+  idempotencyKey: string;
+  computers?: unknown[];
+};
 export type WeeklyReportInvocation = {
   command: "weekly-report";
   weeklyReport: WeeklyReportCommand;

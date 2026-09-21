@@ -35,8 +35,8 @@ test("takes Raft's idempotencyKey as the request's key, with structured mentions
   );
   expect(result.status).toBe(200);
   // Raft's `idempotencyKey` is the key this request is deduplicated by (task #58 ④), and the
-  // response echoes it back as this route's own `requestId`.
-  expect(await result.json()).toMatchObject({ requestId: "idem-1", state: "sent" });
+  // response echoes it back as this route's own `idempotencyKey`.
+  expect(await result.json()).toMatchObject({ idempotencyKey: "idem-1", state: "sent" });
   expect(receivedMentions).toEqual(mentions);
 });
 
@@ -66,7 +66,7 @@ test("tolerates Raft's declared `continue` field without inventing semantics for
   expect(result.status).toBe(200);
   // Raft's own CLI never sets `continue` (1.0.32) and its semantics are unverified, so it must not
   // behave as the force-send flag: the only bypass is `continueAnyway`.
-  expect(await result.json()).toMatchObject({ requestId: "idem-2", state: "held" });
+  expect(await result.json()).toMatchObject({ idempotencyKey: "idem-2", state: "held" });
 });
 
 test("rejects an unsupported freshnessContextMode with 400", async () => {

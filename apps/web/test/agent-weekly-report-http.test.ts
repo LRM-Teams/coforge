@@ -5,7 +5,7 @@ import { executeAgentWeeklyReport } from "../src/server/agents/agent-weekly-repo
 
 const request = {
   protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-  requestId: "request",
+  idempotencyKey: "request",
   workspaceId: "workspace",
   agentId: "assistant",
   operation: "read" as const,
@@ -38,7 +38,7 @@ test("weekly-report Agent reads use the assistant owner User and deny ordinary A
   expect(allowed).toEqual({
     response: {
       protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-      requestId: "request",
+      idempotencyKey: "request",
       operation: "read",
       result: { markdown: "ok", truncated: false },
     },

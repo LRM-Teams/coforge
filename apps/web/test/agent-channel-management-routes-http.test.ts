@@ -47,10 +47,10 @@ function fakeRepository(overrides: Partial<AgentChannelManagementRepository> = {
   } as AgentChannelManagementRepository;
 }
 
-test("POST /channels creates a channel and echoes the caller's requestId", async () => {
+test("POST /channels creates a channel and echoes the caller's idempotencyKey", async () => {
   const calls: unknown[] = [];
   const result = await handleAgentChannelsPost(
-    post("/api/agent/v1/channels", { requestId: "r-1", name: "#eng", description: "Eng" }),
+    post("/api/agent/v1/channels", { idempotencyKey: "r-1", name: "#eng", description: "Eng" }),
     principal,
     fakeRepository({
       create: async (...args) => {
@@ -63,7 +63,7 @@ test("POST /channels creates a channel and echoes the caller's requestId", async
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
     protocolMajor: 1,
-    requestId: "r-1",
+    idempotencyKey: "r-1",
     target: "#eng",
     channel: { id: "id-1", name: "#eng", description: "Eng" },
   });
@@ -109,7 +109,7 @@ test("POST /channels hides an unexpected repository failure behind a generic mes
 
 test("GET /channels/:channel returns the info envelope", async () => {
   const result = await handleAgentChannelGet(
-    get("/api/agent/v1/channels/%23eng?requestId=r-2"),
+    get("/api/agent/v1/channels/%23eng?idempotencyKey=r-2"),
     "#eng",
     principal,
     fakeRepository({
@@ -141,14 +141,14 @@ test("GET /channels/:channel returns the info envelope", async () => {
   expect(result.status).toBe(200);
   expect(await result.json()).toMatchObject({
     protocolMajor: 1,
-    requestId: "r-2",
+    idempotencyKey: "r-2",
     channel: { name: "#eng" },
   });
 });
 
 test("GET /channels/:channel forwards a bound Project through unchanged", async () => {
   const result = await handleAgentChannelGet(
-    get("/api/agent/v1/channels/%23launch-eng?requestId=r-3"),
+    get("/api/agent/v1/channels/%23launch-eng?idempotencyKey=r-3"),
     "#launch-eng",
     principal,
     fakeRepository({

@@ -77,7 +77,7 @@ test("workspace info parses validated sections and formats a mocked summary", as
     view: async () => ({ bytes: new Uint8Array() }),
     workspaceInfo: async () => ({
       protocolMajor: 1,
-      requestId: "r",
+      idempotencyKey: "r",
       workspace: { id: "w", name: "Acme", slug: "acme" },
       humans: [],
       agents: [],
@@ -112,7 +112,7 @@ const FULL_RUNTIME_CONTEXT = {
 };
 const WORKSPACE_INFO_BASE = {
   protocolMajor: 1,
-  requestId: "r",
+  idempotencyKey: "r",
   workspace: { id: "w", name: "Acme", slug: "acme" },
   humans: [],
   agents: [],

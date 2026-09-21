@@ -39,7 +39,7 @@ export async function handleAgentMessagesGet(
   repository: AgentMessageRepository,
 ): Promise<Response> {
   const query = new URL(request.url).searchParams;
-  const requestId = query.get("requestId") || crypto.randomUUID();
+  const idempotencyKey = query.get("idempotencyKey") || crypto.randomUUID();
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     if (query.has("query"))
@@ -62,7 +62,7 @@ export async function handleAgentMessagesGet(
     const messages = result.messages as AgentMessage[];
     const response: AgentHistoryResponse = {
       protocolMajor: 1,
-      requestId,
+      idempotencyKey,
       messages,
       hasOlder: result.hasOlder,
       hasNewer: result.hasNewer,
@@ -77,7 +77,7 @@ export async function handleAgentMessagesGet(
 
 /** Maps `executeAgentSendMessageWithPolicy`'s side-effect decision onto the send route's response,
  * using Raft's own field names for both states (`agentApiSendResponseSchema`). */
-function mapSendResult(requestId: string, result: AgentSendMessageResult) {
+function mapSendResult(idempotencyKey: string, result: AgentSendMessageResult) {
   const toAgentMessage = (message: { createdAt: Date }) =>
     ({
       ...message,
@@ -85,7 +85,7 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult) {
     }) as AgentMessage;
   const response: AgentSendResponse = {
     protocolMajor: 1,
-    requestId,
+    idempotencyKey,
     state: result.state,
     decision: result.decision,
     reason: result.reason,
@@ -146,16 +146,16 @@ export async function handleAgentMessagesPost(
   if (body.mentions !== undefined && !isValidMentionSelectorArray(body.mentions))
     return Response.json({ error: "invalid mentions" }, { status: 400 });
   // Raft's own name for this request's idempotency key (task #58 ④), and our only one: a request
-  // must not be deduplicable under two spellings, so `requestId` is not read. Raft's
+  // must not be deduplicable under two spellings, so `idempotencyKey` is not read. Raft's
   // declared-but-unused `continue` field needs no handling here — this handler only reads what it
   // acts on (the force-send flag is `continueAnyway`, as in Raft).
-  const requestId =
+  const idempotencyKey =
     typeof body.idempotencyKey === "string" && body.idempotencyKey
       ? body.idempotencyKey
       : crypto.randomUUID();
   try {
     const result = await executeAgentSendMessageWithPolicy(dependencies, {
-      requestId,
+      idempotencyKey,
       workspaceId: principal.workspaceId,
       agentId: principal.agentId,
       target: body.target,
@@ -173,7 +173,7 @@ export async function handleAgentMessagesPost(
         : undefined,
       mentions: body.mentions as AgentMentionSelector[] | undefined,
     });
-    return Response.json(mapSendResult(requestId, result));
+    return Response.json(mapSendResult(idempotencyKey, result));
   } catch (error) {
     // Only this send-specific class is mapped here; every other error (including any AppError
     // raised elsewhere, e.g. getAgentChannel's ACCESS_DENIED for a non-member) propagates

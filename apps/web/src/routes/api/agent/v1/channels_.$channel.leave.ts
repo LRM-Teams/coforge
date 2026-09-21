@@ -7,7 +7,7 @@ import {
 import {
   channelManagementErrorResponse,
   readJsonBody,
-  requestIdFrom,
+  idempotencyKeyFrom,
 } from "#/server/agents/agent-channel-routes.shared";
 
 export type AgentChannelManagementPrincipal = { workspaceId: string; agentId: string };
@@ -19,10 +19,10 @@ export async function handleAgentChannelLeavePost(
   repository: AgentChannelManagementRepository,
 ): Promise<Response> {
   const body = await readJsonBody(request);
-  const requestId = requestIdFrom(body);
+  const idempotencyKey = idempotencyKeyFrom(body);
   try {
     const result = await repository.leave(principal.workspaceId, principal.agentId, channel);
-    return Response.json({ protocolMajor: 1, requestId, ...result });
+    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel leave failed");
   }

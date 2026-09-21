@@ -1,10 +1,21 @@
-import {
-  WEEKLY_REPORT_PROTOCOL_MAJOR,
-  type WeeklyReportCommand,
-  type WeeklyReportRequest,
-  type WeeklyReportResponse,
-} from "@lrm/coforge-sdk/internal";
+import { WEEKLY_REPORT_PROTOCOL_MAJOR, type WeeklyReportCommand } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "../../lib/app-error";
+
+/** The agent HTTP API's own shape: the shared weekly-report command and response call this key
+ * `requestId` (it also crosses the local RPC and its protobuf), while the wire names it
+ * `idempotencyKey`. The two names meet in this HTTP layer and nowhere else. */
+export type WeeklyReportWireRequest = WeeklyReportCommand & {
+  protocolMajor: number;
+  workspaceId: string;
+  agentId: string;
+  idempotencyKey?: string;
+};
+export type WeeklyReportWireResponse = {
+  protocolMajor: number;
+  idempotencyKey?: string;
+  operation: WeeklyReportCommand["operation"];
+  result: unknown;
+};
 
 type WeeklyReportCatalog = {
   loadAssistantContextManifest(input: {
@@ -52,9 +63,9 @@ type WeeklyReportPrincipal = {
 export async function executeAgentWeeklyReport(
   catalog: WeeklyReportCatalog,
   authorization: WeeklyReportAuthorization,
-  request: WeeklyReportRequest,
+  request: WeeklyReportWireRequest,
   principal: WeeklyReportPrincipal,
-): Promise<{ response: WeeklyReportResponse } | { error: { code: number; message: string } }> {
+): Promise<{ response: WeeklyReportWireResponse } | { error: { code: number; message: string } }> {
   const assignedComputerId = principal.agentId
     ? await authorization.computerIdForAuthorizedAgent(
         principal.workspaceId,
@@ -81,14 +92,14 @@ export async function executeAgentWeeklyReport(
       protocolMajor: _protocolMajor,
       workspaceId,
       agentId: _agentId,
-      requestId,
+      idempotencyKey,
       ...command
     } = request;
     const result = await executeWeeklyReportRead(catalog, workspaceId, owner.userId, command);
     return {
       response: {
         protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
-        requestId,
+        idempotencyKey,
         operation: command.operation,
         result,
       },
