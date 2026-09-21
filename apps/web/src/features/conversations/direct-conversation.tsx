@@ -728,6 +728,9 @@ export function ConversationPane({
   threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   threadHeaderAction?: React.ReactNode;
   messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
+  /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Built by each
+   * wrapper — the DM from its Agent counterpart, a channel from its member directory. */
+  plainMentions?: Map<string, ChipMention>;
 }) {
   const openMode = useConversationOpenMode();
   const [dateLocale, setDateLocale] = useState<string>();
