@@ -22,7 +22,15 @@ export async function handleAgentTaskPost(
 ): Promise<Response> {
   try {
     const command = (await request.json()) as AgentTaskRequest;
-    const result = await board.execute(principal, command);
+    // The HTTP auth principal carries BOTH the agent and its owner (`userId`), but the board's
+    // scope() requires EXACTLY ONE of the two and throws ACCESS_DENIED otherwise - passing the
+    // principal through made every agent Task command over HTTP a 400, invisible behind the
+    // route's opaque body. An Agent Task command acts as the agent, so scope it to the agent,
+    // exactly like the WebSocket task method did.
+    const result = await board.execute(
+      { workspaceId: principal.workspaceId, agentId: principal.agentId },
+      command,
+    );
     return Response.json({ ...result, idempotencyKey: command.idempotencyKey });
   } catch (error) {
     if (error instanceof AppError)

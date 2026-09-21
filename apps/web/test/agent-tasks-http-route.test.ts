@@ -58,6 +58,26 @@ test("a Task command without a key reaches the board unchanged, and its refusal 
   expect(result.status).toBe(400);
 });
 
+test("the board receives an agent-scoped principal — never the owner's userId alongside it", async () => {
+  // The HTTP auth principal carries the agent AND its owner (`userId`). The real board's scope()
+  // throws ACCESS_DENIED unless EXACTLY ONE of the two is set, so a pass-through principal makes
+  // every agent Task command over HTTP a 400 that says only "ACCESS_DENIED". This pins the fix.
+  let receivedPrincipal: unknown;
+  const result = await handleAgentTaskPost(
+    request({ idempotencyKey: "request-1", operation: "list", target: "#general" }),
+    principal,
+    {
+      execute: async (passedPrincipal) => {
+        receivedPrincipal = passedPrincipal;
+        return { tasks: [] };
+      },
+    },
+  );
+
+  expect(result.status).toBe(200);
+  expect(receivedPrincipal).toEqual({ workspaceId: "workspace-1", agentId: "agent-1" });
+});
+
 test("a board error carrying a domain code is answered 400 with that code, not one flat word", async () => {
   const result = await handleAgentTaskPost(
     request({ idempotencyKey: "request-1", operation: "list", target: "#general" }),
