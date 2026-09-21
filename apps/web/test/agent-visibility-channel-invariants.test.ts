@@ -94,7 +94,12 @@ test("PrismaAgentRepository.create() with visibility 'private' never enrolls the
   expect(createdMemberAgentIds).toEqual([]);
 });
 
-function publicChannelsFixture(target: { id: string; visibility: string }) {
+function publicChannelsFixture(target: {
+  id: string;
+  name?: string;
+  displayName?: string;
+  visibility: string;
+}) {
   const db = {
     workspaceMembership: { findUnique: async () => ({ role: "member" }), findMany: async () => [] },
     agent: {
@@ -139,7 +144,12 @@ test("PublicChannels.addMembers accepts a public Agent target", async () => {
 });
 
 test("PublicChannels.members never offers a private Agent as an add-candidate (ADR 0059, mention-candidate consequence)", async () => {
-  const { channels } = publicChannelsFixture({ id: "agent-public", visibility: "public" });
+  const { channels } = publicChannelsFixture({
+    id: "agent-public",
+    name: "scout",
+    displayName: "Scout",
+    visibility: "public",
+  });
 
   const roster = await channels.members(WORKSPACE_ID, { agentId: "actor-agent" }, "channel-1");
 
@@ -148,7 +158,7 @@ test("PublicChannels.members never offers a private Agent as an add-candidate (A
   // side) — a private Agent would never be a row here, so it can never reach a channel's
   // `mentionables` (sourced from `conversationMember` rows) either.
   expect(roster.candidates.agents).toEqual([
-    { id: "agent-public", name: undefined, displayName: undefined },
+    { id: "agent-public", name: "scout", displayName: "Scout" },
   ]);
 });
 

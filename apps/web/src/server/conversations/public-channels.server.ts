@@ -14,10 +14,6 @@ import {
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
 import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import {
-  agentVisibilityViewerForActor,
-  visibleAgentWhere,
-} from "../agents/agent-visibility.server";
-import {
   agentMessageSender,
   browserSenderHandle,
   browserSenderName,

@@ -8,6 +8,7 @@ import { PrismaDirectConversationRepository } from "../src/server/db/repositorie
 import { enrollGeneralChannel } from "../src/server/conversations/public-channels.server";
 import { WorkspaceMembers, workspaceMemberRole } from "../src/server/workspaces/members.server";
 import { findWorkspaceUser } from "../src/server/agents/agent-user-info.server";
+import type { AgentVisibilityViewer } from "../src/server/agents/agent-visibility.server";
 import { TaskBoard } from "../src/server/tasks/task-board.server";
 
 /**
@@ -102,6 +103,9 @@ test.skipIf(!connectionString)(
   "deleting an Agent hides it from every live view and keeps its history readable",
   async () => {
     const { db, workspace, owner, member, agent } = await setup();
+    // The Agent's own creator (ADR 0059); trivially visible regardless of `visibility`, so this
+    // test's `findWorkspaceUser` calls exercise deletion, never a visibility rejection.
+    const ownerViewer: AgentVisibilityViewer = { kind: "user", userId: owner.id, role: "owner" };
     try {
       // Seed a real DM message from the Agent, so there is history to preserve.
       const conversations = new PrismaDirectConversationRepository(db);
@@ -126,7 +130,7 @@ test.skipIf(!connectionString)(
       expect(
         (await new WorkspaceMembers(db).list(workspace.id, owner.id)).agents.map((a) => a.id),
       ).toContain(agent.id);
-      expect(await findWorkspaceUser(db, workspace.id, agent.name)).toBeDefined();
+      expect(await findWorkspaceUser(db, workspace.id, agent.name, ownerViewer)).toBeDefined();
 
       const stops: string[] = [];
       const result = await deletionFor(db, stops).delete(
@@ -158,7 +162,7 @@ test.skipIf(!connectionString)(
       expect(
         (await new WorkspaceMembers(db).list(workspace.id, owner.id)).agents.map((a) => a.id),
       ).not.toContain(agent.id);
-      expect(await findWorkspaceUser(db, workspace.id, agent.name)).toBeUndefined();
+      expect(await findWorkspaceUser(db, workspace.id, agent.name, ownerViewer)).toBeUndefined();
 
       // Live listings exclude it; getById and the deleted listing still see it, so recovery can
       // stop a process the Daemon still reports as running.
