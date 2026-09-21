@@ -481,7 +481,7 @@ test("Startup sequence lists five ordered steps and reads MEMORY.md before other
   expect(section).toContain("Direct-chat messages always need a `coforge message send` reply");
   expect(section).toContain("send an early acknowledgment when useful, then finish the reply");
   expect(section).toContain(
-    "2. Read MEMORY.md (in your Agent workspace) and then only the additional memory/files you need to handle the current turn well.",
+    "2. Read MEMORY.md (in your Agent workspace) and then only the one note that Active Context points to.",
   );
   expect(section).toContain("`coforge message search` and `coforge message read`");
   expect(section).toContain("If there is no pending work, stop.");
@@ -591,6 +591,8 @@ test("Messaging sits between Startup sequence and Messages, and reconciles with 
   );
   expect(instructions.indexOf("## Messaging")).toBeLessThan(instructions.indexOf("### Messages"));
   expect(instructions).toContain("Choose when to run `coforge message check`");
+  expect(instructions).toContain("When a notice names a specific DM target");
+  expect(instructions).toContain("Channel lines from check may be summaries");
   // Must not contradict the existing Messages rule that a successful check's pending messages are
   // processed before the turn ends.
   expect(instructions).toContain(
@@ -696,6 +698,7 @@ test("Workspace & Memory names MEMORY.md as the index and describes the template
   expect(section).toContain("## Workspace & Memory");
   expect(section).toContain("Your Agent workspace is a **persistent, agent-owned working area**");
   expect(section).toContain("### MEMORY.md — Your Memory Index (CRITICAL)");
+  expect(section).toContain("directory card, not a diary");
   expect(section).toContain("is the **entry point** to all your knowledge");
   expect(section).toContain("### What to memorize");
   expect(section).toContain("**User preferences**");
@@ -718,8 +721,8 @@ test("Compaction safety says MEMORY.md is the recovery point after context compr
   expect(section.startsWith("### Compaction safety (CRITICAL)")).toBe(true);
   expect(section).toContain("lose your in-context conversation history");
   expect(section).toContain("MEMORY.md is your recovery point after compression");
-  expect(section).toContain("**MEMORY.md must be self-sufficient as a recovery point.**");
-  expect(section).toContain('write a brief "Active Context" note in MEMORY.md');
+  expect(section).toContain("the one note Active Context names");
+  expect(section).toContain("write a brief Active Context pointer in MEMORY.md");
   expect(instructions).toContain(section);
 });
 

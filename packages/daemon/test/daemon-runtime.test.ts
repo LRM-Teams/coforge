@@ -337,7 +337,9 @@ test("a duplicate fenced start wakes the managed runtime without replaying recov
     });
     expect(sessions).toBe(1);
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("wake only");
+    expect(notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+    expect(notices[0]).toContain("@ada  new: 1 message");
+    expect(notices[0]).not.toContain("wake only");
     expect(notices[0]).not.toContain("must be ignored");
     expect(notices[0]).not.toContain("@grace");
   } finally {
@@ -4417,7 +4419,9 @@ describe("DaemonRuntime", () => {
     );
     await Bun.sleep(10);
     expect(harness.notices).toHaveLength(1);
-    expect(harness.notices[0]).toContain("wake only");
+    expect(harness.notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+    expect(harness.notices[0]).toContain("@ada  new: 1 message");
+    expect(harness.notices[0]).not.toContain("wake only");
     await harness.runtime.stop();
   });
 
@@ -4477,8 +4481,8 @@ describe("DaemonRuntime", () => {
     release(`sk_agent_${"a".repeat(43)}`);
     const [started, recovered] = await Promise.all([launch, recoveryForLaunch, live]);
     expect(recovered).toBe(started);
-    expect(harness.notices[0]).toContain("New message received:");
-    expect(harness.notices[0]).toContain("hello");
+    expect(harness.notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+    expect(harness.notices[0]).not.toContain("hello from recovery");
     expect(harness.notices[1]).toContain("CoForge inbox notice");
     expect(harness.acknowledgements).toEqual(["delivery-2"]);
     expect(harness.sessions()).toBe(1);
@@ -4596,7 +4600,8 @@ describe("DaemonRuntime", () => {
     );
     expect(harness.sessions()).toBe(2);
     expect(harness.notices).toHaveLength(2);
-    expect(harness.notices.every((notice) => notice.includes("retry this recovery body"))).toBe(
+    expect(harness.notices.every((notice) => notice.includes("restart recovery"))).toBe(true);
+    expect(harness.notices.every((notice) => !notice.includes("retry this recovery body"))).toBe(
       true,
     );
     expect(received).toEqual(["Message received"]);
@@ -4688,15 +4693,17 @@ describe("DaemonRuntime", () => {
     const live = harness.delivery(4);
     await Bun.sleep(0);
 
-    expect(harness.notices).toHaveLength(1);
-    expect(harness.notices[0]).toContain("wake only");
+    expect(harness.notices).toHaveLength(2);
+    expect(harness.notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+    expect(harness.notices[0]).toContain("@ada  new: 1 message");
+    expect(harness.notices[0]).not.toContain("wake only");
     expect(harness.notices[0]).not.toContain("must be ignored");
     expect(harness.notices[0]).not.toContain("@grace");
-    expect(harness.acknowledgements).toEqual([]);
+    expect(harness.notices[1]).toContain("CoForge inbox notice");
+    expect(harness.acknowledgements).toEqual(["delivery-4"]);
     releaseRecovery();
     expect(await rebound).toBe(active);
     await live;
-    expect(harness.notices[1]).toContain("CoForge inbox notice");
     expect(harness.acknowledgements).toEqual(["delivery-4"]);
     expect(harness.sessions()).toBe(1);
     expect(harness.mints()).toBe(1);

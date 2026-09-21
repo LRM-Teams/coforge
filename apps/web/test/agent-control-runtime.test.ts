@@ -434,10 +434,12 @@ test("a Start that meets an already-running process rebinds it: one process, pre
     expect(agent.state?.launchId).toBeTruthy();
     expect(agent.state?.launchId).not.toBe(firstLaunchId);
 
-    // The Start's wake message was delivered to the running process, exactly like the existing
-    // equal-epoch replay branch already delivers one.
+    // The Start's wake message was delivered to the running process as a body-free recovery
+    // notice, exactly like the existing equal-epoch replay branch already delivers one.
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("hello again");
+    expect(notices[0]).toContain("[CoForge inbox notice (restart recovery):");
+    expect(notices[0]).toContain("@a  new: 1 message");
+    expect(notices[0]).not.toContain("hello again");
 
     // A later sequenced Session snapshot from the SAME (rebound) process — the shape
     // AgentSessions.capture/replay build on the Daemon side — is accepted, not rejected as
