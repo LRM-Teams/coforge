@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { AppError } from "../../lib/app-error";
 import { workspaceUserMiddleware } from "../../server/auth/function-auth";
+import { attachmentView } from "../../server/attachments/attachment-view.server";
 import { isInlineImage } from "../../server/attachments/attachment-response.server";
 
 export type ConversationFile = {
@@ -15,6 +16,10 @@ export type ConversationFile = {
   /** True only for the raster types `/api/attachments/:id` serves inline — an SVG "image/*"
    * must render as the generic file icon, never as an `<img>` from the app origin. */
   inlineImage: boolean;
+  /** A short-lived signed CDN URL for an inline-eligible image or an off-origin-frameable PDF
+   * (same signing as message attachments); its absence means the client preview falls back to
+   * the authenticated route, and a PDF stays download-only. */
+  previewUrl?: string;
   /** The message this file was sent on, for locate-in-chat links; the hash anchor resolves a
    * thread reply through its root, orphaned files (message deleted) have none. */
   messageId: string | null;
@@ -45,6 +50,7 @@ export const loadConversationFiles = createServerFn({ method: "GET" })
         contentType: true,
         sizeBytes: true,
         createdAt: true,
+        objectKey: true,
         message: { select: { id: true } },
         uploader: { select: { username: true, displayName: true } },
         uploaderAgent: { select: { displayName: true, name: true } },
@@ -52,10 +58,7 @@ export const loadConversationFiles = createServerFn({ method: "GET" })
     });
     return {
       files: attachments.map((attachment) => ({
-        id: attachment.id,
-        fileName: attachment.fileName,
-        contentType: attachment.contentType,
-        sizeBytes: attachment.sizeBytes,
+        ...attachmentView(attachment),
         createdAt: attachment.createdAt.toISOString(),
         inlineImage: isInlineImage(attachment.contentType),
         sender:
