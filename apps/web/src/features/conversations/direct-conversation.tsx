@@ -706,6 +706,14 @@ export function ConversationPane({
   plainMentions?: Map<string, ChipMention>;
 }) {
   const openMode = useConversationOpenMode();
+  // The candidate list keeps every member, the viewer included, because it is also what *resolves*
+  // a mention of the viewer in a body or preview. Offering the viewer to the viewer is a different
+  // question, and the composer answers it with its own rule: you never mention yourself.
+  const mentionCandidates = useMemo(
+    () =>
+      conversation.mentionables?.filter((mention) => mention.handle !== conversation.viewerHandle),
+    [conversation.mentionables, conversation.viewerHandle],
+  );
   const [dateLocale, setDateLocale] = useState<string>();
   useEffect(() => setDateLocale(getLocale()), []);
   const toast = useAppToast();
@@ -1381,7 +1389,7 @@ export function ConversationPane({
           conversationId={conversation.conversationId}
           threadRootId={root?.id}
           inThread={Boolean(root)}
-          mentionables={conversation.mentionables}
+          mentionables={mentionCandidates}
           recentHandles={recentHandles}
           onSend={onSend}
           onCreateTask={onCreateTask}
