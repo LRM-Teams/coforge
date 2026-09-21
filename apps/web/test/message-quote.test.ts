@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  AFFORDANCE_SIZE,
+  AFFORDANCE_HEIGHT,
+  AFFORDANCE_WIDTH,
   QUOTE_SELECTION_MAX_CHARS,
   formatSelectionQuote,
   quoteSelectionText,
@@ -70,15 +71,15 @@ describe("selectionAffordancePlacement", () => {
   test("floats above the highlight, so it never covers the text that follows the selection", () => {
     const placement = selectionAffordancePlacement(highlight, container);
     // 40 (highlight's top inside the body) minus the affordance's own height and a small gap.
-    expect(placement.top).toBe(40 - AFFORDANCE_SIZE - 4);
-    expect(placement.top + AFFORDANCE_SIZE).toBeLessThan(highlight.top - container.top);
+    expect(placement.top).toBe(40 - AFFORDANCE_HEIGHT - 4);
+    expect(placement.top + AFFORDANCE_HEIGHT).toBeLessThan(highlight.top - container.top);
   });
 
   test("stays above the highlight on the body's first line, overflowing over the row header", () => {
     const firstLine = { ...highlight, top: 100, bottom: 124 };
     // No boundary given: never clamp into the body — above the highlight means above it, even
     // when that renders over the sender header above the body.
-    expect(selectionAffordancePlacement(firstLine, container).top).toBe(-AFFORDANCE_SIZE - 4);
+    expect(selectionAffordancePlacement(firstLine, container).top).toBe(-AFFORDANCE_HEIGHT - 4);
   });
 
   test("flips below the highlight only when above would cross the visible boundary's top", () => {
@@ -91,12 +92,14 @@ describe("selectionAffordancePlacement", () => {
   test("stays above when above fits the boundary, even though it overflows the body", () => {
     const firstLine = { ...highlight, top: 100, bottom: 124 };
     const placement = selectionAffordancePlacement(firstLine, container, { top: 0 });
-    expect(placement.top).toBe(-AFFORDANCE_SIZE - 4);
+    expect(placement.top).toBe(-AFFORDANCE_HEIGHT - 4);
   });
 
   test("centers over the highlight when there is room", () => {
     // 150 (highlight's horizontal center inside the body) minus half the affordance.
-    expect(selectionAffordancePlacement(highlight, container).left).toBe(150 - AFFORDANCE_SIZE / 2);
+    expect(selectionAffordancePlacement(highlight, container).left).toBe(
+      150 - AFFORDANCE_WIDTH / 2,
+    );
   });
 
   test("clamps to the body's left edge when centering would overflow it", () => {
@@ -107,7 +110,7 @@ describe("selectionAffordancePlacement", () => {
   test("clamps to the body's right edge when centering would overflow it", () => {
     const flushRight = { ...highlight, left: 596, width: 24 };
     expect(selectionAffordancePlacement(flushRight, container).left).toBe(
-      container.width - AFFORDANCE_SIZE,
+      container.width - AFFORDANCE_WIDTH,
     );
   });
 });

@@ -64,6 +64,8 @@
   "conversation_message_label": "消息",
   "conversation_message_actions": "消息操作",
   "conversation_quote_selection": "引用选中的内容并回复",
+  "conversation_copy_as_style": "复制为带样式文本",
+  "conversation_copy_as_markdown": "复制为 Markdown",
   "conversation_composer_actions": "添加到消息",
   "conversation_message_placeholder": "输入消息…",
   "conversation_send": "发送",
