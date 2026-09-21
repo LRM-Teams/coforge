@@ -82,9 +82,8 @@ function ChannelPage() {
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
-  const { router, showChat, showTasks, showFiles, changeLayout, openTask } = useConversationView(
-    page.ensureLoaded,
-  );
+  const { router, showChat, showTasks, showFiles, changeLayout, openTask, openMessage } =
+    useConversationView(page.ensureLoaded);
 
   // Opening the channel is reading it — except in the `newest-unread` preference, which keeps
   // unseen messages unread until the latest is actually viewed: the badge clears immediately
@@ -136,7 +135,6 @@ function ChannelPage() {
       <div className="flex min-h-0 flex-1 flex-col">
         <ChannelConversationHeader
           conversation={conversation}
-          tasks={taskView.tasks}
           active="files"
           onShowChat={showChat}
           onShowTasks={showTasks}
@@ -146,7 +144,7 @@ function ChannelPage() {
         />
         <ConversationFilesPanel
           conversationId={conversation.conversationId}
-          conversationName={`#${conversation.name}`}
+          onOpenMessage={openMessage}
         />
       </div>
     );
@@ -156,9 +154,9 @@ function ChannelPage() {
         header={
           <ChannelConversationHeader
             conversation={conversation}
-            tasks={taskView.tasks}
             active="tasks"
             onShowChat={showChat}
+            onShowFiles={showFiles}
             onMutedChange={changeMuted}
             onLeft={afterLeft}
             onOpenAgentProfile={openAgentProfile}

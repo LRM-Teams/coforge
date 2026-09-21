@@ -79,9 +79,8 @@ function DirectConversationPage() {
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
-  const { showChat, showTasks, showFiles, changeLayout, openTask } = useConversationView(
-    page.ensureLoaded,
-  );
+  const { showChat, showTasks, showFiles, changeLayout, openTask, openMessage } =
+    useConversationView(page.ensureLoaded);
 
   // Opening the DM is reading it — except in the `newest-unread` preference, which keeps
   // unseen messages unread until the latest is actually viewed: the badge clears
@@ -112,7 +111,6 @@ function DirectConversationPage() {
       <div className="flex min-h-0 flex-1 flex-col">
         <DirectConversationHeader
           conversation={conversation}
-          tasks={taskView.tasks}
           active="files"
           onShowChat={showChat}
           onShowTasks={showTasks}
@@ -120,7 +118,7 @@ function DirectConversationPage() {
         />
         <ConversationFilesPanel
           conversationId={conversation.conversationId}
-          conversationName={conversation.agent.displayName}
+          onOpenMessage={openMessage}
         />
       </div>
     );
@@ -130,9 +128,9 @@ function DirectConversationPage() {
         header={
           <DirectConversationHeader
             conversation={conversation}
-            tasks={taskView.tasks}
             active="tasks"
             onShowChat={showChat}
+            onShowFiles={showFiles}
             onOpenAgentProfile={openAgentProfile}
           />
         }

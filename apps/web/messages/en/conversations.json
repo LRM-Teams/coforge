@@ -174,7 +174,7 @@
   "files_tab": "Files",
   "files_empty": "No files have been shared in this conversation yet.",
   "files_download": "Download",
-  "files_title": "Files in {name}",
+  "files_locate_message": "View in chat",
   "files_loading": "Loading…",
   "files_load_failed": "Failed to load files"
 }
