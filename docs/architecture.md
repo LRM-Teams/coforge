@@ -974,6 +974,15 @@ Agent visibility（ADR 0059）不改变 Daemon：Daemon 始终只发布到共享
 per-Agent 频道的订阅 token 只签发给当前能看到该 Agent 的成员；看不到的成员既不订阅也不知道
 该频道存在。Private Agent 从不是任何频道（含 `#general`）的活跃成员。
 
+Publish proxy 拒绝共享广播时返回 Centrifugo 的 `error` result（而非 `disconnect`）：这是
+[Centrifugo publish proxy](https://centrifugal.dev/docs/server/proxy#publish-proxy) 文档记录的
+最不吵闹的拒绝方式——只否决这一次发布，不断开 Daemon 的连接。per-Agent 频道名沿用既有
+`agent` namespace（namespace 边界只看第一个 `:`，频道名 255 字符上限远大于实际用量），因此
+`infra/centrifugo/config.yaml`/`infra/staging/centrifugo/config.yaml` 均无需改动。visibility
+变更后，服务端在既有共享 `agent:status:<workspace_id>` 上发布只含 Agent id 的
+`agent:visibility_changed` 事件；已连接浏览器据此立即刷新 Agent 列表并据刷新结果订阅/退订
+对应 per-Agent 频道，看不到的成员则从本地缓存中移除该 Agent。
+
 PostgreSQL 中的 Code Agent installation 与 model catalog 快照以可信的
 `(workspace_id, computer_id, provider)` 为复合身份；同一 Computer 的不同 Workspace 各自保存
 库存和 `is_public`，任何读取、替换或可见性修改都必须带 Workspace scope。
