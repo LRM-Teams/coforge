@@ -5,6 +5,7 @@ import { Clock, Download01, File01, MarkerPin01 } from "@untitledui/icons";
 import { m } from "@/paraglide/messages";
 import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateForDisplay } from "@/lib/dates";
 
 import { loadConversationFiles, type ConversationFile } from "./conversation-files.functions";
@@ -83,6 +84,36 @@ function FileRow({
   );
 }
 
+/** Card-shaped placeholder rows, in the real list's layout so nothing shifts when files land. */
+function FilesSkeleton() {
+  return (
+    <div aria-busy="true" className="flex min-h-0 flex-1 flex-col">
+      <p role="status" className="sr-only">
+        {m.files_loading()}
+      </p>
+      <ul
+        aria-hidden="true"
+        className="flex flex-col gap-2 overflow-y-auto px-4 pt-4 pb-3 motion-safe:animate-pulse sm:px-6"
+      >
+        {["w-44", "w-56", "w-36"].map((nameWidth) => (
+          <li
+            key={nameWidth}
+            className="flex items-center gap-3 rounded-xl border border-secondary bg-primary p-3"
+          >
+            <Skeleton className="size-16 shrink-0 rounded-lg" />
+            <div className="min-w-0 flex-1">
+              <Skeleton className={`h-4 ${nameWidth} max-w-2/3`} />
+              <Skeleton className="mt-2 h-3 w-28" />
+            </div>
+            <Skeleton className="size-8 shrink-0 rounded-md" />
+            <Skeleton className="size-8 shrink-0 rounded-md" />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function ConversationFilesPanel({
   conversationId,
   onOpenMessage,
@@ -94,7 +125,7 @@ export function ConversationFilesPanel({
   const timeZone = appRoute.useLoaderData().timeZone;
   const { data: files, isPending, isError } = useConversationFiles(conversationId);
   if (isPending) {
-    return <p className="p-4 text-sm text-tertiary">{m.files_loading()}</p>;
+    return <FilesSkeleton />;
   }
   if (isError) {
     return <p className="p-4 text-sm text-destructive">{m.files_load_failed()}</p>;
