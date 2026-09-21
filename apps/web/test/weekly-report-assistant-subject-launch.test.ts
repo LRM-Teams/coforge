@@ -117,6 +117,7 @@ test("startOnSession publishes the mapped session instead of the Agent's current
   let agent: AgentControlAgent = {
     id: "agent",
     ownerId: "user",
+    visibility: "public",
     workspaceId: "workspace",
     computerId: "computer",
     runtimeConfig,

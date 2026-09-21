@@ -16,7 +16,6 @@ import { canSeeAgent } from "./agent-visibility.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentSessions } from "./agent-sessions.server";
 import { LocalAgentControlSignal, type AgentControlSignal } from "./agent-control-signal.server";
-import { AppError } from "../../lib/app-error";
 import {
   assertHasAgentControlCapability,
   type AgentControlCapability,
