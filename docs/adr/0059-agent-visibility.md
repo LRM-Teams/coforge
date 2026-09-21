@@ -8,11 +8,9 @@ Decided by: Frank
 
 Every Agent in a Workspace is visible to every member today: the members directory, @mention
 candidates, add-to-channel candidates, the workspace info roster, created-agents lists and Activity
-feeds all show every Agent unconditionally. Some Agents — starting with the new weekly-report
-Collector Agents (ADR 0032) — should not be. A Collector exists to read and summarize records on
-behalf of one User; showing it in the shared members list, letting any member @mention or DM it, or
-broadcasting its Activity workspace-wide leaks an internal implementation detail as if it were a
-teammate.
+feeds all show every Agent unconditionally. A member needs to be able to keep an Agent to
+themselves, and the weekly-report Collector Agents (ADR 0032), which work on one User's own
+records, should not appear to the rest of the Workspace at all.
 
 Raft Computer 1.0.32 has no per-Agent visibility concept to align with. Its only related setting is
 a Server-level `hideHumansFromMembers` toggle — hides every human from the members list, server-wide
@@ -35,10 +33,10 @@ other creation path keeps creating `"public"` Agents.
 
 A public Agent is visible to everyone in the Workspace, unchanged.
 
-Everyone else gets total absence, not a filtered detail: a private Agent they cannot see is missing
-from every list (members, add-to-channel candidates, @mention candidates, workspace info roster,
-created-agents lists, Activity feeds), and a lookup by id/name/handle answers the same stable
-"not visible" result a genuine absence would. The Web profile panel shows "这个 Agent 不可见" / "This
+Everyone else never sees it listed: a private Agent they cannot see is missing from every list
+(members, add-to-channel candidates, @mention candidates, workspace info roster, created-agents
+lists, Activity feeds), and a lookup by id/name/handle — for example from an avatar on one of its
+past messages — answers a stable "not visible" result with none of its details. The Web profile panel shows "这个 Agent 不可见" / "This
 Agent is not visible" with no further detail; the Agent CLI gets a stable error code
 (`AGENT_NOT_VISIBLE`) with an explanation, following the existing rule that a failure states its
 real reason on a real wire field.
@@ -105,7 +103,8 @@ seam (`visibleAgentWhere`, `canSeeAgent`, the publish proxy, the mention/roster 
 **Encoding "not visible" as a generic `NOT_FOUND` for lookups too.** Kept the same HTTP/status shape
 (404-equivalent, no detail leak) but as its own `AGENT_NOT_VISIBLE` code so the Web profile panel and
 the Agent CLI can render the specific "not visible" copy instead of a generic "not found," while
-still disclosing nothing about the Agent's existence to an unauthorized viewer.
+while disclosing none of the Agent's details. Its existence is not secret: its past messages
+keep its name and avatar (E).
 
 ## Consequences and migration
 

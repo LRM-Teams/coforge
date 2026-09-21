@@ -90,9 +90,9 @@ export function visibleAgentWhere(viewer: AgentVisibilityViewer): Prisma.AgentWh
 
 /**
  * Refuse a lookup aimed at an Agent `viewer` is not allowed to see (ADR 0059). Callers that
- * resolve an Agent by id/name/handle call this right after loading the row so the answer stays
- * as stable and detail-free as a genuine absence — never a different shape than `NOT_FOUND`
- * would have carried, and never a hint that the Agent exists at all.
+ * resolve an Agent by id/name/handle call this right after loading the row. The answer names
+ * only the fact that the viewer cannot see it (the profile panel says so); it carries none of
+ * the Agent's details.
  */
 export function assertAgentVisible(
   viewer: AgentVisibilityViewer,
