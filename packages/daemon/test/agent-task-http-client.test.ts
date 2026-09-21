@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { AgentTaskUpstreamError } from "../src/connection/agent-task-upstream-error";
+import { AgentUpstreamRefusalError } from "../src/connection/agent-upstream-refusal-error";
 import { defaultAgentTaskHttpClient } from "../src/connection/daemon-connection";
 
 const request = {
@@ -96,11 +96,11 @@ test("Agent Task HTTP client keeps the server's refusal code for the daemon log 
 
     // The caller-facing message stays exactly what it was — a test above pins that an upstream's
     // details are not published — and the cause is carried alongside it for the log.
-    expect(error).toBeInstanceOf(AgentTaskUpstreamError);
-    expect((error as AgentTaskUpstreamError).message).toBe(
+    expect(error).toBeInstanceOf(AgentUpstreamRefusalError);
+    expect((error as AgentUpstreamRefusalError).message).toBe(
       "server Agent Task request failed (400)",
     );
-    expect((error as AgentTaskUpstreamError).upstreamCode).toBe("ACCESS_DENIED");
+    expect((error as AgentUpstreamRefusalError).upstreamCode).toBe("ACCESS_DENIED");
   } finally {
     await server.stop();
   }

@@ -7,7 +7,7 @@ import {
 import { AgentTransportError } from "../src/connection/agent-transport-error";
 import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
 import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
-import { AgentTaskUpstreamError } from "../src/connection/agent-task-upstream-error";
+import { AgentUpstreamRefusalError } from "../src/connection/agent-upstream-refusal-error";
 
 const context = {
   method: "POST",
@@ -158,7 +158,7 @@ test("credentials never ride along in the detail that is returned and logged", (
 
 test("an unclassifiable upstream refusal logs the server's code, and publishes none of it", () => {
   const classified = classifyAgentProxyFailure(
-    new AgentTaskUpstreamError("server Agent Task request failed (400)", "ACCESS_DENIED"),
+    new AgentUpstreamRefusalError("server Agent Task request failed (400)", "ACCESS_DENIED"),
     { ...context, path: "/api/agent/v1/tasks", routeFamily: "agent-api/task" },
   );
 
