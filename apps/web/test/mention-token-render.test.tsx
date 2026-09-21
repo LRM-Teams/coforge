@@ -5,7 +5,6 @@ import { MessageBody } from "@/features/conversations/message-body";
 import { mentionHandlesByToken } from "@/features/conversations/message-markdown";
 
 const HUMAN_ID = "d9956ab1-9063-4182-8eab-861d1559c8ee";
-const VIEWER_ID = "67005a4f-3907-4f69-8a79-177cffdb8611";
 
 const mentionOf = (kind: "user" | "agent", actorId: string, handle: string) => ({
   kind,
@@ -25,12 +24,15 @@ test("a stored mention token renders as a chip when the message carries its ment
   expect(markup).toContain("@andong3-d9956ab1");
 });
 
-test("a mention of the viewer herself resolves: her row must not be the one missing", () => {
-  // The #574 regression: the channel payload used to drop the viewer's own row from the
-  // resolution directory, so "someone mentioning you" — the most common mention there is —
-  // was exactly the one that leaked its raw `<@human:uuid>` token.
-  const viewer = mentionOf("user", HUMAN_ID, "andong3-d9956ab1");
-  const handles = mentionHandlesByToken([viewer]);
+test("a row for the person being mentioned is enough — nothing about them is special-cased", () => {
+  // The #574 regression was in the *payload*: it dropped the viewer's own row from the
+  // resolution directory, so "someone mentioning you" — the most common mention there is — was
+  // exactly the one that leaked its raw `<@human:uuid>` token. This function has no notion of a
+  // viewer, and that is the point: whoever the row describes, it resolves. The payload side is
+  // pinned where it lives (`direct-conversation-repository.test.ts`: the pane's `mentionables`
+  // contains the viewer's own row).
+  const mentioned = mentionOf("user", HUMAN_ID, "andong3-d9956ab1");
+  const handles = mentionHandlesByToken([mentioned]);
   expect(handles.has(`user:${HUMAN_ID}`)).toBe(true);
 });
 
