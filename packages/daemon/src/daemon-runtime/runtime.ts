@@ -119,6 +119,7 @@ import {
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
 import { AgentDeliveryQueue } from "./agent-delivery-queue";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
+import { locallyHeldSend, planAgentInboxFreshness } from "./agent-inbox-freshness";
 import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
 import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
 import { isAgentApiKey } from "../credentials/agent-api-key";
@@ -3232,25 +3233,44 @@ export class DaemonRuntime {
     // any failure past this point leaves delivery state unknown, never "not sent" (see
     // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
     if (!request.sendDraft) await inbox.save(target, content, attachmentIds, mentions);
-    const result = await this.#transport.agentMessage!(
-      {
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-        requestId: request.requestId,
-        agentId,
-        workspaceId: this.#connection.workspaceId,
-        operation: "send",
-        target,
-        content,
-        continueAnyway: request.continueAnyway,
-        draftReholdCount,
-        draftReplacedExisting: !request.sendDraft && draftReholdCount > 0,
-        seenUpToSeq: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
-        freshnessContextMode: request.freshnessContextMode,
-        attachmentIds: attachmentIds ? [...attachmentIds] : undefined,
-        mentions: mentions ? [...mentions] : undefined,
-      },
-      agentApiKey,
-    );
+    // The daemon's own freshness decision, taken BEFORE any transport call: a send it holds must
+    // never be issued, because a re-issue of the same request would re-decide it (observed: the
+    // same requestId held at 00:18:30 and forwarded at 00:19:30 delivered a message the Agent had
+    // been told was held, and the deliberate `--send-draft` resend then duplicated it). A hold
+    // decided here is terminal; the server still gets the request when the daemon forwards, so its
+    // own check remains the race guard for anything that arrived in between.
+    const freshness = planAgentInboxFreshness({
+      continueAnyway: Boolean(request.continueAnyway),
+      modelSeenSequence: this.#messageAttention.modelSeenSequence(agentId, target),
+      pendingMessageCount: this.#messageAttention.pendingMessageCount(agentId, target),
+      latestSequence: this.#messageAttention.latestSequence(agentId, target),
+    });
+    const result =
+      freshness.decision === "local_hold"
+        ? locallyHeldSend(freshness, {
+            requestId: request.requestId,
+            draftReholdCount,
+            freshnessContextMode: request.freshnessContextMode,
+          })
+        : await this.#transport.agentMessage!(
+            {
+              protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+              requestId: request.requestId,
+              agentId,
+              workspaceId: this.#connection.workspaceId,
+              operation: "send",
+              target,
+              content,
+              continueAnyway: request.continueAnyway,
+              draftReholdCount,
+              draftReplacedExisting: !request.sendDraft && draftReholdCount > 0,
+              seenUpToSeq: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
+              freshnessContextMode: request.freshnessContextMode,
+              attachmentIds: attachmentIds ? [...attachmentIds] : undefined,
+              mentions: mentions ? [...mentions] : undefined,
+            },
+            agentApiKey,
+          );
     const held = result.state === "held";
     if (held) await inbox.replace(target, content, attachmentIds, mentions);
     else if (result.accepted) await inbox.clear(target);
@@ -3796,7 +3816,13 @@ export class DaemonRuntime {
   #agentInbox(agentId: string): AgentInboxStateMachine {
     const existing = this.#agentInboxes.get(agentId);
     if (existing) return existing;
-    const inbox = new AgentInboxStateMachine(new AgentMessageDraftStore(agentId));
+    // The draft file is the daemon's own continuation state, so it lives under the daemon's state
+    // directory rather than the OS temp directory: one file per Agent either way, but now scoped to
+    // the daemon instance that wrote it (and to a test's own state directory) instead of being
+    // shared by every process on the machine.
+    const inbox = new AgentInboxStateMachine(
+      new AgentMessageDraftStore(agentId, this.stateDirectory),
+    );
     this.#agentInboxes.set(agentId, inbox);
     return inbox;
   }

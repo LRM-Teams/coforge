@@ -2603,6 +2603,10 @@ describe("DaemonRuntime", () => {
     await runtime.start(connection);
     await runtime.startAgent("agent-a", config);
     const context = runtime.issueAgentContext("agent-a");
+    // The scene-setting delivery is to a DIFFERENT target: `@ada` must have nothing pending, or the
+    // daemon takes the hold itself (task #58's local decision) and never asks the server — which is
+    // a different case, covered by "a send the daemon holds locally never reaches the transport".
+    // Here the SERVER's hold comes back, and this test is about what the daemon does with it.
     await runtime.handleAgentMessage({
       protocolMajor: 1,
       requestId: "delivery-request",
@@ -2614,7 +2618,7 @@ describe("DaemonRuntime", () => {
       agentId: "agent-a",
       body: "new context",
       method: "agent:v1:message:deliver",
-      target: "@ada",
+      target: "#general",
     });
 
     const held = await runtime.agentMessage(
@@ -6991,3 +6995,89 @@ function connectedClient(): CentrifugeWorkspaceClient {
     async rpc() {},
   };
 }
+
+test("a send the daemon holds locally never reaches the transport, and re-issuing it cannot flip", async () => {
+  const calls: AgentMessageRequest[] = [];
+  const harness = await messageHarness(async (request) => {
+    calls.push(request);
+    return {
+      protocolMajor: 1,
+      requestId: request.requestId,
+      accepted: true,
+      attentionCount: 0,
+      messages: [],
+      messageId: "sent",
+      state: "sent",
+      decision: "forward",
+    };
+  });
+  try {
+    // One message the Agent has not been shown for this exact target.
+    await harness.deliver(1, "#general");
+    const send = {
+      requestId: "send-held-1",
+      context: harness.context,
+      operation: "send" as const,
+      target: "#general",
+      content: "reply",
+    };
+    const held = await harness.runtime.agentMessage(harness.context, send, harness.apiKey);
+    expect(held.state).toBe("held");
+    expect(held.decision).toBe("local_hold");
+    expect(held.reason).toBe("exact_target_pending");
+    expect(held.newMessageCount).toBe(1);
+    expect(held.messageId).toBe("");
+    // The point of deciding locally: no `send` request was issued at all, so there is nothing for a
+    // retry to re-decide. Before this, the same requestId was answered `local_hold` and then
+    // `forward` on a re-issue — which delivered a message the Agent had been told was held.
+    expect(calls.filter((call) => call.operation === "send")).toHaveLength(0);
+    // The Agent has still reviewed nothing, so a repeat of the same request is held again, and
+    // still never reaches the transport.
+    const again = await harness.runtime.agentMessage(harness.context, send, harness.apiKey);
+    expect(again.state).toBe("held");
+    expect(again.decision).toBe("local_hold");
+    expect(calls.filter((call) => call.operation === "send")).toHaveLength(0);
+  } finally {
+    await harness.runtime.stop();
+  }
+});
+
+test("--send-draft --anyway bypasses the daemon's own hold and reaches the transport", async () => {
+  const calls: AgentMessageRequest[] = [];
+  const harness = await messageHarness(async (request) => {
+    calls.push(request);
+    return {
+      protocolMajor: 1,
+      requestId: request.requestId,
+      accepted: true,
+      attentionCount: 0,
+      messages: [],
+      messageId: "sent",
+      state: "sent",
+      decision: "forward",
+    };
+  });
+  try {
+    await harness.deliver(3, "#general");
+    const sent = await harness.runtime.agentMessage(
+      harness.context,
+      {
+        requestId: "send-anyway-1",
+        context: harness.context,
+        operation: "send",
+        target: "#general",
+        content: "reply anyway",
+        continueAnyway: true,
+      },
+      harness.apiKey,
+    );
+    expect(sent.state).toBe("sent");
+    const sends = calls.filter((call) => call.operation === "send");
+    expect(sends).toHaveLength(1);
+    expect(sends[0]?.continueAnyway).toBe(true);
+    // A bypass is the one path that still reports what the Agent chose not to review.
+    expect(sent.state).toBe("sent");
+  } finally {
+    await harness.runtime.stop();
+  }
+});
