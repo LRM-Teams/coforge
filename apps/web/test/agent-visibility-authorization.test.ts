@@ -10,6 +10,7 @@ import {
   canSeeAgent,
   type AgentVisibilityViewer,
   visibleAgentWhere,
+  visiblePrivateAgentWhere,
 } from "../src/server/agents/agent-visibility.server";
 
 const WORKSPACE_ID = "workspace-1";
@@ -190,6 +191,70 @@ describe("visibleAgentWhere agrees with canSeeAgent", () => {
     expect(visibleAgentWhere(otherMembersAgentViewer)).toEqual({
       OR: [{ visibility: "public" }, { ownerId: OTHER_MEMBER }],
     });
+  });
+});
+
+/**
+ * ADR 0059 realtime gap fix: an owner/admin (or a private Agent's creator) can see private
+ * Agents beyond their own `listAgents` roster — e.g. another member's private Agent — and the
+ * browser needs their ids to subscribe the matching per-Agent realtime channels. This predicate
+ * must agree with `canSeeAgent` AND the routing rule every publisher already uses: anything other
+ * than exactly `"public"` (not just the literal string `"private"`) is a per-Agent Agent.
+ */
+function matchesPrivateAgentWhere(
+  where: Prisma.AgentWhereInput,
+  agent: { visibility: string; ownerId: string },
+): boolean {
+  const not = where.NOT;
+  if (!not || typeof not !== "object" || Array.isArray(not) || !("visibility" in not))
+    throw new Error("expected a NOT visibility clause");
+  if (not.visibility === agent.visibility) return false;
+  const { NOT: _omit, ...rest } = where;
+  return matchesAgentWhere(rest, agent);
+}
+
+describe("visiblePrivateAgentWhere", () => {
+  const roster = [
+    { id: "a1", visibility: "private", ownerId: CREATOR },
+    { id: "a2", visibility: "public", ownerId: CREATOR },
+    { id: "a3", visibility: "private", ownerId: OTHER_MEMBER },
+    { id: "a4", visibility: "public", ownerId: OTHER_MEMBER },
+    // An unrecognized value fails closed like "private" here too: the realtime routing itself
+    // treats anything non-"public" as needing a per-Agent channel, so the subscription-id query
+    // must match that, not just the literal string "private".
+    { id: "a5", visibility: "hidden", ownerId: OTHER_MEMBER },
+  ];
+  const viewers: Array<{ name: string; viewer: AgentVisibilityViewer }> = [
+    { name: "creator", viewer: creatorViewer },
+    { name: "same-creator Agent", viewer: sameCreatorAgentViewer },
+    { name: "other member", viewer: otherMemberViewer },
+    { name: "other member's Agent", viewer: otherMembersAgentViewer },
+    { name: "human admin", viewer: humanAdminViewer },
+    { name: "admin-role Agent", viewer: adminRoleAgentViewer },
+    { name: "Workspace owner", viewer: workspaceOwnerViewer },
+  ];
+
+  for (const { name, viewer } of viewers) {
+    test(`for the ${name} viewer, over every roster Agent, agrees with canSeeAgent minus public`, () => {
+      const where = visiblePrivateAgentWhere(viewer);
+      for (const agent of roster) {
+        const expected = canSeeAgent(viewer, agent) && agent.visibility !== "public";
+        expect(matchesPrivateAgentWhere(where, agent)).toBe(expected);
+      }
+    });
+  }
+
+  test("an owner/admin sees every non-public Agent, including another member's", () => {
+    const where = visiblePrivateAgentWhere(humanAdminViewer);
+    expect(matchesPrivateAgentWhere(where, roster[2]!)).toBe(true); // a3: OTHER_MEMBER's private
+    expect(matchesPrivateAgentWhere(where, roster[4]!)).toBe(true); // a5: OTHER_MEMBER's unrecognized
+    expect(matchesPrivateAgentWhere(where, roster[1]!)).toBe(false); // a2: public
+  });
+
+  test("a plain member sees only their own private Agents, never another member's", () => {
+    const where = visiblePrivateAgentWhere(creatorViewer);
+    expect(matchesPrivateAgentWhere(where, roster[0]!)).toBe(true); // a1: CREATOR's own private
+    expect(matchesPrivateAgentWhere(where, roster[2]!)).toBe(false); // a3: OTHER_MEMBER's private
   });
 });
 
