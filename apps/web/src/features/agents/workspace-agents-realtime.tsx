@@ -32,6 +32,11 @@ export type LiveAgent = {
    * set it) reads as `"public"`, matching the same fail-open default the create/list paths use
    * before this ADR existed. */
   visibility?: AgentVisibility;
+  /** ADR 0059: set only on a placeholder standing in for an Agent visible to the viewer but
+   * outside their own `listAgents` roster (`extraAgentPlaceholder`) — no real name/description,
+   * so `useLiveAgents()` (the Members directory, DM sidebar, mention list) filters it out;
+   * `useLiveAgent(id)` still returns it so the profile panel gets its live status/Activity. */
+  isExtra?: true;
 };
 
 // Both contexts are module-private: everything outside reads them through the
@@ -54,6 +59,7 @@ function extraAgentPlaceholder(id: string): LiveAgent {
     displayName: "",
     visibility: AGENT_VISIBILITY.PRIVATE,
     status: { value: "inactive", expiresAt: null },
+    isExtra: true,
   };
 }
 
@@ -82,11 +88,15 @@ export function WorkspaceAgentsProvider({
 
   // ADR 0059 realtime gap: ids of private Agents visible to this viewer beyond their own
   // `listAgents` roster (an owner/admin, or a private Agent's creator viewing it from outside
-  // their own roster). Refetched on `agent:visibility_changed` below, alongside the primary list.
+  // their own roster). Refetched on `agent:visibility_changed` below (a viewer gaining or losing
+  // sight of an already-existing Agent); refetching on focus/reconnect also catches a private
+  // Agent CREATED by someone else meanwhile, since creation has no dedicated realtime signal.
   const visiblePrivateIdsQuery = useQuery({
     queryKey: visiblePrivateAgentIdsKey(workspaceId),
     queryFn: workspaceId ? () => getVisiblePrivateIds() : skipToken,
     staleTime: Infinity,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
   });
   const ownAgentIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents]);
   const extraAgents = useMemo(
@@ -100,7 +110,7 @@ export function WorkspaceAgentsProvider({
   // `useAgentStatuses` derives its own per-Agent status subscriptions from its own current
   // state (see agent-status-realtime.ts), so a freshly-private Agent is subscribed the moment
   // it learns about it — no lag from an external, previous-render list.
-  const visibleAgents = useAgentStatuses({
+  const visibleAgents = useAgentStatuses<LiveAgent>({
     agents,
     workspaceId,
     refresh: refreshAgents,
@@ -160,8 +170,12 @@ export function WorkspaceAgentsProvider({
 }
 
 /** The live Agent list (with realtime status), for the sidebar's Direct message section. */
+/** The Members directory / DM sidebar / mention list roster: never includes an `isExtra`
+ * placeholder (ADR 0059), since those carry no real name/description and exist only so
+ * `useLiveAgent(id)` can serve live status/Activity for an Agent outside the viewer's own
+ * roster. */
 export function useLiveAgents(): LiveAgent[] {
-  return useContext(LiveAgentsContext);
+  return useContext(LiveAgentsContext).filter((agent) => !agent.isExtra);
 }
 
 /** The current Workspace id from the app shell's providers, when one is selected. */

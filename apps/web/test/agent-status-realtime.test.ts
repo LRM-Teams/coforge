@@ -164,6 +164,41 @@ test("snapshot merges membership and fields without letting unordered status rep
   ]);
 });
 
+// ADR 0059: the exact sequence `useAgentStatuses` runs on every refresh/agent:visibility_changed
+// cycle for an "extra" (owner/admin-visible-but-not-owned) Agent — `mergeExtraAgents` re-appends
+// its bare placeholder, then `mergeAgentStatusSnapshot` must carry its already-live status and
+// display forward rather than resetting it back to the placeholder's "inactive"/no-display.
+test("mergeAgentStatusSnapshot preserves an extra Agent's live status and display across a refresh", () => {
+  const extraId = "extra-agent";
+  type ExtraTrackedAgent = {
+    id: string;
+    status: AgentStatusView;
+    display?: AgentDisplaySnapshot;
+    displayRevisionHighWater?: number;
+  };
+  const placeholder: ExtraTrackedAgent = {
+    id: extraId,
+    status: { value: "inactive", expiresAt: null },
+  };
+  const liveDisplay = display({ agentId: extraId });
+  const live: ExtraTrackedAgent = {
+    id: extraId,
+    status: {
+      value: "active",
+      expiresAt: 90_000,
+      ordering: { daemonInstanceId: "daemon-1", clientSeq: 1, observedAtMs: 1_000 },
+    },
+    display: liveDisplay,
+    displayRevisionHighWater: liveDisplay.revision,
+  };
+
+  const refreshed = mergeAgentStatusSnapshot([live], mergeExtraAgents([], [placeholder]));
+
+  expect(refreshed).toHaveLength(1);
+  expect(refreshed[0]?.status).toEqual(live.status);
+  expect(refreshed[0]?.display).toEqual(live.display);
+});
+
 test("expires an active Agent locally when its lease renewal stops", () => {
   expect(expireAgentStatuses(agents, 90_001)[0]?.status).toEqual({
     value: "inactive",
