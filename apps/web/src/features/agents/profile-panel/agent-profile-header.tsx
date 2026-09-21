@@ -35,7 +35,10 @@ export function AgentProfileHeader({
 }) {
   const activity = useAgentRecentActivity(agent.id);
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary py-0 pr-2 pl-3">
+    // Same 20px gutter as the panel body (px-5): the bordered utility buttons align by box edge,
+    // while the borderless Close pulls -mr-1.5 so its glyph lands on the gutter
+    // (docs/ui-guidelines.md §3 optical alignment).
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-5 py-0">
       <AgentActivityAvatar
         agent={agent}
         display={display}
@@ -70,6 +73,7 @@ export function AgentProfileHeader({
         icon={X}
         size="sm"
         color="tertiary"
+        className="-mr-1.5"
         tooltip={m.controls_close()}
         onClick={onClose}
       />
