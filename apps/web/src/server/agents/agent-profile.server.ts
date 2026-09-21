@@ -6,7 +6,7 @@ import type {
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import type { PrismaClient } from "../../../generated/client";
 import { AGENT_DISPLAY_NAME_MAX_LENGTH } from "../../features/agents/agent.schemas";
-import { findWorkspaceUser, resolveAgentStatus } from "./agent-user-info.server";
+import { AGENT_NOT_VISIBLE, findWorkspaceUser, resolveAgentStatus } from "./agent-user-info.server";
 import {
   agentVisibilityViewerForActor,
   visibleAgentWhere,
@@ -17,7 +17,9 @@ import {
  * self-service profile description and its owner's full Agent-edit form never disagree. */
 export const AGENT_PROFILE_DESCRIPTION_MAX_LENGTH = 500;
 
-export type AgentProfileErrorBody = { ok: false; errorCode: "user_not_found"; error: string };
+export type AgentProfileErrorBody =
+  | { ok: false; errorCode: "user_not_found"; error: string }
+  | { ok: false; errorCode: "agent_not_visible"; error: string };
 export type AgentProfileShowOutcome =
   | { status: 200; body: { ok: true; profile: AgentProfileView } }
   | { status: 404; body: AgentProfileErrorBody };
@@ -73,7 +75,10 @@ async function creatorFor(db: PrismaClient, ownerId: string): Promise<AgentProfi
 async function buildProfileView(
   db: PrismaClient,
   principal: { workspaceId: string; agentId: string },
-  target: NonNullable<Awaited<ReturnType<typeof findWorkspaceUser>>>,
+  target: Exclude<
+    NonNullable<Awaited<ReturnType<typeof findWorkspaceUser>>>,
+    typeof AGENT_NOT_VISIBLE
+  >,
   viewer: AgentVisibilityViewer,
 ): Promise<AgentProfileView> {
   if (target.kind === "human") {
@@ -142,6 +147,15 @@ export async function resolveAgentProfileShow(
     target = selfAgent.name;
   }
   const resolved = await findWorkspaceUser(db, principal.workspaceId, target, viewer);
+  if (resolved === AGENT_NOT_VISIBLE)
+    return {
+      status: 404,
+      body: {
+        ok: false,
+        errorCode: "agent_not_visible",
+        error: `@${target} is not visible to you.`,
+      },
+    };
   if (!resolved)
     return {
       status: 404,
@@ -209,7 +223,7 @@ export async function resolveAgentProfileUpdate(
     agentId: principal.agentId,
   });
   const resolved = await findWorkspaceUser(db, principal.workspaceId, agent.name, viewer);
-  if (!resolved || resolved.kind !== "agent")
+  if (!resolved || resolved === AGENT_NOT_VISIBLE || resolved.kind !== "agent")
     return invalidProfileUpdate("Updated Agent profile could not be re-read.");
   const profile = await buildProfileView(db, principal, resolved, viewer);
   if (profile.kind !== "agent")

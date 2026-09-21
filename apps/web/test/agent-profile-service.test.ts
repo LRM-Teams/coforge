@@ -80,7 +80,8 @@ function baseDb(
         // is `agentVisibilityViewerForActor` resolving the calling Agent's own ownerId/role
         // (ADR 0059) — here the caller always is `scout` itself.
         if (where.name === undefined) return { ownerId: AGENT_SCOUT.ownerId, role: "member" };
-        return where.name === "scout" ? agentRecord : null;
+        if (!agentRecord) return null;
+        return where.name === (agentRecord as { name: string }).name ? agentRecord : null;
       },
       findUnique: async ({ where }: { where: { id_workspaceId: { id: string } } }) =>
         where.id_workspaceId.id === CALLER_AGENT_ID ? { name: "scout" } : null,
@@ -221,7 +222,7 @@ test("profile update: never accepts a name/Username field (the request type has 
   expect(updateData).not.toHaveProperty("name");
 });
 
-test("profile show: a private target Agent invisible to the caller answers user_not_found (ADR 0059)", async () => {
+test("profile show: a private target Agent invisible to the caller answers agent_not_visible (ADR 0059)", async () => {
   const ghost = {
     ...AGENT_SCOUT,
     name: "ghost",
@@ -235,7 +236,11 @@ test("profile show: a private target Agent invisible to the caller answers user_
   );
   expect(outcome.status).toBe(404);
   if (outcome.status !== 404) throw new Error("unreachable");
-  expect(outcome.body.errorCode).toBe("user_not_found");
+  expect(outcome.body).toEqual({
+    ok: false,
+    errorCode: "agent_not_visible",
+    error: "@ghost is not visible to you.",
+  });
 });
 
 test("createdAgentsFor: hides a private Agent from a viewer who is not its creator (ADR 0059)", async () => {

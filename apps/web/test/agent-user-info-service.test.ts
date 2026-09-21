@@ -250,7 +250,7 @@ test("user info: memberships never include a channel the caller cannot see", asy
   expect(outcome.body.memberships.some((m) => m.channel === "#secret")).toBe(false);
 });
 
-test("user info: a private Agent the caller cannot see answers user_not_found, not its details (ADR 0059)", async () => {
+test("user info: a private Agent the caller cannot see answers agent_not_visible, not its details (ADR 0059)", async () => {
   const ghost = {
     ...AGENT_SCOUT,
     id: "agent-ghost",
@@ -267,8 +267,8 @@ test("user info: a private Agent the caller cannot see answers user_not_found, n
   if (outcome.status !== 404) throw new Error("unreachable");
   expect(outcome.body).toEqual({
     ok: false,
-    errorCode: "user_not_found",
-    error: 'No human or Agent named "ghost" in this Workspace.',
+    errorCode: "agent_not_visible",
+    error: "@ghost is not visible to you.",
   });
 });
 
