@@ -335,7 +335,10 @@ test("a stalled upload reports the timeout's name, not an opaque HTTP unknown", 
   expect(
     fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json")),
   ).toBe(false);
-});
+  // Retries are why this test needs its own budget: this fixture stalls *every* upload, so the run
+  // costs (parts x attempts) x the per-attempt timeout plus ali-oss's backoff, far more than the
+  // default 5 s - and that cost is the behaviour under test.
+}, 60_000);
 
 test("republishing a version that already completed is refused before anything is uploaded", async () => {
   const outputDirectory = await tempDir("coforge-publish-republish-");
