@@ -577,6 +577,7 @@ export class PublicChannels {
         data: { readThroughSequence: latest?.sequence ?? 0 },
       });
     });
+    await this.realtime?.memberChanged({ conversationId: channelId, workspaceId });
   }
 
   /**
@@ -621,6 +622,7 @@ export class PublicChannels {
     if (channel.channelName === "general") throw new AppError("CONFLICT");
     const wasMember = await softLeaveMember(this.db, channel.id, { userId });
     if (!wasMember) throw new AppError("ACCESS_DENIED");
+    await this.realtime?.memberChanged({ conversationId: channel.id, workspaceId });
     return { left: true };
   }
 
@@ -655,6 +657,7 @@ export class PublicChannels {
     );
     if (!authority.capabilities.remove_member) throw new AppError("ACCESS_DENIED");
     const wasMember = await softLeaveMember(this.db, channel.id, target);
+    if (wasMember) await this.realtime?.memberChanged({ conversationId: channel.id, workspaceId });
     return { removed: true, wasMember };
   }
 
@@ -890,6 +893,9 @@ export class PublicChannels {
         }),
       ),
     ]);
+    const added =
+      userIds.length - alreadyMemberUserIds.length + agentIds.length - alreadyMemberAgentIds.length;
+    if (added > 0) await this.realtime?.memberChanged({ conversationId: channelId, workspaceId });
 
     const result = await this.members(workspaceId, actor, channelId);
     return { ...result, alreadyMemberUserIds, alreadyMemberAgentIds };
@@ -1029,6 +1035,63 @@ export class PublicChannels {
       hasNewer,
       messages: pageMessages.map((message) => channelMessageView(message, workspaceId)),
     };
+  }
+
+  /**
+   * The composer's @-completion directory for one channel, fetched on demand: every active
+   * member (the viewer included, per #574 — this list also resolves stored mention tokens)
+   * scored by the viewer's recent mentions. The conversation payload carries it once per
+   * load, so members who join while the page is open would otherwise only appear after a
+   * full refresh; the composer refetches this while the conversation stays open.
+   */
+  async mentionDirectory(workspaceId: string, userId: string, channelId: string) {
+    await this.channel(workspaceId, userId, channelId);
+    const [mentionRows, viewerRecentMentions] = await Promise.all([
+      this.db.conversationMember.findMany({
+        where: { conversationId: channelId, ...ACTIVE_MEMBER_WHERE },
+        select: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              description: true,
+              avatarObjectKey: true,
+            },
+          },
+          agent: { select: { id: true, name: true, displayName: true, description: true } },
+        },
+      }),
+      this.db.messageMention.findMany({
+        where: { conversationId: channelId, message: { sender: { userId } } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: { kind: true, actorId: true, createdAt: true },
+      }),
+    ]);
+    const mentionScores = mentionAffinityScores(viewerRecentMentions);
+    return mentionRows
+      .map((row) =>
+        row.user
+          ? {
+              kind: "user" as const,
+              id: row.user.id,
+              handle: row.user.username,
+              label: row.user.displayName?.trim() || row.user.username,
+              description: row.user.description.trim(),
+              avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user.id, row.user.avatarObjectKey),
+              mentionScore: mentionScores.get(`user:${row.user.id}`) ?? 0,
+            }
+          : {
+              kind: "agent" as const,
+              id: row.agent!.id,
+              handle: row.agent!.name,
+              label: row.agent!.displayName?.trim() || row.agent!.name,
+              description: row.agent!.description.trim(),
+              mentionScore: mentionScores.get(`agent:${row.agent!.id}`) ?? 0,
+            },
+      )
+      .sort((left, right) => left.handle.localeCompare(right.handle));
   }
 
   async updates(workspaceId: string, userId: string, channelId: string, afterSequence: number) {

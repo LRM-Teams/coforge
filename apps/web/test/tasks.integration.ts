@@ -72,6 +72,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
   }> = [];
   const board = new TaskBoard(db, {
     realtime: {
+      async memberChanged() {},
       async messageAvailable(event) {
         realtime.push(event);
       },
@@ -343,6 +344,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
         },
       },
       realtime: {
+        async memberChanged() {},
         async messageAvailable() {
           throw new Error("offline");
         },
@@ -742,6 +744,7 @@ test("assignment receipts survive mute and disconnect without waking unrelated A
   const signaled: string[] = [];
   const board = new TaskBoard(db, {
     realtime: {
+      async memberChanged() {},
       async messageAvailable(event) {
         signaled.push(event.messageId);
       },

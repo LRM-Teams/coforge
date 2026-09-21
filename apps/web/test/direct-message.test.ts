@@ -194,6 +194,7 @@ describe("SendDirectMessage", () => {
         },
       },
       {
+        async memberChanged() {},
         async messageAvailable(input) {
           calls.push(`browser:${input.conversationId}:${input.messageId}:${input.sequence}`);
           throw new Error("controlled browser publication outage");
@@ -314,6 +315,7 @@ describe("SendDirectMessage", () => {
         },
       },
       {
+        async memberChanged() {},
         async messageAvailable({ conversationId, messageId, sequence }) {
           calls.push("publish");
           publication = {
@@ -369,7 +371,7 @@ describe("SendDirectMessage", () => {
       repository,
       new MemoryMessageRequestIdempotency(),
       { async publish() {} },
-      { async messageAvailable() {} },
+      { async messageAvailable() {}, async memberChanged() {} },
       bestEffortMessageNotifier({} as PrismaClient, async () => ({
         notifyMessage: () => new Promise(() => {}),
       })),
@@ -561,6 +563,7 @@ describe("SendDirectMessage", () => {
         },
       },
       {
+        async memberChanged() {},
         async messageAvailable({ messageId }) {
           calls.push(`notify:${messageId}`);
         },
@@ -596,6 +599,7 @@ describe("SendDirectMessage", () => {
       new MemoryMessageRequestIdempotency(),
       { async publish() {} },
       {
+        async memberChanged() {},
         async messageAvailable() {
           notificationCalls += 1;
         },
