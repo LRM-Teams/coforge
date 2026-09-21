@@ -149,4 +149,53 @@ describe("WorkspaceMembers", () => {
     expect(JSON.stringify(result)).not.toContain("ownerId");
     expect(JSON.stringify(result)).not.toContain("avatarObjectKey");
   });
+
+  test("hides a private Agent owned by someone else from a plain member's directory (ADR 0059)", async () => {
+    let agentQuery: object | undefined;
+    const db = {
+      workspaceMembership: {
+        findUnique: async () => ({ userId: "viewer", role: "member" }),
+      },
+      user: { findMany: async () => [] },
+      agent: {
+        findMany: async (query: object) => {
+          agentQuery = query;
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+
+    await new WorkspaceMembers(db).list("workspace-1", "viewer");
+
+    expect(agentQuery).toMatchObject({
+      where: {
+        workspaceId: "workspace-1",
+        deletedAt: null,
+        OR: [{ visibility: "public" }, { ownerId: "viewer" }],
+      },
+    });
+  });
+
+  test("an owner/admin's directory query has nothing to hide", async () => {
+    let agentQuery: object | undefined;
+    const db = {
+      workspaceMembership: {
+        findUnique: async () => ({ userId: "viewer", role: "admin" }),
+      },
+      user: { findMany: async () => [] },
+      agent: {
+        findMany: async (query: object) => {
+          agentQuery = query;
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+
+    await new WorkspaceMembers(db).list("workspace-1", "viewer");
+
+    expect(agentQuery).toMatchObject({
+      where: { workspaceId: "workspace-1", deletedAt: null },
+    });
+    expect((agentQuery as { where: object }).where).not.toHaveProperty("OR");
+  });
 });
