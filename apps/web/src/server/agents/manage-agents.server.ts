@@ -283,5 +283,8 @@ export function runtimeStartFields(config: AgentRecord["runtimeConfig"]) {
     modelProvider: config.modelProvider,
     reasoning: config.reasoning,
     providerConfig: launchProviderConfig,
+    // The fenced profile kind rides the wire as a plain string
+    // (`AgentStartIntent.tool_profile`); an unfenced Agent omits it.
+    ...(config.toolProfile ? { toolProfile: config.toolProfile.kind } : {}),
   };
 }

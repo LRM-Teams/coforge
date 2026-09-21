@@ -384,6 +384,10 @@ function runtimeConfigOf(intent: AgentStartIntent): AgentRuntimeConfig {
     modelProvider: intent.modelProvider,
     reasoning: intent.reasoning,
     providerConfig: intent.providerConfig,
+    // The wire carries the fenced profile as a plain string kind; the codec's
+    // decode already rejected anything but "memory-explorer", so a present
+    // value is exactly that profile.
+    ...(intent.toolProfile ? { toolProfile: { kind: "memory-explorer" as const } } : {}),
   };
 }
 

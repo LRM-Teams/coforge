@@ -146,13 +146,17 @@ async function harness() {
 }
 
 function managedStart(agentId: string, requestId: string, epoch: number, launchId: string) {
+  // The wire intent carries the fenced profile as a plain string kind; the
+  // internal `config` fixture keeps the object form.
+  const { toolProfile, ...runtimeFields } = config;
   return {
     protocolMajor: 1,
     requestId,
     workspaceId: connection.workspaceId,
     computerId: connection.computerId,
     agentId,
-    ...config,
+    ...runtimeFields,
+    ...(toolProfile ? { toolProfile: toolProfile.kind } : {}),
     controlEpoch: epoch,
     launchId,
   };

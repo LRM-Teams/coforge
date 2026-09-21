@@ -1509,9 +1509,26 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   #publishActivity(client: CentrifugeWorkspaceClient, activity: AgentActivity): void {
     // Activity is an observation. Failure must not block Agent work or be retried.
-    void client
-      .publish?.(`agent:activity:${activity.workspaceId}`, encodeAgentActivity(activity))
-      .catch(() => {});
+    // The encode itself can throw synchronously (an entry that fails the SDK's
+    // shape validation) — that throw is NOT covered by the promise `.catch`, and
+    // escaping through the session's synchronous event dispatch aborts the very
+    // run that produced the observation. Encode inside the guard so a malformed
+    // observation is dropped (and logged for diagnosis) instead.
+    try {
+      void client
+        .publish?.(`agent:activity:${activity.workspaceId}`, encodeAgentActivity(activity))
+        .catch(() => {});
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "agent_activity:publish_dropped",
+          agent_id: activity.agentId,
+          detail_kind: activity.detailKind,
+          entries: activity.entries,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
   }
 
   #flushPendingActivity(client: CentrifugeWorkspaceClient): void {

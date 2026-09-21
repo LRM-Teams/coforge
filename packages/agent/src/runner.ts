@@ -358,59 +358,63 @@ export async function createSession(options: {
     .getExtensions()
     .extensions.some((extension) => extension.tools.has("bash"));
   const fenced = options.toolProfile?.kind === "memory-explorer";
+  const memoryTools = fenced ? memoryExplorerTools(environment) : [];
   const created = await createAgentSessionFromServices({
     services,
     sessionManager,
     ...(model ? { model } : {}),
     ...(options.reasoning ? { thinkingLevel: options.reasoning as never } : {}),
     // The fenced profile replaces the default tool surface entirely: no
-    // built-ins, no extensions, only the native explorer tools.
-    ...(fenced
-      ? { noTools: "all" as const, customTools: memoryExplorerTools(environment) }
-      : options.environment && !extensionDefinesBash
-        ? {
-            customTools: [
-              createBashTool(cwd, {
-                shellPath: services.settingsManager.getShellPath(),
-                commandPrefix: services.settingsManager.getShellCommandPrefix(),
-                spawnHook: ({ env, ...context }) => {
-                  const childEnv = { ...env };
-                  for (const key of [
-                    "COFORGE_AGENT_CONTEXT",
-                    "COFORGE_AGENT_PROXY_URL",
-                    "COFORGE_DAEMON_SOCKET",
-                    "COFORGE_SUPERVISOR_SOCKET",
-                    "COFORGE_CURRENT_AGENT_ID",
-                    "COFORGE_CURRENT_AGENT_NAME",
-                    "COFORGE_CURRENT_WORKSPACE_ID",
-                    "COFORGE_CURRENT_WORKSPACE_SLUG",
-                    "COFORGE_CURRENT_WORKSPACE_NAME",
-                    "COFORGE_CURRENT_COMPUTER_ID",
-                    "COFORGE_CURRENT_COMPUTER_NAME",
-                    "COFORGE_CURRENT_COMPUTER_HOSTNAME",
-                    "COFORGE_CURRENT_COMPUTER_OS",
-                    "COFORGE_CURRENT_COMPUTER_VERSION",
-                    "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
-                  ])
-                    delete childEnv[key];
-                  Object.assign(childEnv, environment);
-                  // Pi resolves current metadata before the hook, including absent values.
-                  for (const key of [
-                    "PI_SESSION_ID",
-                    "PI_SESSION_FILE",
-                    "PI_PROVIDER",
-                    "PI_MODEL",
-                    "PI_REASONING_LEVEL",
-                  ]) {
-                    if (env[key] === undefined) delete childEnv[key];
-                    else childEnv[key] = env[key];
-                  }
-                  return { ...context, env: childEnv };
-                },
-              }),
-            ],
-          }
-        : {}),
+    // built-ins, no extensions, only the native explorer tools. The pi SDK's
+    // allowlist (`tools`) gates EVERY registry member — custom tools included —
+    // so the fence names exactly the native tools; `noTools: "all"` cannot be
+    // used here because its empty allowlist would strip the native tools too,
+    // leaving `tools: []` on the wire, which model endpoints reject.
+    ...(fenced ? { tools: memoryTools.map((tool) => tool.name), customTools: memoryTools } : {}),
+    ...(!fenced && options.environment && !extensionDefinesBash
+      ? {
+          customTools: [
+            createBashTool(cwd, {
+              shellPath: services.settingsManager.getShellPath(),
+              commandPrefix: services.settingsManager.getShellCommandPrefix(),
+              spawnHook: ({ env, ...context }) => {
+                const childEnv = { ...env };
+                for (const key of [
+                  "COFORGE_AGENT_CONTEXT",
+                  "COFORGE_AGENT_PROXY_URL",
+                  "COFORGE_DAEMON_SOCKET",
+                  "COFORGE_SUPERVISOR_SOCKET",
+                  "COFORGE_CURRENT_AGENT_ID",
+                  "COFORGE_CURRENT_AGENT_NAME",
+                  "COFORGE_CURRENT_WORKSPACE_ID",
+                  "COFORGE_CURRENT_WORKSPACE_SLUG",
+                  "COFORGE_CURRENT_WORKSPACE_NAME",
+                  "COFORGE_CURRENT_COMPUTER_ID",
+                  "COFORGE_CURRENT_COMPUTER_NAME",
+                  "COFORGE_CURRENT_COMPUTER_HOSTNAME",
+                  "COFORGE_CURRENT_COMPUTER_OS",
+                  "COFORGE_CURRENT_COMPUTER_VERSION",
+                  "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
+                ])
+                  delete childEnv[key];
+                Object.assign(childEnv, environment);
+                // Pi resolves current metadata before the hook, including absent values.
+                for (const key of [
+                  "PI_SESSION_ID",
+                  "PI_SESSION_FILE",
+                  "PI_PROVIDER",
+                  "PI_MODEL",
+                  "PI_REASONING_LEVEL",
+                ]) {
+                  if (env[key] === undefined) delete childEnv[key];
+                  else childEnv[key] = env[key];
+                }
+                return { ...context, env: childEnv };
+              },
+            }),
+          ],
+        }
+      : {}),
   });
   return {
     ...created,

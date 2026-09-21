@@ -579,6 +579,9 @@ export type AgentStartIntent = {
   /** ADR 0041: the server-minted launchId for this control operation's start step; required
    * whenever `controlEpoch` is set (every managed start). */
   launchId?: string;
+  /** Fenced runtime tool profile kind (ADR 0054-D's Memory Agent explorer).
+   * Absent = the ordinary full-tool runtime. */
+  toolProfile?: "memory-explorer";
   providerConfig?: AgentRuntimeProviderConfig;
   wakeMessage?: AgentRecoveryMessage;
   resumeMessages?: AgentRecoveryMessage[];

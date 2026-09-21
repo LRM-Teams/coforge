@@ -1,0 +1,34 @@
+# Local deployment override: publish PostgreSQL to the host for a host-run
+# Web backend, while Redis (16379) and Centrifugo (18000) avoid occupied ports.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  # The Docker daemon injects http_proxy into containers; busybox wget ignores
+  # no_proxy, so the stock healthcheck 404s through the proxy. Clear it here.
+  # The connect/rpc proxies must also reach the host-run web directly: point
+  # every callback at the compose network gateway instead of
+  # host.docker.internal, which the injected proxy cannot resolve.
+  centrifugo:
+    healthcheck:
+      test: ["CMD-SHELL", "http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= wget --spider -q http://127.0.0.1:8000/health"]
+    # Container→host egress only works through the docker-daemon-injected
+    # http_proxy (clash on the host CAN reach 192.168.80.1); keep the proxy
+    # env intact and point the callbacks at the compose network gateway.
+    environment:
+      COFORGE_WORKER_JWKS_ENDPOINT: http://192.168.80.1:8789/api/jwks
+      COFORGE_CONNECT_PROXY_ENDPOINT: http://192.168.80.1:8789/api/internal/centrifugo-connect
+      COFORGE_RPC_PROXY_ENDPOINT: http://192.168.80.1:8789/api/internal/centrifugo
+      COFORGE_ACTIVITY_PROXY_ENDPOINT: http://192.168.80.1:8789/api/internal/centrifugo-agent-activity
+
+  # In-network forwarder: centrifugo's connect/rpc callbacks reach the
+  # host-run web through this hop instead of crossing the bridge directly
+  # (its Go client times out on the direct path for reasons this machine's
+  # networking never explained; curl on the same path is instant).
+  fwd:
+    image: nginx:alpine
+    volumes:
+      - /tmp/fwd/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:18790:8790"

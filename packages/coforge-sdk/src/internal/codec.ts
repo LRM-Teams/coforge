@@ -760,6 +760,11 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error("invalid agent start intent: managed start requires a launchId");
   if (v.launchId !== undefined && v.launchId.length > 512)
     throw new Error("invalid agent start intent launchId");
+  // The fenced tool-profile vocabulary has one owner (the Memory Agent's
+  // explorer, ADR 0054-D); an unknown kind here would silently launch an
+  // unfenced runtime, so reject it at the boundary.
+  if (v.toolProfile !== undefined && v.toolProfile !== "memory-explorer")
+    throw new Error("invalid agent start intent tool profile");
   const recoveryMessages = [...(v.wakeMessage ? [v.wakeMessage] : []), ...v.resumeMessages];
   const summaryTargets = new Set(v.unreadSummary.map(({ target }) => target));
   const messageIds = new Set(recoveryMessages.map(({ messageId }) => messageId));
@@ -822,6 +827,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     ...(v.sessionMode ? { sessionMode: v.sessionMode } : {}),
     ...(v.controlEpoch !== undefined ? { controlEpoch: v.controlEpoch } : {}),
     ...(v.launchId ? { launchId: v.launchId } : {}),
+    ...(v.toolProfile ? { toolProfile: v.toolProfile as "memory-explorer" } : {}),
     ...(v.wakeMessage ? { wakeMessage: recoveryMessage(v.wakeMessage) } : {}),
     ...(v.resumeMessages.length ? { resumeMessages: v.resumeMessages.map(recoveryMessage) } : {}),
     ...(v.unreadSummary.length

@@ -23,6 +23,23 @@ test("round-trips launchId on a managed (controlEpoch-carrying) start intent", (
   });
 });
 
+test("round-trips the fenced tool profile kind and rejects an unknown one at the boundary", () => {
+  const fenced = { ...base, toolProfile: "memory-explorer" as const };
+  expect(decodeAgentStartIntent(encodeAgentStartIntent(fenced))).toMatchObject({
+    toolProfile: "memory-explorer",
+  });
+  expect(decodeAgentStartIntent(encodeAgentStartIntent(base)).toolProfile).toBeUndefined();
+  const forged = toBinary(
+    AgentStartIntentSchema,
+    create(AgentStartIntentSchema, {
+      ...base,
+      messageType: AGENT_START_MESSAGE_TYPE,
+      toolProfile: "admin-all",
+    }),
+  );
+  expect(() => decodeAgentStartIntent(forged)).toThrow("invalid agent start intent tool profile");
+});
+
 test("round-trips an unmanaged start intent without launchId or controlEpoch", () => {
   expect(decodeAgentStartIntent(encodeAgentStartIntent(base))).toEqual({
     ...base,
