@@ -203,7 +203,7 @@ In the collect→synthesize flow ([ADR 0032](docs/adr/0032-weekly-report-collect
 this Agent is the synthesizer and side-chat voice only — it does not harvest
 another Computer's OS. For this Agent only, each Records page subject
 (report or cycle) owns its own Agent session so week nodes do not share one
-long transcript ([ADR 0059](docs/adr/0059-weekly-assistant-per-subject-runtime-session.md)).
+long transcript ([ADR 0060](docs/adr/0060-weekly-assistant-per-subject-runtime-session.md)).
 _Avoid_: Workspace-wide report Agent, shared report bot, Agent runtime,
 WeeklyReportCollector
 

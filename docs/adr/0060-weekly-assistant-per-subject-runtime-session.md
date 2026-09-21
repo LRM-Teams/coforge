@@ -1,4 +1,4 @@
-# ADR 0059: WeeklyReportAssistant uses one Agent session per Records subject
+# ADR 0060: WeeklyReportAssistant uses one Agent session per Records subject
 
 Status: accepted
 Date: 2026-09-21

@@ -7,7 +7,7 @@ export type WeeklyReportSubjectType = "report" | "cycle";
 
 /**
  * Cloud reservation for the WeeklyReportAssistant Agent session bound to one
- * Records page subject (ADR 0059). Distinct from the side-chat thread and from
+ * Records page subject (ADR 0060). Distinct from the side-chat thread and from
  * `Agent.currentSessionId`.
  */
 export async function ensureWeeklyReportAssistantRuntimeSession(
