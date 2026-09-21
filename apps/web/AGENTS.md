@@ -538,6 +538,18 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   so the message-history surfaces (message rows, the thread root, the thread reply preview, the DM
   header and the avatar popover) cannot drift apart. A Task owner is not covered: `TaskView.owner`
   on the shared Task contract carries no delete marker, and adding one is a wire-protocol change.
+- `features/agents/agent-visibility.ts` owns the `AgentVisibility` vocabulary (`public`/`private`,
+  ADR 0059) and its `isAgentVisibility` guard, kept Web-only and outside any `.server.ts` file so
+  browser-side validators (`agent.schemas.ts`-style `z.enum`) can import it too.
+  `server/agents/agent-visibility.server.ts` is the one authorization seam every visibility-aware
+  read/write composes with: `visibleAgentWhere` (a `Prisma.AgentWhereInput` fragment meant to sit
+  beside `ACTIVE_AGENT_WHERE`), `canSeeAgent` (the same rule as an in-memory check), and
+  `assertAgentVisible` (throws `AGENT_NOT_VISIBLE`, the by-id/name/handle-lookup sibling of
+  `assertAgentLive`). `agentVisibilityViewerForUser`/`agentVisibilityViewerForAgent` build its
+  `AgentVisibilityViewer` from a human's existing `resolveActorServerRole` lookup or an
+  already-resolved Agent principal — never a second query of their own. This foundation slice adds
+  only the seam; roster/mention/channel/manage/DM/publish-proxy call sites are wired in follow-up
+  slices.
 - `features/agents/agent-reminders.functions.ts` and `server/agents/agent-reminders.server.ts`
   own the owner-only, Workspace-scoped browser read model for bounded Reminder lists and
   expose scheduled Reminders only. Reminder lifecycle and history persistence remain in

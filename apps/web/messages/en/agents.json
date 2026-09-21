@@ -18,6 +18,7 @@
   "agent_status_unknown": "Status unavailable",
   "agent_private_chat": "Private chat",
   "agent_chat_unavailable": "Private chat is coming in the next update",
+  "agent_not_visible": "This Agent is not visible",
   "agent_empty_title": "No agents yet",
   "agent_empty_description": "Create an Agent to start building your team.",
   "agent_empty_computer_description": "Agents need a computer to work on. Connect one, then create your first agent.",

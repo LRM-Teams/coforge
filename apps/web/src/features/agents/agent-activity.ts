@@ -25,6 +25,12 @@ export type ActivityEntry = {
 
 export const agentActivityChannel = (workspaceId: string) => `agent:activity:${workspaceId}`;
 
+/** The re-routed destination for a private Agent's Activity (ADR 0059): the publish proxy
+ * forwards the same raw frame here instead of the shared `agentActivityChannel`, and only a
+ * viewer who can currently see that Agent is ever issued a subscription token for it. */
+export const agentActivityChannelForAgent = (workspaceId: string, agentId: string) =>
+  `agent:activity:${workspaceId}:${agentId}`;
+
 /** The avatar popover's row count. */
 export const RECENT_ACTIVITY_LIMIT = 5;
 

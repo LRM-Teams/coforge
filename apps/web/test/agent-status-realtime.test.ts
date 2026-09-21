@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 
 const {
   ACTIVITY_PROBE_TIMEOUT_MS,
+  agentStatusChannel,
+  agentStatusChannelForAgent,
   applyAgentDisplaySnapshot,
   applyAgentStatusEvent,
   decodeAgentStatusEvent,
@@ -14,6 +16,15 @@ import type {
   AgentStatusView,
 } from "../src/features/agents/agent-status-realtime";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+
+test("agentStatusChannelForAgent names the per-Agent re-routing destination (ADR 0059)", () => {
+  expect(agentStatusChannelForAgent("workspace-1", "agent-1")).toBe(
+    "agent:status:workspace-1:agent-1",
+  );
+  expect(agentStatusChannelForAgent("workspace-1", "agent-1")).not.toBe(
+    agentStatusChannel("workspace-1"),
+  );
+});
 
 const ordering = {
   daemonInstanceId: "daemon-1",

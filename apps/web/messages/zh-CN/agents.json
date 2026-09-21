@@ -18,6 +18,7 @@
   "agent_status_unknown": "状态不可用",
   "agent_private_chat": "私聊",
   "agent_chat_unavailable": "私聊功能将在下一次更新中推出",
+  "agent_not_visible": "这个 Agent 不可见",
   "agent_empty_title": "还没有智能体",
   "agent_empty_description": "创建一个智能体来组建你的团队。",
   "agent_empty_computer_description": "智能体需要在电脑上工作。连接电脑后，即可创建第一个智能体。",

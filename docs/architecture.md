@@ -954,6 +954,14 @@ connection metadata、Workspace、Computer、Agent 与 payload scope，成功接
 照常幂等写入 PostgreSQL。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置
 合适 runtime 前不能执行对应 Agent。
 
+Agent visibility（ADR 0059）不改变 Daemon：Daemon 始终只发布到共享
+`agent:activity:<workspace_id>`，没有 visibility 概念。Publish proxy 按该 Agent 当前
+`visibility` 分流：public Agent 照常转发到共享 `agent:activity:<workspace_id>`；private Agent
+改为把同一原始二进制帧转发到 per-Agent 频道 `agent:activity:<workspace_id>:<agent_id>`，并拒绝
+共享广播，`agent:display` 快照按同样规则使用对应的 per-Agent `agent:status:<workspace_id>:<agent_id>`。
+per-Agent 频道的订阅 token 只签发给当前能看到该 Agent 的成员；看不到的成员既不订阅也不知道
+该频道存在。Private Agent 从不是任何频道（含 `#general`）的活跃成员。
+
 PostgreSQL 中的 Code Agent installation 与 model catalog 快照以可信的
 `(workspace_id, computer_id, provider)` 为复合身份；同一 Computer 的不同 Workspace 各自保存
 库存和 `is_public`，任何读取、替换或可见性修改都必须带 Workspace scope。
