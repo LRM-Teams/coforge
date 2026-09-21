@@ -547,7 +547,7 @@ test("forgets the oldest deliveries so a long-lived Agent does not grow without 
 });
 
 test("the consumed cursor survives a restart, in Raft's consumed-seqs file", () => {
-  const store = new AgentConsumedSeqStore(temporaryStateDirectory(), "workspace-1");
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
   const before = indexWithConsumedSeqs(store);
   before.recordModelSeen("agent-1", "@ada", 7);
   before.recordReadContext("agent-1", "#general:11111111");
@@ -566,7 +566,7 @@ test("the consumed cursor survives a restart, in Raft's consumed-seqs file", () 
 });
 
 test("a restart keeps the read context a thread-target confirmation is decided from", () => {
-  const store = new AgentConsumedSeqStore(temporaryStateDirectory(), "workspace-1");
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
   const before = indexWithConsumedSeqs(store);
   // The Agent read a thread under the channel and never read the channel itself: exactly the shape
   // that makes a top-level send to the channel ask for confirmation (Raft's
@@ -582,7 +582,7 @@ test("a restart keeps the read context a thread-target confirmation is decided f
 });
 
 test("stopping an Agent drops its volatile bookkeeping, not its durable cursor", async () => {
-  const store = new AgentConsumedSeqStore(temporaryStateDirectory(), "workspace-1");
+  const store = new AgentConsumedSeqStore(temporaryStateDirectory());
   const index = indexWithConsumedSeqs(store);
   await index.receive(delivery("1"));
   index.recordModelSeen("agent-1", "@ada", 4);

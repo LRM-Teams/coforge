@@ -1,4 +1,13 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 
@@ -63,23 +72,39 @@ function positiveFiniteNumber(value: unknown): number | undefined {
  * Raft's; only the location is CoForge's own state directory.
  */
 export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
-  constructor(
-    private readonly stateDirectory: string,
-    private readonly workspaceId: string,
-  ) {
-    if (!stateDirectory || !SAFE.test(workspaceId))
-      throw new Error("invalid consumed-sequence state scope");
+  readonly #root: string;
+
+  /** Raft's `SLOCK_CLI_CONSUMED_SEQ_STATE_DIR ?? os.tmpdir()`, under CoForge's own directory name,
+   * next to the draft store: this file belongs to the CLI's temporary state, not to the daemon's
+   * persistent state directory (task #58, Frank: "放 /tmp"). */
+  constructor(rootDirectory = process.env.COFORGE_CLI_CONSUMED_SEQ_STATE_DIR ?? tmpdir()) {
+    if (!rootDirectory) throw new Error("consumed-sequence state directory is required");
+    this.#root = rootDirectory;
   }
 
   #path(agentId: string): string {
     if (!SAFE.test(agentId)) throw new Error("invalid consumed-sequence Agent scope");
     return join(
-      this.stateDirectory,
-      "agent-consumed-seqs",
-      this.workspaceId,
-      agentId,
+      this.#root,
+      `coforge-cli-consumed-seq-${encodeIdentity(String(process.geteuid?.() ?? userInfo().username))}`,
+      encodeIdentity(agentId),
       "consumed-seqs.json",
     );
+  }
+
+  /** `/tmp` is world-writable, so the directories are ours before a cursor is written into them:
+   * real directories (not symlinks) owned by this user, mode `0700`, as the draft store requires. */
+  #prepareDirectories(path: string): void {
+    for (const directory of [dirname(dirname(path)), dirname(path)]) {
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const status = lstatSync(directory);
+      if (status.isSymbolicLink() || !status.isDirectory())
+        throw new Error("consumed-sequence directory must be a real directory");
+      const uid = process.geteuid?.();
+      if (uid !== undefined && status.uid !== uid)
+        throw new Error("consumed-sequence directory must be owned by the current user");
+      chmodSync(directory, 0o700);
+    }
   }
 
   read(agentId: string): AgentConsumedSeqState {
@@ -156,7 +181,7 @@ export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
     const path = this.#path(agentId);
     const temporary = `${path}.${crypto.randomUUID()}.tmp`;
     try {
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      this.#prepareDirectories(path);
       writeFileSync(temporary, `${JSON.stringify(state)}\n`, { mode: 0o600 });
       chmodSync(temporary, 0o600);
       renameSync(temporary, path);
@@ -176,6 +201,12 @@ export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
       });
     }
   }
+}
+
+/** The same identity escaping the draft store uses: an Agent id is never a raw path segment. */
+function encodeIdentity(identity: string): string {
+  if (!identity) throw new Error("consumed-sequence identity is required");
+  return encodeURIComponent(identity).replaceAll(".", "%2E");
 }
 
 type MutableState = { targets: Record<string, AgentConsumedSeqEntry>; nextReadOrder: number };
