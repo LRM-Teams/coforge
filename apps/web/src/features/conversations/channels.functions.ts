@@ -226,6 +226,30 @@ export const setPublicChannelThreadFollowed = createServerFn({ method: "POST" })
     );
   });
 
+const channelThreadAgentsInput = channelInput.extend({ threadRootId: z.uuid() });
+
+export const loadPublicChannelThreadFollowingAgents = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelThreadAgentsInput)
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.threadFollowingAgents(workspaceId, userId, data.channelId, data.threadRootId);
+  });
+
+export const unfollowPublicChannelThreadAgent = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(channelThreadAgentsInput.extend({ agentId: z.uuid() }))
+  .handler(async ({ data, context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    return channels.unfollowAgentFromThread(
+      workspaceId,
+      userId,
+      data.channelId,
+      data.threadRootId,
+      data.agentId,
+    );
+  });
+
 export const sendPublicChannelMessage = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(

@@ -2297,3 +2297,123 @@ test("a thread's root author starts following that thread, so later replies reac
     await db.$disconnect();
   }
 });
+
+test("a channel member can list and unfollow Agents following a thread; a private Agent is hidden from other members", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `fa${suffix}` } });
+  const bob = await db.user.create({ data: { username: `fb${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `follow-agents-${suffix}`,
+      name: "Following agents",
+      members: {
+        create: [{ userId: alice.id, role: "owner" }, { userId: bob.id }],
+      },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: alice.id, machineId: crypto.randomUUID() },
+    });
+    const helper = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "helper",
+        displayName: "Helper",
+        runtimeConfig: {},
+      },
+    });
+    const scout = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "scout",
+        displayName: "Scout",
+        visibility: "private",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+    });
+    const general = (await channels.list(workspace.id, alice.id))[0]!;
+    const root = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "please both take this",
+    });
+    await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "@helper @scout please follow",
+      threadRootId: root.id,
+    });
+
+    const aliceView = await channels.threadFollowingAgents(
+      workspace.id,
+      alice.id,
+      general.id,
+      root.id,
+    );
+    expect(aliceView.canUnfollow).toBe(true);
+    expect(aliceView.agents.map((agent) => agent.id).sort()).toEqual([helper.id, scout.id].sort());
+
+    const bobView = await channels.threadFollowingAgents(workspace.id, bob.id, general.id, root.id);
+    expect(bobView.canUnfollow).toBe(true);
+    expect(bobView.agents.map((agent) => agent.id)).toEqual([helper.id]);
+
+    await expect(
+      channels.unfollowAgentFromThread(workspace.id, bob.id, general.id, root.id, scout.id),
+    ).rejects.toThrow("NOT_FOUND");
+
+    await db.conversationMember.update({
+      where: { conversationId_userId: { conversationId: general.id, userId: bob.id } },
+      data: { leftAt: new Date() },
+    });
+    const leftView = await channels.threadFollowingAgents(
+      workspace.id,
+      bob.id,
+      general.id,
+      root.id,
+    );
+    expect(leftView.canUnfollow).toBe(false);
+    expect(leftView.agents.map((agent) => agent.id)).toEqual([helper.id]);
+    await expect(
+      channels.unfollowAgentFromThread(workspace.id, bob.id, general.id, root.id, helper.id),
+    ).rejects.toThrow("ACCESS_DENIED");
+
+    expect(
+      await channels.unfollowAgentFromThread(
+        workspace.id,
+        alice.id,
+        general.id,
+        root.id,
+        helper.id,
+      ),
+    ).toEqual({ followed: false });
+    expect(
+      (
+        await channels.threadFollowingAgents(workspace.id, alice.id, general.id, root.id)
+      ).agents.map((agent) => agent.id),
+    ).toEqual([scout.id]);
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: alice.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});

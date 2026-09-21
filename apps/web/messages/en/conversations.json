@@ -112,6 +112,20 @@
   "conversation_thread_empty": "Send the first reply to start this thread.",
   "conversation_thread_follow": "Follow thread",
   "conversation_thread_unfollow": "Unfollow thread",
+  "conversation_thread_following_agents": "Following Agents",
+  "conversation_thread_following_agents_count": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} following Agent",
+        "countPlural=other": "{count} following Agents"
+      }
+    }
+  ],
+  "conversation_thread_following_agents_empty": "No Agents are following this thread.",
+  "conversation_thread_following_agents_error": "Could not load following Agents.",
+  "conversation_thread_unfollow_agent": "Stop {name} following this thread",
   "conversation_you": "You",
   "tasks_tab": "Tasks",
   "tasks_chat_tab": "Chat",
