@@ -89,22 +89,33 @@ export function AgentRuntimeConfigForm({
           onDirtyChange={setRuntimeDirty}
         />
         {environment !== undefined && (
-          <Disclosure className="rounded-lg border border-secondary sm:col-span-2">
+          // Raft's dialog shows this as a plain "More" disclosure — a small-caps trigger with a
+          // chevron, not a bordered pill — whose panel is a titled section: the section's own
+          // heading, one line saying what environment variables do, then the rows and the add
+          // action. The heading and the line together replace what used to be a bordered box with
+          // a trailing hint, which read as a stray control rather than a section of the form.
+          <Disclosure className="sm:col-span-2">
             <Button
               slot="trigger"
               type="button"
               color="tertiary"
               size="sm"
-              className="w-full justify-between"
-              iconTrailing={ChevronDown}
+              className="w-max gap-1 px-0 text-xs font-medium tracking-wide text-tertiary uppercase"
+              iconLeading={ChevronDown}
             >
-              {m.agent_env_advanced()}
+              {m.agent_env_more()}
             </Button>
-            <DisclosurePanel className="grid gap-3 border-t border-secondary p-3">
+            <DisclosurePanel className="grid gap-3 pt-3">
               {envPending ? (
                 <p className="text-sm text-tertiary">{m.agent_env_loading()}</p>
               ) : (
                 <>
+                  <div className="grid gap-1">
+                    <p className="text-xs font-medium tracking-wide text-tertiary uppercase">
+                      {m.agent_env_title()}
+                    </p>
+                    <p className="text-sm text-tertiary">{m.agent_env_description()}</p>
+                  </div>
                   {envRows.map((row, index) => (
                     <div key={index} className="flex min-w-0 items-center gap-2">
                       <Input
@@ -152,7 +163,6 @@ export function AgentRuntimeConfigForm({
                   >
                     {m.agent_env_add()}
                   </Button>
-                  <p className="text-xs text-tertiary">{m.agent_env_hint()}</p>
                 </>
               )}
             </DisclosurePanel>
