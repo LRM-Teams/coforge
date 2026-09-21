@@ -30,7 +30,10 @@ export const agentApiRoutes = {
     },
   },
   local: {
-    messages: { method: "POST", path: "/api/agent/v1/messages" },
+    messages: {
+      method: "POST",
+      path: "/api/agent/v1/messages",
+    },
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },

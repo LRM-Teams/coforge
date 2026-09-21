@@ -145,7 +145,14 @@ export async function handleAgentMessagesPost(
     return Response.json({ error: "invalid attachmentIds" }, { status: 400 });
   if (body.mentions !== undefined && !isValidMentionSelectorArray(body.mentions))
     return Response.json({ error: "invalid mentions" }, { status: 400 });
-  const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
+  // Raft's own name for this request's idempotency key (task #58 ④), and our only one: a request
+  // must not be deduplicable under two spellings, so `requestId` is not read. Raft's
+  // declared-but-unused `continue` field needs no handling here — this handler only reads what it
+  // acts on (the force-send flag is `continueAnyway`, as in Raft).
+  const requestId =
+    typeof body.idempotencyKey === "string" && body.idempotencyKey
+      ? body.idempotencyKey
+      : crypto.randomUUID();
   try {
     const result = await executeAgentSendMessageWithPolicy(dependencies, {
       requestId,
