@@ -3,8 +3,34 @@ import {
   type AgentReminderOperationRequest,
   validateAgentReminderOperationRequest,
 } from "@lrm/coforge-sdk/internal";
+import { isAppError } from "#/lib/app-error";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { createAgentReminderService } from "#/server/agents/agent-api-http.server";
+
+export type AgentReminderPrincipal = {
+  workspaceId: string;
+  agentId: string;
+  computerId: string;
+  userId: string;
+};
+
+type AgentReminderService = (
+  command: AgentReminderOperationRequest,
+  userId: string,
+) => Promise<unknown>;
+
+function isReminderAuthorizationFailure(error: unknown): boolean {
+  if (isAppError(error)) return error.code === "ACCESS_DENIED";
+  return (
+    error instanceof Error &&
+    [
+      "reminder operation is not authorized",
+      "reminder target is not authorized",
+      "reminder snapshot is not authorized",
+      "reminder fire is not authorized",
+    ].includes(error.message)
+  );
+}
 
 /**
  * The Agent API names the request's idempotency key `idempotencyKey`; the reminder command — whose
@@ -16,8 +42,8 @@ import { createAgentReminderService } from "#/server/agents/agent-api-http.serve
  */
 export async function handleAgentReminderPost(
   request: Request,
-  principal: { workspaceId: string; agentId: string; computerId: string; userId: string },
-  service: (command: AgentReminderOperationRequest, userId: string) => Promise<unknown>,
+  principal: AgentReminderPrincipal,
+  service: AgentReminderService,
 ): Promise<Response> {
   try {
     const body = (await request.json()) as AgentReminderOperationRequest & {
@@ -39,7 +65,14 @@ export async function handleAgentReminderPost(
     const result = await service(command, principal.userId);
     // The caller's own name for the key is what it matches the answer against.
     return Response.json({ ...(result as Record<string, unknown>), idempotencyKey });
-  } catch {
+  } catch (error) {
+    // Authorization failures are a valid, well-formed request. Returning 400 here made the
+    // daemon report the same status as malformed JSON and hid the ACCESS_DENIED cause.
+    if (isReminderAuthorizationFailure(error))
+      return Response.json(
+        { error: "reminder access denied", code: "ACCESS_DENIED" },
+        { status: 403 },
+      );
     return Response.json({ error: "invalid reminder request" }, { status: 400 });
   }
 }
