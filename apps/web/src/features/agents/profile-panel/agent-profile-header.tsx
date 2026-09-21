@@ -8,6 +8,7 @@ import {
 
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
+import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import { useAgentRecentActivity } from "@/features/agents/workspace-agents-realtime";
 import { m } from "@/paraglide/messages";
@@ -34,6 +35,8 @@ export function AgentProfileHeader({
   onClose: () => void;
 }) {
   const activity = useAgentRecentActivity(agent.id);
+  // The live status line, from the same source the avatar's own label uses.
+  const statusLabel = agentDisplay(display).label;
   return (
     // Same 20px gutter as the panel body (px-5): the bordered utility buttons align by box edge,
     // while the borderless Close pulls -mr-1.5 so its glyph lands on the gutter
@@ -48,6 +51,15 @@ export function AgentProfileHeader({
       />
       <div className="min-w-0 flex-1 leading-tight">
         <p className="truncate text-sm font-semibold text-primary">{agent.displayName}</p>
+        {/* What the Agent is doing, under its name — the line a direct message's header already
+            shows, from the same `agentDisplay` the avatar's label reads, so the two cannot
+            disagree. Nothing is shown when there is no live display: a deleted Agent has no
+            status to report (ADR 0044) and "Status unknown" is not news. */}
+        {display && (
+          <p role="status" className="truncate text-xs text-tertiary">
+            {statusLabel}
+          </p>
+        )}
         {agent.description && <p className="truncate text-xs text-tertiary">{agent.description}</p>}
       </div>
       <ButtonUtility

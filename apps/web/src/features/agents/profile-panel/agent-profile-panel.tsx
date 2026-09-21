@@ -320,7 +320,6 @@ export function AgentProfilePanel({
                 ? (liveAgent.display.contextUsage ?? null)
                 : (profile.display?.contextUsage ?? null)
             }
-            onGotoActivity={() => onTabChange("activity")}
             onSaveDisplayName={async (value) => {
               await update({ data: baseUpdateInput({ displayName: value }) });
               await invalidate();

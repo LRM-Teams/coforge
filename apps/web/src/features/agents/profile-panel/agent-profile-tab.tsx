@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  AlertCircle,
-  Edit01,
-  Play,
-  RefreshCcw01 as RotateCcw,
-  Stop,
-  Trash01,
-} from "@untitledui/icons";
+import { Edit01, Play, RefreshCcw01 as RotateCcw, Stop, Trash01 } from "@untitledui/icons";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Badge } from "@/components/base/badges/badges";
@@ -153,7 +146,6 @@ export function AgentProfileTab({
   timeZone,
   canManage,
   controls,
-  onGotoActivity,
   onSaveDisplayName,
   onSaveDescription,
   onSaveRole,
@@ -172,7 +164,6 @@ export function AgentProfileTab({
   /** `canManageAgentRole || ownedByCurrentUser` — gates every pencil, the ACTIONS section. */
   canManage: boolean;
   controls: AgentRuntimeControls;
-  onGotoActivity: () => void;
   onSaveDisplayName: (value: string) => Promise<void>;
   onSaveDescription: (value: string) => Promise<void>;
   onSaveRole?: (role: "admin" | "member") => Promise<void>;
@@ -213,27 +204,9 @@ export function AgentProfileTab({
       {/* The tab starts directly with DISPLAY NAME; the avatar, name and status dot live only
        * in the panel header (`agent-profile-header.tsx`) and are not repeated here. */}
       <section className="border-b border-secondary px-6 py-5">
-        {profile.latestError && (
-          <div
-            role="alert"
-            className="mt-4 flex items-start gap-2.5 rounded-lg border border-error_subtle bg-error-primary px-3 py-2.5 text-sm"
-          >
-            <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-error-primary" />
-            <div className="min-w-0">
-              <p className="text-error-primary">{profile.latestError.detail}</p>
-              <p className="mt-0.5 font-mono text-xs text-tertiary">{profile.latestError.id}</p>
-              <Button
-                color="link-color"
-                size="sm"
-                noTextPadding
-                onPress={onGotoActivity}
-                className="mt-1 h-auto p-0 font-semibold"
-              >
-                {m.agent_profile_view_activity()}
-              </Button>
-            </div>
-          </div>
-        )}
+        {/* No error snapshot here: the Agent's current state belongs under its name in the panel
+            header, and the Activity tab is where the record lives. A raw request id next to a
+            transient "model at capacity" is developer debris in a profile — Frank, 2026-09-21. */}
         <InlineEditField
           label={m.agent_profile_display_name()}
           value={profile.displayName}
