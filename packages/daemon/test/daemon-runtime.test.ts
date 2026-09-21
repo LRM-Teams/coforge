@@ -1,4 +1,13 @@
-import { afterAll, afterEach, describe, expect, jest, setSystemTime, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  jest,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
@@ -75,6 +84,8 @@ const emptyCodeAgentDiscovery = {
 
 // macOS tmpdir lives under /var, a symlink; the state store rejects linked ancestors.
 const tempRoot = realpathSync(tmpdir());
+/** The state directory a `DaemonRuntime` falls back to when a test passes none. */
+const DEFAULT_STATE_DIRECTORY = ".coforge-daemon-state";
 const workspaceRoot = join(tempRoot, `coforge-daemon-runtime-${crypto.randomUUID()}`);
 const connection: WorkspaceConfig = {
   computerId: "computer-a",
@@ -90,6 +101,15 @@ const config: AgentRuntimeConfig = {
   modelProvider: "anthropic",
   reasoning: "balanced",
 };
+
+// The daemon's consumed cursor is durable now (Raft's `consumed-seqs.json`), so the state directory
+// most tests share — the constructor's implicit default — would carry one test's reviewed boundary
+// into the next: a delivery already "seen" by a previous test's Agent is suppressed, which is
+// correct in production and wrong here. Every test starts from a clean cursor, exactly as it
+// already starts from a fresh runtime.
+beforeEach(async () => {
+  await rm(join(DEFAULT_STATE_DIRECTORY, "agent-consumed-seqs"), { recursive: true, force: true });
+});
 
 test("ready and reconnect snapshots report the executable version and observed OS", async () => {
   const credentials = new InMemoryDaemonCredentialStore();
@@ -2738,14 +2758,15 @@ describe("DaemonRuntime", () => {
     );
     expect(ordinarySend).toMatchObject({ accepted: true, decision: "forward" });
     expect(operations).toEqual(["send", "send", "send"]);
-    // A fresh send from the recovered daemon carries no boundary of its own: the draft was consumed
-    // by the resend and the attention index is in-memory, so nothing was reviewed yet for this
-    // target in this process. (The draft, not memory, is what carried the frontier across the
-    // restart — that is the assertion above.)
+    // A fresh send from the recovered daemon still accounts for the frontier the held notice
+    // presented: the consumed cursor outlives the process (Raft's `consumed-seqs.json`, read back
+    // through `getConsumedSeq`, 1.0.32 bundle 753652), so the context that was already reviewed is
+    // not presented — or held — a second time. The draft carried it within the restart above; the
+    // cursor is what carries it for a send that never saw that draft.
     expect(messageRequests.at(-1)).toEqual({
       requestId: "send-3",
       draftReholdCount: 0,
-      seenUpToSeq: undefined,
+      seenUpToSeq: 7,
     });
     await recoveredRuntime.stop();
     await rm(stateDirectory, { recursive: true, force: true });

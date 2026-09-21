@@ -12,6 +12,7 @@ import {
   renderMessageSender,
 } from "@lrm/coforge-sdk/internal";
 import type { AgentProcessManager } from "../agent-runtime/agent-process-manager";
+import type { AgentConsumedSeqPort } from "../persistence/agent-consumed-seq-store";
 import { HELD_CONTEXT_LIMIT } from "./agent-inbox-freshness";
 
 const logger = getLogger(["coforge", "daemon", "message-attention"]);
@@ -102,6 +103,14 @@ export class AgentMessageAttentionIndex {
   readonly #latestKnown = new Map<string, Map<string, number>>();
   readonly #readContext = new Map<string, Map<string, number>>();
   readonly #readContextCounters = new Map<string, number>();
+  /** Raft's `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier) and
+   * `#readContext` (the `readOrder` each target was last reviewed at). */
+  readonly #consumedSeqs?: AgentConsumedSeqPort;
+  /** Agents whose durable cursor has already been folded into the maps above. Raft reads the file
+   * on every lookup; reading it once per Agent per daemon life is the same answer, minus the
+   * syscall in a message loop, and `clearAgent` drops the marker so a re-registered Agent reads it
+   * again. */
+  readonly #hydrated = new Set<string>();
   readonly #workspaceId: string;
   readonly #runtimes: Pick<AgentProcessManager, "session">;
 
@@ -131,10 +140,14 @@ export class AgentMessageAttentionIndex {
        * while held keeps both attempts for ACK bookkeeping — and a notice must count messages,
        * not attempts. Optional: a composition without a delivery queue holds nothing. */
       queued?(agentId: string): readonly AgentMessageDelivery[];
+      /** The Agent's durable consumed cursor (Raft's `consumed-seqs.json`). Without it the index is
+       * exactly as volatile as it was: the cursor then only lives as long as this process. */
+      consumedSeqs?: AgentConsumedSeqPort;
     } = { shouldHold: () => false, enqueue: () => {}, busy: () => {} },
   ) {
     this.#workspaceId = workspaceId;
     this.#runtimes = runtimes;
+    this.#consumedSeqs = hold.consumedSeqs;
   }
 
   async receive(message: AgentMessageDelivery): Promise<void> {
@@ -543,6 +556,7 @@ already have been read. A notice you have not acted on does not establish that t
   }
 
   modelSeenSequence(agentId: string, target: string): number {
+    this.#hydrate(agentId);
     return this.#modelSeen.get(agentId)?.get(target) ?? 0;
   }
 
@@ -594,9 +608,17 @@ already have been read. A notice you have not acted on does not establish that t
 
   recordModelSeen(agentId: string, target: string, sequence: number): void {
     if (!Number.isInteger(sequence) || sequence < 1) return;
+    this.#hydrate(agentId);
     const byTarget = this.#modelSeen.get(agentId) ?? new Map<string, number>();
     byTarget.set(target, Math.max(byTarget.get(target) ?? 0, sequence));
     this.#modelSeen.set(agentId, byTarget);
+    // Raft's `recordConsumedSeqs(agentId, { [target]: sequence })`: the Agent has consumed this
+    // frontier, so it survives the process — the same cursor that decides the next hold, the
+    // `seenUpToSeq` a fresh send inherits, and which target was read most recently.
+    this.#notePersistedOrder(
+      agentId,
+      this.#consumedSeqs?.recordConsumedSeqs(agentId, { [target]: sequence }),
+    );
 
     // The window the Agent has now been shown (or the boundary it reported) is reviewed: drop what
     // it covers, so a locally decided hold cannot present the same messages twice.
@@ -624,15 +646,33 @@ already have been read. A notice you have not acted on does not establish that t
    * recently a thread was read against how recently its parent target was read.
    */
   recordReadContext(agentId: string, target: string): void {
-    const order = (this.#readContextCounters.get(agentId) ?? 0) + 1;
-    this.#readContextCounters.set(agentId, order);
+    this.#hydrate(agentId);
+    // Raft's `recordConsumedRead`: reviewing a target is what orders it against every other target,
+    // which is the comparison the thread-target guard makes (`parentReadOrder >= thread.readOrder`).
+    // With a durable cursor present the file hands out the order, so this process's orders continue
+    // the ones a previous process handed out; without one this counter is the only home, as before.
+    const persisted = this.#consumedSeqs?.recordConsumedRead(agentId, target);
+    const order = persisted ?? (this.#readContextCounters.get(agentId) ?? 0) + 1;
+    this.#readContextCounters.set(
+      agentId,
+      Math.max(this.#readContextCounters.get(agentId) ?? 0, order),
+    );
     const byTarget = this.#readContext.get(agentId) ?? new Map<string, number>();
     byTarget.set(target, order);
     this.#readContext.set(agentId, byTarget);
   }
 
+  /** Keeps this Agent's read-order counter above every order the durable cursor has handed out, so
+   * a target reviewed before a restart can never outrank one reviewed after it. */
+  #notePersistedOrder(agentId: string, order: number | undefined): void {
+    if (order === undefined) return;
+    const counter = this.#readContextCounters.get(agentId) ?? 0;
+    if (counter < order) this.#readContextCounters.set(agentId, order);
+  }
+
   /** The most recently read context order for `target`, or `undefined` if never recorded. */
   readOrder(agentId: string, target: string): number | undefined {
+    this.#hydrate(agentId);
     return this.#readContext.get(agentId)?.get(target);
   }
 
@@ -641,6 +681,7 @@ already have been read. A notice you have not acted on does not establish that t
     agentId: string,
     parentTarget: string,
   ): { target: string; order: number } | undefined {
+    this.#hydrate(agentId);
     const byTarget = this.#readContext.get(agentId);
     if (!byTarget) return undefined;
     const prefix = `${parentTarget}:`;
@@ -651,7 +692,36 @@ already have been read. A notice you have not acted on does not establish that t
     return latest;
   }
 
+  /** Folds the durable consumed cursor for one Agent into this index's own maps, once per daemon
+   * life. Every value is merged with `Math.max`, so a cursor that travelled backwards — a file
+   * written by an older build, or a hand-edit — can never un-review context this process already
+   * consumed. The read-order counter resumes above every order in the file, exactly as Raft's
+   * `normalizeState` leaves `nextReadOrder`. */
+  #hydrate(agentId: string): void {
+    const store = this.#consumedSeqs;
+    if (!store || this.#hydrated.has(agentId)) return;
+    this.#hydrated.add(agentId);
+    const state = store.read(agentId);
+    const modelSeen = this.#modelSeen.get(agentId) ?? new Map<string, number>();
+    const readContext = this.#readContext.get(agentId) ?? new Map<string, number>();
+    for (const [target, entry] of Object.entries(state.targets)) {
+      const seq = entry.seq;
+      if (typeof seq === "number" && seq > 0)
+        modelSeen.set(target, Math.max(modelSeen.get(target) ?? 0, seq));
+      const order = entry.readOrder;
+      if (typeof order === "number" && order > 0)
+        readContext.set(target, Math.max(readContext.get(target) ?? 0, order));
+    }
+    if (modelSeen.size > 0) this.#modelSeen.set(agentId, modelSeen);
+    if (readContext.size > 0) this.#readContext.set(agentId, readContext);
+    this.#readContextCounters.set(
+      agentId,
+      Math.max(this.#readContextCounters.get(agentId) ?? 0, state.nextReadOrder - 1),
+    );
+  }
+
   clearAgent(agentId: string): void {
+    this.#hydrated.delete(agentId);
     this.#generations.delete(agentId);
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
