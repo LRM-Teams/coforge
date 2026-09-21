@@ -708,6 +708,16 @@ export function ConversationPane({
   useEffect(() => setDateLocale(getLocale()), []);
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
+  // Reply-to-selection: the row hands over a finished quote, the composer puts it in the draft.
+  // The counter (never the text) is the identity of an insertion, so highlighting the same words
+  // twice inserts twice.
+  const [quotedDraft, setQuotedDraft] = useState<{ id: number; text: string } | undefined>();
+  const quoteSequenceRef = useRef(0);
+  const quoteSelection = useCallback((text: string) => {
+    if (!text) return;
+    quoteSequenceRef.current += 1;
+    setQuotedDraft({ id: quoteSequenceRef.current, text });
+  }, []);
   const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
   const [, loadingNewerRef, setLoadingNewer] = useStateWithRef(false);
@@ -1311,6 +1321,7 @@ export function ConversationPane({
                     messageFooter={messageFooter}
                     onOpenAgentProfile={onOpenAgentProfile}
                     viewerHandle={conversation.viewerHandle}
+                    onQuoteSelection={quoteSelection}
                   />
                 );
               })}
@@ -1388,6 +1399,7 @@ export function ConversationPane({
           onSend={onSend}
           onCreateTask={onCreateTask}
           onSent={ownIndex.add}
+          quotedDraft={quotedDraft}
         />
       )}
     </div>

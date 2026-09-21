@@ -215,6 +215,7 @@ export function MessageComposer({
   inThread,
   mentionables,
   recentHandles,
+  quotedDraft,
   onSend,
   onCreateTask,
   onSent,
@@ -227,6 +228,10 @@ export function MessageComposer({
   /** Handles that recently sent a message in this conversation, most-recent first (channels
    * only); ranks @-completion candidates ahead of alphabetical order. */
   recentHandles?: readonly string[];
+  /** A finished quote from a message the reader highlighted (`message-row.tsx`'s reply-to-
+   * selection), to be appended to the draft. The `id` is what makes a repeat insertion of the same
+   * text land again, so it is the caller's monotone counter — never a content hash. */
+  quotedDraft?: { id: number; text: string };
   onSend: (
     body: string,
     requestId: string,
@@ -259,6 +264,28 @@ export function MessageComposer({
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [asTask, setAsTask] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The last quote this composer consumed. Held by id so a re-render (or an unrelated state
+  // change) never re-inserts a quote the reader already has in the draft.
+  const consumedQuoteIdRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!quotedDraft || quotedDraft.id === consumedQuoteIdRef.current) return;
+    consumedQuoteIdRef.current = quotedDraft.id;
+    // Appended, not replaced: a quote answers what the reader was already writing as often as it
+    // starts a reply, and losing their draft to a highlight would be unforgivable.
+    setBody((current) => {
+      const kept = current.replace(/\s+$/u, "");
+      return kept ? `${kept}\n\n${quotedDraft.text}\n\n` : `${quotedDraft.text}\n\n`;
+    });
+    retryRef.current = undefined;
+    // The draft is React state, so the caret can only be placed once the textarea has re-rendered
+    // with the quote in it.
+    requestAnimationFrame(() => {
+      const textarea = mention.textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    });
+  }, [quotedDraft]);
   // IME composition tracking for Enter-to-send: see composer-behavior.ts.
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef<number | null>(null);
