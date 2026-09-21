@@ -75,6 +75,7 @@
   "conversation_new_messages": "{count} 条新消息",
   "conversation_back_to_bottom": "回到底部",
   "conversation_message_navigation": "消息导航",
+  "conversation_message_actions": "消息操作",
   "conversation_your_messages": "我发送的消息",
   "conversation_loading_your_messages": "正在加载我发送的消息…",
   "conversation_load_older": "加载更早消息",

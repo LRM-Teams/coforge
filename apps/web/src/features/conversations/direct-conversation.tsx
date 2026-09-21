@@ -42,12 +42,17 @@ import {
 } from "@/components/ui/empty";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { useAppToast } from "@/components/ui/toast";
-import { UnreadBadge } from "./conversation-directory";
 import { MessageComposer } from "./message-composer";
 import { makeMentionBodyFormatter, type Mentionable } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
-import { AttachmentCard, MessageRow, clockLabel, groupsWithPrevious } from "./message-row";
+import {
+  AttachmentCard,
+  MessageRow,
+  clockLabel,
+  groupsWithPrevious,
+  type MessageThreadEntry,
+} from "./message-row";
 import {
   OwnMessagesMenu,
   useOwnMessagesIndex,
@@ -486,35 +491,13 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       header={header}
       conversation={{ ...conversation, messages: mainMessages }}
       threadEntry={(message) => {
-        const replies = repliesOf(message.id);
         const boundary = threadCursor(message.id) ?? 0;
-        const unread = replies.filter(
-          (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
-        ).length;
-        const label = m.conversation_thread_reply();
-        // The badge below already shows the count visually, so it stays out of the tooltip;
-        // screen readers still get it through the accessible name.
-        const accessibleLabel = unread
-          ? `${label} · ${m.conversation_thread_unread({ count: unread })}`
-          : label;
-        return (
-          <span className="relative inline-flex">
-            <ButtonUtility
-              icon={MessageSquare}
-              size="xs"
-              color="tertiary"
-              tooltip={label}
-              aria-label={accessibleLabel}
-              onClick={() => openThread(message.id)}
-              className="p-1 *:data-icon:size-3.5"
-            />
-            {unread > 0 && (
-              <span data-thread-unread className="absolute -top-1.5 -right-1">
-                <UnreadBadge count={unread} />
-              </span>
-            )}
-          </span>
-        );
+        return {
+          unread: repliesOf(message.id).filter(
+            (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
+          ).length,
+          open: () => openThread(message.id),
+        };
       }}
       threadPreview={(message) => {
         const threadReplies = repliesOf(message.id);
@@ -725,7 +708,7 @@ export function ConversationPane({
   emptyState: { title: string; description: string; media: React.ReactNode };
   root?: DirectConversationView["messages"][number];
   onClose?: () => void;
-  threadEntry?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
+  threadEntry?: (message: DirectConversationView["messages"][number]) => MessageThreadEntry;
   threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   threadHeaderAction?: React.ReactNode;
   messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
