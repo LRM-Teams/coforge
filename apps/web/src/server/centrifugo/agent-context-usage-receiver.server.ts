@@ -2,7 +2,11 @@ import { decodeAgentContextUsage, type AgentContextUsage } from "@lrm/coforge-sd
 import type { AgentControlStore } from "../agents/agent-control.server";
 import type { AgentDisplay } from "../agents/agent-display.server";
 import type { CentrifugoServerApi } from "./server-api.server";
-import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
+import {
+  agentStatusChannel,
+  agentStatusChannelForAgent,
+} from "../../features/agents/agent-status-realtime";
+import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import type { CentrifugoRpcMethod } from "./rpc-handler.server";
 
 /**
@@ -18,6 +22,10 @@ export function createAgentContextUsageMethod(
   agents: Pick<AgentControlStore, "get">,
   display?: Pick<AgentDisplay, "putContextUsage">,
   displayEvents?: Pick<CentrifugoServerApi, "publishJson">,
+  /** ADR 0059: the Agent's current visibility, read fresh (no cache). Omitted, or anything other
+   * than `"public"`, routes this display push to the per-Agent status channel — the same
+   * fail-closed default the publish proxy and Activity sweep use. */
+  agentVisibility?: (workspaceId: string, agentId: string) => Promise<string | undefined>,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     if (
@@ -50,11 +58,17 @@ export function createAgentContextUsageMethod(
         return new Uint8Array();
       if (display) {
         const snapshot = await display.putContextUsage(message);
-        if (snapshot && displayEvents)
-          await displayEvents.publishJson(agentStatusChannel(message.workspaceId), {
+        if (snapshot && displayEvents) {
+          const visibility = await agentVisibility?.(message.workspaceId, message.agentId);
+          const isPrivate = visibility !== undefined && visibility !== AGENT_VISIBILITY.PUBLIC;
+          const channel = isPrivate
+            ? agentStatusChannelForAgent(message.workspaceId, message.agentId)
+            : agentStatusChannel(message.workspaceId);
+          await displayEvents.publishJson(channel, {
             type: "agent:display",
             ...snapshot,
           });
+        }
       }
       return new Uint8Array();
     } catch (error) {

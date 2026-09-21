@@ -188,6 +188,67 @@ test("is an idempotent no-op for a stale launch, unknown Agent, or foreign scope
   expect(calls).toBe(0);
 });
 
+// ADR 0059: the reading is a display fact like any other `agent:display` push, so it follows the
+// same per-Agent-or-shared status channel split the sweep and publish proxy use.
+test("routes the display snapshot to a private Agent's per-Agent status channel", async () => {
+  const { agent, message } = fixture();
+  const published: Array<{ channel: string; data: unknown }> = [];
+  const snapshot = {
+    protocolMajor: 1 as const,
+    workspaceId: "workspace",
+    computerId: "computer",
+    agentId: "agent",
+    revision: 2,
+    activityKind: "online" as const,
+    detailKind: "",
+    detail: "",
+    entries: [],
+    expiresAt: 1,
+    contextUsage: { usedTokens: 27_908, windowTokens: 200_000, observedAtMs: message.observedAtMs },
+  };
+  const method = createAgentContextUsageMethod(
+    { get: async (id) => (id === agent.id ? structuredClone(agent) : undefined) },
+    { putContextUsage: async () => snapshot },
+    { publishJson: async (channel, data) => void published.push({ channel, data }) },
+    async () => "private",
+  );
+  const principal = { userId: "owner", workspaceId: "workspace", computerId: "computer" };
+
+  expect(await method(encodeAgentContextUsage(message), { principal })).toBeInstanceOf(Uint8Array);
+
+  expect(published).toEqual([
+    { channel: "agent:status:workspace:agent", data: { type: "agent:display", ...snapshot } },
+  ]);
+});
+
+test("keeps the shared status channel when no visibility dependency is supplied", async () => {
+  const { agent, message } = fixture();
+  const published: Array<{ channel: string }> = [];
+  const method = createAgentContextUsageMethod(
+    { get: async () => structuredClone(agent) },
+    {
+      putContextUsage: async () => ({
+        protocolMajor: 1 as const,
+        workspaceId: "workspace",
+        computerId: "computer",
+        agentId: "agent",
+        revision: 2,
+        activityKind: "online" as const,
+        detailKind: "",
+        detail: "",
+        entries: [],
+        expiresAt: 1,
+      }),
+    },
+    { publishJson: async (channel) => void published.push({ channel }) },
+  );
+  const principal = { userId: "owner", workspaceId: "workspace", computerId: "computer" };
+
+  await method(encodeAgentContextUsage(message), { principal });
+
+  expect(published).toEqual([{ channel: "agent:status:workspace" }]);
+});
+
 test("propagates a genuine store failure as a logged 403, not a silent no-op", async () => {
   const { message } = fixture();
   const method = createAgentContextUsageMethod({

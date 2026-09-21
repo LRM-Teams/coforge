@@ -218,6 +218,13 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
           controlStore,
           getAgentDisplay(),
           centrifugo,
+          async (workspaceId, agentId) => {
+            const agent = await db.agent.findUnique({
+              where: { id: agentId },
+              select: { workspaceId: true, visibility: true },
+            });
+            return agent?.workspaceId === workspaceId ? agent.visibility : undefined;
+          },
         ),
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
         [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(
