@@ -742,7 +742,9 @@ test("an objects-only publication uploads its files and never touches latest", a
   expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
   // Scoped to writes: reading the manifest is expected (it is the completion marker the *next* publish
   // probes). Writing it is what the objects-only job must not do.
-  expect(fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json"))).toBe(false);
+  expect(
+    fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json")),
+  ).toBe(false);
   // The objects themselves still went up, and were verified by reading them back.
   expect(fake.calls.filter((call) => call.method === "PUT").length).toBeGreaterThan(0);
 });
@@ -764,7 +766,9 @@ test("a finalize pass verifies an already-uploaded version and writes only the m
     connection,
     activate: false,
   });
-  const platformPuts = fake.calls.filter((call) => call.method === "PUT" && call.key !== LATEST_OBJECT_KEY);
+  const platformPuts = fake.calls.filter(
+    (call) => call.method === "PUT" && call.key !== LATEST_OBJECT_KEY,
+  );
   expect(platformPuts.some((call) => call.key === manifestKey)).toBe(false);
   expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
   expect(platform.uploaded.length).toBe(tree.files.length - 1);
