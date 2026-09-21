@@ -83,30 +83,34 @@ export function ChannelConversationHeader({
         <span className="ml-auto hidden rounded-md border border-secondary px-2 py-0.5 text-xs font-medium text-tertiary sm:block">
           {m.channel_public()}
         </span>
-        <ButtonUtility
-          icon={Users}
-          size="sm"
-          color="tertiary"
-          tooltip={m.channel_members_button()}
-          onClick={() => setMembersOpen(true)}
-        />
-        {conversation.senderMemberId && (
+        {/* Borderless utility strip: the -mr-1.5 cancels the last button's p-1.5 so its glyph
+            lands on the pane gutter (docs/ui-guidelines.md §3 optical alignment). */}
+        <div className="-mr-1.5 flex shrink-0 items-center gap-3">
           <ButtonUtility
-            icon={conversation.muted ? BellOff : Bell}
+            icon={Users}
             size="sm"
             color="tertiary"
-            isDisabled={savingMute}
-            tooltip={conversation.muted ? m.channel_unmute() : m.channel_mute()}
-            onClick={async () => {
-              setSavingMute(true);
-              try {
-                await onMutedChange(!conversation.muted);
-              } finally {
-                setSavingMute(false);
-              }
-            }}
+            tooltip={m.channel_members_button()}
+            onClick={() => setMembersOpen(true)}
           />
-        )}
+          {conversation.senderMemberId && (
+            <ButtonUtility
+              icon={conversation.muted ? BellOff : Bell}
+              size="sm"
+              color="tertiary"
+              isDisabled={savingMute}
+              tooltip={conversation.muted ? m.channel_unmute() : m.channel_mute()}
+              onClick={async () => {
+                setSavingMute(true);
+                try {
+                  await onMutedChange(!conversation.muted);
+                } finally {
+                  setSavingMute(false);
+                }
+              }}
+            />
+          )}
+        </div>
       </div>
       {(onShowChat || onShowTasks || onShowFiles) && (
         <div className="-mx-4 flex h-11 items-center px-4 md:-mx-6 md:px-6">
@@ -263,7 +267,7 @@ export function ChannelConversation({
             icon={followed ? BellOff : Bell}
             size="sm"
             color="tertiary"
-            className="ml-auto"
+            className="-mr-1.5 ml-auto"
             tooltip={followed ? m.conversation_thread_unfollow() : m.conversation_thread_follow()}
             onClick={() => void onThreadFollowedChange?.(rootMessageId, !followed)}
           />

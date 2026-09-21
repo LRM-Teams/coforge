@@ -44,6 +44,8 @@
 - **不用**卡片岛屿：页面级面板没有 `rounded`、没有 `border` 包边、没有 gutter、没有阴影。卡片只用于内容里真正独立的对象（一个附件、一条运行时），以及第 4 节的事实列表分组。
 - 侧栏可拖拽：默认 280，范围 240 到 360。手柄不可见，热区 6 到 8px 压在分隔线上，hover 或拖拽时显示 2px 品牌色线。
 - 页头高度 48px（`h-12`），标题 `text-lg font-semibold`，右侧放主操作。侧栏 logo 行同高，logo 和页面标题共一条基线。页头下方的二级操作区（筛选、tab、工具条）高 44px（`h-11`），里面的控件一律 36px（`size="sm"`），不另加上下内边距。
+- 操作区光学对齐：无边框的按钮排（`color="tertiary"` 的 `Button` 标签带、`ButtonUtility` 图标簇）让按钮**内容**（图标或文字）对齐面板沟槽，用负 margin 抵消按钮内边距——`size="sm"` 按钮是 `px-3`，左缘用 `-ml-3`；`ButtonUtility` 是 `p-1.5`，用 `-ml-1.5`，右缘镜像用 `-mr-1.5`。激活态的浅色药丸盒超出沟槽那 12px 是有意的（Linear、Notion 同）。有边框的盒式控件（Input、Select、`ButtonGroup`、卡片）反过来：盒边缘对齐沟槽，**不加**负 margin。范例：会话页 Chat / Tasks / Files 标签带（`conversation-task-tabs.tsx`）。
+- 可交互元素 hover 一律显示小手：`styles.css` 的基础层已让 `button:not(:disabled)` 全局 `cursor: pointer`，链接走浏览器默认；非 button 的自定义触发器（`role="button"`、hover popover 触发器、可点 chip）必须自己显式补 `cursor: pointer`。禁用态用 `cursor: not-allowed`（官方 Button 自带）。不要用 `cursor: default` 暗示可点。
 
 ## 4. 字段展示：表单和长值用网格，短事实用列表
 
@@ -150,7 +152,9 @@
 4. 页头和正文没有重复的事实
 5. 没有提示句，值里没有 label 前缀
 6. 只用语义 token，品牌紫只在第 8 节列的位置
-7. 亮暗两张截图都看过
+7. 操作区按第 3 节做了光学对齐：无边框按钮内容贴沟槽，盒式控件盒边贴沟槽
+8. 可交互元素 hover 全是小手，禁用态是 `not-allowed`
+9. 亮暗两张截图都看过
 
 ## 13. 反馈：toast 还是内联
 

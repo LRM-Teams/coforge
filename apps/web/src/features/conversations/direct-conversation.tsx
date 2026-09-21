@@ -1208,10 +1208,13 @@ export function ConversationPane({
     <div className="flex min-h-0 flex-1 flex-col">
       {root ? (
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-4 md:px-6">
+          {/* Borderless utility strip: the -ml-1.5 cancels the button's p-1.5 so the arrow glyph
+              itself lands on the pane gutter (docs/ui-guidelines.md §3 optical alignment). */}
           <ButtonUtility
             icon={ArrowLeft}
             size="sm"
             color="tertiary"
+            className="-ml-1.5"
             onClick={onClose}
             aria-label={m.conversation_thread_back()}
           />
