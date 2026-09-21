@@ -501,6 +501,10 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             : m.conversation_thread_replies({
                 count: threadReplies.length,
               });
+        const unread = threadReplies.filter(
+          (reply) =>
+            reply.senderKind === "agent" && reply.sequence > (threadCursor(message.id) ?? 0),
+        ).length;
         // The newest few only; the side pane holds the full thread.
         const visible = threadReplies.slice(-3);
         return (
@@ -512,7 +516,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             className="mt-1.5 block h-auto w-full rounded-lg bg-secondary p-2 text-left font-normal hover:bg-secondary_hover"
           >
             <span className="flex items-center gap-0.5 text-sm font-medium text-brand-secondary">
-              {label}
+              {unread > 0 ? `${label} · ${m.conversation_thread_unread({ count: unread })}` : label}
               <ChevronRight aria-hidden="true" className="size-4" />
             </span>
             <span className="mt-1 flex flex-col gap-1.5">

@@ -32,7 +32,7 @@ import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
 import { MessageReactionPicker, QUICK_REACTION_EMOJIS } from "./message-reaction-picker";
-import { UnreadBadge } from "./conversation-directory";
+import { UnreadDot } from "./conversation-directory";
 import {
   copyFragmentMarkdown,
   copyFragmentStyled,
@@ -985,8 +985,8 @@ export function MessageRow({
                   className="p-1 *:data-icon:size-3.5"
                 />
                 {thread.unread > 0 && (
-                  <span data-thread-unread className="absolute -top-1.5 -right-1">
-                    <UnreadBadge count={thread.unread} />
+                  <span data-thread-unread className="absolute -top-1 -right-1">
+                    <UnreadDot />
                   </span>
                 )}
               </span>
@@ -1104,9 +1104,7 @@ export function MessageRow({
                       size="md"
                       noTextPadding
                       iconLeading={MessageSquare}
-                      iconTrailing={
-                        thread.unread > 0 ? <UnreadBadge count={thread.unread} /> : undefined
-                      }
+                      iconTrailing={thread.unread > 0 ? <UnreadDot /> : undefined}
                       aria-label={threadAccessibleLabel}
                       onPress={() => {
                         setActionsOpen(false);
