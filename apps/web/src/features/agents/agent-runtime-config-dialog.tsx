@@ -79,7 +79,9 @@ export function AgentRuntimeConfigForm({
       }}
     >
       <DialogHeader title={m.agent_profile_edit_runtime_config()} onClose={onClose} />
-      <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+      {/* One column, like Raft's dialog: the runtime fields stack (provider, then the model it
+          belongs to, then reasoning) instead of splitting into two columns on a wide screen. */}
+      <div className="grid gap-4 px-6 py-6">
         <AgentRuntimeFields
           open
           computerId={computerId}
@@ -174,10 +176,9 @@ export function AgentRuntimeConfigForm({
           </p>
         )}
       </div>
+      {/* Raft's footer is the save action alone; the dialog is dismissed by its header X, Esc or the
+          overlay (all already wired, and already blocked while saving). */}
       <div className="flex justify-end gap-3 border-t border-secondary px-6 py-4">
-        <Button type="button" color="secondary" isDisabled={saving} onPress={onClose}>
-          {m.controls_cancel()}
-        </Button>
         <Button type="submit" isDisabled={saving || !dirty || envPending}>
           {saving ? m.agent_profile_saving() : m.agent_profile_save_runtime_config()}
         </Button>

@@ -22,7 +22,7 @@ const initial = {
   reasoning: "high",
 };
 
-test("renders the title, Provider and Model labels, and Cancel; Reasoning waits for the catalog", () => {
+test("renders the title, Provider and Model labels, and Save alone; Reasoning waits for the catalog", () => {
   const markup = renderToStaticMarkup(
     <AgentRuntimeConfigForm
       computerId="computer-1"
@@ -41,7 +41,9 @@ test("renders the title, Provider and Model labels, and Cancel; Reasoning waits 
   // `renderToStaticMarkup` never runs effects, so the catalog load never resolves and the
   // configured model is never confirmed against it. The Reasoning field must stay hidden here.
   expect(markup).not.toContain(m.agent_form_reasoning());
-  expect(markup).toContain(m.controls_cancel());
+  // Raft's footer is the save action alone: the dialog is dismissed by its header X, Esc, or the
+  // overlay, so there is no Cancel button to render.
+  expect(markup).not.toContain(m.controls_cancel());
   expect(markup).toContain(m.agent_profile_save_runtime_config());
 });
 
