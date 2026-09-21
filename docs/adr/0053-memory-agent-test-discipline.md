@@ -118,3 +118,13 @@ The triage method that convicted them — replaying the transport's exact
 request shape (minted agent key + daemon key, camelCase command JSON)
 directly at the live web route — remains the fastest loop for any future
 memory-wire regression.
+
+Decision G's third run level now has an executable gate:
+`mise run test:e2e:memory-explorer-turn` (manual-gated, real tokens, skips
+without credentials) runs a REAL model's own turn under the fenced profile
+against a stubbed local proxy and asserts the producer-side contract the
+502 loop convicted — the model reaches memory_start and invents a
+contract-valid operation-key slug. First verified run (2026-09-21,
+DeepSeek-V4-Flash-0731): the model ran the full protocol
+(start → explore ×2 → redirect → close) with start key
+"closing-work-items-lesson".

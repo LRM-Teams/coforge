@@ -60,6 +60,10 @@ run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:
 description = "Memory Agent full-stack smoke against a live model (MANUAL GATE: real tokens; MEMORY_SMOKE_API_KEY required, skips cleanly without it)"
 run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && ./scripts/e2e/run-memory-agent-smoke.sh"
 
+[tasks."test:e2e:memory-explorer-turn"]
+description = "Fenced Memory Agent turn smoke against a live model (MANUAL GATE: real tokens; asserts the model reaches memory_start with a contract-valid start key; MEMORY_SMOKE_API_KEY required, skips cleanly without it)"
+run = "./scripts/e2e/run-memory-explorer-turn.sh"
+
 [tasks."test:web"]
 description = "Run Web package tests"
 run = "bun run --cwd packages/coforge-sdk generate && cd apps/web && bun run test"
