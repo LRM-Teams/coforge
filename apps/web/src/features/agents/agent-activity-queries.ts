@@ -5,13 +5,15 @@ import { getAgentActivityFeed, getWorkspaceActivity } from "./agent-activity.fun
 import { getAgentActivitySubscriptionToken } from "./agents.functions";
 import {
   agentActivityChannel,
+  agentActivityChannelForAgent,
   decodeActivityObservation,
   mergeAgentActivity,
   POPOVER_EXCLUDED_DETAIL_KINDS,
   RECENT_ACTIVITY_LIMIT,
   type ActivityEntry,
 } from "./agent-activity";
-import { useRealtimeSubscription } from "../realtime/browser-realtime";
+import { useRealtimeSubscription, useRealtimeSubscriptions } from "../realtime/browser-realtime";
+import type { QueryClient } from "@tanstack/react-query";
 
 export const agentActivityKeys = {
   all: ["agent-activity"] as const,
@@ -80,12 +82,49 @@ export const agentActivityFeedQuery = (agentId: string) =>
     },
   });
 
+/** Shared by the shared-channel and per-Agent-channel subscriptions below, so a private Agent's
+ * frame — arriving only on its own per-Agent channel now (ADR 0059) — patches the exact same
+ * cache shapes a public Agent's frame patches on the shared channel. */
+function applyActivityPublication(
+  queryClient: QueryClient,
+  workspaceId: string,
+  data: unknown,
+  scope?: { agentId: string },
+) {
+  const observation = decodeActivityObservation(data, { workspaceId, ...scope });
+  if (!observation) return;
+  const { agentId, entry } = observation;
+  const key = agentActivityKeys.workspace(workspaceId);
+  const seeded = queryClient.getQueryData(key) !== undefined;
+  queryClient.setQueryData<RecentActivityByAgent>(key, (current = {}) => ({
+    ...current,
+    [agentId]: mergeRecent(current[agentId], [entry]),
+  }));
+  // A publication that beat the first snapshot must not stand in for the whole
+  // history: invalidate so the snapshot still loads and merges onto it.
+  if (!seeded) void queryClient.invalidateQueries({ queryKey: key });
+  // Only patches a feed tab that is already cached; the route loader seeds
+  // it, and an uncached feed has no reader to patch here.
+  queryClient.setQueryData(
+    agentActivityFeedQuery(agentId).queryKey,
+    (current: ActivityEntry[] | undefined) => current && mergeAgentActivity(current, [entry]),
+  );
+}
+
 /**
  * The app shell's one Activity subscription. Every (re)subscribe invalidates
  * both query shapes so a gap left by a disconnect is closed by a refetch;
  * publications in between patch the cache directly.
+ *
+ * `privateAgentIds` (ADR 0059) are the viewer's own visible private Agents: their Activity no
+ * longer arrives on the shared channel at all, so each gets its own per-Agent subscription on
+ * the same shared client.
  */
-export function useWorkspaceActivityRealtime(workspaceId?: string) {
+export function useWorkspaceActivityRealtime(
+  workspaceId?: string,
+  privateAgentIds: readonly string[] = [],
+  getPrivateAgentActivityToken?: (agentId: string) => Promise<string>,
+) {
   const queryClient = useQueryClient();
   const getConnectionToken = useServerFn(getAgentActivitySubscriptionToken);
 
@@ -95,23 +134,28 @@ export function useWorkspaceActivityRealtime(workspaceId?: string) {
     onSubscribed: () => void queryClient.invalidateQueries({ queryKey: agentActivityKeys.all }),
     onPublication: (publication) => {
       if (!workspaceId) return;
-      const observation = decodeActivityObservation(publication.data, { workspaceId });
-      if (!observation) return;
-      const { agentId, entry } = observation;
-      const key = agentActivityKeys.workspace(workspaceId);
-      const seeded = queryClient.getQueryData(key) !== undefined;
-      queryClient.setQueryData<RecentActivityByAgent>(key, (current = {}) => ({
-        ...current,
-        [agentId]: mergeRecent(current[agentId], [entry]),
-      }));
-      // A publication that beat the first snapshot must not stand in for the whole
-      // history: invalidate so the snapshot still loads and merges onto it.
-      if (!seeded) void queryClient.invalidateQueries({ queryKey: key });
-      // Only patches a feed tab that is already cached; the route loader seeds
-      // it, and an uncached feed has no reader to patch here.
-      queryClient.setQueryData(
-        agentActivityFeedQuery(agentId).queryKey,
-        (current: ActivityEntry[] | undefined) => current && mergeAgentActivity(current, [entry]),
+      applyActivityPublication(queryClient, workspaceId, publication.data);
+    },
+  });
+
+  useRealtimeSubscriptions({
+    channels:
+      workspaceId && getPrivateAgentActivityToken
+        ? privateAgentIds.map((agentId) => ({
+            channel: agentActivityChannelForAgent(workspaceId, agentId),
+            getToken: () => getPrivateAgentActivityToken(agentId),
+          }))
+        : [],
+    onPublication: (channel, publication) => {
+      if (!workspaceId) return;
+      const agentId = privateAgentIds.find(
+        (id) => agentActivityChannelForAgent(workspaceId, id) === channel,
+      );
+      applyActivityPublication(
+        queryClient,
+        workspaceId,
+        publication.data,
+        agentId ? { agentId } : undefined,
       );
     },
   });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
-import { useRealtimeSubscription } from "../realtime/browser-realtime";
+import { useRealtimeSubscription, useRealtimeSubscriptions } from "../realtime/browser-realtime";
 
 export type AgentStatusEvent = {
   agentId: string;
@@ -245,11 +245,18 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   workspaceId,
   refresh,
   getConnectionToken,
+  privateAgentIds = [],
+  getPrivateAgentStatusToken,
 }: {
   agents: T[];
   workspaceId?: string;
   refresh: () => Promise<T[]>;
   getConnectionToken: () => Promise<string>;
+  /** ADR 0059: ids of the viewer's own visible private Agents. Their `agent:display` snapshots
+   * no longer arrive on the shared status channel, so each needs its own per-Agent subscription
+   * on the same shared Centrifuge client. */
+  privateAgentIds?: readonly string[];
+  getPrivateAgentStatusToken?: (agentId: string) => Promise<string>;
 }) {
   const [visibleAgents, setVisibleAgents] = useState(() => expireAgentStatuses(agents, Date.now()));
   const mounted = useRef(true);
@@ -325,31 +332,43 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
       );
   };
 
+  const handleStatusPublication = (data: unknown) => {
+    try {
+      const value =
+        data instanceof Uint8Array ? (JSON.parse(new TextDecoder().decode(data)) as unknown) : data;
+      if (isAgentVisibilityChangedEvent(value)) {
+        // ADR 0059: refetch immediately rather than waiting for the next scheduled refresh —
+        // `mergeAgentStatusSnapshot` already drops any Agent absent from the fresh list, and
+        // subscribing/unsubscribing its per-Agent channels follows from that same fresh list
+        // wherever it is consumed (see `WorkspaceAgentsProvider`).
+        void refreshSnapshot().catch(() => {});
+      } else if (Reflect.get(value as object, "type") === "agent:display") {
+        const snapshot = parseAgentDisplaySnapshot(value);
+        setVisibleAgents((current) => applyAgentDisplaySnapshot(current, snapshot, workspaceId));
+      } else {
+        const event = decodeAgentStatusEvent(value);
+        setVisibleAgents((current) => applyAgentStatusEvent(current, event));
+      }
+    } catch {}
+  };
+
   useRealtimeSubscription({
     channel: workspaceId ? agentStatusChannel(workspaceId) : undefined,
     getToken: getConnectionToken,
     onConnected: () => void refreshSnapshot().catch(() => {}),
-    onPublication: (publication) => {
-      try {
-        const value =
-          publication.data instanceof Uint8Array
-            ? (JSON.parse(new TextDecoder().decode(publication.data)) as unknown)
-            : publication.data;
-        if (isAgentVisibilityChangedEvent(value)) {
-          // ADR 0059: refetch immediately rather than waiting for the next scheduled refresh —
-          // `mergeAgentStatusSnapshot` already drops any Agent absent from the fresh list, and
-          // subscribing/unsubscribing its per-Agent channels follows from that same fresh list
-          // wherever it is consumed (see `WorkspaceAgentsProvider`).
-          void refreshSnapshot().catch(() => {});
-        } else if (Reflect.get(value as object, "type") === "agent:display") {
-          const snapshot = parseAgentDisplaySnapshot(value);
-          setVisibleAgents((current) => applyAgentDisplaySnapshot(current, snapshot, workspaceId));
-        } else {
-          const event = decodeAgentStatusEvent(value);
-          setVisibleAgents((current) => applyAgentStatusEvent(current, event));
-        }
-      } catch {}
-    },
+    onPublication: (publication) => handleStatusPublication(publication.data),
+  });
+
+  // ADR 0059: one status subscription per visible private Agent, on the same shared client.
+  useRealtimeSubscriptions({
+    channels:
+      workspaceId && getPrivateAgentStatusToken
+        ? privateAgentIds.map((agentId) => ({
+            channel: agentStatusChannelForAgent(workspaceId, agentId),
+            getToken: () => getPrivateAgentStatusToken(agentId),
+          }))
+        : [],
+    onPublication: (_channel, publication) => handleStatusPublication(publication.data),
   });
 
   return visibleAgents;
