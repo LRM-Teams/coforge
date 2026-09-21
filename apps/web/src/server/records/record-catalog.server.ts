@@ -2196,22 +2196,8 @@ export class RecordCatalog {
     });
     if (!overview) throw new AppError("NOT_FOUND");
 
-    const { WeeklyReportAssistantChat } = await import("./weekly-report-assistant-chat.server");
-    const { createCentrifugoServerApi } = await import("../centrifugo/server-api.server");
-    const { CentrifugoConversationRealtime } =
-      await import("../conversations/conversation-realtime.server");
-    const { PrismaDirectConversationRepository } =
-      await import("../db/repositories/direct-conversation.repositories.server");
-    const { getMessageRequestIdempotency } =
-      await import("../conversations/redis-message-request-idempotency.server");
-    const centrifugo = createCentrifugoServerApi();
-    const chat = new WeeklyReportAssistantChat(
-      this.db,
-      new PrismaDirectConversationRepository(this.db),
-      getMessageRequestIdempotency(),
-      centrifugo,
-      new CentrifugoConversationRealtime(centrifugo),
-    );
+    const { openWeeklyReportAssistantChat } = await import("./weekly-report-assistant-chat.server");
+    const chat = openWeeklyReportAssistantChat(this.db);
     await chat.postRequest({
       workspaceId: input.workspaceId,
       userId: input.userId,

@@ -32,3 +32,4 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | [0057](0057-message-freshness-hold-contract.md) | proposed | The freshness hold is Raft's send contract, not a server-issued token |
 | [0058](0058-opencode-provider.md) | accepted | OpenCode is a per-turn provider whose model variants become the reasoning picker |
 | [0059](0059-agent-visibility.md) | accepted | Per-Agent public/private visibility, with per-Agent realtime channels for private Agents |
+| [0060](0060-weekly-assistant-per-subject-runtime-session.md) | accepted | WeeklyReportAssistant uses one Agent session per Records subject |

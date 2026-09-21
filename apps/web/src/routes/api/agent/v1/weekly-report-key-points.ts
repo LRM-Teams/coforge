@@ -10,6 +10,20 @@ const bodySchema = z.object({
   markdown: z.string().min(1).max(500_000),
 });
 
+/** Daemon rejects the proxy response unless `idempotencyKey` echoes the request. */
+export function weeklyReportKeyPointsHttpResponse(input: {
+  idempotencyKey: string;
+  reportId: string;
+  status: string;
+}) {
+  return {
+    idempotencyKey: input.idempotencyKey,
+    requestId: input.idempotencyKey,
+    reportId: input.reportId,
+    status: input.status,
+  };
+}
+
 export const Route = createFileRoute("/api/agent/v1/weekly-report-key-points")({
   server: {
     middleware: [agentAuthMiddleware],
@@ -28,11 +42,13 @@ export const Route = createFileRoute("/api/agent/v1/weekly-report-key-points")({
             markdown: body.markdown,
             requestId: body.idempotencyKey,
           });
-          return Response.json({
-            requestId: body.idempotencyKey,
-            reportId: result.reportId,
-            status: result.status,
-          });
+          return Response.json(
+            weeklyReportKeyPointsHttpResponse({
+              idempotencyKey: body.idempotencyKey,
+              reportId: result.reportId,
+              status: result.status,
+            }),
+          );
         } catch (error) {
           if (error && typeof error === "object" && "code" in error) {
             const code = String((error as { code: string }).code);

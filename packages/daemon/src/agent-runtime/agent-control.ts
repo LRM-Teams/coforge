@@ -355,15 +355,14 @@ export class AgentControl {
         throw new Error("agent_launch_id_required");
       }
       if (this.runtime.running(intent.agentId)) {
-        // ADR 0041: a Start that reaches an already-running process under an older, TERMINAL
-        // operation (a user Start racing a Daemon-ready `recover()` Start, or Start clicked on
-        // an Agent the UI wrongly shows offline) rebinds the running process to the new scope
-        // instead of rejecting it — matching Raft's `rebindRunningStart`. Every precondition is
-        // checked explicitly: a genuinely different, higher epoch (the fence above already
-        // rejects a lower one; an equal epoch was already handled by the replay branch), the
-        // same provider, a live record actually claiming "running", and a `launchId` to adopt
-        // from. Anything else falls through to the "should not happen" branch below.
-        if (
+        const runningSessionId = record?.identity?.sessionId;
+        // A different native session must not keep the previous process. Rebind
+        // (ADR 0041) only adopts a new control scope for the session already running.
+        if (intent.sessionId && runningSessionId && intent.sessionId !== runningSessionId) {
+          await this.runtime.stop(intent.agentId);
+        } else if (
+          // ADR 0041: same native session, older terminal operation — adopt the new scope
+          // instead of spawning. A different sessionId is handled above and must not rebind.
           record &&
           record.phase === "running" &&
           record.launchId &&
@@ -371,15 +370,17 @@ export class AgentControl {
           scope.epoch > record.scope.epoch
         )
           return this.#rebindRunning(record, scope, intent);
-        // The process is running but there is no matching running record to rebind to (the
-        // record is missing, or claims a different phase — should not happen). Send a failed
-        // result so the server's new operation terminates instead of hanging forever, then
-        // still throw so this stays diagnosable (ADR 0033's `control_code` logging).
-        const sequence = (record?.scope.epoch === scope.epoch ? record.sequence : 0) + 1;
-        await this.runtime
-          .result({ ...scope, phase: "failed", sequence, errorCode: "agent_already_running" })
-          .catch(() => {});
-        throw new Error("agent_already_running");
+        else {
+          // The process is running but there is no matching running record to rebind to (the
+          // record is missing, or claims a different phase — should not happen). Send a failed
+          // result so the server's new operation terminates instead of hanging forever, then
+          // still throw so this stays diagnosable (ADR 0033's `control_code` logging).
+          const sequence = (record?.scope.epoch === scope.epoch ? record.sequence : 0) + 1;
+          await this.runtime
+            .result({ ...scope, phase: "failed", sequence, errorCode: "agent_already_running" })
+            .catch(() => {});
+          throw new Error("agent_already_running");
+        }
       }
       if (!record || record.scope.epoch !== scope.epoch)
         record = {

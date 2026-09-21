@@ -1,4 +1,8 @@
-import { WEEKLY_REPORT_PROTOCOL_MAJOR, type WeeklyReportCommand } from "@lrm/coforge-sdk/internal";
+import {
+  WEEKLY_REPORT_PROTOCOL_MAJOR,
+  type WeeklyReportCommand,
+  type WeeklyReportRequest,
+} from "@lrm/coforge-sdk/internal";
 import { isAppError } from "../../lib/app-error";
 
 /** The agent HTTP API's own shape: the shared weekly-report command and response call this key
@@ -58,6 +62,12 @@ type WeeklyReportPrincipal = {
   computerId: string;
   agentId?: string;
 };
+
+/** Validated commands speak `requestId`; the Agent HTTP wire echoes `idempotencyKey`. */
+export function weeklyReportWireRequest(validated: WeeklyReportRequest): WeeklyReportWireRequest {
+  const { requestId, ...command } = validated;
+  return { ...command, idempotencyKey: requestId };
+}
 
 /** Authorized weekly-report reads for the assistant owner User over Agent HTTPS REST. */
 export async function executeAgentWeeklyReport(

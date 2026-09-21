@@ -20,7 +20,6 @@ import {
 } from "../../features/records/records-content";
 import { linkifyKeyPointSourceAttributions } from "../../features/records/key-point-source-links";
 import { ensureWeeklyReportAssistant } from "./weekly-report-assistant.server";
-import { WeeklyReportAssistantChat } from "./weekly-report-assistant-chat.server";
 import { ensureWeeklyReportAssistantChatSession } from "./weekly-report-assistant-chat-session.server";
 
 export function isWeeklyReportAssistantReady(agent: {
@@ -477,14 +476,8 @@ async function wakeLeaderKeyPointAssistant(
     body: string;
   },
 ) {
-  const centrifugo = createCentrifugoServerApi();
-  const chat = new WeeklyReportAssistantChat(
-    db,
-    new PrismaDirectConversationRepository(db),
-    getMessageRequestIdempotency(),
-    centrifugo,
-    new CentrifugoConversationRealtime(centrifugo),
-  );
+  const { openWeeklyReportAssistantChat } = await import("./weekly-report-assistant-chat.server");
+  const chat = openWeeklyReportAssistantChat(db);
   await chat.postRequest({
     workspaceId: input.workspaceId,
     userId: input.leaderUserId,

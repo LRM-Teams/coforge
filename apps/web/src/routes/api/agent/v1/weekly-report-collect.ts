@@ -12,6 +12,28 @@ const bodySchema = z.object({
   failureReason: z.string().max(2000).optional(),
 });
 
+/** Daemon rejects the proxy response unless `idempotencyKey` echoes the request. */
+export function weeklyReportCollectHttpResponse(input: {
+  idempotencyKey: string;
+  runId: string;
+  status: string;
+  allTerminal: boolean;
+  canSynthesize: boolean;
+  newlyAccepted: boolean;
+  synthesisStarted: boolean;
+}) {
+  return {
+    idempotencyKey: input.idempotencyKey,
+    requestId: input.idempotencyKey,
+    runId: input.runId,
+    status: input.status,
+    allTerminal: input.allTerminal,
+    canSynthesize: input.canSynthesize,
+    newlyAccepted: input.newlyAccepted,
+    synthesisStarted: input.synthesisStarted,
+  };
+}
+
 export const Route = createFileRoute("/api/agent/v1/weekly-report-collect")({
   server: {
     middleware: [agentAuthMiddleware],
@@ -35,15 +57,17 @@ export const Route = createFileRoute("/api/agent/v1/weekly-report-collect")({
           });
           const view = accepted.run;
 
-          return Response.json({
-            requestId: body.idempotencyKey,
-            runId: view.id,
-            status: view.status,
-            allTerminal: view.allTerminal,
-            canSynthesize: view.canSynthesize,
-            newlyAccepted: accepted.newlyAccepted,
-            synthesisStarted: accepted.synthesisStarted,
-          });
+          return Response.json(
+            weeklyReportCollectHttpResponse({
+              idempotencyKey: body.idempotencyKey,
+              runId: view.id,
+              status: view.status,
+              allTerminal: view.allTerminal,
+              canSynthesize: view.canSynthesize,
+              newlyAccepted: accepted.newlyAccepted,
+              synthesisStarted: accepted.synthesisStarted,
+            }),
+          );
         } catch (error) {
           if (error && typeof error === "object" && "code" in error) {
             const code = String((error as { code: string }).code);
