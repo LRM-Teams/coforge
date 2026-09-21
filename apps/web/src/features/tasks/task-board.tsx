@@ -55,11 +55,11 @@ export function TaskBoard({
   return (
     <section aria-label={m.tasks_board()} className="flex min-h-0 flex-1 flex-col bg-primary">
       {header}
-      <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
+      <header className="shrink-0 border-b border-secondary px-4 md:px-6">
         {!header && (
           <>
             {conversationName && (
-              <div className="-mx-3 flex h-12 items-center border-b border-secondary px-3 sm:-mx-5 sm:px-5">
+              <div className="-mx-4 flex h-12 items-center border-b border-secondary px-4 md:-mx-6 md:px-6">
                 <h1 className="truncate text-base font-medium">{conversationName}</h1>
               </div>
             )}
@@ -88,11 +88,11 @@ export function TaskBoard({
         </div>
       </header>
       {error && (
-        <p role="alert" className="mx-5 mt-4 text-sm text-error-primary">
+        <p role="alert" className="mx-4 mt-4 text-sm text-error-primary md:mx-6">
           {error}
         </p>
       )}
-      <div className="min-h-0 flex-1 overflow-auto p-5">
+      <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
         {loading && tasks.length === 0 ? (
           <p role="status" className="text-sm text-tertiary">
             {m.tasks_loading()}
