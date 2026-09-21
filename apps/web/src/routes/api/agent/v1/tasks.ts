@@ -26,6 +26,9 @@ const taskRequestSchema = z
   .object({
     operation: z.enum(taskOperations),
     idempotencyKey: z.string().min(1),
+    protocolMajor: z.literal(1).optional(),
+    workspaceId: z.string().min(1).optional(),
+    agentId: z.string().min(1).optional(),
     conversationId: z.string().uuid().optional(),
     target: z.string().min(1).optional(),
     number: z.number().int().positive().optional(),
@@ -65,7 +68,18 @@ export async function handleAgentTaskPost(
   },
 ): Promise<Response> {
   try {
-    const command = taskRequestSchema.parse(await request.json().catch(() => undefined));
+    const envelope = taskRequestSchema.parse(await request.json().catch(() => undefined));
+    if (
+      (envelope.workspaceId !== undefined && envelope.workspaceId !== principal.workspaceId) ||
+      (envelope.agentId !== undefined && envelope.agentId !== principal.agentId)
+    )
+      return Response.json({ error: "Task principal scope mismatch" }, { status: 403 });
+    const {
+      protocolMajor: _protocolMajor,
+      workspaceId: _workspaceId,
+      agentId: _agentId,
+      ...command
+    } = envelope;
     // Agent Task commands act as the agent, not its owner user.
     const result = await board.execute(
       { workspaceId: principal.workspaceId, agentId: principal.agentId },

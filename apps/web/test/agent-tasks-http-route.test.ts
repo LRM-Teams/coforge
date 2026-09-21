@@ -15,7 +15,10 @@ test("the Task route hands the board the body it expects, key named idempotencyK
   let received: unknown;
   const result = await handleAgentTaskPost(
     request({
+      protocolMajor: 1,
       idempotencyKey: "request-1",
+      workspaceId: "workspace-1",
+      agentId: "agent-1",
       operation: "list",
       target: "#general",
     }),
@@ -31,7 +34,7 @@ test("the Task route hands the board the body it expects, key named idempotencyK
   expect(result.status).toBe(200);
   // One name, no rename at this boundary: the board's command carries `idempotencyKey` exactly as
   // the wire did, and the route echoes the same key back.
-  expect(received).toMatchObject({
+  expect(received).toEqual({
     idempotencyKey: "request-1",
     operation: "list",
     target: "#general",
@@ -113,6 +116,30 @@ test("a resource receipt accepts an ISO expiry with a timezone offset", async ()
 
   expect(result.status).toBe(200);
   expect(received).toMatchObject({ receipt: { expiry: "2030-03-04T05:06:00+08:00" } });
+});
+
+test("a mismatched daemon envelope is rejected before the board is called", async () => {
+  let called = false;
+  const result = await handleAgentTaskPost(
+    request({
+      protocolMajor: 1,
+      idempotencyKey: "request-1",
+      workspaceId: "workspace-1",
+      agentId: "another-agent",
+      operation: "list",
+      target: "#general",
+    }),
+    principal,
+    {
+      execute: async () => {
+        called = true;
+        return { tasks: [] };
+      },
+    },
+  );
+
+  expect(result.status).toBe(403);
+  expect(called).toBe(false);
 });
 
 test("the board receives an agent-scoped principal — never the owner's userId alongside it", async () => {
