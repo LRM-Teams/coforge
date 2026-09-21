@@ -39,7 +39,13 @@ function proxyCaller(environment: Record<string, string>): ProxyCall {
   const context = environment.COFORGE_AGENT_CONTEXT;
   return async (path, body) => {
     if (!proxyUrl || !context) throw new Error("CoForge agent proxy is not configured");
-    const response = await fetch(`${proxyUrl.replace(/\/+$/, "")}${path}`, {
+    // The proxy URL's base path is the messages route (the CLI's carrier
+    // convention — `connectLocal` does the same), so every call REPLACES the
+    // pathname wholesale. String concatenation would double it and 404.
+    const endpoint = new URL(proxyUrl);
+    endpoint.pathname = path;
+    endpoint.search = "";
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -228,13 +234,57 @@ export function memoryExplorerTools(environment: Record<string, string>): ToolDe
           requestId: params.request_id,
           operation: "send",
           target: params.target,
-          body: params.body,
+          content: params.body,
         }),
       );
     },
   });
 
-  return [start, explore, redirect, submit, offer, send];
+  // The fenced profile has no shell, but the daemon's inbox notices tell the
+  // agent to "run coforge message check" — channel-message bodies arrive only
+  // on demand (ADR 0048). These two tools give the fence the same read verbs
+  // the CLI gives an ordinary agent, so a pending @mention is reachable.
+  const check = defineTool({
+    name: "message_check",
+    label: "Check pending messages",
+    description:
+      "List the targets (channels, DMs, threads) with messages pending for you. Pair with " +
+      "message_read to fetch a target's bodies.",
+    promptSnippet: "List which targets have pending messages.",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params) {
+      return result(
+        await call(MESSAGES_PATH, {
+          requestId: `message-check-${crypto.randomUUID()}`,
+          operation: "check",
+        }),
+      );
+    },
+  });
+
+  const read = defineTool({
+    name: "message_read",
+    label: "Read a target's messages",
+    description:
+      "Read pending messages from one target (a channel like #general, a DM like @user, or a " +
+      "thread). This is how you receive @mentions that arrived while you were not looking.",
+    promptSnippet: "Read pending messages from one target.",
+    parameters: Type.Object({
+      request_id: Type.String({ minLength: 1, maxLength: 128 }),
+      target: Type.String({ minLength: 2, maxLength: 120 }),
+    }),
+    async execute(_toolCallId, params) {
+      return result(
+        await call(MESSAGES_PATH, {
+          requestId: params.request_id,
+          operation: "read",
+          target: params.target,
+        }),
+      );
+    },
+  });
+
+  return [start, explore, redirect, submit, offer, send, check, read];
 }
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({

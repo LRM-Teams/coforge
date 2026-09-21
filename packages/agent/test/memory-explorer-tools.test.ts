@@ -8,7 +8,9 @@ import { memoryExplorerTools } from "../src/runner";
  */
 
 const ENV = {
-  COFORGE_AGENT_PROXY_URL: "http://127.0.0.1:8799",
+  // Carries the proxy's real base-path convention (the messages route — see
+  // `connectLocal`): every tool must REPLACE the pathname, never append to it.
+  COFORGE_AGENT_PROXY_URL: "http://127.0.0.1:8799/api/agent/v1/messages",
   COFORGE_AGENT_CONTEXT: "sfp_" + "a".repeat(43),
 };
 
@@ -183,7 +185,44 @@ describe("memory explorer tools", () => {
         requestId: "req-1",
         operation: "send",
         target: "#general",
-        body: "team memory has a relevant lesson here",
+        content: "team memory has a relevant lesson here",
+      });
+    } finally {
+      stub.restore();
+    }
+  });
+
+  test("message_check posts the check operation without a target", async () => {
+    const stub = withStubProxy(() => Response.json({ targets: [] }));
+    try {
+      const tools = memoryExplorerTools(ENV);
+      const check = tools.find((tool) => tool.name === "message_check")!;
+      await check.execute("call-5", {} as never, undefined, undefined, {} as never);
+      expect(stub.calls[0]?.path).toBe("/api/agent/v1/messages");
+      expect(stub.calls[0]?.body?.operation).toBe("check");
+      expect(stub.calls[0]?.body?.target).toBeUndefined();
+    } finally {
+      stub.restore();
+    }
+  });
+
+  test("message_read posts the read operation for one target", async () => {
+    const stub = withStubProxy(() => Response.json({ messages: [] }));
+    try {
+      const tools = memoryExplorerTools(ENV);
+      const read = tools.find((tool) => tool.name === "message_read")!;
+      await read.execute(
+        "call-6",
+        { request_id: "req-2", target: "#general" } as never,
+        undefined,
+        undefined,
+        {} as never,
+      );
+      expect(stub.calls[0]?.path).toBe("/api/agent/v1/messages");
+      expect(stub.calls[0]?.body).toEqual({
+        requestId: "req-2",
+        operation: "read",
+        target: "#general",
       });
     } finally {
       stub.restore();
@@ -214,7 +253,7 @@ describe("memory explorer tools", () => {
     }
   });
 
-  test("the profile has exactly the six native tools and no others", () => {
+  test("the profile has exactly the eight native tools and no others", () => {
     expect(
       memoryExplorerTools(ENV)
         .map((tool) => tool.name)
@@ -225,6 +264,8 @@ describe("memory explorer tools", () => {
       "memory_redirect",
       "memory_start",
       "memory_submit",
+      "message_check",
+      "message_read",
       "send_channel_message",
     ]);
   });

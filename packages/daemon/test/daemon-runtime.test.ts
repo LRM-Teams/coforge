@@ -84,8 +84,12 @@ const connection: WorkspaceConfig = {
 
 afterAll(() => rm(workspaceRoot, { recursive: true, force: true }));
 
-const config: AgentRuntimeConfig = {
-  provider: "pi",
+// Unannotated on purpose: this fixture is spread into start-intent literals,
+// and the `AgentRuntimeConfig` annotation would carry its optional object-form
+// `toolProfile` member into the spread (the wire intent carries the string
+// kind instead). The fixture never sets a profile.
+const config = {
+  provider: "pi" as const,
   model: "default",
   modelProvider: "anthropic",
   reasoning: "balanced",

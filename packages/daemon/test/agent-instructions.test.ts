@@ -750,6 +750,7 @@ test("the memory-explorer profile gains the memory-first explorer section", () =
   });
   expect(fenced).toContain("## Team memory (Memory Agent)");
   expect(fenced).toContain("memory_start");
+  expect(fenced).toContain("message_check");
   expect(fenced).toContain("never write memory yourself");
   // Everything else is unchanged apart from the appended section.
   expect(fenced.startsWith(base)).toBe(true);

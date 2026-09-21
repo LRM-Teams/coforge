@@ -38,8 +38,12 @@ const connection: WorkspaceConfig = {
   workspaceRoot: join(tempRoot, `coforge-wake-launch-id-${crypto.randomUUID()}`),
 };
 
-const config: AgentRuntimeConfig = {
-  provider: "pi",
+// Unannotated on purpose: this fixture is spread into start-intent literals,
+// and the `AgentRuntimeConfig` annotation would carry its optional object-form
+// `toolProfile` member into the spread (the wire intent carries the string
+// kind instead). The fixture never sets a profile.
+const config = {
+  provider: "pi" as const,
   model: "default",
   modelProvider: "anthropic",
   reasoning: "balanced",
@@ -146,17 +150,13 @@ async function harness() {
 }
 
 function managedStart(agentId: string, requestId: string, epoch: number, launchId: string) {
-  // The wire intent carries the fenced profile as a plain string kind; the
-  // internal `config` fixture keeps the object form.
-  const { toolProfile, ...runtimeFields } = config;
   return {
     protocolMajor: 1,
     requestId,
     workspaceId: connection.workspaceId,
     computerId: connection.computerId,
     agentId,
-    ...runtimeFields,
-    ...(toolProfile ? { toolProfile: toolProfile.kind } : {}),
+    ...config,
     controlEpoch: epoch,
     launchId,
   };
