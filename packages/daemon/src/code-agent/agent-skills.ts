@@ -68,6 +68,13 @@ export async function listAgentSkills(options: {
       locals = [local(".cursor/skills")];
       if (home) globals = [personal(".cursor/skills")];
       break;
+    case RUNTIME_PROVIDER.OPENCODE:
+      // OpenCode discovers project skills natively from `.opencode/skills/` (Raft's
+      // `execenv/context.go` writes `{agentRoot}/.opencode/skills/{name}/SKILL.md` for the same
+      // reason). Its global skill directory is not something the installed CLI documents, so we
+      // claim no global scope rather than guess one.
+      locals = [local(".opencode/skills")];
+      break;
     case RUNTIME_PROVIDER.PI:
       locals = [local(".pi/skills", "pi"), local(".agents/skills")];
       if (home)

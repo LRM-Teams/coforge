@@ -30,3 +30,4 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | [0055](0055-agent-runtime-failure-recovery.md) | accepted | Classify runtime failures, back off deliveries, and fence a repeating one |
 | [0056](0056-linux-agent-process-cleanup.md) | accepted | Linux reaps its own Workspace's Agent processes on daemon boot |
 | [0057](0057-message-freshness-hold-contract.md) | proposed | The freshness hold is Raft's send contract, not a server-issued token |
+| [0058](0058-opencode-provider.md) | accepted | OpenCode is a per-turn provider whose model variants become the reasoning picker |

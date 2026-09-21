@@ -27,6 +27,7 @@ export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDelivery
   [RUNTIME_PROVIDER.CLAUDE_CODE]: "steer",
   [RUNTIME_PROVIDER.CURSOR]: "steer",
   [RUNTIME_PROVIDER.KIRO]: "steer",
+  [RUNTIME_PROVIDER.OPENCODE]: "steer",
 };
 
 /**

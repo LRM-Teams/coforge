@@ -338,6 +338,20 @@ const BUSY_ACTIVITY_DETAIL_KINDS = new Set<string>([
   AGENT_ACTIVITY_DETAIL_KIND.SYSTEM_MESSAGE,
 ]);
 
+/** How many recently handled send request ids per Agent+target the draft bookkeeping remembers.
+ * A transport retry re-runs the same request id, so remembering the last few is what lets the
+ * daemon tell a replay of an older send from a fresh one (task #70). */
+const DRAFT_REPLAY_MEMORY = 8;
+
+/** Per Agent+target draft bookkeeping, kept in memory only: the draft file itself stays exactly
+ * Raft's `continue-state.json` shape, so no bookkeeping field leaks onto disk. */
+type AgentDraftBookkeeping = {
+  /** The request whose content the target's current draft holds; only it may clear that draft. */
+  ownerRequestId?: string;
+  /** Recently handled send request ids for this target, oldest first. */
+  seenRequestIds: string[];
+};
+
 /** Detail kinds that end a busy turn; the heartbeat stops as soon as one is observed. */
 const TERMINAL_ACTIVITY_DETAIL_KINDS = new Set<string>([
   AGENT_ACTIVITY_DETAIL_KIND.IDLE,
@@ -404,6 +418,7 @@ const RUNTIME_DISPLAY_NAME: Record<RuntimeProvider, string> = {
   [RUNTIME_PROVIDER.CLAUDE_CODE]: "Claude Code",
   [RUNTIME_PROVIDER.KIRO]: "Kiro",
   [RUNTIME_PROVIDER.CURSOR]: "Cursor CLI",
+  [RUNTIME_PROVIDER.OPENCODE]: "OpenCode",
   [RUNTIME_PROVIDER.PI]: "Pi",
   [RUNTIME_PROVIDER.COFORGE]: "CoForge",
 };
@@ -457,6 +472,7 @@ export class DaemonRuntime {
   readonly #runtimeErrorBackoffTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #reminders: ReminderScheduler;
   readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
+  readonly #draftBookkeeping = new Map<string, Map<string, AgentDraftBookkeeping>>();
   readonly #appInboxes = new Map<string, Promise<AgentAppInbox>>();
   readonly #notifiedAppItems = new Map<string, Map<string, Promise<boolean>>>();
   readonly #runtimeInstanceId = generateRuntimeInstanceId();
@@ -3175,6 +3191,20 @@ export class DaemonRuntime {
   ): Promise<AgentMessageResponse> {
     const startedAt = performance.now();
     const inbox = this.#agentInbox(agentId);
+    // Task #70: the daemon owns the per-target draft for every request, and a transport retry
+    // re-runs this whole flow with the SAME request id. Without this bookkeeping, a retry of an
+    // older send to the same target rewrites the draft and, once it is finally accepted, clears the
+    // draft a newer hold just stored — the Agent was told its held message is saved, and
+    // `--send-draft` then answers SEND_DRAFT_NOT_FOUND. A replay of an older request therefore
+    // touches nothing about the draft; the newest writer owns it until its own outcome.
+    const draftBookkeeping = this.#draftBookkeepingFor(agentId, target);
+    const replayed = draftBookkeeping.seenRequestIds.includes(request.requestId);
+    if (!replayed) {
+      draftBookkeeping.seenRequestIds.push(request.requestId);
+      if (draftBookkeeping.seenRequestIds.length > DRAFT_REPLAY_MEMORY)
+        draftBookkeeping.seenRequestIds.shift();
+      draftBookkeeping.ownerRequestId = request.requestId;
+    }
     const draft = request.sendDraft ? await inbox.draft(target) : undefined;
     if (request.sendDraft && !draft)
       throw new AgentPreflightError(`No saved draft for target: ${target}`, "SEND_DRAFT_NOT_FOUND");
@@ -3230,8 +3260,10 @@ export class DaemonRuntime {
         const parentOrder = this.#messageAttention.readOrder(agentId, target);
         if (parentOrder === undefined || parentOrder < latestThread.order) {
           // Raft-aligned: the outgoing content is saved as the local draft before refusing, so the
-          // documented recovery is resending that exact draft, not retyping it.
-          await inbox.save(target, { content, attachmentIds, mentions, seenUpToSeq });
+          // documented recovery is resending that exact draft, not retyping it. A replay of an
+          // older request must not overwrite the draft the newest one owns.
+          if (!replayed)
+            await inbox.save(target, { content, attachmentIds, mentions, seenUpToSeq });
           throw new AgentPreflightError(
             targetConfirmationRequiredMessage(target, latestThread.target),
             "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
@@ -3243,7 +3275,7 @@ export class DaemonRuntime {
     // `inbox.save` persists the draft locally BEFORE the request is issued to the transport below;
     // any failure past this point leaves delivery state unknown, never "not sent" (see
     // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
-    if (!request.sendDraft)
+    if (!request.sendDraft && !replayed)
       await inbox.save(target, { content, attachmentIds, mentions, seenUpToSeq });
     // The daemon's own freshness decision, taken BEFORE any transport call: a send it holds must
     // never be issued, because a re-issue of the same request would re-decide it (observed: the
@@ -3312,7 +3344,7 @@ export class DaemonRuntime {
     // about it may be recorded (or kept in the draft) as reviewed.
     const contextWasWithheld =
       request.freshnessContextMode === "withheld" || result.freshnessContextMode === "withheld";
-    if (held)
+    if (held) {
       await inbox.replace(target, {
         content,
         attachmentIds,
@@ -3322,7 +3354,20 @@ export class DaemonRuntime {
         reholdCount: draftReholdCount + 1,
         seenUpToSeq: contextWasWithheld ? seenUpToSeq : (result.seenUpToSeq ?? seenUpToSeq),
       });
-    else if (result.accepted) await inbox.clear(target);
+      // A hold is the newest user-visible draft state for this target, so it takes ownership.
+      draftBookkeeping.ownerRequestId = request.requestId;
+    } else if (result.accepted) {
+      // Only the request that owns the draft may consume it: an older send's accepted replay must
+      // leave a newer hold's draft alone (task #70). An absent owner means the daemon restarted and
+      // has no record, which keeps the pre-existing behaviour of clearing on acceptance.
+      if (
+        draftBookkeeping.ownerRequestId === undefined ||
+        draftBookkeeping.ownerRequestId === request.requestId
+      ) {
+        await inbox.clear(target);
+        draftBookkeeping.ownerRequestId = undefined;
+      }
+    }
     const targetMessages = result.messages.filter((message) => message.target === target);
     // Raft's `recordConsumedSeqs(data.seenUpToSeq)`: the notice presented this frontier, so the
     // Agent has consumed it and the same context will not hold the next attempt. The shown window's
@@ -3863,6 +3908,21 @@ export class DaemonRuntime {
     const opened = AgentAppInbox.open(this.stateDirectory, this.#connection.workspaceId, agentId);
     this.#appInboxes.set(agentId, opened);
     return opened;
+  }
+
+  /** Per Agent+target draft bookkeeping (task #70), created on first use. */
+  #draftBookkeepingFor(agentId: string, target: string): AgentDraftBookkeeping {
+    let byTarget = this.#draftBookkeeping.get(agentId);
+    if (!byTarget) {
+      byTarget = new Map<string, AgentDraftBookkeeping>();
+      this.#draftBookkeeping.set(agentId, byTarget);
+    }
+    let state = byTarget.get(target);
+    if (!state) {
+      state = { seenRequestIds: [] };
+      byTarget.set(target, state);
+    }
+    return state;
   }
 
   #agentInbox(agentId: string): AgentInboxStateMachine {

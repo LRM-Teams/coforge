@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import {
+  Code02,
+  Copy01,
   CornerUpLeft,
   Download01,
   MessageSquare01 as MessageSquare,
@@ -13,6 +15,7 @@ import { getReadableFileSize } from "@/components/application/file-upload/file-u
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
 import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { useAppToast } from "@/components/ui/toast";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
@@ -30,6 +33,13 @@ import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
 import { MessageReactionPicker, QUICK_REACTION_EMOJIS } from "./message-reaction-picker";
 import { UnreadBadge } from "./conversation-directory";
+import {
+  copyFragmentMarkdown,
+  copyFragmentStyled,
+  messagePlainText,
+  selectionFragmentHtml,
+} from "./selection-copy";
+import { copyText } from "../records/report-editor/lib/clipboard";
 
 export type MessageView = {
   id: string;
@@ -585,8 +595,9 @@ export function MessageRow({
   // over this message while selecting another one never raises it.
   const bodyRef = useRef<HTMLDivElement>(null);
   const quoteAffordanceRef = useRef<HTMLDivElement>(null);
+  const toast = useAppToast();
   const [quoteOffer, setQuoteOffer] = useState<
-    { quote: string; top: number; left: number } | undefined
+    { quote: string; html: string; text: string; top: number; left: number } | undefined
   >(undefined);
   /**
    * Reads the current highlight, and offers the quote only when the whole selection lives inside
@@ -615,13 +626,20 @@ export function MessageRow({
       return;
     }
     // Anchored above the highlight and centered on it; the visible history scroller is the flip
-    // boundary, so the button only drops below the highlight when it would scroll out of view.
+    // boundary, so the bar only drops below the highlight when it would scroll out of view. The
+    // fragment and its text are captured now: clicking a bar button may collapse the live
+    // selection, but the copy actions must still carry what the reader highlighted.
     const placement = selectionAffordancePlacement(
       range.getBoundingClientRect(),
       container.getBoundingClientRect(),
       { top: visibleBoundaryTop(container) },
     );
-    setQuoteOffer({ quote, ...placement });
+    setQuoteOffer({
+      quote,
+      html: selectionFragmentHtml(range),
+      text: selection.toString(),
+      ...placement,
+    });
   }, [onQuoteSelection, displayName, message.createdAt, dateLocale]);
   // A gesture anywhere else (a click, a scroll, Escape) withdraws the offer. The affordance
   // itself is exempt: pointerdown on it would otherwise unmount the button before its click.
@@ -670,6 +688,41 @@ export function MessageRow({
     },
     [sheetActions],
   );
+  // Touch selection ends without a mouseup: the long-press and the OS selection handles fire no
+  // usable mouse events, so on touch the offer is driven by `selectionchange` (debounced, so a
+  // handle drag settles first) and by pointer release. While a pointer is down — a mouse drag
+  // mid-selection — selection events are ignored and `onMouseUp` stays the trigger, keeping the
+  // desktop bar tied to the completed gesture.
+  const pointerDownRef = useRef(false);
+  useEffect(() => {
+    if (!onQuoteSelection) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(readQuoteSelection, 200);
+    };
+    const onPointerDown = () => {
+      pointerDownRef.current = true;
+    };
+    const onPointerUp = () => {
+      pointerDownRef.current = false;
+      schedule();
+    };
+    const onSelectionChange = () => {
+      if (!pointerDownRef.current) schedule();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("pointercancel", onPointerUp, true);
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerUp, true);
+      document.removeEventListener("selectionchange", onSelectionChange);
+    };
+  }, [onQuoteSelection, readQuoteSelection]);
   // A system message (task/membership notices, etc.) is not a person talking: it carries no
   // avatar and no sender heading, and renders as a compact, muted line in the stream — like
   // Slack's channel notices. The body still goes through `MessageBody` so a `@handle` mention in
@@ -713,6 +766,10 @@ export function MessageRow({
   const threadAccessibleLabel = thread?.unread
     ? `${threadLabel} · ${m.conversation_thread_unread({ count: thread.unread })}`
     : threadLabel;
+  // #544's whole-message copy (the IM-standard "Copy text", the only copy path for a collapsed,
+  // unselectable body) rides the action strip on desktop and the tap action sheet on the mobile
+  // shell; the sheet therefore also opens for a message with no thread and no reactions.
+  const copyable = Boolean(messagePlainText(message).trim());
   return (
     <li data-message-id={message.id} className={ROW_CLASS}>
       {unreadStartsHere && <UnreadDivider />}
@@ -798,7 +855,10 @@ export function MessageRow({
               onKeyUp={readQuoteSelection}
               className={cn(
                 "relative min-w-0 text-md leading-6 text-primary [overflow-wrap:anywhere]",
-                grouped && threadEntry && "pr-8",
+                // A grouped row has no sender header, so the touch-visible action strip would
+                // sit on its first text line; reserve the strip's width (thread + reaction +
+                // copy buttons) up front instead.
+                grouped && "pr-20",
               )}
             >
               <CollapsibleMessageBody
@@ -814,16 +874,43 @@ export function MessageRow({
                 <div
                   ref={quoteAffordanceRef}
                   style={{ top: quoteOffer.top, left: quoteOffer.left }}
-                  className="absolute z-10"
+                  className="absolute z-10 flex items-center gap-0.5 rounded-md border border-secondary bg-primary p-0.5 shadow-lg"
                 >
                   <ButtonUtility
                     size="xs"
-                    color="secondary"
+                    color="tertiary"
                     icon={CornerUpLeft}
                     tooltip={m.conversation_quote_selection()}
-                    className="border border-secondary bg-primary shadow-lg"
                     onClick={() => {
                       onQuoteSelection(quoteOffer.quote);
+                      setQuoteOffer(undefined);
+                    }}
+                  />
+                  <span aria-hidden="true" className="h-4 w-px shrink-0 bg-secondary" />
+                  <ButtonUtility
+                    size="xs"
+                    color="tertiary"
+                    icon={Copy01}
+                    tooltip={m.conversation_copy_as_style()}
+                    onClick={() => {
+                      void copyFragmentStyled(quoteOffer.html, quoteOffer.text).then((copied) => {
+                        if (copied) toast.success(m.conversation_copy_as_style_success());
+                        else toast.error(m.conversation_copy_failed());
+                      });
+                      setQuoteOffer(undefined);
+                    }}
+                  />
+                  <span aria-hidden="true" className="h-4 w-px shrink-0 bg-secondary" />
+                  <ButtonUtility
+                    size="xs"
+                    color="tertiary"
+                    icon={Code02}
+                    tooltip={m.conversation_copy_as_markdown()}
+                    onClick={() => {
+                      void copyFragmentMarkdown(quoteOffer.html).then((copied) => {
+                        if (copied) toast.success(m.conversation_copy_as_markdown_success());
+                        else toast.error(m.conversation_copy_failed());
+                      });
                       setQuoteOffer(undefined);
                     }}
                   />
@@ -867,7 +954,7 @@ export function MessageRow({
           {messageFooter?.(message)}
           {threadPreview?.(message)}
         </div>
-        {(threadEntry || onToggleReaction) && (
+        {(threadEntry || onToggleReaction || copyable) && (
           /* Hidden until revealed: hover/focus in the wide desktop shell (`lg` and up, with
              a hover-capable fine pointer), and always while it carries an unread-thread
              badge. Everywhere else the row tap opens the action sheet instead. The reveal
@@ -876,7 +963,8 @@ export function MessageRow({
              has a click handler); and some touch devices (iOS Safari) report `hover: hover`
              anyway — any missing gate would leave the bar visible after the sheet closes.
              Hidden also means `pointer-events-none` — an invisible bar must not swallow taps
-             aimed at the message under it. */
+             aimed at the message under it. Order is thread, reactions, then whole-message
+             copy last — the IM-standard order (#546). */
           <div
             className={cn(
               "pointer-events-none absolute top-0.5 right-3 flex items-center gap-0.5 rounded-lg border border-secondary bg-primary p-0.5 opacity-0 shadow-lg transition-opacity",
@@ -908,15 +996,28 @@ export function MessageRow({
                 onPick={(emoji) => onToggleReaction(message.id, emoji, true)}
               />
             )}
+            <ButtonUtility
+              size="xs"
+              color="tertiary"
+              icon={Copy01}
+              tooltip={m.conversation_message_copy_text()}
+              onClick={() => {
+                void copyText(messagePlainText(message)).then((copied) => {
+                  if (copied) toast.success(m.conversation_message_copied());
+                  else toast.error(m.conversation_copy_failed());
+                });
+              }}
+              className="p-1 *:data-icon:size-3.5"
+            />
           </div>
         )}
-        {sheetActions && (thread || onToggleReaction) && (
+        {sheetActions && (thread || onToggleReaction || copyable) && (
           /* The mobile-shell counterpart of the hover toolbar: a bottom action sheet in the
-             Slack/Discord mobile layout — a quick-reaction row on top, then full-width
-             actions — opened by a tap on the message. Dismissal (backdrop press, Escape)
-             and focus containment come from the modal overlay. The overlay carries
-             `data-message-actions-popover` so its backdrop press doesn't bubble back into
-             the row's tap-to-open handler. */
+             Slack/Discord mobile layout — the quoted message card, a quick-reaction row,
+             then full-width actions (thread row, whole-message copy last) — opened by a tap
+             on the message. Dismissal (backdrop press, Escape) and focus containment come
+             from the modal overlay. The overlay carries `data-message-actions-popover` so
+             its backdrop press doesn't bubble back into the row's tap-to-open handler. */
           <AriaModalOverlay
             isOpen={actionsOpen}
             onOpenChange={setActionsOpen}
@@ -993,11 +1094,11 @@ export function MessageRow({
                     ))}
                   </div>
                 )}
-                {thread && (
-                  <div className="flex flex-col px-3 pt-1 pb-3">
-                    {onToggleReaction && (
-                      <div aria-hidden="true" className="mx-1 mt-1 mb-1 h-px bg-secondary" />
-                    )}
+                <div className="flex flex-col px-3 pt-1 pb-3">
+                  {onToggleReaction && (copyable || thread) && (
+                    <div aria-hidden="true" className="mx-1 mt-1 mb-1 h-px bg-secondary" />
+                  )}
+                  {thread && (
                     <Button
                       color="tertiary"
                       size="md"
@@ -1015,8 +1116,29 @@ export function MessageRow({
                     >
                       {threadLabel}
                     </Button>
-                  </div>
-                )}
+                  )}
+                  {copyable && thread && (
+                    <div aria-hidden="true" className="mx-1 my-1 h-px bg-secondary" />
+                  )}
+                  {copyable && (
+                    <Button
+                      color="tertiary"
+                      size="md"
+                      noTextPadding
+                      iconLeading={Copy01}
+                      onPress={() => {
+                        setActionsOpen(false);
+                        void copyText(messagePlainText(message)).then((copied) => {
+                          if (copied) toast.success(m.conversation_message_copied());
+                          else toast.error(m.conversation_copy_failed());
+                        });
+                      }}
+                      className="w-full justify-start rounded-lg py-3 *:data-icon:size-5 [&>[data-text]]:flex-1 [&>[data-text]]:text-left"
+                    >
+                      {m.conversation_message_copy_text()}
+                    </Button>
+                  )}
+                </div>
               </Dialog>
             </AriaModal>
           </AriaModalOverlay>

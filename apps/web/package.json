@@ -103,6 +103,8 @@
     "tailwind-merge": "3.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tailwindcss-react-aria-components": "^2.2.0",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
     "web-push": "3.6.7",
     "zod": "^4.5.4"
   },
@@ -116,6 +118,7 @@
     "@types/pg": "^8.23.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
+    "@types/turndown": "^5.0.6",
     "@types/web-push": "3.6.4",
     "@vitejs/plugin-react": "6.1.0",
     "daisyui": "5.7.38",
