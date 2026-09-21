@@ -12,6 +12,11 @@ import {
   resolveChannelAuthority,
 } from "./channel-authority.server";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
+import {
+  agentVisibilityViewerForActor,
+  visibleAgentWhere,
+} from "../agents/agent-visibility.server";
 import {
   agentMessageSender,
   browserSenderHandle,
@@ -220,8 +225,10 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
     })),
     skipDuplicates: true,
   });
+  // ADR 0059: a private Agent is never an active channel member, including #general — creating
+  // one must not enroll it here, and it stays out on every later repair/backfill pass too.
   const agents = await db.agent.findMany({
-    where: { workspaceId, ...ACTIVE_AGENT_WHERE },
+    where: { workspaceId, visibility: AGENT_VISIBILITY.PUBLIC, ...ACTIVE_AGENT_WHERE },
     select: { id: true },
   });
   await db.conversationMember.createMany({
@@ -701,8 +708,16 @@ export class PublicChannels {
         select: { id: true, username: true, displayName: true, avatarObjectKey: true },
         orderBy: [{ username: "asc" }, { id: "asc" }],
       }),
+      // ADR 0059: a private Agent can never join a channel, so it is never an add-candidate
+      // either — unconditionally, the same "channels never contain a private Agent" invariant
+      // `enrollGeneralChannel`/`addMembers` enforce, not a viewer-scoped visibility read.
       this.db.agent.findMany({
-        where: { workspaceId, weeklyReportAssistant: null, ...ACTIVE_AGENT_WHERE },
+        where: {
+          workspaceId,
+          weeklyReportAssistant: null,
+          visibility: AGENT_VISIBILITY.PUBLIC,
+          ...ACTIVE_AGENT_WHERE,
+        },
         select: { id: true, name: true, displayName: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
@@ -833,10 +848,15 @@ export class PublicChannels {
       if (validUsers !== userIds.length) throw new AppError("INVALID_INPUT");
     }
     if (agentIds.length) {
-      const validAgents = await this.db.agent.count({
+      const targetAgents = await this.db.agent.findMany({
         where: { workspaceId, id: { in: agentIds }, ...ACTIVE_AGENT_WHERE },
+        select: { id: true, visibility: true },
       });
-      if (validAgents !== agentIds.length) throw new AppError("INVALID_INPUT");
+      if (targetAgents.length !== agentIds.length) throw new AppError("INVALID_INPUT");
+      // ADR 0059: a private Agent is never an active channel member — reject the whole add
+      // rather than silently drop it, with a stable code + explanation for the caller.
+      if (targetAgents.some((agent) => agent.visibility !== AGENT_VISIBILITY.PUBLIC))
+        throw new AppError("INVALID_INPUT", { errorId: "agent-private" });
     }
 
     // Read who was already an active member before writing, so a caller (the Agent CLI) can
