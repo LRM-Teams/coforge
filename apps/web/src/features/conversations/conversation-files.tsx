@@ -56,20 +56,23 @@ export function ConversationFilesPanel({
 }) {
   const { data: files, isPending, isError } = useConversationFiles(conversationId);
   if (isPending) {
-    return <p className="p-4 text-sm text-tertiary">{m.files_loading()}</p>;
+    return <p className="p-5 text-sm text-tertiary">{m.files_loading()}</p>;
   }
   if (isError) {
-    return <p className="p-4 text-sm text-destructive">{m.files_load_failed()}</p>;
+    return <p className="p-5 text-sm text-error-primary">{m.files_load_failed()}</p>;
   }
   if (!files || files.length === 0) {
-    return <p className="p-4 text-sm text-tertiary">{m.files_empty()}</p>;
+    return (
+      <div className="grid h-full place-content-center p-5 text-center">
+        <p className="text-sm text-tertiary">{m.files_empty()}</p>
+      </div>
+    );
   }
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <h2 className="px-4 pt-4 text-sm font-medium sm:px-6">
-        {m.files_title({ name: conversationName })}
-      </h2>
-      <ul className="px-4 py-2 sm:px-6">{files.map(fileRow)}</ul>
-    </div>
+    <section aria-label={m.files_title({ name: conversationName })} className="flex min-h-0 flex-1 flex-col bg-primary">
+      <div className="min-h-0 flex-1 overflow-auto p-5">
+        <ul>{files.map(fileRow)}</ul>
+      </div>
+    </section>
   );
 }

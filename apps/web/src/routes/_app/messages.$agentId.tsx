@@ -109,20 +109,20 @@ function DirectConversationPage() {
 
   if (view === "files")
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <DirectConversationHeader
-          conversation={conversation}
-          tasks={taskView.tasks}
-          active="files"
-          onShowChat={showChat}
-          onShowTasks={showTasks}
-          onOpenAgentProfile={openAgentProfile}
-        />
+      <section aria-label={conversation.agent.displayName} className="flex min-h-0 flex-1 flex-col bg-primary">
+          <DirectConversationHeader
+            conversation={conversation}
+            tasks={taskView.tasks}
+            active="files"
+            onShowChat={showChat}
+            onShowTasks={showTasks}
+            onOpenAgentProfile={openAgentProfile}
+          />
         <ConversationFilesPanel
           conversationId={conversation.conversationId}
           conversationName={conversation.agent.displayName}
         />
-      </div>
+      </section>
     );
   if (view === "tasks")
     return (

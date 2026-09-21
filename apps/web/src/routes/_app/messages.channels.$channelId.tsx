@@ -133,22 +133,22 @@ function ChannelPage() {
     }));
   if (view === "files")
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <ChannelConversationHeader
-          conversation={conversation}
-          tasks={taskView.tasks}
-          active="files"
-          onShowChat={showChat}
-          onShowTasks={showTasks}
-          onMutedChange={changeMuted}
-          onLeft={afterLeft}
-          onOpenAgentProfile={openAgentProfile}
-        />
+      <section aria-label={`#${conversation.name}`} className="flex min-h-0 flex-1 flex-col bg-primary">
+          <ChannelConversationHeader
+            conversation={conversation}
+            tasks={taskView.tasks}
+            active="files"
+            onShowChat={showChat}
+            onShowTasks={showTasks}
+            onMutedChange={changeMuted}
+            onLeft={afterLeft}
+            onOpenAgentProfile={openAgentProfile}
+          />
         <ConversationFilesPanel
           conversationId={conversation.conversationId}
           conversationName={`#${conversation.name}`}
         />
-      </div>
+      </section>
     );
   if (view === "tasks")
     return (
