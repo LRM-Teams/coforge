@@ -719,3 +719,25 @@ test("the publish client gives an upload more than an interactive caller's budge
   const options = (client as unknown as { options: { timeout?: number } }).options;
   expect(options.timeout).toBeGreaterThanOrEqual(5 * 60 * 1000);
 });
+
+test("an objects-only publication uploads its files and never touches latest", async () => {
+  // The per-platform half of a split publication: parallel jobs must not move the feed's only mutable
+  // object, because docs/release.md requires `latest` to be written last and never to point at an
+  // incomplete version. The finalize job moves it once every platform's objects are up.
+  const outputDirectory = await tempDir("coforge-publish-objects-only-");
+  const tree = await fixtureTree("9.9.9-objects-only", outputDirectory);
+  const fake = startFakeOssServer({});
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  const result = await uploadReleaseTree(outputDirectory, tree, {
+    client,
+    connection,
+    activate: false,
+  });
+
+  expect(result.uploaded.length).toBe(tree.files.length);
+  expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+  // The objects themselves still went up, and were verified by reading them back.
+  expect(fake.calls.filter((call) => call.method === "PUT").length).toBeGreaterThan(0);
+});

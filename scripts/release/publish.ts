@@ -348,6 +348,11 @@ export interface UploadOptions {
    * deliberately slow fixture server can prove that a stalled link reports the timeout's name
    * instead of hanging the publish. */
   requestTimeoutMs?: number;
+  /** Whether to move the feed's `latest` pointer once the objects are up. `false` uploads and
+   * verifies this version's objects only — what a per-platform job must do, because `latest` is the
+   * feed's only mutable object and docs/release.md requires it to be written last, never pointing at
+   * an incomplete version. The finalize job moves it once every platform's objects are up. */
+  activate?: boolean;
 }
 
 export interface UploadResult {
@@ -415,6 +420,11 @@ export async function uploadReleaseTree(
 
   for (const key of tree.files) {
     await verifyPrivateOrigin(key);
+  }
+  // Objects-only publication: stop before touching `latest`. See `UploadOptions.activate`.
+  if (options.activate === false) {
+    log(`uploaded ${tree.files.length} objects; latest not moved (objects-only)`);
+    return { uploaded: [...tree.files], latestKey: LATEST_OBJECT_KEY };
   }
 
   const previous = (await objectExists(client, LATEST_OBJECT_KEY))
@@ -488,6 +498,10 @@ export interface PublishOptions {
   targets: ReleaseTarget[];
   bucket: string;
   endpoint: string;
+  /** Objects-only publication (see `UploadOptions.activate`): upload and verify this version's
+   * objects, leave `latest` alone. What each per-platform job does when the publication is split so
+   * a slow link no longer has to move ~186 MB inside one job's timeout. */
+  activate?: boolean;
   /** Overrides the region derived from `endpoint`; required for endpoints that do not name one. */
   region?: string;
   dryRun: boolean;
@@ -577,6 +591,7 @@ export async function runPublish(
       connection,
       fetchImpl: deps.fetchImpl,
       log,
+      ...(options.activate === false ? { activate: false } : {}),
     });
     log(`published ${result.uploaded.length} objects and ${result.latestKey} -> ${tree.version}`);
     return {
@@ -618,6 +633,9 @@ function parseArgv(argv: string[]): ParsedArgs {
     switch (flag) {
       case "--dry-run":
         result.dryRun = true;
+        break;
+      case "--no-activate":
+        result.activate = false;
         break;
       case "--version":
         result.version = requireValue(argv, (index += 1), flag);
