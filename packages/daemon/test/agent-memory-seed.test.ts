@@ -16,7 +16,7 @@ test("buildInitialMemoryMd renders the displayName, role, and first-startup cont
 Reviews pull requests for the platform team.
 
 ## Rules (never change)
-- 
+-
 
 ## Active Context (≤5 lines)
 - First startup.

@@ -44,7 +44,7 @@ export function buildInitialMemoryMd(identity: AgentMemorySeedIdentity): string 
 ${role}
 
 ## Rules (never change)
-- 
+-
 
 ## Active Context (≤5 lines)
 - First startup.

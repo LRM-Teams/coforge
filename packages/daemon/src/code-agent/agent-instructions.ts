@@ -475,7 +475,7 @@ Your Agent workspace is a **persistent, agent-owned working area**; files you cr
 <your role definition, evolved over time>
 
 ## Rules (never change)
-- 
+-
 
 ## Active Context (≤5 lines)
 - Currently working on: <one line>
