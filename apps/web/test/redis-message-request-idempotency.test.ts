@@ -8,17 +8,15 @@ class FakeRedisCommands {
   readonly entries = new Map<string, Entry>();
   readonly setCalls: Array<{ key: string; ttlSeconds: number }> = [];
   readonly evalCalls: Array<{
-    operation: "complete" | "release";
+    operation: "refresh" | "release";
     key: string;
   }> = [];
+  readonly refreshes: Array<{ key: string; owner: string; ttlSeconds: number }> = [];
 
-  async set(key: string, value: string, ex: "EX", seconds: string, nx: "NX") {
+  /** A plain expiring write: the completion of a request whose row already exists. */
+  async set(key: string, value: string, ex: "EX", seconds: number): Promise<"OK"> {
     expect(ex).toBe("EX");
-    expect(nx).toBe("NX");
-    const ttlSeconds = Number(seconds);
-    this.setCalls.push({ key, ttlSeconds });
-    if (this.entries.has(key)) return null;
-    this.entries.set(key, { value, ttlSeconds });
+    this.entries.set(key, { value, ttlSeconds: Number(seconds) });
     return "OK" as const;
   }
 
@@ -26,18 +24,30 @@ class FakeRedisCommands {
     return this.entries.get(key)?.value ?? null;
   }
 
+  /** The raw surface: `SET … NX EX` claims, and the two owner-checked EVALs extend and release. */
   async send(command: string, args: string[]) {
-    expect(command).toBe("EVAL");
-    const [script, keyCount, key, owner, completed, ttl] = args;
-    expect(keyCount).toBe("1");
-    const operation = script.includes('redis.call("SET"') ? "complete" : "release";
-    this.evalCalls.push({ operation, key });
-    if (this.entries.get(key)?.value !== owner) return 0;
-    if (operation === "complete") {
-      this.entries.set(key, { value: completed, ttlSeconds: Number(ttl) });
-    } else {
-      this.entries.delete(key);
+    if (command === "SET") {
+      const [key, value, nx, ex, seconds] = args;
+      expect(nx).toBe("NX");
+      expect(ex).toBe("EX");
+      const ttlSeconds = Number(seconds);
+      this.setCalls.push({ key, ttlSeconds });
+      if (this.entries.has(key)) return null;
+      this.entries.set(key, { value, ttlSeconds });
+      return "OK";
     }
+    expect(command).toBe("EVAL");
+    const [script, keyCount, key, owner, extra] = args;
+    expect(keyCount).toBe("1");
+    const refresh = script.includes("EXPIRE");
+    this.evalCalls.push({ operation: refresh ? "refresh" : "release", key });
+    if (this.entries.get(key)?.value !== owner) return 0;
+    if (refresh) {
+      this.refreshes.push({ key, owner, ttlSeconds: Number(extra) });
+      this.entries.set(key, { value: owner, ttlSeconds: Number(extra) });
+      return 1;
+    }
+    this.entries.delete(key);
     return 1;
   }
 }
@@ -113,22 +123,66 @@ describe("RedisMessageRequestIdempotency", () => {
     expect(await idempotency.execute(scope, async () => message)).toBe(message);
   });
 
-  test("fails completion when claim ownership was lost and preserves the newer value", async () => {
+  test("a persist that outlives its claim still completes, so a successful send never reports failure", async () => {
     const redis = new FakeRedisCommands();
     const idempotency = new RedisMessageRequestIdempotency(redis);
-    const replacement = JSON.stringify({
-      state: "processing",
-      owner: "new-owner",
+
+    // The claim disappears while the handler works (the window a heartbeat exists to prevent): the
+    // row is written, so the result must still be stored and returned rather than thrown away.
+    const result = await idempotency.execute(scope, async () => {
+      redis.entries.delete(redis.setCalls[0]!.key);
+      return message;
     });
 
+    expect(result).toBe(message);
+    const stored = JSON.parse(redis.entries.get(redis.setCalls[0]!.key)!.value) as {
+      state: string;
+      message: { id: string };
+    };
+    expect(stored.state).toBe("completed");
+    expect(stored.message.id).toBe("message-a");
+  });
+
+  test("keeps the processing claim alive while a slow handler runs, so a retry is refused not written", async () => {
+    const redis = new FakeRedisCommands();
+    const scheduled: Array<() => void> = [];
+    const idempotency = new RedisMessageRequestIdempotency(redis, {
+      refreshMs: 1_000,
+      timers: {
+        schedule: (run) => {
+          scheduled.push(run);
+          return scheduled.length;
+        },
+        cancel: () => {},
+      },
+    });
+    let release: (() => void) | undefined;
+    const holding = new Promise<typeof message>((resolve) => {
+      release = () => resolve(message);
+    });
+    const first = idempotency.execute(scope, () => holding);
+    await Promise.resolve();
+
+    // The heartbeat runs while the handler is still working and only ever extends its own claim.
+    expect(scheduled).toHaveLength(1);
+    scheduled[0]!();
+    await Promise.resolve();
+    expect(redis.refreshes).toEqual([
+      { key: redis.setCalls[0]!.key, owner: expect.any(String), ttlSeconds: 30 },
+    ]);
+
+    // A second attempt with the same key is refused and never persists.
+    let persisted = false;
     await expect(
       idempotency.execute(scope, async () => {
-        const key = redis.setCalls[0]!.key;
-        redis.entries.set(key, { value: replacement, ttlSeconds: 30 });
+        persisted = true;
         return message;
       }),
-    ).rejects.toThrow("claim expired before completion");
-    expect(redis.entries.get(redis.setCalls[0]!.key)?.value).toBe(replacement);
+    ).rejects.toBeInstanceOf(MessageRequestInProgressError);
+    expect(persisted).toBeFalse();
+
+    release!();
+    expect(await first).toBe(message);
   });
 
   test("uses every scope field to distinguish Redis keys", async () => {
