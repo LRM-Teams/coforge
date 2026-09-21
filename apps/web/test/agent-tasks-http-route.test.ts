@@ -15,10 +15,7 @@ test("the Task route hands the board the body it expects, key named idempotencyK
   let received: unknown;
   const result = await handleAgentTaskPost(
     request({
-      protocolMajor: 1,
       idempotencyKey: "request-1",
-      workspaceId: "workspace-1",
-      agentId: "agent-1",
       operation: "list",
       target: "#general",
     }),
@@ -42,20 +39,50 @@ test("the Task route hands the board the body it expects, key named idempotencyK
   expect(await result.json()).toMatchObject({ idempotencyKey: "request-1", tasks: [] });
 });
 
-test("a Task command without a key reaches the board unchanged, and its refusal is a 400", async () => {
-  let received: unknown;
+test("a Task command without a key is rejected before the board is called", async () => {
+  let called = false;
   const result = await handleAgentTaskPost(request({ operation: "list" }), principal, {
-    execute: async (_principal, command) => {
-      received = command;
-      // The real board refuses a command without an `idempotencyKey` exactly like this.
+    execute: async () => {
+      called = true;
       throw new AppError("INVALID_INPUT");
     },
   });
 
-  // The route invents nothing: it passes the body through as-is so the board's own validation is
-  // the one that decides.
-  expect(received).toEqual({ operation: "list" });
   expect(result.status).toBe(400);
+  expect(called).toBe(false);
+});
+
+test("malformed JSON is rejected before the board is called", async () => {
+  let called = false;
+  const result = await handleAgentTaskPost(
+    new Request("https://server.example/api/agent/v1/tasks", {
+      method: "POST",
+      body: "{not-json",
+    }),
+    principal,
+    {
+      execute: async () => {
+        called = true;
+        return { tasks: [] };
+      },
+    },
+  );
+
+  expect(result.status).toBe(400);
+  expect(called).toBe(false);
+});
+
+test("a body with an invalid command shape is rejected before the board is called", async () => {
+  let called = false;
+  const result = await handleAgentTaskPost(request({ operation: "not-a-task" }), principal, {
+    execute: async () => {
+      called = true;
+      return { tasks: [] };
+    },
+  });
+
+  expect(result.status).toBe(400);
+  expect(called).toBe(false);
 });
 
 test("the board receives an agent-scoped principal — never the owner's userId alongside it", async () => {
