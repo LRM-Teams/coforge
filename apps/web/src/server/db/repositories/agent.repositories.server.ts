@@ -1,11 +1,11 @@
 import type { PrismaClient } from "../../../../generated/client";
 import { enrollGeneralChannel } from "../../conversations/public-channels.server";
 import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
-import type { AgentVisibility } from "../../../features/agents/agent-visibility";
 import {
   parseAgentRuntimeConfig,
   type AgentRuntimeConfig,
 } from "../../agents/agent-runtime-config.server";
+import { AGENT_VISIBILITY, type AgentVisibility } from "../../../features/agents/agent-visibility";
 
 export type { AgentRuntimeConfig } from "../../agents/agent-runtime-config.server";
 
@@ -26,7 +26,10 @@ export type AgentRecord = {
    * deletion module and the deleted-sender message projection read this. */
   deletedAt?: Date | null;
   /** ADR 0059; optional on this shared record type — every creation path but the weekly-report
-   * Collector (created `"private"`) still omits it and gets the schema's `"public"` default. */
+   * Collector (created `"private"`) still omits it and gets the schema's `"public"` default. A
+   * row actually read through `mapAgent` always carries a real value: `"public"` unless the
+   * persisted column reads exactly `"private"`, which fails closed the same way
+   * `canSeeAgent`/`visibleAgentWhere` treat an unrecognized value as not-public. */
   visibility?: AgentVisibility;
 };
 
@@ -43,6 +46,7 @@ function mapAgent(agent: {
   runtimeSession?: unknown;
   stoppedAt?: Date | null;
   deletedAt?: Date | null;
+  visibility?: string;
 }): AgentRecord {
   let runtimeConfig;
   try {
@@ -63,6 +67,14 @@ function mapAgent(agent: {
     runtimeConfig,
     stoppedAt: agent.stoppedAt ?? null,
     deletedAt: agent.deletedAt ?? null,
+    ...(agent.visibility === undefined
+      ? {}
+      : {
+          visibility:
+            agent.visibility === AGENT_VISIBILITY.PUBLIC
+              ? AGENT_VISIBILITY.PUBLIC
+              : AGENT_VISIBILITY.PRIVATE,
+        }),
   };
 }
 
