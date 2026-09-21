@@ -1001,8 +1001,27 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             threadReads: {
               select: { rootMessageId: true, readThroughSequence: true },
             },
-            user: { select: { username: true } },
-            agent: { select: { id: true, name: true, displayName: true, deletedAt: true } },
+            // The full public profile: the pane resolves stored `<@kind:uuid>` tokens (and offers
+            // @-completion) from these rows, so a mention of the viewer — the row that used to be
+            // missing — is resolvable without a second query.
+            user: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                description: true,
+                avatarObjectKey: true,
+              },
+            },
+            agent: {
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                description: true,
+                deletedAt: true,
+              },
+            },
           },
         },
         messages: {
@@ -1037,21 +1056,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     // The overflow row is always the newest of the fetched rows, so dropping the tail of the
     // ordered list keeps the reader's side of the window and drops the row that only proved there
     // was more.
-    const mentionRows = await this.db.conversationMember.findMany({
-      where: { conversationId: conversation.id, ...ACTIVE_MEMBER_WHERE },
-      select: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            description: true,
-            avatarObjectKey: true,
-          },
-        },
-        agent: { select: { id: true, name: true, displayName: true, description: true } },
-      },
-    });
     const pageRows = row.messages.slice(0, limit);
     const messages = (forward ? pageRows : pageRows.reverse())
       .flatMap((message) => [message, ...message.replies])
@@ -1071,31 +1075,34 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // rank (see `mentionAffinityScores`), so every member scores 0 and handle order is the whole
       // ordering; the viewer's own row is included because this list is also what *resolves* a
       // mention of them — leaving it out rendered `<@human:uuid>` raw in their own pane.
-      mentionables: mentionRows
-        .map((mentionRow) =>
-          mentionRow.user
+      mentionables: row.members
+        .map((member) =>
+          member.user
             ? {
                 kind: "user" as const,
-                id: mentionRow.user.id,
-                handle: mentionRow.user.username,
-                label: mentionRow.user.displayName?.trim() || mentionRow.user.username,
-                description: mentionRow.user.description.trim(),
+                id: member.user.id,
+                handle: member.user.username,
+                label: member.user.displayName?.trim() || member.user.username,
+                description: member.user.description?.trim() ?? "",
                 avatarUrl: workspaceUserAvatarUrl(
                   workspaceId,
-                  mentionRow.user.id,
-                  mentionRow.user.avatarObjectKey,
+                  member.user.id,
+                  member.user.avatarObjectKey ?? null,
                 ),
                 mentionScore: 0,
               }
-            : {
-                kind: "agent" as const,
-                id: mentionRow.agent!.id,
-                handle: mentionRow.agent!.name,
-                label: mentionRow.agent!.displayName?.trim() || mentionRow.agent!.name,
-                description: mentionRow.agent!.description.trim(),
-                mentionScore: 0,
-              },
+            : member.agent
+              ? {
+                  kind: "agent" as const,
+                  id: member.agent.id,
+                  handle: member.agent.name,
+                  label: member.agent.displayName?.trim() || member.agent.name,
+                  description: member.agent.description?.trim() ?? "",
+                  mentionScore: 0,
+                }
+              : undefined,
         )
+        .filter((mentionable) => mentionable !== undefined)
         .sort((left, right) => left.handle.localeCompare(right.handle)),
       hasOlder,
       hasNewer,
