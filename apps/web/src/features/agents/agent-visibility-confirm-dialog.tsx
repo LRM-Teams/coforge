@@ -23,6 +23,8 @@ import type { AgentVisibility } from "./agent-visibility";
  */
 export function AgentVisibilityConfirmDialog({
   agentName,
+  creatorName,
+  viewerIsCreator,
   target,
   open,
   onOpenChange,
@@ -30,6 +32,12 @@ export function AgentVisibilityConfirmDialog({
   onConfirm,
 }: {
   agentName: string;
+  /** The Agent's creator's display name; used in the public->private intro when the viewer is a
+   * Workspace owner/admin changing someone else's Agent (ADR 0059's "who can still see it" set
+   * is the creator, not "you," in that case). */
+  creatorName: string;
+  /** Whether the current viewer is this Agent's own creator. */
+  viewerIsCreator: boolean;
   /** The visibility this confirmation would apply. */
   target: AgentVisibility;
   open: boolean;
@@ -113,7 +121,14 @@ export function AgentVisibilityConfirmDialog({
                 <div className="min-w-0 text-sm text-secondary">
                   {goingPrivate ? (
                     <div className="grid gap-2">
-                      <Text slot="description">{m.agent_visibility_confirm_private_intro()}</Text>
+                      <Text slot="description">
+                        {viewerIsCreator
+                          ? m.agent_visibility_confirm_private_intro_self({ agent: agentName })
+                          : m.agent_visibility_confirm_private_intro_other({
+                              creator: creatorName,
+                              agent: agentName,
+                            })}
+                      </Text>
                       {previewFailed ? (
                         <p className="text-tertiary">{m.agent_visibility_change_error()}</p>
                       ) : !preview ? (

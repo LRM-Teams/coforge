@@ -469,6 +469,8 @@ export function AgentProfilePanel({
       {profile && visibilityTarget && (
         <AgentVisibilityConfirmDialog
           agentName={profile.displayName || profile.name}
+          creatorName={profile.owner.displayName?.trim() || profile.owner.username}
+          viewerIsCreator={profile.ownedByCurrentUser}
           target={visibilityTarget}
           open={visibilityTarget !== null}
           onOpenChange={(nextOpen) => {
