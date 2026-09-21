@@ -54,10 +54,9 @@ function isPlainChannelTarget(target: string): boolean {
   return target.startsWith("#") && !isThreadTarget(target);
 }
 
-/** Truncate a plain-channel body so check does not dump the full post into the transcript. P1
- * summarizes every parent-channel line; mention-preserving full text waits for `mentionsAgent`. */
+/** Truncate a plain-channel body so check does not dump the full post into the transcript. */
 function channelSummaryBody(message: AgentMessageRecord): string {
-  if (!isPlainChannelTarget(message.target)) return message.body;
+  if (!isPlainChannelTarget(message.target) || message.mentionsAgent) return message.body;
   const points = Array.from(message.body);
   if (points.length <= CHANNEL_SUMMARY_CHARS) return message.body;
   const shown = points.slice(0, CHANNEL_SUMMARY_CHARS).join("");

@@ -1,5 +1,5 @@
 import { getLogger } from "@logtape/logtape";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { collapseWhitespace, stripHeadingMarkers } from "../code-agent/agent-instructions";
 
@@ -13,6 +13,9 @@ export type AgentMemorySeedIdentity = {
   displayName?: string;
   description?: string;
 };
+
+const MEMORY_SOFT_LIMIT_BYTES = 8 * 1024;
+const MEMORY_TARGET_KB = 3;
 
 const WORK_LOG_SEED = `# Work log
 
@@ -79,6 +82,20 @@ async function writeNewFile(path: string, content: string): Promise<void> {
  * older workspace still gets the layout. A seeding failure (anything other than the file already
  * existing) is logged and swallowed: it must never fail the Agent launch that is already under way.
  */
+/** Soft reminder copy when MEMORY.md has grown past the 8KB watch threshold. Daemon never edits the file. */
+export async function memoryIndexReminder(
+  agentWorkspaceDirectory: string,
+): Promise<string | undefined> {
+  try {
+    const stats = await stat(join(agentWorkspaceDirectory, "MEMORY.md"));
+    if (stats.size <= MEMORY_SOFT_LIMIT_BYTES) return undefined;
+    const kb = Math.max(1, Math.round(stats.size / 1024));
+    return `Your MEMORY.md is ${kb}KB (limit ${MEMORY_TARGET_KB}KB). Move details into notes/ and keep MEMORY.md as an index.`;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function seedAgentMemory(
   agentWorkspaceDirectory: string,
   identity: AgentMemorySeedIdentity,

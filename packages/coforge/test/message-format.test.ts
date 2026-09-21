@@ -112,6 +112,10 @@ test("formatMessageLine summarizes a long plain-channel body and keeps DM/thread
   const thread = message({ target: "#general:aaaaaaaa", body: longBody });
   expect(formatMessageLine(thread)).toContain("结尾");
   expect(formatMessageLine(thread)).not.toContain("…(+");
+
+  const mentioned = message({ target: "#general", body: longBody, mentionsAgent: true });
+  expect(formatMessageLine(mentioned)).toContain("结尾");
+  expect(formatMessageLine(mentioned)).not.toContain("…(+");
 });
 
 test("formatMessageLine renders an Agent sender with its description and a system sender plainly", () => {

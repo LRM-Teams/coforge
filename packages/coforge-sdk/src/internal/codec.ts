@@ -939,6 +939,7 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
       latestSenderKind: value.latestSenderKind ?? "",
       latestSenderHandle: value.latestSenderHandle ?? "",
       latestSenderDescription: value.latestSenderDescription ?? "",
+      mentionsAgent: value.mentionsAgent === true,
     }),
   );
 }
@@ -975,6 +976,7 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
           latestSenderDescription: value.latestSenderDescription,
         }
       : {}),
+    ...(value.mentionsAgent ? { mentionsAgent: true } : {}),
   };
 }
 export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {

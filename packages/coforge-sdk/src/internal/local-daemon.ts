@@ -265,6 +265,8 @@ export type AgentMessageRecord = {
   /** Always present, possibly empty; order matches send/upload order. */
   attachments: LocalAttachment[];
   task?: MessageTaskMetadata;
+  /** True when this message personally @mentioned the reading Agent (ADR 0061). */
+  mentionsAgent?: boolean;
 };
 export type MessageTaskMetadata = {
   number: number;
@@ -385,6 +387,7 @@ function decodeAgentMessageRecords(
     createdAt: string;
     attachments: readonly RawLocalAttachment[];
     task?: Parameters<typeof decodeMessageTask>[0];
+    mentionsAgent?: boolean;
   }[],
 ): AgentMessageRecord[] {
   return records.map((m) => {
@@ -400,6 +403,7 @@ function decodeAgentMessageRecords(
       createdAt: m.createdAt,
       attachments: decodeLocalAttachments(m.attachments),
       ...(m.task ? { task: decodeMessageTask(m.task) } : {}),
+      ...(m.mentionsAgent ? { mentionsAgent: true } : {}),
     };
   });
 }

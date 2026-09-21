@@ -37,6 +37,7 @@ import {
   agentReadableBody,
   BROWSER_MESSAGE_MENTIONS_SELECT,
   browserMessageMention,
+  deliveryMentionsAgent,
   mentionAffinityScores,
   type BrowserMessageMentionRow,
 } from "./mentions";
@@ -238,6 +239,8 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
       workspaceId,
       conversationId: general.id,
       agentId,
+      // ADR 0061: new Agents join #general muted so ordinary chatter does not wake them.
+      channelMuted: true,
     })),
     skipDuplicates: true,
   });
@@ -1500,6 +1503,7 @@ export class PublicChannels {
               latestSenderKind: sender.kind,
               latestSenderHandle: sender.handle,
               latestSenderDescription: sender.description,
+              mentionsAgent: deliveryMentionsAgent(message.mentions, delivery.agentId),
             }),
           ),
         ),
