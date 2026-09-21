@@ -7,6 +7,7 @@ import {
 import { AgentTransportError } from "../src/connection/agent-transport-error";
 import { AgentPreflightError } from "../src/daemon-runtime/agent-preflight-error";
 import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
+import { AgentTaskUpstreamError } from "../src/connection/daemon-connection";
 
 const context = {
   method: "POST",
@@ -153,4 +154,17 @@ test("credentials never ride along in the detail that is returned and logged", (
   );
   expect(classified.logFields.detail).toBe("upstream rejected [redacted] sent as [redacted]");
   expect(JSON.stringify(classified.body)).not.toContain(key);
+});
+
+test("an unclassifiable upstream refusal logs the server's code, and publishes none of it", () => {
+  const classified = classifyAgentProxyFailure(
+    new AgentTaskUpstreamError("server Agent Task request failed (400)", "ACCESS_DENIED"),
+    { ...context, path: "/api/agent/v1/tasks", routeFamily: "agent-api/task" },
+  );
+
+  // Log-only: the daemon operator can see *why* the server refused…
+  expect(classified.logFields.upstream_code).toBe("ACCESS_DENIED");
+  // …while the caller's body carries the correlation id and nothing about the upstream's internals.
+  expect(JSON.stringify(classified.body)).not.toContain("ACCESS_DENIED");
+  expect(classified.body.proxy.cause_code).toBe("UNCLASSIFIED_PROXY_FAILURE");
 });
