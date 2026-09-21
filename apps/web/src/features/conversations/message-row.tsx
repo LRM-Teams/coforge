@@ -1,7 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
-import { Download01, XClose } from "@untitledui/icons";
+import { CornerUpLeft, Download01, XClose } from "@untitledui/icons";
 
 import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -19,6 +19,7 @@ import { ActionCard, type ActionCardView } from "./action-card";
 import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
+import { formatSelectionQuote } from "./message-quote";
 
 export type MessageView = {
   id: string;
@@ -66,6 +67,10 @@ export type MessageView = {
 };
 
 const GROUPING_WINDOW_MS = 5 * 60 * 1000;
+
+/** Rendered width of the reply-to-selection affordance, in px, used only to keep it inside the
+ * body box when a highlight ends at the right edge. */
+const AFFORDANCE_WIDTH = 32;
 
 // Intl.DateTimeFormat construction dominates per-row formatting cost; keep one per locale.
 const dayFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -462,6 +467,7 @@ export function MessageRow({
   messageFooter,
   onOpenAgentProfile,
   viewerHandle,
+  onQuoteSelection,
 }: {
   message: MessageView;
   own: boolean;
@@ -486,6 +492,11 @@ export function MessageRow({
   onOpenAgentProfile?: (agentId: string) => void;
   /** The viewing user's handle; a mention of it renders with the stronger "me" chip. */
   viewerHandle?: string;
+  /** Offers "reply to this selection" on a highlight inside this row's body: the row hands back
+   * the finished markdown quote, credited to the message it came from. Absent (e.g. the
+   * conversation has no composer to put it in), no affordance is offered and no selection is
+   * read at all. */
+  onQuoteSelection?: (quote: string) => void;
 }) {
   const displayName = own ? m.conversation_you() : message.senderName;
   const deleted = Boolean(message.senderDeleted);
@@ -525,6 +536,74 @@ export function MessageRow({
         }
       />
     );
+  // Reply-to-selection: the browser owns the highlight, this row only decides whether to *offer*
+  // the action. The offer is made from a completed pointer gesture, so a drag that merely passes
+  // over this message while selecting another one never raises it.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const quoteAffordanceRef = useRef<HTMLDivElement>(null);
+  const [quoteOffer, setQuoteOffer] = useState<
+    { quote: string; top: number; left: number } | undefined
+  >(undefined);
+  /**
+   * Reads the current highlight, and offers the quote only when the whole selection lives inside
+   * this message's body: a highlight that spans rows cannot be credited to one of them, and a
+   * quote that silently dropped half the selected text would be worse than no affordance.
+   */
+  const readQuoteSelection = useCallback(() => {
+    if (!onQuoteSelection) return;
+    const container = bodyRef.current;
+    const selection = typeof window === "undefined" ? null : window.getSelection();
+    if (!container || !selection || selection.isCollapsed || selection.rangeCount === 0) {
+      setQuoteOffer(undefined);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!container.contains(range.commonAncestorContainer)) {
+      setQuoteOffer(undefined);
+      return;
+    }
+    const quote = formatSelectionQuote(
+      { author: displayName, time: clockLabel(message.createdAt, dateLocale) },
+      selection.toString(),
+    );
+    if (!quote) {
+      setQuoteOffer(undefined);
+      return;
+    }
+    // Anchored under the end of the highlight, clamped to the body's own box so the control can
+    // never render outside the row it belongs to.
+    const rangeRect = range.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    setQuoteOffer({
+      quote,
+      top: Math.max(rangeRect.bottom - containerRect.top + 4, 0),
+      left: Math.max(
+        0,
+        Math.min(rangeRect.right - containerRect.left, containerRect.width - AFFORDANCE_WIDTH),
+      ),
+    });
+  }, [onQuoteSelection, displayName, message.createdAt, dateLocale]);
+  // A gesture anywhere else (a click, a scroll, Escape) withdraws the offer. The affordance
+  // itself is exempt: pointerdown on it would otherwise unmount the button before its click.
+  useEffect(() => {
+    if (!quoteOffer) return;
+    const dismiss = (event: Event) => {
+      if (event.target instanceof Node && quoteAffordanceRef.current?.contains(event.target))
+        return;
+      setQuoteOffer(undefined);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismiss(event);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", dismiss, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", dismiss, true);
+    };
+  }, [quoteOffer]);
   // A system message (task/membership notices, etc.) is not a person talking: it carries no
   // avatar and no sender heading, and renders as a compact, muted line in the stream — like
   // Slack's channel notices. The body still goes through `MessageBody` so a `@handle` mention in
@@ -636,11 +715,15 @@ export function MessageRow({
               <ActionCard card={message.actionCard} />
             </>
           ) : (
+            // `relative` anchors the reply-to-selection affordance to the body it was highlighted
+            // out of; the gesture handlers live here rather than on the row so dragging from a
+            // message's text (its timestamp, say) cannot raise an offer for it.
             <div
+              ref={bodyRef}
+              onMouseUp={readQuoteSelection}
+              onKeyUp={readQuoteSelection}
               className={cn(
-                // No `whitespace-pre-wrap`: soft breaks are real `<br>` now (remark-breaks), so
-                // preserving literal newlines as well would double every line gap.
-                "min-w-0 text-md leading-6 text-primary [overflow-wrap:anywhere]",
+                "relative min-w-0 text-md leading-6 text-primary [overflow-wrap:anywhere]",
                 grouped && threadEntry && "pr-8",
               )}
             >
@@ -652,6 +735,25 @@ export function MessageRow({
                 expanded={expanded}
                 onToggleExpanded={onToggleExpanded}
               />
+              {quoteOffer && onQuoteSelection && (
+                <div
+                  ref={quoteAffordanceRef}
+                  style={{ top: quoteOffer.top, left: quoteOffer.left }}
+                  className="absolute z-10"
+                >
+                  <ButtonUtility
+                    size="xs"
+                    color="secondary"
+                    icon={CornerUpLeft}
+                    tooltip={m.conversation_quote_selection()}
+                    className="border border-secondary bg-primary shadow-lg"
+                    onClick={() => {
+                      onQuoteSelection(quoteOffer.quote);
+                      setQuoteOffer(undefined);
+                    }}
+                  />
+                </div>
+              )}
             </div>
           )}
           {message.attachments.map((attachment) => (
