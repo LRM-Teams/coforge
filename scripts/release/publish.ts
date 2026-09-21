@@ -28,7 +28,11 @@ import { join } from "node:path";
 
 import Credential from "@alicloud/credentials";
 import OSS from "ali-oss";
+// ali-oss's `agent`/`httpsAgent` options take node http Agents, not fetch - the two imports
+// below exist only to hand the SDK a keep-alive-disabled Agent (see `disableKeepAlive`).
+// oxlint-disable-next-line no-restricted-imports
 import { Agent as HttpAgent } from "node:http";
+// oxlint-disable-next-line no-restricted-imports
 import { Agent as HttpsAgent } from "node:https";
 
 import {
@@ -265,7 +269,7 @@ async function putObject(
           if (
             attempt >= MULTIPART_ATTEMPTS ||
             typeof name !== "string" ||
-            !/TimeoutError$/.test(name)
+            !name.endsWith("TimeoutError")
           )
             throw error;
         }
