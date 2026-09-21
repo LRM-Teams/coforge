@@ -210,11 +210,14 @@ const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
  * own signed request with its own timeout, so even a degraded link completes one part well under
  * the 60 s window and ali-oss retries a part that does time out instead of failing the whole
  * object. */
-const MULTIPART_PART_BYTES = 100 * 1024;
-// The documented part size: ali-oss's own README splits an object at `partSize = 100 * 1024`, which is
-// also OSS's minimum part. Ours was 8 MiB - 80x that - and dev.64 died at ~89 s with
-// `ResponseTimeoutError` on the object's *first* part, i.e. one 8 MiB request did not clear the 60 s
-// window on that link. At 100 KiB a part is the same order as the objects that upload reliably.
+const MULTIPART_PART_BYTES = 1024 * 1024;
+// Part size is a two-sided choice, and the largest object is ~28 MiB:
+//   8 MiB (before)   ->  3 parts, one of which did not clear the 60 s window (dev.64, ~89 s)
+//   100 KiB (docs)   -> 286 parts: every one a separately signed request, and with retries that is a
+//                       lot of round trips
+//   1 MiB (now)      ->  28 parts, and 1 MiB completes inside 60 s on any link faster than ~17 KiB/s
+// ali-oss's README uses 100 KiB in its example - correct for the 1 MB object it splits, too fine here.
+// One MiB keeps the per-request risk low without turning the upload into hundreds of requests.
 /** Per-request timeout for each multipart part (and each read-back), in ms. Keeping it explicit
  * makes the per-part timing intent clear: a stalled network times out a single small part, not
  * the whole object, and `ossError` now records the `name` so the log can show `ResponseTimeoutError`. */
