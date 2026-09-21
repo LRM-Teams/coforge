@@ -326,7 +326,7 @@ export class AgentMessageAttentionIndex {
     const notice = `[CoForge inbox notice (restart recovery):
 Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or held for you
 ${rows.join("\n")}
-Run \`coforge message check\` (or \`check --target @x\`) to read pending messages.]`;
+Run \`coforge message check\` to drain pending messages, or \`coforge message read --target @x\` to inspect one target.]`;
     // ADR 0048: same synchronous-busy rule as `#notify` — this is also a `session.notify` call.
     this.hold.busy(agentId);
     await session.notify(notice);

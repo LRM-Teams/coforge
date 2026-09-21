@@ -414,7 +414,8 @@ test("recovery directs every target with messages beyond the batch to canonical 
   expect(notices[0]).toContain("[CoForge inbox notice (restart recovery):");
   expect(notices[0]).toContain("@ada  new: 1 message");
   expect(notices[0]).toContain("@grace  new: 1 message");
-  expect(notices[0]).toContain("Run `coforge message check` (or `check --target @x`)");
+  expect(notices[0]).toContain("Run `coforge message check` to drain pending messages");
+  expect(notices[0]).toContain("`coforge message read --target @x` to inspect one target");
   expect(notices[0]).not.toContain("Please resume this work");
   expect(notices[0]).not.toContain("New message received:");
   expect(index.modelSeenSequence("agent-1", "@ada")).toBe(0);
