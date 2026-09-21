@@ -73,6 +73,7 @@ import {
 import {
   agentVisibilityViewerForUser,
   assertAgentVisible,
+  visiblePrivateAgentWhere,
 } from "../../server/agents/agent-visibility.server";
 
 type Database = ReturnType<typeof requireDatabaseClient>;
@@ -314,6 +315,24 @@ export const getAgentStatusSubscriptionTokenForAgent = createServerFn({ method: 
       workspaceId,
       agentId: data.agentId,
     });
+  });
+
+/**
+ * ADR 0059 realtime gap: the viewer's own `listAgents` roster (their owned Agents) is narrower
+ * than what they are authorized to see — an owner/admin, or a private Agent's creator viewing it
+ * from outside their own roster, can still see other private Agents. This returns exactly the
+ * ids the browser needs to subscribe the matching per-Agent realtime channels for, never a full
+ * row (the profile panel's own authorized fetch supplies details for any id it is given).
+ */
+export const listVisiblePrivateAgentIds = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, workspaceId, db } }) => {
+    const viewer = await agentVisibilityViewerForUser(db, workspaceId, user.id);
+    const rows = await db.agent.findMany({
+      where: { workspaceId, ...ACTIVE_AGENT_WHERE, ...visiblePrivateAgentWhere(viewer) },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
   });
 
 export const createAgent = createServerFn({ method: "POST" })

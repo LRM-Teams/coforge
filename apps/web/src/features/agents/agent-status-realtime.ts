@@ -201,6 +201,22 @@ export function mergeAgentStatusSnapshot<T extends StatusTrackedAgent>(
   });
 }
 
+/**
+ * ADR 0059: appends any `extraAgents` entries not already present in `list` by id. `list` is a
+ * primary Agent list (e.g. `listAgents`'s owned-Agents roster) that a fresh refresh always
+ * replaces wholesale; `extraAgents` are Agents visible to the viewer but outside that primary
+ * list — e.g. an owner/admin's view of another member's private Agent — represented as
+ * placeholders (status "inactive" until a live publication says otherwise) so they are never
+ * silently dropped by `mergeAgentStatusSnapshot`'s "the fresh snapshot is authoritative" rule,
+ * and so they receive the same per-Agent channel subscription every other private Agent in
+ * `visibleAgents` gets. If the primary list ever comes to include the same id (e.g. a broader
+ * roster in a later change), that entry wins and the placeholder is dropped.
+ */
+export function mergeExtraAgents<T extends StatusTrackedAgent>(list: T[], extraAgents: T[]): T[] {
+  const ids = new Set(list.map((agent) => agent.id));
+  return [...list, ...extraAgents.filter((extra) => !ids.has(extra.id))];
+}
+
 export function expireAgentStatuses<T extends StatusTrackedAgent>(agents: T[], now: number): T[] {
   return agents.map((agent) =>
     agent.status.value === "active" &&
@@ -249,18 +265,31 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   workspaceId,
   refresh,
   getConnectionToken,
+  extraAgents = [],
+  onVisibilityChangedEvent,
   getPrivateAgentStatusToken,
 }: {
   agents: T[];
   workspaceId?: string;
   refresh: () => Promise<T[]>;
   getConnectionToken: () => Promise<string>;
+  /** ADR 0059: placeholder entries for Agents visible to the viewer but outside their own
+   * primary `agents` list — e.g. an owner/admin's view of another member's private Agent.
+   * Merged in (via `mergeExtraAgents`) alongside every fresh `agents`/`refresh()` result so a
+   * refresh never silently drops them; a live publication updates them in place exactly like any
+   * other tracked Agent once merged. */
+  extraAgents?: T[];
+  /** ADR 0059: called whenever this hook observes `agent:visibility_changed`, so a caller
+   * tracking a separate id list (e.g. the `extraAgents` source query) can refetch it too. */
+  onVisibilityChangedEvent?: () => void;
   /** ADR 0059: a private Agent's `agent:display` snapshot no longer arrives on the shared status
    * channel, so this hook derives which of its own current Agents need a per-Agent subscription
    * from their `visibility` field itself — no lag from an external, previous-render list. */
   getPrivateAgentStatusToken?: (agentId: string) => Promise<string>;
 }) {
-  const [visibleAgents, setVisibleAgents] = useState(() => expireAgentStatuses(agents, Date.now()));
+  const [visibleAgents, setVisibleAgents] = useState(() =>
+    expireAgentStatuses(mergeExtraAgents(agents, extraAgents), Date.now()),
+  );
   const mounted = useRef(true);
   const currentWorkspaceId = useRef(workspaceId);
   const visibleWorkspaceId = useRef(workspaceId);
@@ -276,13 +305,16 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   useEffect(() => {
     if (visibleWorkspaceId.current !== workspaceId) {
       visibleWorkspaceId.current = workspaceId;
-      setVisibleAgents(expireAgentStatuses(agents, Date.now()));
+      setVisibleAgents(expireAgentStatuses(mergeExtraAgents(agents, extraAgents), Date.now()));
       return;
     }
     setVisibleAgents((current) =>
-      expireAgentStatuses(mergeAgentStatusSnapshot(current, agents), Date.now()),
+      expireAgentStatuses(
+        mergeAgentStatusSnapshot(current, mergeExtraAgents(agents, extraAgents)),
+        Date.now(),
+      ),
     );
-  }, [agents, workspaceId]);
+  }, [agents, workspaceId, extraAgents]);
 
   useEffect(() => {
     const statusExpiresAt = Math.min(
@@ -312,7 +344,9 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
         .then((refreshed) => {
           if (disposed || !mounted.current || currentWorkspaceId.current !== refreshWorkspaceId)
             return;
-          setVisibleAgents((current) => mergeAgentStatusSnapshot(current, refreshed));
+          setVisibleAgents((current) =>
+            mergeAgentStatusSnapshot(current, mergeExtraAgents(refreshed, extraAgents)),
+          );
         })
         .catch(() => {
           if (!disposed && mounted.current && currentWorkspaceId.current === refreshWorkspaceId)
@@ -324,13 +358,16 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
       disposed = true;
       window.clearTimeout(timer);
     };
-  }, [refresh, visibleAgents, workspaceId]);
+  }, [refresh, visibleAgents, workspaceId, extraAgents]);
 
   const refreshSnapshot = async () => {
     const refreshed = await refresh();
     if (mounted.current)
       setVisibleAgents((current) =>
-        expireAgentStatuses(mergeAgentStatusSnapshot(current, refreshed), Date.now()),
+        expireAgentStatuses(
+          mergeAgentStatusSnapshot(current, mergeExtraAgents(refreshed, extraAgents)),
+          Date.now(),
+        ),
       );
   };
 
@@ -342,8 +379,11 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
         // ADR 0059: refetch immediately rather than waiting for the next scheduled refresh —
         // `mergeAgentStatusSnapshot` already drops any Agent absent from the fresh list, and
         // subscribing/unsubscribing its per-Agent channels follows from that same fresh list
-        // wherever it is consumed (see `WorkspaceAgentsProvider`).
+        // wherever it is consumed (see `WorkspaceAgentsProvider`). A caller tracking a separate
+        // "extra visible Agents" id list (an owner/admin's view beyond their own roster) gets
+        // the same signal to refetch that list too.
         void refreshSnapshot().catch(() => {});
+        onVisibilityChangedEvent?.();
       } else if (Reflect.get(value as object, "type") === "agent:display") {
         const snapshot = parseAgentDisplaySnapshot(value);
         setVisibleAgents((current) => applyAgentDisplaySnapshot(current, snapshot, workspaceId));

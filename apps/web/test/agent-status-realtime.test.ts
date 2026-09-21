@@ -10,6 +10,7 @@ const {
   expireAgentStatuses,
   isAgentVisibilityChangedEvent,
   mergeAgentStatusSnapshot,
+  mergeExtraAgents,
   nextDisplayRefreshDelayMs,
 } = await import("../src/features/agents/agent-status-realtime");
 import type {
@@ -36,6 +37,35 @@ test("isAgentVisibilityChangedEvent recognizes the id-only visibility-change eve
   expect(isAgentVisibilityChangedEvent(null)).toBe(false);
   expect(isAgentVisibilityChangedEvent("agent:visibility_changed")).toBe(false);
   expect(isAgentVisibilityChangedEvent([])).toBe(false);
+});
+
+// ADR 0059 realtime gap: an owner/admin (or a private Agent's creator) can see private Agents
+// outside their own primary `agents` list (e.g. another member's private Agent). `mergeExtraAgents`
+// keeps those visible without letting a fresh refresh of the primary list silently drop them.
+test("mergeExtraAgents appends extras the primary list does not already have", () => {
+  const primary: Array<{ id: string; status: AgentStatusView }> = [
+    { id: "own-1", status: { value: "active", expiresAt: 1 } },
+  ];
+  const extras: Array<{ id: string; status: AgentStatusView }> = [
+    { id: "extra-1", status: { value: "inactive", expiresAt: null } },
+    { id: "extra-2", status: { value: "inactive", expiresAt: null } },
+  ];
+  expect(mergeExtraAgents(primary, extras)).toEqual([...primary, ...extras]);
+});
+
+test("mergeExtraAgents lets the primary list win when the same id appears in both", () => {
+  const primary: Array<{ id: string; status: AgentStatusView }> = [
+    { id: "shared", status: { value: "active", expiresAt: 1 } },
+  ];
+  const extras: Array<{ id: string; status: AgentStatusView }> = [
+    { id: "shared", status: { value: "inactive", expiresAt: null } },
+  ];
+  expect(mergeExtraAgents(primary, extras)).toEqual(primary);
+});
+
+test("mergeExtraAgents is a no-op with no extras", () => {
+  const primary = [{ id: "own-1", status: { value: "active" as const, expiresAt: 1 } }];
+  expect(mergeExtraAgents(primary, [])).toEqual(primary);
 });
 
 const ordering = {

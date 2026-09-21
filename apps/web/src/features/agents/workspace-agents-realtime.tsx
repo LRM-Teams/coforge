@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, skipToken } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
@@ -8,6 +8,7 @@ import {
   getAgentActivitySubscriptionTokenForAgent,
   getAgentStatusSubscriptionToken,
   getAgentStatusSubscriptionTokenForAgent,
+  listVisiblePrivateAgentIds,
 } from "./agents.functions";
 import { useAgentStatuses, type AgentStatusView } from "./agent-status-realtime";
 import type { ActivityEntry } from "./agent-activity";
@@ -38,6 +39,24 @@ export type LiveAgent = {
 const LiveAgentsContext = createContext<LiveAgent[]>([]);
 const WorkspaceIdContext = createContext<string | undefined>(undefined);
 
+const visiblePrivateAgentIdsKey = (workspaceId: string | undefined) =>
+  ["agent-visibility", "visible-private-ids", workspaceId ?? null] as const;
+
+/** ADR 0059 realtime gap: a placeholder `LiveAgent` for an Agent visible to the viewer but
+ * outside their own `listAgents` roster (e.g. an owner/admin viewing another member's private
+ * Agent) — "inactive" until a live per-Agent publication says otherwise, matching `listAgents`'s
+ * own "nothing heard yet" default. Its name/description are blank; any surface reading it (the
+ * profile panel) already prefers its own authorized `getAgentProfile` fetch for those fields. */
+function extraAgentPlaceholder(id: string): LiveAgent {
+  return {
+    id,
+    name: "",
+    displayName: "",
+    visibility: AGENT_VISIBILITY.PRIVATE,
+    status: { value: "inactive", expiresAt: null },
+  };
+}
+
 /**
  * Owns the app shell's one Agent status subscription and one Activity
  * subscription, and shares both through context. Must be rendered inside
@@ -58,7 +77,25 @@ export function WorkspaceAgentsProvider({
   const getStatusToken = useServerFn(getAgentStatusSubscriptionToken);
   const getPrivateActivityToken = useServerFn(getAgentActivitySubscriptionTokenForAgent);
   const getPrivateStatusToken = useServerFn(getAgentStatusSubscriptionTokenForAgent);
+  const getVisiblePrivateIds = useServerFn(listVisiblePrivateAgentIds);
   const queryClient = useQueryClient();
+
+  // ADR 0059 realtime gap: ids of private Agents visible to this viewer beyond their own
+  // `listAgents` roster (an owner/admin, or a private Agent's creator viewing it from outside
+  // their own roster). Refetched on `agent:visibility_changed` below, alongside the primary list.
+  const visiblePrivateIdsQuery = useQuery({
+    queryKey: visiblePrivateAgentIdsKey(workspaceId),
+    queryFn: workspaceId ? () => getVisiblePrivateIds() : skipToken,
+    staleTime: Infinity,
+  });
+  const ownAgentIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents]);
+  const extraAgents = useMemo(
+    () =>
+      (visiblePrivateIdsQuery.data ?? [])
+        .filter((id) => !ownAgentIds.has(id))
+        .map(extraAgentPlaceholder),
+    [visiblePrivateIdsQuery.data, ownAgentIds],
+  );
 
   // `useAgentStatuses` derives its own per-Agent status subscriptions from its own current
   // state (see agent-status-realtime.ts), so a freshly-private Agent is subscribed the moment
@@ -68,6 +105,11 @@ export function WorkspaceAgentsProvider({
     workspaceId,
     refresh: refreshAgents,
     getConnectionToken: getStatusToken,
+    extraAgents,
+    onVisibilityChangedEvent: workspaceId
+      ? () =>
+          void queryClient.invalidateQueries({ queryKey: visiblePrivateAgentIdsKey(workspaceId) })
+      : undefined,
     getPrivateAgentStatusToken: workspaceId
       ? (agentId) => getPrivateStatusToken({ data: { agentId } })
       : undefined,
