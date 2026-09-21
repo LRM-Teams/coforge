@@ -18,12 +18,20 @@ export function idempotencyKeyFromQuery(request: Request): string {
 }
 
 /**
- * Maps a channel-management failure onto its declared HTTP status and plain-text body; anything
- * else (an unexpected repository failure) is hidden behind a generic message, matching the
- * mute/unmute routes' `catch` behavior.
+ * Maps a channel-management failure onto its declared HTTP status and body; anything else (an
+ * unexpected repository failure) is hidden behind a generic message, matching the mute/unmute
+ * routes' `catch` behavior. An `errorCode`-carrying failure (ADR 0059's `agent_not_visible`)
+ * serializes as the `{ ok: false, errorCode, error }` JSON envelope so the Agent CLI can read a
+ * real wire field instead of the message text; every other failure stays plain text.
  */
 export function channelManagementErrorResponse(error: unknown, fallbackMessage: string): Response {
-  if (error instanceof AgentChannelManagementError)
+  if (error instanceof AgentChannelManagementError) {
+    if (error.errorCode)
+      return Response.json(
+        { ok: false, errorCode: error.errorCode, error: error.message },
+        { status: error.status },
+      );
     return new Response(error.message, { status: error.status });
+  }
   return new Response(fallbackMessage, { status: 400 });
 }

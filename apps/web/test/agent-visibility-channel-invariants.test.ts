@@ -233,7 +233,7 @@ function agentChannelManagementAddMemberFixture(options: {
   return new AgentChannelManagement(db);
 }
 
-test("AgentChannelManagement.addMember treats an invisible private target as not found (ADR 0059)", async () => {
+test("AgentChannelManagement.addMember treats an invisible private target as agent_not_visible (ADR 0059 §B)", async () => {
   const management = agentChannelManagementAddMemberFixture({
     callerOwnerId: "user-caller",
     target: { id: "agent-ghost", ownerId: "user-someone-else", visibility: "private" },
@@ -244,7 +244,10 @@ test("AgentChannelManagement.addMember treats an invisible private target as not
     .catch((cause: unknown) => cause);
 
   expect(error).toBeInstanceOf(AgentChannelManagementError);
-  expect((error as InstanceType<typeof AgentChannelManagementError>).status).toBe(404);
+  const managementError = error as InstanceType<typeof AgentChannelManagementError>;
+  expect(managementError.status).toBe(404);
+  expect(managementError.errorCode).toBe("agent_not_visible");
+  expect(managementError.message).toBe("@ghost is not visible to you.");
 });
 
 test("AgentChannelManagement.addMember rejects a visible-but-private target with a clear reason (ADR 0059)", async () => {

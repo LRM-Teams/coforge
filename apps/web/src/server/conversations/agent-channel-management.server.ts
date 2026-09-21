@@ -296,17 +296,23 @@ export class AgentChannelManagement {
         where: { workspaceId, name: handle, ...ACTIVE_AGENT_WHERE },
         select: { id: true, ownerId: true, visibility: true },
       });
-      // ADR 0059: a private Agent the calling Agent cannot see answers the same "not found" a
-      // genuinely nonexistent handle would — no leak of its existence. A private Agent the
-      // caller CAN see (its own creator, or an owner/admin) still cannot be added to any
-      // channel; `PublicChannels.addMembers` below is the unconditional enforcement, but
-      // rejecting it here with a clear reason avoids a confusing generic 404 for a target the
-      // caller already knows exists.
+      if (!agentRow) throw new AgentChannelManagementError(404, `member not found: @${handle}`);
+      // ADR 0059 §B: a private Agent the calling Agent cannot see answers the stable
+      // `agent_not_visible` outcome with an explanation, distinct from a genuinely nonexistent
+      // handle's plain "member not found" — the same distinction `user info`/`profile show`
+      // make. A private Agent the caller CAN see (its own creator, or an owner/admin) still
+      // cannot be added to any channel; `PublicChannels.addMembers` below is the unconditional
+      // enforcement, but rejecting it here with a clear reason avoids a confusing generic error
+      // for a target the caller already knows exists.
       const viewer = await agentVisibilityViewerForActor(this.db, workspaceId, {
         agentId: callingAgentId,
       });
-      if (!agentRow || !canSeeAgent(viewer, agentRow))
-        throw new AgentChannelManagementError(404, `member not found: @${handle}`);
+      if (!canSeeAgent(viewer, agentRow))
+        throw new AgentChannelManagementError(
+          404,
+          `@${handle} is not visible to you.`,
+          "agent_not_visible",
+        );
       if (agentRow.visibility !== AGENT_VISIBILITY.PUBLIC)
         throw new AgentChannelManagementError(
           400,

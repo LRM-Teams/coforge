@@ -305,6 +305,29 @@ test("POST /channels/:channel/members maps an unknown handle to its declared 404
   expect(await result.text()).toBe("member not found: @nobody");
 });
 
+test("POST /channels/:channel/members maps an errorCode-carrying failure to a JSON envelope (ADR 0059)", async () => {
+  const result = await handleAgentChannelMembersPost(
+    post("/api/agent/v1/channels/%23eng/members", { agent: "@ghost" }),
+    "#eng",
+    principal,
+    fakeRepository({
+      addMember: async () => {
+        throw new AgentChannelManagementError(
+          404,
+          "@ghost is not visible to you.",
+          "agent_not_visible",
+        );
+      },
+    }),
+  );
+  expect(result.status).toBe(404);
+  expect(await result.json()).toEqual({
+    ok: false,
+    errorCode: "agent_not_visible",
+    error: "@ghost is not visible to you.",
+  });
+});
+
 test("DELETE /channels/:channel/members removes a member and returns its envelope", async () => {
   const calls: unknown[] = [];
   const result = await handleAgentChannelMembersDelete(
