@@ -104,7 +104,9 @@ export function KeyPointExtractionPanel({
         </div>
       ) : null}
       {status === "failed" && extraction?.error === "no_submitted_member_reports" ? (
-        <p className="text-sm text-tertiary">{m.records_key_points_team_none_submitted()}</p>
+        <p className="text-sm text-tertiary">
+          {waitingLabel ?? m.records_key_points_waiting_submit()}
+        </p>
       ) : null}
       {status === "failed" && extraction?.error !== "no_submitted_member_reports" ? (
         <p className="text-sm text-error-primary">

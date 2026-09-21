@@ -645,7 +645,7 @@ export function RecordSidePanel({
         subjectType === "report" &&
         looksLikeTeamKeyPointReorganizeRequest(body)
       ) {
-        await startTeamFromSideChat({
+        const outcome = await startTeamFromSideChat({
           data: {
             overviewReportId: subjectId,
             sessionId: activeSessionId,
@@ -655,6 +655,11 @@ export function RecordSidePanel({
         });
         session.draft = "";
         setDraft("");
+        if (outcome.error === "no_submitted_member_reports") {
+          setError(m.records_key_points_team_none_submitted());
+          await loadThread(activeSessionId, legacySessionId);
+          return;
+        }
         synthesisStartedAtRef.current = Date.now();
         setAwaitingSynthesis(true);
         await loadThread(activeSessionId, legacySessionId);
