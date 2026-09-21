@@ -37,6 +37,9 @@ type DetailAgent = {
   weeklyReportAssistant?: { id: string } | null;
   /** Set when a user stopped this Agent (ADR 0038). */
   stoppedAt?: Date | null;
+  /** Who can see this Agent (ADR 0059); optional so a caller that has not started selecting it
+   * yet still satisfies this type. */
+  visibility?: string;
 };
 
 export type AgentDetailSource = {
@@ -109,6 +112,7 @@ export class AgentDetailQuery {
       runtimeConfig: agent.runtimeConfig,
       isWeeklyReportAssistant: Boolean(agent.weeklyReportAssistant),
       stopped: Boolean(agent.stoppedAt),
+      visibility: agent.visibility,
       ...(display ? { display } : {}),
       status: {
         value: statusReadFailed ? ("unknown" as const) : (status?.status ?? ("inactive" as const)),
