@@ -1,104 +1,46 @@
 import { expect, test } from "bun:test";
-import { create, toBinary } from "@bufbuild/protobuf";
-import {
-  decodeTaskRequest,
-  decodeTaskResponse,
-  encodeTaskRequest,
-  encodeTaskResponse,
-} from "./index";
-import { TaskResponseSchema } from "./gen/coforge/rpc/v1/task_pb";
+import { validateTaskRequest } from "./index";
 
-test("Task protobuf round-trips asymmetric command and result fields", () => {
-  const request = {
-    protocolMajor: 1,
-    requestId: "request-1",
-    workspaceId: "workspace-1",
-    agentId: "agent-1",
-    operation: "update",
-    target: "@ada",
-    number: 7,
-    status: "in_review",
-    expectedRevision: 3,
-  } as const;
-  expect(decodeTaskRequest(encodeTaskRequest(request))).toEqual(request);
-  const response = {
-    protocolMajor: 1,
-    requestId: "request-1",
-    tasks: [
-      {
-        messageId: "message-1",
-        conversationId: "conversation-1",
-        number: 7,
-        title: "Ship it",
-        status: "in_review" as const,
-        revision: 4,
-        owner: { memberId: "member-1", kind: "agent" as const, name: "builder" },
-      },
-    ],
-  };
-  expect(decodeTaskResponse(encodeTaskResponse(response))).toEqual(response);
+const base = {
+  protocolMajor: 1,
+  idempotencyKey: "request",
+  workspaceId: "workspace",
+  agentId: "agent",
+  operation: "list",
+  target: "#general",
+} as const;
+
+test("validateTaskRequest accepts a well-formed list command", () => {
+  expect(() => validateTaskRequest(base)).not.toThrow();
 });
 
-test("Task unassign round-trips as its own operation, distinct from assign's null assignee", () => {
-  const unassign = {
-    protocolMajor: 1,
-    requestId: "request-1",
-    workspaceId: "workspace-1",
-    agentId: "agent-1",
-    operation: "unassign",
-    target: "#general",
-    number: 2,
-    expectedRevision: 4,
-  } as const;
-  expect(decodeTaskRequest(encodeTaskRequest(unassign))).toEqual(unassign);
-  const clearAssign = {
-    protocolMajor: 1,
-    requestId: "request-2",
-    workspaceId: "workspace-1",
-    agentId: "agent-1",
-    operation: "assign",
-    target: "#general",
-    number: 2,
-    assignee: null,
-  } as const;
-  expect(decodeTaskRequest(encodeTaskRequest(clearAssign))).toEqual(clearAssign);
-});
-
-test("Task codec rejects invalid operation, thread targets, and missing operation arguments", () => {
-  const base = {
-    protocolMajor: 1,
-    requestId: "request",
-    workspaceId: "workspace",
-    agentId: "agent",
-    operation: "list",
-    target: "#general",
-  } as const;
-  expect(() => encodeTaskRequest({ ...base, operation: "invalid" as "list" })).toThrow(
+test("validateTaskRequest rejects an unknown operation, thread targets, and missing operation arguments", () => {
+  expect(() => validateTaskRequest({ ...base, operation: "invalid" as "list" })).toThrow(
     "invalid Task request",
   );
-  expect(() => encodeTaskRequest({ ...base, target: "#general:deadbeef" })).toThrow(
+  expect(() => validateTaskRequest({ ...base, target: "#general:deadbeef" })).toThrow(
     "invalid Task target",
   );
-  expect(() => encodeTaskRequest({ ...base, operation: "create" })).toThrow(
+  expect(() => validateTaskRequest({ ...base, operation: "create" })).toThrow(
     "missing Task operation argument",
   );
-  expect(() => encodeTaskRequest({ ...base, operation: "unclaim" })).toThrow(
-    "missing Task operation argument",
-  );
-  expect(() => encodeTaskRequest({ ...base, operation: "unclaim", number: 2_147_483_648 })).toThrow(
-    "invalid Task number",
-  );
-  expect(() => encodeTaskRequest({ ...base, operation: "unassign" })).toThrow(
+  expect(() => validateTaskRequest({ ...base, operation: "unclaim" })).toThrow(
     "missing Task operation argument",
   );
   expect(() =>
-    encodeTaskRequest({ ...base, operation: "unassign", number: 2, assignee: "@ada" }),
+    validateTaskRequest({ ...base, operation: "unclaim", number: 2_147_483_648 }),
+  ).toThrow("invalid Task number");
+  expect(() => validateTaskRequest({ ...base, operation: "unassign" })).toThrow(
+    "missing Task operation argument",
+  );
+  expect(() =>
+    validateTaskRequest({ ...base, operation: "unassign", number: 2, assignee: "@ada" }),
   ).toThrow("missing Task operation argument");
   expect(() =>
-    encodeTaskRequest({ ...base, operation: "unassign", number: 2, numbers: [2, 3] }),
+    validateTaskRequest({ ...base, operation: "unassign", number: 2, numbers: [2, 3] }),
   ).toThrow("missing Task operation argument");
   expect(() =>
-    encodeTaskRequest({
+    validateTaskRequest({
       ...base,
       operation: "update",
       number: 1,
@@ -108,42 +50,23 @@ test("Task codec rejects invalid operation, thread targets, and missing operatio
   ).toThrow("invalid Task revision");
 });
 
-test("Task response accepts an empty task list and rejects invalid external task views", () => {
-  expect(
-    decodeTaskResponse(
-      toBinary(
-        TaskResponseSchema,
-        create(TaskResponseSchema, { protocolMajor: 1, requestId: "request", tasks: [] }),
-      ),
-    ),
-  ).toEqual({ protocolMajor: 1, requestId: "request", tasks: [] });
+test("validateTaskRequest requires the idempotency key, scope ids, and the protocol major", () => {
+  const { idempotencyKey: _dropped, ...withoutKey } = base;
+  expect(() =>
+    validateTaskRequest(withoutKey as unknown as Parameters<typeof validateTaskRequest>[0]),
+  ).toThrow("invalid Task request");
+  expect(() => validateTaskRequest({ ...base, idempotencyKey: "" })).toThrow(
+    "invalid Task request",
+  );
+  expect(() => validateTaskRequest({ ...base, workspaceId: "" })).toThrow("invalid Task request");
+  expect(() => validateTaskRequest({ ...base, agentId: "" })).toThrow("invalid Task request");
+  expect(() => validateTaskRequest({ ...base, protocolMajor: 2 })).toThrow(
+    "unsupported Task protocol major",
+  );
+});
 
-  const task = {
-    messageId: "message-1",
-    conversationId: "conversation-1",
-    number: 1,
-    title: "Task",
-    status: "todo",
-    revision: 0,
-  };
-  const malformed = [
-    { ...task, status: "unknown" },
-    { ...task, messageId: "" },
-    { ...task, conversationId: "" },
-    { ...task, number: 0 },
-    { ...task, number: 2_147_483_648 },
-    { ...task, revision: 2_147_483_648 },
-    { ...task, owner: { memberId: "member-1", kind: "robot", name: "Ada" } },
-  ];
-  for (const invalidTask of malformed) {
-    const bytes = toBinary(
-      TaskResponseSchema,
-      create(TaskResponseSchema, {
-        protocolMajor: 1,
-        requestId: "request",
-        tasks: [invalidTask],
-      }),
-    );
-    expect(() => decodeTaskResponse(bytes)).toThrow("invalid Task response");
-  }
+test("validateTaskRequest keeps agent commands off the browser's conversationId selector", () => {
+  expect(() => validateTaskRequest({ ...base, conversationId: "conversation-1" })).toThrow(
+    "invalid Task target",
+  );
 });

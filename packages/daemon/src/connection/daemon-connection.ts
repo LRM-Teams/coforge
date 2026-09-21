@@ -1167,11 +1167,13 @@ export const defaultAgentWeeklyReportKeyPointsHttpClient: AgentWeeklyReportKeyPo
 
 export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
   async execute({ url, request, ...keys }) {
+    // `TaskRequest` already names the key `idempotencyKey` (the one HTTP name), so the body goes up
+    // as-is; the response echoes it for correlation.
     const response = await fetch(url, {
       method: "POST",
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
       headers: agentHeaders(keys, true),
-      body: agentWireBody(request),
+      body: JSON.stringify(request),
     });
     if (!response.ok) {
       // The upstream body names *why* the server refused (`{"error":…,"code":…}`). It must not ride
@@ -1185,8 +1187,8 @@ export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
       );
     }
     const result = (await response.json()) as TaskResponse;
-    if ((result as { idempotencyKey?: string }).idempotencyKey !== request.requestId)
-      throw new Error("Task response request ID does not match request");
+    if (result.idempotencyKey !== request.idempotencyKey)
+      throw new Error("Task response idempotency key does not match request");
     return result;
   },
 };

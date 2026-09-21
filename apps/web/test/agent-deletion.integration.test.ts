@@ -295,7 +295,7 @@ test.skipIf(!connectionString)(
       // Control: while the Agent is live it is both assignable and a delivery recipient.
       const before = await board.execute(principal, {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: general.id,
         title: "Before delete",
         assignee: `@${agent.name}`,
@@ -317,7 +317,7 @@ test.skipIf(!connectionString)(
       await expect(
         board.execute(principal, {
           operation: "create",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: general.id,
           title: "After delete",
           assignee: `@${agent.name}`,
@@ -328,7 +328,7 @@ test.skipIf(!connectionString)(
       // nothing can wake it through the Task path.
       const after = await board.execute(principal, {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: general.id,
         title: "No delivery after delete",
       });

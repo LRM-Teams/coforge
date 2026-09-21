@@ -24,7 +24,7 @@ const taskCommand = z
       "delete",
       "receipt",
     ]),
-    requestId: z.uuid(),
+    idempotencyKey: z.uuid(),
     conversationId: z.uuid(),
     target: z.never().optional(),
     number: z.number().int().positive().optional(),

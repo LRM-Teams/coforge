@@ -87,7 +87,7 @@ test("proxy redacts known request errors in reviewer-isolated mode", async () =>
   expect(messageBody.detail).toBeUndefined();
   expect(JSON.stringify(messageBody)).not.toContain("sensitive message failure");
   const task = await post(agentApiRoutes.proxy.tasks.path, {
-    requestId: "task",
+    idempotencyKey: "task",
     operation: "claim",
     target: "#general",
     number: 1,
@@ -1555,7 +1555,7 @@ test("every route forwards the token-bound context and Agent API key to its runt
     fetch(at(agentApiRoutes.proxy.tasks.path), {
       method: "POST",
       headers: jsonAuth,
-      body: JSON.stringify({ requestId: "r-1", operation: "list", target: "#general" }),
+      body: JSON.stringify({ idempotencyKey: "r-1", operation: "list", target: "#general" }),
     }),
     fetch(at(agentApiRoutes.proxy.channels.path), {
       method: "POST",

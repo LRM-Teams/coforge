@@ -95,7 +95,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, userId: alice!.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: publicChannel.id,
         title: "Visible public task",
       },
@@ -105,7 +105,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         { workspaceId: workspace.id, userId: alice!.id },
         {
           operation: "unclaim",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: publicChannel.id,
           number: seed.tasks[0]!.number,
         },
@@ -115,7 +115,11 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
     expect(
       await board.execute(
         { workspaceId: workspace.id, userId: bob!.id },
-        { operation: "list", requestId: crypto.randomUUID(), conversationId: publicChannel.id },
+        {
+          operation: "list",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: publicChannel.id,
+        },
       ),
     ).toEqual({ tasks: seed.tasks });
     for (const operation of ["create", "convert", "claim", "update"] as const) {
@@ -135,20 +139,24 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       await expect(
         board.execute(
           { workspaceId: workspace.id, userId: bob!.id },
-          { ...command, requestId: crypto.randomUUID(), conversationId: publicChannel.id },
+          { ...command, idempotencyKey: crypto.randomUUID(), conversationId: publicChannel.id },
         ),
       ).rejects.toThrow("ACCESS_DENIED");
     }
     await expect(
       board.execute(
         { workspaceId: otherWorkspace.id, userId: mallory!.id },
-        { operation: "list", requestId: crypto.randomUUID(), conversationId: publicChannel.id },
+        {
+          operation: "list",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: publicChannel.id,
+        },
       ),
     ).rejects.toThrow("NOT_FOUND");
     await expect(
       board.execute(
         { workspaceId: workspace.id, userId: bob!.id },
-        { operation: "list", requestId: crypto.randomUUID(), conversationId: direct.id },
+        { operation: "list", idempotencyKey: crypto.randomUUID(), conversationId: direct.id },
       ),
     ).rejects.toThrow("ACCESS_DENIED");
     const unrelatedDirectMember = await db.conversationMember.create({
@@ -157,14 +165,14 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
     await expect(
       board.execute(
         { workspaceId: workspace.id, userId: bob!.id },
-        { operation: "list", requestId: crypto.randomUUID(), conversationId: direct.id },
+        { operation: "list", idempotencyKey: crypto.randomUUID(), conversationId: direct.id },
       ),
     ).rejects.toThrow("ACCESS_DENIED");
     await db.conversationMember.delete({ where: { id: unrelatedDirectMember.id } });
     await expect(
       board.execute(
         { workspaceId: workspace.id, agentId: agent!.id },
-        { operation: "list", requestId: crypto.randomUUID(), target: `@${bob!.username}` },
+        { operation: "list", idempotencyKey: crypto.randomUUID(), target: `@${bob!.username}` },
       ),
     ).rejects.toThrow("NOT_FOUND");
 
@@ -193,7 +201,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           { workspaceId: workspace.id, userId: alice!.id },
           {
             operation: "convert",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             conversationId: publicChannel.id,
             messageId,
           },
@@ -215,7 +223,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         { workspaceId: workspace.id, userId: alice!.id },
         {
           operation: "convert",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: publicChannel.id,
           messageId: ambiguousPrefix,
         },
@@ -226,7 +234,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: agent!.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `@${alice!.username}`,
         title: "Agent-owned DM task",
       },
@@ -235,7 +243,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       (
         await board.execute(
           { workspaceId: workspace.id, agentId: agent!.id },
-          { operation: "list", requestId: crypto.randomUUID(), target: `@${alice!.username}` },
+          { operation: "list", idempotencyKey: crypto.randomUUID(), target: `@${alice!.username}` },
         )
       ).tasks,
     ).toEqual(agentCreated.tasks);
@@ -243,7 +251,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: agent!.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `@${alice!.username}`,
         number: agentCreated.tasks[0]!.number,
       },
@@ -255,7 +263,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
     await expect(
       board.execute(
         { workspaceId: workspace.id, agentId: agent!.id },
-        { operation: "list", requestId: crypto.randomUUID(), target: `@${bob!.username}` },
+        { operation: "list", idempotencyKey: crypto.randomUUID(), target: `@${bob!.username}` },
       ),
     ).rejects.toThrow("NOT_FOUND");
 
@@ -294,7 +302,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
     const beforeTasks = (
       await board.execute(
         { workspaceId: workspace.id, userId: alice!.id },
-        { operation: "list", requestId: crypto.randomUUID(), conversationId: direct.id },
+        { operation: "list", idempotencyKey: crypto.randomUUID(), conversationId: direct.id },
       )
     ).tasks.length;
     for (const [attachmentId, title] of [
@@ -306,7 +314,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           { workspaceId: workspace.id, userId: alice!.id },
           {
             operation: "create",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             conversationId: direct.id,
             title,
             attachmentId,
@@ -318,7 +326,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       (
         await board.execute(
           { workspaceId: workspace.id, userId: alice!.id },
-          { operation: "list", requestId: crypto.randomUUID(), conversationId: direct.id },
+          { operation: "list", idempotencyKey: crypto.randomUUID(), conversationId: direct.id },
         )
       ).tasks,
     ).toHaveLength(beforeTasks);
@@ -335,7 +343,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           { workspaceId: workspace.id, userId: alice!.id },
           {
             operation: "create",
-            requestId,
+            idempotencyKey: requestId,
             conversationId: publicChannel.id,
             title: `Concurrent task ${index}`,
           },
@@ -350,7 +358,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           { workspaceId: workspace.id, userId: alice!.id },
           {
             operation: "create",
-            requestId: sameRequest,
+            idempotencyKey: sameRequest,
             conversationId: publicChannel.id,
             title: "One idempotent task",
           },
@@ -364,7 +372,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: agent!.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${publicChannel.channelName}`,
         number: ownership.number,
       },
@@ -373,7 +381,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: agent!.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${publicChannel.channelName}`,
         number: ownership.number,
       },
@@ -386,14 +394,14 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           operation === "unclaim"
             ? {
                 operation,
-                requestId: crypto.randomUUID(),
+                idempotencyKey: crypto.randomUUID(),
                 target: `#${publicChannel.channelName}`,
                 number: ownership.number,
                 expectedRevision: claimed.tasks[0]!.revision,
               }
             : {
                 operation,
-                requestId: crypto.randomUUID(),
+                idempotencyKey: crypto.randomUUID(),
                 target: `#${publicChannel.channelName}`,
                 number: ownership.number,
                 status: "done",
@@ -406,7 +414,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: agent!.id },
       {
         operation: "unclaim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${publicChannel.channelName}`,
         number: ownership.number,
         expectedRevision: claimed.tasks[0]!.revision,
@@ -419,7 +427,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: agent!.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${publicChannel.channelName}`,
         number: ownership.number,
       },
@@ -429,7 +437,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         { workspaceId: workspace.id, agentId: agent!.id },
         {
           operation: "unclaim",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           target: `#${publicChannel.channelName}`,
           number: ownership.number,
           expectedRevision: claimed.tasks[0]!.revision,
@@ -440,7 +448,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: agent!.id },
       {
         operation: "list",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${publicChannel.channelName}`,
       },
     );
@@ -451,7 +459,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: agent!.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${publicChannel.channelName}`,
         number: ownership.number,
         status: "done",
@@ -464,7 +472,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           { workspaceId: workspace.id, agentId: agent!.id },
           {
             operation: "unclaim",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${publicChannel.channelName}`,
             number: ownership.number,
             expectedRevision,
@@ -477,7 +485,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         { workspaceId: workspace.id, agentId: agent!.id },
         {
           operation: "claim",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           target: `#${publicChannel.channelName}`,
           number: ownership.number,
         },
@@ -487,7 +495,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, userId: alice!.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: publicChannel.id,
         number: ownership.number,
         status: "todo",
@@ -500,7 +508,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           { workspaceId: workspace.id, agentId: agent!.id },
           {
             operation: "claim",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             target: `#${publicChannel.channelName}`,
             number: ownership.number,
           },
@@ -515,7 +523,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           { workspaceId: workspace.id, userId: alice!.id },
           {
             operation: "update",
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             conversationId: publicChannel.id,
             number: raceTask.number,
             status: nextStatus as "closed" | "done",
@@ -532,7 +540,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, userId: alice!.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: publicChannel.id,
         number: closedTask.number,
         status: "closed",
@@ -544,7 +552,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         { workspaceId: workspace.id, agentId: agent!.id },
         {
           operation: "claim",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           target: `#${publicChannel.channelName}`,
           number: closedTask.number,
         },
@@ -556,7 +564,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: agent!.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${publicChannel.channelName}`,
         number: ownerRace.number,
       },
@@ -565,7 +573,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, userId: alice!.id },
       {
         operation: "update",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: publicChannel.id,
         number: ownerRace.number,
         status: "todo",
@@ -574,7 +582,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
     );
     const releaseCommand = {
       operation: "assign" as const,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       conversationId: publicChannel.id,
       number: ownerRace.number,
       assignee: null,
@@ -591,7 +599,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, userId: alice!.id },
       {
         operation: "assign",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: publicChannel.id,
         number: ownerRace.number,
         assignee: null,
@@ -602,7 +610,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
       { workspaceId: workspace.id, agentId: peerAgent!.id },
       {
         operation: "claim",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: `#${publicChannel.channelName}`,
         number: ownerRace.number,
       },
@@ -612,7 +620,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         { workspaceId: workspace.id, agentId: agent!.id },
         {
           operation: "update",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           target: `#${publicChannel.channelName}`,
           number: ownerRace.number,
           status: "done",
@@ -663,7 +671,7 @@ test("TaskBoard unassign clears ownership for the owner or a manager and enforce
       { workspaceId: workspace.id, userId: alice!.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         title: "Task A",
       },
@@ -673,7 +681,7 @@ test("TaskBoard unassign clears ownership for the owner or a manager and enforce
       { workspaceId: workspace.id, userId: bob!.id },
       {
         operation: "assign",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         number: taskANumber,
         assignee: `@${bob!.username}`,
@@ -687,7 +695,7 @@ test("TaskBoard unassign clears ownership for the owner or a manager and enforce
         { workspaceId: workspace.id, userId: carol!.id },
         {
           operation: "unassign",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: channel.id,
           number: taskANumber,
         },
@@ -700,7 +708,7 @@ test("TaskBoard unassign clears ownership for the owner or a manager and enforce
         { workspaceId: workspace.id, userId: bob!.id },
         {
           operation: "unassign",
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           conversationId: channel.id,
           number: taskANumber,
           expectedRevision: bobAssigned.tasks[0]!.revision + 1,
@@ -713,7 +721,7 @@ test("TaskBoard unassign clears ownership for the owner or a manager and enforce
       { workspaceId: workspace.id, userId: bob!.id },
       {
         operation: "unassign",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         number: taskANumber,
         expectedRevision: bobAssigned.tasks[0]!.revision,
@@ -727,7 +735,7 @@ test("TaskBoard unassign clears ownership for the owner or a manager and enforce
       { workspaceId: workspace.id, userId: carol!.id },
       {
         operation: "unassign",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         number: taskANumber,
       },
@@ -740,7 +748,7 @@ test("TaskBoard unassign clears ownership for the owner or a manager and enforce
       { workspaceId: workspace.id, userId: alice!.id },
       {
         operation: "create",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         title: "Task B",
       },
@@ -750,7 +758,7 @@ test("TaskBoard unassign clears ownership for the owner or a manager and enforce
       { workspaceId: workspace.id, userId: carol!.id },
       {
         operation: "assign",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         number: taskBNumber,
         assignee: `@${carol!.username}`,
@@ -760,7 +768,7 @@ test("TaskBoard unassign clears ownership for the owner or a manager and enforce
       { workspaceId: workspace.id, userId: alice!.id },
       {
         operation: "unassign",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         conversationId: channel.id,
         number: taskBNumber,
       },

@@ -4,7 +4,7 @@ import { defaultAgentTaskHttpClient } from "../src/connection/daemon-connection"
 
 const request = {
   protocolMajor: 1,
-  requestId: "request-1",
+  idempotencyKey: "request-1",
   workspaceId: "workspace-1",
   agentId: "agent-1",
   operation: "list",
@@ -15,7 +15,7 @@ test("Agent Task HTTP client rejects a response for a different request", async 
   const server = Bun.serve({
     port: 0,
     fetch() {
-      return Response.json({ requestId: "request-2", tasks: [] });
+      return Response.json({ idempotencyKey: "request-2", tasks: [] });
     },
   });
   try {
@@ -26,7 +26,7 @@ test("Agent Task HTTP client rejects a response for a different request", async 
         daemonApiKey: "daemon-key",
         request,
       }),
-    ).rejects.toThrow("Task response request ID does not match request");
+    ).rejects.toThrow("Task response idempotency key does not match request");
   } finally {
     await server.stop();
   }

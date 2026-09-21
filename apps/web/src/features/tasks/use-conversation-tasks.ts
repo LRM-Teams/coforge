@@ -24,7 +24,7 @@ export const conversationTasksQuery = (conversationId: string) =>
     queryFn: async () =>
       (
         await executeTask({
-          data: { operation: "list", requestId: crypto.randomUUID(), conversationId },
+          data: { operation: "list", idempotencyKey: crypto.randomUUID(), conversationId },
         })
       ).tasks,
     staleTime: 0,
@@ -57,12 +57,16 @@ export function useConversationTasks(conversationId: string) {
   };
 
   const command = async (
-    input: Omit<TaskCommand, "requestId" | "conversationId"> & { requestId?: string },
+    input: Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { idempotencyKey?: string },
   ) => {
     setMutationError("");
     try {
       const result = await execute({
-        data: { ...input, requestId: input.requestId ?? crypto.randomUUID(), conversationId },
+        data: {
+          ...input,
+          idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
+          conversationId,
+        },
       });
       // A list read that started before this command must not overwrite its result.
       await queryClient.cancelQueries({ queryKey });

@@ -340,7 +340,7 @@ export class TaskBoard {
       "delete",
       "receipt",
     ];
-    if (!operations.includes(command.operation) || !command.requestId)
+    if (!operations.includes(command.operation) || !command.idempotencyKey)
       throw new AppError("INVALID_INPUT");
     if ((command.conversationId ? 1 : 0) + (command.target ? 1 : 0) + (command.mine ? 1 : 0) !== 1)
       throw new AppError("INVALID_INPUT");
@@ -660,10 +660,10 @@ export class TaskBoard {
   ) {
     const titles = (command.titles ?? [command.title!]).map((title) => title.trim());
     const requestIds = await Promise.all(
-      titles.map((_, index) => indexedRequestId(command.requestId, index)),
+      titles.map((_, index) => indexedRequestId(command.idempotencyKey, index)),
     );
     const receiptId = await indexedRequestId(
-      `${member.id}:create:${command.requestId}:assignment`,
+      `${member.id}:create:${command.idempotencyKey}:assignment`,
       1,
     );
     const result = await this.db.$transaction(async (tx) => {
@@ -851,7 +851,7 @@ export class TaskBoard {
           effects.push(
             this.publishDeliveries(
               message,
-              command.requestId,
+              command.idempotencyKey,
               scope.channelName ? `#${scope.channelName}` : `@${sender.handle}`,
               sender,
             ),
@@ -859,7 +859,8 @@ export class TaskBoard {
         }
       }
       await Promise.all(effects);
-      if (result.receipt) await this.publishAssignmentReceipt(result.receipt.id, command.requestId);
+      if (result.receipt)
+        await this.publishAssignmentReceipt(result.receipt.id, command.idempotencyKey);
     }
     const { receipt } = result;
     return {
@@ -1187,7 +1188,7 @@ export class TaskBoard {
     if (command.assignee !== null && !command.assignee?.match(/^@[a-z0-9][a-z0-9_-]{0,63}$/))
       throw new AppError("INVALID_INPUT");
     const receiptId = await indexedRequestId(
-      `${member.id}:assign:${command.number}:${command.requestId}:assignment`,
+      `${member.id}:assign:${command.number}:${command.idempotencyKey}:assignment`,
       1,
     );
     const result = await this.db.$transaction(async (tx) => {
@@ -1253,7 +1254,7 @@ export class TaskBoard {
     const { task, receipt } = result;
     if (task && result.changed) await this.signalTaskChange(task);
     if (receipt && result.changed)
-      await this.publishAssignmentReceipt(receipt.id, command.requestId);
+      await this.publishAssignmentReceipt(receipt.id, command.idempotencyKey);
     return {
       tasks: task ? [view(task)] : [],
       ...(receipt && {
@@ -1525,7 +1526,7 @@ export class TaskBoard {
           daemonControlChannel(workspaceId, result.reminder.computerId),
           encodeReminderSync({
             protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-            requestId: command.requestId,
+            requestId: command.idempotencyKey,
             workspaceId,
             computerId: result.reminder.computerId,
             agentId: result.owner.id,

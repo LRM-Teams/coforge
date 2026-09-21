@@ -135,7 +135,7 @@ export type LocalReminderReceiptResponse = {
   revision: number;
 };
 export type ThreadInvocation = { command: "thread-unfollow"; target: string };
-export type TaskInvocation = { command: "task"; task: Omit<TaskCommand, "requestId"> };
+export type TaskInvocation = { command: "task"; task: Omit<TaskCommand, "idempotencyKey"> };
 export type WorkspaceInfoOptions = {
   agents?: boolean;
   humans?: boolean;
@@ -1080,14 +1080,14 @@ export async function run(args: readonly string[], transport: MessageTransport):
   }
   if (invocation.command === "task") {
     if (!transport.task) throw new Error("Task transport is unavailable");
-    let command = { ...invocation.task, requestId: crypto.randomUUID() } as TaskCommand;
+    let command = { ...invocation.task, idempotencyKey: crypto.randomUUID() } as TaskCommand;
     if (
       (command.operation === "update" || command.operation === "unclaim") &&
       command.expectedRevision === undefined
     ) {
       const listed = await transport.task({
         operation: "list",
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         target: command.target,
       });
       const current = listed.tasks.find((task) => task.number === command.number);
@@ -2207,7 +2207,7 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
     expectedRevision,
     ...(receipt ? { receipt } : {}),
     ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
-  } as Omit<TaskCommand, "requestId">;
+  } as Omit<TaskCommand, "idempotencyKey">;
   const valid =
     operation === "list" ||
     (operation === "create" &&

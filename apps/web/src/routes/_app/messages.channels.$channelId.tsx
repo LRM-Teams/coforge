@@ -176,8 +176,12 @@ function ChannelPage() {
         onShowChat={showChat}
         onCreateTask={
           conversation.senderMemberId
-            ? async (title, requestId) => {
-                const [task] = await taskView.command({ operation: "create", title, requestId });
+            ? async (title, idempotencyKey) => {
+                const [task] = await taskView.command({
+                  operation: "create",
+                  title,
+                  idempotencyKey,
+                });
                 await page.invalidate();
                 return task;
               }
@@ -195,13 +199,13 @@ function ChannelPage() {
       tasks={taskView.tasks}
       onShowTasks={showTasks}
       onShowFiles={showFiles}
-      onCreateTask={async (title, requestId, attachmentId) => {
-        await taskView.command({ operation: "create", title, requestId, attachmentId });
+      onCreateTask={async (title, idempotencyKey, attachmentId) => {
+        await taskView.command({ operation: "create", title, idempotencyKey, attachmentId });
         await page.invalidate();
       }}
       onSend={async (body, requestId, attachmentIds, threadRootId) => {
         const message = await send({
-          data: { channelId, body, requestId, attachmentIds, threadRootId },
+          data: { channelId, requestId, body, attachmentIds, threadRootId },
         });
         page.mergeUpdates([message]);
         if (threadRootId) followThread(threadRootId);
