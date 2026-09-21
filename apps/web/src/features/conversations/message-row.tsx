@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
-import { Code02, Copy01, CornerUpLeft, Download01, XClose } from "@untitledui/icons";
+import {
+  Code02,
+  Copy01,
+  CornerUpLeft,
+  Download01,
+  MessageSquare01 as MessageSquare,
+  XClose,
+} from "@untitledui/icons";
+import { Modal as AriaModal, ModalOverlay as AriaModalOverlay } from "react-aria-components";
 
 import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -13,6 +21,8 @@ import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/applica
 import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { DELETED_AGENT_AVATAR_CLASS, DeletedAgentBadge } from "@/features/agents/deleted-agent";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
@@ -21,7 +31,8 @@ import { attachmentPreviewKind } from "./attachment-preview-kind";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
-import { MessageReactionPicker } from "./message-reaction-picker";
+import { MessageReactionPicker, QUICK_REACTION_EMOJIS } from "./message-reaction-picker";
+import { UnreadBadge } from "./conversation-directory";
 import {
   copyFragmentMarkdown,
   copyFragmentStyled,
@@ -73,6 +84,14 @@ export type MessageView = {
    * (ADR 0027). Replaces the plain-text draft hint line with the interactive card; the
    * underlying `body` stays available to assistive technology. */
   actionCard?: ActionCardView;
+};
+
+/** A row's entry into the message's thread: the viewer's unread reply count and the action
+ * that opens the thread. The conversation supplies the facts; the row owns presentation —
+ * a hover-toolbar button on desktop, a row in the tap action sheet on touch devices. */
+export type MessageThreadEntry = {
+  unread: number;
+  open: () => void;
 };
 
 const GROUPING_WINDOW_MS = 5 * 60 * 1000;
@@ -513,7 +532,7 @@ export function MessageRow({
   /** The conversation's unread run begins at this row (ADR 0046): draws the divider above. */
   unreadStartsHere?: boolean;
   dateLocale?: string;
-  threadEntry?: (message: MessageView) => ReactNode;
+  threadEntry?: (message: MessageView) => MessageThreadEntry;
   threadPreview?: (message: MessageView) => ReactNode;
   messageFooter?: (message: MessageView) => ReactNode;
   /** Toggles the viewer's own emoji reaction on a message; the conversation refreshes it. */
@@ -643,6 +662,32 @@ export function MessageRow({
       window.removeEventListener("scroll", dismiss, true);
     };
   }, [quoteOffer]);
+  // The mobile shell (single-pane below `lg`) has no hover to reveal the reply/reaction
+  // actions, and keeping the toolbar always visible puts two buttons on every message.
+  // Instead a tap on the row's non-interactive surface opens a bottom action sheet holding
+  // the same actions (the wide desktop shell keeps hover/focus reveal); the modal overlay
+  // owns dismissal (backdrop press, Escape). The switch follows the shell, not only the
+  // pointer: a narrow desktop window shows the mobile shell, so it gets sheet interactions
+  // too, and a large touchscreen still prefers tapping. The tap target check runs against
+  // the DOM, so it also covers portaled overlays, whose React events still bubble through
+  // this row.
+  const coarsePointer = useCoarsePointer();
+  const desktopShell = useBreakpoint("lg");
+  const sheetActions = coarsePointer || !desktopShell;
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const openActions = useCallback(
+    (event: React.MouseEvent) => {
+      if (!sheetActions || !(event.target instanceof Element)) return;
+      if (
+        event.target.closest(
+          "button, a, input, textarea, select, [role='button'], [data-message-actions-popover]",
+        )
+      )
+        return;
+      setActionsOpen(true);
+    },
+    [sheetActions],
+  );
   // Touch selection ends without a mouseup: the long-press and the OS selection handles fire no
   // usable mouse events, so on touch the offer is driven by `selectionchange` (debounced, so a
   // handle drag settles first) and by pointer release. While a pointer is down — a mouse drag
@@ -714,6 +759,17 @@ export function MessageRow({
       </li>
     );
   }
+  const thread = threadEntry?.(message);
+  // The badge already shows the count visually, so it stays out of the tooltip; screen readers
+  // still get it through the accessible name.
+  const threadLabel = m.conversation_thread_reply();
+  const threadAccessibleLabel = thread?.unread
+    ? `${threadLabel} · ${m.conversation_thread_unread({ count: thread.unread })}`
+    : threadLabel;
+  // #544's whole-message copy (the IM-standard "Copy text", the only copy path for a collapsed,
+  // unselectable body) rides the action strip on desktop and the tap action sheet on the mobile
+  // shell; the sheet therefore also opens for a message with no thread and no reactions.
+  const copyable = Boolean(messagePlainText(message).trim());
   return (
     <li data-message-id={message.id} className={ROW_CLASS}>
       {unreadStartsHere && <UnreadDivider />}
@@ -729,6 +785,7 @@ export function MessageRow({
       <div
         id={`message-${message.id}`}
         data-message={own ? "own" : "other"}
+        onClick={openActions}
         className={cn(
           "group/message relative flex scroll-m-6 gap-3 px-4 transition-[background-color,box-shadow] duration-500 hover:bg-secondary focus-within:bg-secondary target:bg-active target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary md:px-6",
           grouped ? "py-0.5" : "py-2",
@@ -897,28 +954,195 @@ export function MessageRow({
           {messageFooter?.(message)}
           {threadPreview?.(message)}
         </div>
-        {/* Hover/touch action strip: thread and reactions first, whole-message copy last — the
-            IM-standard order (Slack/Discord put copy behind the conversational actions). Copy is
-            the only copy path for a collapsed, unselectable body. */}
-        <div className="absolute top-0.5 right-3 flex items-center gap-0.5 rounded-lg border border-secondary bg-primary p-0.5 opacity-0 shadow-lg transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 has-[[data-thread-unread]]:opacity-100 [@media(hover:none)]:opacity-100 [@media(any-pointer:coarse)]:opacity-100">
-          {threadEntry?.(message)}
-          {onToggleReaction && (
-            <MessageReactionPicker onPick={(emoji) => onToggleReaction(message.id, emoji, true)} />
-          )}
-          <ButtonUtility
-            size="xs"
-            color="tertiary"
-            icon={Copy01}
-            tooltip={m.conversation_message_copy_text()}
-            onClick={() => {
-              void copyText(messagePlainText(message)).then((copied) => {
-                if (copied) toast.success(m.conversation_message_copied());
-                else toast.error(m.conversation_copy_failed());
-              });
-            }}
-            className="p-1 *:data-icon:size-3.5"
-          />
-        </div>
+        {(threadEntry || onToggleReaction || copyable) && (
+          /* Hidden until revealed: hover/focus in the wide desktop shell (`lg` and up, with
+             a hover-capable fine pointer), and always while it carries an unread-thread
+             badge. Everywhere else the row tap opens the action sheet instead. The reveal
+             needs all three conditions: below `lg` the mobile shell is in charge even on a
+             mouse-driven narrow window; mobile browsers stick `:hover` onto a tapped row (it
+             has a click handler); and some touch devices (iOS Safari) report `hover: hover`
+             anyway — any missing gate would leave the bar visible after the sheet closes.
+             Hidden also means `pointer-events-none` — an invisible bar must not swallow taps
+             aimed at the message under it. Order is thread, reactions, then whole-message
+             copy last — the IM-standard order (#546). */
+          <div
+            className={cn(
+              "pointer-events-none absolute top-0.5 right-3 flex items-center gap-0.5 rounded-lg border border-secondary bg-primary p-0.5 opacity-0 shadow-lg transition-opacity",
+              "has-[[data-thread-unread]]:pointer-events-auto has-[[data-thread-unread]]:opacity-100",
+              "lg:[@media(hover:hover)_and_(pointer:fine)]:group-focus-within/message:pointer-events-auto lg:[@media(hover:hover)_and_(pointer:fine)]:group-focus-within/message:opacity-100",
+              "lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover/message:pointer-events-auto lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover/message:opacity-100",
+            )}
+          >
+            {thread && (
+              <span className="relative inline-flex">
+                <ButtonUtility
+                  icon={MessageSquare}
+                  size="xs"
+                  color="tertiary"
+                  tooltip={threadLabel}
+                  aria-label={threadAccessibleLabel}
+                  onClick={thread.open}
+                  className="p-1 *:data-icon:size-3.5"
+                />
+                {thread.unread > 0 && (
+                  <span data-thread-unread className="absolute -top-1.5 -right-1">
+                    <UnreadBadge count={thread.unread} />
+                  </span>
+                )}
+              </span>
+            )}
+            {onToggleReaction && (
+              <MessageReactionPicker
+                onPick={(emoji) => onToggleReaction(message.id, emoji, true)}
+              />
+            )}
+            <ButtonUtility
+              size="xs"
+              color="tertiary"
+              icon={Copy01}
+              tooltip={m.conversation_message_copy_text()}
+              onClick={() => {
+                void copyText(messagePlainText(message)).then((copied) => {
+                  if (copied) toast.success(m.conversation_message_copied());
+                  else toast.error(m.conversation_copy_failed());
+                });
+              }}
+              className="p-1 *:data-icon:size-3.5"
+            />
+          </div>
+        )}
+        {sheetActions && (thread || onToggleReaction || copyable) && (
+          /* The mobile-shell counterpart of the hover toolbar: a bottom action sheet in the
+             Slack/Discord mobile layout — the quoted message card, a quick-reaction row,
+             then full-width actions (thread row, whole-message copy last) — opened by a tap
+             on the message. Dismissal (backdrop press, Escape) and focus containment come
+             from the modal overlay. The overlay carries `data-message-actions-popover` so
+             its backdrop press doesn't bubble back into the row's tap-to-open handler. */
+          <AriaModalOverlay
+            isOpen={actionsOpen}
+            onOpenChange={setActionsOpen}
+            isDismissable
+            data-message-actions-popover
+            className={(state) =>
+              cn(
+                "fixed inset-0 z-50 flex min-h-dvh items-end justify-center bg-overlay/70 outline-hidden backdrop-blur-[6px]",
+                state.isEntering && "duration-300 ease-out animate-in fade-in",
+                state.isExiting && "duration-200 ease-in animate-out fade-out",
+              )
+            }
+          >
+            <AriaModal
+              className={(state) =>
+                cn(
+                  "w-full rounded-t-2xl bg-primary shadow-xl outline-hidden",
+                  state.isEntering && "duration-300 ease-out animate-in slide-in-from-bottom",
+                  state.isExiting && "duration-200 ease-in animate-out slide-out-to-bottom",
+                )
+              }
+            >
+              <Dialog
+                aria-label={m.conversation_message_actions()}
+                className="pb-[env(safe-area-inset-bottom)]"
+              >
+                <div
+                  aria-hidden="true"
+                  className="mx-auto mt-2 h-1 w-9 rounded-full bg-quaternary/40"
+                />
+                {/* The tapped message, quoted in a muted card at the top — the Slack/Discord
+                    mobile signature that tells you which message the actions belong to. */}
+                <div className="mx-3 mt-3 flex gap-2.5 rounded-xl bg-secondary/60 p-3">
+                  <span className="shrink-0">{avatar}</span>
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <p className="flex items-baseline gap-2">
+                      <span className="min-w-0 truncate text-sm font-semibold text-primary">
+                        {displayName}
+                      </span>
+                      <time
+                        dateTime={new Date(message.createdAt).toISOString()}
+                        className="shrink-0 text-xs text-tertiary tabular-nums"
+                      >
+                        {clockLabel(message.createdAt, dateLocale)}
+                      </time>
+                    </p>
+                    <p className="line-clamp-2 text-sm leading-5 text-secondary [overflow-wrap:anywhere]">
+                      {message.body}
+                    </p>
+                  </div>
+                </div>
+                {onToggleReaction && (
+                  <div
+                    role="group"
+                    aria-label={m.conversation_add_reaction()}
+                    className="flex items-center px-3 pt-2 pb-1"
+                  >
+                    {QUICK_REACTION_EMOJIS.map((emoji) => (
+                      <Button
+                        key={emoji}
+                        color="tertiary"
+                        size="sm"
+                        noTextPadding
+                        onPress={() => {
+                          setActionsOpen(false);
+                          onToggleReaction(message.id, emoji, true);
+                        }}
+                        // `px-0!` overrides the size's horizontal padding so the eight
+                        // cells share the row's width evenly instead of overflowing it.
+                        className="h-auto min-w-0 flex-1 rounded-full px-0! py-3 text-2xl leading-none"
+                      >
+                        {emoji}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-col px-3 pt-1 pb-3">
+                  {onToggleReaction && (copyable || thread) && (
+                    <div aria-hidden="true" className="mx-1 mt-1 mb-1 h-px bg-secondary" />
+                  )}
+                  {thread && (
+                    <Button
+                      color="tertiary"
+                      size="md"
+                      noTextPadding
+                      iconLeading={MessageSquare}
+                      iconTrailing={
+                        thread.unread > 0 ? <UnreadBadge count={thread.unread} /> : undefined
+                      }
+                      aria-label={threadAccessibleLabel}
+                      onPress={() => {
+                        setActionsOpen(false);
+                        thread.open();
+                      }}
+                      className="w-full justify-start rounded-lg py-3 *:data-icon:size-5 [&>[data-text]]:flex-1 [&>[data-text]]:text-left"
+                    >
+                      {threadLabel}
+                    </Button>
+                  )}
+                  {copyable && thread && (
+                    <div aria-hidden="true" className="mx-1 my-1 h-px bg-secondary" />
+                  )}
+                  {copyable && (
+                    <Button
+                      color="tertiary"
+                      size="md"
+                      noTextPadding
+                      iconLeading={Copy01}
+                      onPress={() => {
+                        setActionsOpen(false);
+                        void copyText(messagePlainText(message)).then((copied) => {
+                          if (copied) toast.success(m.conversation_message_copied());
+                          else toast.error(m.conversation_copy_failed());
+                        });
+                      }}
+                      className="w-full justify-start rounded-lg py-3 *:data-icon:size-5 [&>[data-text]]:flex-1 [&>[data-text]]:text-left"
+                    >
+                      {m.conversation_message_copy_text()}
+                    </Button>
+                  )}
+                </div>
+              </Dialog>
+            </AriaModal>
+          </AriaModalOverlay>
+        )}
       </div>
     </li>
   );

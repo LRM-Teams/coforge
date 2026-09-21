@@ -83,6 +83,7 @@
   "conversation_new_messages": "{count} new messages",
   "conversation_back_to_bottom": "Back to bottom",
   "conversation_message_navigation": "Message navigation",
+  "conversation_message_actions": "Message actions",
   "conversation_your_messages": "Your messages",
   "conversation_loading_your_messages": "Loading your messages…",
   "conversation_load_older": "Load older messages",

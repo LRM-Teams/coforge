@@ -10,8 +10,9 @@ import { m } from "@/paraglide/messages";
  * One-tap emojis for message reactions. Kept to single emojis without whitespace so
  * every entry satisfies the server's `isValidReactionEmoji` (shared with the Agent
  * reaction API); a full picker would need a new dependency for little gain here.
+ * Exported for the mobile message-actions menu, which offers the same set inline.
  */
-const QUICK_REACTION_EMOJIS = ["👍", "❤️", "🎉", "👀", "🔥", "😂", "😮", "😢"] as const;
+export const QUICK_REACTION_EMOJIS = ["👍", "❤️", "🎉", "👀", "🔥", "😂", "😮", "😢"] as const;
 
 /**
  * The smiley button in a message's hover toolbar. Opens a small popover with the
@@ -32,6 +33,9 @@ export function MessageReactionPicker({ onPick }: { onPick: (emoji: string) => v
       <AriaPopover
         placement="top start"
         offset={8}
+        // Portaled out of the message row's DOM; the row's tap-to-toggle-actions gesture
+        // treats interaction inside this popover as still on its own toolbar.
+        data-message-actions-popover
         className="rounded-xl bg-primary p-1.5 shadow-lg ring-1 ring-secondary_alt outline-none"
       >
         <Dialog className="outline-none">
