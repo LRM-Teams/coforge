@@ -225,15 +225,16 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  * 60 s per-request timeout when the GitHub-runner-to-OSS path slowed below ~0.5 MB/s, and the SDK
  * killed it with a `ResponseTimeoutError` (a `name`-only error, no status/code/request-id). */
 const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
-/** Per-part size for multipart uploads. A 28 MiB binary splits into 14 parts, each of which is
- * its own signed request. 2 MiB keeps the per-part threshold low enough that a degraded
- * GitHub-runner-to-OSS link (measured at well under 100 KB/s when dev.59→64 kept dying) finishes
- * one part inside the request timeout with room to spare. */
-const MULTIPART_PART_BYTES = 2 * 1024 * 1024;
-/** Per-request timeout for each multipart part (and each read-back), in ms. Keeping it explicit
- * makes the per-part timing intent clear: a stalled network times out a single small part, not
- * the whole object, and `ossError` records the `name` so the log can show `ResponseTimeoutError`. */
-const OSS_REQUEST_TIMEOUT_MS = 120_000;
+/** Per-part size for multipart uploads. Human directive 2026-09-21: use default-style small
+ * parts (100 KiB) with the SDK's default 60 s budget. A 100 KiB part finishes inside 60 s on
+ * any link above ~2 KB/s, so per-part timeouts stop being the binding constraint; fresh
+ * connections per request (`createOssClient`) are what fix the zero-flow part-1 stall. */
+const MULTIPART_PART_BYTES = 100 * 1024;
+/** Per-request timeout for each multipart part (and each read-back), in ms — ali-oss/urllib's
+ * default 60 s, kept explicit. With 100 KiB parts a 60 s budget is generous; a stalled network
+ * times out a single small part, not the whole object, and `ossError` records the `name` so the
+ * log can show `ResponseTimeoutError`. */
+const OSS_REQUEST_TIMEOUT_MS = 60_000;
 /** Whole-multipart attempts before giving up. ali-oss's own retry never fires for a response
  * timeout: its guard only retries errors carrying status -1/-2, and a `ResponseTimeoutError`
  * carries none — so a timed-out part fails the whole call no matter what `retryMax` says. The
