@@ -136,7 +136,7 @@ function getMermaidLayout(svg: string): MermaidLayout {
 // excessive empty space; web.dev's CLS guidance recommends reserving any
 // such space upfront so async content doesn't shift surrounding layout.
 const MERMAID_SKELETON_HEIGHT_PX = 280;
-const MERMAID_LAYOUT_CACHE_PREFIX = "multica:mermaid:layout:";
+const MERMAID_LAYOUT_CACHE_PREFIX = "coforge:mermaid:layout:";
 /**
  * Soft preview caps. Prefer nearly full reading-column width; only shrink
  * when the native viewBox would dominate the page. Height is capped lightly

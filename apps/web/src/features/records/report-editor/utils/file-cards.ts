@@ -1,5 +1,5 @@
 /**
- * File-card markdown helpers (ported from Multica, CDN-domain legacy matching
+ * File-card markdown helpers (legacy CDN-domain matching
  * simplified — only `!file[name](url)` is rewritten without a CDN allowlist).
  */
 

@@ -2,7 +2,7 @@
 
 /**
  * Slash command suggestion — block commands only (/code /table /formula).
- * Skill and Multica built-in chat commands are omitted.
+ * Skill and built-in chat commands are omitted.
  */
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";

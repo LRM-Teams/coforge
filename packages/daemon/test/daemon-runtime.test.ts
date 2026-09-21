@@ -6996,7 +6996,7 @@ function connectedClient(): CentrifugeWorkspaceClient {
   };
 }
 
-test("a send the daemon holds locally never reaches the transport, and re-issuing it cannot flip", async () => {
+test("a send the daemon holds locally is never issued, and what it showed is then reviewed", async () => {
   const calls: AgentMessageRequest[] = [];
   const harness = await messageHarness(async (request) => {
     calls.push(request);
@@ -7026,17 +7026,20 @@ test("a send the daemon holds locally never reaches the transport, and re-issuin
     expect(held.decision).toBe("local_hold");
     expect(held.reason).toBe("exact_target_pending");
     expect(held.newMessageCount).toBe(1);
+    // The notice shows the message, so the Agent has now reviewed it — Raft's
+    // `recordConsumedSeqs(data.seenUpToSeq)` — which is why the same target no longer holds this
+    // request: the held send itself was still never issued (the point of deciding locally), and the
+    // next attempt is the Agent's own resend rather than something the freshness gate withheld.
+    expect(held.messages.map((message) => message.sequence)).toEqual([1]);
     expect(held.messageId).toBe("");
-    // The point of deciding locally: no `send` request was issued at all, so there is nothing for a
-    // retry to re-decide. Before this, the same requestId was answered `local_hold` and then
-    // `forward` on a re-issue — which delivered a message the Agent had been told was held.
     expect(calls.filter((call) => call.operation === "send")).toHaveLength(0);
-    // The Agent has still reviewed nothing, so a repeat of the same request is held again, and
-    // still never reaches the transport.
-    const again = await harness.runtime.agentMessage(harness.context, send, harness.apiKey);
-    expect(again.state).toBe("held");
-    expect(again.decision).toBe("local_hold");
-    expect(calls.filter((call) => call.operation === "send")).toHaveLength(0);
+    const resent = await harness.runtime.agentMessage(
+      harness.context,
+      { ...send, requestId: "send-held-2", sendDraft: true },
+      harness.apiKey,
+    );
+    expect(resent.state).toBe("sent");
+    expect(calls.filter((call) => call.operation === "send")).toHaveLength(1);
   } finally {
     await harness.runtime.stop();
   }
@@ -7077,6 +7080,51 @@ test("--send-draft --anyway bypasses the daemon's own hold and reaches the trans
     expect(sends[0]?.continueAnyway).toBe(true);
     // A bypass is the one path that still reports what the Agent chose not to review.
     expect(sent.state).toBe("sent");
+  } finally {
+    await harness.runtime.stop();
+  }
+});
+
+test("a locally held send shows the unreviewed window, and a resend after it goes through", async () => {
+  const calls: AgentMessageRequest[] = [];
+  const harness = await messageHarness(async (request) => {
+    calls.push(request);
+    return {
+      protocolMajor: 1,
+      requestId: request.requestId,
+      accepted: true,
+      attentionCount: 0,
+      messages: [],
+      messageId: "sent",
+      state: "sent",
+      decision: "forward",
+    };
+  });
+  try {
+    await harness.deliver(1, "#general");
+    await harness.deliver(2, "#general");
+    const send = {
+      requestId: "send-window-1",
+      context: harness.context,
+      operation: "send" as const,
+      target: "#general",
+      content: "reply",
+    };
+    const held = await harness.runtime.agentMessage(harness.context, send, harness.apiKey);
+    expect(held.state).toBe("held");
+    expect(held.newMessageCount).toBe(2);
+    // The notice carries what the daemon still holds for this target (Raft's bounded window).
+    expect(held.messages.map((message) => message.sequence)).toEqual([1, 2]);
+    expect(calls.filter((call) => call.operation === "send")).toHaveLength(0);
+    // Showing that window counts as reviewing it (Raft's `recordConsumedSeqs`), so the Agent's own
+    // resend is no longer held by those messages: it reaches the transport and goes through.
+    const resent = await harness.runtime.agentMessage(
+      harness.context,
+      { ...send, requestId: "send-window-2", sendDraft: true },
+      harness.apiKey,
+    );
+    expect(resent.state).toBe("sent");
+    expect(calls.filter((call) => call.operation === "send")).toHaveLength(1);
   } finally {
     await harness.runtime.stop();
   }

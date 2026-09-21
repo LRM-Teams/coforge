@@ -173,7 +173,7 @@
   "files_tab": "文件",
   "files_empty": "这个会话还没有发过文件。",
   "files_download": "下载",
-  "files_title": "{name} 的文件",
+  "files_locate_message": "定位到消息",
   "files_loading": "加载中…",
   "files_load_failed": "文件加载失败"
 }

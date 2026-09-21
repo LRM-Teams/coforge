@@ -1,4 +1,4 @@
-/** CoForge-owned collect skill (ported from Multica period-work-collect intent). */
+/** CoForge-owned collect skill (period-work-collect intent). */
 export const WEEKLY_REPORT_COLLECT_SKILL_FILES = {
   "weekly-report-collect": `---
 name: weekly-report-collect

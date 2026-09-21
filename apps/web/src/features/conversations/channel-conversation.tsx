@@ -36,7 +36,6 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
 
 export function ChannelConversationHeader({
   conversation,
-  tasks,
   active,
   onShowChat,
   onShowTasks,
@@ -46,7 +45,6 @@ export function ChannelConversationHeader({
   onOpenAgentProfile,
 }: {
   conversation: ChannelConversationView;
-  tasks?: TaskView[];
   active: "chat" | "tasks" | "files";
   onShowChat?: () => void;
   onShowTasks?: () => void;
@@ -110,11 +108,10 @@ export function ChannelConversationHeader({
           />
         )}
       </div>
-      {(onShowChat || onShowTasks) && (
+      {(onShowChat || onShowTasks || onShowFiles) && (
         <div className="-mx-3 flex h-11 items-center px-3 sm:-mx-5 sm:px-5">
           <ConversationTaskTabs
             active={active}
-            taskCount={tasks?.length ?? 0}
             onShowChat={onShowChat}
             onShowTasks={onShowTasks}
             onShowFiles={onShowFiles}
@@ -276,7 +273,6 @@ export function ChannelConversation({
       header={
         <ChannelConversationHeader
           conversation={conversation}
-          tasks={tasks}
           active="chat"
           onShowTasks={onShowTasks}
           onShowFiles={onShowFiles}

@@ -6,7 +6,7 @@
  */
 
 /*
- * Bridge Multica/shadcn CSS variables onto Untitled UI semantic tokens.
+ * Bridge legacy/shadcn CSS variables onto Untitled UI semantic tokens.
  * Without this, `var(--border)` / `var(--foreground)` etc. are undefined and
  * declarations like `border: 1px solid var(--border)` become invalid — table
  * grids and other chrome borders disappear.

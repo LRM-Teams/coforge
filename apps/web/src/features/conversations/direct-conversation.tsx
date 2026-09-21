@@ -183,7 +183,6 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
 
 export function DirectConversationHeader({
   conversation,
-  tasks,
   active,
   onShowChat,
   onShowTasks,
@@ -191,7 +190,6 @@ export function DirectConversationHeader({
   onOpenAgentProfile,
 }: {
   conversation: DirectConversationView;
-  tasks?: TaskView[];
   active: "chat" | "tasks" | "files";
   onShowChat?: () => void;
   onShowTasks?: () => void;
@@ -253,7 +251,6 @@ export function DirectConversationHeader({
         <div className="-mx-3 flex h-11 items-center px-3 sm:-mx-5 sm:px-5">
           <ConversationTaskTabs
             active={active}
-            taskCount={tasks?.length ?? 0}
             onShowChat={onShowChat}
             onShowTasks={onShowTasks}
             onShowFiles={onShowFiles}
@@ -294,7 +291,6 @@ export function DirectConversation(props: ConversationProps) {
       header={
         <DirectConversationHeader
           conversation={conversation}
-          tasks={props.tasks}
           active="chat"
           onShowTasks={props.onShowTasks}
           onShowFiles={props.onShowFiles}

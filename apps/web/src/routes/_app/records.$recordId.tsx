@@ -7,7 +7,7 @@ import { sanitizeRecordsReturnTo } from "@/features/records/records-return-to";
 import { isAppError } from "@/lib/app-error";
 
 export const Route = createFileRoute("/_app/records/$recordId")({
-  // Loader may run on the server; TipTap must not SSR (Multica Notes is client-only).
+  // Loader may run on the server; TipTap must not SSR (client-only).
   ssr: "data-only",
   // Always revalidate when entering a report so saves from a previous visit win
   // over the first-load loader snapshot.

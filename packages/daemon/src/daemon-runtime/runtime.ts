@@ -119,7 +119,11 @@ import {
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
 import { AgentDeliveryQueue } from "./agent-delivery-queue";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
-import { locallyHeldSend, planAgentInboxFreshness } from "./agent-inbox-freshness";
+import {
+  HELD_CONTEXT_LIMIT,
+  locallyHeldSend,
+  planAgentInboxFreshness,
+} from "./agent-inbox-freshness";
 import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
 import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
 import { isAgentApiKey } from "../credentials/agent-api-key";
@@ -3247,11 +3251,35 @@ export class DaemonRuntime {
     });
     const result =
       freshness.decision === "local_hold"
-        ? locallyHeldSend(freshness, {
-            requestId: request.requestId,
-            draftReholdCount,
-            freshnessContextMode: request.freshnessContextMode,
-          })
+        ? locallyHeldSend(
+            freshness,
+            {
+              requestId: request.requestId,
+              draftReholdCount,
+              freshnessContextMode: request.freshnessContextMode,
+            },
+            // Raft's held notice shows the newest unreviewed messages. The daemon now has them (its
+            // attention index keeps a bounded window of unreviewed deliveries), so a locally decided
+            // hold carries real previews instead of a bare count — and the shared post-processing
+            // below then marks that window reviewed (`recordModelSeen`), which is what Raft's
+            // `recordConsumedSeqs(data.seenUpToSeq)` does: the Agent has been shown the newest
+            // context, so a resend is no longer held by it.
+            this.#messageAttention
+              .pendingWindow(agentId, target, HELD_CONTEXT_LIMIT)
+              .map(({ delivery, receivedAt }) => ({
+                id: delivery.messageId,
+                sequence: delivery.sequence,
+                senderKind: delivery.latestSenderKind ?? "system",
+                senderHandle: delivery.latestSenderHandle ?? "",
+                senderDescription: delivery.latestSenderDescription ?? "",
+                target,
+                body: delivery.body,
+                // Deliveries carry no message timestamp (only the server knows when a message was
+                // written), so a local preview shows when this daemon received it.
+                createdAt: new Date(receivedAt).toISOString(),
+                attachments: [],
+              })),
+          )
         : await this.#transport.agentMessage!(
             {
               protocolMajor: WORKSPACE_PROTOCOL_MAJOR,

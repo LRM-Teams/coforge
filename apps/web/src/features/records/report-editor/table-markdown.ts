@@ -5,7 +5,7 @@ import { Table, renderTableToMarkdown } from "@tiptap/extension-table";
 /** Default column width for newly inserted cells (matches editor extensions). */
 export const TABLE_CELL_DEFAULT_WIDTH = 128;
 
-export const TABLE_COLWIDTH_COMMENT_RE = /<!--\s*multica:table-colwidths:([\d,]+)\s*-->/g;
+export const TABLE_COLWIDTH_COMMENT_RE = /<!--\s*coforge:table-colwidths:([\d,]+)\s*-->/g;
 
 /** Table extension that persists resized column widths in markdown. */
 export const TableWithColwidthMarkdown = Table.extend({
@@ -15,7 +15,7 @@ export const TableWithColwidthMarkdown = Table.extend({
     if (!tableHasCustomColumnWidths(widths)) {
       return gfm;
     }
-    const prefix = `<!-- multica:table-colwidths:${widths.join(",")} -->`;
+    const prefix = `<!-- coforge:table-colwidths:${widths.join(",")} -->`;
     return gfm.startsWith("\n") ? `${prefix}${gfm}` : `${prefix}\n${gfm}`;
   },
 });

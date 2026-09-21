@@ -29,7 +29,7 @@ const config = defineConfig({
   optimizeDeps: {
     exclude: ["bun"],
     // TipTap stack is opened from Records; pre-bundle so the first report open
-    // does not stall on dependency discovery (Multica Notes keeps this eager).
+    // does not stall on dependency discovery (kept eager on purpose).
     include: [
       "@tiptap/react",
       "@tiptap/starter-kit",

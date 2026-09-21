@@ -1,5 +1,7 @@
 import { useRouter } from "@tanstack/react-router";
 
+import { conversationSearchWithoutThread } from "./conversation-thread-search";
+
 type ConversationView = "chat" | "tasks" | "files";
 type TaskLayout = "board" | "list";
 type ConversationSearch = {
@@ -29,5 +31,19 @@ export function useConversationView(ensureLoaded: (messageId: string) => Promise
     await ensureLoaded(messageId);
     await update({ view: "chat", threadRootId: messageId }, `message-${messageId}`);
   };
-  return { router, showChat, showTasks, showFiles, changeLayout, openTask };
+  /** Files-tab "locate": land on the chat view scrolled to the message. Unlike `openTask` it
+   * clears any open thread — if the target is itself a thread reply, the hash promotion in
+   * `ThreadedConversationContent` opens the right thread on arrival. */
+  const openMessage = async (messageId: string) => {
+    await ensureLoaded(messageId);
+    await router.navigate({
+      to: ".",
+      search: (previous: ConversationSearch) => {
+        const next: ConversationSearch = { ...previous, view: "chat" };
+        return conversationSearchWithoutThread(next);
+      },
+      hash: `message-${messageId}`,
+    });
+  };
+  return { router, showChat, showTasks, showFiles, changeLayout, openTask, openMessage };
 }

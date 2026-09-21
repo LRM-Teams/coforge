@@ -5,6 +5,21 @@ import {
   planAgentInboxFreshness,
 } from "../src/daemon-runtime/agent-inbox-freshness";
 
+/** One message of the held window, shaped the way the transport response carries messages. */
+function heldMessage(sequence: number) {
+  return {
+    id: `message-${sequence}`,
+    sequence,
+    senderKind: "human" as const,
+    senderHandle: "ada",
+    senderDescription: "",
+    target: "@ada",
+    body: `body-${sequence}`,
+    createdAt: "2026-09-21T00:00:00Z",
+    attachments: [],
+  };
+}
+
 const base = {
   continueAnyway: false,
   modelSeenSequence: 0,
@@ -63,7 +78,7 @@ test("a target the daemon has never seen forwards", () => {
   });
 });
 
-test("a locally held send is transport-shaped, counted, and terminal by construction", () => {
+test("a locally held send is transport-shaped, counted, and carries the window it showed", () => {
   const plan = planAgentInboxFreshness({
     ...base,
     modelSeenSequence: 1,
@@ -71,19 +86,29 @@ test("a locally held send is transport-shaped, counted, and terminal by construc
     latestSequence: 6,
   });
   if (plan.decision !== "local_hold") throw new Error("expected a hold");
-  const held = locallyHeldSend(plan, { requestId: "send-1", draftReholdCount: 0 });
+  const shown = [heldMessage(5), heldMessage(6)];
+  const held = locallyHeldSend(plan, { requestId: "send-1", draftReholdCount: 0 }, shown);
   expect(held.state).toBe("held");
   expect(held.decision).toBe("local_hold");
   expect(held.reason).toBe("exact_target_pending");
   expect(held.accepted).toBe(false);
   expect(held.attentionCount).toBe(3);
   expect(held.newMessageCount).toBe(3);
-  expect(held.shownMessageCount).toBe(0);
-  expect(held.omittedMessageCount).toBe(3);
-  expect(held.messages).toEqual([]);
+  expect(held.messages).toEqual(shown);
+  expect(held.shownMessageCount).toBe(2);
+  expect(held.omittedMessageCount).toBe(1);
   expect(held.availableActions).toEqual([...HELD_SEND_AVAILABLE_ACTIONS]);
   // The daemon takes no message id: nothing was sent, so there is nothing to report.
   expect(held.messageId).toBeUndefined();
+});
+
+test("a hold with nothing left to show is honest: the count stands, the window is empty", () => {
+  const plan = planAgentInboxFreshness({ ...base, pendingMessageCount: 2, latestSequence: 4 });
+  if (plan.decision !== "local_hold") throw new Error("expected a hold");
+  const held = locallyHeldSend(plan, { requestId: "send-1", draftReholdCount: 0 });
+  expect(held.messages).toEqual([]);
+  expect(held.shownMessageCount).toBe(0);
+  expect(held.omittedMessageCount).toBe(2);
 });
 
 test("a draft that has already been held once is told it may be forced with --anyway", () => {

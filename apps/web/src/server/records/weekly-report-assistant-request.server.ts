@@ -11,7 +11,7 @@ const PLATFORM_TURN_CLOSE = "[/weekly-report-platform-turn]";
 export function buildWeeklyReportAssistantRequestBody(input: {
   subjectType: "report" | "cycle";
   subjectId: string;
-  /** Side-chat thread id (Multica-style session scoped to the page subject). */
+  /** Side-chat thread id (session scoped to the page subject). */
   sessionId?: string;
   userText: string;
   contextManifest: Record<string, unknown> | null;

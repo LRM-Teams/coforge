@@ -1,4 +1,4 @@
-const LAST_CODE_BLOCK_LANGUAGE_KEY = "multica:last-code-block-language";
+const LAST_CODE_BLOCK_LANGUAGE_KEY = "coforge:last-code-block-language";
 
 export const INSERTABLE_CODE_BLOCK_LANGUAGES = [
   "plaintext",
