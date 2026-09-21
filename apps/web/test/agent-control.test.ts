@@ -1150,12 +1150,16 @@ function executeAuthorizationFixture(options: {
   ownerId: string;
   role: WorkspaceMemberRole | undefined;
   stoppedAt?: Date;
+  /** ADR 0059; defaults "public" so every existing fixture stays visible to any current member,
+   * exactly as before this option existed. */
+  visibility?: string;
 }) {
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: options.ownerId,
     workspaceId: "w",
     computerId: "c",
+    visibility: options.visibility ?? "public",
     runtimeConfig: {
       runtime: "pi",
       provider: { kind: "default" },
@@ -1213,6 +1217,41 @@ test("a Workspace member who does not own the Agent can Restart and Reset sessio
       agentId: "a",
       requestId: "reset-req",
       action: "reset-session",
+    }),
+  ).resolves.toMatchObject({ phase: "pending" });
+});
+
+test("a Workspace member who cannot see a private Agent gets NOT_FOUND from execute (ADR 0059)", async () => {
+  const { control } = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: "member",
+    visibility: "private",
+  });
+  const error = await control
+    .execute({
+      userId: "member-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "restart-req",
+      action: "restart",
+    })
+    .catch((cause: unknown) => cause);
+  expect(isAppError(error) && error.code === "NOT_FOUND").toBe(true);
+});
+
+test("a Workspace admin can still Restart another member's private Agent (ADR 0059)", async () => {
+  const { control } = executeAuthorizationFixture({
+    ownerId: "owner-user",
+    role: "admin",
+    visibility: "private",
+  });
+  await expect(
+    control.execute({
+      userId: "admin-user",
+      workspaceId: "w",
+      agentId: "a",
+      requestId: "restart-req",
+      action: "restart",
     }),
   ).resolves.toMatchObject({ phase: "pending" });
 });
