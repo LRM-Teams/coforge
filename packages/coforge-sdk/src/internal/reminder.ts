@@ -18,6 +18,12 @@ export const REMINDER_CAPABILITY = "reminder:v1" as const;
 
 const MAX_BYTES = 65_536;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+/**
+ * `ID.test(value)` is not a type check: a missing id stringifies to `"undefined"` (or `"null"`),
+ * which the pattern happily matches. Every scope id is therefore checked as a string first — the
+ * protobuf encoder used to cover for this by refusing an absent field, and the JSON path does not.
+ */
+const isId = (value: unknown): boolean => typeof value === "string" && ID.test(value);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PREFIX = /^[0-9a-f]{8}$/i;
 const USERNAME = "[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?";
@@ -152,7 +158,7 @@ function instant(value: string | undefined, field: string): string | undefined {
 function scope<T extends ReminderScope>(value: T): T {
   if (
     value.protocolMajor !== 1 ||
-    [value.requestId, value.workspaceId, value.computerId, value.agentId].some((v) => !ID.test(v))
+    [value.requestId, value.workspaceId, value.computerId, value.agentId].some((v) => !isId(v))
   )
     throw new Error("invalid reminder scope");
   return value;
@@ -248,6 +254,23 @@ const optional = <T extends Record<string, unknown>>(value: T) =>
     Object.entries(value).filter(([key, v]) => key !== "$typeName" && v !== undefined),
   );
 
+/**
+ * The request as it arrives over **JSON** — the same rules the codec applies (`scope`, `fields`,
+ * `operation`), with no binary round trip.
+ *
+ * Protobuf belongs to the WebSocket path. An HTTP handler that encodes a JSON request to protobuf
+ * bytes only to decode them straight back has adopted the wrong contract: it inherits the codec's
+ * field names and failure modes for no benefit, and hides which of the two shapes a route really
+ * speaks. Raft's own split is the same one: HTTP is JSON, the WS/RPC path is protobuf.
+ */
+export function validateAgentReminderOperationRequest(
+  value: unknown,
+): AgentReminderOperationRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid reminder request");
+  return operation({ ...(value as AgentReminderOperationRequest) });
+}
+
 export function encodeAgentReminderOperationRequest(value: AgentReminderOperationRequest) {
   return bounded(
     toBinary(
@@ -267,7 +290,7 @@ function summary(value: ReminderSummaryRecord): ReminderSummaryRecord {
   fields(value, true);
   if (
     !isReminderId(value.reminderId) ||
-    !ID.test(value.ownerAgentId) ||
+    !isId(value.ownerAgentId) ||
     !positive(value.version, "reminder version") ||
     !value.title ||
     !value.target ||
@@ -282,7 +305,7 @@ function summary(value: ReminderSummaryRecord): ReminderSummaryRecord {
 }
 function event(value: ReminderLogEvent): ReminderLogEvent {
   if (
-    !ID.test(value.eventId) ||
+    !isId(value.eventId) ||
     !ID.test(value.type) ||
     !instant(value.time, "reminder event time") ||
     (value.nextFireAt !== undefined && !instant(value.nextFireAt, "next reminder fire time"))
@@ -320,7 +343,7 @@ function job(value: ReminderJob): ReminderJob {
   fields(value, true);
   if (
     !isReminderId(value.reminderId) ||
-    !ID.test(value.ownerAgentId) ||
+    !isId(value.ownerAgentId) ||
     !positive(value.version, "reminder version") ||
     !value.title ||
     !value.target ||

@@ -1,16 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  decodeAgentReminderOperationRequest,
-  encodeAgentReminderOperationRequest,
   type AgentReminderOperationRequest,
+  validateAgentReminderOperationRequest,
 } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { createAgentReminderService } from "#/server/agents/agent-api-http.server";
 
 /**
  * The Agent API names the request's idempotency key `idempotencyKey`; the reminder command — whose
- * shape is shared with the protobuf codec, and whose encoder refuses a request without one — names
- * it `requestId`. The two meet here, in one place, the way the Task route does it.
+ * shape is shared with the protobuf codec, and whose rules refuse a request without one — names it
+ * `requestId`. The two meet here, in one place, the way the Task route does it.
  *
  * Exported and taking its service as an argument so this boundary is testable on its own: a
  * mismatch here turns every reminder command into `400 invalid reminder request`.
@@ -25,12 +24,12 @@ export async function handleAgentReminderPost(
       idempotencyKey?: string;
     };
     const { idempotencyKey, ...fields } = body;
-    const command = decodeAgentReminderOperationRequest(
-      encodeAgentReminderOperationRequest({
-        ...fields,
-        requestId: idempotencyKey,
-      } as AgentReminderOperationRequest),
-    );
+    // JSON in, JSON out: the request is validated against the same rules the codec applies, but
+    // this route never becomes protobuf. Protobuf is the WebSocket path's contract, not HTTP's.
+    const command = validateAgentReminderOperationRequest({
+      ...fields,
+      requestId: idempotencyKey,
+    });
     if (
       command.agentId !== principal.agentId ||
       command.workspaceId !== principal.workspaceId ||
