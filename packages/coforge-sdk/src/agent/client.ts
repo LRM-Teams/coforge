@@ -3,6 +3,7 @@ import type {
   AgentReminderRequest,
   AgentReminderResponse,
   AgentTaskRequest,
+  DistributiveOmit,
   AgentTaskResponse,
 } from "./types";
 import type { AgentActionPrepareRequest, AgentActionPrepareResponse } from "./action-cards";
@@ -563,7 +564,7 @@ function unwrap<T>(result: AgentApiResult<T>): T {
   return result.data;
 }
 
-export type AgentTaskInput = Omit<AgentTaskRequest, "operation">;
+export type AgentTaskInput = DistributiveOmit<AgentTaskRequest, "operation">;
 export type AgentReminderInput = Omit<AgentReminderRequest, "operation">;
 
 function taskResources(transport: AgentApiTransport): RawAgentApiClient["tasks"] {

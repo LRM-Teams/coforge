@@ -1,9 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import type { AgentTaskRequest } from "@lrm/coforge-sdk/agent";
 import type { TaskCommand, TaskPrincipal, TaskResult } from "@lrm/coforge-sdk/internal";
-
-/** The Agent API's body: the board's command plus the API's own name for the echoed idempotency
- * key (`TaskCommand` itself carries it as `requestId`, the name the protobuf codec uses). */
-type AgentTaskWireRequest = TaskCommand & { idempotencyKey: string };
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { TaskBoard } from "#/server/tasks/task-board.server";
 
@@ -21,7 +18,7 @@ export async function handleAgentTaskPost(
   board: { execute(principal: TaskPrincipal, command: TaskCommand): Promise<TaskResult> },
 ): Promise<Response> {
   try {
-    const body = (await request.json()) as AgentTaskWireRequest;
+    const body = (await request.json()) as AgentTaskRequest;
     const { idempotencyKey, ...command } = body;
     const result = await board.execute(principal, { ...command, requestId: idempotencyKey });
     return Response.json({ idempotencyKey, ...result });
