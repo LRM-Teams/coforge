@@ -17,13 +17,13 @@ export async function handleAgentMessageResolveGet(
   repository: AgentMessageRepository,
 ): Promise<Response> {
   const query = new URL(request.url).searchParams;
-  const requestId = query.get("requestId") || crypto.randomUUID();
+  const idempotencyKey = query.get("idempotencyKey") || crypto.randomUUID();
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     const message = await resolveAgentMessage(repository, scope, messageId);
     const response: AgentResolveResponse = {
       protocolMajor: 1,
-      requestId,
+      idempotencyKey,
       message: message as AgentMessage,
     };
     return Response.json(response);

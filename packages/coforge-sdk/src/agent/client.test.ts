@@ -3,7 +3,7 @@ import { createAgentApiClient, workspaceInfoRoute } from "./client";
 
 const BASE_RESPONSE = {
   protocolMajor: 1,
-  requestId: "r",
+  idempotencyKey: "r",
   workspace: { id: "w", name: "Acme", slug: "acme" },
   humans: [],
   agents: [],

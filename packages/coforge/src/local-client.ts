@@ -538,7 +538,7 @@ export function connectLocal(
     task: (command: TaskCommand) => callTask(command),
     channel: (command: Omit<ChannelCommand, "requestId">) => callChannel(command),
     actionPrepare: (target: string, action: ActionCardAction) => callActionPrepare(target, action),
-    workspaceInfo: async (): Promise<WorkspaceInfoResponse> => {
+    workspaceInfo: async (): Promise<import("../index").WorkspaceInfoResult> => {
       if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
         throw new Error("coforge agent context is invalid");
       if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
@@ -548,7 +548,10 @@ export function connectLocal(
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) throw new Error(`workspace info request failed (${response.status})`);
-      return (await response.json()) as WorkspaceInfoResponse;
+      // The local hop's JSON carries the transport's own `requestId`; the CLI's view of
+      // `workspace_info` is the Agent API's shape, which names that echoed id `idempotencyKey`.
+      const { requestId, ...data } = (await response.json()) as WorkspaceInfoResponse;
+      return { ...data, idempotencyKey: requestId };
     },
     weeklyReport: (command: WeeklyReportCommand) => callWeeklyReport(command),
     weeklyReportCollect: (command: import("../index").WeeklyReportCollectCommand) =>

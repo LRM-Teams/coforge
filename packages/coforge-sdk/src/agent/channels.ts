@@ -50,7 +50,7 @@ export type AgentChannelInfo = {
  * (PATCH .../:channel), which returns the same info shape after applying its patch. */
 export type AgentChannelInfoResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   channel: AgentChannelInfo;
 };
 
@@ -88,7 +88,7 @@ export type AgentChannelRosterHuman = {
 /** Response for `channel members` (GET /api/agent/v1/channels/:channel/members). */
 export type AgentChannelMembersResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   agents: AgentChannelRosterAgent[];
   humans: AgentChannelRosterHuman[];
@@ -98,7 +98,7 @@ export type AgentChannelMembersResponse = {
  * from the full join confirmation. */
 export type AgentChannelJoinResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   joined: true;
   alreadyJoined: boolean;
@@ -108,7 +108,7 @@ export type AgentChannelJoinResponse = {
  * text from the full leave confirmation. */
 export type AgentChannelLeaveResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   joined: false;
   wasMember: boolean;
@@ -117,7 +117,7 @@ export type AgentChannelLeaveResponse = {
 /** Response for `channel create` (POST /api/agent/v1/channels). */
 export type AgentChannelCreateResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   channel: { id: string; name: string; description: string };
 };
@@ -125,7 +125,7 @@ export type AgentChannelCreateResponse = {
 /** Response for `channel lifecycle archive|unarchive`. */
 export type AgentChannelArchiveResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   archived: boolean;
 };
@@ -134,7 +134,7 @@ export type AgentChannelArchiveResponse = {
  * #x." text from the full add-member confirmation. */
 export type AgentChannelAddMemberResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   member: { kind: "user" | "agent"; handle: string };
   added: true;
@@ -145,7 +145,7 @@ export type AgentChannelAddMemberResponse = {
  * text from the full remove-member confirmation. */
 export type AgentChannelRemoveMemberResponse = {
   protocolMajor: 1;
-  requestId: string;
+  idempotencyKey: string;
   target: string;
   removed: true;
   wasMember: boolean;

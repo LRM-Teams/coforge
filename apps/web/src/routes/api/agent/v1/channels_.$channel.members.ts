@@ -7,8 +7,8 @@ import {
 import {
   channelManagementErrorResponse,
   readJsonBody,
-  requestIdFrom,
-  requestIdFromQuery,
+  idempotencyKeyFrom,
+  idempotencyKeyFromQuery,
 } from "#/server/agents/agent-channel-routes.shared";
 
 export type AgentChannelManagementPrincipal = { workspaceId: string; agentId: string };
@@ -19,10 +19,10 @@ export async function handleAgentChannelMembersGet(
   principal: AgentChannelManagementPrincipal,
   repository: AgentChannelManagementRepository,
 ): Promise<Response> {
-  const requestId = requestIdFromQuery(request);
+  const idempotencyKey = idempotencyKeyFromQuery(request);
   try {
     const roster = await repository.members(principal.workspaceId, principal.agentId, channel);
-    return Response.json({ protocolMajor: 1, requestId, ...roster });
+    return Response.json({ protocolMajor: 1, idempotencyKey, ...roster });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel members failed");
   }
@@ -48,7 +48,7 @@ export async function handleAgentChannelMembersPost(
   repository: AgentChannelManagementRepository,
 ): Promise<Response> {
   const body = await readJsonBody(request);
-  const requestId = requestIdFrom(body);
+  const idempotencyKey = idempotencyKeyFrom(body);
   const input = memberInputFrom(body);
   if (input instanceof Response) return input;
   try {
@@ -58,7 +58,7 @@ export async function handleAgentChannelMembersPost(
       channel,
       input,
     );
-    return Response.json({ protocolMajor: 1, requestId, ...result });
+    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel add-member failed");
   }
@@ -71,7 +71,7 @@ export async function handleAgentChannelMembersDelete(
   repository: AgentChannelManagementRepository,
 ): Promise<Response> {
   const body = await readJsonBody(request);
-  const requestId = requestIdFrom(body);
+  const idempotencyKey = idempotencyKeyFrom(body);
   const input = memberInputFrom(body);
   if (input instanceof Response) return input;
   try {
@@ -81,7 +81,7 @@ export async function handleAgentChannelMembersDelete(
       channel,
       input,
     );
-    return Response.json({ protocolMajor: 1, requestId, ...result });
+    return Response.json({ protocolMajor: 1, idempotencyKey, ...result });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel remove-member failed");
   }

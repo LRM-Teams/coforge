@@ -304,7 +304,9 @@ export type AgentMessageTransportResponse = {
 function adaptAgentHistoryResponse(response: AgentHistoryResponse): AgentMessageTransportResponse {
   return {
     protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
+    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
+    // shape keeps `requestId`, so the two names meet here.
+    requestId: response.idempotencyKey,
     accepted: true,
     attentionCount: 0,
     messages: response.messages,
@@ -319,7 +321,9 @@ function adaptAgentHistoryResponse(response: AgentHistoryResponse): AgentMessage
 function adaptAgentSearchResponse(response: AgentSearchResponse): AgentMessageTransportResponse {
   return {
     protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
+    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
+    // shape keeps `requestId`, so the two names meet here.
+    requestId: response.idempotencyKey,
     accepted: true,
     attentionCount: 0,
     messages: response.results,
@@ -333,7 +337,9 @@ function adaptAgentSearchResponse(response: AgentSearchResponse): AgentMessageTr
 function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransportResponse {
   return {
     protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
+    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
+    // shape keeps `requestId`, so the two names meet here.
+    requestId: response.idempotencyKey,
     accepted: response.state === "sent",
     attentionCount: response.heldMessages?.length ?? 0,
     messageId: response.messageId,
@@ -358,7 +364,9 @@ function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransp
 function adaptAgentResolveResponse(response: AgentResolveResponse): AgentMessageTransportResponse {
   return {
     protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
+    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
+    // shape keeps `requestId`, so the two names meet here.
+    requestId: response.idempotencyKey,
     accepted: true,
     attentionCount: 0,
     messages: [response.message],
@@ -371,7 +379,9 @@ function adaptAgentReactionResponse(
 ): AgentMessageTransportResponse {
   return {
     protocolMajor: response.protocolMajor,
-    requestId: response.requestId,
+    // The agent HTTP API names this key `idempotencyKey` (task #58 ④); the daemon's own transport
+    // shape keeps `requestId`, so the two names meet here.
+    requestId: response.idempotencyKey,
     accepted: true,
     attentionCount: 0,
     messageId: response.messageId,
@@ -759,6 +769,17 @@ async function getAgentEnvelopeJson<Result extends { ok: true }>(
   return decodeAgentEnvelopeJson<Result>(response, input.what, makeError);
 }
 
+/**
+ * Serializes an agent HTTP request body. Our own transport objects name the request's idempotency
+ * key `requestId` (that name also crosses the local RPC to the CLI), while the agent HTTP API names
+ * it `idempotencyKey` — so the wire carries the API's single name, and the two never ride together.
+ */
+function agentWireBody(request: unknown): string {
+  if (!request || typeof request !== "object") return JSON.stringify(request);
+  const { requestId, ...rest } = request as Record<string, unknown>;
+  return JSON.stringify(requestId === undefined ? rest : { ...rest, idempotencyKey: requestId });
+}
+
 /** Same envelope convention as `getAgentEnvelopeJson`, for a POST route (`profile update`). */
 async function postAgentEnvelopeJson<Result extends { ok: true }>(
   fetcher: HttpFetch,
@@ -771,7 +792,7 @@ async function postAgentEnvelopeJson<Result extends { ok: true }>(
     {
       method: "POST",
       headers: agentHeaders(input, true),
-      body: JSON.stringify(input.body),
+      body: agentWireBody(input.body),
     },
     input.what,
   );
@@ -833,7 +854,7 @@ export const createAgentMessageHttpClient = (
       what: "agent read",
       query: {
         target: request.target,
-        requestId: request.requestId,
+        idempotencyKey: request.requestId,
         before: request.before,
         after: request.after,
         around: request.around,
@@ -848,7 +869,7 @@ export const createAgentMessageHttpClient = (
       ...keys,
       what: "agent search",
       query: {
-        requestId: request.requestId,
+        idempotencyKey: request.requestId,
         query: request.query,
         target: request.target,
         sender: request.sender,
@@ -897,7 +918,7 @@ export const createAgentMessageHttpClient = (
     getAgentJson<AgentEventsResponse>(httpClient, {
       ...keys,
       what: "agent events",
-      query: { requestId: request.requestId, limit: request.limit },
+      query: { idempotencyKey: request.requestId, limit: request.limit },
       validate: validateAgentMessageArrayShape("events"),
     }),
   async requestChannelMute({ url, request, ...keys }) {
@@ -907,7 +928,7 @@ export const createAgentMessageHttpClient = (
       {
         method: "POST",
         headers: agentHeaders(keys, true),
-        body: JSON.stringify({ requestId: request.requestId }),
+        body: JSON.stringify({ idempotencyKey: request.requestId }),
       },
       "agent channel attention",
     );
@@ -924,7 +945,7 @@ export const createAgentMessageHttpClient = (
       {
         method: "POST",
         headers: agentHeaders(keys, true),
-        body: JSON.stringify({ requestId: request.requestId }),
+        body: JSON.stringify({ idempotencyKey: request.requestId }),
       },
       "agent thread attention",
     );
@@ -933,7 +954,7 @@ export const createAgentMessageHttpClient = (
   },
   async requestResolve({ url, request, ...keys }) {
     const endpoint = new URL(url);
-    endpoint.searchParams.set("requestId", request.requestId);
+    endpoint.searchParams.set("idempotencyKey", request.requestId);
     const response = await fetchAgentResponse(
       httpClient,
       endpoint,
@@ -954,7 +975,7 @@ export const createAgentMessageHttpClient = (
       {
         method,
         headers: agentHeaders(keys, true),
-        body: JSON.stringify({ requestId: request.requestId, emoji: request.emoji }),
+        body: JSON.stringify({ idempotencyKey: request.requestId, emoji: request.emoji }),
       },
       "agent reaction",
     );
@@ -962,11 +983,14 @@ export const createAgentMessageHttpClient = (
     return readAgentResponseJson<AgentReactionResponse>(response, "agent reaction");
   },
   async requestWorkspaceInfo({ request, ...keys }) {
-    const data = await getAgentJson<Omit<WorkspaceInfoResponse, "protocolMajor" | "requestId">>(
-      httpClient,
-      { ...keys, what: "workspace_info", query: {} },
-    );
-    return { ...data, protocolMajor: request.protocolMajor, requestId: request.requestId };
+    const data = await getAgentJson<
+      Omit<WorkspaceInfoResponse, "protocolMajor" | "idempotencyKey">
+    >(httpClient, { ...keys, what: "workspace_info", query: {} });
+    return {
+      ...data,
+      protocolMajor: request.protocolMajor,
+      requestId: request.requestId,
+    };
   },
   requestManualGet: ({ request, ...keys }) =>
     getAgentManualJson<AgentManualGetResponse>(httpClient, {
@@ -1005,7 +1029,7 @@ export const createAgentMessageHttpClient = (
     const response = await httpClient(url, {
       method: "POST",
       headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
+      body: agentWireBody(request),
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`GitHub credential request failed (${response.status})`);
@@ -1015,7 +1039,7 @@ export const createAgentMessageHttpClient = (
     const response = await httpClient(url, {
       method: "POST",
       headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
+      body: agentWireBody(request),
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`GitHub commit trailers request failed (${response.status})`);
@@ -1027,7 +1051,7 @@ export const createAgentMessageHttpClient = (
       response = await httpClient(url, {
         method: "POST",
         headers: agentHeaders(keys, true),
-        body: JSON.stringify(request),
+        body: agentWireBody(request),
         signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
       });
     } catch {
@@ -1040,9 +1064,12 @@ export const createAgentMessageHttpClient = (
     } catch {
       throw new Error("Agent reminder response is malformed");
     }
-    if (!envelope || typeof envelope.requestId !== "string")
+    // The agent HTTP API names the echoed key `idempotencyKey`; this transport shape keeps
+    // `requestId`, so the wire value is mapped onto it here.
+    const wire = envelope as unknown as { idempotencyKey?: unknown };
+    if (!wire || typeof wire.idempotencyKey !== "string")
       throw new Error("Agent reminder response is malformed");
-    return envelope;
+    return { ...envelope, requestId: wire.idempotencyKey };
   },
 });
 
@@ -1054,7 +1081,7 @@ export const defaultAgentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = {
       method: "POST",
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
       headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
+      body: agentWireBody(request),
     });
     if (!response.ok) {
       const message = await response.text();
@@ -1068,7 +1095,7 @@ export const defaultAgentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = {
       throw new Error(`server Agent weekly-report request failed (${response.status})`);
     }
     const result = (await response.json()) as WeeklyReportResponse;
-    if (result.requestId !== request.requestId)
+    if ((result as { idempotencyKey?: string }).idempotencyKey !== request.requestId)
       throw new Error("weekly-report response request ID does not match request");
     return result;
   },
@@ -1082,7 +1109,7 @@ export const defaultAgentWeeklyReportCollectHttpClient: AgentWeeklyReportCollect
         method: "POST",
         signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
         headers: agentHeaders(keys, true),
-        body: JSON.stringify(request),
+        body: agentWireBody(request),
       });
     } catch (cause) {
       throw AgentTransportError.preResponseTransport("Agent weekly-report-collect", cause);
@@ -1094,7 +1121,7 @@ export const defaultAgentWeeklyReportCollectHttpClient: AgentWeeklyReportCollect
       );
     const result =
       (await response.json()) as import("./weekly-report-collect").WeeklyReportCollectResult;
-    if (result.requestId !== request.requestId)
+    if ((result as { idempotencyKey?: string }).idempotencyKey !== request.requestId)
       throw new Error("weekly-report-collect response request ID does not match request");
     return result;
   },
@@ -1108,7 +1135,7 @@ export const defaultAgentWeeklyReportKeyPointsHttpClient: AgentWeeklyReportKeyPo
         method: "POST",
         signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
         headers: agentHeaders(keys, true),
-        body: JSON.stringify(request),
+        body: agentWireBody(request),
       });
     } catch (cause) {
       throw AgentTransportError.preResponseTransport("Agent weekly-report-key-points", cause);
@@ -1120,7 +1147,7 @@ export const defaultAgentWeeklyReportKeyPointsHttpClient: AgentWeeklyReportKeyPo
       );
     const result =
       (await response.json()) as import("./weekly-report-key-points").WeeklyReportKeyPointsResult;
-    if (result.requestId !== request.requestId)
+    if ((result as { idempotencyKey?: string }).idempotencyKey !== request.requestId)
       throw new Error("weekly-report-key-points response request ID does not match request");
     return result;
   },
@@ -1132,11 +1159,11 @@ export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
       method: "POST",
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
       headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
+      body: agentWireBody(request),
     });
     if (!response.ok) throw new Error(`server Agent Task request failed (${response.status})`);
     const result = (await response.json()) as TaskResponse;
-    if (result.requestId !== request.requestId)
+    if ((result as { idempotencyKey?: string }).idempotencyKey !== request.requestId)
       throw new Error("Task response request ID does not match request");
     return result;
   },
@@ -1153,7 +1180,7 @@ export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
     try {
       if (method === "GET") {
         const endpoint = new URL(url);
-        endpoint.searchParams.set("requestId", request.requestId);
+        endpoint.searchParams.set("idempotencyKey", request.requestId);
         response = await fetch(endpoint, {
           method: "GET",
           headers: agentHeaders(keys),
@@ -1164,7 +1191,7 @@ export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
           method: method as "POST" | "PATCH" | "DELETE",
           signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
           headers: agentHeaders(keys, true),
-          body: JSON.stringify(request),
+          body: agentWireBody(request),
         });
       }
     } catch (cause) {
@@ -1185,7 +1212,7 @@ export const defaultAgentActionPrepareHttpClient: AgentActionPrepareHttpClient =
       method: "POST",
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
       headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
+      body: agentWireBody(request),
     });
     if (!response.ok)
       throw new Error(`server Agent action-prepare request failed (${response.status})`);
@@ -1737,7 +1764,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       const events = await requestEvents({ url, ...this.#agentKeys(agentApiKey), request });
       return {
         protocolMajor: events.protocolMajor,
-        requestId: events.requestId,
+        requestId: events.idempotencyKey,
         accepted: true,
         attentionCount: events.events.length,
         messages: events.events,
@@ -1760,7 +1787,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       });
       return {
         protocolMajor: result.protocolMajor,
-        requestId: result.requestId,
+        requestId: result.idempotencyKey,
         accepted: true,
         attentionCount: 0,
         messages: [],
@@ -1777,7 +1804,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       const result = await requestThreadUnfollow({ url, ...this.#agentKeys(agentApiKey), request });
       return {
         protocolMajor: result.protocolMajor,
-        requestId: result.requestId,
+        requestId: result.idempotencyKey,
         accepted: true,
         attentionCount: 0,
         messages: [],

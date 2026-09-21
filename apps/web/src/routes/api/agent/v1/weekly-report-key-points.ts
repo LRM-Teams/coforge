@@ -5,7 +5,7 @@ import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { applyKeyPointExtractionWriteBack } from "#/server/records/weekly-report-key-points.server";
 
 const bodySchema = z.object({
-  requestId: z.string().uuid(),
+  idempotencyKey: z.string().uuid(),
   reportId: z.string().uuid(),
   markdown: z.string().min(1).max(500_000),
 });
@@ -26,10 +26,10 @@ export const Route = createFileRoute("/api/agent/v1/weekly-report-key-points")({
             agentId: principal.agentId,
             reportId: body.reportId,
             markdown: body.markdown,
-            requestId: body.requestId,
+            requestId: body.idempotencyKey,
           });
           return Response.json({
-            requestId: body.requestId,
+            requestId: body.idempotencyKey,
             reportId: result.reportId,
             status: result.status,
           });

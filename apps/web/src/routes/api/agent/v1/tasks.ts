@@ -14,7 +14,7 @@ export const Route = createFileRoute("/api/agent/v1/tasks")({
             { workspaceId: principal.workspaceId, agentId: principal.agentId },
             command,
           );
-          return Response.json({ requestId: command.requestId, ...result });
+          return Response.json({ idempotencyKey: command.requestId, ...result });
         } catch {
           return Response.json({ error: "invalid task request" }, { status: 400 });
         }

@@ -15,7 +15,7 @@ export async function handleAgentEventsGet(
   repository: AgentMessageRepository,
 ): Promise<Response> {
   const query = new URL(request.url).searchParams;
-  const requestId = query.get("requestId") || crypto.randomUUID();
+  const idempotencyKey = query.get("idempotencyKey") || crypto.randomUUID();
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     const limit = query.has("limit") ? Number(query.get("limit")) : undefined;
@@ -23,7 +23,7 @@ export async function handleAgentEventsGet(
     const result = await drainAgentEvents(repository, scope, limit);
     const response: AgentEventsResponse = {
       protocolMajor: 1,
-      requestId,
+      idempotencyKey,
       events: result.messages,
       hasMore: result.hasMore,
     };

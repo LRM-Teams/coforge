@@ -3,7 +3,7 @@ import type { TaskCommand, TaskResult } from "../internal/tasks";
 /** JSON contract used by the versioned Agent HTTPS task endpoint. */
 export type AgentTaskRequest = TaskCommand;
 export type AgentTaskResponse = TaskResult & {
-  requestId: string;
+  idempotencyKey: string;
 };
 
 export type AgentReminderRequest = import("../internal/reminder").AgentReminderOperationRequest;

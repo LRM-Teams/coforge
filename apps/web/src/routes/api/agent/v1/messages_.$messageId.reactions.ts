@@ -20,17 +20,17 @@ export async function handleAgentMessageReaction(
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     const body = (await request.json().catch(() => undefined)) as
-      | { requestId?: unknown; emoji?: unknown }
+      | { idempotencyKey?: unknown; emoji?: unknown }
       | undefined;
-    const requestId =
-      body && typeof body.requestId === "string" && body.requestId
-        ? body.requestId
+    const idempotencyKey =
+      body && typeof body.idempotencyKey === "string" && body.idempotencyKey
+        ? body.idempotencyKey
         : crypto.randomUUID();
     const emoji = body && typeof body.emoji === "string" ? body.emoji : "";
     const result = await reactToAgentMessage(repository, scope, messageId, emoji, active);
     const response: AgentReactionResponse = {
       protocolMajor: 1,
-      requestId,
+      idempotencyKey,
       messageId: result.messageId,
       emoji,
       active,

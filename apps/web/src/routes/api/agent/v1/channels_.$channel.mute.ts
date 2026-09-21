@@ -20,16 +20,16 @@ export async function handleAgentChannelMutePost(
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     const body = (await request.json().catch(() => undefined)) as
-      | { requestId?: unknown }
+      | { idempotencyKey?: unknown }
       | undefined;
-    const requestId =
-      body && typeof body.requestId === "string" && body.requestId
-        ? body.requestId
+    const idempotencyKey =
+      body && typeof body.idempotencyKey === "string" && body.idempotencyKey
+        ? body.idempotencyKey
         : crypto.randomUUID();
     await muteAgentChannel(repository, scope, channel, muted);
     const response: AgentChannelAttentionResponse = {
       protocolMajor: 1,
-      requestId,
+      idempotencyKey,
       target: channel,
       muted,
     };

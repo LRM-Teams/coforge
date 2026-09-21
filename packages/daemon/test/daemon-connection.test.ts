@@ -1457,7 +1457,7 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
   const requests: unknown[] = [];
   const response = {
     protocolMajor: 1 as const,
-    requestId: "request-2",
+    idempotencyKey: "request-2",
     messages: [],
     hasOlder: false,
     hasNewer: false,
@@ -1536,7 +1536,7 @@ test("Agent read HTTP GET request carries the request id and sequence window", a
       limit: 50,
     },
   });
-  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-read-1");
+  expect(capturedUrl?.searchParams.get("idempotencyKey")).toBe("request-read-1");
   expect(capturedUrl?.searchParams.get("fromSequence")).toBe("5");
   expect(capturedUrl?.searchParams.get("throughSequence")).toBe("12");
   expect(capturedUrl?.searchParams.get("target")).toBe("@ada");
@@ -1567,7 +1567,7 @@ test("Agent search HTTP GET request carries the request id", async () => {
       query: "hello",
     },
   });
-  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-search-1");
+  expect(capturedUrl?.searchParams.get("idempotencyKey")).toBe("request-search-1");
   expect(capturedUrl?.searchParams.get("query")).toBe("hello");
 });
 
@@ -1606,7 +1606,7 @@ test("Agent resolve HTTP GET request carries the request id", async () => {
     },
   });
   expect(capturedUrl?.pathname).toBe("/api/agent/v1/messages/abcd1234/resolve");
-  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-resolve-1");
+  expect(capturedUrl?.searchParams.get("idempotencyKey")).toBe("request-resolve-1");
   expect(result.message.id).toBe("message-1");
 });
 
@@ -1635,7 +1635,7 @@ test("Agent events HTTP GET request carries the request id and limit", async () 
       limit: 25,
     },
   });
-  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-events-1");
+  expect(capturedUrl?.searchParams.get("idempotencyKey")).toBe("request-events-1");
   expect(capturedUrl?.searchParams.get("limit")).toBe("25");
   expect(result.hasMore).toBe(true);
 });
@@ -1675,7 +1675,7 @@ test.each(["mute", "unmute"] as const)(
     });
     expect(capturedUrl).toBe(path);
     expect(capturedInit?.method).toBe("POST");
-    expect(JSON.parse(capturedInit?.body as string)).toEqual({ requestId: "request-mute-1" });
+    expect(JSON.parse(capturedInit?.body as string)).toEqual({ idempotencyKey: "request-mute-1" });
     expect(result.muted).toBe(operation === "mute");
   },
 );
@@ -1686,7 +1686,7 @@ test("Agent thread unfollow HTTP POST request carries the request id", async () 
     capturedInit = init;
     return Response.json({
       protocolMajor: 1,
-      requestId: "request-unfollow-1",
+      idempotencyKey: "request-unfollow-1",
       target: "#general:12345678-0000-4000-8000-000000000001",
       followed: false,
     });
@@ -1705,7 +1705,9 @@ test("Agent thread unfollow HTTP POST request carries the request id", async () 
     },
   });
   expect(capturedInit?.method).toBe("POST");
-  expect(JSON.parse(capturedInit?.body as string)).toEqual({ requestId: "request-unfollow-1" });
+  expect(JSON.parse(capturedInit?.body as string)).toEqual({
+    idempotencyKey: "request-unfollow-1",
+  });
   expect(result.followed).toBe(false);
 });
 
@@ -1782,7 +1784,7 @@ test.each(["react", "unreact"] as const)(
     expect(capturedUrl).toBe("https://server.example/api/agent/v1/messages/abcd1234/reactions");
     expect(capturedInit?.method).toBe(method);
     expect(JSON.parse(capturedInit?.body as string)).toEqual({
-      requestId: "request-react-1",
+      idempotencyKey: "request-react-1",
       emoji: "👍",
     });
     expect(result.messageId).toBe("abcd1234");
@@ -1926,7 +1928,7 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
   const reactionCalls: unknown[] = [];
   const resolveResponse = {
     protocolMajor: 1 as const,
-    requestId: "request-resolve",
+    idempotencyKey: "request-resolve",
     message: {
       id: "message-1",
       sequence: 1,
@@ -1941,7 +1943,7 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
   };
   const reactionResponse = {
     protocolMajor: 1 as const,
-    requestId: "request-react",
+    idempotencyKey: "request-react",
     messageId: "abcd1234",
     emoji: "👍",
     active: true,
@@ -2025,7 +2027,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
       eventsCalls.push(input);
       return {
         protocolMajor: 1,
-        requestId: "request-check",
+        idempotencyKey: "request-check",
         events: [
           {
             id: "message-1",
@@ -2046,7 +2048,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
       muteCalls.push(input);
       return {
         protocolMajor: 1,
-        requestId: "request-mute",
+        idempotencyKey: "request-mute",
         target: "#general",
         muted: input.request.muted,
       };
@@ -2055,7 +2057,7 @@ test("dispatches check, mute, unmute, and thread-unfollow operations to their de
       unfollowCalls.push(input);
       return {
         protocolMajor: 1,
-        requestId: "request-unfollow",
+        idempotencyKey: "request-unfollow",
         target: "#general:12345678-0000-4000-8000-000000000001",
         followed: false,
       };
@@ -2144,7 +2146,7 @@ test("adapts the read route's AgentHistoryResponse into the transport shape", as
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     requestRead: async () => ({
       protocolMajor: 1,
-      requestId: "request-read",
+      idempotencyKey: "request-read",
       messages: [
         {
           id: "message-1",
@@ -2195,7 +2197,7 @@ test("adapts the dedicated search route's AgentSearchResponse (results -> messag
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     requestSearch: async () => ({
       protocolMajor: 1,
-      requestId: "request-search",
+      idempotencyKey: "request-search",
       results: [
         {
           id: "message-1",
@@ -2237,7 +2239,7 @@ test("adapts the resolve route's AgentResolveResponse (message -> messages: [mes
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     requestResolve: async () => ({
       protocolMajor: 1,
-      requestId: "request-resolve",
+      idempotencyKey: "request-resolve",
       message: {
         id: "message-1",
         sequence: 1,
@@ -2280,7 +2282,7 @@ const sendAdapterCases: Array<{
     label: "a forwarded send carries Raft's decision through unchanged",
     response: {
       protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       state: "sent",
       decision: "forward",
       reason: "model_seen_boundary",
@@ -2298,7 +2300,7 @@ const sendAdapterCases: Array<{
     label: "a bypassed send reports its decision and the messages it skipped",
     response: {
       protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       state: "sent",
       decision: "bypass",
       reason: "continue_anyway",
@@ -2323,7 +2325,7 @@ const sendAdapterCases: Array<{
     label: "a held send carries the window as messages/attentionCount plus Raft's counts",
     response: {
       protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       state: "held",
       decision: "local_hold",
       reason: "exact_target_pending",
@@ -2360,7 +2362,7 @@ const sendAdapterCases: Array<{
     label: "a first-touch hold keeps its own decision",
     response: {
       protocolMajor: 1,
-      requestId: "request-send",
+      idempotencyKey: "request-send",
       state: "held",
       decision: "syncing_hold",
       reason: "target_first_touch_recent_context",

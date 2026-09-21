@@ -7,7 +7,7 @@ const request = (search: string) =>
 test("read forwards the sequence window to the repository and returns the canonical response shape", async () => {
   let received: unknown;
   const result = await handleAgentMessagesGet(
-    request("?target=%40ada&fromSequence=5&throughSequence=12&requestId=request-1"),
+    request("?target=%40ada&fromSequence=5&throughSequence=12&idempotencyKey=request-1"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       setAgentChannelMuted: async () => {},
@@ -51,7 +51,7 @@ test("read forwards the sequence window to the repository and returns the canoni
   const body = await result.json();
   expect(body).toEqual({
     protocolMajor: 1,
-    requestId: "request-1",
+    idempotencyKey: "request-1",
     messages: [
       {
         id: "message-1",
@@ -83,8 +83,8 @@ test("read generates a request id when the daemon omits one", async () => {
     },
   );
   const body = await result.json();
-  expect(typeof body.requestId).toBe("string");
-  expect(body.requestId.length).toBeGreaterThan(0);
+  expect(typeof body.idempotencyKey).toBe("string");
+  expect(body.idempotencyKey.length).toBeGreaterThan(0);
 });
 
 test("rejects a missing target with 400", async () => {

@@ -7,8 +7,8 @@ import {
 import {
   channelManagementErrorResponse,
   readJsonBody,
-  requestIdFrom,
-  requestIdFromQuery,
+  idempotencyKeyFrom,
+  idempotencyKeyFromQuery,
 } from "#/server/agents/agent-channel-routes.shared";
 
 export type AgentChannelManagementPrincipal = { workspaceId: string; agentId: string };
@@ -19,10 +19,10 @@ export async function handleAgentChannelGet(
   principal: AgentChannelManagementPrincipal,
   repository: AgentChannelManagementRepository,
 ): Promise<Response> {
-  const requestId = requestIdFromQuery(request);
+  const idempotencyKey = idempotencyKeyFromQuery(request);
   try {
     const info = await repository.info(principal.workspaceId, principal.agentId, channel);
-    return Response.json({ protocolMajor: 1, requestId, channel: info });
+    return Response.json({ protocolMajor: 1, idempotencyKey, channel: info });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel info failed");
   }
@@ -35,7 +35,7 @@ export async function handleAgentChannelPatch(
   repository: AgentChannelManagementRepository,
 ): Promise<Response> {
   const body = await readJsonBody(request);
-  const requestId = requestIdFrom(body);
+  const idempotencyKey = idempotencyKeyFrom(body);
   if (body?.name !== undefined && typeof body.name !== "string")
     return new Response("name must be a string", { status: 400 });
   if (body?.description !== undefined && typeof body.description !== "string")
@@ -45,7 +45,7 @@ export async function handleAgentChannelPatch(
       name: body?.name as string | undefined,
       description: body?.description as string | undefined,
     });
-    return Response.json({ protocolMajor: 1, requestId, channel: info });
+    return Response.json({ protocolMajor: 1, idempotencyKey, channel: info });
   } catch (error) {
     return channelManagementErrorResponse(error, "channel update failed");
   }

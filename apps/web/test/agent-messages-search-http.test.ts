@@ -7,7 +7,7 @@ const request = (search: string) =>
 test("search returns the canonical response shape and echoes the request id", async () => {
   let received: unknown;
   const result = await handleAgentMessagesSearchGet(
-    request("?query=hello&requestId=request-2"),
+    request("?query=hello&idempotencyKey=request-2"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
     {
       setAgentChannelMuted: async () => {},
@@ -45,7 +45,7 @@ test("search returns the canonical response shape and echoes the request id", as
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
     protocolMajor: 1,
-    requestId: "request-2",
+    idempotencyKey: "request-2",
     results: [
       {
         id: "message-2",
@@ -103,8 +103,8 @@ test("search generates a request id when the daemon omits one", async () => {
     },
   );
   const body = await result.json();
-  expect(typeof body.requestId).toBe("string");
-  expect(body.requestId.length).toBeGreaterThan(0);
+  expect(typeof body.idempotencyKey).toBe("string");
+  expect(body.idempotencyKey.length).toBeGreaterThan(0);
 });
 
 test("rejects an unsupported search query with 400", async () => {
