@@ -7063,6 +7063,107 @@ test("a send the daemon holds locally is never issued, and what it showed is the
   }
 });
 
+test("a held send reports Raft's freshness-decision activity and fact id", async () => {
+  const stateDirectory = join(tempRoot, `coforge-freshness-activity-${crypto.randomUUID()}`);
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+  const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({
+      provider: "pi",
+      createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
+    }),
+    credentials,
+    {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async stop() {},
+        async requestAgentLaunchConfig() {
+          return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+        },
+        async revokeAgentApiKey() {},
+        sendAgentActivity(activity) {
+          activities.push(activity);
+        },
+        // A locally decided hold must not reach the transport at all.
+        async agentMessage() {
+          throw new Error("the daemon must hold this send locally");
+        },
+      }),
+    },
+    undefined,
+    emptyCodeAgentDiscovery,
+    stateDirectory,
+  );
+  try {
+    await runtime.start(connection);
+    await runtime.handleAgentStart({
+      protocolMajor: 1,
+      requestId: "start-freshness-activity",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-a",
+      ...config,
+      controlEpoch: 1,
+      launchId: "launch-freshness-activity",
+    });
+    const context = runtime.issueAgentContext("agent-a");
+    await runtime.handleAgentMessage({
+      protocolMajor: 1,
+      requestId: "delivery-freshness-activity",
+      messageId: "message-1",
+      deliveryId: "delivery-1",
+      sequence: 1,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-a",
+      agentId: "agent-a",
+      body: "newer context",
+      method: "agent:v1:message:deliver",
+      target: "#general",
+    });
+    activities.length = 0;
+    const held = await runtime.agentMessage(
+      context,
+      {
+        requestId: "send-freshness-activity",
+        context,
+        operation: "send",
+        target: "#general",
+        content: "reply",
+      },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+    expect(held).toMatchObject({ state: "held", decision: "local_hold" });
+
+    // Raft's `projectApmHeldFreshnessActivity` (bundle 812425): a working status row titled
+    // `Send held by freshness check` carrying the target, the count line and the decision line.
+    const frame = activities.find((activity) => activity.detailKind === "freshness_hold");
+    expect(frame).toMatchObject({
+      detail: "Send held by freshness check",
+      activityKind: "working",
+      entries: [
+        {
+          kind: "system",
+          title: "Send held by freshness check",
+          text: [
+            "target: #general",
+            "new messages: 1 newer message",
+            "decision: local hold; review the newer context before retrying",
+          ].join("\n"),
+        },
+      ],
+    });
+    // Raft's `buildApmFreshnessDecisionProducerFactId`: the `freshness_decision_fact:` prefix plus
+    // a full sha256 — computed here, because this decision never reached the server's code path.
+    expect(frame?.producerFactId).toMatch(/^freshness_decision_fact:[0-9a-f]{64}$/);
+  } finally {
+    await runtime.stop();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("--send-draft --anyway bypasses the daemon's own hold and reaches the transport", async () => {
   const calls: AgentMessageRequest[] = [];
   const harness = await messageHarness(async (request) => {

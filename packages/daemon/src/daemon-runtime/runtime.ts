@@ -105,6 +105,7 @@ import {
   type AgentContextScanResponse,
   AGENT_CONTEXT_SCAN_STATUS,
   AGENT_MESSAGE_ACK_METHOD,
+  freshnessDecisionFactId,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -124,6 +125,7 @@ import {
   locallyHeldSend,
   planAgentInboxFreshness,
 } from "./agent-inbox-freshness";
+import { heldFreshnessActivity, heldFreshnessMessageCount } from "./agent-inbox-freshness-activity";
 import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
 import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
 import { isAgentApiKey } from "../credentials/agent-api-key";
@@ -409,6 +411,14 @@ const RUNTIME_DISPLAY_NAME: Record<RuntimeProvider, string> = {
 };
 function runtimeDisplayName(provider: RuntimeProvider): string {
   return RUNTIME_DISPLAY_NAME[provider];
+}
+
+/** Raft narrates an activity for exactly its two hold decisions; a send that reached the provider
+ * (`forward`/`bypass`) has none. */
+function heldFreshnessDecision(
+  decision: string | undefined,
+): "local_hold" | "syncing_hold" | undefined {
+  return decision === "local_hold" || decision === "syncing_hold" ? decision : undefined;
 }
 
 /** Raft-equivalent narration for a daemon-initiated cold start after a session invalidate. */
@@ -3346,16 +3356,69 @@ export class DaemonRuntime {
         target,
         Math.max(...recentUnread.map(({ sequence }) => sequence)),
       );
-    if (held)
-      this.#emitCurrentActivity(
-        agentId,
-        this.#activity(
+    // Raft's freshness-decision activity (`recordFreshnessDecisionActivity`, bundle 843454): one
+    // working status row per held send, titled `Send held by freshness check`, carrying the target,
+    // the count line and the decision line(s) as its text. A held context in `withheld` mode was
+    // never presented, so Raft reports no activity for it — and neither do we.
+    if (held && !contextWasWithheld) {
+      const heldDecision = heldFreshnessDecision(result.decision);
+      if (heldDecision) {
+        const producerFactId =
+          result.producerFactId ??
+          (await freshnessDecisionFactId({
+            agentId,
+            action: "send",
+            decision: heldDecision,
+            target,
+            reason: result.reason ?? "",
+            pendingMaxSeq: result.seenUpToSeq,
+            modelSeenSeq: modelSeenSequence,
+            heldMessageCount: result.shownMessageCount ?? result.messages.length,
+            omittedMessageCount: result.omittedMessageCount,
+          }));
+        // Raft's `recordTrace("daemon.agent.inbox.freshness_decision", …)`: one record per decision,
+        // field for field, so a locally decided hold is auditable next to a server-decided one.
+        logger.info("Agent inbox freshness decision", {
+          event: "agent.inbox.freshness_decision",
+          ...this.#agentLogScope(agentId, request.requestId),
+          producer_fact_id: producerFactId,
+          action: "send",
+          decision: heldDecision,
+          target,
+          reason: result.reason,
+          pending_count: result.newMessageCount,
+          pending_max_seq: result.seenUpToSeq,
+          model_seen_seq: modelSeenSequence || undefined,
+          held_message_count: result.shownMessageCount ?? result.messages.length,
+          omitted_message_count: result.omittedMessageCount,
+        });
+        const activity = heldFreshnessActivity({
+          action: "send",
+          decision: heldDecision,
+          target,
+          messageCount: heldFreshnessMessageCount({
+            decision: heldDecision,
+            newMessageCount: result.newMessageCount,
+            shownMessageCount: result.shownMessageCount,
+          }),
+          producerFactId,
+        });
+        this.#emitCurrentActivity(
           agentId,
-          AGENT_ACTIVITY_DETAIL_KIND.FRESHNESS_HOLD,
-          "info",
-          "Reply held until the Agent reviews newer messages.",
-        ),
-      );
+          this.#activity(
+            agentId,
+            AGENT_ACTIVITY_DETAIL_KIND.FRESHNESS_HOLD,
+            "info",
+            activity.detail,
+            {
+              activityKind: activity.activityKind,
+              entries: activity.entries,
+              producerFactId: activity.producerFactId,
+            },
+          ),
+        );
+      }
+    }
     logger.info("Agent sent a message", {
       event: "agent.message.sent",
       ...this.#agentLogScope(agentId, request.requestId),
