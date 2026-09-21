@@ -5,18 +5,36 @@ import type { LocalMentionSelector } from "@lrm/coforge-sdk/internal";
 
 export const AGENT_MESSAGE_DRAFT_TTL_MS = 10 * 60 * 1_000;
 
-export type AgentMessageDraft = Readonly<{
-  target: string;
+/**
+ * The continuation state of one held send — exactly the fields Raft's `setSavedDraft`
+ * (`continue-state.json`) writes (1.0.32 bundle 753200-753235): `content`, `attachmentIds`,
+ * `mentions`, `savedAt`, `reholdCount`, `seenUpToSeq`.
+ */
+export type AgentMessageDraftContent = Readonly<{
   content: string;
-  /** How many times this draft has already been held. Reported to the server as
-   * `draftReholdCount`, which is what makes `continueAnywaySuggested` true (Raft's draft state). */
-  reholdCount: number;
-  savedAt: number;
   attachmentIds?: readonly string[];
   mentions?: readonly LocalMentionSelector[];
+  /** Raft's `seenUpToSeq`: the reviewed frontier this draft already accounts for. Carried into the
+   * resend so the context the held notice presented is not presented — or held — twice. */
+  seenUpToSeq?: number;
 }>;
 
-/** Short-lived continuation state, isolated in one private file per Agent. */
+export type AgentMessageDraft = AgentMessageDraftContent &
+  Readonly<{
+    target: string;
+    /** How many times this draft has already been held. Reported to the server as
+     * `draftReholdCount`, which is what makes `continueAnywaySuggested` true (Raft's draft state). */
+    reholdCount: number;
+    savedAt: number;
+  }>;
+
+/**
+ * Short-lived continuation state, isolated in one private file per Agent.
+ *
+ * The file shape is Raft's `continue-state.json`: a single `targets` map keyed by the message
+ * target, each entry holding that target's draft. `target` is the key, never a field of the entry,
+ * and expired entries are dropped on read, both as Raft's `getSavedDraft`/`setSavedDraft` do.
+ */
 export class AgentMessageDraftStore {
   readonly #path: string;
   #operation = Promise.resolve();
@@ -38,72 +56,43 @@ export class AgentMessageDraftStore {
   load(target: string): Promise<AgentMessageDraft | undefined> {
     return this.#serialized(async () => {
       const drafts = await this.#read();
-      const fresh = drafts.filter(
-        ({ savedAt }) => this.now() - savedAt <= AGENT_MESSAGE_DRAFT_TTL_MS,
-      );
-      if (fresh.length !== drafts.length) await this.#write(fresh);
-      const found = fresh.find((draft) => draft.target === target);
-      if (!found) return undefined;
-      // A file written before Raft's draft shape was adopted still names its text `body` and has
-      // simply never been held; carry it forward instead of losing an in-flight draft on upgrade.
-      const legacy = found as { body?: string };
-      return {
-        target: found.target,
-        content: found.content ?? legacy.body ?? "",
-        reholdCount: found.reholdCount ?? 0,
-        savedAt: found.savedAt,
-        ...(found.attachmentIds ? { attachmentIds: found.attachmentIds } : {}),
-        ...(found.mentions ? { mentions: found.mentions } : {}),
-      };
+      return drafts.get(target);
     });
   }
 
   /** A fresh send saves a never-held draft; only `replace` (a hold) advances the count. */
-  save(
-    target: string,
-    content: string,
-    attachmentIds?: readonly string[],
-    mentions?: readonly LocalMentionSelector[],
-  ): Promise<void> {
-    return this.#writeDraft(target, content, 0, attachmentIds, mentions);
+  save(target: string, draft: AgentMessageDraftContent): Promise<void> {
+    return this.#writeDraft(target, draft, 0);
   }
 
-  #writeDraft(
-    target: string,
-    content: string,
-    reholdCount: number,
-    attachmentIds?: readonly string[],
-    mentions?: readonly LocalMentionSelector[],
-  ): Promise<void> {
-    return this.#serialized(async () => {
-      const draft = {
-        target,
-        content,
-        reholdCount,
-        ...(attachmentIds?.length ? { attachmentIds } : {}),
-        ...(mentions?.length ? { mentions } : {}),
-        savedAt: this.now(),
-      };
-      const drafts = (await this.#read()).filter((current) => current.target !== target);
-      drafts.push(draft);
-      await this.#write(drafts);
-    });
-  }
-
-  /** Raft's held-draft refresh: the same text, one hold later. */
+  /** Raft's held-draft refresh: the same content, one hold later, at the reviewed frontier. */
   replace(
     target: string,
-    content: string,
-    reholdCount: number,
-    attachmentIds?: readonly string[],
-    mentions?: readonly LocalMentionSelector[],
+    draft: AgentMessageDraftContent & { reholdCount: number },
   ): Promise<void> {
-    return this.#writeDraft(target, content, reholdCount, attachmentIds, mentions);
+    return this.#writeDraft(target, draft, draft.reholdCount);
   }
 
   clear(target: string): Promise<void> {
     return this.#serialized(async () => {
-      const drafts = (await this.#read()).filter((draft) => draft.target !== target);
+      const drafts = await this.#read();
+      drafts.delete(target);
+      await this.#write(drafts);
+    });
+  }
+
+  #writeDraft(target: string, draft: AgentMessageDraftContent, reholdCount: number): Promise<void> {
+    return this.#serialized(async () => {
+      const drafts = await this.#read();
+      drafts.set(target, {
+        target,
+        content: draft.content,
+        reholdCount,
+        ...(draft.attachmentIds?.length ? { attachmentIds: draft.attachmentIds } : {}),
+        ...(draft.mentions?.length ? { mentions: draft.mentions } : {}),
+        ...(draft.seenUpToSeq !== undefined ? { seenUpToSeq: draft.seenUpToSeq } : {}),
+        savedAt: this.now(),
+      });
       await this.#write(drafts);
     });
   }
@@ -134,27 +123,44 @@ export class AgentMessageDraftStore {
     }
   }
 
-  async #read(): Promise<AgentMessageDraft[]> {
-    if (!(await Bun.file(this.#path).exists())) return [];
+  async #read(): Promise<Map<string, AgentMessageDraft>> {
+    if (!(await Bun.file(this.#path).exists())) return new Map();
     let envelope: unknown;
     try {
       envelope = JSON.parse(await Bun.file(this.#path).text());
     } catch {
       throw new Error(`Agent message draft data is corrupt: ${this.#path}`);
     }
-    if (!isDraftEnvelope(envelope))
-      throw new Error(`Agent message draft data is corrupt: ${this.#path}`);
-    return envelope.drafts;
+    const drafts = readDraftEntries(envelope);
+    if (!drafts) throw new Error(`Agent message draft data is corrupt: ${this.#path}`);
+    const fresh = new Map(
+      [...drafts].filter(([, draft]) => this.now() - draft.savedAt <= AGENT_MESSAGE_DRAFT_TTL_MS),
+    );
+    if (fresh.size !== drafts.size) await this.#write(fresh);
+    return fresh;
   }
 
-  async #write(drafts: readonly AgentMessageDraft[]): Promise<void> {
-    if (drafts.length === 0) {
+  async #write(drafts: ReadonlyMap<string, AgentMessageDraft>): Promise<void> {
+    if (drafts.size === 0) {
       await rm(this.#path, { force: true });
       return;
     }
+    const targets: Record<string, unknown> = {};
+    for (const [target, draft] of drafts) {
+      targets[target] = {
+        content: draft.content,
+        // Raft writes the array even when the send carried no attachments; the read side treats an
+        // empty or absent list the same way.
+        attachmentIds: [...(draft.attachmentIds ?? [])],
+        ...(draft.mentions?.length ? { mentions: draft.mentions } : {}),
+        savedAt: draft.savedAt,
+        reholdCount: draft.reholdCount,
+        ...(draft.seenUpToSeq !== undefined ? { seenUpToSeq: draft.seenUpToSeq } : {}),
+      };
+    }
     const temporary = `${this.#path}.${crypto.randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, JSON.stringify({ version: 1, drafts }) + "\n", { mode: 0o600 });
+      await writeFile(temporary, JSON.stringify({ targets }) + "\n", { mode: 0o600 });
       await chmod(temporary, 0o600);
       await rename(temporary, this.#path);
       await chmod(this.#path, 0o600);
@@ -165,31 +171,66 @@ export class AgentMessageDraftStore {
   }
 }
 
-function isDraftEnvelope(value: unknown): value is { version: 1; drafts: AgentMessageDraft[] } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+/**
+ * Reads either Raft's `{ targets: { … } }` file or the daemon's older `{ version, drafts: [ … ] }`
+ * envelope (whose entries named their text `body` and could carry a dropped `holdToken`), so an
+ * in-flight draft survives the upgrade instead of being lost.
+ */
+function readDraftEntries(value: unknown): Map<string, AgentMessageDraft> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const envelope = value as Record<string, unknown>;
-  return envelope.version === 1 && Array.isArray(envelope.drafts) && envelope.drafts.every(isDraft);
+  const drafts = new Map<string, AgentMessageDraft>();
+  if (Array.isArray(envelope.drafts)) {
+    if (envelope.version !== 1) return undefined;
+    for (const entry of envelope.drafts) {
+      const target =
+        entry &&
+        typeof entry === "object" &&
+        typeof (entry as { target?: unknown }).target === "string"
+          ? (entry as { target: string }).target
+          : undefined;
+      const draft = readDraft(entry, target);
+      if (!draft) return undefined;
+      drafts.set(draft.target, draft);
+    }
+    return drafts;
+  }
+  const targets = envelope.targets;
+  if (!targets || typeof targets !== "object" || Array.isArray(targets)) return undefined;
+  for (const [target, entry] of Object.entries(targets)) {
+    const draft = readDraft(entry, target);
+    if (!draft) return undefined;
+    drafts.set(target, draft);
+  }
+  return drafts;
 }
 
-function isDraft(value: unknown): value is AgentMessageDraft {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+/** One draft entry, tolerating a missing `reholdCount`/`seenUpToSeq` and the pre-rename `body`. */
+function readDraft(value: unknown, target: string | undefined): AgentMessageDraft | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (target === undefined) return undefined;
   const draft = value as Record<string, unknown>;
-  return (
-    typeof draft.target === "string" &&
-    (typeof draft.content === "string" ||
-      // Pre-rename draft files named the text `body`; still a valid, readable draft.
-      typeof (draft as { body?: unknown }).body === "string") &&
-    // Older drafts predate `reholdCount`; a missing value is simply a never-held draft.
-    (draft.reholdCount === undefined || typeof draft.reholdCount === "number") &&
-    typeof draft.savedAt === "number" &&
-    Number.isFinite(draft.savedAt) &&
-    // Older drafts predate these fields; their absence is a valid, backward-compatible draft.
-    (draft.attachmentIds === undefined ||
-      (Array.isArray(draft.attachmentIds) &&
-        draft.attachmentIds.every((id) => typeof id === "string"))) &&
-    (draft.mentions === undefined ||
-      (Array.isArray(draft.mentions) && draft.mentions.every(isMentionSelector)))
-  );
+  const content = typeof draft.content === "string" ? draft.content : draft.body;
+  if (typeof content !== "string") return undefined;
+  if (typeof draft.savedAt !== "number" || !Number.isFinite(draft.savedAt)) return undefined;
+  if (draft.reholdCount !== undefined && typeof draft.reholdCount !== "number") return undefined;
+  if (draft.seenUpToSeq !== undefined && typeof draft.seenUpToSeq !== "number") return undefined;
+  const attachmentIds = Array.isArray(draft.attachmentIds)
+    ? draft.attachmentIds.filter((id): id is string => typeof id === "string")
+    : undefined;
+  const mentions = Array.isArray(draft.mentions)
+    ? draft.mentions.filter(isMentionSelector)
+    : undefined;
+  if (Array.isArray(draft.mentions) && mentions?.length !== draft.mentions.length) return undefined;
+  return {
+    target,
+    content,
+    reholdCount: typeof draft.reholdCount === "number" ? draft.reholdCount : 0,
+    savedAt: draft.savedAt,
+    ...(attachmentIds?.length ? { attachmentIds } : {}),
+    ...(mentions?.length ? { mentions } : {}),
+    ...(typeof draft.seenUpToSeq === "number" ? { seenUpToSeq: draft.seenUpToSeq } : {}),
+  };
 }
 
 function isMentionSelector(value: unknown): value is LocalMentionSelector {
