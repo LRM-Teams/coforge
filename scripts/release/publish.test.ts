@@ -327,8 +327,8 @@ test("a stalled upload reports the timeout's name, not an opaque HTTP unknown", 
   expect(rejection).toBeInstanceOf(Error);
   expect(rejection.message).toMatch(/OSS upload failed:/);
   // The timeout surfaces its stable class name, so the log can say "it timed out" rather than
-  // leaving a bare `HTTP unknown` that indistinguishable from any other opaque transport error.
-  expect(rejection.message).toMatch(/name=/);
+  // leaving a bare `HTTP unknown` that is indistinguishable from any other opaque transport error.
+  expect(rejection.message).toMatch(/ResponseTimeoutError/);
 
   // A failed publish must not have advanced `latest` or left the manifest behind.
   expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
