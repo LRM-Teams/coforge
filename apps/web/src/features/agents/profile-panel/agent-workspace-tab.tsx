@@ -231,8 +231,8 @@ export function AgentWorkspaceTab({
   const narrowShowingFile = !showSplit && selected !== undefined;
 
   return (
-    <div ref={containerRef} className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-secondary px-5 py-3">
+    <div ref={containerRef} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-secondary px-5 py-3">
         <span className="min-w-0 truncate font-mono text-xs text-tertiary">{rootPath ?? " "}</span>
         {rootPath && (
           <ButtonUtility
@@ -246,7 +246,7 @@ export function AgentWorkspaceTab({
       </div>
 
       {!showSplit && (
-        <div className="flex items-center justify-between gap-2 border-b border-secondary px-5 py-2.5">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-secondary px-5 py-2.5">
           <p className={SECTION_CAPTION_CLASS}>{m.agent_workspace_section()}</p>
           <HiddenAndRefreshButtons
             includeHidden={includeHidden}
@@ -258,7 +258,7 @@ export function AgentWorkspaceTab({
 
       {narrowShowingFile ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center gap-1.5 border-b border-secondary px-3 py-2">
+          <div className="flex shrink-0 items-center gap-1.5 border-b border-secondary px-3 py-2">
             <ButtonUtility
               icon={ArrowLeft}
               size="xs"
@@ -268,20 +268,20 @@ export function AgentWorkspaceTab({
             />
             <span className="min-w-0 truncate font-mono text-xs text-tertiary">{selected}</span>
           </div>
-          <div className="min-h-0 flex-1">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <FilePane state={fileState} onRetry={() => selected && loadFile(selected)} />
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <div
             className={cn(
-              "min-h-0 overflow-y-auto",
-              showSplit ? "w-72 shrink-0 border-r border-secondary" : "flex-1",
+              "flex min-h-0 flex-col",
+              showSplit ? "w-72 shrink-0 border-r border-secondary" : "min-h-0 flex-1",
             )}
           >
             {showSplit && (
-              <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2">
+              <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-3 pb-2">
                 <p className={SECTION_CAPTION_CLASS}>{m.agent_workspace_section()}</p>
                 <HiddenAndRefreshButtons
                   includeHidden={includeHidden}
@@ -290,18 +290,20 @@ export function AgentWorkspaceTab({
                 />
               </div>
             )}
-            <TreeRoot
-              state={rootState}
-              cache={cacheRef.current}
-              expanded={expanded}
-              selected={selected}
-              onExpandedChange={applyExpanded}
-              onSelectFile={selectFile}
-              onRetry={() => loadDir("", includeHidden)}
-            />
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <TreeRoot
+                state={rootState}
+                cache={cacheRef.current}
+                expanded={expanded}
+                selected={selected}
+                onExpandedChange={applyExpanded}
+                onSelectFile={selectFile}
+                onRetry={() => loadDir("", includeHidden)}
+              />
+            </div>
           </div>
           {showSplit && (
-            <div className="min-h-0 flex-1">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {selected ? (
                 <FilePane state={fileState} onRetry={() => selected && loadFile(selected)} />
               ) : (

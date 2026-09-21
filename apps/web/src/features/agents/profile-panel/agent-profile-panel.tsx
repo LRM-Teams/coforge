@@ -282,7 +282,15 @@ export function AgentProfilePanel({
           onSelect={onTabChange}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* Workspace is a split tree/file viewer: each pane scrolls on its own. A shared
+          overflow here would grow with the file and drag the tree out of view. */}
+      <div
+        className={
+          profile && tab === "workspace"
+            ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+            : "min-h-0 flex-1 overflow-y-auto"
+        }
+      >
         {!profile ? (
           <div className="flex flex-col gap-4 px-5 py-5">
             <div className="flex items-center gap-4">
