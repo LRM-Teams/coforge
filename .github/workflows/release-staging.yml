@@ -40,7 +40,11 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: 30
+    # Uploads have no per-request timeout since #598, and the runner-to-OSS link is measured at
+    # <=17.5 KB/s: 186 MB needs ~3 h single-job (dev.67 was killed at exactly this 30-minute cap).
+    # The split per-platform matrix (#597) makes this generous again; until it lands, give the
+    # single job a whole-day ceiling so a slow link finishes instead of dying mid-upload.
+    timeout-minutes: 1440
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
