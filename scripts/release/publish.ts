@@ -210,11 +210,11 @@ const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
  * its own signed request. 2 MiB keeps the per-part threshold low enough that a degraded
  * GitHub-runner-to-OSS link (measured at well under 100 KB/s when dev.59→64 kept dying) finishes
  * one part inside the request timeout with room to spare. */
-const MULTIPART_PART_BYTES = 2 * 1024 * 1024;
+const MULTIPART_PART_BYTES = 100 * 1024;
 /** Per-request timeout for each multipart part (and each read-back), in ms. Keeping it explicit
  * makes the per-part timing intent clear: a stalled network times out a single small part, not
  * the whole object, and `ossError` records the `name` so the log can show `ResponseTimeoutError`. */
-const OSS_REQUEST_TIMEOUT_MS = 120_000;
+const OSS_REQUEST_TIMEOUT_MS = 60_000;
 /** Whole-multipart attempts before giving up. ali-oss's own retry never fires for a response
  * timeout: its guard only retries errors carrying status -1/-2, and a `ResponseTimeoutError`
  * carries none — so a timed-out part fails the whole call no matter what `retryMax` says. The
