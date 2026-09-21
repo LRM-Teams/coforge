@@ -1815,3 +1815,41 @@ test("proxy rejects a memory exploration command with an unknown op or malformed
     expect(response.status).toBe(400);
   }
 });
+
+test("proxy forwards validated memory offer commands verbatim", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: (agentId) => agentId,
+      agentMessage: async () => ({}),
+      agentMemory: async (context, request, agentApiKey) => {
+        calls.push({ context, request, agentApiKey });
+        return { op: "offer", published: true };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const token = proxy.issue("agent-a", agentApiKey);
+  const command = {
+    op: "offer",
+    operationKey: "offer-1",
+    conversationId: "11111111-1111-4111-8111-111111111111",
+    targetAgentId: "22222222-2222-4222-8222-222222222222",
+    targets: [{ kind: "skill", id: "33333333-3333-4333-8333-333333333333" }],
+    body: "@worker the team learned this",
+    explicitAsk: true,
+  };
+  const response = await fetch(
+    proxy.url.replace(agentApiRoutes.proxy.messages.path, agentApiRoutes.proxy.memory.path),
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify(command),
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ op: "offer", published: true });
+  expect(calls).toEqual([{ context: "agent-a", request: command, agentApiKey }]);
+});

@@ -1028,7 +1028,21 @@ export const createAgentMessageHttpClient = (
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
     });
-    if (!response.ok) throw new Error(`Memory exploration request failed (${response.status})`);
+    if (!response.ok) {
+      // The server's error envelope ({ok:false, errorCode}) is the fenced
+      // agent's only self-correction signal — a bare status turned one
+      // malformed command into a fifteen-minute opaque-400 retry spiral
+      // live. Carry the errorCode through the proxy hop; keep the bare
+      // status when the body is not the server's JSON envelope.
+      let detail = "";
+      try {
+        const body = (await response.json()) as { errorCode?: unknown };
+        if (typeof body?.errorCode === "string") detail = ` ${body.errorCode}`;
+      } catch {
+        // Not the server's envelope (an intermediary's HTML/text): no detail.
+      }
+      throw new Error(`Memory exploration request failed (${response.status}${detail})`);
+    }
     return decodeMemoryExplorationResponse(request.op, await response.json());
   },
   async requestReminder({ url, request, ...keys }) {

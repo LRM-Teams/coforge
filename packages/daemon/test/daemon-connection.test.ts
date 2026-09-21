@@ -3365,7 +3365,7 @@ test("memory exploration HTTP transport rejects a non-ok or malformed response",
       daemonApiKey: "daemon-token",
       request: { op: "start", startKey: "start-1", query: "backups" },
     }),
-  ).rejects.toThrow("Memory exploration request failed (403)");
+  ).rejects.toThrow("Memory exploration request failed (403 gm-memory-explorer-only)");
 
   const malformed = createAgentMessageHttpClient(async () => Response.json({ ok: true }));
   await expect(
@@ -3376,4 +3376,37 @@ test("memory exploration HTTP transport rejects a non-ok or malformed response",
       request: { op: "start", startKey: "start-1", query: "backups" },
     }),
   ).rejects.toThrow("invalid memory exploration response");
+});
+
+test("memory exploration HTTP transport carries the server's errorCode to the caller", async () => {
+  // Live-convicted: the fenced Memory Agent saw only "(400)" while the web
+  // had answered gm-memory-request-invalid — the opaque status turned one
+  // malformed tool call into a fifteen-minute retry spiral. The error body's
+  // errorCode is the agent's only self-correction signal; it must survive the
+  // transport hop.
+  const failing = createAgentMessageHttpClient(async () =>
+    Response.json({ ok: false, errorCode: "gm-memory-request-invalid" }, { status: 400 }),
+  );
+  await expect(
+    failing.requestMemoryExploration!({
+      url: "https://server.example/api/agent/v1/memory",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: { op: "start", startKey: "closing work items", query: "q" },
+    }),
+  ).rejects.toThrow("Memory exploration request failed (400 gm-memory-request-invalid)");
+
+  // A non-JSON body (an intermediary's HTML, a bare text 502) keeps the bare
+  // status message instead of crashing on the decode attempt.
+  const opaque = createAgentMessageHttpClient(
+    async () => new Response("upstream exploded", { status: 502 }),
+  );
+  await expect(
+    opaque.requestMemoryExploration!({
+      url: "https://server.example/api/agent/v1/memory",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: { op: "start", startKey: "start-1", query: "backups" },
+    }),
+  ).rejects.toThrow("Memory exploration request failed (502)");
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MEMORY_OPERATION_KEY_PATTERN } from "@lrm/coforge-sdk/agent";
 import { memoryExplorerTools } from "../src/runner";
 
 /**
@@ -268,5 +269,24 @@ describe("memory explorer tools", () => {
       "message_read",
       "send_channel_message",
     ]);
+  });
+
+  test("operation-key parameters carry the server's operation-key pattern", () => {
+    // The web boundary rejects a startKey/operationId/operationKey that does
+    // not match OPERATION_KEY with 400 gm-memory-request-invalid — the fenced
+    // agent's schema must fence the same format before the LLM ever sends it
+    // (live-convicted: the model naturally writes "closing work items"
+    // phrases when the schema stays silent about the format).
+    const parameters = (tool: string) =>
+      (
+        memoryExplorerTools(ENV).find((entry) => entry.name === tool)!.parameters as unknown as {
+          properties: Record<string, { pattern?: string }>;
+        }
+      ).properties;
+    expect(parameters("memory_start").start_key.pattern).toBe(MEMORY_OPERATION_KEY_PATTERN);
+    expect(parameters("memory_explore").operation_id.pattern).toBe(MEMORY_OPERATION_KEY_PATTERN);
+    expect(parameters("memory_redirect").operation_id.pattern).toBe(MEMORY_OPERATION_KEY_PATTERN);
+    expect(parameters("memory_submit").operation_id.pattern).toBe(MEMORY_OPERATION_KEY_PATTERN);
+    expect(parameters("memory_offer").operation_key.pattern).toBe(MEMORY_OPERATION_KEY_PATTERN);
   });
 });

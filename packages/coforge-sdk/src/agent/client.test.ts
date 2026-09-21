@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { createAgentApiClient, workspaceInfoRoute } from "./client";
+import {
+  createAgentApiClient,
+  decodeMemoryExplorationResponse,
+  workspaceInfoRoute,
+} from "./client";
 
 const BASE_RESPONSE = {
   protocolMajor: 1,
@@ -54,5 +58,30 @@ test("workspace.info() tolerates a runtimeContext missing individual fields", as
   });
   await expect(client.workspace.info()).resolves.toMatchObject({
     runtimeContext: { agentId: "agent-1" },
+  });
+});
+
+test("memory exploration responses decode skill citations (the LearnedSkill layer)", () => {
+  const decoded = decodeMemoryExplorationResponse("start", {
+    ok: true,
+    sessionId: "session-1",
+    state: "active",
+    items: [
+      {
+        citationId: "skill:22222222-2222-4222-8222-222222222222",
+        kind: "skill",
+        id: "22222222-2222-4222-8222-222222222222",
+        snippet: "Rerun flaky suites once v1",
+      },
+      { citationId: "insight:abc", kind: "insight", id: "abc", snippet: "rule" },
+    ],
+    remainingSteps: 3,
+    duplicate: false,
+  });
+  expect(decoded).toMatchObject({
+    items: [
+      { kind: "skill", citationId: "skill:22222222-2222-4222-8222-222222222222" },
+      { kind: "insight", citationId: "insight:abc" },
+    ],
   });
 });

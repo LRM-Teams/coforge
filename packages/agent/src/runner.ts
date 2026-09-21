@@ -16,6 +16,7 @@ import {
 import { Type } from "typebox";
 import { join, resolve } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
+import { MEMORY_OPERATION_KEY_PATTERN } from "@lrm/coforge-sdk/agent";
 import { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory } from "./paths";
 import { API_KEY_ENV_BY_PROVIDER, configureRuntimeEnvironment } from "./runtime-provider";
 import { classifyPiLaunchFailure, PI_MODEL_UNAVAILABLE } from "./launch-error";
@@ -70,10 +71,17 @@ export function memoryExplorerTools(environment: Record<string, string>): ToolDe
     label: "Start memory exploration",
     description:
       "Start a bounded exploration of the Workspace's team memory and receive the first " +
-      "citations. Returns citations as `episode:<uuid>` / `insight:<uuid>` ids with snippets.",
+      "citations. Returns citations as `episode:<uuid>` / `insight:<uuid>` / `skill:<uuid>` ids " +
+      "with snippets. start_key is a short idempotency handle you invent — letters, digits, " +
+      "hyphens, underscores, no spaces (e.g. 'closing-work-items'); reusing it replays the " +
+      "same exploration, so make it unique per question.",
     promptSnippet: "Start a bounded team-memory exploration by query.",
     parameters: Type.Object({
-      start_key: Type.String({ minLength: 1, maxLength: 128 }),
+      start_key: Type.String({
+        minLength: 1,
+        maxLength: 128,
+        pattern: MEMORY_OPERATION_KEY_PATTERN,
+      }),
       query: Type.String({ minLength: 1, maxLength: 500 }),
       max_steps: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
       max_results: Type.Optional(Type.Integer({ minimum: 1, maximum: 30 })),
@@ -101,7 +109,11 @@ export function memoryExplorerTools(environment: Record<string, string>): ToolDe
     promptSnippet: "Walk one memory-graph edge from an already-served citation.",
     parameters: Type.Object({
       session_id: Type.String(),
-      operation_id: Type.String({ minLength: 1, maxLength: 128 }),
+      operation_id: Type.String({
+        minLength: 1,
+        maxLength: 128,
+        pattern: MEMORY_OPERATION_KEY_PATTERN,
+      }),
       anchor: Type.String(),
       relation: Type.Optional(
         Type.Union([
@@ -133,7 +145,11 @@ export function memoryExplorerTools(environment: Record<string, string>): ToolDe
     promptSnippet: "Re-query team memory within the open exploration.",
     parameters: Type.Object({
       session_id: Type.String(),
-      operation_id: Type.String({ minLength: 1, maxLength: 128 }),
+      operation_id: Type.String({
+        minLength: 1,
+        maxLength: 128,
+        pattern: MEMORY_OPERATION_KEY_PATTERN,
+      }),
       query: Type.String({ minLength: 1, maxLength: 500 }),
     }),
     async execute(_toolCallId, params) {
@@ -157,7 +173,11 @@ export function memoryExplorerTools(environment: Record<string, string>): ToolDe
     promptSnippet: "Close the exploration with a citation-grounded answer.",
     parameters: Type.Object({
       session_id: Type.String(),
-      operation_id: Type.String({ minLength: 1, maxLength: 128 }),
+      operation_id: Type.String({
+        minLength: 1,
+        maxLength: 128,
+        pattern: MEMORY_OPERATION_KEY_PATTERN,
+      }),
       found: Type.Boolean(),
       summary: Type.Optional(Type.String({ maxLength: 2000 })),
       citation_ids: Type.Optional(Type.Array(Type.String(), { maxItems: 30 })),
@@ -188,7 +208,11 @@ export function memoryExplorerTools(environment: Record<string, string>): ToolDe
       "teammate explicitly asked, and publication is all-or-none.",
     promptSnippet: "Deliver a cited memory offer to a teammate.",
     parameters: Type.Object({
-      operation_key: Type.String({ minLength: 1, maxLength: 128 }),
+      operation_key: Type.String({
+        minLength: 1,
+        maxLength: 128,
+        pattern: MEMORY_OPERATION_KEY_PATTERN,
+      }),
       conversation_id: Type.String({ minLength: 1 }),
       target_agent_id: Type.String({ minLength: 1 }),
       targets: Type.Array(

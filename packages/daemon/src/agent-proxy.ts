@@ -494,6 +494,38 @@ function parseMemoryCommand(payload: JsonObject): MemoryExplorationCommand | Res
       query: payload.query,
     };
   }
+  if (op === "offer") {
+    const targets = payload.targets;
+    if (
+      typeof payload.operationKey !== "string" ||
+      typeof payload.conversationId !== "string" ||
+      typeof payload.targetAgentId !== "string" ||
+      typeof payload.body !== "string" ||
+      !Array.isArray(targets) ||
+      targets.length < 1 ||
+      targets.length > 10 ||
+      targets.some(
+        (target) =>
+          !target ||
+          typeof target !== "object" ||
+          ((target as { kind?: unknown }).kind !== "insight" &&
+            (target as { kind?: unknown }).kind !== "skill") ||
+          typeof (target as { id?: unknown }).id !== "string",
+      )
+    )
+      return badRequest();
+    if (payload.explicitAsk !== undefined && typeof payload.explicitAsk !== "boolean")
+      return badRequest();
+    return {
+      op,
+      operationKey: payload.operationKey,
+      conversationId: payload.conversationId,
+      targetAgentId: payload.targetAgentId,
+      targets: targets as Extract<MemoryExplorationCommand, { op: "offer" }>["targets"],
+      body: payload.body,
+      ...(payload.explicitAsk === undefined ? {} : { explicitAsk: payload.explicitAsk }),
+    };
+  }
   if (op === "close") {
     if (
       typeof payload.sessionId !== "string" ||

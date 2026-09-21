@@ -752,6 +752,10 @@ test("the memory-explorer profile gains the memory-first explorer section", () =
   expect(fenced).toContain("memory_start");
   expect(fenced).toContain("message_check");
   expect(fenced).toContain("never write memory yourself");
+  // The start_key format discipline: the live agent sent natural-language
+  // phrases ("closing work items") and burned 15 minutes on opaque 400s
+  // before anyone told it the key is an idempotency handle, not the question.
+  expect(fenced).toContain("idempotency handle");
   // Everything else is unchanged apart from the appended section.
   expect(fenced.startsWith(base)).toBe(true);
 });

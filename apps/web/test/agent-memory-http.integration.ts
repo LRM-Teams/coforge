@@ -136,3 +136,62 @@ test("the memory boundary admits only the designated Memory Agent over HTTP", as
   expect(afterClose.status).toBe(409);
   expect((await afterClose.json()).errorCode).toBe("gm-exploration-session-closed");
 });
+
+test("an exploration serves learned-skill citations over the HTTP boundary", async () => {
+  // The three-layer contract (ADR 0052): episodes, insights, AND learned
+  // skills are servable citations. The SDK codec once rejected kind "skill"
+  // and every skill-bearing response died at the transport — pin that the
+  // HTTP boundary itself keeps serving them.
+  const db = getDb();
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const user = await db.user.create({ data: { username: `mem-skill-${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `mem-skill-${suffix}`,
+      name: "Memory Skill HTTP Test",
+      members: { create: [{ userId: user.id, role: "owner" }] },
+    },
+    select: { id: true },
+  });
+  const enabled = await enableGroupMemory(db, { workspaceId: workspace.id, ownerId: user.id });
+  const needle = `zighurst-${suffix}`;
+  const skill = await db.learnedSkill.create({
+    data: {
+      workspaceId: workspace.id,
+      key: `rerun-${suffix}`,
+      name: "Rerun flaky suites once",
+      kind: "step_guidance",
+    },
+  });
+  const revision = await db.learnedSkillRevision.create({
+    data: {
+      workspaceId: workspace.id,
+      skillId: skill.id,
+      version: 1,
+      body: { branches: [] },
+      contentDigest: "sha256:" + "a".repeat(64),
+      searchText: `when a ${needle} appears rerun once then quarantine`,
+      state: "active",
+    },
+  });
+  await db.learnedSkill.update({
+    where: { id: skill.id },
+    data: { currentRevisionId: revision.id },
+  });
+
+  const start = await post(
+    { op: "start", startKey: `skill-http-${suffix}`, query: needle },
+    { workspaceId: workspace.id, agentId: enabled.agentId },
+  );
+  expect(start.status).toBe(200);
+  const body = await start.json();
+  const served = body.items.find((item: { kind: string }) => item.kind === "skill");
+  // Start serves the seed's retrieval snippet (the revision's searchText);
+  // the display-name snippet is the explore step's rendering.
+  expect(served).toMatchObject({
+    citationId: `skill:${revision.id}`,
+    kind: "skill",
+    id: revision.id,
+    snippet: `when a ${needle} appears rerun once then quarantine`,
+  });
+});

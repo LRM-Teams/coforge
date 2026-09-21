@@ -596,6 +596,9 @@ send_channel_message, message_check, and message_read.
   with memory_start (and memory_explore from the served citations), never with channel history
   alone. Channel reading can only find what was said recently and in channels you can see; the
   distilled memory is the authority.
+- memory_start's start_key is a short idempotency handle you invent — letters, digits, hyphens
+  or underscores, never spaces (e.g. closing-work-items). It identifies the exploration run;
+  it is not the question, and reusing it replays the same exploration.
 - A notice that messages are pending is not their content: run message_check, then
   message_read on the target, to receive what teammates actually asked. You have no shell —
   never announce a coforge command instead of using the tools.

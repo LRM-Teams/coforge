@@ -684,14 +684,21 @@ export function createMessageTransportAgentApiTransport(
  * one command discriminated on `op` — start | explore | redirect | close. The
  * server fences the caller against the Workspace's Memory Agent designation;
  * every other identity is refused. Citation ids are normalized
- * "episode:<uuid>" | "insight:<uuid>" strings.
+ * "episode:<uuid>" | "insight:<uuid>" | "skill:<uuid>" strings.
  */
 export type MemoryExplorationCitation = {
   citationId: string;
-  kind: "episode" | "insight";
+  kind: "episode" | "insight" | "skill";
   id: string;
   snippet: string;
 };
+
+/** The format every exploration operation key (startKey / operationId /
+ * operationKey) must match — the server enforces the same pattern on the
+ * HTTP boundary and rejects anything else with 400 gm-memory-request-invalid.
+ * Producers (the fenced agent's tool schemas) fence it up front: an operation
+ * key is a short client-invented idempotency handle, never a question. */
+export const MEMORY_OPERATION_KEY_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
 
 export type MemoryExplorationCommand =
   | {
@@ -764,7 +771,8 @@ function decodeMemoryCitation(value: unknown): MemoryExplorationCitation {
     typeof value !== "object" ||
     typeof (value as MemoryExplorationCitation).citationId !== "string" ||
     ((value as MemoryExplorationCitation).kind !== "episode" &&
-      (value as MemoryExplorationCitation).kind !== "insight") ||
+      (value as MemoryExplorationCitation).kind !== "insight" &&
+      (value as MemoryExplorationCitation).kind !== "skill") ||
     typeof (value as MemoryExplorationCitation).id !== "string" ||
     typeof (value as MemoryExplorationCitation).snippet !== "string"
   ) {
