@@ -230,6 +230,12 @@ const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
  * instead of failing; fresh connections per request (`createOssClient`) are what fix the
  * zero-flow part-1 stall. */
 const MULTIPART_PART_BYTES = 100 * 1024;
+/** Parts to upload at once. One at a time is what the evidence indicts: the runner-to-OSS path is
+ * throttled *per connection* (2026-09-21: every run after ~10:00Z moved ~28 MB in 30+ minutes, i.e.
+ * <=17 KB/s on a single stream, while the same code had published 186 MB in 4-6 minutes before then).
+ * Object stores commonly shape bandwidth per stream, so the fix is more streams, not a longer window -
+ * and ali-oss's own example value is 4. Parts are 100 KiB, so four in flight is 400 KiB. */
+const MULTIPART_PARALLEL = 4;
 /** Whole-multipart attempts before giving up. ali-oss's own retry never fires for a response
  * timeout: its guard only retries errors carrying status -1/-2, and a `ResponseTimeoutError`
  * carries none — so a timed-out part fails the whole call no matter what `retryMax` says. The
@@ -254,7 +260,7 @@ async function putObject(
         try {
           await client.multipartUpload(objectKey, buffer, {
             partSize: MULTIPART_PART_BYTES,
-            parallel: 1,
+            parallel: MULTIPART_PARALLEL,
             ...requestOptions,
             headers: { "Content-Type": "application/octet-stream" },
           });
