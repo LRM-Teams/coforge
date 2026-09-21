@@ -22,9 +22,10 @@ export function createAgentContextUsageMethod(
   agents: Pick<AgentControlStore, "get">,
   display?: Pick<AgentDisplay, "putContextUsage">,
   displayEvents?: Pick<CentrifugoServerApi, "publishJson">,
-  /** ADR 0059: the Agent's current visibility, read fresh (no cache). Omitted, or anything other
-   * than `"public"`, routes this display push to the per-Agent status channel — the same
-   * fail-closed default the publish proxy and Activity sweep use. */
+  /** ADR 0059: the Agent's current visibility, read fresh (no cache). Omitted (dependency not
+   * supplied, or its lookup found nothing to route by) keeps this display push on the shared
+   * status channel; a recognized non-`"public"` value routes it to the per-Agent one instead,
+   * the same as the publish proxy and the Activity sweep. */
   agentVisibility?: (workspaceId: string, agentId: string) => Promise<string | undefined>,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {

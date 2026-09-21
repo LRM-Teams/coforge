@@ -44,9 +44,11 @@ type AgentActivityPublicationDependencies = {
   display?: Pick<AgentDisplay, "observeActivity">;
   publishJson?(channel: string, data: unknown): Promise<void>;
   /** ADR 0059: the Agent's current visibility, read fresh (no cache) for every publication —
-   * never assumed from a prior request. Omitted (dependency not supplied) or anything other than
-   * `"public"` routes this frame to its per-Agent channels instead of the shared ones, the same
-   * fail-closed rule `canSeeAgent`/`visibleAgentWhere` apply to an unrecognized persisted value. */
+   * never assumed from a prior request. Omitted (dependency not supplied, or its lookup found
+   * nothing to route by) keeps this frame on the shared channels, same as before this ADR
+   * existed; a recognized non-`"public"` value routes it to the per-Agent channels instead, and
+   * an unrecognized persisted value fails closed the same way `canSeeAgent`/`visibleAgentWhere`
+   * treat it. */
   agentVisibility?(workspaceId: string, agentId: string): Promise<string | undefined>;
   /** Raw binary republish (Centrifugo server API `publish`, not the JSON `publishJson`) used only
    * to re-route a private Agent's frame to its own per-Agent activity channel — the public path

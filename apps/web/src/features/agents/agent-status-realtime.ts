@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { parseAgentDisplaySnapshot, type AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 import { useRealtimeSubscription, useRealtimeSubscriptions } from "../realtime/browser-realtime";
+import { AGENT_VISIBILITY } from "./agent-visibility";
 
 export type AgentStatusEvent = {
   agentId: string;
@@ -19,6 +20,9 @@ type StatusTrackedAgent = {
   workspaceId?: string;
   display?: AgentDisplaySnapshot;
   displayRevisionHighWater?: number;
+  /** ADR 0059: read by `useAgentStatuses` itself to derive which Agents in its own current
+   * state need a per-Agent status subscription. */
+  visibility?: string;
 };
 export type AgentStatusView = {
   value: "active" | "inactive";
@@ -245,17 +249,15 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   workspaceId,
   refresh,
   getConnectionToken,
-  privateAgentIds = [],
   getPrivateAgentStatusToken,
 }: {
   agents: T[];
   workspaceId?: string;
   refresh: () => Promise<T[]>;
   getConnectionToken: () => Promise<string>;
-  /** ADR 0059: ids of the viewer's own visible private Agents. Their `agent:display` snapshots
-   * no longer arrive on the shared status channel, so each needs its own per-Agent subscription
-   * on the same shared Centrifuge client. */
-  privateAgentIds?: readonly string[];
+  /** ADR 0059: a private Agent's `agent:display` snapshot no longer arrives on the shared status
+   * channel, so this hook derives which of its own current Agents need a per-Agent subscription
+   * from their `visibility` field itself — no lag from an external, previous-render list. */
   getPrivateAgentStatusToken?: (agentId: string) => Promise<string>;
 }) {
   const [visibleAgents, setVisibleAgents] = useState(() => expireAgentStatuses(agents, Date.now()));
@@ -359,14 +361,19 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
     onPublication: (publication) => handleStatusPublication(publication.data),
   });
 
-  // ADR 0059: one status subscription per visible private Agent, on the same shared client.
+  // ADR 0059: one status subscription per visible private Agent, on the same shared client,
+  // derived from this hook's own current `visibleAgents` state — never an external, previous-
+  // render list, so a freshly-private Agent (e.g. right after an `agent:visibility_changed`
+  // refresh above) is subscribed in the very render that learns about it.
   useRealtimeSubscriptions({
     channels:
       workspaceId && getPrivateAgentStatusToken
-        ? privateAgentIds.map((agentId) => ({
-            channel: agentStatusChannelForAgent(workspaceId, agentId),
-            getToken: () => getPrivateAgentStatusToken(agentId),
-          }))
+        ? visibleAgents
+            .filter((agent) => agent.visibility === AGENT_VISIBILITY.PRIVATE)
+            .map((agent) => ({
+              channel: agentStatusChannelForAgent(workspaceId, agent.id),
+              getToken: () => getPrivateAgentStatusToken(agent.id),
+            }))
         : [],
     onPublication: (_channel, publication) => handleStatusPublication(publication.data),
   });

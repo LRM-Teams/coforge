@@ -61,8 +61,9 @@ export class AgentActivitySweep {
     private readonly clock: () => number = Date.now,
     private readonly instanceId: string = crypto.randomUUID(),
     /** ADR 0059: the Agent's current visibility, read fresh (no cache) for every synthesized
-     * display push. Omitted, or anything other than `"public"`, routes to the per-Agent status
-     * channel — the same fail-closed default the publish proxy uses. */
+     * display push. Omitted (dependency not supplied, or its lookup found nothing to route by)
+     * keeps this push on the shared status channel; a recognized non-`"public"` value routes it
+     * to the per-Agent one instead, same as the publish proxy. */
     private readonly visibility?: (scope: Scope) => Promise<string | undefined>,
   ) {}
 

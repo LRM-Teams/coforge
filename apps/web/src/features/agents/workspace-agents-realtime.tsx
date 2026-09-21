@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
@@ -60,34 +60,34 @@ export function WorkspaceAgentsProvider({
   const getPrivateStatusToken = useServerFn(getAgentStatusSubscriptionTokenForAgent);
   const queryClient = useQueryClient();
 
-  // ADR 0059: one render behind `visibleAgents` by construction (the ref is written after this
-  // render's hooks run, from `visibleAgents` — the state the hooks below themselves produce), and
-  // self-correcting on the very next state update, since a new value here only ever needs a
-  // resubscribe, never a synchronous read of the current one.
-  const privateAgentIdsRef = useRef<string[]>(
-    agents
-      .filter((agent) => agent.visibility === AGENT_VISIBILITY.PRIVATE)
-      .map((agent) => agent.id),
-  );
-
-  useWorkspaceActivityRealtime(
-    workspaceId,
-    privateAgentIdsRef.current,
-    workspaceId ? (agentId) => getPrivateActivityToken({ data: { agentId } }) : undefined,
-  );
+  // `useAgentStatuses` derives its own per-Agent status subscriptions from its own current
+  // state (see agent-status-realtime.ts), so a freshly-private Agent is subscribed the moment
+  // it learns about it — no lag from an external, previous-render list.
   const visibleAgents = useAgentStatuses({
     agents,
     workspaceId,
     refresh: refreshAgents,
     getConnectionToken: getStatusToken,
-    privateAgentIds: privateAgentIdsRef.current,
     getPrivateAgentStatusToken: workspaceId
       ? (agentId) => getPrivateStatusToken({ data: { agentId } })
       : undefined,
   });
-  privateAgentIdsRef.current = visibleAgents
-    .filter((agent) => agent.visibility === AGENT_VISIBILITY.PRIVATE)
-    .map((agent) => agent.id);
+
+  // Same-render derivation from the fresh `visibleAgents` state `useAgentStatuses` just
+  // produced (not a previous-render ref), so the Activity subscription set never lags behind
+  // the status one.
+  const privateAgentIds = useMemo(
+    () =>
+      visibleAgents
+        .filter((agent) => agent.visibility === AGENT_VISIBILITY.PRIVATE)
+        .map((agent) => agent.id),
+    [visibleAgents],
+  );
+  useWorkspaceActivityRealtime(
+    workspaceId,
+    privateAgentIds,
+    workspaceId ? (agentId) => getPrivateActivityToken({ data: { agentId } }) : undefined,
+  );
 
   // ADR 0059: an Agent no longer visible to this viewer (dropped by `mergeAgentStatusSnapshot`
   // from the fresh `refresh()` list, e.g. after `agent:visibility_changed`) must not leave its
