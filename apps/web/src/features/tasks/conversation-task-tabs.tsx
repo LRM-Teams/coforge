@@ -25,7 +25,9 @@ export function ConversationTaskTabs({
           ? `${m.tasks_chat_tab()} / ${m.tasks_tab()} / ${m.files_tab()}`
           : `${m.tasks_chat_tab()} / ${m.tasks_tab()}`
       }
-      className="flex items-center gap-1"
+      // -ml-3 cancels the first tab's own px-3 so the icon sits on the pane gutter and the
+      // row reads flush-left; only the active tab's box bleeds those 12px past the gutter.
+      className="-ml-3 flex items-center gap-1"
     >
       <Button
         type="button"
