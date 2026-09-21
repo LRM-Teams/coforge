@@ -118,6 +118,13 @@ describe("canSeeAgent", () => {
       expect(canSeeAgent(viewer, PUBLIC_AGENT)).toBeTrue();
     }
   });
+
+  test("an unrecognized visibility value (the column is a plain String) fails closed like private", () => {
+    const oddAgent = { visibility: "hidden", ownerId: CREATOR };
+    expect(canSeeAgent(creatorViewer, oddAgent)).toBeTrue();
+    expect(canSeeAgent(otherMemberViewer, oddAgent)).toBeFalse();
+    expect(canSeeAgent(humanAdminViewer, oddAgent)).toBeTrue();
+  });
 });
 
 /** Interprets exactly the two `Prisma.AgentWhereInput` shapes `visibleAgentWhere` ever returns,
@@ -144,6 +151,9 @@ describe("visibleAgentWhere agrees with canSeeAgent", () => {
     { id: "a2", visibility: "public", ownerId: CREATOR },
     { id: "a3", visibility: "private", ownerId: OTHER_MEMBER },
     { id: "a4", visibility: "public", ownerId: OTHER_MEMBER },
+    // An unrecognized value (the column is a plain String): must fail closed like "private",
+    // for both functions alike, never treated as visible by one and hidden by the other.
+    { id: "a5", visibility: "hidden", ownerId: OTHER_MEMBER },
   ];
   const viewers: Array<{ name: string; viewer: AgentVisibilityViewer }> = [
     { name: "creator", viewer: creatorViewer },

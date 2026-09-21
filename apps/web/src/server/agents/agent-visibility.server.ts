@@ -60,14 +60,16 @@ export function agentVisibilityViewerForAgent(agent: {
 
 /**
  * Pure in-memory check: can `viewer` see `agent`? A public Agent is visible to everyone in the
- * Workspace; a private Agent is visible only to its own creator, another Agent sharing that same
- * creator, or a viewer whose own server role is owner/admin (ADR 0059's rule table).
+ * Workspace; anything else — `"private"`, or an unrecognized value, since the column is a plain
+ * `String` rather than a database enum — is visible only to its own creator, another Agent
+ * sharing that same creator, or a viewer whose own server role is owner/admin (ADR 0059's rule
+ * table). Fails closed the same way `visibleAgentWhere` does, so the two never disagree on a row.
  */
 export function canSeeAgent(
   viewer: AgentVisibilityViewer,
   agent: { visibility: string; ownerId: string },
 ): boolean {
-  if (agent.visibility !== AGENT_VISIBILITY.PRIVATE) return true;
+  if (agent.visibility === AGENT_VISIBILITY.PUBLIC) return true;
   if (isElevatedServerRole(viewer.role)) return true;
   return viewerCreatorId(viewer) === agent.ownerId;
 }
