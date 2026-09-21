@@ -4,7 +4,10 @@ import {
   agentStatusChannel,
   agentStatusChannelForAgent,
 } from "../../features/agents/agent-status-realtime";
-import { agentActivityChannel, agentActivityChannelForAgent } from "../../features/agents/agent-activity";
+import {
+  agentActivityChannel,
+  agentActivityChannelForAgent,
+} from "../../features/agents/agent-activity";
 import {
   conversationRealtimeChannel,
   userConversationChannel,

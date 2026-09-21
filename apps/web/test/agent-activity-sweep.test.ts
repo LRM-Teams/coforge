@@ -10,7 +10,10 @@ import {
   type AgentActivitySweepLock,
 } from "../src/server/agents/agent-activity-sweep.server";
 import { daemonControlChannel } from "../src/server/centrifugo/server-api.server";
-import { agentStatusChannel, agentStatusChannelForAgent } from "../src/features/agents/agent-status-realtime";
+import {
+  agentStatusChannel,
+  agentStatusChannelForAgent,
+} from "../src/features/agents/agent-status-realtime";
 
 const redisServer = Bun.which("redis-server");
 const port = 20_000 + Math.floor(Math.random() * 20_000);
