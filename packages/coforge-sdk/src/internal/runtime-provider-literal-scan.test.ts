@@ -43,7 +43,7 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
   "packages/daemon/src/code-agent/opencode/catalog.ts": "a logger category and its event names",
   "packages/daemon/src/code-agent/opencode/turn-process.ts": "a logger category",
   "packages/daemon/src/code-agent/opencode/version.ts":
-    'the OpenCode CLI executable name in the version-gate log and error',
+    "the OpenCode CLI executable name in the version-gate log and error",
 };
 
 const LITERAL_PATTERN = new RegExp(
