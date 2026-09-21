@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../.oxlintrc.json"],
   "ignorePatterns": ["src/routeTree.gen.ts"],
   "jsPlugins": ["./scripts/oxlint-plugin.js"],
   "rules": {
