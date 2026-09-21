@@ -3188,6 +3188,13 @@ export class DaemonRuntime {
         "Agent message body is required",
         "AGENT_MESSAGE_BODY_REQUIRED",
       );
+    // Raft: the boundary a draft already accounted for travels with the next attempt — a
+    // `--send-draft` resend reuses the draft's `seenUpToSeq`, a fresh send inherits the draft it is
+    // replacing, and only when neither has one does the daemon fall back to what this Agent has
+    // consumed for the target (Raft's `getConsumedSeq`).
+    const draftSeenUpToSeq = request.sendDraft ? draft?.seenUpToSeq : priorDraft?.seenUpToSeq;
+    const modelSeenSequence = this.#messageAttention.modelSeenSequence(agentId, target);
+    const seenUpToSeq = draftSeenUpToSeq ?? (modelSeenSequence > 0 ? modelSeenSequence : undefined);
     // `--send-draft` re-sends the saved draft's attachments/mentions unless the Agent explicitly
     // supplies new `--mention` values, which replace them (Feature 2's documented override).
     const attachmentIds = request.sendDraft ? draft?.attachmentIds : request.attachmentIds;
@@ -3224,7 +3231,7 @@ export class DaemonRuntime {
         if (parentOrder === undefined || parentOrder < latestThread.order) {
           // Raft-aligned: the outgoing content is saved as the local draft before refusing, so the
           // documented recovery is resending that exact draft, not retyping it.
-          await inbox.save(target, content, attachmentIds, mentions);
+          await inbox.save(target, { content, attachmentIds, mentions, seenUpToSeq });
           throw new AgentPreflightError(
             targetConfirmationRequiredMessage(target, latestThread.target),
             "THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED",
@@ -3236,7 +3243,8 @@ export class DaemonRuntime {
     // `inbox.save` persists the draft locally BEFORE the request is issued to the transport below;
     // any failure past this point leaves delivery state unknown, never "not sent" (see
     // `agent-preflight-error.ts` / `agent-proxy-failure.ts` and `message send`'s CLI renderer).
-    if (!request.sendDraft) await inbox.save(target, content, attachmentIds, mentions);
+    if (!request.sendDraft)
+      await inbox.save(target, { content, attachmentIds, mentions, seenUpToSeq });
     // The daemon's own freshness decision, taken BEFORE any transport call: a send it holds must
     // never be issued, because a re-issue of the same request would re-decide it (observed: the
     // same requestId held at 00:18:30 and forwarded at 00:19:30 delivered a message the Agent had
@@ -3245,7 +3253,7 @@ export class DaemonRuntime {
     // own check remains the race guard for anything that arrived in between.
     const freshness = planAgentInboxFreshness({
       continueAnyway: Boolean(request.continueAnyway),
-      modelSeenSequence: this.#messageAttention.modelSeenSequence(agentId, target),
+      modelSeenSequence,
       pendingMessageCount: this.#messageAttention.pendingMessageCount(agentId, target),
       latestSequence: this.#messageAttention.latestSequence(agentId, target),
     });
@@ -3292,7 +3300,7 @@ export class DaemonRuntime {
               continueAnyway: request.continueAnyway,
               draftReholdCount,
               draftReplacedExisting: !request.sendDraft && draftReholdCount > 0,
-              seenUpToSeq: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
+              seenUpToSeq,
               freshnessContextMode: request.freshnessContextMode,
               attachmentIds: attachmentIds ? [...attachmentIds] : undefined,
               mentions: mentions ? [...mentions] : undefined,
@@ -3300,20 +3308,36 @@ export class DaemonRuntime {
             agentApiKey,
           );
     const held = result.state === "held";
-    if (held) await inbox.replace(target, content, attachmentIds, mentions);
+    // Raft's `contextWasWithheld`: a withheld context was never presented to the Agent, so nothing
+    // about it may be recorded (or kept in the draft) as reviewed.
+    const contextWasWithheld =
+      request.freshnessContextMode === "withheld" || result.freshnessContextMode === "withheld";
+    if (held)
+      await inbox.replace(target, {
+        content,
+        attachmentIds,
+        mentions,
+        // Raft's held refresh (`setSavedDraft`, 1.0.32 bundle 753720-753728): the same content, one
+        // hold later, remembering the frontier the notice presented so the resend clears the hold.
+        reholdCount: draftReholdCount + 1,
+        seenUpToSeq: contextWasWithheld ? seenUpToSeq : (result.seenUpToSeq ?? seenUpToSeq),
+      });
     else if (result.accepted) await inbox.clear(target);
-    const withheld = request.freshnessContextMode === "withheld";
     const targetMessages = result.messages.filter((message) => message.target === target);
-    if (!withheld && targetMessages.length > 0) {
-      this.#messageAttention.recordModelSeen(
-        agentId,
-        target,
-        Math.max(...targetMessages.map(({ sequence }) => sequence)),
-      );
+    // Raft's `recordConsumedSeqs(data.seenUpToSeq)`: the notice presented this frontier, so the
+    // Agent has consumed it and the same context will not hold the next attempt. The shown window's
+    // newest sequence counts as well, for a hold whose response carries no frontier of its own.
+    const consumedBoundary = Math.max(
+      contextWasWithheld ? 0 : (result.seenUpToSeq ?? 0),
+      ...targetMessages.map(({ sequence }) => sequence),
+      0,
+    );
+    if (consumedBoundary > 0) {
+      this.#messageAttention.recordModelSeen(agentId, target, consumedBoundary);
       // The held-context read inside `send`: the Agent just consumed these messages for `target`.
       this.#messageAttention.recordReadContext(agentId, target);
     }
-    const recentUnread = withheld
+    const recentUnread = contextWasWithheld
       ? []
       : (result.recentUnread ?? []).filter((message) => message.target === target);
     if (recentUnread.length > 0)
@@ -3346,7 +3370,7 @@ export class DaemonRuntime {
       accepted: result.accepted,
       attentionCount: result.attentionCount,
       messageId: result.messageId ?? "",
-      messages: withheld ? [] : result.messages,
+      messages: contextWasWithheld ? [] : result.messages,
       summaries: [],
       // Raft's send contract, carried to the Agent unchanged.
       state: result.state,
@@ -3359,7 +3383,7 @@ export class DaemonRuntime {
       shownMessageCount: result.shownMessageCount,
       omittedMessageCount: result.omittedMessageCount,
       freshnessContextMode: result.freshnessContextMode,
-      withheldMessageCount: withheld
+      withheldMessageCount: contextWasWithheld
         ? (result.withheldMessageCount ?? result.attentionCount)
         : undefined,
       recentUnread,

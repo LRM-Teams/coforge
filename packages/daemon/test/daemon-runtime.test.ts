@@ -2526,12 +2526,16 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
-  test("preserves a server-held draft and returns its opaque token only to the server", async () => {
+  test("a server-held send stores Raft's draft fields and the resend carries its seenUpToSeq", async () => {
     const stateDirectory = join(tempRoot, `coforge-message-drafts-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const operations: string[] = [];
-    const messageRequests: Array<{ requestId: string; draftReholdCount?: number }> = [];
+    const messageRequests: Array<{
+      requestId: string;
+      draftReholdCount?: number;
+      seenUpToSeq?: number;
+    }> = [];
     const runtime = new DaemonRuntime(
       connection,
       () => ({
@@ -2554,6 +2558,7 @@ describe("DaemonRuntime", () => {
             messageRequests.push({
               requestId: request.requestId,
               draftReholdCount: request.draftReholdCount,
+              seenUpToSeq: request.seenUpToSeq,
             });
             return request.requestId === "send-1"
               ? {
@@ -2635,7 +2640,9 @@ describe("DaemonRuntime", () => {
     expect(held).not.toHaveProperty("seenUpToSeq");
     expect(held).not.toHaveProperty("holdToken");
     expect(operations).toEqual(["send"]);
-    expect(messageRequests).toEqual([{ requestId: "send-1", draftReholdCount: 0 }]);
+    expect(messageRequests).toEqual([
+      { requestId: "send-1", draftReholdCount: 0, seenUpToSeq: undefined },
+    ]);
 
     await runtime.stop();
     const recoveredRuntime = new DaemonRuntime(
@@ -2660,6 +2667,7 @@ describe("DaemonRuntime", () => {
             messageRequests.push({
               requestId: request.requestId,
               draftReholdCount: request.draftReholdCount,
+              seenUpToSeq: request.seenUpToSeq,
             });
             return {
               protocolMajor: 1,
@@ -2695,10 +2703,12 @@ describe("DaemonRuntime", () => {
     );
     expect(sent).toMatchObject({ accepted: true, decision: "forward" });
     expect(operations).toEqual(["send", "send"]);
-    // The replayed draft has been held once, which is what makes `continueAnywaySuggested` true.
+    // The replayed draft has been held once — that is what makes `continueAnywaySuggested` true —
+    // and it carries the frontier the held notice presented, so the resend is not held again by
+    // the same context (Raft's `recordConsumedSeqs(data.seenUpToSeq)` + `setSavedDraft`).
     expect(messageRequests).toEqual([
-      { requestId: "send-1", draftReholdCount: 0 },
-      { requestId: "send-2", draftReholdCount: 1 },
+      { requestId: "send-1", draftReholdCount: 0, seenUpToSeq: undefined },
+      { requestId: "send-2", draftReholdCount: 1, seenUpToSeq: 7 },
     ]);
 
     await expect(
@@ -2728,7 +2738,15 @@ describe("DaemonRuntime", () => {
     );
     expect(ordinarySend).toMatchObject({ accepted: true, decision: "forward" });
     expect(operations).toEqual(["send", "send", "send"]);
-    expect(messageRequests.at(-1)).toEqual({ requestId: "send-3", draftReholdCount: 0 });
+    // A fresh send from the recovered daemon carries no boundary of its own: the draft was consumed
+    // by the resend and the attention index is in-memory, so nothing was reviewed yet for this
+    // target in this process. (The draft, not memory, is what carried the frontier across the
+    // restart — that is the assertion above.)
+    expect(messageRequests.at(-1)).toEqual({
+      requestId: "send-3",
+      draftReholdCount: 0,
+      seenUpToSeq: undefined,
+    });
     await recoveredRuntime.stop();
     await rm(stateDirectory, { recursive: true, force: true });
   });

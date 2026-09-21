@@ -15,11 +15,11 @@ afterEach(async () => {
   );
 });
 
-test("saves and loads only a versioned Agent message draft", async () => {
+test("saves and loads one Agent message draft in Raft's continue-state shape", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent/a", stateDirectory, () => 1_000);
 
-  await store.save("@ada", "draft reply");
+  await store.save("@ada", { content: "draft reply" });
 
   expect(await store.load("@ada")).toEqual({
     target: "@ada",
@@ -27,6 +27,8 @@ test("saves and loads only a versioned Agent message draft", async () => {
     reholdCount: 0,
     savedAt: 1_000,
   });
+  // Raft's file: a `targets` map keyed by target, the text as `content`, and the same field names
+  // (`attachmentIds`, `mentions`, `savedAt`, `reholdCount`, `seenUpToSeq`).
   expect(
     JSON.parse(
       await readFile(
@@ -40,8 +42,14 @@ test("saves and loads only a versioned Agent message draft", async () => {
       ),
     ),
   ).toEqual({
-    version: 1,
-    drafts: [{ target: "@ada", content: "draft reply", reholdCount: 0, savedAt: 1_000 }],
+    targets: {
+      "@ada": {
+        content: "draft reply",
+        attachmentIds: [],
+        savedAt: 1_000,
+        reholdCount: 0,
+      },
+    },
   });
 });
 
@@ -49,19 +57,39 @@ test("expires drafts after Raft's ten-minute local draft TTL", async () => {
   const stateDirectory = temporaryStateDirectory();
   let now = 1_000;
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => now);
-  await store.save("@ada", "draft reply");
+  await store.save("@ada", { content: "draft reply" });
 
   now += AGENT_MESSAGE_DRAFT_TTL_MS + 1;
 
   expect(await store.load("@ada")).toBeUndefined();
 });
 
-test("saves and loads a draft's attachmentIds and mentions", async () => {
+test("keeps each target's draft under its own key and clears one without the other", async () => {
+  const stateDirectory = temporaryStateDirectory();
+  const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
+  await store.save("@ada", { content: "to ada" });
+  await store.save("#general", { content: "to the channel" });
+
+  expect((await store.load("@ada"))?.content).toBe("to ada");
+  expect((await store.load("#general"))?.content).toBe("to the channel");
+
+  await store.clear("@ada");
+  expect(await store.load("@ada")).toBeUndefined();
+  expect((await store.load("#general"))?.content).toBe("to the channel");
+});
+
+test("saves and loads a held draft's attachmentIds, mentions and seenUpToSeq", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
   const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
 
-  await store.replace("@ada", "draft reply", 1, ["attachment-1", "attachment-2"], mentions);
+  await store.replace("@ada", {
+    content: "draft reply",
+    reholdCount: 1,
+    attachmentIds: ["attachment-1", "attachment-2"],
+    mentions,
+    seenUpToSeq: 9,
+  });
 
   expect(await store.load("@ada")).toEqual({
     target: "@ada",
@@ -69,6 +97,36 @@ test("saves and loads a draft's attachmentIds and mentions", async () => {
     reholdCount: 1,
     attachmentIds: ["attachment-1", "attachment-2"],
     mentions,
+    seenUpToSeq: 9,
+    savedAt: 1_000,
+  });
+});
+
+test("reads a draft file Raft itself wrote, including its seenUpToSeq", async () => {
+  const stateDirectory = temporaryStateDirectory();
+  const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
+  const path = join(userDirectory(stateDirectory), "agent-a", "continue-state.json");
+  await mkdir(join(userDirectory(stateDirectory), "agent-a"), { recursive: true, mode: 0o700 });
+  await Bun.write(
+    path,
+    JSON.stringify({
+      targets: {
+        "@ada": {
+          content: "raft reply",
+          attachmentIds: [],
+          savedAt: 1_000,
+          reholdCount: 2,
+          seenUpToSeq: 12,
+        },
+      },
+    }),
+  );
+
+  expect(await store.load("@ada")).toEqual({
+    target: "@ada",
+    content: "raft reply",
+    reholdCount: 2,
+    seenUpToSeq: 12,
     savedAt: 1_000,
   });
 });
@@ -99,9 +157,9 @@ test("loads an older draft file written before the Raft draft shape existed", as
 test("a revised send replaces the draft and resets its hold count", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
-  await store.replace("@ada", "first reply", 1);
+  await store.replace("@ada", { content: "first reply", reholdCount: 1, seenUpToSeq: 9 });
 
-  await store.save("@ada", "changed reply");
+  await store.save("@ada", { content: "changed reply" });
 
   expect(await store.load("@ada")).toEqual({
     target: "@ada",
@@ -126,12 +184,12 @@ test.skipIf(!process.geteuid)("isolates drafts belonging to different system use
     identity.mockReturnValue(1001);
     const first = new AgentMessageDraftStore("shared-agent", stateDirectory);
     identity.mockReturnValue(uid);
-    await first.save("@ada", "first user's reply");
+    await first.save("@ada", { content: "first user's reply" });
     identity.mockReturnValue(1009);
     const second = new AgentMessageDraftStore("shared-agent", stateDirectory);
     identity.mockReturnValue(uid);
     expect(await second.load("@ada")).toBeUndefined();
-    await second.save("@ada", "second user's reply");
+    await second.save("@ada", { content: "second user's reply" });
     expect((await first.load("@ada"))?.content).toBe("first user's reply");
     expect((await second.load("@ada"))?.content).toBe("second user's reply");
     await second.clear("@ada");
@@ -155,7 +213,7 @@ test("rejects a linked user draft directory before touching its target", async (
   await mkdir(outside, { recursive: true });
   await symlink(outside, userDirectory(root), process.platform === "win32" ? "junction" : "dir");
   const store = new AgentMessageDraftStore("agent-a", root);
-  await expect(store.save("@ada", "private reply")).rejects.toThrow("draft directory");
+  await expect(store.save("@ada", { content: "private reply" })).rejects.toThrow("draft directory");
   expect(await Bun.file(join(outside, "agent-a", "continue-state.json")).exists()).toBe(false);
 });
 
@@ -170,7 +228,7 @@ test.skipIf(!process.geteuid)(
     const uid = process.geteuid!();
     const identity = spyOn(process, "geteuid").mockReturnValue(uid + 1);
     try {
-      await expect(store.save("@ada", "private reply")).rejects.toThrow(
+      await expect(store.save("@ada", { content: "private reply" })).rejects.toThrow(
         "owned by the current user",
       );
       expect((await stat(directory)).mode & 0o777).toBe(0o755);
@@ -190,7 +248,7 @@ test.skipIf(process.platform === "win32")(
     await chmod(user, 0o755);
     await chmod(agent, 0o755);
     const store = new AgentMessageDraftStore("agent-a", root);
-    await store.save("@ada", "private reply");
+    await store.save("@ada", { content: "private reply" });
     expect((await stat(user)).mode & 0o777).toBe(0o700);
     expect((await stat(agent)).mode & 0o777).toBe(0o700);
     expect((await stat(join(agent, "continue-state.json"))).mode & 0o777).toBe(0o600);
@@ -204,7 +262,10 @@ test("rejects a linked Agent directory for reads and cleanup", async () => {
   const outside = temporaryStateDirectory();
   await mkdir(userDirectory(root), { recursive: true });
   await mkdir(outside, { recursive: true });
-  await Bun.write(join(outside, "continue-state.json"), JSON.stringify({ version: 1, drafts: [] }));
+  await Bun.write(
+    join(outside, "continue-state.json"),
+    JSON.stringify({ targets: { "@ada": { content: "x", savedAt: 1_000 } } }),
+  );
   await symlink(
     outside,
     join(userDirectory(root), "agent-a"),

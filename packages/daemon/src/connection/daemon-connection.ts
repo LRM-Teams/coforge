@@ -292,6 +292,9 @@ export type AgentMessageTransportResponse = {
   newerCursor?: string;
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
+  /** `send` only: Raft's `seenUpToSeq` on a held response — the frontier the notice presented and
+   * that the daemon records as consumed (Raft's `recordConsumedSeqs`). */
+  seenUpToSeq?: number;
   hasMore?: boolean;
   /** `send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessage[];
@@ -346,6 +349,7 @@ function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransp
     omittedMessageCount: response.omittedMessageCount,
     freshnessContextMode: response.freshnessContextMode,
     withheldMessageCount: response.withheldMessageCount,
+    seenUpToSeq: response.seenUpToSeq,
     recentUnread: response.recentUnread,
   };
 }

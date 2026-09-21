@@ -125,6 +125,10 @@ export function locallyHeldSend(
     newMessageCount: plan.newMessageCount,
     shownMessageCount: window.length,
     omittedMessageCount: Math.max(0, plan.newMessageCount - window.length),
+    // Raft's held response always carries the frontier it presented; the daemon records it as the
+    // consumed boundary and keeps it in the draft, exactly as Raft's CLI does with
+    // `recordConsumedSeqs(data.seenUpToSeq)` + `setSavedDraft({ seenUpToSeq })`.
+    seenUpToSeq: plan.seenUpToSeq,
     ...(input.freshnessContextMode ? { freshnessContextMode: input.freshnessContextMode } : {}),
   };
 }
