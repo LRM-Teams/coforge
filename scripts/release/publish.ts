@@ -79,9 +79,13 @@ export function regionFromEndpoint(endpoint: string): string | undefined {
  * security token - the same pattern `apps/web`'s OSS file storage uses - so a client built from a
  * federated STS token does not start signing with an expired one partway through a publish that
  * compiled six targets before it ever made a network call. */
-/** A publish uploads whole platform bundles over a shared runner link; 60s (ali-oss's default) is
- * an interactive request's budget, not this job's. See `createOssClient`. */
-const PUBLISH_OBJECT_TIMEOUT_MS = 10 * 60 * 1000;
+/** How long one upload attempt may take before it is abandoned and retried.
+ *
+ * It is deliberately short. Ten minutes was tried and proved the wrong instrument: the run then sat
+ * for 10.5 minutes and failed anyway (`ResponseTimeoutError` on the largest bundle, whose staging
+ * copy is ~28 MB — a size that should cross a runner's link in seconds). A bound like that converts a
+ * stall into a long wait; a short bound plus retries converts it into a fresh connection. */
+const PUBLISH_OBJECT_TIMEOUT_MS = 2 * 60 * 1000;
 
 export async function createOssClient(
   connection: OssConnection,
@@ -101,12 +105,12 @@ export async function createOssClient(
     cname: connection.cname ?? false,
     secure: connection.secure ?? true,
     authorizationV4: true,
-    // ali-oss defaults every request to a 60s timeout, which is an interactive caller's budget. A
-    // publish is a batch job: it compiles six targets and then pushes the largest bundles over the
-    // runner's link, and the biggest of them (darwin-arm64) has now failed with `OSS upload failed:
-    // HTTP unknown ... request-id=unknown` — a transport failure with no HTTP status, which is what a
-    // timeout looks like — in three consecutive builds (dev.59, dev.60, dev.61). Give it room.
     timeout: PUBLISH_OBJECT_TIMEOUT_MS,
+    // ali-oss retries nothing by default. Every staging publish from dev.59 on has died uploading one
+    // bundle with a transport timeout (`ResponseTimeoutError`, no HTTP status, same object key), while
+    // the other five upload fine — the shape of a stalled connection rather than a slow one. Retrying
+    // is the fix for a stall; a longer timeout only postpones it (tried: dev.63 sat 10.5 minutes).
+    retryMax: 5,
   };
   if (credentials) {
     return new OSS({ ...credentials, ...base });

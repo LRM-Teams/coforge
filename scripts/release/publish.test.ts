@@ -676,12 +676,16 @@ test("a transport failure names its class, and still leaks nothing else", () => 
   expect(plain.message).not.toContain(" Error ");
 });
 
-test("the publish client gives an upload more than an interactive caller's budget", async () => {
-  // ali-oss's default is 60s per request. Three consecutive staging publishes died uploading the
-  // largest bundle with a transport failure that reports no status - what a timeout looks like - so
-  // the batch client must not inherit an interactive timeout.
+test("a stalled upload attempt is bounded and retried, not waited on", async () => {
+  // Every staging publish from dev.59 on died uploading one bundle with a transport timeout while the
+  // other five uploaded fine: a stalled connection. ali-oss defaults to 60s and no retries - the first
+  // postpones the failure, the second is the actual fix. Ten minutes was tried (dev.63) and simply sat
+  // there, so the attempt stays short and the retry does the work.
   const connection = fixtureConnection({ url: "https://oss.example" });
   const client = await createOssClient(connection, CREDENTIALS);
-  const options = (client as unknown as { options: { timeout?: number } }).options;
-  expect(options.timeout).toBeGreaterThanOrEqual(5 * 60 * 1000);
+  const options = (client as unknown as { options: { timeout?: number; retryMax?: number } })
+    .options;
+  expect(options.timeout).toBeGreaterThanOrEqual(30_000);
+  expect(options.timeout).toBeLessThanOrEqual(3 * 60 * 1000);
+  expect(options.retryMax).toBeGreaterThan(0);
 });
