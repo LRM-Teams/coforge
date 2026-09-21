@@ -206,15 +206,21 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  * 60 s per-request timeout when the GitHub-runner-to-OSS path slowed below ~0.5 MB/s, and the SDK
  * killed it with a `ResponseTimeoutError` (a `name`-only error, no status/code/request-id). */
 const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
-/** Per-part size for multipart uploads. A 28 MiB binary splits into ~4 parts, each of which is its
- * own signed request with its own timeout, so even a degraded link completes one part well under
- * the 60 s window and ali-oss retries a part that does time out instead of failing the whole
- * object. */
-const MULTIPART_PART_BYTES = 8 * 1024 * 1024;
+/** Per-part size for multipart uploads. A 28 MiB binary splits into 14 parts, each of which is
+ * its own signed request. 2 MiB keeps the per-part threshold low enough that a degraded
+ * GitHub-runner-to-OSS link (measured at well under 100 KB/s when dev.59→64 kept dying) finishes
+ * one part inside the request timeout with room to spare. */
+const MULTIPART_PART_BYTES = 2 * 1024 * 1024;
 /** Per-request timeout for each multipart part (and each read-back), in ms. Keeping it explicit
  * makes the per-part timing intent clear: a stalled network times out a single small part, not
- * the whole object, and `ossError` now records the `name` so the log can show `ResponseTimeoutError`. */
-const OSS_REQUEST_TIMEOUT_MS = 60_000;
+ * the whole object, and `ossError` records the `name` so the log can show `ResponseTimeoutError`. */
+const OSS_REQUEST_TIMEOUT_MS = 120_000;
+/** Whole-multipart attempts before giving up. ali-oss's own retry never fires for a response
+ * timeout: its guard only retries errors carrying status -1/-2, and a `ResponseTimeoutError`
+ * carries none — so a timed-out part fails the whole call no matter what `retryMax` says. The
+ * outer retry below is the only thing that rescues it; ali-oss resumes from the parts OSS already
+ * stored, so an attempt after a timeout re-sends at most one part. */
+const MULTIPART_ATTEMPTS = 3;
 
 async function putObject(
   client: OSS,
@@ -225,13 +231,30 @@ async function putObject(
   const buffer = Buffer.from(bytes);
   try {
     if (buffer.byteLength >= MULTIPART_MIN_BYTES) {
-      await client.multipartUpload(objectKey, buffer, {
-        partSize: MULTIPART_PART_BYTES,
-        parallel: 1,
-        timeout: requestTimeoutMs,
-        headers: { "Content-Type": "application/octet-stream" },
-      });
-      return;
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          await client.multipartUpload(objectKey, buffer, {
+            partSize: MULTIPART_PART_BYTES,
+            parallel: 1,
+            timeout: requestTimeoutMs,
+            headers: { "Content-Type": "application/octet-stream" },
+          });
+          return;
+        } catch (error) {
+          // Only a timeout is worth re-attempting from here; anything else is either a
+          // configuration fault (a 403) or a real server error, and ossError already names it.
+          const name =
+            typeof error === "object" && error !== null
+              ? (error as { name?: unknown }).name
+              : undefined;
+          if (
+            attempt >= MULTIPART_ATTEMPTS ||
+            typeof name !== "string" ||
+            !/TimeoutError$/.test(name)
+          )
+            throw error;
+        }
+      }
     }
     await client.put(objectKey, buffer, {
       timeout: requestTimeoutMs,
