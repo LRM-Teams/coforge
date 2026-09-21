@@ -32,6 +32,7 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: {
@@ -243,6 +244,7 @@ test("a Start that meets an already-running process rebinds it: one process, pre
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: {
@@ -519,6 +521,7 @@ test("Full Reset completes, not fails, when the workspace clear cannot finish", 
   let agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig: {

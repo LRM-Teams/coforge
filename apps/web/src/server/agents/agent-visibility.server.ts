@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import { AppError } from "../../lib/app-error";
+import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import { resolveActorServerRole } from "../conversations/channel-authority.server";
 import { isElevatedServerRole } from "../workspaces/member-role.server";
 
@@ -50,6 +51,35 @@ export function agentVisibilityViewerForAgent(agent: {
   role: string | undefined;
 }): AgentVisibilityViewer {
   return { kind: "agent", agentId: agent.id, ownerId: agent.ownerId, role: agent.role };
+}
+
+/**
+ * Builds the viewer for a `ChannelActor`-shaped caller (`{ userId }` or `{ agentId }`) — the same
+ * actor shape `resolveActorServerRole`/`PublicChannels`/`AgentChannelManagement` already accept.
+ * For a human this is exactly `agentVisibilityViewerForUser`'s one membership lookup; for an
+ * Agent it is the one row (`ownerId`, `role`) that `resolveActorServerRole` would otherwise fetch
+ * anyway (there selecting only `role`), so replacing a `resolveActorServerRole` call with this one
+ * never adds a query. An Agent actor that cannot be resolved (deleted, wrong Workspace, or a
+ * caller that has not yet been authenticated some other way) fails closed to a viewer that can
+ * never match any real `ownerId` and carries no elevated role, the same shape
+ * `isElevatedServerRole` already treats as "sees only public Agents".
+ */
+export async function agentVisibilityViewerForActor(
+  db: Pick<PrismaClient, "workspaceMembership" | "agent">,
+  workspaceId: string,
+  actor: { userId: string } | { agentId: string },
+): Promise<AgentVisibilityViewer> {
+  if ("userId" in actor) return agentVisibilityViewerForUser(db, workspaceId, actor.userId);
+  const agent = await db.agent.findFirst({
+    where: { id: actor.agentId, workspaceId, ...ACTIVE_AGENT_WHERE },
+    select: { ownerId: true, role: true },
+  });
+  return {
+    kind: "agent",
+    agentId: actor.agentId,
+    ownerId: agent?.ownerId ?? "",
+    role: agent?.role,
+  };
 }
 
 /**

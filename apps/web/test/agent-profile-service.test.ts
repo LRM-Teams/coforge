@@ -22,7 +22,7 @@ mock.module("../src/server/agents/agent-display.server", () => ({
   }),
 }));
 
-const { resolveAgentProfileShow, resolveAgentProfileUpdate } =
+const { createdAgentsFor, resolveAgentProfileShow, resolveAgentProfileUpdate } =
   await import("../src/server/agents/agent-profile.server");
 
 afterAll(() => {
@@ -42,6 +42,7 @@ const AGENT_SCOUT = {
   computerId: "computer-1",
   stoppedAt: null as Date | null,
   ownerId: "user-alice",
+  visibility: "public",
   runtimeConfig: {
     runtime: "claude-code",
     provider: { kind: "default" },
@@ -70,8 +71,18 @@ function baseDb(
   const agentRecord = overrides.agent !== undefined ? overrides.agent : AGENT_SCOUT;
   return {
     agent: {
-      findFirst: async ({ where }: { where: { workspaceId: string; name: string } }) =>
-        where.name === "scout" ? agentRecord : null,
+      findFirst: async ({
+        where,
+      }: {
+        where: { workspaceId: string; name?: string; id?: string };
+      }) => {
+        // A `name`-keyed lookup resolves the requested target; an `id`-keyed lookup (no `name`)
+        // is `agentVisibilityViewerForActor` resolving the calling Agent's own ownerId/role
+        // (ADR 0059) — here the caller always is `scout` itself.
+        if (where.name === undefined) return { ownerId: AGENT_SCOUT.ownerId, role: "member" };
+        if (!agentRecord) return null;
+        return where.name === (agentRecord as { name: string }).name ? agentRecord : null;
+      },
       findUnique: async ({ where }: { where: { id_workspaceId: { id: string } } }) =>
         where.id_workspaceId.id === CALLER_AGENT_ID ? { name: "scout" } : null,
       findMany: async () => overrides.ownedAgents ?? [],
@@ -209,4 +220,52 @@ test("profile update: never accepts a name/Username field (the request type has 
   );
   expect(updateData).toEqual({ displayName: "Scout Bot" });
   expect(updateData).not.toHaveProperty("name");
+});
+
+test("profile show: a private target Agent invisible to the caller answers agent_not_visible (ADR 0059)", async () => {
+  const ghost = {
+    ...AGENT_SCOUT,
+    name: "ghost",
+    ownerId: "user-someone-else",
+    visibility: "private",
+  };
+  const outcome = await resolveAgentProfileShow(
+    baseDb({ agent: ghost }) as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    "ghost",
+  );
+  expect(outcome.status).toBe(404);
+  if (outcome.status !== 404) throw new Error("unreachable");
+  expect(outcome.body).toEqual({
+    ok: false,
+    errorCode: "agent_not_visible",
+    error: "@ghost is not visible to you.",
+  });
+});
+
+test("createdAgentsFor: hides a private Agent from a viewer who is not its creator (ADR 0059)", async () => {
+  let query: unknown;
+  const otherUsersPrivateAgent = { ...AGENT_SCOUT, visibility: "private" };
+  const db = {
+    agent: {
+      findMany: async (input: unknown) => {
+        query = input;
+        return [otherUsersPrivateAgent];
+      },
+    },
+  } as never;
+  const outsiderViewer = { kind: "user" as const, userId: "user-outsider", role: "member" };
+
+  const agents = await createdAgentsFor(db, WORKSPACE_ID, "user-alice", outsiderViewer);
+
+  expect(query).toMatchObject({
+    where: {
+      workspaceId: WORKSPACE_ID,
+      ownerId: "user-alice",
+      OR: [{ visibility: "public" }, { ownerId: "user-outsider" }],
+    },
+  });
+  // The fake `findMany` ignores its own `where` (it always returns the row), so this proves the
+  // *query* carries the filter — the real Prisma call is what actually excludes the row.
+  expect(agents).not.toEqual([]);
 });

@@ -2,6 +2,7 @@ import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { WorkspaceMemberRole } from "./member-role.server";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { visibleAgentWhere, type AgentVisibilityViewer } from "../agents/agent-visibility.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 
 /** The actor's Workspace role; ACCESS_DENIED when the user is not a member. */
@@ -27,6 +28,9 @@ export class WorkspaceMembers {
       select: { userId: true, role: true },
     });
     if (!membership) throw new AppError("ACCESS_DENIED");
+    // ADR 0059: the same seam every Agent list applies, built from the membership role this
+    // method already fetched above — never a second role lookup.
+    const viewer: AgentVisibilityViewer = { kind: "user", userId, role: membership.role };
 
     const [people, agents] = await Promise.all([
       this.db.user.findMany({
@@ -41,7 +45,7 @@ export class WorkspaceMembers {
         orderBy: [{ username: "asc" }, { id: "asc" }],
       }),
       this.db.agent.findMany({
-        where: { workspaceId, ...ACTIVE_AGENT_WHERE },
+        where: { workspaceId, ...ACTIVE_AGENT_WHERE, ...visibleAgentWhere(viewer) },
         select: {
           id: true,
           name: true,

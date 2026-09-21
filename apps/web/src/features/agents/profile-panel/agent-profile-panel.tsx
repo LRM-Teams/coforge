@@ -5,6 +5,7 @@ import { getRouteApi } from "@tanstack/react-router";
 import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
 
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { isAppError } from "@/lib/app-error";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Empty,
@@ -225,7 +226,10 @@ export function AgentProfilePanel({
     });
   }
 
-  if (query.isError)
+  if (query.isError) {
+    // ADR 0059: an Agent that exists but is private to someone else answers a distinct, detail-
+    // free state — no "you may not have access, or it was removed" guess, just the one fact.
+    const notVisible = isAppError(query.error) && query.error.code === "AGENT_NOT_VISIBLE";
     return (
       <div className="flex h-full min-h-0 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-end border-b border-secondary pr-2">
@@ -243,13 +247,16 @@ export function AgentProfilePanel({
               <UserX01 aria-hidden="true" className="size-6 text-tertiary" />
             </EmptyMedia>
             <EmptyTitle role="heading" aria-level={2}>
-              {m.agent_profile_not_found_title()}
+              {notVisible ? m.agent_not_visible() : m.agent_profile_not_found_title()}
             </EmptyTitle>
-            <EmptyDescription>{m.agent_profile_not_found_description()}</EmptyDescription>
+            {!notVisible && (
+              <EmptyDescription>{m.agent_profile_not_found_description()}</EmptyDescription>
+            )}
           </EmptyHeader>
         </Empty>
       </div>
     );
+  }
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { AppError } from "../src/lib/app-error";
 import { AgentDetailQuery } from "../src/server/agents/agent-detail.server";
 import {
   presentActivity,
@@ -535,6 +536,21 @@ describe("Agent detail", () => {
       expiresAt: null,
       ordering: null,
     });
+  });
+
+  test("propagates AGENT_NOT_VISIBLE from findAuthorized instead of reading it as absent (ADR 0059)", async () => {
+    const query = new AgentDetailQuery({
+      findAuthorized: async () => {
+        throw new AppError("AGENT_NOT_VISIBLE");
+      },
+      listActivity: async () => {
+        throw new Error("must not read Activity for an Agent the caller cannot see");
+      },
+    });
+
+    await expect(query.get("workspace-1", "agent-1", "viewer-1")).rejects.toEqual(
+      new AppError("AGENT_NOT_VISIBLE"),
+    );
   });
 
   test("exposes stopped from stoppedAt (ADR 0038)", async () => {

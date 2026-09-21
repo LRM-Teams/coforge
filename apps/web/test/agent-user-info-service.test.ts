@@ -40,6 +40,7 @@ const AGENT_SCOUT = {
   computerId: "computer-1",
   stoppedAt: null as Date | null,
   ownerId: "user-alice",
+  visibility: "public",
   runtimeConfig: {
     runtime: "claude-code",
     provider: { kind: "default" },
@@ -49,6 +50,11 @@ const AGENT_SCOUT = {
   },
   computer: { name: "mac-1", displayName: "Alice's Mac" },
 };
+
+/** The calling Agent's own identity (ADR 0059's `agentVisibilityViewerForActor` lookup), distinct
+ * from `AGENT_SCOUT`'s owner so a private target is invisible to the default caller unless a test
+ * explicitly says otherwise via `overrides.callerAgent`. */
+const CALLER_IDENTITY = { ownerId: "user-caller-owner", role: "member" };
 
 const USER_ALICE = {
   id: "user-alice",
@@ -60,10 +66,18 @@ const USER_ALICE = {
 /** `#general`: caller + alice + scout. `#secret`: alice + scout, but NOT the caller — this
  * conversation must never be returned by `conversation.findMany`'s own caller-membership filter,
  * so the service can never see it, let alone leak it. */
-function baseDb(overrides: { agent?: unknown; membership?: unknown } = {}) {
+function baseDb(overrides: { agent?: unknown; membership?: unknown; callerAgent?: unknown } = {}) {
   return {
     agent: {
-      findFirst: async ({ where }: { where: { workspaceId: string; name: string } }) => {
+      findFirst: async ({
+        where,
+      }: {
+        where: { workspaceId: string; name?: string; id?: string };
+      }) => {
+        // A `name`-keyed lookup resolves the requested target; an `id`-keyed lookup (no `name`)
+        // is `agentVisibilityViewerForActor` resolving the CALLING Agent's own ownerId/role
+        // (ADR 0059) — two different queries this same fake table answers.
+        if (where.name === undefined) return overrides.callerAgent ?? CALLER_IDENTITY;
         if (overrides.agent !== undefined) return overrides.agent;
         return where.name === "scout" && where.workspaceId === WORKSPACE_ID ? AGENT_SCOUT : null;
       },
@@ -234,4 +248,60 @@ test("user info: memberships never include a channel the caller cannot see", asy
   if (outcome.status !== 200) throw new Error("unreachable");
   expect(outcome.body.memberships.map((m) => m.channel)).toEqual(["#general"]);
   expect(outcome.body.memberships.some((m) => m.channel === "#secret")).toBe(false);
+});
+
+test("user info: a private Agent the caller cannot see answers agent_not_visible, not its details (ADR 0059)", async () => {
+  const ghost = {
+    ...AGENT_SCOUT,
+    id: "agent-ghost",
+    name: "ghost",
+    ownerId: "user-owner-of-ghost",
+    visibility: "private",
+  };
+  const outcome = await resolveAgentUserInfo(
+    baseDb({ agent: ghost }) as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    "ghost",
+  );
+  expect(outcome.status).toBe(404);
+  if (outcome.status !== 404) throw new Error("unreachable");
+  expect(outcome.body).toEqual({
+    ok: false,
+    errorCode: "agent_not_visible",
+    error: "@ghost is not visible to you.",
+  });
+});
+
+test("user info: the private Agent's own creator can still resolve it", async () => {
+  const ghost = {
+    ...AGENT_SCOUT,
+    id: "agent-ghost",
+    name: "ghost",
+    ownerId: CALLER_IDENTITY.ownerId,
+    visibility: "private",
+  };
+  const outcome = await resolveAgentUserInfo(
+    baseDb({ agent: ghost }) as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    "ghost",
+  );
+  expect(outcome.status).toBe(200);
+  if (outcome.status !== 200) throw new Error("unreachable");
+  expect(outcome.body.user).toMatchObject({ kind: "agent", name: "ghost" });
+});
+
+test("user info: a Workspace admin can still resolve someone else's private Agent", async () => {
+  const ghost = {
+    ...AGENT_SCOUT,
+    id: "agent-ghost",
+    name: "ghost",
+    ownerId: "user-owner-of-ghost",
+    visibility: "private",
+  };
+  const outcome = await resolveAgentUserInfo(
+    baseDb({ agent: ghost, callerAgent: { ownerId: "user-caller-owner", role: "admin" } }) as never,
+    { workspaceId: WORKSPACE_ID, agentId: CALLER_AGENT_ID },
+    "ghost",
+  );
+  expect(outcome.status).toBe(200);
 });

@@ -72,7 +72,13 @@ export type AgentProfileUpdateResponse = {
   profile: AgentProfileView & { kind: "agent" };
 };
 
-export const AGENT_PROFILE_ERROR_CODES = ["user_not_found", "profile_invalid"] as const;
+/** `agent_not_visible` (ADR 0059): see `user-info.ts`'s matching code — the same distinction
+ * applies to `profile show`'s target resolution. */
+export const AGENT_PROFILE_ERROR_CODES = [
+  "user_not_found",
+  "profile_invalid",
+  "agent_not_visible",
+] as const;
 export type AgentProfileErrorCode = (typeof AGENT_PROFILE_ERROR_CODES)[number];
 
 export type AgentProfileErrorResponse = {

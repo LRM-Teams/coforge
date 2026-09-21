@@ -1018,6 +1018,27 @@ test("channel: a 404 from a target operation becomes CliError NOT_FOUND with a f
   expect(cliError.retryable).toBe(false);
 });
 
+test("channel: an agent_not_visible JSON envelope becomes CliError AGENT_NOT_VISIBLE, never the fixed Channel-not-found text (ADR 0059)", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      { ok: false, errorCode: "agent_not_visible", error: "@ghost is not visible to you." },
+      { status: 404 },
+    ),
+  );
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.channels),
+  )
+    .channel({ operation: "add-member", target: "#eng", agent: "@ghost" })
+    .catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CliError);
+  const cliError = error as CliError;
+  expect(cliError.code).toBe("AGENT_NOT_VISIBLE");
+  expect(cliError.message).toBe("@ghost is not visible to you.");
+  expect(cliError.retryable).toBe(false);
+});
+
 test("channel: a 404 from info/members (no single-channel target operation) is not remapped to NOT_FOUND", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(new Response("channel not found", { status: 404 }));
   const error = await connectLocal(

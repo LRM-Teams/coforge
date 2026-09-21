@@ -22,6 +22,7 @@ function completedManagedAgent(overrides: Partial<AgentControlAgent["state"]> = 
   const agent: AgentControlAgent = {
     id: "a",
     ownerId: "owner",
+    visibility: "public",
     workspaceId: "w",
     computerId: "c",
     runtimeConfig,

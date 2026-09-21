@@ -1,6 +1,7 @@
 import type { PrismaClient } from "../../../../generated/client";
 import { enrollGeneralChannel } from "../../conversations/public-channels.server";
 import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
+import type { AgentVisibility } from "../../../features/agents/agent-visibility";
 import {
   parseAgentRuntimeConfig,
   type AgentRuntimeConfig,
@@ -24,6 +25,9 @@ export type AgentRecord = {
   /** Set when a user deleted this Agent (ADR 0044); undefined/null means live. Only the
    * deletion module and the deleted-sender message projection read this. */
   deletedAt?: Date | null;
+  /** ADR 0059; optional on this shared record type — every creation path but the weekly-report
+   * Collector (created `"private"`) still omits it and gets the schema's `"public"` default. */
+  visibility?: AgentVisibility;
 };
 
 function mapAgent(agent: {

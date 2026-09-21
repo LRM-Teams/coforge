@@ -9,12 +9,23 @@ import type { PrismaClient } from "../../../generated/client";
 import { agentDisplay } from "../../features/agents/agent-activity-presentation";
 import { getAgentDisplay } from "./agent-display.server";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
+import {
+  agentVisibilityViewerForActor,
+  canSeeAgent,
+  type AgentVisibilityViewer,
+} from "./agent-visibility.server";
 
-export type AgentUserInfoErrorBody = { ok: false; errorCode: "user_not_found"; error: string };
+export type AgentUserInfoErrorBody =
+  | { ok: false; errorCode: "user_not_found"; error: string }
+  | { ok: false; errorCode: "agent_not_visible"; error: string };
 
 export type AgentUserInfoOutcome =
   | { status: 200; body: AgentUserInfoResponse }
   | { status: 404; body: AgentUserInfoErrorBody };
+
+/** `findWorkspaceUser`'s distinct answer for a name that resolves to a real, private Agent the
+ * viewer cannot see (ADR 0059 §B) — never conflated with a name that matches nothing at all. */
+export const AGENT_NOT_VISIBLE = "agent-not-visible" as const;
 
 /**
  * Live status + a short `availability` reason, sourced the same way the Workspace Agents list
@@ -70,12 +81,18 @@ export type ResolvedWorkspaceUser =
 
 /** Finds a human or Agent by Username in one Workspace. Agent names and human usernames are
  * disjoint identifier spaces (see CONTEXT.md), so an Agent match always wins first with no
- * ambiguity in practice. Shared by `user info` and `profile show`. */
+ * ambiguity in practice. Shared by `user info` and `profile show`.
+ *
+ * ADR 0059 §B: a private Agent `viewer` cannot see answers the distinct `AGENT_NOT_VISIBLE`
+ * sentinel, never conflated with `undefined` (a name that matches nothing at all) — the Web
+ * profile panel and the Agent CLI both render the specific "not visible" explanation instead of a
+ * generic "not found"; only the human/Agent's other details stay withheld. */
 export async function findWorkspaceUser(
   db: PrismaClient,
   workspaceId: string,
   name: string,
-): Promise<ResolvedWorkspaceUser | undefined> {
+  viewer: AgentVisibilityViewer,
+): Promise<ResolvedWorkspaceUser | typeof AGENT_NOT_VISIBLE | undefined> {
   const agent = await db.agent.findFirst({
     where: { workspaceId, name, ...ACTIVE_AGENT_WHERE },
     select: {
@@ -88,10 +105,12 @@ export async function findWorkspaceUser(
       stoppedAt: true,
       runtimeConfig: true,
       ownerId: true,
+      visibility: true,
       computer: { select: { name: true, displayName: true } },
     },
   });
   if (agent) {
+    if (!canSeeAgent(viewer, agent)) return AGENT_NOT_VISIBLE;
     let runtime: string | undefined;
     let model: string | undefined;
     try {
@@ -180,7 +199,19 @@ export async function resolveAgentUserInfo(
   principal: { workspaceId: string; agentId: string },
   name: string,
 ): Promise<AgentUserInfoOutcome> {
-  const target = await findWorkspaceUser(db, principal.workspaceId, name);
+  const viewer = await agentVisibilityViewerForActor(db, principal.workspaceId, {
+    agentId: principal.agentId,
+  });
+  const target = await findWorkspaceUser(db, principal.workspaceId, name, viewer);
+  if (target === AGENT_NOT_VISIBLE)
+    return {
+      status: 404,
+      body: {
+        ok: false,
+        errorCode: "agent_not_visible",
+        error: `@${name} is not visible to you.`,
+      },
+    };
   if (!target)
     return {
       status: 404,
