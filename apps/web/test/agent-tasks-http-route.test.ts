@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { AppError } from "#/lib/app-error";
 import { handleAgentTaskPost } from "../src/routes/api/agent/v1/tasks";
 
 const principal = { workspaceId: "workspace-1", agentId: "agent-1", userId: "user-1" };
@@ -47,7 +48,7 @@ test("a Task command without a key reaches the board unchanged, and its refusal 
     execute: async (_principal, command) => {
       received = command;
       // The real board refuses a command without `requestId` exactly like this.
-      throw new Error("invalid Task request");
+      throw new AppError("INVALID_INPUT");
     },
   });
 
@@ -55,4 +56,44 @@ test("a Task command without a key reaches the board unchanged, and its refusal 
   // through as absent so the board's own validation is the one that decides.
   expect(received).toMatchObject({ operation: "list", requestId: undefined });
   expect(result.status).toBe(400);
+});
+
+test("a board error carrying a domain code is answered 400 with that code, not one flat word", async () => {
+  const result = await handleAgentTaskPost(
+    request({ idempotencyKey: "request-1", operation: "list", target: "#general" }),
+    principal,
+    {
+      execute: async () => {
+        throw new AppError("INVALID_INPUT");
+      },
+    },
+  );
+
+  expect(result.status).toBe(400);
+  expect(await result.json()).toEqual({ error: "invalid task request", code: "INVALID_INPUT" });
+});
+
+test("an unexpected failure is logged and answered 500 — never blamed on the caller", async () => {
+  const logged: unknown[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => void logged.push(args);
+  try {
+    const result = await handleAgentTaskPost(
+      request({ idempotencyKey: "request-1", operation: "list", target: "#general" }),
+      principal,
+      {
+        execute: async () => {
+          throw new Error('column "Agent"."visibility" does not exist');
+        },
+      },
+    );
+
+    // A database or coding fault is ours: it must be reported as such, and it must leave a trace,
+    // because a 400 with one flat word is what hid this class of failure from the route's callers.
+    expect(result.status).toBe(500);
+    expect(await result.json()).toEqual({ error: "Task command failed" });
+    expect(logged).toHaveLength(1);
+  } finally {
+    console.error = original;
+  }
 });
