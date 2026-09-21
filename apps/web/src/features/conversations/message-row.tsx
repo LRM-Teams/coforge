@@ -562,7 +562,10 @@ export function MessageRow({
       setQuoteOffer(undefined);
       return;
     }
-    const quote = formatSelectionQuote(selection.toString());
+    const quote = formatSelectionQuote(
+      { author: displayName, time: clockLabel(message.createdAt, dateLocale) },
+      selection.toString(),
+    );
     if (!quote) {
       setQuoteOffer(undefined);
       return;
@@ -579,7 +582,7 @@ export function MessageRow({
         Math.min(rangeRect.right - containerRect.left, containerRect.width - AFFORDANCE_WIDTH),
       ),
     });
-  }, [onQuoteSelection]);
+  }, [onQuoteSelection, displayName, message.createdAt, dateLocale]);
   // A gesture anywhere else (a click, a scroll, Escape) withdraws the offer. The affordance
   // itself is exempt: pointerdown on it would otherwise unmount the button before its click.
   useEffect(() => {
