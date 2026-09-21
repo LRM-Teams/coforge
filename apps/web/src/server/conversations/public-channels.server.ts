@@ -995,9 +995,11 @@ export class PublicChannels {
         (member?.threadReads ?? []).map((read) => [read.rootMessageId, read.readThroughSequence]),
       ),
       followedThreadRootIds: (member?.threadFollows ?? []).map((follow) => follow.rootMessageId),
-      // The viewer never mentions themself, so their own row is left out of the candidate list.
+      // Every active member, the viewer included: this list is what *resolves* a stored mention
+      // token, and a mention of the viewer is the most common one to render — leaving their row
+      // out leaked the raw `<@human:uuid>` token in their own view. The composer's rule that you
+      // never mention yourself is applied where it belongs, in the composer's candidate list.
       mentionables: mentionRows
-        .filter((row) => row.user?.id !== userId)
         .map((row) =>
           row.user
             ? {
