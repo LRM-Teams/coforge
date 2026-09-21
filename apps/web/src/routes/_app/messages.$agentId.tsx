@@ -18,6 +18,7 @@ import {
 } from "@/features/conversations/conversation-queries";
 import { useConversationView } from "@/features/conversations/use-conversation-view";
 import { TaskBoard } from "@/features/tasks/task-board";
+import { ConversationFilesPanel } from "@/features/conversations/conversation-files";
 import { useTaskLayout } from "@/features/tasks/task-workflow";
 import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
 import {
@@ -44,7 +45,7 @@ import { useEffect } from "react";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
-    view: z.enum(["chat", "tasks"]).optional().catch(undefined),
+    view: z.enum(["chat", "tasks", "files"]).optional().catch(undefined),
     layout: z.enum(["board", "list"]).optional().catch(undefined),
     message: z.uuid().optional().catch(undefined),
     threadRootId: z.uuid().optional().catch(undefined),
@@ -78,7 +79,9 @@ function DirectConversationPage() {
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
-  const { showChat, showTasks, changeLayout, openTask } = useConversationView(page.ensureLoaded);
+  const { showChat, showTasks, showFiles, changeLayout, openTask } = useConversationView(
+    page.ensureLoaded,
+  );
 
   // Opening the DM is reading it — except in the `newest-unread` preference, which keeps
   // unseen messages unread until the latest is actually viewed: the badge clears
@@ -104,6 +107,23 @@ function DirectConversationPage() {
     );
   };
 
+  if (view === "files")
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <DirectConversationHeader
+          conversation={conversation}
+          tasks={taskView.tasks}
+          active="files"
+          onShowChat={showChat}
+          onShowTasks={showTasks}
+          onOpenAgentProfile={openAgentProfile}
+        />
+        <ConversationFilesPanel
+          conversationId={conversation.conversationId}
+          conversationName={conversation.agent.displayName}
+        />
+      </div>
+    );
   if (view === "tasks")
     return (
       <TaskBoard
@@ -143,6 +163,7 @@ function DirectConversationPage() {
       agentStatus={agentStatus}
       tasks={taskView.tasks}
       onShowTasks={showTasks}
+      onShowFiles={showFiles}
       onCreateTask={async (title, requestId, attachmentId) => {
         await taskView.command({ operation: "create", title, requestId, attachmentId });
         await page.invalidate();
