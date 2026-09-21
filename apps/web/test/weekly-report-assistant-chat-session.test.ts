@@ -55,7 +55,7 @@ test("ensureWeeklyReportAssistantChatSession creates a first session and backfil
   expect(updatedSessionId as string | null).toBe("session-1");
 });
 
-test("createWeeklyReportAssistantChatSession opens an empty Multica-style thread", async () => {
+test("createWeeklyReportAssistantChatSession opens an empty side-chat thread", async () => {
   const { createWeeklyReportAssistantChatSession } =
     await import("../src/server/records/weekly-report-assistant-chat-session.server");
   const db = {

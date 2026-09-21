@@ -1,5 +1,5 @@
 /**
- * Lightweight i18n stub — Multica's useT is replaced with English defaults.
+ * Lightweight i18n stub — plain English defaults.
  * Call sites that used `t(($) => $.path.to.key)` keep working via a Proxy.
  */
 

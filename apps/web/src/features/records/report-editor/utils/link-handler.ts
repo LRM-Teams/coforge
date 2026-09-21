@@ -1,7 +1,7 @@
 /**
  * Simplified link opener for the report editor.
  * External URLs open in a new tab; same-origin absolute paths use location.assign.
- * Mentions / Multica navigate events are stubbed out.
+ * Mentions / navigate events are stubbed out.
  */
 
 export function openLink(href: string, _currentSlug?: string | null): void {

@@ -41,7 +41,7 @@ function toRecord(row: {
   };
 }
 
-/** Lists Multica-style side-chat sessions for one page subject. */
+/** Lists side-chat sessions for one page subject. */
 export async function listWeeklyReportAssistantChatSessions(
   db: PrismaClient,
   input: {
@@ -66,7 +66,7 @@ export async function listWeeklyReportAssistantChatSessions(
 }
 
 /**
- * Creates a new empty side-chat session (Multica "New chat").
+ * Creates a new empty side-chat session.
  * Title starts untitled; first user turn may rename it.
  */
 export async function createWeeklyReportAssistantChatSession(

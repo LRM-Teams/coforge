@@ -2,7 +2,7 @@
 
 /**
  * Floating formatting toolbar for text selection (no AI / issue actions).
- * Show/hide and positioning follow Multica Notes bubble-menu behavior.
+ * Show/hide and positioning follow the standard bubble-menu behavior.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

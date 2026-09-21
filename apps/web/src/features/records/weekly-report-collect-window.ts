@@ -1,4 +1,4 @@
-/** Collect plan time windows (ADR 0032 / Multica period-brief window semantics). */
+/** Collect plan time windows (ADR 0032 period-brief window semantics). */
 
 export type CollectWindowKind = "week" | "month" | "quarter" | "year" | "custom";
 
