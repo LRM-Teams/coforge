@@ -19,7 +19,7 @@ import { ActionCard, type ActionCardView } from "./action-card";
 import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
-import { formatSelectionQuote } from "./message-quote";
+import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
 
 export type MessageView = {
   id: string;
@@ -68,9 +68,17 @@ export type MessageView = {
 
 const GROUPING_WINDOW_MS = 5 * 60 * 1000;
 
-/** Rendered width of the reply-to-selection affordance, in px, used only to keep it inside the
- * body box when a highlight ends at the right edge. */
-const AFFORDANCE_WIDTH = 32;
+/** The top edge of the visible region a floating control must stay inside: the nearest
+ * scrollport ancestor's box, or the viewport top when the element is not inside a scroller. */
+function visibleBoundaryTop(el: HTMLElement): number {
+  let node = el.parentElement;
+  while (node) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") return node.getBoundingClientRect().top;
+    node = node.parentElement;
+  }
+  return 0;
+}
 
 // Intl.DateTimeFormat construction dominates per-row formatting cost; keep one per locale.
 const dayFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -570,18 +578,14 @@ export function MessageRow({
       setQuoteOffer(undefined);
       return;
     }
-    // Anchored under the end of the highlight, clamped to the body's own box so the control can
-    // never render outside the row it belongs to.
-    const rangeRect = range.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    setQuoteOffer({
-      quote,
-      top: Math.max(rangeRect.bottom - containerRect.top + 4, 0),
-      left: Math.max(
-        0,
-        Math.min(rangeRect.right - containerRect.left, containerRect.width - AFFORDANCE_WIDTH),
-      ),
-    });
+    // Anchored above the highlight and centered on it; the visible history scroller is the flip
+    // boundary, so the button only drops below the highlight when it would scroll out of view.
+    const placement = selectionAffordancePlacement(
+      range.getBoundingClientRect(),
+      container.getBoundingClientRect(),
+      { top: visibleBoundaryTop(container) },
+    );
+    setQuoteOffer({ quote, ...placement });
   }, [onQuoteSelection, displayName, message.createdAt, dateLocale]);
   // A gesture anywhere else (a click, a scroll, Escape) withdraws the offer. The affordance
   // itself is exempt: pointerdown on it would otherwise unmount the button before its click.

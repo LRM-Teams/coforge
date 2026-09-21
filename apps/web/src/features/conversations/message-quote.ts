@@ -48,3 +48,43 @@ export function formatSelectionQuote(source: SelectionQuoteSource, raw: string):
   const quoted = text.split("\n").map((line) => (line ? `> ${line}`.trimEnd() : ">"));
   return credit ? [credit, ...quoted].join("\n") : quoted.join("\n");
 }
+
+/** Rendered edge of the square reply-to-selection affordance, in px; used only to place and clamp
+ * it, never to style it. */
+export const AFFORDANCE_SIZE = 32;
+
+/** The subset of `DOMRect` the placement math reads, so it stays testable without a DOM. */
+export type AffordanceRect = Pick<
+  DOMRect,
+  "top" | "right" | "bottom" | "left" | "width" | "height"
+>;
+
+/**
+ * Where the reply-to-selection affordance goes, relative to the message body's own box. This
+ * follows the standard selection-toolbar logic (Medium's highlight menu, Floating UI's
+ * `flip`/`shift`): *above* the highlight with a small gap, horizontally centered on it. Above
+ * means above the *highlight*, not inside the body — on the body's first line the affordance
+ * overflows upward over the sender header rather than covering the highlight. Only when above
+ * would cross the visible boundary's top (the history scroller's top edge) does it flip below
+ * the highlight; horizontally it stays clamped inside the body when centering would overflow
+ * either edge.
+ */
+export function selectionAffordancePlacement(
+  highlight: AffordanceRect,
+  container: AffordanceRect,
+  boundary?: Pick<DOMRect, "top">,
+): { top: number; left: number } {
+  const fitsAbove = !boundary || highlight.top - AFFORDANCE_SIZE - 4 >= boundary.top;
+  return {
+    top: fitsAbove
+      ? highlight.top - container.top - AFFORDANCE_SIZE - 4
+      : highlight.bottom - container.top + 4,
+    left: Math.max(
+      0,
+      Math.min(
+        highlight.left + highlight.width / 2 - container.left - AFFORDANCE_SIZE / 2,
+        container.width - AFFORDANCE_SIZE,
+      ),
+    ),
+  };
+}
