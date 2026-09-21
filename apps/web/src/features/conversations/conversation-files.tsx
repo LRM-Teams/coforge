@@ -29,7 +29,8 @@ export function useConversationFiles(conversationId: string) {
   return useQuery(conversationFilesQuery(conversationId));
 }
 
-function FileRow({
+/** Exported for the Files-tab card test: the card-level click target is a structure, not a style. */
+export function FileRow({
   file,
   timeZone,
   onOpenMessage,
@@ -59,108 +60,102 @@ function FileRow({
       tooltip={m.files_download()}
       href={`${href}?download`}
     />
+  ); // One preview affordance per card, covering the whole card body — the thumbnail *and* the name —
+  // with the actions beside it: a file opens wherever the reader clicks the card, not only on the
+  // thumbnail (or, worse, only on the file name). A card with nothing to preview stays unclickable.
+  const previewLabel = isImage
+    ? file.fileName
+    : m.conversation_attachment_preview_open({ name: file.fileName });
+  const cardBody = (
+    <>
+      {isImage ? (
+        imgBroken ? (
+          <span className="grid size-16 shrink-0 place-items-center ring-1 ring-secondary ring-inset">
+            <File01 aria-hidden="true" className="size-6 text-fg-quaternary" />
+          </span>
+        ) : (
+          <img
+            src={previewSrc}
+            onError={handlePreviewError}
+            alt=""
+            loading="lazy"
+            className="size-16 shrink-0 rounded-lg object-cover ring-1 ring-secondary ring-inset"
+          />
+        )
+      ) : (
+        <span className="grid size-16 shrink-0 place-items-center ring-1 ring-secondary ring-inset">
+          <File01 aria-hidden="true" className="size-6 text-fg-quaternary" />
+        </span>
+      )}
+      <span className="block min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-primary">{file.fileName}</span>
+        <span className="mt-1 flex items-center gap-1.5 text-xs text-tertiary">
+          <span className="tabular-nums">{getReadableFileSize(file.sizeBytes)}</span>
+          <Clock aria-hidden="true" className="size-3.5" />
+          <time dateTime={new Date(file.createdAt).toISOString()}>
+            {formatDateForDisplay(file.createdAt, timeZone)}
+          </time>
+        </span>
+      </span>
+    </>
   );
   return (
     <li className="flex items-center gap-3 rounded-xl border border-secondary bg-primary p-3">
-      {isImage ? (
-        // Clicking the thumbnail opens the image at full size in a lightbox — the same one a
-        // message attachment gets; the thumbnail prefers the signed CDN URL with the
-        // authenticated proxy as fallback (and drops to the icon if both sources fail).
+      {isImage || previewKind ? (
         <DialogTrigger>
           <Button
             color="tertiary"
             noTextPadding
-            aria-label={file.fileName}
-            className="h-auto rounded-lg p-0 hover:bg-transparent"
+            aria-label={previewLabel}
+            className="h-auto min-w-0 flex-1 items-center gap-3 rounded-lg p-0 text-left hover:bg-transparent"
           >
-            {imgBroken ? (
-              <span className="grid size-16 place-items-center ring-1 ring-secondary ring-inset">
-                <File01 aria-hidden="true" className="size-6 text-fg-quaternary" />
-              </span>
-            ) : (
-              <img
-                src={previewSrc}
-                onError={handlePreviewError}
-                alt=""
-                loading="lazy"
-                className="size-16 shrink-0 rounded-lg object-cover ring-1 ring-secondary ring-inset"
-              />
-            )}
+            {cardBody}
           </Button>
-          <ModalOverlay isDismissable>
-            <Modal className="h-full w-full max-w-full bg-transparent shadow-none">
-              <Dialog aria-label={file.fileName} className="h-full">
-                {({ close }) => {
-                  // Same backdrop behavior as the message lightbox: pressing an overlay area
-                  // itself (not the image or the actions) closes.
-                  const dismissOnBackdrop = (event: React.PointerEvent) => {
-                    if (event.target === event.currentTarget) close();
-                  };
-                  return (
-                    <div className="flex h-full w-full flex-col">
-                      <div
-                        className="flex shrink-0 justify-end p-4"
-                        onPointerDown={dismissOnBackdrop}
-                      >
-                        <div className="flex items-center gap-1 rounded-lg bg-primary/90 p-1 shadow-xs">
-                          {download}
-                          <ButtonUtility
-                            icon={XClose}
-                            size="sm"
-                            color="tertiary"
-                            tooltip={m.controls_close()}
-                            onClick={close}
+          {isImage ? (
+            <ModalOverlay isDismissable>
+              <Modal className="h-full w-full max-w-full bg-transparent shadow-none">
+                <Dialog aria-label={file.fileName} className="h-full">
+                  {({ close }) => {
+                    // Same backdrop behavior as the message lightbox: pressing an overlay area
+                    // itself (not the image or the actions) closes.
+                    const dismissOnBackdrop = (event: React.PointerEvent) => {
+                      if (event.target === event.currentTarget) close();
+                    };
+                    return (
+                      <div className="flex h-full w-full flex-col">
+                        <div
+                          className="flex shrink-0 justify-end p-4"
+                          onPointerDown={dismissOnBackdrop}
+                        >
+                          <div className="flex items-center gap-1 rounded-lg bg-primary/90 p-1 shadow-xs">
+                            {download}
+                            <ButtonUtility
+                              icon={XClose}
+                              size="sm"
+                              color="tertiary"
+                              tooltip={m.controls_close()}
+                              onClick={close}
+                            />
+                          </div>
+                        </div>
+                        <div
+                          className="flex min-h-0 flex-1 items-center justify-center"
+                          onPointerDown={dismissOnBackdrop}
+                        >
+                          <img
+                            src={previewSrc}
+                            onError={handlePreviewError}
+                            alt={file.fileName}
+                            className="block max-h-full max-w-[min(96vw,80rem)] rounded-lg object-contain"
                           />
                         </div>
                       </div>
-                      <div
-                        className="flex min-h-0 flex-1 items-center justify-center"
-                        onPointerDown={dismissOnBackdrop}
-                      >
-                        <img
-                          src={previewSrc}
-                          onError={handlePreviewError}
-                          alt={file.fileName}
-                          className="block max-h-full max-w-[min(96vw,80rem)] rounded-lg object-contain"
-                        />
-                      </div>
-                    </div>
-                  );
-                }}
-              </Dialog>
-            </Modal>
-          </ModalOverlay>
-        </DialogTrigger>
-      ) : (
-        <div className="grid size-16 shrink-0 place-items-center rounded-lg ring-1 ring-secondary ring-inset">
-          <File01 aria-hidden="true" className="size-6 text-fg-quaternary" />
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
-        {previewKind ? (
-          // A file we can show reads in place instead of forcing a download: the name block is
-          // the control that opens the preview dialog, with the download still one click away
-          // inside the preview header — the same affordance a message file card carries.
-          <DialogTrigger>
-            <Button
-              color="tertiary"
-              noTextPadding
-              aria-label={m.conversation_attachment_preview_open({ name: file.fileName })}
-              className="h-auto min-w-0 flex-1 justify-start p-0 text-left hover:bg-transparent"
-            >
-              <span className="block min-w-0">
-                <span className="block truncate text-sm font-medium text-primary">
-                  {file.fileName}
-                </span>
-                <span className="mt-1 flex items-center gap-1.5 text-xs text-tertiary">
-                  <span className="tabular-nums">{getReadableFileSize(file.sizeBytes)}</span>
-                  <Clock aria-hidden="true" className="size-3.5" />
-                  <time dateTime={new Date(file.createdAt).toISOString()}>
-                    {formatDateForDisplay(file.createdAt, timeZone)}
-                  </time>
-                </span>
-              </span>
-            </Button>
+                    );
+                  }}
+                </Dialog>
+              </Modal>
+            </ModalOverlay>
+          ) : previewKind ? (
             <ModalOverlay isDismissable>
               <Modal className="h-full max-h-full w-full max-sm:overflow-hidden sm:h-[85vh] sm:max-w-4xl">
                 <Dialog aria-label={file.fileName} className="flex h-full flex-col overflow-hidden">
@@ -192,20 +187,11 @@ function FileRow({
                 </Dialog>
               </Modal>
             </ModalOverlay>
-          </DialogTrigger>
-        ) : (
-          <>
-            <p className="truncate text-sm font-medium text-primary">{file.fileName}</p>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-tertiary">
-              <span className="tabular-nums">{getReadableFileSize(file.sizeBytes)}</span>
-              <Clock aria-hidden="true" className="size-3.5" />
-              <time dateTime={new Date(file.createdAt).toISOString()}>
-                {formatDateForDisplay(file.createdAt, timeZone)}
-              </time>
-            </p>
-          </>
-        )}
-      </div>
+          ) : null}
+        </DialogTrigger>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-3">{cardBody}</div>
+      )}
       <div className="flex shrink-0 items-center gap-1.5">
         {messageId && onOpenMessage && (
           <ButtonUtility
