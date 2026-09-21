@@ -1235,9 +1235,16 @@ export class PublicChannels {
             });
           }
           // Directed delivery: a message that @mentions at least one Agent wakes exactly those
-          // Agents (a mention pierces mute), and no others. Without an Agent mention, every
-          // unmuted Agent member (plus thread followers on a reply) receives it and each decides
-          // whether to reply. Mentioning only humans never narrows Agent delivery.
+          // Agents (a mention pierces mute), and no others. Mentioning only humans never narrows
+          // Agent delivery.
+          //
+          // Without an Agent mention the audience depends on what the message *is*: a top-level
+          // message belongs to the channel, so every unmuted Agent member receives it; a reply
+          // belongs to its thread, so it reaches the thread's **followers** — the set the block
+          // above enrolls: whoever replies, everyone the reply mentions, and the thread's root
+          // author. Reaching the whole channel from inside a thread meant a human replying to one
+          // Agent woke every unmuted Agent in it (reported 2026-09-21). A root author who explicitly
+          // unfollowed stays out, which is why this reads follows and not authorship.
           const mentionedAgentIds = resolution.mentions
             .filter((mention) => mention.type === "agent")
             .map((mention) => mention.id);
@@ -1250,10 +1257,9 @@ export class PublicChannels {
                     agentId: { not: null },
                     agent: { workspaceId },
                     ...ACTIVE_MEMBER_WHERE,
-                    OR: [
-                      { channelMuted: false },
-                      ...(root ? [{ threadFollows: { some: { rootMessageId: root.id } } }] : []),
-                    ],
+                    ...(root
+                      ? { threadFollows: { some: { rootMessageId: root.id } } }
+                      : { channelMuted: false }),
                   },
                   select: { agentId: true },
                 });
