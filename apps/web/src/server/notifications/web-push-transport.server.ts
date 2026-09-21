@@ -1,7 +1,7 @@
 import webPush from "web-push";
 
 import { assertVapidKeyPair } from "./vapid-key-pair.server";
-import { createWebPushEgressAgent, sendPinnedHttpsRequest } from "./web-push-egress.server";
+import { resolvePinnedWebPushTarget, sendPinnedWebPushRequest } from "./web-push-egress.server";
 import {
   WebPushDeliveryError,
   type StoredWebPushSubscription,
@@ -68,30 +68,38 @@ export function createWebPushRequestDetails(
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+export type WebPushTransportDependencies = {
+  timeoutMs?: number;
+  resolveTarget?: typeof resolvePinnedWebPushTarget;
+  sendRequest?: typeof sendPinnedWebPushRequest;
+};
+
 export class WebPushLibraryTransport implements WebPushTransport {
+  private readonly timeoutMs: number;
+  private readonly resolveTarget: typeof resolvePinnedWebPushTarget;
+  private readonly sendRequest: typeof sendPinnedWebPushRequest;
+
   constructor(
     private readonly config: WebPushConfig,
-    private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
-    private readonly createAgent = createWebPushEgressAgent,
-    private readonly sendRequest = sendPinnedHttpsRequest,
-  ) {}
+    dependencies: WebPushTransportDependencies = {},
+  ) {
+    this.timeoutMs = dependencies.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.resolveTarget = dependencies.resolveTarget ?? resolvePinnedWebPushTarget;
+    this.sendRequest = dependencies.sendRequest ?? sendPinnedWebPushRequest;
+  }
 
   async send(subscription: StoredWebPushSubscription, payload: WebPushPayload) {
-    const requestDetails = createWebPushRequestDetails(this.config, subscription, payload);
     try {
-      const agent = await this.createAgent(subscription.endpoint);
-      const response = await this.sendRequest(agent, requestDetails, this.timeoutMs);
+      const requestDetails = createWebPushRequestDetails(this.config, subscription, payload);
+      const target = await this.resolveTarget(subscription.endpoint);
+      const response = await this.sendRequest(requestDetails, target, this.timeoutMs);
       // Mirrors web-push 3.6.7's own success range (web-push-lib.js `sendNotification`).
       if (response.statusCode < 200 || response.statusCode > 299) {
         throw new WebPushDeliveryError(response.statusCode);
       }
     } catch (error) {
       if (error instanceof WebPushDeliveryError) throw error;
-      const statusCode =
-        typeof error === "object" && error && "statusCode" in error
-          ? Number(error.statusCode)
-          : undefined;
-      throw new WebPushDeliveryError(statusCode);
+      throw new WebPushDeliveryError(undefined);
     }
   }
 }

@@ -23,9 +23,7 @@ export async function createWebPushNotifications(db: PrismaClient) {
 
 export function bestEffortMessageNotifier(
   db: PrismaClient,
-  notifications: (
-    db: PrismaClient,
-  ) => Promise<{ notifyMessage(messageId: string): Promise<unknown> }> = createWebPushNotifications,
+  notifications: (db: PrismaClient) => Promise<MessageNotifier> = createWebPushNotifications,
 ): MessageNotifier {
   return {
     async notifyMessage(messageId) {

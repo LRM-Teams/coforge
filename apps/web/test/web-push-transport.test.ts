@@ -1,5 +1,4 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { Agent } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +22,7 @@ const subscription = {
 const payload = { title: "CoForge", body: "Ready", url: "/settings", tag: "test" };
 const config = webPush.generateVAPIDKeys();
 const webPushConfig = { subject: "https://coforge.cn", ...config };
+const target = { hostname: "fcm.googleapis.com", address: "203.0.114.8", family: 4 as const };
 
 test("rejects a VAPID public key that does not match the private key", async () => {
   const first = webPush.generateVAPIDKeys();
@@ -72,43 +72,62 @@ test("web-push 3.6.7 creates an encrypted aes128gcm request under Bun", async ()
 });
 
 test("WebPushLibraryTransport.send succeeds on a 2xx response", async () => {
-  const transport = new WebPushLibraryTransport(
-    webPushConfig,
-    10_000,
-    async () => new Agent(),
-    async () => ({ statusCode: 201, body: "" }),
-  );
+  const transport = new WebPushLibraryTransport(webPushConfig, {
+    resolveTarget: async () => target,
+    sendRequest: async () => ({ statusCode: 201 }),
+  });
 
   await expect(transport.send(subscription, payload)).resolves.toBeUndefined();
 });
 
-test("WebPushLibraryTransport.send maps a non-2xx response to WebPushDeliveryError(statusCode)", async () => {
-  const transport = new WebPushLibraryTransport(
-    webPushConfig,
-    10_000,
-    async () => new Agent(),
-    async () => ({ statusCode: 410, body: "gone" }),
-  );
+test("WebPushLibraryTransport.send maps a 410 response to WebPushDeliveryError(410)", async () => {
+  const transport = new WebPushLibraryTransport(webPushConfig, {
+    resolveTarget: async () => target,
+    sendRequest: async () => ({ statusCode: 410 }),
+  });
 
   const error = await transport.send(subscription, payload).catch((caught: unknown) => caught);
   expect(error).toBeInstanceOf(WebPushDeliveryError);
   expect((error as WebPushDeliveryError).statusCode).toBe(410);
 });
 
-test("WebPushLibraryTransport.send maps a network/timeout failure to WebPushDeliveryError(undefined)", async () => {
-  const abortError = Object.assign(new Error("This operation was aborted"), {
-    name: "AbortError",
+test("WebPushLibraryTransport.send maps a 301 redirect response to WebPushDeliveryError(301)", async () => {
+  const transport = new WebPushLibraryTransport(webPushConfig, {
+    resolveTarget: async () => target,
+    sendRequest: async () => ({ statusCode: 301 }),
   });
-  const transport = new WebPushLibraryTransport(
-    webPushConfig,
-    10_000,
-    async () => new Agent(),
-    async () => {
-      throw abortError;
-    },
-  );
 
   const error = await transport.send(subscription, payload).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(WebPushDeliveryError);
+  expect((error as WebPushDeliveryError).statusCode).toBe(301);
+});
+
+test("WebPushLibraryTransport.send maps a thrown network/timeout error to WebPushDeliveryError(undefined)", async () => {
+  const abortError = Object.assign(new Error("The operation timed out"), {
+    name: "TimeoutError",
+  });
+  const transport = new WebPushLibraryTransport(webPushConfig, {
+    resolveTarget: async () => target,
+    sendRequest: async () => {
+      throw abortError;
+    },
+  });
+
+  const error = await transport.send(subscription, payload).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(WebPushDeliveryError);
+  expect((error as WebPushDeliveryError).statusCode).toBeUndefined();
+});
+
+test("WebPushLibraryTransport.send maps invalid subscription keys to WebPushDeliveryError(undefined)", async () => {
+  const transport = new WebPushLibraryTransport(webPushConfig, {
+    resolveTarget: async () => target,
+    sendRequest: async () => ({ statusCode: 201 }),
+  });
+
+  const invalidSubscription = { ...subscription, p256dh: "not-a-valid-key" };
+  const error = await transport
+    .send(invalidSubscription, payload)
+    .catch((caught: unknown) => caught);
   expect(error).toBeInstanceOf(WebPushDeliveryError);
   expect((error as WebPushDeliveryError).statusCode).toBeUndefined();
 });
