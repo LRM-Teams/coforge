@@ -1,10 +1,15 @@
 import { RedisClient } from "bun";
 import { encodeAgentActivityProbe } from "@lrm/coforge-sdk/internal";
 
-import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
+import {
+  agentStatusChannel,
+  agentStatusChannelForAgent,
+} from "../../features/agents/agent-status-realtime";
+import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import { createCentrifugoServerApi, daemonControlChannel } from "../centrifugo/server-api.server";
 import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { getAgentDisplay, type AgentDisplay, type Scope } from "./agent-display.server";
+import { getDatabaseClient } from "../db/client.server";
 
 /** How often `AgentActivitySweep.tick()` looks for stale busy leases. See ADR 0020. */
 export const ACTIVITY_SWEEP_INTERVAL_MS = 5_000;
@@ -55,6 +60,10 @@ export class AgentActivitySweep {
     private readonly lock: AgentActivitySweepLock,
     private readonly clock: () => number = Date.now,
     private readonly instanceId: string = crypto.randomUUID(),
+    /** ADR 0059: the Agent's current visibility, read fresh (no cache) for every synthesized
+     * display push. Omitted, or anything other than `"public"`, routes to the per-Agent status
+     * channel — the same fail-closed default the publish proxy uses. */
+    private readonly visibility?: (scope: Scope) => Promise<string | undefined>,
   ) {}
 
   start(): void {
@@ -128,11 +137,17 @@ export class AgentActivitySweep {
       );
       return;
     }
-    if (result.outcome === "expired")
-      await this.api.publishJson(agentStatusChannel(scope.workspaceId), {
+    if (result.outcome === "expired") {
+      const visibility = await this.visibility?.(scope);
+      const isPrivate = visibility !== undefined && visibility !== AGENT_VISIBILITY.PUBLIC;
+      const channel = isPrivate
+        ? agentStatusChannelForAgent(scope.workspaceId, scope.agentId)
+        : agentStatusChannel(scope.workspaceId);
+      await this.api.publishJson(channel, {
         type: "agent:display",
         ...result.snapshot,
       });
+    }
   }
 }
 
@@ -145,6 +160,17 @@ function getAgentActivitySweep(): AgentActivitySweep {
     getAgentDisplay(),
     createCentrifugoServerApi(),
     new RedisAgentActivitySweepLock(new RedisClient(redisUrl)),
+    undefined,
+    undefined,
+    async (scope) => {
+      const db = getDatabaseClient();
+      if (!db) return undefined;
+      const agent = await db.agent.findUnique({
+        where: { id: scope.agentId },
+        select: { workspaceId: true, visibility: true },
+      });
+      return agent?.workspaceId === scope.workspaceId ? agent.visibility : undefined;
+    },
   );
   return singleton;
 }

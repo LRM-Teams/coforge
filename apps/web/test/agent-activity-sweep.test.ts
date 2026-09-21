@@ -10,7 +10,7 @@ import {
   type AgentActivitySweepLock,
 } from "../src/server/agents/agent-activity-sweep.server";
 import { daemonControlChannel } from "../src/server/centrifugo/server-api.server";
-import { agentStatusChannel } from "../src/features/agents/agent-status-realtime";
+import { agentStatusChannel, agentStatusChannelForAgent } from "../src/features/agents/agent-status-realtime";
 
 const redisServer = Bun.which("redis-server");
 const port = 20_000 + Math.floor(Math.random() * 20_000);
@@ -255,6 +255,88 @@ describe.skipIf(!redisServer)("AgentActivitySweep", () => {
     expect(await subject.staleLeases(staleNow, 10)).toEqual([]);
     expect(await subject.staleLeases(renewed!.expiresAt! + 200_000, 10)).toEqual([scope]);
   });
+});
+
+function expiredSnapshot(scope: { workspaceId: string; computerId: string; agentId: string }) {
+  return {
+    protocolMajor: 1 as const,
+    ...scope,
+    revision: 1,
+    activityKind: "online" as const,
+    detailKind: "idle",
+    detail: "",
+    entries: [],
+    expiresAt: null,
+  };
+}
+
+test("sweepOne publishes a private Agent's synthesized display to its per-Agent status channel (ADR 0059)", async () => {
+  const privateScope = { workspaceId: "workspace-p", computerId: "computer-p", agentId: "agent-p" };
+  const snapshot = expiredSnapshot(privateScope);
+  const display = {
+    staleLeases: async () => [privateScope],
+    sweepStale: async () => ({ outcome: "expired" as const, snapshot }),
+  };
+  const { api, publishedJson } = fakeApi();
+  const sweep = new AgentActivitySweep(
+    display,
+    api,
+    permissiveLock,
+    () => now,
+    undefined,
+    async (scope) => (scope.agentId === privateScope.agentId ? "private" : "public"),
+  );
+
+  await sweep.tick();
+
+  expect(publishedJson).toHaveLength(1);
+  expect(publishedJson[0]!.channel).toBe(
+    agentStatusChannelForAgent(privateScope.workspaceId, privateScope.agentId),
+  );
+  expect(publishedJson[0]!.data).toMatchObject({ type: "agent:display", ...snapshot });
+});
+
+test("sweepOne keeps publishing a public Agent's synthesized display to the shared status channel", async () => {
+  const publicScope = { workspaceId: "workspace-q", computerId: "computer-q", agentId: "agent-q" };
+  const snapshot = expiredSnapshot(publicScope);
+  const display = {
+    staleLeases: async () => [publicScope],
+    sweepStale: async () => ({ outcome: "expired" as const, snapshot }),
+  };
+  const { api, publishedJson } = fakeApi();
+  const sweep = new AgentActivitySweep(
+    display,
+    api,
+    permissiveLock,
+    () => now,
+    undefined,
+    async () => "public",
+  );
+
+  await sweep.tick();
+
+  expect(publishedJson).toHaveLength(1);
+  expect(publishedJson[0]!.channel).toBe(agentStatusChannel(publicScope.workspaceId));
+});
+
+test("sweepOne defaults to the shared status channel when no visibility dependency is supplied", async () => {
+  const scopeWithoutVisibility = {
+    workspaceId: "workspace-r",
+    computerId: "computer-r",
+    agentId: "agent-r",
+  };
+  const snapshot = expiredSnapshot(scopeWithoutVisibility);
+  const display = {
+    staleLeases: async () => [scopeWithoutVisibility],
+    sweepStale: async () => ({ outcome: "expired" as const, snapshot }),
+  };
+  const { api, publishedJson } = fakeApi();
+  const sweep = new AgentActivitySweep(display, api, permissiveLock, () => now);
+
+  await sweep.tick();
+
+  expect(publishedJson).toHaveLength(1);
+  expect(publishedJson[0]!.channel).toBe(agentStatusChannel(scopeWithoutVisibility.workspaceId));
 });
 
 test("tick() resolves and completes the other scopes when one scope's sweepStale throws", async () => {
