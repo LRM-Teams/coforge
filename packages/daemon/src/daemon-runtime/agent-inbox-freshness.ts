@@ -75,6 +75,9 @@ export function planAgentInboxFreshness(input: AgentInboxFreshnessInput): AgentI
   };
 }
 
+/** Raft 1.0.32 `DEFAULT_HELD_CONTEXT_LIMIT`: how many newer messages a held notice shows. */
+export const HELD_CONTEXT_LIMIT = 3;
+
 /** Raft 1.0.32 `apmHeldFreshnessAvailableActions("send")`: the same list the server puts on a held
  * response it decided (`agent-messages.service.ts`'s `HELD_SEND_AVAILABLE_ACTIONS`). Kept here as
  * well because a locally held send never reaches that code path; a shared home is worth doing
@@ -98,13 +101,20 @@ export function locallyHeldSend(
     draftReholdCount: number;
     freshnessContextMode?: "inline" | "withheld";
   },
+  /** The newest unreviewed messages the daemon can still show, oldest first (at most
+   * `HELD_CONTEXT_LIMIT`). An empty window is honest: the count still holds, the notice simply has
+   * no previews. The caller marks whatever it passes here as reviewed once the Agent has been shown
+   * it — Raft's `recordConsumedSeqs(data.seenUpToSeq)` — which is what lets a resend through. */
+  window: readonly AgentMessageTransportResponse["messages"][number][] = [],
 ): AgentMessageTransportResponse {
   return {
     protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
     requestId: input.requestId,
     accepted: false,
     attentionCount: plan.newMessageCount,
-    messages: [],
+    // The window rides `messages`, the field the daemon's response envelope already carries the
+    // server's held window in (`agentMessageResponseShape` adapts `heldMessages` onto it).
+    messages: [...window],
     state: "held",
     decision: plan.decision,
     reason: plan.reason,
@@ -113,8 +123,8 @@ export function locallyHeldSend(
     // `--anyway`, which is exactly what the Agent is told here.
     continueAnywaySuggested: input.draftReholdCount >= 1,
     newMessageCount: plan.newMessageCount,
-    shownMessageCount: 0,
-    omittedMessageCount: plan.newMessageCount,
+    shownMessageCount: window.length,
+    omittedMessageCount: Math.max(0, plan.newMessageCount - window.length),
     ...(input.freshnessContextMode ? { freshnessContextMode: input.freshnessContextMode } : {}),
   };
 }

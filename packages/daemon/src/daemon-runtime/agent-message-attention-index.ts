@@ -32,6 +32,16 @@ export type MessageAttention = Readonly<{
  */
 const REMEMBERED_DELIVERIES = 4096;
 
+/** How many of the newest unreviewed deliveries per target the index keeps for a locally decided
+ * freshness hold to show. Raft's `DEFAULT_HELD_CONTEXT_LIMIT` is 3; the two extra entries keep a
+ * usable window while an earlier hold's window is still being pruned. */
+const PENDING_WINDOW_LIMIT = 5;
+
+/** One unreviewed delivery plus the moment this daemon learned about it. Deliveries carry no
+ * message timestamp of their own (only the server knows when a message was written), so the
+ * arrival time is what a locally built preview can honestly show. */
+export type PendingWindowEntry = { delivery: AgentMessageDelivery; receivedAt: number };
+
 /**
  * Validates a `(kind, handle)` pair before it can reach a model-visible notice (ADR 0052,
  * decision D): the kind must be one of the closed values and the handle must match the public
@@ -77,6 +87,12 @@ export class AgentMessageAttentionIndex {
   readonly #attention = new Map<string, Map<string, MessageAttention>>();
   readonly #modelSeen = new Map<string, Map<string, number>>();
   readonly #pendingSequences = new Map<string, Map<string, Set<number>>>();
+  /** The newest unreviewed deliveries per Agent and target, with the moment the daemon learned
+   * about each. Kept so a locally decided freshness hold can show the Agent the same bounded
+   * window the server's hold would have shown — and so the hold can count that window as
+   * reviewed, which is what lets a resend through instead of holding it again. Bounded by
+   * `PENDING_WINDOW_LIMIT`; pruned as the boundary advances and dropped with the Agent. */
+  readonly #pendingWindow = new Map<string, Map<string, PendingWindowEntry[]>>();
   /** The newest sequence ever seen per (agent, target), reviewed or not. Unlike `#attention` (which
    * is cleared once the boundary catches up) this is only forgotten with the Agent, so a settled
    * target still reports the context it once held — the daemon's own answer to "is there anything
@@ -183,6 +199,7 @@ export class AgentMessageAttentionIndex {
     byTarget.set(target, current);
     this.#attention.set(message.agentId, byTarget);
     this.#recordLatest(message.agentId, target, message.sequence);
+    this.#recordPendingWindow(message.agentId, target, message);
     if (this.hold.shouldHold(message.agentId)) {
       this.hold.enqueue(message.agentId, message);
       return;
@@ -533,10 +550,36 @@ already have been read. A notice you have not acted on does not establish that t
     return this.#attention.get(agentId)?.get(target)?.pendingCount ?? 0;
   }
 
+  /** The newest unreviewed deliveries for `target`, oldest first, at most `limit` of them: the
+   * window a locally decided hold presents (Raft's `DEFAULT_HELD_CONTEXT_LIMIT`). */
+  pendingWindow(agentId: string, target: string, limit: number): readonly PendingWindowEntry[] {
+    const entries = this.#pendingWindow.get(agentId)?.get(target) ?? [];
+    return entries.slice(-limit);
+  }
+
   /** The newest sequence this Agent has ever seen for `target`, reviewed or not; 0 means the daemon
    * has never carried anything for it. */
   latestSequence(agentId: string, target: string): number {
     return this.#latestKnown.get(agentId)?.get(target) ?? 0;
+  }
+
+  #recordPendingWindow(agentId: string, target: string, delivery: AgentMessageDelivery): void {
+    const byTarget = this.#pendingWindow.get(agentId) ?? new Map<string, PendingWindowEntry[]>();
+    const entries = byTarget.get(target) ?? [];
+    entries.push({ delivery, receivedAt: Date.now() });
+    if (entries.length > PENDING_WINDOW_LIMIT)
+      entries.splice(0, entries.length - PENDING_WINDOW_LIMIT);
+    byTarget.set(target, entries);
+    this.#pendingWindow.set(agentId, byTarget);
+  }
+
+  #prunePendingWindow(agentId: string, target: string, through: number): void {
+    const byTarget = this.#pendingWindow.get(agentId);
+    const entries = byTarget?.get(target);
+    if (!byTarget || !entries) return;
+    const kept = entries.filter((entry) => entry.delivery.sequence > through);
+    if (kept.length === 0) byTarget.delete(target);
+    else byTarget.set(target, kept);
   }
 
   #recordLatest(agentId: string, target: string, sequence: number): void {
@@ -553,6 +596,9 @@ already have been read. A notice you have not acted on does not establish that t
     byTarget.set(target, Math.max(byTarget.get(target) ?? 0, sequence));
     this.#modelSeen.set(agentId, byTarget);
 
+    // The window the Agent has now been shown (or the boundary it reported) is reviewed: drop what
+    // it covers, so a locally decided hold cannot present the same messages twice.
+    this.#prunePendingWindow(agentId, target, sequence);
     const attention = this.#attention.get(agentId)?.get(target);
     if (!attention || sequence < attention.firstPendingSequence) return;
     if (sequence >= attention.latestSequence) {
@@ -608,6 +654,7 @@ already have been read. A notice you have not acted on does not establish that t
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
     this.#pendingSequences.delete(agentId);
+    this.#pendingWindow.delete(agentId);
     this.#latestKnown.delete(agentId);
     this.#readContext.delete(agentId);
     this.#readContextCounters.delete(agentId);
@@ -615,6 +662,7 @@ already have been read. A notice you have not acted on does not establish that t
 
   clear(agentId: string, target: string): void {
     this.#pendingSequences.get(agentId)?.delete(target);
+    this.#pendingWindow.get(agentId)?.delete(target);
     const byTarget = this.#attention.get(agentId);
     byTarget?.delete(target);
     if (byTarget?.size === 0) this.#attention.delete(agentId);
