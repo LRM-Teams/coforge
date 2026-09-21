@@ -18,12 +18,17 @@ const HUMAN_TOKEN = `<@human:${OTHER_UUID}>`;
 /** Runs the chip plugin over a tree shaped like the one `rehype-sanitize` leaves behind. */
 function chipify(
   children: unknown[],
-  options: { handles?: Map<string, ChipMention>; viewerHandle?: string } = {},
+  options: {
+    handles?: Map<string, ChipMention>;
+    viewerHandle?: string;
+    plain?: Map<string, ChipMention>;
+  } = {},
 ) {
   const tree = { type: "root", children } as never;
   rehypeMentionChips({
     handles: options.handles ?? new Map(),
     viewerHandle: options.viewerHandle,
+    plain: options.plain,
   })(tree);
   return tree as { children: Array<Record<string, unknown>> };
 }
@@ -267,4 +272,90 @@ test("text without any token is left untouched", () => {
   expect((tree.children[0]!.children as Array<Record<string, unknown>>)[0]).toEqual(
     text("nothing to see"),
   );
+});
+
+test("a plain @handle naming a member becomes a chip with the display label", () => {
+  const tree = chipify([paragraph([text("ping @andong3 please")])], {
+    plain: new Map([["andong3", { handle: "andong3", label: "andong3" }]]),
+  });
+  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
+  expect(children).toHaveLength(3);
+  expect(children[1]!.children).toEqual([{ type: "text", value: "@andong3" }]);
+  expect(
+    ((children[1]!.properties as Record<string, unknown>).className as string[]).some((cls) =>
+      MENTION_CHIP_CLASS.split(" ").includes(cls),
+    ),
+  ).toBe(true);
+});
+
+test("a plain @handle renders the member's display label, not the handle", () => {
+  const tree = chipify([paragraph([text("ping @ada please")])], {
+    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+  });
+  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[1]!;
+  expect(chip.children).toEqual([{ type: "text", value: "@Ada Lovelace" }]);
+});
+
+test("a plain @handle for an unknown member stays literal text", () => {
+  const source = "ping @stranger please";
+  const tree = chipify([paragraph([text(source)])], {
+    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+  });
+  expect((tree.children[0]!.children as Array<Record<string, unknown>>)[0]!.value).toBe(source);
+});
+
+test("an email address is never chipped as a plain mention", () => {
+  const source = "mail me at ada@example.com ok";
+  const tree = chipify([paragraph([text(source)])], {
+    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+  });
+  expect((tree.children[0]!.children as Array<Record<string, unknown>>)[0]!.value).toBe(source);
+});
+
+test("a plain handle inside an unresolved token is not double-chipped", () => {
+  const source = `see <@agent:${UUID}> end`;
+  const tree = chipify([paragraph([text(source)])], {
+    plain: new Map([["agent", { handle: "agent", label: "Agent" }]]),
+  });
+  // The token has no resolved row, so it stays literal — including its inner `@agent` spelling.
+  expect(
+    (tree.children[0]!.children as Array<Record<string, unknown>>)
+      .map((child) => child.value)
+      .join(""),
+  ).toBe(source);
+});
+
+test("a plain handle inside code is left alone", () => {
+  const source = "run `@ada --help` first";
+  const tree = chipify(
+    [
+      {
+        type: "element",
+        tagName: "pre",
+        properties: {},
+        children: [{ type: "element", tagName: "code", properties: {}, children: [text(source)] }],
+      },
+    ],
+    { plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]) },
+  );
+  expect(
+    (
+      (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!.children as Array<
+        Record<string, unknown>
+      >
+    )[0]!.value,
+  ).toBe(source);
+});
+
+test("a plain handle of the viewer renders with the self chip class", () => {
+  const tree = chipify([paragraph([text("thanks @ada!")])], {
+    viewerHandle: "ada",
+    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+  });
+  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[1]!;
+  expect(
+    ((chip.properties as Record<string, unknown>).className as string[]).some((cls) =>
+      MENTION_CHIP_SELF_CLASS.split(" ").includes(cls),
+    ),
+  ).toBe(true);
 });

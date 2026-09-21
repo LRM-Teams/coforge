@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bell01 as Bell,
   BellOff01 as BellOff,
@@ -215,9 +215,29 @@ export function ChannelConversation({
       setJoining(false);
     }
   }
+  // The channel's member directory doubles as the plain-`@handle` display resolution (see
+  // `MessageBody`): a body written without the @-completion still reads the member's display
+  // label. Display-only — bodies, wake rules and mention rows are unchanged.
+  const plainMentions = useMemo(
+    () =>
+      conversation.mentionables?.length
+        ? new Map(
+            conversation.mentionables.map((mentionable) => [
+              mentionable.handle,
+              {
+                handle: mentionable.handle,
+                label: mentionable.label,
+                agentId: mentionable.kind === "agent" ? mentionable.id : undefined,
+              },
+            ]),
+          )
+        : undefined,
+    [conversation.mentionables],
+  );
   return (
     <ThreadedConversation
       conversation={conversation}
+      plainMentions={plainMentions}
       onSend={onSend}
       onLoadOlder={onLoadOlder}
       onLoadNewer={onLoadNewer}
