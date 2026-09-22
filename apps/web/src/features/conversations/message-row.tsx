@@ -956,19 +956,19 @@ export function MessageRow({
         </div>
         {(threadEntry || onToggleReaction || copyable) && (
           /* Hidden until revealed: hover/focus in the wide desktop shell (`lg` and up, with
-             a hover-capable fine pointer), and always while it carries an unread-thread
-             badge. Everywhere else the row tap opens the action sheet instead. The reveal
-             needs all three conditions: below `lg` the mobile shell is in charge even on a
-             mouse-driven narrow window; mobile browsers stick `:hover` onto a tapped row (it
-             has a click handler); and some touch devices (iOS Safari) report `hover: hover`
-             anyway — any missing gate would leave the bar visible after the sheet closes.
-             Hidden also means `pointer-events-none` — an invisible bar must not swallow taps
-             aimed at the message under it. Order is thread, reactions, then whole-message
-             copy last — the IM-standard order (#546). */
+             a hover-capable fine pointer). An unread-thread badge stays inside this bar, but
+             does not force it open: the thread preview already exposes the unread count, so
+             showing both would duplicate the same signal. Everywhere else the row tap opens
+             the action sheet instead. The reveal needs all three conditions: below `lg` the
+             mobile shell is in charge even on a mouse-driven narrow window; mobile browsers
+             stick `:hover` onto a tapped row (it has a click handler); and some touch devices
+             (iOS Safari) report `hover: hover` anyway — any missing gate would leave the bar
+             visible after the sheet closes. Hidden also means `pointer-events-none` — an
+             invisible bar must not swallow taps aimed at the message under it. Order is thread,
+             reactions, then whole-message copy last — the IM-standard order (#546). */
           <div
             className={cn(
               "pointer-events-none absolute top-0.5 right-3 flex items-center gap-0.5 rounded-lg border border-secondary bg-primary p-0.5 opacity-0 shadow-lg transition-opacity",
-              "has-[[data-thread-unread]]:pointer-events-auto has-[[data-thread-unread]]:opacity-100",
               "lg:[@media(hover:hover)_and_(pointer:fine)]:group-focus-within/message:pointer-events-auto lg:[@media(hover:hover)_and_(pointer:fine)]:group-focus-within/message:opacity-100",
               "lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover/message:pointer-events-auto lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover/message:opacity-100",
             )}
