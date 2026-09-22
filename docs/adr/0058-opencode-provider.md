@@ -11,21 +11,21 @@ Cursor's: `opencode run --format json [...] <prompt>` spawns one process per tur
 event per line, and exits when the turn is over — there is no way to send a second message into a
 running turn. It is the one provider Raft documents as _having_ a thinking selector for a reason
 CoForge can reuse directly: when a model exposes `variants`, Raft shows them as the agent thinking
-selector and passes the chosen value through `opencode run --variant`, while other runtimes (Cursor,
-for one — ADR 0046) bake the effort into the model id.
+selector, while other runtimes (Cursor, for one — ADR 0046) bake the effort into the model id. In
+OpenCode v2 that effort rides the model id too (`--model provider/model#variant`), which is the form
+this provider uses.
 
-The v2 contract is published as OpenCode `2.0.x`; the current `s144` installation is still
-OpenCode `1.18.31` and is intentionally gated out. The v2 `opencode --help` and
-`opencode run --help` surfaces (including every flag used below), plus `opencode models --verbose`,
-were checked against the v2 CLI source. That catalog output is
-one `provider/model` row followed by that model's pretty-printed JSON — `id`, `providerID`, `name`,
-`limit`, `capabilities.reasoning`, and the `variants` map (`{"low": {"reasoningEffort": "low"}, …}`)
-that becomes the reasoning picker. Raft's Go adapter
-(`server/pkg/agent/opencode.go`, `opencode_serve.go`, `opencode_mcp.go`, `models.go`) and the
-[OpenCode v2 CLI implementation](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/cli/cmd/run.ts)
-were read as the reference contract. The v2 CLI retains the JSON event stream, session resume,
-model/variant selection, and non-interactive `run` surface used below; v1 is intentionally not a
-supported runtime.
+The v2 contract is published as OpenCode `2.0.x` (the `@opencode/cli` npm package; the retired
+`opencode-ai` package stops at `1.18.x`) and was measured against the released CLI (`2.0.12` on
+`s144`, 2026-09-22), not just its source: `opencode run` accepts `--format json`, `--model`
+(`provider/model#variant`), `--session` and `--auto` and a positional message, while `--dir`,
+`--variant` and `--dangerously-skip-permissions` are **gone** (v2 takes the working directory from the
+process cwd / `PWD`, folds the effort into the model id, and calls auto-approval `--auto`). `opencode
+models` still lists `provider/model` rows, but the `--verbose` metadata form exists only on
+OpenCode's `dev` branch today, so on `2.0.12` the catalog degrades to the id list. One v1 install
+(`1.18.31`) is still present on `s144` and is intentionally gated out. Raft's Go adapter
+(`server/pkg/agent/opencode.go`, `opencode_serve.go`, `opencode_mcp.go`, `models.go`) remains the
+reference for the event vocabulary. v1 is intentionally not a supported runtime.
 
 ## Decision
 
@@ -36,13 +36,12 @@ supported runtime.
 needed its own wrapper: one process _is_ one turn, so a clean exit completes the turn rather than
 faulting the session.
 
-- Argv is `run --format json --dangerously-skip-permissions --dir <agentWorkspaceDirectory>
-[--model <id>] [--variant <reasoning>] [--session <sessionId>] <prompt>`. `default`/empty `model`
-  is never passed. `--variant` carries our `runtime.reasoning` verbatim: OpenCode calls it a
-  variant, and the catalog's `reasoningEfforts` are exactly the values it accepts. Env is
-  `agentEnvironment(...)` plus `NO_COLOR=1` and `PWD=<agentWorkspaceDirectory>`; OpenCode resolves
-  its discovery root (the `AGENTS.md` walk-up and `.opencode/skills/`) from `PWD` and prefers it
-  over the process cwd, which Raft pins for the same reason.
+- Argv is `run --format json --auto [--model <provider/model[#variant]>] [--session <sessionId>]
+<prompt>`. `default`/empty `model` is never passed, and a variant is only expressed when a model
+  is chosen (v2 has no standalone `--variant`). Env is `agentEnvironment(...)` plus `NO_COLOR=1` and
+  `PWD=<agentWorkspaceDirectory>`; the turn is also spawned with that directory as its cwd, because
+  OpenCode resolves its discovery root (the `AGENTS.md` walk-up and `.opencode/skills/`) from the
+  working directory / `PWD` and v2 has no `--dir` to pass it explicitly.
 - A **fresh session** sends the standing instructions as its whole first-turn prompt (OpenCode v2
   reads a project's `AGENTS.md` itself and has no system-prompt flag); a **resumed session**
   spawns nothing until real input arrives. Input while a turn is running queues and is delivered,
@@ -56,12 +55,15 @@ faulting the session.
   turn; `step_start` → `progress` (liveness). `step_finish` is read but produces no CoForge event —
   see "Known gaps".
 - **Model catalog**: `opencode models --verbose` (15 s, Raft's budget), falling back to the plain
-  `opencode models` when verbose yields nothing. Model ids are kept **verbatim** (that is what
-  `--model` accepts), `provider/model`'s first segment becomes the model provider, and a model's
-  enabled `variants` become its `reasoningEfforts`, ordered by OpenCode's own effort order
-  (`none < minimal < low < medium < high < xhigh < max`). A model is only given a picker when it
-  declares `capabilities.reasoning` or carries a variant that looks like an effort, mirroring
-  Raft's gate. Failure of any kind means "no catalog", never a thrown error.
+  `opencode models` when verbose yields nothing—including when the CLI does not know `--verbose`,
+  which is the released `2.0.12` case (the flag is on OpenCode's `dev` branch). Model ids are kept
+  **verbatim** (that is what `--model` accepts), `provider/model`'s first segment becomes the model
+  provider, and a model's enabled `variants` become its `reasoningEfforts`, ordered by OpenCode's
+  own effort order (`none < minimal < low < medium < high < xhigh < max`). A model is only given a
+  picker when it declares `capabilities.reasoning` or carries a variant that looks like an effort,
+  mirroring Raft's gate. Failure of any kind means "no catalog", never a thrown error. Until a CLI
+  ships `--verbose`, the catalog therefore lists ids with **no reasoning pickers** — a silent
+  capability loss, recorded under "Known gaps".
 - **Version gate**: runtime discovery reports an OpenCode install below **2.0.0** as unavailable
   (`opencode/version.ts`), and an existing Agent's launch is re-checked immediately before spawn.
   This is a correctness gate, not polish: an older build handed a flag it does not know silently
@@ -84,8 +86,11 @@ faulting the session.
   workspace's own `opencode.json` is left untouched (the provider never writes it).
 - **No Agent-specific API key.** `RUNTIME_PROVIDER_USES_EXTERNAL_CLI` marks OpenCode as an external
   CLI, so the CoForge-managed model-provider key path does not apply; OpenCode uses its own login.
+- **No reasoning picker on the released v2 CLI.** `opencode models` on `2.0.12` accepts no
+  `--verbose`, so the per-model `variants` metadata (and therefore the thinking selector) is
+  unavailable until a CLI ships the flag; the plain id list still resolves. No error is raised.
 - **Model metadata we do not carry.** The catalog's `limit.context`/`maxTokens` are parsed by
   OpenCode but have no field in `CodeAgentModelMetadata`; `recommended` stays false because the CLI
   marks no default model (Cursor's `(default)` marker has no OpenCode equivalent).
-- **Non-interactive permissions** rely on `--dangerously-skip-permissions`, which is why the 2.0
-  baseline matters; the provider does not fall back to `OPENCODE_PERMISSION`.
+- **Non-interactive permissions** rely on `--auto`, which is why the 2.0 baseline matters; the
+  provider does not fall back to `OPENCODE_PERMISSION`.
