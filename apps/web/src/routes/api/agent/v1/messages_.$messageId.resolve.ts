@@ -6,7 +6,10 @@ import {
   resolveAgentMessage,
   type AgentMessageRepository,
 } from "#/server/agents/agent-messages.service";
-import { AgentMessageValidationError } from "#/server/conversations/agent-message-validation-error.server";
+import {
+  agentIdempotencyKeyFromQuery,
+  agentRouteErrorResponse,
+} from "#/server/agents/agent-http-routes.shared";
 
 export type AgentMessageResolvePrincipal = { workspaceId: string; agentId: string };
 
@@ -16,8 +19,7 @@ export async function handleAgentMessageResolveGet(
   principal: AgentMessageResolvePrincipal,
   repository: AgentMessageRepository,
 ): Promise<Response> {
-  const query = new URL(request.url).searchParams;
-  const idempotencyKey = query.get("idempotencyKey") || crypto.randomUUID();
+  const idempotencyKey = agentIdempotencyKeyFromQuery(request);
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     const message = await resolveAgentMessage(repository, scope, messageId);
@@ -28,9 +30,7 @@ export async function handleAgentMessageResolveGet(
     };
     return Response.json(response);
   } catch (error) {
-    if (error instanceof AgentMessageValidationError)
-      return new Response(error.message, { status: 400 });
-    return new Response("message resolve failed", { status: 400 });
+    return agentRouteErrorResponse(error, "message resolve failed");
   }
 }
 

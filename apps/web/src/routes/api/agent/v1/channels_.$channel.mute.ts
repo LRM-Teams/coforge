@@ -6,7 +6,11 @@ import {
   muteAgentChannel,
   type AgentMessageRepository,
 } from "#/server/agents/agent-messages.service";
-import { AgentMessageValidationError } from "#/server/conversations/agent-message-validation-error.server";
+import {
+  agentIdempotencyKey,
+  agentRouteErrorResponse,
+  readAgentJsonBody,
+} from "#/server/agents/agent-http-routes.shared";
 
 export type AgentChannelMutePrincipal = { workspaceId: string; agentId: string };
 
@@ -19,13 +23,7 @@ export async function handleAgentChannelMutePost(
 ): Promise<Response> {
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
-    const body = (await request.json().catch(() => undefined)) as
-      | { idempotencyKey?: unknown }
-      | undefined;
-    const idempotencyKey =
-      body && typeof body.idempotencyKey === "string" && body.idempotencyKey
-        ? body.idempotencyKey
-        : crypto.randomUUID();
+    const idempotencyKey = agentIdempotencyKey(await readAgentJsonBody(request));
     await muteAgentChannel(repository, scope, channel, muted);
     const response: AgentChannelAttentionResponse = {
       protocolMajor: 1,
@@ -35,11 +33,9 @@ export async function handleAgentChannelMutePost(
     };
     return Response.json(response);
   } catch (error) {
-    if (error instanceof AgentMessageValidationError)
-      return new Response(error.message, { status: 400 });
-    if (error instanceof Error && error.message === "mute requires a channel target")
-      return new Response(error.message, { status: 400 });
-    return new Response("channel mute failed", { status: 400 });
+    return agentRouteErrorResponse(error, "channel mute failed", [
+      "mute requires a channel target",
+    ]);
   }
 }
 

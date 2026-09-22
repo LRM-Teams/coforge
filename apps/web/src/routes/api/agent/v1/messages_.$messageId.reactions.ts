@@ -6,7 +6,11 @@ import {
   reactToAgentMessage,
   type AgentMessageRepository,
 } from "#/server/agents/agent-messages.service";
-import { AgentMessageValidationError } from "#/server/conversations/agent-message-validation-error.server";
+import {
+  agentIdempotencyKey,
+  agentRouteErrorResponse,
+  readAgentJsonBody,
+} from "#/server/agents/agent-http-routes.shared";
 
 export type AgentMessageReactionPrincipal = { workspaceId: string; agentId: string };
 
@@ -19,14 +23,9 @@ export async function handleAgentMessageReaction(
 ): Promise<Response> {
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
-    const body = (await request.json().catch(() => undefined)) as
-      | { idempotencyKey?: unknown; emoji?: unknown }
-      | undefined;
-    const idempotencyKey =
-      body && typeof body.idempotencyKey === "string" && body.idempotencyKey
-        ? body.idempotencyKey
-        : crypto.randomUUID();
-    const emoji = body && typeof body.emoji === "string" ? body.emoji : "";
+    const body = await readAgentJsonBody(request);
+    const idempotencyKey = agentIdempotencyKey(body);
+    const emoji = typeof body?.emoji === "string" ? body.emoji : "";
     const result = await reactToAgentMessage(repository, scope, messageId, emoji, active);
     const response: AgentReactionResponse = {
       protocolMajor: 1,
@@ -37,9 +36,7 @@ export async function handleAgentMessageReaction(
     };
     return Response.json(response);
   } catch (error) {
-    if (error instanceof AgentMessageValidationError)
-      return new Response(error.message, { status: 400 });
-    return new Response("message reaction failed", { status: 400 });
+    return agentRouteErrorResponse(error, "message reaction failed");
   }
 }
 
