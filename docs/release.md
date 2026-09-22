@@ -967,6 +967,12 @@ origin guard; on failure the previous bytes are restored and verified, or a
 first-publish selector is removed and absence checked.
 Rollback verification failure is reported separately, never as a healthy release.
 Object checks and the previous selector hash are retained in workflow logs.
+The staging workflow reaches the Beijing release bucket through the global OSS
+transfer acceleration endpoint `oss-accelerate.aliyuncs.com` (with
+`--region oss-cn-beijing` for V4 signing), because the public path from
+GitHub-hosted runners to `oss-cn-beijing` measured 17–56 KB/s from dev.59 on.
+Acceleration must be enabled on the bucket; it is billed per GB as
+overseas-to-mainland accelerated traffic (`AccO2MIn`).
 
 The existing staging CDN policy revalidates `/latest` and `*.json` on each
 request, while versioned binaries are immutable (see
@@ -1023,6 +1029,8 @@ or end-user delivery. CDN acceptance remains a separate infrastructure check.
 - [Microsoft known folder identifiers](https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid)
 - [Alibaba Cloud CDN with a private OSS origin](https://www.alibabacloud.com/help/en/cdn/user-guide/grant-alibaba-cloud-cdn-access-permissions-on-private-oss-buckets)
 - [Alibaba Cloud CDN conditional origins](https://www.alibabacloud.com/help/en/cdn/user-guide/configure-a-conditional-origin)
+- [Alibaba Cloud OSS transfer acceleration](https://help.aliyun.com/zh/oss/user-guide/enable-transfer-acceleration)
+- [Alibaba Cloud OSS transfer acceleration fees](https://help.aliyun.com/zh/oss/transfer-acceleration-fees)
 - [Alibaba Cloud CDN cache policy for OSS](https://www.alibabacloud.com/help/en/cdn/use-cases/cdn-acceleration-oss-faq)
 - [Alibaba Cloud `RefreshObjectCaches`](https://www.alibabacloud.com/help/en/cdn/developer-reference/api-cdn-2018-05-10-refreshobjectcaches)
 - [Alibaba Cloud OSS data verification](https://www.alibabacloud.com/help/en/oss/user-guide/data-verification/)

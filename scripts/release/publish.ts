@@ -70,9 +70,11 @@ export interface OssConnection {
 }
 
 /** The region id a public OSS endpoint names (`oss-cn-beijing.aliyuncs.com` -> `oss-cn-beijing`),
- * or undefined for any other host (a fixture server, a custom domain). */
+ * or undefined for any other host (a fixture server, a custom domain, or a global transfer
+ * acceleration endpoint such as `oss-accelerate.aliyuncs.com`, which names no region). */
 export function regionFromEndpoint(endpoint: string): string | undefined {
   const host = endpoint.replace(/^https?:\/\//i, "").replace(/[/:].*$/, "");
+  if (/^oss-accelerate(?:-overseas)?\.aliyuncs\.com$/i.test(host)) return undefined;
   const match = /^(oss-[a-z0-9-]+?)(?:-internal)?\.aliyuncs\.com$/i.exec(host);
   return match?.[1];
 }
