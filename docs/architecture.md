@@ -245,8 +245,9 @@ release version at acceptance and carries that `expected_version` with the UUID
 The Workspace Daemon only validates scope, deduplicates, and asks the machine
 Supervisor to start the unified Computer's hidden remote-upgrade entrypoint;
 it never runs the upgrade in its own service cgroup. Linux uses a systemd user
-transient unit and macOS a per-user launchd job, both outside the managed
-service kill scope. The entrypoint reuses the Computer upgrade coordinator's
+transient unit, macOS a per-user launchd job, and Windows a one-shot user
+Scheduled Task (`schtasks`), all outside the managed service/process kill
+scope. The entrypoint reuses the Computer upgrade coordinator's
 download, checksum, snapshot, health and rollback transaction. Unsupported
 platforms fail closed. Web refuses to register a new request unless the
 Computer's presence cache (the same 90-second, self-healing lease as its
@@ -1797,7 +1798,8 @@ Supervisor 保存多个 binding 及各自 desired-running 状态。Workspace sco
 
 Upgrade 是机器级统一 executable 切换。独立短生命周期 coordinator 在停止旧进程前下载并
 验证候选、持有完整 machine mutation lock、暂停新 launch 并快照精确运行集合。Coordinator 必须
-位于被停止 user service 的 kill scope 外，再通过 `systemd --user` / per-user `launchd` 停止和启动
+位于被停止 user service 的 kill scope 外，再通过 `systemd --user` / per-user `launchd` /
+Windows one-shot `schtasks` 停止和启动
 Supervisor；激活后只恢复快照中原本运行的 binding。健康验证要求新的 Supervisor identity、目标
 version，以及每个原运行 binding 的新 child process identity；失败时切回旧 immutable installation，
 恢复同一集合并重新验证，若两侧均不健康则保持 launch hold 供显式恢复。显式 foreground 模式由外部

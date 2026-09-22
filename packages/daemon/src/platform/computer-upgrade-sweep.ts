@@ -1,10 +1,17 @@
+import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { LaunchdJob, launchdJobs, type LaunchdJobPlatform } from "./launchd-job";
+import {
+  computerUpgradeTaskName,
+  type WindowsUpgradeTaskRunner,
+} from "./computer-upgrade-launcher";
 
 const UPGRADE_JOB_LABEL =
   /^cn\.coforge\.upgrade\.([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+const UPGRADE_RESULT_FILE =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.result\.json$/i;
 
 export type SweepLeftoverComputerUpgradeJobsOptions = {
   platform: NodeJS.Platform;
@@ -16,20 +23,32 @@ export type SweepLeftoverComputerUpgradeJobsOptions = {
   jobPlatform?: LaunchdJobPlatform;
   /** Injectable result-file check, for tests only. */
   resultExists?: (requestId: string) => Promise<boolean>;
+  /** Injectable Windows `schtasks` runner, for tests only. */
+  windowsTaskRunner?: WindowsUpgradeTaskRunner;
+  /** Injectable listing of completed upgrade request IDs (Windows), for tests only. */
+  listCompletedRequestIds?: () => Promise<string[]>;
 };
 
 /**
- * A remote upgrade's one-shot launchd job never respawns (see computer-upgrade-launcher.ts), but
- * once it exits it stays loaded-but-idle: `launchctl list` keeps showing the label and its plist
- * stays on disk until something boots it out. The Coordinator runs this sweep at startup so those
- * leftovers do not accumulate and do not collide with a label a later retry wants to reuse. It
- * only touches jobs whose upgrade already wrote a durable result file - never one that might
- * still be running - and failures here must never block Coordinator startup.
+ * A remote upgrade's one-shot OS job never respawns, but once it exits it may stay registered
+ * (launchd list entry / Scheduled Task) until something removes it. The Coordinator runs this
+ * sweep at startup so leftovers do not accumulate and do not collide with a later retry. It only
+ * touches jobs whose upgrade already wrote a durable result file - never one that might still be
+ * running - and failures here must never block Coordinator startup.
  */
 export async function sweepLeftoverComputerUpgradeJobs(
   options: SweepLeftoverComputerUpgradeJobsOptions,
 ): Promise<void> {
-  if (options.platform !== "darwin") return;
+  if (options.platform === "darwin") {
+    await sweepDarwin(options);
+    return;
+  }
+  if (options.platform === "win32") {
+    await sweepWindows(options);
+  }
+}
+
+async function sweepDarwin(options: SweepLeftoverComputerUpgradeJobsOptions): Promise<void> {
   const home = options.homeDirectory ?? homedir();
   const directory = join(options.stateDirectory, "upgrade-jobs");
   const resultExists =
@@ -66,4 +85,58 @@ export async function sweepLeftoverComputerUpgradeJobs(
       });
     }
   }
+}
+
+async function sweepWindows(options: SweepLeftoverComputerUpgradeJobsOptions): Promise<void> {
+  const home = options.homeDirectory ?? homedir();
+  const logger = getLogger(["coforge", "daemon", "supervisor"]);
+  const run = options.windowsTaskRunner ?? defaultSchtasks;
+  const requestIds =
+    (await options.listCompletedRequestIds?.()) ??
+    (await listCompletedUpgradeRequestIds(home, options.resultExists));
+  for (const requestId of requestIds) {
+    const taskName = computerUpgradeTaskName(requestId);
+    try {
+      const code = await run(["schtasks.exe", "/Delete", "/TN", taskName, "/F"]);
+      if (code !== 0) throw new Error(`schtasks /Delete exited ${code}`);
+      logger.info("Removed a leftover Computer upgrade Scheduled Task", {
+        event: "upgrade:leftover_job_removed",
+        label: taskName,
+      });
+    } catch (error) {
+      logger.error("Could not remove a leftover Computer upgrade Scheduled Task", {
+        event: "upgrade:leftover_job_removal_failed",
+        label: taskName,
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+async function listCompletedUpgradeRequestIds(
+  home: string,
+  resultExists?: (requestId: string) => Promise<boolean>,
+): Promise<string[]> {
+  const directory = join(home, ".coforge", "computer", "install", "upgrade-results");
+  let names: string[];
+  try {
+    names = await readdir(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const ids: string[] = [];
+  for (const name of names) {
+    const match = UPGRADE_RESULT_FILE.exec(name);
+    if (!match) continue;
+    const requestId = match[1]!;
+    if (resultExists && !(await resultExists(requestId))) continue;
+    ids.push(requestId);
+  }
+  return ids;
+}
+
+async function defaultSchtasks(command: string[]): Promise<number> {
+  const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  return await child.exited;
 }

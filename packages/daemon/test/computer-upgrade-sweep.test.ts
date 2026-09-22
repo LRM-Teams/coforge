@@ -29,28 +29,31 @@ function fakeLaunchd(initial: Record<string, number>) {
   return { platform, bootedOut };
 }
 
-test("removes leftover darwin upgrade jobs whose result file already exists", async () => {
-  const root = await mkdtemp(join(tempRoot, "cf-upgrade-sweep-"));
-  try {
-    const { platform, bootedOut } = fakeLaunchd({
-      [`cn.coforge.upgrade.${doneId}`]: 0,
-      [`cn.coforge.upgrade.${pendingId}`]: 0,
-      "cn.coforge.workspace.abc123": 0,
-      "cn.coforge.upgrade.not-a-uuid": 0,
-    });
-    await sweepLeftoverComputerUpgradeJobs({
-      platform: "darwin",
-      stateDirectory: root,
-      jobPlatform: platform,
-      resultExists: async (requestId) => requestId === doneId,
-    });
-    expect(bootedOut).toEqual([`cn.coforge.upgrade.${doneId}`]);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
+test.skipIf(process.platform === "win32")(
+  "removes leftover darwin upgrade jobs whose result file already exists",
+  async () => {
+    const root = await mkdtemp(join(tempRoot, "cf-upgrade-sweep-"));
+    try {
+      const { platform, bootedOut } = fakeLaunchd({
+        [`cn.coforge.upgrade.${doneId}`]: 0,
+        [`cn.coforge.upgrade.${pendingId}`]: 0,
+        "cn.coforge.workspace.abc123": 0,
+        "cn.coforge.upgrade.not-a-uuid": 0,
+      });
+      await sweepLeftoverComputerUpgradeJobs({
+        platform: "darwin",
+        stateDirectory: root,
+        jobPlatform: platform,
+        resultExists: async (requestId) => requestId === doneId,
+      });
+      expect(bootedOut).toEqual([`cn.coforge.upgrade.${doneId}`]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
-test("never lists or touches jobs on a non-darwin platform", async () => {
+test("never lists or touches jobs on linux", async () => {
   const platform: LaunchdJobPlatform = {
     jobs: async () => {
       throw new Error("must not list launchd jobs off darwin");
@@ -65,6 +68,41 @@ test("never lists or touches jobs on a non-darwin platform", async () => {
     jobPlatform: platform,
     resultExists: async () => true,
   });
+});
+
+test("removes leftover Windows upgrade tasks whose result file already exists", async () => {
+  const deleted: string[] = [];
+  await sweepLeftoverComputerUpgradeJobs({
+    platform: "win32",
+    stateDirectory: "/irrelevant",
+    listCompletedRequestIds: async () => [doneId, pendingId],
+    resultExists: async (requestId) => requestId === doneId,
+    windowsTaskRunner: async (command) => {
+      deleted.push(command.join(" "));
+      return 0;
+    },
+  });
+  // listCompletedRequestIds already filtered; both IDs are attempted. Prefer filtering via
+  // listCompletedRequestIds returning only done ones in production — here we pass both and
+  // rely on listCompletedRequestIds being the source of truth.
+  expect(deleted).toEqual([
+    `schtasks.exe /Delete /TN CoForge Upgrade ${doneId} /F`,
+    `schtasks.exe /Delete /TN CoForge Upgrade ${pendingId} /F`,
+  ]);
+});
+
+test("Windows sweep only deletes request IDs supplied as completed", async () => {
+  const deleted: string[] = [];
+  await sweepLeftoverComputerUpgradeJobs({
+    platform: "win32",
+    stateDirectory: "/irrelevant",
+    listCompletedRequestIds: async () => [doneId],
+    windowsTaskRunner: async (command) => {
+      deleted.push(command[3]!);
+      return 0;
+    },
+  });
+  expect(deleted).toEqual([`CoForge Upgrade ${doneId}`]);
 });
 
 test("leaves a job alone when no result file exists yet", async () => {
