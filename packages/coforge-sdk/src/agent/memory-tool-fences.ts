@@ -26,6 +26,7 @@ export function isMemoryAgentToolProfile(value: unknown): value is MemoryAgentTo
 }
 
 export function toolsForMemoryFence(profile: MemoryAgentToolProfile): readonly string[] {
+  void profile;
   return OPENVIKING_FENCE_TOOLS;
 }
 

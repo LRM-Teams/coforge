@@ -1,8 +1,4 @@
-import {
-  OPENVIKING_TOOL_PROFILE,
-  toolsForMemoryFence,
-  type MemoryAgentToolProfile,
-} from "@lrm/coforge-sdk/agent";
+import { toolsForMemoryFence, type MemoryAgentToolProfile } from "@lrm/coforge-sdk/agent";
 
 /**
  * Standing instructions for a daemon-spawned Agent, one builder per section, so a section can be

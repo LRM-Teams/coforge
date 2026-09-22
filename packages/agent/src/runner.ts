@@ -271,7 +271,7 @@ export function createOpenVikingMemoryTools(
   budget: MemoryAgentTurnBudget,
   proxy?: MemoryAgentProxy,
 ) {
-  return createMemoryFenceTools(OPENVIKING_TOOL_PROFILE, budget, proxy);
+  return createMemoryFenceTools("openviking-memory", budget, proxy);
 }
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
