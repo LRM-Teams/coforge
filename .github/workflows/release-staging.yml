@@ -32,26 +32,17 @@ jobs:
 
   publish:
     name: Build and publish Computer
-    # macos-15-intel (x64), not ubuntu-latest, on purpose - and it is a network experiment, not a
-    # preference. Every staging publish since dev.59 stalls its *first* OSS upload on an established
-    # keep-alive socket (2 MiB in 120 s: under 17 KB/s, `ResponseTimeoutError`, no HTTP status), while
-    # the same script and the same ali-oss version published dev.58 fine 25 minutes earlier. Part size,
-    # timeouts, retries, artifact volume and the manual are all measured out (see the PR body); what is
-    # left is the runner's egress to oss-cn-beijing. A different runner image is a different network
-    # path, and the six targets cross-compile from any host, so this changes exactly one variable.
     needs: gates
-    runs-on: macos-15-intel
+    runs-on: ubuntu-latest
     environment: staging
     # `id-token: write` lets this job mint the GitHub OIDC token it exchanges for the Alibaba
     # Cloud STS credential below; the validation job does not need it.
     permissions:
       contents: read
       id-token: write
-    # Uploads have no per-request timeout since #598, and the runner-to-OSS link is measured at
-    # <=17.5 KB/s: 186 MB needs ~3 h single-job (dev.67 was killed at exactly this 30-minute cap).
-    # The split per-platform matrix (#597) makes this generous again; until it lands, give the
-    # single job a whole-day ceiling so a slow link finishes instead of dying mid-upload.
-    timeout-minutes: 1440
+    # dev.70 uploaded all 13 objects in about 7 minutes through transfer acceleration; 30 minutes
+    # leaves room for a slow day without letting a stalled upload hold the job indefinitely.
+    timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -123,9 +114,9 @@ jobs:
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
           # GitHub-hosted runners reach oss-cn-beijing over the public cross-border path, measured
-          # at 17-56 KB/s since dev.59. OSS transfer acceleration routes the upload over Alibaba
-          # Cloud's backbone instead; the endpoint is global, so the bucket's region is passed for
-          # V4 signing.
+          # at 17-56 KB/s from dev.59 on, on both Linux and macOS runners. OSS transfer
+          # acceleration routes the upload over Alibaba Cloud's backbone instead; the endpoint is
+          # global, so the bucket's region is passed for V4 signing.
           bun scripts/release/publish.ts \
             --version "$RELEASE_VERSION" \
             --commit "$RELEASE_COMMIT" \
