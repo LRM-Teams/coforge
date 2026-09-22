@@ -4,7 +4,7 @@ import { ChevronDown } from "@untitledui/icons";
 import { Button } from "@/components/base/buttons/button";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import { replaceMentionTokens } from "@lrm/coforge-sdk/internal";
+import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
 import { MessageBody } from "./message-body";
 
 /** Collapsed height, in px: 13 lines of the body's 24px line-height. Long enough that an ordinary
@@ -71,13 +71,16 @@ export function CollapsibleMessageBody({
     <>
       {collapsed && (
         <p className="sr-only">
-          {replaceMentionTokens(body, (kind, id) => {
-            const mention = mentions?.find(
-              (candidate) =>
-                candidate.kind === kind && candidate.actorId.toLowerCase() === id.toLowerCase(),
-            );
-            return mention ? `@${mention.label}` : undefined;
-          })}
+          {replaceTaskReferenceTokens(
+            replaceMentionTokens(body, (kind, id) => {
+              const mention = mentions?.find(
+                (candidate) =>
+                  candidate.kind === kind && candidate.actorId.toLowerCase() === id.toLowerCase(),
+              );
+              return mention ? `@${mention.label}` : undefined;
+            }),
+            (number) => `task #${number}`,
+          )}
         </p>
       )}
       <div

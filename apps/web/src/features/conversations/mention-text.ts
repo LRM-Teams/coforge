@@ -6,7 +6,7 @@
  * counts as a mention; the message renderer consumes it through `message-markdown.ts`.
  * Rendering is token-only by design (no legacy plain-`@handle` compatibility).
  */
-import { replaceMentionTokens } from "@lrm/coforge-sdk/internal";
+import { replaceMentionTokens, replaceTaskReferenceTokens } from "@lrm/coforge-sdk/internal";
 
 /** One resolved mention row as the browser message view carries it. `handle` is stable identity;
  * `label` is the current profile display name (falling back to that handle). */
@@ -38,10 +38,13 @@ export function makeMentionBodyFormatter(
   );
   if (labelById.size === 0) return undefined;
   return (body: string) =>
-    replaceMentionTokens(body, (type, id) => {
-      const label = labelById.get(`${type}:${id.toLowerCase()}`);
-      return label ? `@${label}` : undefined;
-    });
+    replaceTaskReferenceTokens(
+      replaceMentionTokens(body, (type, id) => {
+        const label = labelById.get(`${type}:${id.toLowerCase()}`);
+        return label ? `@${label}` : undefined;
+      }),
+      (number) => `task #${number}`,
+    );
 }
 
 export type Mentionable = {

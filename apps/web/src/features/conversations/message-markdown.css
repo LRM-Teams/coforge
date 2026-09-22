@@ -275,3 +275,20 @@
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
+
+/* Task-reference chips. A `task #68` reference the viewer can open
+   (`message-markdown-task-reference-link`) is an interactive control, so it gets the same
+   pointer affordance and focus ring as an Agent mention chip; one whose task is no longer in the
+   conversation stays a plain highlight. */
+.message-markdown-task-reference-link {
+  cursor: pointer;
+}
+
+.message-markdown-task-reference-link:hover {
+  filter: brightness(0.95);
+}
+
+.message-markdown-task-reference-link:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}

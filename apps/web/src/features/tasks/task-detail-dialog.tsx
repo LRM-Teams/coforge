@@ -1,7 +1,8 @@
 import type { TaskCommand, TaskHistoryEvent, TaskView } from "@lrm/coforge-sdk/internal";
+import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { DotsHorizontal as MoreHorizontal } from "@untitledui/icons";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -50,9 +51,13 @@ export function TaskDetailDialog({
   task: TaskView;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCommand: (command: DetailCommand) => Promise<void>;
+  /** Runs a detail mutation through the caller's task command (which owns the conversation's task
+   * list). Absent where no such owner is threaded in — a task-reference chip inside the message
+   * stream, say — and the dialog then runs the command itself and refreshes that list. */
+  onCommand?: (command: DetailCommand) => Promise<void>;
 }) {
   const execute = useServerFn(executeTask);
+  const queryClient = useQueryClient();
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [assignee, setAssignee] = useState("");
@@ -60,6 +65,26 @@ export function TaskDetailDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const loadHistory = useCallback(async () => {
+    setPending(true);
+    setError("");
+    try {
+      const result = await execute({
+        data: {
+          operation: "history",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: task.conversationId,
+          number: task.number,
+        },
+      });
+      setHistory(result.history ?? []);
+    } catch {
+      setError(m.tasks_history_error());
+    } finally {
+      setPending(false);
+    }
+  }, [execute, task.conversationId, task.number]);
 
   useEffect(() => {
     if (!open) return;
@@ -69,7 +94,10 @@ export function TaskDetailDialog({
     setHistory(undefined);
     setConfirmDelete(false);
     setError("");
-  }, [open, task]);
+    // The popup exists to show the task's history — a reference chip opens it expecting that — so
+    // the first page is loaded on open rather than waiting for the History button.
+    void loadHistory();
+  }, [open, task, loadHistory]);
 
   return (
     <ModalOverlay isOpen={open} onOpenChange={onOpenChange} isDismissable={!pending}>
@@ -252,31 +280,27 @@ export function TaskDetailDialog({
     setPending(true);
     setError("");
     try {
-      await onCommand(command);
+      if (onCommand) {
+        await onCommand(command);
+      } else {
+        // No external owner: run it here, then refresh the conversation's task list so the chip
+        // and the task tabs reflect the change. The list's query key is the one
+        // `conversationTasksQuery` uses.
+        await execute({
+          data: {
+            ...command,
+            idempotencyKey: crypto.randomUUID(),
+            conversationId: task.conversationId,
+          },
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["conversation", "tasks", task.conversationId],
+        });
+      }
       return true;
     } catch {
       setError(m.tasks_mutation_error());
       return false;
-    } finally {
-      setPending(false);
-    }
-  }
-
-  async function loadHistory() {
-    setPending(true);
-    setError("");
-    try {
-      const result = await execute({
-        data: {
-          operation: "history",
-          idempotencyKey: crypto.randomUUID(),
-          conversationId: task.conversationId,
-          number: task.number,
-        },
-      });
-      setHistory(result.history ?? []);
-    } catch {
-      setError(m.tasks_history_error());
     } finally {
       setPending(false);
     }

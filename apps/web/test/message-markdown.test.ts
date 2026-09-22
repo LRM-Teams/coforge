@@ -4,10 +4,13 @@ import {
   MENTION_CHIP_AGENT_CLASS,
   MENTION_CHIP_CLASS,
   MENTION_CHIP_SELF_CLASS,
+  TASK_CHIP_CLASS,
+  TASK_CHIP_LINK_CLASS,
   type ChipMention,
   escapeLiteralHtml,
   mentionHandlesByToken,
   rehypeMentionChips,
+  rehypeTaskReferenceChips,
 } from "../src/features/conversations/message-markdown";
 
 const UUID = "550e8400-e29b-41d4-a716-446655440000";
@@ -358,4 +361,55 @@ test("a plain handle of the viewer renders with the self chip class", () => {
       MENTION_CHIP_SELF_CLASS.split(" ").includes(cls),
     ),
   ).toBe(true);
+});
+
+/** Runs the task-reference chip plugin over a tree shaped like the sanitized one. */
+function taskChipify(children: unknown[], numbers: ReadonlySet<number> = new Set()) {
+  const tree = { type: "root", children } as never;
+  rehypeTaskReferenceChips({ numbers })(tree);
+  return tree as { children: Array<Record<string, unknown>> };
+}
+
+test("a task token renders as `task #N` text", () => {
+  const tree = taskChipify([paragraph([text("with <@task:68> next")])]);
+  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
+  expect(children[0]).toEqual(text("with "));
+  expect(children[1]).toMatchObject({ tagName: "span", children: [text("task #68")] });
+  expect(children[2]).toEqual(text(" next"));
+});
+
+test("a referenced number known here becomes a clickable chip", () => {
+  const tree = taskChipify([paragraph([text("<@task:68>")])], new Set([68]));
+  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  const properties = chip.properties as {
+    className: string[];
+    "data-task-reference-number"?: number;
+  };
+  expect(properties.className).toEqual([...TASK_CHIP_CLASS.split(" "), TASK_CHIP_LINK_CLASS]);
+  expect(properties["data-task-reference-number"]).toBe(68);
+});
+
+test("a number that names no task still reads `task #N`, but is not a control", () => {
+  const tree = taskChipify([paragraph([text("<@task:999>")])], new Set([68]));
+  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  const properties = chip.properties as {
+    className: string[];
+    "data-task-reference-number"?: number;
+  };
+  expect(properties.className).toEqual(TASK_CHIP_CLASS.split(" "));
+  expect(properties["data-task-reference-number"]).toBeUndefined();
+  expect(chip.children).toEqual([text("task #999")]);
+});
+
+test("a task token inside a code element is never chipped", () => {
+  const tree = taskChipify(
+    [
+      paragraph([
+        { type: "element", tagName: "code", properties: {}, children: [text("<@task:68>")] },
+      ]),
+    ],
+    new Set([68]),
+  );
+  const code = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  expect(code.children).toEqual([text("<@task:68>")]);
 });

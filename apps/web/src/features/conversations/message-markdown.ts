@@ -16,7 +16,12 @@
  * they need not pass the untrusted-content schema. Nothing sanitizer-relevant is added before
  * it runs.
  */
-import { MENTION_PATTERN, MENTION_TOKEN_PATTERN, splitCodeSpans } from "@lrm/coforge-sdk/internal";
+import {
+  MENTION_PATTERN,
+  MENTION_TOKEN_PATTERN,
+  splitCodeSpans,
+  TASK_REFERENCE_TOKEN_PATTERN,
+} from "@lrm/coforge-sdk/internal";
 import type { Element, Root, Text } from "hast";
 
 import type { MentionRef } from "./mention-text";
@@ -36,6 +41,15 @@ export const MENTION_CHIP_SELF_CLASS = `${CHIP_BASE} bg-brand-solid text-white`;
 /** Added to an Agent chip so the renderer can recognise the clickable variant and the
  * stylesheet can give it a pointer/hover affordance. A human chip never gets this. */
 export const MENTION_CHIP_AGENT_CLASS = "message-markdown-mention-agent";
+
+/**
+ * Task-reference chip classes. A `task #68` reference the server stored as a `<@task:68>` token
+ * renders with the same soft fill as a mention chip so a reference reads as a reference; the
+ * `-link` variant marks the one the renderer turns into a control (see `message-body.tsx`).
+ */
+const TASK_CHIP_BASE = "message-markdown-task-reference rounded-sm px-0.5 font-medium";
+export const TASK_CHIP_CLASS = `${TASK_CHIP_BASE} bg-brand-primary text-brand-secondary`;
+export const TASK_CHIP_LINK_CLASS = "message-markdown-task-reference-link";
 
 /**
  * Escapes HTML-looking text outside code spans so Markdown renders it literally, matching the
@@ -140,6 +154,75 @@ export function rehypeMentionChips(options: {
 
     visit(tree, false);
   };
+}
+
+/**
+ * Replaces stored task-reference tokens (`<@task:68>`) with `task #68` chips, skipping anything
+ * inside `code` or `pre`. Unlike a mention token, a task token always has a readable fallback —
+ * the number is the reference — so a token is never left raw. A number present in `numbers` names
+ * a task the viewer can open, and its chip carries `data-task-reference-number` for the `span`
+ * renderer to turn into a control; any other number renders as plain chip text.
+ */
+export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number> }) {
+  const { numbers } = options;
+  const pattern = new RegExp(TASK_REFERENCE_TOKEN_PATTERN.source, "gi");
+
+  return (tree: Root) => {
+    const visit = (node: Root | Element, inCode: boolean) => {
+      const tagName = node.type === "element" ? node.tagName : undefined;
+      const code = inCode || tagName === "code" || tagName === "pre";
+      const next: Array<Element | Text> = [];
+
+      for (const child of node.children as Array<Element | Text>) {
+        if (child.type === "text" && !code && child.value.includes("<@task:")) {
+          const parts = taskChipParts(child.value, pattern, numbers);
+          if (parts) {
+            next.push(...parts);
+            continue;
+          }
+        }
+        if (child.type === "element") visit(child, code);
+        next.push(child);
+      }
+
+      node.children = next;
+    };
+
+    visit(tree, false);
+  };
+}
+
+/** The chip/text replacement for one text node, or `undefined` when no token matches. */
+function taskChipParts(
+  value: string,
+  pattern: RegExp,
+  numbers: ReadonlySet<number>,
+): Array<Element | Text> | undefined {
+  pattern.lastIndex = 0;
+  const matches = [...value.matchAll(pattern)];
+  if (matches.length === 0) return undefined;
+
+  const parts: Array<Element | Text> = [];
+  let offset = 0;
+  for (const match of matches) {
+    const number = Number(match[1]);
+    if (match.index > offset) parts.push({ type: "text", value: value.slice(offset, match.index) });
+    const clickable = numbers.has(number);
+    const className = TASK_CHIP_CLASS.split(" ");
+    if (clickable) className.push(TASK_CHIP_LINK_CLASS);
+    parts.push({
+      type: "element",
+      tagName: "span",
+      properties: {
+        className,
+        ...(clickable ? { "data-task-reference-number": number } : {}),
+      },
+      children: [{ type: "text", value: `task #${number}` }],
+    });
+    offset = match.index + match[0].length;
+  }
+  if (offset < value.length) parts.push({ type: "text", value: value.slice(offset) });
+  return parts;
 }
 
 /** The chip/text replacement for one text node, or `undefined` when nothing matches. */

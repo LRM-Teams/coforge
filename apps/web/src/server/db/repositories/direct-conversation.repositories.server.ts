@@ -1,6 +1,10 @@
 import { lockConversation } from "../../conversations/conversation-lock.server";
 import type { MessageSenderKind, MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
-import { normalizeMentionBody } from "@lrm/coforge-sdk/internal";
+import {
+  normalizeMentionBody,
+  resolveTaskReferences,
+  taskReferenceNumbers,
+} from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AppError } from "../../../lib/app-error";
 import { canDirectMessageAgent } from "../../agents/agent-visibility.server";
@@ -2079,6 +2083,23 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             mentions ?? [],
           )
         : { body, mentions: [] };
+      // The same structured-reference treatment as mentions, but for tasks and on every
+      // conversation: a `task #N` that names a real task here becomes a stored `<@task:N>` token,
+      // so a renderer reads the reference back as a chip instead of parsing prose.
+      const referencedTaskNumbers = taskReferenceNumbers(resolution.body);
+      const knownTaskNumbers = referencedTaskNumbers.length
+        ? new Set(
+            (
+              await tx.task.findMany({
+                where: { conversationId, number: { in: referencedTaskNumbers } },
+                select: { number: true },
+              })
+            ).map((task) => task.number),
+          )
+        : new Set<number>();
+      const taskResolution = resolveTaskReferences(resolution.body, (number) =>
+        knownTaskNumbers.has(number),
+      );
       // Other Agents this channel message wakes: every resolved Agent mention. An Agent message
       // without an Agent mention never notifies another Agent, and an Agent never wakes itself.
       const mentionedAgentIds = new Set(
@@ -2125,7 +2146,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           workspaceId: conversation.workspaceId,
           senderMemberId: sender.id,
           threadRootId: root?.id,
-          body: resolution.body,
+          body: taskResolution.body,
           sequence,
           mentions: resolution.mentions.length
             ? {

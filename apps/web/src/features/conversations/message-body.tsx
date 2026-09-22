@@ -9,6 +9,7 @@ import {
   escapeLiteralHtml,
   mentionHandlesByToken,
   rehypeMentionChips,
+  rehypeTaskReferenceChips,
   type ChipMention,
 } from "./message-markdown";
 import type { MentionRef } from "./mention-text";
@@ -16,6 +17,9 @@ import "./message-markdown.css";
 
 /** Stable across renders: neither list depends on the message being rendered. */
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+
+/** Stable empty set for the common "no task references to make clickable" case. */
+const NO_TASK_NUMBERS: ReadonlySet<number> = new Set();
 
 /**
  * A message body rendered as Markdown with mentions highlighted as inline chips.
@@ -41,6 +45,8 @@ export function MessageBody({
   plainMentions,
   viewerHandle,
   onOpenAgentProfile,
+  taskReferences,
+  onOpenTask,
 }: {
   body: string;
   mentions?: readonly MentionRef[];
@@ -52,20 +58,31 @@ export function MessageBody({
    * the conversation owns that slot; absent, Agent chips render as inert highlights (the
    * previous behavior), never dead controls. */
   onOpenAgentProfile?: (agentId: string) => void;
+  /** The task numbers a `task #N` reference in this body resolves to (the conversation's own
+   * tasks). A referenced number not in the set still renders `task #N`, just not as a control. */
+  taskReferences?: ReadonlySet<number>;
+  /** Opens a task-reference chip's detail popup. Absent, a reference stays a plain highlight. */
+  onOpenTask?: (number: number) => void;
 }) {
   const source = useMemo(() => escapeLiteralHtml(body), [body]);
   const handles = useMemo(() => mentionHandlesByToken(mentions), [mentions]);
   // Typed against react-markdown's own plugin list so the plugin-with-options tuple form
   // type-checks without a cast.
   const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(
-    () => [rehypeSanitize, [rehypeMentionChips, { handles, viewerHandle, plain: plainMentions }]],
-    [handles, viewerHandle, plainMentions],
+    () => [
+      rehypeSanitize,
+      [rehypeMentionChips, { handles, viewerHandle, plain: plainMentions }],
+      [rehypeTaskReferenceChips, { numbers: taskReferences ?? NO_TASK_NUMBERS }],
+    ],
+    [handles, viewerHandle, plainMentions, taskReferences],
   );
   // The `span` override recognises the Agent mention chip (`data-mention-agent-id`, injected by
-  // `rehypeMentionChips`) and makes it an accessible button; every other span passes through.
+  // `rehypeMentionChips`) and the task-reference chip (`data-task-reference-number`, injected by
+  // `rehypeTaskReferenceChips`), and makes each an accessible button; every other span passes
+  // through.
   const components = useMemo<Components>(
-    () => ({ ...MARKDOWN_COMPONENTS, span: mentionSpan(onOpenAgentProfile) }),
-    [onOpenAgentProfile],
+    () => ({ ...MARKDOWN_COMPONENTS, span: chipSpan(onOpenAgentProfile, onOpenTask) }),
+    [onOpenAgentProfile, onOpenTask],
   );
 
   return (
@@ -97,13 +114,17 @@ const MARKDOWN_COMPONENTS = {
 };
 
 /**
- * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` (see
- * `message-markdown.ts`); when a handler is provided it becomes a keyboard- and pointer-
- * accessible control that opens that Agent's profile panel. All other spans — including human
- * mention chips, which have no profile panel — render unchanged.
+ * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` and a task-reference
+ * chip that names a conversation task carries `data-task-reference-number` (see
+ * `message-markdown.ts`); when the matching handler is provided each becomes a keyboard- and
+ * pointer-accessible control. All other spans — including human mention chips and task chips whose
+ * task is gone — render unchanged.
  */
-function mentionSpan(onOpenAgentProfile?: (agentId: string) => void) {
-  return function MentionSpan({
+function chipSpan(
+  onOpenAgentProfile?: (agentId: string) => void,
+  onOpenTask?: (number: number) => void,
+) {
+  return function ChipSpan({
     node,
     children,
     className,
@@ -112,8 +133,14 @@ function mentionSpan(onOpenAgentProfile?: (agentId: string) => void) {
     void node;
     // `data-*` attributes arrive on props via react-markdown's hast → props mapping.
     const agentId = (props as Record<string, unknown>)["data-mention-agent-id"];
-    if (typeof agentId === "string" && onOpenAgentProfile) {
-      const open = () => onOpenAgentProfile(agentId);
+    const taskNumber = (props as Record<string, unknown>)["data-task-reference-number"];
+    const openTask =
+      typeof taskNumber === "number" && onOpenTask ? () => onOpenTask(taskNumber) : undefined;
+    const open =
+      typeof agentId === "string" && onOpenAgentProfile
+        ? () => onOpenAgentProfile(agentId)
+        : openTask;
+    if (open) {
       return (
         <span
           {...props}
