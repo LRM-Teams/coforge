@@ -9,10 +9,15 @@ export type ReportAssignmentMeta = {
   unread: boolean;
 };
 
-/** Auto-send cancel for one ISO week, stored on the live format document. */
+/** Auto-send cancel / week dismiss for one ISO week, stored on the live format document. */
 export type ReportScheduleMeta = {
   cancelledYear: number;
   cancelledWeek: number;
+  /**
+   * When true with matching cancelledYear/Week, Leader dismissed the week's
+   * send entirely（取消本周周报）— manual send is also blocked.
+   */
+  dismissSend?: boolean;
 };
 
 export type KeyPointPromptHistoryEntry = {
@@ -120,14 +125,22 @@ function parseAssignmentMeta(value: unknown): ReportAssignmentMeta | undefined {
 
 function parseScheduleMeta(value: unknown): ReportScheduleMeta | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const row = value as { cancelledYear?: unknown; cancelledWeek?: unknown };
+  const row = value as {
+    cancelledYear?: unknown;
+    cancelledWeek?: unknown;
+    dismissSend?: unknown;
+  };
   if (typeof row.cancelledYear !== "number" || typeof row.cancelledWeek !== "number") {
     return undefined;
   }
   if (!Number.isInteger(row.cancelledYear) || !Number.isInteger(row.cancelledWeek)) {
     return undefined;
   }
-  return { cancelledYear: row.cancelledYear, cancelledWeek: row.cancelledWeek };
+  return {
+    cancelledYear: row.cancelledYear,
+    cancelledWeek: row.cancelledWeek,
+    ...(row.dismissSend === true ? { dismissSend: true } : {}),
+  };
 }
 
 function withOptionalMeta(
@@ -444,7 +457,40 @@ export function isAutoSendCancelled(content: ReportContent, year: number, week: 
   return schedule?.cancelledYear === year && schedule?.cancelledWeek === week;
 }
 
+/** Leader dismissed sending this ISO week entirely（取消本周周报）. */
+export function isWeekSendDismissed(content: ReportContent, year: number, week: number): boolean {
+  const schedule = normalizeReportContent(content).schedule;
+  return (
+    schedule?.dismissSend === true &&
+    schedule.cancelledYear === year &&
+    schedule.cancelledWeek === week
+  );
+}
+
 export function withAutoSendCancelled(
+  content: ReportContent,
+  year: number,
+  week: number,
+): ReportContent {
+  const normalized = normalizeReportContent(content);
+  const prior = normalized.schedule;
+  return withOptionalMeta(
+    normalized,
+    normalized.assignment,
+    {
+      cancelledYear: year,
+      cancelledWeek: week,
+      ...(prior?.dismissSend && prior.cancelledYear === year && prior.cancelledWeek === week
+        ? { dismissSend: true }
+        : {}),
+    },
+    normalized.keyPointPrompts,
+    normalized.keyPointExtraction,
+  );
+}
+
+/** Cancel auto-send and block manual send for this ISO week. */
+export function withWeekSendDismissed(
   content: ReportContent,
   year: number,
   week: number,
@@ -456,6 +502,7 @@ export function withAutoSendCancelled(
     {
       cancelledYear: year,
       cancelledWeek: week,
+      dismissSend: true,
     },
     normalized.keyPointPrompts,
     normalized.keyPointExtraction,
@@ -473,6 +520,27 @@ export function templateDraftTitle(year: number, week: number): string {
 /** Member report title: `{name} {year} W{week} 工作周报`. */
 export function memberReportTitle(displayName: string, year: number, week: number): string {
   return `${displayName} ${year} W${week} 工作周报`;
+}
+
+/**
+ * Submitted-at stamp for the member-report header (WR-35 / M1):
+ * `YYYY.MM.DD HH:mm:ss` in Asia/Shanghai.
+ */
+export function formatWeeklyReportCompletedAt(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}.${get("month")}.${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
 }
 
 /** Markdown export of multi-tab report content. */

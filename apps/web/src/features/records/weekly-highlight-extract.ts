@@ -12,7 +12,19 @@ export type RecordAssistantPayload =
       userGuidance?: string;
     }
   | { kind: "intent-declined" }
-  | { kind: "offer-send" };
+  | {
+      kind: "offer-send";
+      year?: number;
+      week?: number;
+      /** e.g. `2026 W36 (08.31-09.04)` */
+      weekTitle?: string;
+      updatedAt?: string;
+      recipients?: Array<{
+        displayName: string;
+        avatarUrl: string | null;
+      }>;
+      recipientTotal?: number;
+    };
 
 export function parseRecordAssistantPayload(value: unknown): RecordAssistantPayload | null {
   if (!value || typeof value !== "object") return null;
@@ -24,8 +36,41 @@ export function parseRecordAssistantPayload(value: unknown): RecordAssistantPayl
     week?: unknown;
     intent?: unknown;
     userGuidance?: unknown;
+    weekTitle?: unknown;
+    updatedAt?: unknown;
+    recipients?: unknown;
+    recipientTotal?: unknown;
   };
-  if (row.kind === "offer-send") return { kind: "offer-send" };
+  if (row.kind === "offer-send") {
+    const recipients = Array.isArray(row.recipients)
+      ? row.recipients.flatMap((entry) => {
+          if (!entry || typeof entry !== "object") return [];
+          const person = entry as { displayName?: unknown; avatarUrl?: unknown };
+          if (typeof person.displayName !== "string" || !person.displayName.trim()) return [];
+          return [
+            {
+              displayName: person.displayName.trim(),
+              avatarUrl: typeof person.avatarUrl === "string" ? person.avatarUrl : null,
+            },
+          ];
+        })
+      : undefined;
+    return {
+      kind: "offer-send",
+      ...(typeof row.year === "number" ? { year: row.year } : {}),
+      ...(typeof row.week === "number" ? { week: row.week } : {}),
+      ...(typeof row.weekTitle === "string" && row.weekTitle.trim()
+        ? { weekTitle: row.weekTitle.trim() }
+        : {}),
+      ...(typeof row.updatedAt === "string" && row.updatedAt.trim()
+        ? { updatedAt: row.updatedAt.trim() }
+        : {}),
+      ...(recipients && recipients.length > 0 ? { recipients } : {}),
+      ...(typeof row.recipientTotal === "number" && Number.isInteger(row.recipientTotal)
+        ? { recipientTotal: row.recipientTotal }
+        : {}),
+    };
+  }
   if (row.kind === "offer-help-generate") return { kind: "offer-help-generate" };
   if (row.kind === "intent-declined") return { kind: "intent-declined" };
   if (

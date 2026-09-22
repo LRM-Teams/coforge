@@ -109,7 +109,7 @@ export function AppShell({
   onSelectWorkspace?: (slug: string) => Promise<void> | void;
   onCreateWorkspace?: (input: { name: string; slug: string }) => Promise<void>;
   onSignOut?: () => Promise<void> | void;
-  /** Purple dot on 记录 while a weekly template is in the one-hour preview window. */
+  /** Purple dot on 记录 for a Leader preview hour or an unread member assignment. */
   recordsPreview?: boolean;
   children: React.ReactNode;
 }) {

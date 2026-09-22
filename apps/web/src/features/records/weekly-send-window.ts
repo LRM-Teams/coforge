@@ -3,6 +3,7 @@ import {
   zonedCalendarDate,
   zonedWeekdayAndTime,
 } from "../../server/records/weekly-report-schedule-due";
+import { isoWeekMonday } from "./weekly-report-collect-window";
 
 /** Shanghai has no DST; civil time is UTC+8. */
 const SHANGHAI_OFFSET_HOURS = 8;
@@ -56,6 +57,16 @@ export function formatSendWindowCountdown(remainingMs: number): string {
   const minutes = Math.floor((clamped % 3600) / 60);
   const seconds = clamped % 60;
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+}
+
+/** Mon–Fri civil range for an ISO week title, e.g. `2026 W36 (08.31-09.04)`. */
+export function formatOfferSendWeekTitle(year: number, week: number): string {
+  const monday = isoWeekMonday(year, week);
+  const friday = new Date(monday);
+  friday.setUTCDate(monday.getUTCDate() + 4);
+  const md = (date: Date) =>
+    `${String(date.getUTCMonth() + 1).padStart(2, "0")}.${String(date.getUTCDate()).padStart(2, "0")}`;
+  return `${year} W${week} (${md(monday)}-${md(friday)})`;
 }
 
 function shanghaiCivilInstant(

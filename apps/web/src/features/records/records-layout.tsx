@@ -278,9 +278,10 @@ export function RecordsLayout({
                                     {m.records_report_sent_badge()}
                                   </span>
                                 ) : unread ? (
-                                  <span className="ml-auto shrink-0 rounded-full bg-brand-primary px-2 py-0.5 text-xs font-medium text-brand-secondary">
-                                    {m.records_report_unread_badge()}
-                                  </span>
+                                  <span
+                                    aria-label={m.records_report_unread_badge()}
+                                    className="ml-auto size-1.5 shrink-0 rounded-full bg-brand-solid"
+                                  />
                                 ) : null}
                               </RecordLink>
                             </li>

@@ -7,12 +7,15 @@ import {
   emptyReportContent,
   isAutoSendCancelled,
   memberReportTitle,
+  formatWeeklyReportCompletedAt,
   normalizeReportContent,
   removeKeyPointPromptHistoryEntry,
   reportContentToMarkdown,
   reportTabsEqual,
   withAssignmentUnread,
   withAutoSendCancelled,
+  withWeekSendDismissed,
+  isWeekSendDismissed,
 } from "@/features/records/records-content";
 
 test("emptyReportContent creates named display pages", () => {
@@ -135,6 +138,18 @@ test("withAutoSendCancelled stamps the ISO week and survives normalize", () => {
   expect(normalizeReportContent(next).schedule).toEqual({ cancelledYear: 2026, cancelledWeek: 38 });
 });
 
+test("withWeekSendDismissed blocks the week and survives normalize", () => {
+  const next = withWeekSendDismissed({ tabs: { Summary: { markdown: "body" } } }, 2026, 38);
+  expect(isWeekSendDismissed(next, 2026, 38)).toBe(true);
+  expect(isAutoSendCancelled(next, 2026, 38)).toBe(true);
+  expect(isWeekSendDismissed(next, 2026, 37)).toBe(false);
+  expect(normalizeReportContent(next).schedule).toEqual({
+    cancelledYear: 2026,
+    cancelledWeek: 38,
+    dismissSend: true,
+  });
+});
+
 test("normalizeReportContent drops legacy highlightPrompt without preserving it", () => {
   expect(
     normalizeReportContent({
@@ -212,4 +227,8 @@ test("removeKeyPointPromptHistoryEntry drops one history row by index", () => {
   expect(removeKeyPointPromptHistoryEntry(state, 0).history).toEqual([
     { text: "old-b", updatedAt: "2026-09-16T00:00:00.000Z" },
   ]);
+});
+
+test("formatWeeklyReportCompletedAt uses dotted Asia/Shanghai wall time", () => {
+  expect(formatWeeklyReportCompletedAt("2026-09-03T02:34:12.000Z")).toBe("2026.09.03 10:34:12");
 });
