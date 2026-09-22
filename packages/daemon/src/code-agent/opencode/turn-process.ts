@@ -45,6 +45,16 @@ export class OpenCodeTurnProcess {
   ) {
     this.#tree = processTreeOwner.spawn(command, cwd, environment);
     this.#child = this.#tree.child;
+    // `opencode run` takes its prompt from argv and then waits for stdin EOF before it starts
+    // working — with the daemon's `stdin: "pipe"` and nothing ever written, the turn sat on an
+    // open pipe until dispose and the Agent looked permanently offline (verified: `< /dev/null`
+    // completes in ~3s, an open pipe never produces output). The turn never writes stdin, so
+    // close it immediately after spawn.
+    try {
+      this.#child.stdin.end();
+    } catch {
+      // A child that exited between spawn and this end may have already closed stdin.
+    }
     logger.info("Started OpenCode turn process", {
       event: "code_agent.process.started",
       pid: this.#child.pid,
