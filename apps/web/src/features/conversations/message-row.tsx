@@ -515,6 +515,8 @@ export function MessageRow({
   onOpenAgentProfile,
   viewerHandle,
   plainMentions,
+  taskReferences,
+  onOpenTask,
   onQuoteSelection,
 }: {
   message: MessageView;
@@ -546,6 +548,11 @@ export function MessageRow({
    * (DM text, or a channel body written without the completion) still renders the member's
    * display label. Absent, plain handles render as literal text. */
   plainMentions?: Map<string, ChipMention>;
+  /** The task numbers a body's `task #N` references resolve to in this conversation: a referenced
+   * number in the set renders as a chip that opens the task's detail popup. */
+  taskReferences?: ReadonlySet<number>;
+  /** Opens a task-reference chip's detail popup; absent, a reference stays a highlight. */
+  onOpenTask?: (number: number) => void;
   /** Offers "reply to this selection" on a highlight inside this row's body: the row hands back
    * the finished markdown quote, credited to the message it came from. Absent (e.g. the
    * conversation has no composer to put it in), no affordance is offered and no selection is
@@ -866,6 +873,8 @@ export function MessageRow({
                 mentions={message.mentions}
                 plainMentions={plainMentions}
                 viewerHandle={viewerHandle}
+                taskReferences={taskReferences}
+                onOpenTask={onOpenTask}
                 onOpenAgentProfile={onOpenAgentProfile}
                 expanded={expanded}
                 onToggleExpanded={onToggleExpanded}

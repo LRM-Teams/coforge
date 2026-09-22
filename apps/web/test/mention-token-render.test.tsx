@@ -43,3 +43,21 @@ test("an unresolvable token degrades to literal text, never a phantom chip", () 
   expect(markup).toContain("&lt;@human:");
   expect(markup).not.toContain("message-markdown-mention");
 });
+
+test("a stored task reference renders as a `task #N` chip, never the raw token", () => {
+  const markup = renderToStaticMarkup(<MessageBody body={"pairs with <@task:68> today"} />);
+  expect(markup).not.toContain("&lt;@task:");
+  expect(markup).toContain("task #68");
+});
+
+test("a referenced task the conversation knows becomes a control; a stale number stays a highlight", () => {
+  const clickable = renderToStaticMarkup(
+    <MessageBody body={"<@task:68>"} taskReferences={new Set([68])} onOpenTask={() => {}} />,
+  );
+  expect(clickable).toContain("message-markdown-task-reference-link");
+  expect(clickable).toContain('role="button"');
+
+  const plain = renderToStaticMarkup(<MessageBody body={"<@task:68>"} />);
+  expect(plain).toContain("task #68");
+  expect(plain).not.toContain("message-markdown-task-reference-link");
+});

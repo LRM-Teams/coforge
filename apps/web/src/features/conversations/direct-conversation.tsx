@@ -53,6 +53,7 @@ import {
 } from "./own-messages-menu";
 import { cn } from "@/lib/utils";
 import { TaskBadge } from "@/features/tasks/task-board";
+import { TaskDetailDialog } from "@/features/tasks/task-detail-dialog";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 import { AgentProfilePanel } from "@/features/agents/profile-panel/agent-profile-panel";
@@ -404,6 +405,28 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     () => makeMentionBodyFormatter(conversation.mentionables ?? []),
     [conversation.mentionables],
   );
+  // A `task #N` reference in a body renders as a chip that opens the task's detail popup. The
+  // conversation's own task list decides which referenced numbers can be opened, and the popup
+  // loads the task's history itself.
+  const taskNumbers = useMemo(
+    () => new Set((props.tasks ?? []).map((task) => task.number)),
+    [props.tasks],
+  );
+  const [openTaskNumber, setOpenTaskNumber] = useState<number>();
+  const openTaskReference = useCallback((number: number) => setOpenTaskNumber(number), []);
+  const openTask =
+    openTaskNumber === undefined
+      ? undefined
+      : props.tasks?.find((task) => task.number === openTaskNumber);
+  const taskDialog = openTask ? (
+    <TaskDetailDialog
+      task={openTask}
+      open
+      onOpenChange={(next) => {
+        if (!next) setOpenTaskNumber(undefined);
+      }}
+    />
+  ) : null;
   const selected = resolveConversationThreadRoot({
     searchThreadRootId,
     messages: conversation.messages,
@@ -495,6 +518,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const conversationMainPane = (
     <ConversationPane
       {...conversationProps}
+      taskReferences={taskNumbers}
+      onOpenTask={openTaskReference}
       onLoadMessageAround={onLoadMessageAround}
       onReadLatest={onReadLatest}
       header={header}
@@ -599,6 +624,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           >
             <ConversationPane
               {...conversationProps}
+              taskReferences={taskNumbers}
+              onOpenTask={openTaskReference}
               onLoadMessageAround={onLoadMessageAround}
               root={root}
               onClose={closeThread}
@@ -627,52 +654,58 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     // Small screens have no room for a resizable split: the slot pane covers the main pane,
     // which stays mounted (hidden) so returning keeps its scroll, drafts and read state.
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", visibleSlot && "hidden")}>
-          {conversationMainPane}
+      <>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", visibleSlot && "hidden")}>
+            {conversationMainPane}
+          </div>
+          {conversationSidePane && (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">{conversationSidePane}</div>
+          )}
         </div>
-        {conversationSidePane && (
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">{conversationSidePane}</div>
-        )}
-      </div>
+        {taskDialog}
+      </>
     );
   }
   return (
-    <Group
-      id="conversation"
-      orientation="horizontal"
-      defaultLayout={threadLayout.defaultLayout}
-      onLayoutChanged={threadLayout.onLayoutChanged}
-      className="flex min-h-0 min-w-0 flex-1"
-    >
-      <Panel
-        id="main"
-        // Strings are percentages of the group; numbers would be pixels.
-        minSize="40"
-        className="flex min-h-0 min-w-0 flex-col"
+    <>
+      <Group
+        id="conversation"
+        orientation="horizontal"
+        defaultLayout={threadLayout.defaultLayout}
+        onLayoutChanged={threadLayout.onLayoutChanged}
+        className="flex min-h-0 min-w-0 flex-1"
       >
-        {conversationMainPane}
-      </Panel>
-      {visibleSlot && (
-        <>
-          <Separator
-            aria-label={
-              visibleSlot === "thread" ? m.conversation_thread() : m.agent_profile_resize()
-            }
-            className="hidden w-px shrink-0 bg-border-secondary transition-colors hover:bg-brand-solid data-[separator=active]:bg-brand-solid md:block"
-          />
-          <Panel
-            id={visibleSlot}
-            defaultSize="35"
-            minSize="25"
-            maxSize="60"
-            className="flex min-h-0 min-w-0 flex-col"
-          >
-            {conversationSidePane}
-          </Panel>
-        </>
-      )}
-    </Group>
+        <Panel
+          id="main"
+          // Strings are percentages of the group; numbers would be pixels.
+          minSize="40"
+          className="flex min-h-0 min-w-0 flex-col"
+        >
+          {conversationMainPane}
+        </Panel>
+        {visibleSlot && (
+          <>
+            <Separator
+              aria-label={
+                visibleSlot === "thread" ? m.conversation_thread() : m.agent_profile_resize()
+              }
+              className="hidden w-px shrink-0 bg-border-secondary transition-colors hover:bg-brand-solid data-[separator=active]:bg-brand-solid md:block"
+            />
+            <Panel
+              id={visibleSlot}
+              defaultSize="35"
+              minSize="25"
+              maxSize="60"
+              className="flex min-h-0 min-w-0 flex-col"
+            >
+              {conversationSidePane}
+            </Panel>
+          </>
+        )}
+      </Group>
+      {taskDialog}
+    </>
   );
 }
 
@@ -712,6 +745,8 @@ export function ConversationPane({
   onToggleReaction,
   onOpenAgentProfile,
   plainMentions,
+  taskReferences,
+  onOpenTask,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
   header?: React.ReactNode;
@@ -727,6 +762,11 @@ export function ConversationPane({
   /** Plain-`@handle` display resolution for the stream (see `MessageBody`). Built by each
    * wrapper — the DM from its Agent counterpart, a channel from its member directory. */
   plainMentions?: Map<string, ChipMention>;
+  /** The task numbers a body's `task #N` references resolve to in this conversation, and the
+   * handler that opens one's detail popup. Owned by `ThreadedConversationContent`, which reads
+   * them from the conversation's task list. */
+  taskReferences?: ReadonlySet<number>;
+  onOpenTask?: (number: number) => void;
 }) {
   const openMode = useConversationOpenMode();
   // The candidate list keeps every member, the viewer included, because it is also what *resolves*
@@ -1266,6 +1306,8 @@ export function ConversationPane({
                   onOpenAgentProfile={onOpenAgentProfile}
                   viewerHandle={conversation.viewerHandle}
                   plainMentions={plainMentions}
+                  taskReferences={taskReferences}
+                  onOpenTask={onOpenTask}
                   onQuoteSelection={quoteSelection}
                 />
               </ol>
@@ -1341,6 +1383,8 @@ export function ConversationPane({
                     onOpenAgentProfile={onOpenAgentProfile}
                     viewerHandle={conversation.viewerHandle}
                     plainMentions={plainMentions}
+                    taskReferences={taskReferences}
+                    onOpenTask={onOpenTask}
                     onQuoteSelection={quoteSelection}
                   />
                 );

@@ -889,4 +889,5 @@ export * from "./codec";
 export * from "./validation";
 export * from "./weekly-report";
 export * from "./mentions";
+export * from "./task-references";
 export * from "./tool-display";

@@ -1235,6 +1235,63 @@ describe("PrismaDirectConversationRepository", () => {
     ).rejects.toThrow("attachment is not available for this message");
   });
 
+  test("sendAgentMessage stores a resolvable task reference as a token and leaves an unknown number alone", async () => {
+    const created: { data: { body: string } }[] = [];
+    const tx = {
+      $queryRaw: async () => [],
+      message: {
+        findFirst: async () => null,
+        create: async ({ data }: { data: { body: string } }) => {
+          created.push({ data });
+          return {
+            id: "message-new",
+            body: data.body,
+            createdAt: new Date("2026-09-17T00:00:00Z"),
+            sequence: 1,
+            deliveries: [],
+          };
+        },
+      },
+      attachment: { findMany: async () => [], update: async () => ({}) },
+      task: {
+        findMany: async ({ where }: { where: { number: { in: number[] } } }) =>
+          where.number.in.filter((number) => number === 68).map((number) => ({ number })),
+      },
+      conversationMember: { findMany: async () => [] },
+      threadFollow: { createMany: async () => {} },
+    };
+    const db = {
+      agent: { findUnique: async () => ({ ownerId: "user-1", visibility: "public" }) },
+      conversation: {
+        findUnique: async () => ({
+          id: "conversation-1",
+          workspaceId: "workspace-1",
+          channelName: null,
+          members: [
+            {
+              id: "member-agent",
+              agentId: "agent-1",
+              userId: null,
+              agent: { name: "agent-1", description: "" },
+            },
+            { id: "member-user", agentId: null, userId: "user-1" },
+          ],
+        }),
+      },
+      $transaction: async (fn: (tx: unknown) => unknown) => fn(tx),
+    } as unknown as PrismaClient;
+
+    await new PrismaDirectConversationRepository(db).sendAgentMessage(
+      "conversation-1",
+      "agent-1",
+      "follow task #68, not task #999",
+      [],
+    );
+
+    // Only the number that names a real task of this conversation becomes a structured reference.
+    expect(created[0]!.data.body).toBe("follow <@task:68>, not task #999");
+  });
+
   test("sendMessage links two human-uploaded attachments in send order", async () => {
     const updates: { where: unknown; data: unknown }[] = [];
     let attachmentQueries = 0;

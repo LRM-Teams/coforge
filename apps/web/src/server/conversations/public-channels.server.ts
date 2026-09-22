@@ -32,7 +32,11 @@ import {
   type CentrifugoServerApi,
 } from "../centrifugo/server-api.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
-import { normalizeMentionBody } from "@lrm/coforge-sdk/internal";
+import {
+  normalizeMentionBody,
+  resolveTaskReferences,
+  taskReferenceNumbers,
+} from "@lrm/coforge-sdk/internal";
 import {
   agentReadableBody,
   BROWSER_MESSAGE_MENTIONS_SELECT,
@@ -1310,6 +1314,23 @@ export class PublicChannels {
                   },
             ),
           );
+          // Task references (`task #68`) are resolved the same way and for the same reason: the
+          // server decides what names a real task of this channel, stores a `<@task:N>` token, and
+          // a renderer never has to parse prose. A number that names no task stays ordinary text.
+          const referencedTaskNumbers = taskReferenceNumbers(resolution.body);
+          const knownTaskNumbers = referencedTaskNumbers.length
+            ? new Set(
+                (
+                  await tx.task.findMany({
+                    where: { conversationId: channelId, number: { in: referencedTaskNumbers } },
+                    select: { number: true },
+                  })
+                ).map((task) => task.number),
+              )
+            : new Set<number>();
+          const taskResolution = resolveTaskReferences(resolution.body, (number) =>
+            knownTaskNumbers.has(number),
+          );
           if (root) {
             // Everyone who takes part in a thread is a follower: whoever replies, everyone the
             // reply @mentions, and — the first time the thread gets a reply — the author of the
@@ -1370,7 +1391,7 @@ export class PublicChannels {
               conversationId: channelId,
               senderMemberId: member.id,
               threadRootId: root?.id,
-              body: resolution.body,
+              body: taskResolution.body,
               sequence,
               mentions: resolution.mentions.length
                 ? {
