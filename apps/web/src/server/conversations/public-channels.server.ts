@@ -1266,21 +1266,26 @@ export class PublicChannels {
             orderBy: { sequence: "desc" },
           });
           // Validated before the message exists, then linked (messageId + position) once it does.
-          const attachmentRowIds: string[] = [];
-          for (const attachmentId of attachmentIds ?? []) {
-            const attachment = await tx.attachment.findFirst({
-              where: {
-                id: attachmentId,
-                conversationId: channelId,
-                workspaceId,
-                uploaderId: userId,
-                messageId: null,
-              },
-              select: { id: true },
-            });
-            if (!attachment) throw new AppError("ACCESS_DENIED");
-            attachmentRowIds.push(attachment.id);
-          }
+          const requestedAttachmentIds = attachmentIds ?? [];
+          const availableAttachments = requestedAttachmentIds.length
+            ? await tx.attachment.findMany({
+                where: {
+                  id: { in: [...new Set(requestedAttachmentIds)] },
+                  conversationId: channelId,
+                  workspaceId,
+                  uploaderId: userId,
+                  messageId: null,
+                },
+                select: { id: true },
+              })
+            : [];
+          const availableAttachmentIds = new Set(
+            availableAttachments.map((attachment) => attachment.id),
+          );
+          const attachmentRowIds = requestedAttachmentIds.map((attachmentId) => {
+            if (!availableAttachmentIds.has(attachmentId)) throw new AppError("ACCESS_DENIED");
+            return attachmentId;
+          });
           // Resolve @mentions against the channel's active members once. The stored body keeps
           // each resolved mention as an embedded-UUID token (`<@human:…>`/`<@agent:…>`,
           // Slack-style) and every resolved mention becomes a MessageMention row in the same

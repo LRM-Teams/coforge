@@ -1118,6 +1118,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("sendAgentMessage links two attachments in send order and rejects one the Agent did not upload", async () => {
     const updates: { where: unknown; data: unknown }[] = [];
+    let attachmentQueries = 0;
     const attachmentsById: Record<
       string,
       {
@@ -1163,19 +1164,24 @@ describe("PrismaDirectConversationRepository", () => {
         }),
       },
       attachment: {
-        findFirst: async ({
+        findMany: async ({
           where,
         }: {
-          where: { id: string; uploaderAgentId: string; messageId: null };
+          where: { id: { in: string[] }; uploaderAgentId: string; messageId: null };
         }) => {
-          const row = attachmentsById[where.id];
-          if (!row || row.uploaderAgentId !== where.uploaderAgentId) return null;
-          return {
-            id: row.id,
-            fileName: row.fileName,
-            contentType: row.contentType,
-            sizeBytes: row.sizeBytes,
-          };
+          attachmentQueries += 1;
+          return where.id.in.flatMap((id) => {
+            const row = attachmentsById[id];
+            if (!row || row.uploaderAgentId !== where.uploaderAgentId) return [];
+            return [
+              {
+                id: row.id,
+                fileName: row.fileName,
+                contentType: row.contentType,
+                sizeBytes: row.sizeBytes,
+              },
+            ];
+          });
         },
         update: async ({ where, data }: { where: unknown; data: unknown }) => {
           updates.push({ where, data });
@@ -1216,6 +1222,7 @@ describe("PrismaDirectConversationRepository", () => {
 
     // Order matches send order (B, then A), not any other reordering.
     expect(result.attachments.map((a) => a.id)).toEqual(["attach-b", "attach-a"]);
+    expect(attachmentQueries).toBe(1);
     expect(updates).toEqual([
       { where: { id: "attach-b" }, data: { messageId: "message-new", position: 0 } },
       { where: { id: "attach-a" }, data: { messageId: "message-new", position: 1 } },
@@ -1230,6 +1237,7 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("sendMessage links two human-uploaded attachments in send order", async () => {
     const updates: { where: unknown; data: unknown }[] = [];
+    let attachmentQueries = 0;
     const attachmentsById: Record<
       string,
       { id: string; fileName: string; contentType: string; sizeBytes: number; objectKey: string }
@@ -1262,10 +1270,13 @@ describe("PrismaDirectConversationRepository", () => {
         }),
       },
       attachment: {
-        findFirst: async ({ where }: { where: { id: string; uploaderId: string } }) => {
-          const row = attachmentsById[where.id];
-          if (!row || where.uploaderId !== "user-1") return null;
-          return row;
+        findMany: async ({ where }: { where: { id: { in: string[] }; uploaderId: string } }) => {
+          attachmentQueries += 1;
+          return where.id.in.flatMap((id) => {
+            const row = attachmentsById[id];
+            if (!row || where.uploaderId !== "user-1") return [];
+            return [row];
+          });
         },
         update: async ({ where, data }: { where: unknown; data: unknown }) => {
           updates.push({ where, data });
@@ -1301,6 +1312,7 @@ describe("PrismaDirectConversationRepository", () => {
     );
 
     expect(result.attachments.map((a) => a.id)).toEqual(["attach-b", "attach-a"]);
+    expect(attachmentQueries).toBe(1);
     expect(updates).toEqual([
       { where: { id: "attach-b" }, data: { messageId: "message-new", position: 0 } },
       { where: { id: "attach-a" }, data: { messageId: "message-new", position: 1 } },
