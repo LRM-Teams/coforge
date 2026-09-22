@@ -225,17 +225,31 @@ function SettingsPage() {
 
   async function testBrowserNotification() {
     try {
-      const subscription = await registerCurrentBrowser(false);
+      // Ask when the permission is still `default`: the test cannot send anything unless it is
+      // granted, and this click is the user gesture that lets the browser prompt. Without it the
+      // button can never succeed on a browser whose permission went back to `default` - it only
+      // reaches "check this browser's permission", which offers no way to fix it from there.
+      const subscription = await registerCurrentBrowser(true);
       if (!subscription) throw new Error("Browser notification permission is not granted");
       await sendTestNotification({ data: { endpoint: subscription.endpoint } });
       return true;
     } catch (cause) {
-      toast.error(
-        isAppError(cause) && cause.code === "NOT_FOUND"
-          ? m.preferences_browser_notifications_test_no_subscription()
-          : m.preferences_browser_notifications_test_error(),
-        cause,
-      );
+      // The whole chain used to answer with one sentence, "check this browser's permission",
+      // whatever actually went wrong - including a browser that could not create a subscription at
+      // all. A grant that is already in place and still fails is the browser's own push service, so
+      // name that, and put the raw reason in the console where whoever debugs this can read it.
+      let copy = m.preferences_browser_notifications_test_error();
+      if (isAppError(cause)) {
+        if (cause.code === "NOT_FOUND")
+          copy = m.preferences_browser_notifications_test_no_subscription();
+      } else {
+        // A client-side failure with the permission already granted is the browser's own push
+        // service refusing to create the subscription; the raw reason goes to the console.
+        console.warn("browser push test failed", cause);
+        if (browserNotificationPermission() === "granted")
+          copy = m.preferences_browser_notifications_test_browser_failed();
+      }
+      toast.error(copy, cause);
       return false;
     }
   }
