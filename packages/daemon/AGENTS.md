@@ -116,6 +116,13 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   separate launchd job through the existing process-tree interface. Its internal
   runner is embedded in Computer, never another installed product. Workspace
   startup reconciles only its own Agent job prefix before accepting new work.
+- `supervisor/windows-workspace-instance.ts` implements the Windows instance seam:
+  one `__workspace-daemon` OS child per Workspace with a durable invocation id.
+  Without systemd/launchd failure restart, the Coordinator's Windows reconcile
+  loop (`windows-workspace-reconcile.ts`) periodically re-runs
+  `MachineSupervisor.reconcile` so a dead child is started again; health latching
+  remains in the Workspace child's health journal. This seam does not replace
+  Job Object containment for external Agents.
 - `platform/daemon-logging.ts` configures the shared LogTape sinks once per
   Daemon-role process. Entrypoints own logging context and disposal; modules use
   LogTape category loggers directly, without a logger facade.

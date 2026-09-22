@@ -3,14 +3,13 @@ import { WindowsUserDaemonHost } from "@lrm/coforge-daemon";
 
 test("Windows task dispatches the daemon through the unified executable at logon", async () => {
   const commands: string[][] = [];
-  const taskStartFailed = new Error("task start failed for test");
   const task = new WindowsUserDaemonHost({
     executablePath: "C:\\Users\\alice\\Coforge\\coforge-computer.exe",
-    socketPath: "\\\\.\\pipe\\coforge-daemon",
+    socketPath: "C:\\Users\\alice\\.coforge\\daemon\\daemon.sock",
+    timeoutMilliseconds: 20,
     run: async (command) => {
       commands.push(command);
-      if (command[1] === "/Run") throw taskStartFailed;
-      return 0;
+      return command[1] === "/Run" ? 1 : 0;
     },
   });
   await expect(
@@ -20,20 +19,54 @@ test("Windows task dispatches the daemon through the unified executable at logon
       workspaceRoot: "/w",
       daemonApiKey: "secret",
     }),
-  ).rejects.toBe(taskStartFailed);
+  ).rejects.toThrow("Run `coforge-computer foreground` under an external supervisor");
   expect(commands[0]).toContain("ONLOGON");
   expect(commands[0]).toContain("/F");
   expect(commands[0]).toContain(
-    '"C:\\Users\\alice\\Coforge\\coforge-computer.exe" __daemon --socket \\\\.\\pipe\\coforge-daemon',
+    '"C:\\Users\\alice\\Coforge\\coforge-computer.exe" __daemon --socket "C:\\Users\\alice\\.coforge\\daemon\\daemon.sock"',
   );
   expect(commands[1]).toEqual(["schtasks.exe", "/Run", "/TN", "CoForge Daemon"]);
+});
+
+test("ensureStarted falls back to a live local supervisor when task Create is refused", async () => {
+  const commands: string[][] = [];
+  const task = new WindowsUserDaemonHost({
+    executablePath: "C:\\Coforge\\coforge-computer.exe",
+    socketPath: "C:\\Users\\alice\\.coforge\\daemon\\daemon.sock",
+    run: async (command) => {
+      commands.push(command);
+      return 1;
+    },
+    timeoutMilliseconds: 20,
+  });
+  await expect(
+    task.ensureStarted({
+      workspaceId: "w",
+      computerId: "computer",
+      workspaceRoot: "/w",
+      daemonApiKey: "secret",
+    }),
+  ).rejects.toThrow("Run `coforge-computer foreground` under an external supervisor");
+  expect(commands).toEqual([
+    [
+      "schtasks.exe",
+      "/Create",
+      "/TN",
+      "CoForge Daemon",
+      "/SC",
+      "ONLOGON",
+      "/TR",
+      '"C:\\Coforge\\coforge-computer.exe" __daemon --socket "C:\\Users\\alice\\.coforge\\daemon\\daemon.sock"',
+      "/F",
+    ],
+  ]);
 });
 
 test("Windows ensureRunning reports task start failure before waiting for a socket", async () => {
   const commands: string[][] = [];
   const task = new WindowsUserDaemonHost({
     executablePath: "C:\\Coforge\\coforge-computer.exe",
-    socketPath: "\\\\.\\pipe\\coforge-daemon",
+    socketPath: "C:\\Users\\alice\\.coforge\\daemon\\daemon.sock",
     run: async (command) => {
       commands.push(command);
       return 1;
@@ -50,7 +83,7 @@ test("restart ends then runs the scheduled task, in that order", async () => {
   const commands: string[][] = [];
   const task = new WindowsUserDaemonHost({
     executablePath: "C:\\Coforge\\coforge-computer.exe",
-    socketPath: "\\\\.\\pipe\\coforge-daemon",
+    socketPath: "C:\\Users\\alice\\.coforge\\daemon\\daemon.sock",
     run: async (command) => {
       commands.push(command);
       // Fails the /Run step deliberately so this exercises only the command sequence and
@@ -70,7 +103,7 @@ test("restart ignores /End's own exit code (the task may already be stopped)", a
   const commands: string[][] = [];
   const task = new WindowsUserDaemonHost({
     executablePath: "C:\\Coforge\\coforge-computer.exe",
-    socketPath: "\\\\.\\pipe\\coforge-daemon",
+    socketPath: "C:\\Users\\alice\\.coforge\\daemon\\daemon.sock",
     run: async (command) => {
       commands.push(command);
       return 1;

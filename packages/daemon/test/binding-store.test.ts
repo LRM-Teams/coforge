@@ -5,6 +5,21 @@ import { tmpdir } from "node:os";
 import { FileBindingStore } from "../src/supervisor/binding-store";
 import type { ManagedBinding } from "../src/supervisor/machine-supervisor";
 
+test("binding registry save completes on this platform without requiring directory fsync", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coforge-bindings-platform-"));
+  try {
+    const store = new FileBindingStore(root);
+    await store.save([
+      { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
+    ]);
+    expect(await store.load()).toEqual([
+      { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("binding registry reopens restart progress and terminal receipts from private files", async () => {
   const root = await mkdtemp(join(tmpdir(), "coforge-bindings-"));
   const bindings: ManagedBinding[] = [
@@ -21,7 +36,8 @@ test("binding registry reopens restart progress and terminal receipts from priva
     expect(await new FileBindingStore(root).load()).toEqual([]);
     await new FileBindingStore(root).save(bindings);
     expect(await new FileBindingStore(root).load()).toEqual(bindings);
-    expect((await stat(join(root, "bindings.json"))).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(join(root, "bindings.json"))).mode & 0o777).toBe(0o600);
     expect(await readdir(root)).toEqual(["bindings.json"]);
     for (const restart of [
       {},

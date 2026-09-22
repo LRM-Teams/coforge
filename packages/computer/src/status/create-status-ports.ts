@@ -77,7 +77,6 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
       return locateBinaryOnPath(input.platform, binaryName, environment.PATH ?? "");
     },
     async resolveRealPath(path: string): Promise<string | null> {
-      if (input.platform === "win32") return null; // no "active" symlink exists on Windows
       try {
         return await realpath(path);
       } catch {
