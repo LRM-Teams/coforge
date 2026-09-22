@@ -17,6 +17,8 @@ import {
   useLiveAgents,
 } from "@/features/agents/workspace-agents-realtime";
 import { conversationLayoutStorage } from "@/features/conversations/layout-storage";
+import { streamState, type StreamRead } from "@/features/conversations/stream-state";
+import { LoadingIndicator } from "@/components/ui/loading-indicator";
 import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
 import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -370,6 +372,21 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const { searchThreadRootId, openThread, openThreadFromHash, closeThread } =
     useOpenConversationThread();
   const [visited, setVisited] = useState<string[]>([]);
+  // Replacing the window with an "around" read leaves the stream with no messages until its answer
+  // lands; the stream must show loading, not "empty", while that is happening (stream-state.ts).
+  const [windowRead, setWindowRead] = useState<StreamRead>("settled");
+  const loadWindowAround = useCallback(
+    async (messageId: string) => {
+      if (!onLoadMessageAround) return;
+      setWindowRead("loading");
+      try {
+        await onLoadMessageAround(messageId);
+      } finally {
+        setWindowRead("settled");
+      }
+    },
+    [onLoadMessageAround],
+  );
   const [readThrough, setReadThrough] = useState<Record<string, number>>({});
   /**
    * This thread's read cursor: the persisted `thread_reads` row, raised by any mark-read this
@@ -507,8 +524,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     const messageId = messageIdFromHash(hash);
     if (!messageId || attemptedHashLoad.current === hash) return;
     attemptedHashLoad.current = hash;
-    void onLoadMessageAround?.(messageId);
-  }, [conversation.messages, searchThreadRootId, onLoadMessageAround]);
+    void loadWindowAround(messageId);
+  }, [conversation.messages, searchThreadRootId, loadWindowAround]);
   useEffect(() => {
     if (!searchThreadRootId) {
       attemptedSearchLoad.current = undefined;
@@ -517,11 +534,12 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     if (conversation.messages.some((message) => message.id === searchThreadRootId)) return;
     if (attemptedSearchLoad.current === searchThreadRootId) return;
     attemptedSearchLoad.current = searchThreadRootId;
-    void onLoadMessageAround?.(searchThreadRootId);
-  }, [searchThreadRootId, conversation.messages, onLoadMessageAround]);
+    void loadWindowAround(searchThreadRootId);
+  }, [searchThreadRootId, conversation.messages, loadWindowAround]);
   const conversationMainPane = (
     <ConversationPane
       {...conversationProps}
+      streamRead={windowRead}
       taskReferences={taskNumbers}
       onOpenTask={openTaskReference}
       onLoadMessageAround={onLoadMessageAround}
@@ -628,6 +646,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           >
             <ConversationPane
               {...conversationProps}
+              streamRead={windowRead}
               taskReferences={taskNumbers}
               onOpenTask={openTaskReference}
               onLoadMessageAround={onLoadMessageAround}
@@ -730,6 +749,7 @@ export function ConversationPane({
   header,
   readOnlyNotice,
   emptyState,
+  streamRead = "settled",
   onSend,
   root,
   onClose,
@@ -754,6 +774,8 @@ export function ConversationPane({
   header?: React.ReactNode;
   readOnlyNotice?: React.ReactNode;
   emptyState: { title: string; description: string; media: React.ReactNode };
+  /** Whether this stream's read has completed - see `stream-state.ts`. */
+  streamRead?: StreamRead;
   root?: DirectConversationView["messages"][number];
   onClose?: () => void;
   threadEntry?: (message: DirectConversationView["messages"][number]) => MessageThreadEntry;
@@ -1320,7 +1342,19 @@ export function ConversationPane({
               {loadingOlder && m.conversation_loading_older()}
             </div>
           )}
-          {conversation.messages.length === 0 ? (
+          {streamState(conversation.messages.length, streamRead) === "loading" ? (
+            // A window replacement is in flight (an "around" read): no messages yet, but that is not
+            // an empty conversation. Only a settled read may say so (stream-state.ts, #112/#113).
+            <div
+              role="status"
+              className={cn(
+                "flex items-center justify-center text-tertiary",
+                root ? "px-4 py-8 md:px-6" : "px-4 pt-[clamp(2rem,10svh,5rem)] pb-8 md:px-6",
+              )}
+            >
+              <LoadingIndicator className="size-4" label={m.conversation_loading()} />
+            </div>
+          ) : conversation.messages.length === 0 ? (
             <Empty
               className={
                 root
