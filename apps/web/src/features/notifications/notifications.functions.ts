@@ -84,6 +84,10 @@ export const sendTestBrowserNotification = createServerFn({ method: "POST" })
       return result;
     } catch (error) {
       if (error instanceof AppError) throw error;
+      // A member only sees the generic "test could not be sent" copy, so an unusable Web Push
+      // configuration (or any other refusal) must still leave a trace: same event name the
+      // message-delivery path uses for the same cause, so one grep finds both.
+      console.warn(JSON.stringify({ event: "web_push.unavailable", operation: "test" }));
       throw new AppError("TEMPORARILY_UNAVAILABLE");
     }
   });

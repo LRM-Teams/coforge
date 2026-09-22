@@ -42,6 +42,15 @@ export class WebPushDeliveryError extends Error {
 
 type DeliveryResult = { sent: number; failed: number; removed: number };
 
+/** The endpoint's host alone - never the full endpoint, which is a capability URL. */
+function safeEndpointHost(endpoint: string): string {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return "invalid";
+  }
+}
+
 export class WebPushNotifications {
   constructor(
     private readonly subscriptions: WebPushSubscriptionStore,
@@ -71,6 +80,16 @@ export class WebPushNotifications {
     const subscriptions = (await this.subscriptions.subscriptionsForUser(userId)).filter(
       (subscription) => subscription.endpoint === endpoint,
     );
+    if (subscriptions.length === 0) {
+      // Nothing is sent and nothing else is logged, which left a member staring at "check this
+      // browser's permission" with no way to tell a pruned subscription from a broken push service.
+      console.warn(
+        JSON.stringify({
+          event: "web_push.test_no_subscription",
+          endpointHost: safeEndpointHost(endpoint),
+        }),
+      );
+    }
     return this.deliver(subscriptions, {
       title: "CoForge",
       body: "Browser notifications are working on this device.",
