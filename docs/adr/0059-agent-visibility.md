@@ -9,8 +9,8 @@ Decided by: Frank
 Every Agent in a Workspace is visible to every member today: the members directory, @mention
 candidates, add-to-channel candidates, the workspace info roster, created-agents lists and Activity
 feeds all show every Agent unconditionally. A member needs to be able to keep an Agent to
-themselves, and the weekly-report Collector Agents (ADR 0032), which work on one User's own
-records, should not appear to the rest of the Workspace at all.
+themselves, and the weekly-report Collector Agents (ADR 0032) and WeeklyReportAssistant Agents,
+which work on one User's own records, should not appear to the rest of the Workspace at all.
 
 Raft Computer 1.0.32 has no per-Agent visibility concept to align with. Its only related setting is
 a Server-level `hideHumansFromMembers` toggle — hides every human from the members list, server-wide
@@ -21,8 +21,9 @@ to "some Agents are private." These rules are CoForge's own.
 
 **A. `Agent.visibility`: `"public" | "private"`, default `"public"`.** Existing rows stay public;
 no data migration. The Agent create form offers Public/Private, defaulting to Public (creating an
-Agent stays Workspace owner/admin only). New weekly-report Collector Agents (ADR 0032) are created
-`"private"`; an Agent-prepared `agent:create` action card creates `"public"`.
+Agent stays Workspace owner/admin only). New weekly-report Collector Agents (ADR 0032) and
+WeeklyReportAssistant Agents are created `"private"` (and reclaimed orphans are corrected to
+`"private"`); an Agent-prepared `agent:create` action card creates `"public"`.
 
 **B. Who can see a private Agent.** A viewer (human or Agent) can see a private Agent iff any of:
 

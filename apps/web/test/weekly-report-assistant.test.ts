@@ -284,6 +284,7 @@ test("ensureWeeklyReportAssistant creates one assistant per User in a Workspace"
     ownerId: "user-1",
     name: weeklyReportAssistantAgentName("user-1"),
     displayName: WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME,
+    visibility: "private",
     runtimeConfig: {
       runtime: "coforge",
       provider: { kind: "default" },
@@ -308,6 +309,7 @@ test("ensureWeeklyReportAssistant reclaims an orphan Agent left without an assis
       ownerId: "user-1",
       name: agentName,
       deletedAt: null,
+      visibility: "public",
     },
   ];
   let createdAgents = 0;
@@ -356,6 +358,7 @@ test("ensureWeeklyReportAssistant reclaims an orphan Agent left without an assis
               id: agent.id as string,
               ownerId: agent.ownerId as string,
               deletedAt: (agent.deletedAt as Date | null | undefined) ?? null,
+              visibility: (agent.visibility as string | undefined) ?? "public",
             }
           : null;
       },
@@ -363,8 +366,17 @@ test("ensureWeeklyReportAssistant reclaims an orphan Agent left without an assis
         createdAgents += 1;
         throw new Error("must not create a second Agent for the same assistant name");
       },
-      update: async () => {
-        throw new Error("orphan was not soft-deleted");
+      update: async ({
+        where,
+        data,
+      }: {
+        where: { id_workspaceId: { id: string; workspaceId: string } };
+        data: Record<string, unknown>;
+      }) => {
+        const agent = agents.find((row) => row.id === where.id_workspaceId.id);
+        if (!agent) throw new Error("missing agent");
+        Object.assign(agent, data);
+        return agent;
       },
       findMany: async () => agents.map((agent) => ({ id: agent.id })),
     },
@@ -395,4 +407,5 @@ test("ensureWeeklyReportAssistant reclaims an orphan Agent left without an assis
   expect(row.agentId).toBe("orphan-agent");
   expect(createdAgents).toBe(0);
   expect(assistants).toHaveLength(1);
+  expect(agents[0]).toMatchObject({ visibility: "private" });
 });

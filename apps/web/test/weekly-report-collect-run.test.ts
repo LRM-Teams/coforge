@@ -170,9 +170,73 @@ test("ensureCollector refuses a Computer the User does not own", async () => {
   ).rejects.toMatchObject({ code: "ACCESS_DENIED" });
 });
 
+test("ensureCollector creates a private Collector Agent for an owned Computer", async () => {
+  const { ensureCollector } = await import("../src/server/records/weekly-report-collector.server");
+  const createdAgents: Array<Record<string, unknown>> = [];
+  const db: any = {
+    $transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
+    weeklyReportCollectorBinding: {
+      findUnique: async () => null,
+      create: async ({ data }: { data: Record<string, unknown> }) => ({
+        id: "binding-1",
+        ...data,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    },
+    workspaceComputer: {
+      findUnique: async () => ({
+        computerId: "computer-a",
+        computer: {
+          id: "computer-a",
+          ownerId: "user-1",
+          displayName: "ubuntu",
+          name: "ubuntu",
+        },
+      }),
+    },
+    agent: {
+      findUnique: async () => null,
+      findMany: async () => [],
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const agent = { ...data, id: "collector-1" };
+        createdAgents.push(agent);
+        return agent;
+      },
+    },
+    conversation: {
+      createMany: async () => ({ count: 0 }),
+      findUniqueOrThrow: async () => ({ id: "general-1" }),
+    },
+    workspaceMembership: {
+      findMany: async () => [{ userId: "user-1" }],
+    },
+    conversationMember: {
+      createMany: async () => ({ count: 0 }),
+    },
+    message: {
+      findFirst: async () => undefined,
+    },
+  };
+
+  const result = await ensureCollector(db as never, {
+    workspaceId: "ws-1",
+    userId: "user-1",
+    computerId: "computer-a",
+  });
+
+  expect(result.collectorAgentId).toBe("collector-1");
+  expect(createdAgents[0]).toMatchObject({
+    visibility: "private",
+    name: "weekly-report-collector-computer-a",
+    ownerId: "user-1",
+  });
+});
+
 test("ensureCollector reclaims an orphan Agent and creates the missing binding", async () => {
   const { ensureCollector } = await import("../src/server/records/weekly-report-collector.server");
   let createdBinding: unknown = null;
+  let visibilityPatch: unknown = null;
   const db: any = {
     $transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
     weeklyReportCollectorBinding: {
@@ -203,12 +267,16 @@ test("ensureCollector reclaims an orphan Agent and creates the missing binding",
         id: "orphan-agent",
         ownerId: "user-1",
         computerId: "computer-a",
+        visibility: "public",
       }),
       findMany: async () => [{ id: "orphan-agent" }],
       create: async () => {
         throw new Error("must not create duplicate agent");
       },
-      update: async () => ({}),
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        if (data.visibility != null) visibilityPatch = data;
+        return {};
+      },
     },
     conversation: {
       createMany: async () => ({ count: 0 }),
@@ -238,6 +306,7 @@ test("ensureCollector reclaims an orphan Agent and creates the missing binding",
     computerId: "computer-a",
     collectorAgentId: "orphan-agent",
   });
+  expect(visibilityPatch).toMatchObject({ visibility: "private" });
 });
 
 test("startCollectRun creates a collecting run with running slots for ready collectors", async () => {

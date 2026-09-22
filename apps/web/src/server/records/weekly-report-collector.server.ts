@@ -92,15 +92,25 @@ export async function ensureCollector(
         where: {
           workspaceId_name: { workspaceId: input.workspaceId, name: agentName },
         },
-        select: { id: true, ownerId: true, computerId: true },
+        select: { id: true, ownerId: true, computerId: true, visibility: true },
       });
       let agentId = orphan?.id;
       if (orphan) {
         if (orphan.ownerId !== input.userId) throw new AppError("ACCESS_DENIED");
+        const patch: {
+          computerId?: string;
+          visibility?: typeof AGENT_VISIBILITY.PRIVATE;
+        } = {};
         if (orphan.computerId !== input.computerId) {
+          patch.computerId = input.computerId;
+        }
+        if (orphan.visibility !== AGENT_VISIBILITY.PRIVATE) {
+          patch.visibility = AGENT_VISIBILITY.PRIVATE;
+        }
+        if (Object.keys(patch).length > 0) {
           await tx.agent.update({
             where: { id_workspaceId: { id: orphan.id, workspaceId: input.workspaceId } },
-            data: { computerId: input.computerId },
+            data: patch,
           });
         }
       } else {
