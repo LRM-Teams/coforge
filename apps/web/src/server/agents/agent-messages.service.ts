@@ -378,6 +378,7 @@ export type AgentMessageRecord = {
   createdAt: Date;
   /** Always present, possibly empty; order matches send/upload order. */
   attachments: { id: string; fileName: string; contentType: string; sizeBytes: number }[];
+  mentionsAgent?: boolean;
 };
 
 export async function drainAgentEvents(

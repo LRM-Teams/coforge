@@ -40,19 +40,40 @@ const REMEMBERED_DELIVERIES = 4096;
  * anything older is consumed by the same frontier anyway. No invented slack. */
 const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 
+/**
+ * Agent-authored parent-channel chatter should not wake other Agents unless it personally
+ * @mentions them. Human ordinary channel messages still wake every delivered Agent so each can
+ * decide whether to participate; ADR 0061 retires the old default #general channel separately.
+ */
+function shouldWakeForDelivery(message: AgentMessageDelivery): boolean {
+  const target = message.target ?? "";
+  if (!isChannelMessageTarget(target)) return true;
+  if (target.includes(":")) return true;
+  if (message.latestSenderKind === "system") return true;
+  return !(message.latestSenderKind === "agent" && message.mentionsAgent === false);
+}
+
 /** One unreviewed delivery plus the moment this daemon learned about it. Deliveries carry no
  * message timestamp of their own (only the server knows when a message was written), so the
  * arrival time is what a locally built preview can honestly show. */
+export type PendingWindowEntry = { delivery: AgentMessageDelivery; receivedAt: number };
 
 /** The fields `#localViewRows` reads — a live delivery or a recovery message. */
 type LocalViewItem = {
   target?: string;
   messageId: string;
+  sequence?: number;
   latestSenderKind?: MessageSenderKind;
   latestSenderHandle?: string;
 };
 
-export type PendingWindowEntry = { delivery: AgentMessageDelivery; receivedAt: number };
+type LocalViewRow = {
+  target: string;
+  newIds: Set<string>;
+  heldIds: Set<string>;
+  latestSenderKind?: MessageSenderKind;
+  latestSenderHandle?: string;
+};
 
 /**
  * Validates a `(kind, handle)` pair before it can reach a model-visible notice (ADR 0052,
@@ -122,6 +143,7 @@ export class AgentMessageAttentionIndex {
   readonly #hydrated = new Set<string>();
   readonly #workspaceId: string;
   readonly #runtimes: Pick<AgentProcessManager, "session">;
+  readonly #memoryReminders = new Map<string, string>();
 
   constructor(
     workspaceId: string,
@@ -157,6 +179,11 @@ export class AgentMessageAttentionIndex {
     this.#workspaceId = workspaceId;
     this.#runtimes = runtimes;
     this.#consumedSeqs = hold.consumedSeqs;
+  }
+
+  /** Appended once to the next notice; the daemon never edits the Agent's MEMORY.md. */
+  setMemoryReminder(agentId: string, text: string): void {
+    this.#memoryReminders.set(agentId, text);
   }
 
   async receive(message: AgentMessageDelivery): Promise<void> {
@@ -224,6 +251,15 @@ export class AgentMessageAttentionIndex {
     this.#attention.set(message.agentId, byTarget);
     this.#recordLatest(message.agentId, target, message.sequence);
     this.#recordPendingWindow(message.agentId, target, message);
+    if (!shouldWakeForDelivery(message)) {
+      generation.notified.add(message.deliveryId);
+      await this.sendAck({
+        ...message,
+        method: AGENT_MESSAGE_ACK_METHOD,
+        requestId: message.requestId,
+      });
+      return;
+    }
     if (this.hold.shouldHold(message.agentId)) {
       this.hold.enqueue(message.agentId, message);
       return;
@@ -328,18 +364,22 @@ export class AgentMessageAttentionIndex {
     // through `coforge message check`. DM and channel share `#localViewRows` (one target per
     // line, no body). `recordModelSeen` is not advanced here — the server cursor has not moved,
     // and `check` is what advances both.
+    const recoveryRows = this.#localViewRows(recoveredMessages, []);
     const rows = [
-      ...this.#localViewRows(recoveredMessages, []),
+      ...this.#renderLocalViewRows(recoveryRows.rows),
       ...summaryOnly.map(
         ([target, count]) => `${target}  new: ${count} message${count === 1 ? "" : "s"}`,
       ),
     ];
     const totalCount =
       recoveredMessages.length + summaryOnly.reduce((sum, [, count]) => sum + count, 0);
-    const notice = `[CoForge inbox notice (restart recovery):
+    const notice = this.#withMemoryReminder(
+      agentId,
+      `[CoForge inbox notice (restart recovery):
 Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or held for you
 ${rows.join("\n")}
-Run \`coforge message check\` to drain pending messages, or \`coforge message read --target @x\` to inspect one target.]`;
+Run \`coforge message check\` to drain pending messages, or \`coforge message read --target @x\` to inspect one target.]`,
+    );
     // ADR 0048: same synchronous-busy rule as `#notify` — this is also a `session.notify` call.
     this.hold.busy(agentId);
     await session.notify(notice);
@@ -358,6 +398,13 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
     if (recoveredMessages.length) this.messageReceived(agentId);
   }
 
+  #withMemoryReminder(agentId: string, notice: string): string {
+    const reminder = this.#memoryReminders.get(agentId);
+    if (!reminder) return notice;
+    this.#memoryReminders.delete(agentId);
+    return `${notice}\n\n${reminder}`;
+  }
+
   /**
    * One line per target, in the order the targets first appear: what this notice announces (`new`)
    * and what stays queued for this Agent (`held`). The delivery queue is per Agent (ADR 0048), so
@@ -368,19 +415,21 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
    * while the lines showed only the announced ones left the reader unable to tell where the rest
    * were, which is the same kind of unexplainable number this change exists to remove.
    */
-  #localViewRows(announced: readonly LocalViewItem[], queued: readonly LocalViewItem[]): string[] {
+  #localViewRows(
+    announced: readonly LocalViewItem[],
+    queued: readonly LocalViewItem[],
+  ): {
+    rows: LocalViewRow[];
+    countedIds: Set<string>;
+  } {
     const announcedIds = new Set(announced.map((delivery) => delivery.messageId));
-    type Row = {
-      newIds: Set<string>;
-      heldIds: Set<string>;
-      latestSenderKind?: MessageSenderKind;
-      latestSenderHandle?: string;
-    };
-    const byTarget = new Map<string, Row>();
+    const countedIds = new Set<string>();
+    const byTarget = new Map<string, LocalViewRow>();
     const rowFor = (target: string) => {
       const existing = byTarget.get(target);
       if (existing) return existing;
-      const created: Row = {
+      const created: LocalViewRow = {
+        target,
         newIds: new Set<string>(),
         heldIds: new Set<string>(),
       };
@@ -393,6 +442,7 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
       if (!delivery.target) continue;
       const row = rowFor(delivery.target);
       row.newIds.add(delivery.messageId);
+      countedIds.add(delivery.messageId);
       const sender = printableSender(delivery.latestSenderKind, delivery.latestSenderHandle);
       if (sender) {
         row.latestSenderKind = sender.kind;
@@ -403,13 +453,18 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
       if (!delivery.target || announcedIds.has(delivery.messageId)) continue;
       const row = rowFor(delivery.target);
       row.heldIds.add(delivery.messageId);
+      countedIds.add(delivery.messageId);
       const sender = printableSender(delivery.latestSenderKind, delivery.latestSenderHandle);
       if (sender) {
         row.latestSenderKind = sender.kind;
         row.latestSenderHandle = sender.handle;
       }
     }
-    return [...byTarget].map(([target, row]) => {
+    return { rows: [...byTarget.values()], countedIds };
+  }
+
+  #renderLocalViewRows(rows: readonly LocalViewRow[]): string[] {
+    return rows.map((row) => {
       const parts: string[] = [];
       if (row.newIds.size)
         parts.push(`new: ${row.newIds.size} message${row.newIds.size === 1 ? "" : "s"}`);
@@ -419,7 +474,7 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
         parts.push(
           `latest sender ${renderMessageSender(row.latestSenderKind, row.latestSenderHandle ?? "")}`,
         );
-      return `${target}  ${parts.join(" · ")}`;
+      return `${row.target}  ${parts.join(" · ")}`;
     });
   }
 
@@ -450,14 +505,18 @@ Run \`coforge message check\` to drain pending messages, or \`coforge message re
     // advanced that cursor. Only those commands answer what is left, and either may answer
     // "nothing".
     const queued = this.hold.queued?.(message.agentId) ?? [];
-    const rows = this.#localViewRows(announced, queued);
+    const view = this.#localViewRows(announced, queued);
+    const rows = this.#renderLocalViewRows(view.rows);
     const totalCount = countDistinctMessages([...announced, ...queued]);
-    const notice = `[CoForge inbox notice:
+    const notice = this.#withMemoryReminder(
+      message.agentId,
+      `[CoForge inbox notice:
 Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or held for you
 ${rows.join("\n")}
 What the server still has for you is answered only by \`coforge message check\`, or
 \`coforge message read --target <target>\`; either may return nothing, because a message can
-already have been read. A notice you have not acted on does not establish that there is no work.]`;
+already have been read. A notice you have not acted on does not establish that there is no work.]`,
+    );
     const notification = Promise.resolve()
       .then(() => session.notify!(notice))
       .then(() => {
@@ -713,6 +772,7 @@ already have been read. A notice you have not acted on does not establish that t
     this.#latestKnown.delete(agentId);
     this.#readContext.delete(agentId);
     this.#readContextCounters.delete(agentId);
+    this.#memoryReminders.delete(agentId);
   }
 
   clear(agentId: string, target: string): void {

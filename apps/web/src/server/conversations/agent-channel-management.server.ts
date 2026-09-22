@@ -185,8 +185,7 @@ export class AgentChannelManagement {
       throw new AgentChannelManagementError(403, "this Agent does not belong to the Workspace");
     await this.assertCallerNotPrivate(workspaceId, agentId, "create");
     const name = this.normalizeChannelName(rawName);
-    if (name === "general")
-      throw new AgentChannelManagementError(409, "general is reserved for automatic enrollment");
+    if (name === "general") throw new AgentChannelManagementError(409, "general is reserved");
     try {
       const channel = await this.db.conversation.create({
         data: {
@@ -232,8 +231,7 @@ export class AgentChannelManagement {
       if (channelName === "general")
         throw new AgentChannelManagementError(400, "cannot rename #general");
       nextName = this.normalizeChannelName(patch.name);
-      if (nextName === "general")
-        throw new AgentChannelManagementError(409, "general is reserved for automatic enrollment");
+      if (nextName === "general") throw new AgentChannelManagementError(409, "general is reserved");
     }
     try {
       const updated = await this.db.conversation.update({

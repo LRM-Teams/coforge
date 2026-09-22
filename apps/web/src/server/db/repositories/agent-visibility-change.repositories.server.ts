@@ -11,16 +11,14 @@ import type {
  * still-live Agent (`ACTIVE_AGENT_WHERE`): a repeated call with the same visibility is a no-op
  * (`changed: false`) so a double submit never soft-leaves or re-joins twice.
  *
- * public → private soft-leaves every active channel membership including `#general` in one
- * `updateMany` — the same `leftAt` representation `softLeaveMember`/`AgentDeletion` use, just
+ * public → private soft-leaves every active channel membership in one `updateMany` — the same
+ * `leftAt` representation `softLeaveMember`/`AgentDeletion` use, just
  * applied to every channel row at once rather than one conversation at a time. Direct
  * conversations are never touched here: they become read-only through the DM send/open guards in
  * `direct-conversation.repositories.server.ts`, not by leaving anything.
  *
- * private → public re-joins `#general` only (ADR 0059 explicitly does not restore any other
- * channel membership): the row is upserted so a first-time membership and a re-join through a
- * soft-left row are the same write, and unrelated columns (read cursor, mute) survive a re-join
- * exactly as they do for a human (`ConversationMember.leftAt`'s own doc comment).
+ * private → public does not restore any channel membership. The Agent can be added to channels
+ * explicitly later; DMs are unaffected by the channel visibility transition.
  */
 export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilityStore {
   constructor(private readonly db: PrismaClient) {}
@@ -50,24 +48,6 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
             conversation: { channelName: { not: null } },
           },
           data: { leftAt: new Date() },
-        });
-      } else {
-        const general = await tx.conversation.upsert({
-          where: {
-            workspaceId_channelName: { workspaceId: input.workspaceId, channelName: "general" },
-          },
-          create: { workspaceId: input.workspaceId, channelName: "general" },
-          update: {},
-          select: { id: true },
-        });
-        await tx.conversationMember.upsert({
-          where: { conversationId_agentId: { conversationId: general.id, agentId: input.agentId } },
-          create: {
-            workspaceId: input.workspaceId,
-            conversationId: general.id,
-            agentId: input.agentId,
-          },
-          update: { leftAt: null },
         });
       }
       return { changed: true };

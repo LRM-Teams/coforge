@@ -638,6 +638,8 @@ export class TaskBoard {
                     latestSenderKind: sender.kind,
                     latestSenderHandle: sender.handle,
                     latestSenderDescription: sender.description,
+                    // Task deliveries are directed at this Agent; treat as a personal wake.
+                    mentionsAgent: true,
                   }),
                 ),
               ),

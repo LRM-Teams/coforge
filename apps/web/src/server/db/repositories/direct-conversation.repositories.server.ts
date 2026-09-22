@@ -12,6 +12,7 @@ import {
   agentReadableBody,
   BROWSER_MESSAGE_MENTIONS_SELECT,
   browserMessageMention,
+  deliveryMentionsAgent,
   mentionedNames,
 } from "../../conversations/mentions";
 import { AgentSendRejectedError } from "../../conversations/agent-send-rejected-error.server";
@@ -110,7 +111,9 @@ export type AgentRecoveryContext = {
   unreadSummary: Readonly<Record<string, number>>;
 };
 
-export type PendingAgentDelivery = AgentRecoveryContext["resumeMessages"][number];
+export type PendingAgentDelivery = AgentRecoveryContext["resumeMessages"][number] & {
+  mentionsAgent?: boolean;
+};
 
 const AGENT_RECOVERY_MESSAGE_LIMIT = 100;
 const PUBLIC_USERNAME_TARGET = /^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
@@ -207,12 +210,14 @@ function toAgentMessage(
     mentions?: { kind: string; actorId: string; handle: string }[];
   },
   target: string,
+  readerAgentId?: string,
 ) {
   const task = messageTask(row.task);
   const sender = agentMessageSender(row.sender);
   // Agents read plain `@handle` text: the embedded-UUID token form is a storage/browser concern
   // and never crosses onto the Agent channel.
   const body = agentReadableBody(row.body, row.mentions ?? []);
+  const mentionsAgent = readerAgentId ? deliveryMentionsAgent(row.mentions, readerAgentId) : false;
   return {
     id: row.id,
     sequence: row.sequence,
@@ -226,6 +231,7 @@ function toAgentMessage(
     target,
     attachments: row.attachments,
     ...(task ? { task } : {}),
+    ...(mentionsAgent ? { mentionsAgent: true } : {}),
   };
 }
 
@@ -1443,6 +1449,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         latestSenderHandle: sender.handle,
         latestSenderDescription: sender.description,
         body: agentReadableBody(delivery.message.body, delivery.message.mentions),
+        ...(deliveryMentionsAgent(delivery.message.mentions, agentId)
+          ? { mentionsAgent: true }
+          : {}),
       };
     });
   }
@@ -1715,6 +1724,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         return toAgentMessage(
           message,
           deliveryTarget(conversationTarget(message.conversation), message.threadRootId),
+          agentId,
         );
       });
       const targetGroups = new Map<

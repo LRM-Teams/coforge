@@ -935,10 +935,11 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
       agentId: value.agentId,
       body: value.body,
       method: value.method,
-      target: value.target,
+      target: value.target ?? "",
       latestSenderKind: value.latestSenderKind ?? "",
       latestSenderHandle: value.latestSenderHandle ?? "",
       latestSenderDescription: value.latestSenderDescription ?? "",
+      mentionsAgent: value.mentionsAgent,
     }),
   );
 }
@@ -975,6 +976,7 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
           latestSenderDescription: value.latestSenderDescription,
         }
       : {}),
+    ...(value.mentionsAgent !== undefined ? { mentionsAgent: value.mentionsAgent } : {}),
   };
 }
 export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {

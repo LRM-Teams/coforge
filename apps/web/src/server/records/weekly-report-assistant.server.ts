@@ -1,7 +1,6 @@
 import type { PrismaClient } from "../../../generated/client";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { AppError } from "../../lib/app-error";
-import { enrollGeneralChannel } from "../conversations/public-channels.server";
 
 export const WEEKLY_REPORT_ASSISTANT_DISPLAY_NAME = "周报助手";
 
@@ -83,7 +82,6 @@ export async function ensureWeeklyReportAssistant(
         agentId = agent.id;
       }
 
-      await enrollGeneralChannel(tx, input.workspaceId);
       return tx.weeklyReportAssistant.create({
         data: {
           workspaceId: input.workspaceId,

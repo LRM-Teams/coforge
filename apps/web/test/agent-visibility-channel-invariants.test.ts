@@ -1,77 +1,24 @@
 import { expect, test } from "bun:test";
 import type { PrismaClient } from "../generated/client";
 import { isAppError } from "../src/lib/app-error";
-import {
-  enrollGeneralChannel,
-  PublicChannels,
-} from "../src/server/conversations/public-channels.server";
+import { PublicChannels } from "../src/server/conversations/public-channels.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
 import { AgentChannelManagement } from "../src/server/conversations/agent-channel-management.server";
 import { AgentChannelManagementError } from "../src/server/conversations/agent-channel-management-error.server";
 
 const WORKSPACE_ID = "workspace-1";
 
-/**
- * ADR 0059: a private Agent is never enrolled in `#general` — even other, public Agents in the
- * same Workspace still get enrolled normally, so this proves the filter is scoped to visibility,
- * not a blanket regression against Agent enrollment.
- */
-test("enrollGeneralChannel excludes a private Agent but keeps enrolling public ones", async () => {
-  let agentQuery: unknown;
-  let createdMemberAgentIds: string[] = [];
-  const tx = {
-    conversation: {
-      createMany: async () => {},
-      findUniqueOrThrow: async () => ({ id: "general-1", channelName: "general" }),
-    },
-    workspaceMembership: { findMany: async () => [] },
-    message: { findFirst: async () => null },
-    conversationMember: {
-      createMany: async ({ data }: { data: Array<{ agentId?: string }> }) => {
-        createdMemberAgentIds = data.flatMap((row) => (row.agentId ? [row.agentId] : []));
-      },
-    },
-    agent: {
-      findMany: async (query: unknown) => {
-        agentQuery = query;
-        // Simulates Prisma applying the `visibility: "public"` filter itself: only the public
-        // Agent is ever returned to this fake table.
-        return [{ id: "agent-public" }];
-      },
-    },
-  } as unknown as PrismaClient;
-
-  await enrollGeneralChannel(tx as never, WORKSPACE_ID);
-
-  expect(agentQuery).toMatchObject({
-    where: { workspaceId: WORKSPACE_ID, visibility: "public", deletedAt: null },
-  });
-  expect(createdMemberAgentIds).toEqual(["agent-public"]);
-});
-
-test("PrismaAgentRepository.create() with visibility 'private' never enrolls the new Agent in #general (ADR 0059)", async () => {
-  let createdMemberAgentIds: string[] | undefined;
+test("PrismaAgentRepository.create() creates only the Agent, not a default channel membership", async () => {
+  let createdAgentData: Record<string, unknown> | undefined;
   const db = {
-    $transaction: async (work: (tx: PrismaClient) => Promise<unknown>) => work(db),
     agent: {
-      create: async ({ data }: { data: Record<string, unknown> }) => ({
-        id: "agent-new",
-        createdAt: new Date(),
-        ...data,
-      }),
-      // Simulates Prisma applying the real `visibility: "public"` filter: the just-created
-      // private Agent is never in this result, even though it exists in the same Workspace.
-      findMany: async () => [],
-    },
-    conversation: {
-      createMany: async () => {},
-      findUniqueOrThrow: async () => ({ id: "general-1", channelName: "general" }),
-    },
-    workspaceMembership: { findMany: async () => [] },
-    message: { findFirst: async () => null },
-    conversationMember: {
-      createMany: async ({ data }: { data: Array<{ agentId?: string }> }) => {
-        createdMemberAgentIds = data.flatMap((row) => (row.agentId ? [row.agentId] : []));
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        createdAgentData = data;
+        return {
+          id: "agent-new",
+          createdAt: new Date(),
+          ...data,
+        };
       },
     },
   } as unknown as PrismaClient;
@@ -91,7 +38,7 @@ test("PrismaAgentRepository.create() with visibility 'private' never enrolls the
     },
   });
 
-  expect(createdMemberAgentIds).toEqual([]);
+  expect(createdAgentData).toMatchObject({ workspaceId: WORKSPACE_ID, visibility: "private" });
 });
 
 function publicChannelsFixture(target: {
@@ -154,9 +101,9 @@ test("PublicChannels.members never offers a private Agent as an add-candidate (A
   const roster = await channels.members(WORKSPACE_ID, { agentId: "actor-agent" }, "channel-1");
 
   // The fake `agent.findMany` above only ever returns public Agents (the same "channels never
-  // contain a private Agent" invariant `addMembers`/`enrollGeneralChannel` enforce at the write
-  // side) — a private Agent would never be a row here, so it can never reach a channel's
-  // `mentionables` (sourced from `conversationMember` rows) either.
+  // contain a private Agent" invariant `addMembers` enforces at the write side) — a private Agent
+  // would never be a row here, so it can never reach a channel's `mentionables` (sourced from
+  // `conversationMember` rows) either.
   expect(roster.candidates.agents).toEqual([
     { id: "agent-public", name: "scout", displayName: "Scout" },
   ]);

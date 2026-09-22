@@ -7,8 +7,8 @@ import { isAdminLike, type WorkspaceMemberRole } from "../workspaces/member-role
 /**
  * The atomic visibility transition, or whether it was a no-op (ADR 0059). Implementations own the
  * public↔private side effects in one transaction: public→private soft-leaves every active channel
- * membership including `#general`; private→public re-joins `#general` only. Messages, Tasks and
- * Action cards are never touched — history stays exactly as it was.
+ * membership; private→public does not restore channel membership automatically. Messages, Tasks
+ * and Action cards are never touched — history stays exactly as it was.
  */
 export interface ChangeAgentVisibilityStore {
   apply(input: {
@@ -21,8 +21,8 @@ export interface ChangeAgentVisibilityStore {
 }
 
 export type AgentVisibilityChangePreview = {
-  /** Names of the channels (including `#general`, unprefixed) a public→private change would
-   * soft-leave; empty for an Agent already private or in no active channel. */
+  /** Names of the channels (unprefixed) a public→private change would soft-leave; empty for an
+   * Agent already private or in no active channel. */
   channelNames: string[];
   /** Existing direct conversations that would become read-only: every DM the Agent has with
    * someone other than its own creator, who alone keeps write access to a private Agent's DM

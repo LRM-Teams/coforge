@@ -1,5 +1,4 @@
 import type { PrismaClient } from "../../../../generated/client";
-import { enrollGeneralChannel } from "../../conversations/public-channels.server";
 import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
 import {
   parseAgentRuntimeConfig,
@@ -144,11 +143,7 @@ export class PrismaAgentRepository implements AgentRepository {
   }
 
   async create(input: Omit<AgentRecord, "id" | "createdAt"> & { id?: string }) {
-    return this.db.$transaction(async (tx) => {
-      const agent = mapAgent(await tx.agent.create({ data: input }));
-      await enrollGeneralChannel(tx, input.workspaceId);
-      return agent;
-    });
+    return mapAgent(await this.db.agent.create({ data: input }));
   }
 
   async update(

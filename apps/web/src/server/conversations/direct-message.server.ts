@@ -13,7 +13,7 @@ import type {
 } from "../db/repositories/direct-conversation.repositories.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
-import { agentReadableBody } from "./mentions";
+import { agentReadableBody, deliveryMentionsAgent } from "./mentions";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
 
 export class ReadDirectMessages {
@@ -191,6 +191,7 @@ export class SendDirectMessage {
                     latestSenderKind: message.latestSenderKind,
                     latestSenderHandle: message.latestSenderHandle,
                     latestSenderDescription: message.latestSenderDescription,
+                    mentionsAgent: deliveryMentionsAgent(message.mentions, delivery.agentId),
                   }),
                 ),
               ),

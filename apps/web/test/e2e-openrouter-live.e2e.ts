@@ -223,7 +223,8 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
       select: { id: true, channelMuted: true },
     });
     expect(membership).not.toBeNull();
-    expect(membership?.channelMuted).toBe(false);
+    expect(membership?.channelMuted).toBe(true);
+    await channels.setAgentMuted(workspace.id, agent.agent.id, `#${channel.name}`, false);
     diagnostic("channel_eligibility_verified", {
       channelId: channel.id,
       agentJoined: Boolean(membership),

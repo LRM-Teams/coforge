@@ -631,6 +631,8 @@ export type AgentMessageDelivery = {
   latestSenderKind?: import("./message-sender").MessageSenderKind;
   latestSenderHandle?: string;
   latestSenderDescription?: string;
+  /** True when this delivery personally @mentioned the recipient Agent (ADR 0061). */
+  mentionsAgent?: boolean;
 };
 export type AgentMessageDeliveryAck = Omit<
   AgentMessageDelivery,

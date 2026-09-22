@@ -167,6 +167,27 @@ test("round-trips an Agent direct message delivery", () => {
   expect(decodeAgentMessageDelivery(encodeAgentMessageDelivery(delivery))).toEqual(delivery);
 });
 
+test("round-trips mentionsAgent on an Agent delivery", () => {
+  for (const mentionsAgent of [true, false] as const) {
+    const delivery = {
+      protocolMajor: 1,
+      requestId: `request-mention-${mentionsAgent}`,
+      messageId: `message-mention-${mentionsAgent}`,
+      deliveryId: `delivery-mention-${mentionsAgent}`,
+      sequence: 3,
+      workspaceId: "workspace-a",
+      conversationId: "conversation-a",
+      agentId: "agent-a",
+      body: "please look",
+      method: AGENT_MESSAGE_METHOD,
+      target: "#general",
+      mentionsAgent,
+    } as const;
+
+    expect(decodeAgentMessageDelivery(encodeAgentMessageDelivery(delivery))).toEqual(delivery);
+  }
+});
+
 test("accepts a trusted model-seen sequence on send", () => {
   const request = {
     protocolMajor: 1,

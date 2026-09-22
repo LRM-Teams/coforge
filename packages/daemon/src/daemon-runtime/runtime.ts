@@ -108,6 +108,7 @@ import {
   freshnessDecisionFactId,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
+import { memoryIndexReminder } from "../agent-runtime/agent-memory-seed";
 import { AgentControl } from "../agent-runtime/agent-control";
 import { AgentSessions } from "../agent-runtime/agent-session";
 import { AgentRuntimeState } from "../agent-runtime/agent-runtime-state";
@@ -2045,6 +2046,9 @@ export class DaemonRuntime {
         parseAssignedSkillPacks(launchConfig.assignedSkillPacks),
         launchConfig.identity,
       );
+      void memoryIndexReminder(workspaceDirectory).then((reminder) => {
+        if (reminder) this.#messageAttention.setMemoryReminder(agentId, reminder);
+      });
       if (this.#stoppingAgents.has(agentId)) {
         await this.#agentProcessManager.stop(agentId);
         throw new Error(`Agent runtime is stopping: ${agentId}`);
