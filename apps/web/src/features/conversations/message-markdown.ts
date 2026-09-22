@@ -157,11 +157,13 @@ export function rehypeMentionChips(options: {
 }
 
 /**
- * Replaces stored task-reference tokens (`<@task:68>`) with `task #68` chips, skipping anything
- * inside `code` or `pre`. Unlike a mention token, a task token always has a readable fallback —
- * the number is the reference — so a token is never left raw. A number present in `numbers` names
- * a task the viewer can open, and its chip carries `data-task-reference-number` for the `span`
- * renderer to turn into a control; any other number renders as plain chip text.
+ * Replaces stored task-reference tokens (`<@task:68>`) with a **number-only** chip (`#68`), skipping
+ * anything inside `code` or `pre`. Raft draws the reference as the bare number, so the chip carries
+ * the number rather than the prose the author typed; `title`/`aria-label` still spell "task #68" so
+ * a hover and a screen reader keep the meaning. Unlike a mention token, a task token always has a
+ * readable fallback — the number is the reference — so a token is never left raw. A number present
+ * in `numbers` names a task the viewer can open, and its chip carries `data-task-reference-number`
+ * for the `span` renderer to turn into a control; any other number renders as plain chip text.
  */
 export function rehypeTaskReferenceChips(options: { numbers: ReadonlySet<number> }) {
   const { numbers } = options;
@@ -215,9 +217,13 @@ function taskChipParts(
       tagName: "span",
       properties: {
         className,
+        // The chip shows only the number (Raft's treatment); the words stay available to a hover
+        // and to assistive technology so "#68" is still readable as a task reference.
+        title: `task #${number}`,
+        "aria-label": `task #${number}`,
         ...(clickable ? { "data-task-reference-number": number } : {}),
       },
-      children: [{ type: "text", value: `task #${number}` }],
+      children: [{ type: "text", value: `#${number}` }],
     });
     offset = match.index + match[0].length;
   }
