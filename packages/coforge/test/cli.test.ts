@@ -890,12 +890,7 @@ test("Task receipt forwards all seven fields through the backend contract", asyn
     send: async () => ({}),
     view: async () => ({ bytes: new Uint8Array() }),
     task: async (command) => {
-      validateTaskRequest({
-        ...command,
-        protocolMajor: 1,
-        workspaceId: "workspace",
-        agentId: "agent",
-      });
+      validateTaskRequest(command);
       calls.push(command);
       return { tasks: [] };
     },
