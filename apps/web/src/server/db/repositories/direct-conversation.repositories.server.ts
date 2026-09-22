@@ -4,6 +4,7 @@ import { normalizeMentionBody } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AppError } from "../../../lib/app-error";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
+import { messageAnchorWhere } from "../message-anchor";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
 import { ACTIVE_MEMBER_WHERE } from "../../conversations/active-member.server";
 import {
@@ -661,13 +662,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const rows = await this.db.message.findMany({
       where: {
         conversationId,
-        id:
-          anchor.length === 8
-            ? {
-                gte: `${anchor}-0000-0000-0000-000000000000`,
-                lte: `${anchor}-ffff-ffff-ffff-ffffffffffff`,
-              }
-            : anchor,
+        id: messageAnchorWhere(anchor),
       },
       take: 2,
       select: { id: true, sequence: true, threadRootId: true },
@@ -817,13 +812,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       where: {
         workspaceId,
         conversation: { members: { some: { agentId, ...ACTIVE_MEMBER_WHERE } } },
-        id:
-          anchor.length === 8
-            ? {
-                gte: `${anchor}-0000-0000-0000-000000000000`,
-                lte: `${anchor}-ffff-ffff-ffff-ffffffffffff`,
-              }
-            : anchor,
+        id: messageAnchorWhere(anchor),
       },
       take: 2,
       include: {
