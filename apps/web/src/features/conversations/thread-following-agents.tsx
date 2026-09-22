@@ -69,20 +69,23 @@ function FollowingAgentRow({
         name={agent.displayName}
         src={agent.avatarUrl}
         display={live?.display}
-        size="xs"
+        size="sm"
       />
       <span className="min-w-0 truncate text-sm font-medium text-primary">{agent.displayName}</span>
     </>
   );
   return (
-    <li className="flex items-center gap-2 px-2 py-1.5">
+    <li className="flex items-center gap-2 px-3 py-2">
       {onOpenProfile ? (
         <Button
           color="tertiary"
           noTextPadding
           aria-label={m.agent_open_profile({ name: agent.displayName })}
           onPress={() => onOpenProfile(agent.id)}
-          className="h-auto min-w-0 flex-1 justify-start gap-2 rounded p-0 hover:bg-transparent"
+          // Base Button wraps children in an inline `span[data-text]`; without this the
+          // block-level avatar forces the name onto its own line (and drags the status
+          // dot to the row's right edge). Make the wrapper the flex row instead.
+          className="h-auto min-w-0 flex-1 justify-start gap-2 rounded p-0 hover:bg-transparent [&>[data-text]]:flex [&>[data-text]]:min-w-0 [&>[data-text]]:flex-1 [&>[data-text]]:items-center [&>[data-text]]:gap-2"
         >
           {identity}
         </Button>
@@ -92,7 +95,7 @@ function FollowingAgentRow({
       {canUnfollow && (
         <ButtonUtility
           icon={XClose}
-          size="xs"
+          size="sm"
           color="tertiary"
           tooltip={m.conversation_thread_unfollow_agent({ name: agent.displayName })}
           onClick={() => onUnfollow(agent.id)}
@@ -162,7 +165,7 @@ export function ThreadFollowingAgents({
               "duration-150 ease-out animate-in fade-in placement-bottom:slide-in-from-top-0.5",
             state.isExiting &&
               "duration-100 ease-in animate-out fade-out placement-bottom:slide-out-to-top-0.5",
-            "w-[min(18rem,calc(100vw-2.5rem))]",
+            "w-[min(20rem,calc(100vw-2.5rem))]",
           )
         }
       >
@@ -189,7 +192,7 @@ export function ThreadFollowingAgents({
                   {m.conversation_thread_following_agents_error()}
                 </p>
               ) : (
-                <ul className="max-h-72 overflow-y-auto py-1 [scrollbar-width:thin]">
+                <ul className="max-h-72 divide-y divide-secondary overflow-y-auto py-1 [scrollbar-width:thin]">
                   {agents.map((agent) => (
                     <FollowingAgentRow
                       key={agent.id}
