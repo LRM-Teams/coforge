@@ -683,6 +683,9 @@ test("regionFromEndpoint reads the region a public OSS endpoint names and nothin
   expect(regionFromEndpoint("https://oss-cn-beijing-internal.aliyuncs.com")).toBe("oss-cn-beijing");
   expect(regionFromEndpoint("http://127.0.0.1:4567")).toBeUndefined();
   expect(regionFromEndpoint("files.coforge.cn")).toBeUndefined();
+  // Transfer acceleration endpoints are global and name no region.
+  expect(regionFromEndpoint("oss-accelerate.aliyuncs.com")).toBeUndefined();
+  expect(regionFromEndpoint("https://oss-accelerate-overseas.aliyuncs.com")).toBeUndefined();
   await expect(
     createOssClient(
       { bucket: BUCKET, endpoint: "http://127.0.0.1:4567", cname: true },

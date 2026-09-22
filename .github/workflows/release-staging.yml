@@ -122,10 +122,16 @@ jobs:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
+          # GitHub-hosted runners reach oss-cn-beijing over the public cross-border path, measured
+          # at 17-56 KB/s since dev.59. OSS transfer acceleration routes the upload over Alibaba
+          # Cloud's backbone instead; the endpoint is global, so the bucket's region is passed for
+          # V4 signing.
           bun scripts/release/publish.ts \
             --version "$RELEASE_VERSION" \
             --commit "$RELEASE_COMMIT" \
-            --feed-url "https://releases-staging.coforge.cn"
+            --feed-url "https://releases-staging.coforge.cn" \
+            --endpoint oss-accelerate.aliyuncs.com \
+            --region oss-cn-beijing
 
       - name: Summarize published release
         env:
