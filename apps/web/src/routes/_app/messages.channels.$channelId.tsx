@@ -6,6 +6,7 @@ import {
   ChannelConversationHeader,
 } from "@/features/conversations/channel-conversation";
 import {
+  CONVERSATION_PENDING_MS,
   ConversationLoadError,
   ConversationPending,
 } from "@/features/conversations/conversation-pending";
@@ -59,8 +60,8 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   remountDeps: ({ params }) => params.channelId,
   loader: ({ context, params }) =>
     context.queryClient.infiniteQuery(publicChannelQuery(params.channelId).query),
-  pendingMs: 300,
-  pendingMinMs: 300,
+  pendingMs: CONVERSATION_PENDING_MS,
+  pendingMinMs: CONVERSATION_PENDING_MS,
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
   component: ChannelPage,
