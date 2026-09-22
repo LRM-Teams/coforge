@@ -1077,6 +1077,7 @@ export const createAgentMessageHttpClient = (
       throw new AgentUpstreamRefusalError(
         `Agent reminder request failed (${response.status})`,
         upstreamCode,
+        response.status,
       );
     }
     let envelope: AgentReminderOperationResponse;
@@ -1193,6 +1194,7 @@ export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
       throw new AgentUpstreamRefusalError(
         `server Agent Task request failed (${response.status})`,
         upstreamCode,
+        response.status,
       );
     }
     const result = (await response.json()) as TaskResponse;
