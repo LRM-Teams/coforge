@@ -12,7 +12,6 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ChannelMembersDialog } from "./channel-members-dialog";
 import { ConversationListButton } from "./conversation-navigation";
-import { ThreadFollowingAgents } from "./thread-following-agents";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
 import { loadPublicChannelMentionables } from "./channels.functions";
 import {
@@ -287,11 +286,6 @@ export function ChannelConversation({
         const followed = conversation.followedThreadRootIds?.includes(rootMessageId) ?? false;
         return (
           <div className="-mr-1.5 ml-auto flex shrink-0 items-center gap-1.5">
-            <ThreadFollowingAgents
-              channelId={conversation.conversationId}
-              threadRootId={rootMessageId}
-              onOpenAgentProfile={onOpenAgentProfile}
-            />
             {conversation.senderMemberId && (
               <ButtonUtility
                 icon={followed ? BellOff : Bell}
