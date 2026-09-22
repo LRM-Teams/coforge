@@ -5,6 +5,12 @@ import {
   describeComputerUpgradeSuccess,
   describeUpgradeRequestError,
 } from "../src/features/computers/upgrade-failure";
+import {
+  RESTART_MAX_POLLS,
+  RESTART_POLL_INTERVAL_MS,
+  UPGRADE_MAX_POLLS,
+  UPGRADE_POLL_INTERVAL_MS,
+} from "../src/features/computers/computer-detail";
 import { AppError } from "../src/lib/app-error";
 import { m } from "@/paraglide/messages";
 import { COMPUTER_CLI_COMMANDS, UPGRADE_ERROR_CODE_VALUES } from "@lrm/coforge-sdk/internal";
@@ -92,6 +98,16 @@ test("an unknown or not-yet-understood error code falls back to the generic repo
   expect(view.steps.length).toBeGreaterThan(0);
 });
 
+test("the upgrade panel waits longer than the restart panel — a real upgrade takes minutes", () => {
+  // On s144 a healthy upgrade took about two minutes end to end (`upgrade-results/<id>.request.json`
+  // to `.result.json`), longer than the window the restart panel uses. Reusing that window made a
+  // running upgrade report a timeout, and the follow-up click report `UPGRADE_OPERATION_PENDING` as
+  // a failure — the report a person actually saw.
+  const upgradeWindowMs = UPGRADE_POLL_INTERVAL_MS * UPGRADE_MAX_POLLS;
+  expect(upgradeWindowMs).toBeGreaterThanOrEqual(3 * 60_000);
+  expect(upgradeWindowMs).toBeGreaterThan(RESTART_POLL_INTERVAL_MS * RESTART_MAX_POLLS);
+});
+
 test("rendering data for a pending-code failure: the exact headline and ordered steps computer-detail.tsx would show inline", () => {
   // computer-detail.tsx has no jsdom/testing-library harness in this repo yet; this asserts the
   // same data path the component renders from (`describeUpgradeRequestError` feeding the
@@ -101,10 +117,10 @@ test("rendering data for a pending-code failure: the exact headline and ordered 
   );
   const copy = describeUpgradeRequestError(thrown);
 
-  expect(copy.headline).toBe("The previous upgrade's result has not been confirmed yet");
+  expect(copy.headline).toBe(m.computer_upgrade_code_operation_pending());
   expect(copy.steps).toEqual([
     { text: m.computer_upgrade_step_check_status(), command: "coforge-computer status" },
-    { text: m.computer_upgrade_step_wait_clears() },
+    { text: m.computer_upgrade_step_wait_running() },
     {
       text: m.computer_upgrade_step_restart_supervisor_retry(),
       command: "coforge-computer restart --supervisor",
