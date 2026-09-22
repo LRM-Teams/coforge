@@ -348,6 +348,7 @@ export function ChannelMembersDialog({
                                 <Avatar
                                   size="sm"
                                   alt=""
+                                  src={agent.avatarUrl}
                                   initials={avatarInitial(agent.displayName)}
                                   contentClassName={avatarToneClassName(agent.displayName)}
                                 />
@@ -360,6 +361,7 @@ export function ChannelMembersDialog({
                                 <Avatar
                                   size="sm"
                                   alt={agent.displayName}
+                                  src={agent.avatarUrl}
                                   initials={avatarInitial(agent.displayName)}
                                   contentClassName={avatarToneClassName(agent.displayName)}
                                 />

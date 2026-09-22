@@ -75,6 +75,7 @@ export function AgentDisplayAvatar({
 /** Activity is newest-first, ordered and deduplicated by the owning Activity module. */
 export function AgentActivityAvatar({
   agent,
+  src,
   display,
   activity,
   loading = false,
@@ -86,6 +87,7 @@ export function AgentActivityAvatar({
   onPress,
 }: {
   agent: { name: string; displayName: string; description?: string };
+  src?: string | null;
   display?: AgentDisplaySnapshot;
   activity: readonly ActivityEntry[];
   loading?: boolean;
@@ -130,6 +132,7 @@ export function AgentActivityAvatar({
       trigger={
         <AgentDisplayAvatar
           name={agent.displayName}
+          src={src}
           display={display}
           deleted={deleted}
           size={size}

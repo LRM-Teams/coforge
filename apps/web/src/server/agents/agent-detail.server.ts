@@ -40,6 +40,7 @@ type DetailAgent = {
   /** Who can see this Agent (ADR 0059); optional so a caller that has not started selecting it
    * yet still satisfies this type. */
   visibility?: string;
+  avatarObjectKey?: string | null;
 };
 
 export type AgentDetailSource = {
@@ -113,6 +114,7 @@ export class AgentDetailQuery {
       isWeeklyReportAssistant: Boolean(agent.weeklyReportAssistant),
       stopped: Boolean(agent.stoppedAt),
       visibility: agent.visibility,
+      avatarObjectKey: agent.avatarObjectKey ?? null,
       ...(display ? { display } : {}),
       status: {
         value: statusReadFailed ? ("unknown" as const) : (status?.status ?? ("inactive" as const)),

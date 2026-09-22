@@ -28,7 +28,7 @@ test("an Agent-sent channel message carries senderAgentId", () => {
     row({
       sender: {
         agentId: "agent-builder",
-        agent: { name: "builder", displayName: "Builder", deletedAt: null },
+        agent: { name: "builder", displayName: "Builder", deletedAt: null, avatarObjectKey: null },
         user: null,
       },
     }),
@@ -148,7 +148,7 @@ test("an Agent's message is attributed to its display name, falling back to its 
     row({
       sender: {
         agentId: "agent-builder",
-        agent: { name: "builder", displayName: "Builder", deletedAt: null },
+        agent: { name: "builder", displayName: "Builder", deletedAt: null, avatarObjectKey: null },
         user: null,
       },
     }),
@@ -160,7 +160,7 @@ test("an Agent's message is attributed to its display name, falling back to its 
     row({
       sender: {
         agentId: "agent-builder",
-        agent: { name: "builder", displayName: null, deletedAt: null },
+        agent: { name: "builder", displayName: null, deletedAt: null, avatarObjectKey: null },
         user: null,
       },
     }),

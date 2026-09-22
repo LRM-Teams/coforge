@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
@@ -19,6 +20,7 @@ import { PrismaChangeAgentVisibilityStore } from "../../server/db/repositories/a
 import { setAgentRole } from "../../server/agents/agent-role.server";
 import { AppError } from "../../lib/app-error";
 import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
+import { AgentAvatars, agentAvatarUrl } from "../../server/agents/agent-avatar.server";
 import { isAdminLike, type WorkspaceMemberRole } from "../../server/workspaces/member-role.server";
 import { requireDatabaseClient } from "../../server/db/client.server";
 import {
@@ -233,6 +235,7 @@ export const listAgents = createServerFn({ method: "GET" })
         }
         return {
           ...agent,
+          avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey ?? null),
           stopped: Boolean(agent.stoppedAt),
           ...(displaySnapshot ? { display: displaySnapshot } : {}),
           status: {
@@ -507,6 +510,7 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
             owner: {
               select: { id: true, username: true, displayName: true, avatarObjectKey: true },
             },
+            avatarObjectKey: true,
           },
         });
         if (!agent) return undefined;
@@ -578,6 +582,7 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
         result.owner.avatarObjectKey ?? null,
       ),
     },
+    avatarUrl: agentAvatarUrl(workspaceId, result.id, result.avatarObjectKey ?? null),
     runtimeConfig: publicAgentRuntimeConfig(runtimeConfig),
     ownedByCurrentUser,
     runtimeCredential,
@@ -602,6 +607,31 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
 
 /** The Agent profile panel's data seam (see `features/agents/profile-panel/`): the Members
  * directory and every conversation panel share this one query. */
+const avatarFileSchema = z.custom<File>(
+  (value) => typeof File !== "undefined" && value instanceof File,
+);
+
+/** The creator replaces this Agent's picture. Bytes stay in the image store; the row keeps the key. */
+export const uploadAgentAvatar = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator((data: unknown) => {
+    if (!(data instanceof FormData)) throw new AppError("INVALID_INPUT");
+    const agentId = agentIdSchema.safeParse(data.get("agentId"));
+    const file = avatarFileSchema.safeParse(data.get("file"));
+    if (!agentId.success || !file.success) throw new AppError("INVALID_INPUT");
+    return { agentId: agentId.data, file: file.data };
+  })
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return new AgentAvatars(db).store(workspaceId, user.id, data.agentId, data.file);
+  });
+
+export const removeAgentAvatar = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(agentIdInputSchema)
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    await new AgentAvatars(db).remove(workspaceId, user.id, data.agentId);
+  });
+
 export const getAgentProfile = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)

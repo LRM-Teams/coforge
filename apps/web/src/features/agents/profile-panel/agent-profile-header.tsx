@@ -28,7 +28,13 @@ export function AgentProfileHeader({
   controls,
   onClose,
 }: {
-  agent: { id: string; name: string; displayName: string; description?: string };
+  agent: {
+    id: string;
+    name: string;
+    displayName: string;
+    description?: string;
+    avatarUrl?: string | null;
+  };
   display?: AgentDisplaySnapshot;
   timeZone: string | null;
   controls: AgentRuntimeControls;
@@ -44,6 +50,7 @@ export function AgentProfileHeader({
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-5 py-0">
       <AgentActivityAvatar
         agent={agent}
+        src={agent.avatarUrl}
         display={display}
         size="sm"
         timeZone={timeZone}

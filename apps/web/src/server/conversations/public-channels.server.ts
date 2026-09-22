@@ -53,6 +53,7 @@ import {
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
+import { agentAvatarUrl } from "../agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { attachmentView } from "../attachments/attachment-view.server";
 import type { ActionCardView } from "./action-cards.server";
@@ -97,7 +98,7 @@ const CHANNEL_MESSAGE_SELECT = {
   sender: {
     select: {
       agentId: true,
-      agent: { select: { name: true, displayName: true, deletedAt: true } },
+      agent: { select: { name: true, displayName: true, deletedAt: true, avatarObjectKey: true } },
       user: {
         select: {
           id: true,
@@ -129,6 +130,7 @@ export type ChannelMessageRow = {
       name: string;
       displayName: string | null;
       deletedAt: Date | null;
+      avatarObjectKey: string | null;
     } | null;
     user: {
       id: string;
@@ -181,7 +183,9 @@ export function channelMessageView(message: ChannelMessageRow, workspaceId: stri
           message.sender.user.id,
           message.sender.user.avatarObjectKey,
         )
-      : null,
+      : message.sender?.agentId && message.sender.agent
+        ? agentAvatarUrl(workspaceId, message.sender.agentId, message.sender.agent.avatarObjectKey)
+        : null,
     body: message.body,
     createdAt: message.createdAt,
     mentions: message.mentions.map(browserMessageMention),
@@ -397,7 +401,7 @@ export class PublicChannels {
           member: {
             select: {
               agent: {
-                select: { id: true, name: true, displayName: true },
+                select: { id: true, name: true, displayName: true, avatarObjectKey: true },
               },
             },
           },
@@ -413,6 +417,7 @@ export class PublicChannels {
             id: agent.id,
             name: agent.name,
             displayName: agent.displayName.trim() || agent.name,
+            avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
           },
         ];
       })
@@ -797,6 +802,7 @@ export class PublicChannels {
               description: true,
               role: true,
               computerId: true,
+              avatarObjectKey: true,
             },
           },
         },
@@ -881,6 +887,7 @@ export class PublicChannels {
           name: row.agent!.name,
           displayName: row.agent!.displayName?.trim() || row.agent!.name,
           description: row.agent!.description,
+          avatarUrl: agentAvatarUrl(workspaceId, row.agent!.id, row.agent!.avatarObjectKey),
           serverRole: row.agent!.role,
           channelRole: row.channelRole,
           channelAdminBasis: deriveChannelAdminBasis(row.agent!.role, row.channelRole),
@@ -1072,7 +1079,15 @@ export class PublicChannels {
               avatarObjectKey: true,
             },
           },
-          agent: { select: { id: true, name: true, displayName: true, description: true } },
+          agent: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+              description: true,
+              avatarObjectKey: true,
+            },
+          },
         },
       }),
       // The viewer's own recent @-mentions in this channel, newest first: scores each
@@ -1142,6 +1157,7 @@ export class PublicChannels {
                 handle: row.agent!.name,
                 label: row.agent!.displayName?.trim() || row.agent!.name,
                 description: row.agent!.description.trim(),
+                avatarUrl: agentAvatarUrl(workspaceId, row.agent!.id, row.agent!.avatarObjectKey),
                 mentionScore: mentionScores.get(`agent:${row.agent!.id}`) ?? 0,
               },
         )
@@ -1174,7 +1190,15 @@ export class PublicChannels {
               avatarObjectKey: true,
             },
           },
-          agent: { select: { id: true, name: true, displayName: true, description: true } },
+          agent: {
+            select: {
+              id: true,
+              name: true,
+              displayName: true,
+              description: true,
+              avatarObjectKey: true,
+            },
+          },
         },
       }),
       this.db.messageMention.findMany({
@@ -1203,6 +1227,7 @@ export class PublicChannels {
               handle: row.agent!.name,
               label: row.agent!.displayName?.trim() || row.agent!.name,
               description: row.agent!.description.trim(),
+              avatarUrl: agentAvatarUrl(workspaceId, row.agent!.id, row.agent!.avatarObjectKey),
               mentionScore: mentionScores.get(`agent:${row.agent!.id}`) ?? 0,
             },
       )

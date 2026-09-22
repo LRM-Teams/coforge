@@ -502,6 +502,15 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   hooks (`useLiveAgents`, `useLiveAgent`, `useAgentRecentActivity`,
   `useAgentActivityFeed`); avatars and pages never open connections or subscribe
   themselves; the conversations feature does not own Agent state.
+  `features/conversations/live-agent-activity.ts` picks one notable display
+  (working, thinking, or error; newest cloud revision) for the chat-list strip
+  in `live-agent-activity-bar.tsx`. Idle and offline stay in the directory.
+  The strip is on unless this device stored `coforge-live-agent-activity=hide`
+  (`features/settings/live-agent-activity.ts`, Preferences → Sidebar).
+  `server/agents/agent-avatar.server.ts` owns an Agent's picture: the creator
+  replaces or removes it, Workspace members read it, and the image store keeps
+  the bytes. `avatarObjectKey` on `Agent` is the only PostgreSQL fact. Chat
+  rows, the directory, mentions, and the activity strip read `agentAvatarUrl`.
 - Workspace-scoped Code Agent installation inventory belongs to
   `server/db/repositories/computer-runtime.repositories.server.ts`. Runtime visibility and
   model catalogs are keyed and queried by the trusted `(workspaceId, computerId)` connection;

@@ -165,7 +165,7 @@ describe("ConversationHistory", () => {
               userId: null,
               agentId: "agent-builder",
               user: null,
-              agent: { name: "builder", displayName: "Build Assistant" },
+              agent: { name: "builder", displayName: "Build Assistant", avatarObjectKey: null },
             }
           : {
               userId: "user-1",

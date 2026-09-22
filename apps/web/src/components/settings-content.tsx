@@ -85,6 +85,7 @@ interface SettingsContentProps {
   locale: Locale;
   theme: Theme;
   railLabels: boolean;
+  liveAgentActivity: boolean;
   textSize: TextSizeValue;
   timeZone: string | null;
   browserNotificationsEnabled: boolean;
@@ -97,6 +98,7 @@ interface SettingsContentProps {
   onLocaleChange: (locale: Locale) => void;
   onThemeChange: (theme: Theme) => void;
   onRailLabelsChange: (show: boolean) => void;
+  onLiveAgentActivityChange: (show: boolean) => void;
   onTextSizeChange: (size: TextSizeValue) => void;
   onTimeZoneChange: (timeZone: string) => void;
   conversationOpenMode: ConversationOpenMode;
@@ -630,6 +632,8 @@ function Preferences({
   onThemeChange,
   railLabels,
   onRailLabelsChange,
+  liveAgentActivity,
+  onLiveAgentActivityChange,
   textSize,
   onTextSizeChange,
   onTimeZoneChange,
@@ -754,6 +758,14 @@ function Preferences({
             label={m.preferences_rail_labels()}
             isSelected={railLabels}
             onChange={onRailLabelsChange}
+          />
+          <Toggle
+            size="sm"
+            className="max-w-full"
+            label={m.preferences_live_agent_activity()}
+            hint={m.preferences_live_agent_activity_hint()}
+            isSelected={liveAgentActivity}
+            onChange={onLiveAgentActivityChange}
           />
         </PreferenceSection>
 

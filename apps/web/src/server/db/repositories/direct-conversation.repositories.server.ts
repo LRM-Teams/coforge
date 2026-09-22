@@ -31,6 +31,7 @@ import {
   browserSenderName,
   MESSAGE_SENDER_SELECT,
 } from "../../conversations/sender-display.server";
+import { agentAvatarUrl } from "../../agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "../../attachments/attachment-view.server";
 import type { ActionCardView } from "../../conversations/action-cards.server";
@@ -149,7 +150,7 @@ const BROWSER_MESSAGE_SELECT = {
       userId: true,
       agentId: true,
       user: { select: { username: true, displayName: true, avatarObjectKey: true } },
-      agent: { select: { name: true, displayName: true, deletedAt: true } },
+      agent: { select: { name: true, displayName: true, deletedAt: true, avatarObjectKey: true } },
     },
   },
   mentions: BROWSER_MESSAGE_MENTIONS_SELECT,
@@ -263,7 +264,13 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
           message.sender.userId,
           message.sender.user?.avatarObjectKey ?? null,
         )
-      : null,
+      : message.sender?.agentId
+        ? agentAvatarUrl(
+            workspaceId,
+            message.sender.agentId,
+            message.sender.agent?.avatarObjectKey ?? null,
+          )
+        : null,
     body: message.body,
     createdAt: message.createdAt,
     mentions: message.mentions.map(browserMessageMention),
@@ -1026,6 +1033,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 displayName: true,
                 description: true,
                 deletedAt: true,
+                avatarObjectKey: true,
                 // Not sent to the browser (see the trimmed `agent:` field below); read only to
                 // compute `dmWritable` (ADR 0059).
                 ownerId: true,
@@ -1086,6 +1094,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         name: agentMember.agent.name,
         displayName: agentMember.agent.displayName,
         deletedAt: agentMember.agent.deletedAt,
+        avatarUrl: agentAvatarUrl(
+          workspaceId,
+          agentMember.agent.id,
+          agentMember.agent.avatarObjectKey,
+        ),
       },
       // Whether this viewer may still send here (ADR 0059): a private Agent's DM stays scoped to
       // its own creator, so an existing DM held by anyone else reads read-only once it goes
@@ -1119,6 +1132,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                   handle: member.agent.name,
                   label: member.agent.displayName?.trim() || member.agent.name,
                   description: member.agent.description?.trim() ?? "",
+                  avatarUrl: agentAvatarUrl(
+                    workspaceId,
+                    member.agent.id,
+                    member.agent.avatarObjectKey,
+                  ),
                   mentionScore: 0,
                 }
               : undefined,

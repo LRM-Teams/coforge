@@ -220,6 +220,7 @@ export function DirectConversationHeader({
         <ConversationListButton />
         <AgentActivityAvatar
           agent={conversation.agent}
+          src={conversation.agent.avatarUrl}
           size="sm"
           display={display}
           deleted={deleted}

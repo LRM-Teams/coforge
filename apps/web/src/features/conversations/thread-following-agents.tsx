@@ -26,6 +26,7 @@ type FollowingAgent = {
   id: string;
   name: string;
   displayName: string;
+  avatarUrl?: string | null;
 };
 
 function useThreadFollowingAgents(channelId: string, threadRootId: string) {
@@ -40,7 +41,14 @@ function useThreadFollowingAgents(channelId: string, threadRootId: string) {
 
 function LeadFollowingAgentAvatar({ agent }: { agent: FollowingAgent }) {
   const live = useLiveAgent(agent.id);
-  return <AgentDisplayAvatar name={agent.displayName} display={live?.display} size="xs" />;
+  return (
+    <AgentDisplayAvatar
+      name={agent.displayName}
+      src={agent.avatarUrl}
+      display={live?.display}
+      size="xs"
+    />
+  );
 }
 
 function FollowingAgentRow({
@@ -57,7 +65,12 @@ function FollowingAgentRow({
   const live = useLiveAgent(agent.id);
   const identity = (
     <>
-      <AgentDisplayAvatar name={agent.displayName} display={live?.display} size="xs" />
+      <AgentDisplayAvatar
+        name={agent.displayName}
+        src={agent.avatarUrl}
+        display={live?.display}
+        size="xs"
+      />
       <span className="min-w-0 truncate text-sm font-medium text-primary">{agent.displayName}</span>
     </>
   );

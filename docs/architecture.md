@@ -1713,8 +1713,8 @@ Agents 列表同一份 Redis 读模型（`agent-display.server.ts#snapshot` 经
 （ADR 0025）。`profile update` 只能修改调用方自身，字段限于 `displayName`（复用
 `agent.schemas.ts` 的 `AGENT_DISPLAY_NAME_MAX_LENGTH`=80、去空格后非空）与 `description`
 （上限 500 字符，允许清空），Username 创建后不可改、请求体也不接受该字段；没有头像相关字段或
-命令行参数——CoForge 的 schema 只有 `User.avatarObjectKey`/`avatarContentType`，`Agent` 没有
-对应列或上传入口。
+命令行参数。Agent 图片只在 Web 资料页由创建人更换；`profile update` 不接受头像字段。
+`Agent.avatarObjectKey`/`avatarContentType` 与 User 一样只记录图片库对象，不存 URL。
 
 ## 7. 端到端链路
 

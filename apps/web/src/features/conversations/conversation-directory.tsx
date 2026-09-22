@@ -262,6 +262,7 @@ export function ConversationDirectory({
                   icon={
                     <AgentDisplayAvatar
                       name={agent.displayName}
+                      src={agent.avatarUrl}
                       display={agent.display}
                       size="xs"
                     />
