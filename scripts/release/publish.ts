@@ -28,12 +28,6 @@ import { join } from "node:path";
 
 import Credential from "@alicloud/credentials";
 import OSS from "ali-oss";
-// ali-oss's `agent`/`httpsAgent` options take node http Agents, not fetch - the two imports
-// below exist only to hand the SDK a keep-alive-disabled Agent (see `disableKeepAlive`).
-// oxlint-disable-next-line no-restricted-imports
-import { Agent as HttpAgent } from "node:http";
-// oxlint-disable-next-line no-restricted-imports
-import { Agent as HttpsAgent } from "node:https";
 
 import {
   buildReleaseTree,
@@ -87,13 +81,6 @@ export function regionFromEndpoint(endpoint: string): string | undefined {
  * security token - the same pattern `apps/web`'s OSS file storage uses - so a client built from a
  * federated STS token does not start signing with an expired one partway through a publish that
  * compiled six targets before it ever made a network call. */
-/** urllib always applies *some* response timeout - unset, it falls back to its own 5 s/5 s
- * default, which is useless here - and ali-oss would otherwise default the client to 60 s. Human
- * directive 2026-09-21 is to publish without a request timeout, so the client gets a whole-day
- * budget: in practice never reached (a publish finishes or dies in minutes), but a part that
- * genuinely stalls still errors out within the run instead of hanging forever. */
-const PUBLISH_OBJECT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
-
 export async function createOssClient(
   connection: OssConnection,
   credentials?: OssCredentials,
@@ -112,19 +99,6 @@ export async function createOssClient(
     cname: connection.cname ?? false,
     secure: connection.secure ?? true,
     authorizationV4: true,
-    // ali-oss defaults to a global *keep-alive* agent. dev.65 showed why that is poison on this
-    // route: the InitiateMultipartUpload POST answers fine, then the first part PUT rides the same
-    // keep-alive socket and never gets a response at all — urllib's own log shows `connected:
-    // true`, the request fully written (`socketHandledRequests: 2`), and only one response ever
-    // received. A connection that answers one request and silently swallows the next is the
-    // cross-border middlebox pattern, and no part size or retry can rescue a socket like that; a
-    // fresh connection per request turns the same fault into a loud connect-time failure, which
-    // (unlike a response timeout) carries the -1/-2 status ali-oss's own retryMax can work with.
-    agent: new HttpAgent({ keepAlive: false }),
-    httpsAgent: new HttpsAgent({ keepAlive: false }),
-    // ali-oss defaults every request to a 60s timeout, which is an interactive caller's budget. A
-    // publish is a batch job: see PUBLISH_OBJECT_TIMEOUT_MS below - a whole-day budget instead.
-    timeout: PUBLISH_OBJECT_TIMEOUT_MS,
     // Transient transport errors (-1/-2: reset, connect timeout) retry at the SDK level. A response
     // timeout carries no status, so it is putObject's own retry loop that rescues it.
     retryMax: 2,
@@ -225,13 +199,10 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  * request's timeout on the whole multi-megabyte object. The staging feed's largest object - the
  * darwin-arm64 computer binary, ~28 MiB and the first one uploaded - exceeded ali-oss's default
  * 60 s per-request timeout when the GitHub-runner-to-OSS path slowed below ~0.5 MB/s, and the SDK
- * killed it with a `ResponseTimeoutError` (a `name`-only error, no status/code/request-id). */
+ * killed it with a `ResponseTimeoutError` (a `name`-only error, no status/code/request-id).
+ * Parts use ali-oss's documented defaults (1 MiB, 5 in parallel), so each 60 s request carries
+ * one megabyte rather than a whole binary. */
 const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
-/** Per-part size for multipart uploads. Human directive 2026-09-21: use default-style small
- * parts (100 KiB). With small parts a slow link just makes each part take a little longer
- * instead of failing; fresh connections per request (`createOssClient`) are what fix the
- * zero-flow part-1 stall. */
-const MULTIPART_PART_BYTES = 100 * 1024;
 /** Whole-multipart attempts before giving up. ali-oss's own retry never fires for a response
  * timeout: its guard only retries errors carrying status -1/-2, and a `ResponseTimeoutError`
  * carries none — so a timed-out part fails the whole call no matter what `retryMax` says. The
@@ -246,21 +217,14 @@ async function putObject(
   requestTimeoutMs?: number,
 ): Promise<void> {
   const buffer = Buffer.from(bytes);
-  // Human directive 2026-09-21: no per-request timeout in production - a slow link should be
-  // allowed to finish however long it takes. `requestTimeoutMs` remains as a test-only hook so
-  // the stalled-server fixture can still pin the `ResponseTimeoutError` reporting path.
+  // `requestTimeoutMs` is a test-only hook so the stalled-server fixture can pin the
+  // `ResponseTimeoutError` reporting path; production uses ali-oss's 60 s default.
   const requestOptions = requestTimeoutMs ? { timeout: requestTimeoutMs } : {};
   try {
     if (buffer.byteLength >= MULTIPART_MIN_BYTES) {
       for (let attempt = 1; ; attempt += 1) {
         try {
           await client.multipartUpload(objectKey, buffer, {
-            partSize: MULTIPART_PART_BYTES,
-            // Sequential parts were the publish's bottleneck once the link itself worked
-            // (dev.67: zero errors, just ~30 min without finishing one 28 MiB object at
-            // <=17.5 KB/s). Four concurrent part PUTs multiply the link throughput; with the
-            // fresh-connection-per-request agent below each stream gets its own socket.
-            parallel: 4,
             ...requestOptions,
             headers: { "Content-Type": "application/octet-stream" },
           });
