@@ -91,10 +91,16 @@ const REASON_COPY: Record<ComputerUpgradeFailure["reason"], () => UpgradeFailure
  */
 const CODE_COPY: Record<UpgradeErrorCode, () => UpgradeFailureView> = {
   [UPGRADE_ERROR_CODE.OPERATION_PENDING]: () => ({
+    // Not a failure: the Daemon refused because another upgrade is genuinely still in flight (it
+    // settles any already-settle-able blocker itself, so reaching here means the other operation is
+    // running right now). Reporting it as "the previous upgrade's result has not been confirmed"
+    // read as a failure and sent people off to restart the Supervisor *while an upgrade was
+    // running* - on a real machine a healthy upgrade takes about two minutes, which is longer than
+    // this panel used to wait. The advice is now to wait, with the restart kept for a stuck one.
     headline: m.computer_upgrade_code_operation_pending(),
     steps: [
       { text: m.computer_upgrade_step_check_status(), command: COMMAND.status },
-      { text: m.computer_upgrade_step_wait_clears() },
+      { text: m.computer_upgrade_step_wait_running() },
       {
         text: m.computer_upgrade_step_restart_supervisor_retry(),
         command: COMMAND.restartSupervisor,

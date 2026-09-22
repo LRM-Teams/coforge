@@ -35,6 +35,17 @@ import type { ComputerRestartStatus, ComputerUpgradeStatus } from "./computer.sc
 export const RESTART_POLL_INTERVAL_MS = 2_000;
 export const RESTART_MAX_POLLS = 31;
 
+/**
+ * An upgrade is an external one-shot job, not an in-process restart, and it takes far longer than
+ * one: on a real machine `upgrade-results/<id>.request.json` -> `.result.json` took about two
+ * minutes. The restart window above is sized for a restart, and reusing it here made a perfectly
+ * healthy upgrade look like a failure - the panel gave up while the job was still running, the
+ * Upgrade button came back, and the second click was refused with `UPGRADE_OPERATION_PENDING` and
+ * rendered as a failure. Three minutes covers the observed job with margin.
+ */
+export const UPGRADE_POLL_INTERVAL_MS = 3_000;
+export const UPGRADE_MAX_POLLS = 60;
+
 export type ComputerDetailView = ComputerIdentity & {
   id: string;
   ownedByCurrentUser: boolean;
@@ -91,6 +102,8 @@ export function ComputerDetail({
   latestComputerVersion,
   restartPollIntervalMs = RESTART_POLL_INTERVAL_MS,
   restartMaxPolls = RESTART_MAX_POLLS,
+  upgradePollIntervalMs = UPGRADE_POLL_INTERVAL_MS,
+  upgradeMaxPolls = UPGRADE_MAX_POLLS,
 }: {
   computer: ComputerDetailView;
   timeZone?: string | null;
@@ -103,6 +116,8 @@ export function ComputerDetail({
   latestComputerVersion?: string | null;
   restartPollIntervalMs?: number;
   restartMaxPolls?: number;
+  upgradePollIntervalMs?: number;
+  upgradeMaxPolls?: number;
 }) {
   const [updatingRuntimeIdsState, setUpdatingRuntimeIdsState] = useState(() => new Set<string>());
   const updatingRuntimeIds = useRef(new Set<string>());
@@ -151,8 +166,8 @@ export function ComputerDetail({
           describeComputerUpgradeFailure({ reason: "publication" }),
         );
       if (!onReadUpgradeStatus) return;
-      for (let poll = 0; poll < restartMaxPolls; poll += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, restartPollIntervalMs));
+      for (let poll = 0; poll < upgradeMaxPolls; poll += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, upgradePollIntervalMs));
         const status = await onReadUpgradeStatus(requestId);
         if (status.status === "completed" && status.computerVersion) {
           // The version itself moves to the Version row (the caller invalidates the loader); the
