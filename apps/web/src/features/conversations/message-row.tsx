@@ -985,7 +985,7 @@ export function MessageRow({
                   className="p-1 *:data-icon:size-3.5"
                 />
                 {thread.unread > 0 && (
-                  <span data-thread-unread className="absolute -top-1 -right-1">
+                  <span className="absolute -top-1 -right-1">
                     <UnreadDot />
                   </span>
                 )}
