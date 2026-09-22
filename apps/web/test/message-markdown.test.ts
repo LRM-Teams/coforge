@@ -370,11 +370,15 @@ function taskChipify(children: unknown[], numbers: ReadonlySet<number> = new Set
   return tree as { children: Array<Record<string, unknown>> };
 }
 
-test("a task token renders as `task #N` text", () => {
+test("a task token renders as a number-only chip", () => {
   const tree = taskChipify([paragraph([text("with <@task:68> next")])]);
   const children = tree.children[0]!.children as Array<Record<string, unknown>>;
   expect(children[0]).toEqual(text("with "));
-  expect(children[1]).toMatchObject({ tagName: "span", children: [text("task #68")] });
+  expect(children[1]).toMatchObject({
+    tagName: "span",
+    properties: { title: "task #68", "aria-label": "task #68" },
+    children: [text("#68")],
+  });
   expect(children[2]).toEqual(text(" next"));
 });
 
@@ -389,7 +393,7 @@ test("a referenced number known here becomes a clickable chip", () => {
   expect(properties["data-task-reference-number"]).toBe(68);
 });
 
-test("a number that names no task still reads `task #N`, but is not a control", () => {
+test("a number that names no task still reads `#N`, but is not a control", () => {
   const tree = taskChipify([paragraph([text("<@task:999>")])], new Set([68]));
   const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   const properties = chip.properties as {
@@ -398,7 +402,7 @@ test("a number that names no task still reads `task #N`, but is not a control", 
   };
   expect(properties.className).toEqual(TASK_CHIP_CLASS.split(" "));
   expect(properties["data-task-reference-number"]).toBeUndefined();
-  expect(chip.children).toEqual([text("task #999")]);
+  expect(chip.children).toEqual([text("#999")]);
 });
 
 test("a task token inside a code element is never chipped", () => {
