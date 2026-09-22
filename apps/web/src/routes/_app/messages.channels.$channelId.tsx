@@ -44,6 +44,7 @@ import {
   persistReadCursor,
 } from "@/features/conversations/conversation-unread";
 import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
@@ -67,6 +68,7 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
 function ChannelPage() {
   const { channelId } = Route.useParams();
   const { view, layout, profile, agentTab } = Route.useSearch();
+  const queryClient = useQueryClient();
   const taskLayout = useTaskLayout(layout);
   const { openAgentProfile, setAgentProfileTab, closeAgentProfile } = useOpenAgentProfile();
   const profileAgentId = agentIdFromProfileParam(profile);
@@ -80,7 +82,13 @@ function ChannelPage() {
   const page = useConversationQuery({
     ...publicChannelQuery(channelId),
     loadUpdates: publicChannelUpdates(channelId),
-    onRealtime: () => taskView.refresh(),
+    onRealtime: () =>
+      Promise.all([
+        taskView.refresh(),
+        queryClient.invalidateQueries({
+          queryKey: ["conversation", "thread-following-agents", channelId],
+        }),
+      ]),
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);

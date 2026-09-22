@@ -670,7 +670,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             : anchor,
       },
       take: 2,
-      select: { id: true, sequence: true, threadRootId: true },
+      select: { id: true, sequence: true, threadRootId: true, senderMemberId: true },
     });
     if (rows.length > 1)
       throw new AgentMessageValidationError("ambiguous message prefix; use the full UUID");
@@ -2042,6 +2042,13 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           ...mentioned.map(({ id }) => id),
           ...mentionedMemberIds,
         ]);
+        // Enroll the root author only for the first reply. An explicit unfollow is a durable
+        // choice and later replies must not silently add that member back.
+        const existingFollower = await tx.threadFollow.findFirst({
+          where: { rootMessageId: root.id },
+          select: { memberId: true },
+        });
+        if (root.senderMemberId && !existingFollower) followerIds.add(root.senderMemberId);
         await tx.threadFollow.createMany({
           data: [...followerIds].map((memberId) => ({
             memberId,
