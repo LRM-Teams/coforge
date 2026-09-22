@@ -126,6 +126,16 @@ function write(record: Record<string, unknown>): void {
   process.stdout.write(`${JSON.stringify(record)}\n`);
 }
 
+// The real CLI does not start a turn until its stdin reaches EOF (2026-09-22: `< /dev/null`
+// returns in ~3s, `sleep 45 | opencode run ...` emits nothing for 30s). A child spawned with an
+// open pipe therefore hangs forever - opt in to reproduce exactly that, so the adapter test proves
+// the turn process closes stdin instead of leaving the pipe open.
+if (Bun.env.COFORGE_OPENCODE_REQUIRE_STDIN_EOF === "1") {
+  for await (const _chunk of Bun.stdin.stream()) {
+    // Discard: nothing is being fed, the CLI is only waiting for the close.
+  }
+}
+
 const sessionId = resumeId ?? Bun.env.COFORGE_OPENCODE_SESSION_ID ?? crypto.randomUUID();
 const mode = Bun.env.COFORGE_OPENCODE_MODE ?? "text";
 const timestamp = Date.now();
