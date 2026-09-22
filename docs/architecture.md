@@ -591,11 +591,16 @@ Agent PATH 最前。用户执行 `coforge-computer`，Agent 执行 `coforge`，�
 [`docs/release.md`](release.md)。
 
 Computer 通过当前用户的原生进程管理器托管唯一、前台运行的机器级 Coordinator：Linux 使用
-`systemd --user` unit，macOS 使用 per-user `launchd` LaunchAgent；管理器负责登录会话内启动和
-崩溃重启，CLI 只通过本地 Unix Socket 发出一次性控制请求，不常驻也不拥有 Supervisor。
+`systemd --user` unit，macOS 使用 per-user `launchd` LaunchAgent，Windows 使用当前用户的
+Scheduled Task（`schtasks /Create /XML`，LogonTrigger + InteractiveToken + LeastPrivilege，
+无需提权；`/SC ONLOGON` CLI 在非管理员会话会被拒绝）。管理器负责登录会话内启动和崩溃重启，
+CLI 只通过本地 Unix Socket 发出一次性控制请求，不常驻也不拥有 Supervisor。
 manager/container 不可用的环境必须显式运行 `coforge-computer foreground` 并由外部 supervisor
 托管；任何普通命令都不得退化为 detached unmanaged process。安装和运行不请求 sudo，不启用
-linger，不修改 root 或系统级 service。Computer 不开放 TCP 管理端口。
+linger，不修改 root 或系统级 service。Computer 不开放 TCP 管理端口。Windows 上 Create/Run
+被拒绝时，可回退到已在跑的 foreground Supervisor，仍不分离非托管进程。`coforge-computer
+status` 通过 `schtasks /Query` 判断任务是否已注册，并以 `supervisor.lock` owner（经
+`tasklist` 验活）报告 Coordinator PID。
 
 `login` 仍可用于单独重新认证，但普通用户不需要先执行它。推荐入口是单个 `setup` 流程：没有 User credential 时在流程内部完成 OAuth 2.0 Device Authorization Grant；先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
 
@@ -1799,7 +1804,7 @@ Supervisor 保存多个 binding 及各自 desired-running 状态。Workspace sco
 Upgrade 是机器级统一 executable 切换。独立短生命周期 coordinator 在停止旧进程前下载并
 验证候选、持有完整 machine mutation lock、暂停新 launch 并快照精确运行集合。Coordinator 必须
 位于被停止 user service 的 kill scope 外，再通过 `systemd --user` / per-user `launchd` /
-Windows one-shot `schtasks` 停止和启动
+Windows one-shot `schtasks`（XML 注册，Locale 无关的远未来 TimeTrigger + `/Run`）停止和启动
 Supervisor；激活后只恢复快照中原本运行的 binding。健康验证要求新的 Supervisor identity、目标
 version，以及每个原运行 binding 的新 child process identity；失败时切回旧 immutable installation，
 恢复同一集合并重新验证，若两侧均不健康则保持 launch hold 供显式恢复。显式 foreground 模式由外部

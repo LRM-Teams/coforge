@@ -1,5 +1,7 @@
-import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
+import { unlink } from "node:fs/promises";
 import { LaunchdJob, type LaunchdJobPlatform } from "./launchd-job";
 
 const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -120,39 +122,95 @@ export async function launchComputerUpgrade(
     throw new Error("external Computer upgrade coordinator was rejected");
 }
 
+export type WindowsUpgradeTaskXmlInput = {
+  userId: string;
+  action: string[];
+};
+
+/**
+ * Locale-independent one-shot Scheduled Task XML. A far-future TimeTrigger is only a
+ * registration placeholder so `/Run` can start the upgrade immediately; `/SC ONCE` with a
+ * `/SD` date string is rejected on non-US locales (e.g. Chinese Windows expects yyyy/mm/dd).
+ */
+export function windowsUpgradeTaskXml(input: WindowsUpgradeTaskXmlInput): string {
+  if (input.action.length === 0) throw new Error("Windows upgrade task action is empty");
+  const [executable, ...args] = input.action;
+  return `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <TimeTrigger>
+      <StartBoundary>2099-01-01T00:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+    </TimeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>${xml(input.userId)}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>${xml(executable!)}</Command>
+      <Arguments>${xml(args.join(" "))}</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+`;
+}
+
+export type LaunchWindowsComputerUpgradeHooks = {
+  run?: WindowsUpgradeTaskRunner;
+  writeTaskXml?: (path: string, content: string) => Promise<void>;
+  removeTaskXml?: (path: string) => Promise<void>;
+  userId?: string;
+};
+
 /**
  * Registers a one-shot user Scheduled Task and runs it immediately. The task is outside the
  * Coordinator process tree (and any Agent Job Object), matching systemd-run / launchd one-shot
- * kill-scope isolation. `/SC ONCE` with a far-future start is only a registration placeholder;
- * `/Run` starts the upgrade now.
+ * kill-scope isolation. XML registration avoids locale-dependent `/SD` date parsing.
  */
 export async function launchWindowsComputerUpgrade(
   requestId: string,
   action: string[],
-  run: WindowsUpgradeTaskRunner = runSchtasks,
+  runOrHooks: WindowsUpgradeTaskRunner | LaunchWindowsComputerUpgradeHooks = {},
 ): Promise<void> {
+  const hooks: LaunchWindowsComputerUpgradeHooks =
+    typeof runOrHooks === "function" ? { run: runOrHooks } : runOrHooks;
+  const run = hooks.run ?? runSchtasks;
+  const writeTaskXml = hooks.writeTaskXml ?? writeUtf16XmlFile;
+  const removeTaskXml = hooks.removeTaskXml ?? removeFileQuietly;
   const taskName = computerUpgradeTaskName(requestId);
-  const tr = quoteWindowsTaskAction(action);
-  const created = await run([
-    "schtasks.exe",
-    "/Create",
-    "/TN",
-    taskName,
-    "/TR",
-    tr,
-    "/SC",
-    "ONCE",
-    "/ST",
-    "00:00",
-    "/SD",
-    "01/01/2099",
-    "/F",
-    "/RL",
-    "LIMITED",
-  ]);
-  if (created !== 0) throw new Error("external Computer upgrade coordinator was rejected");
-  const started = await run(["schtasks.exe", "/Run", "/TN", taskName]);
-  if (started !== 0) throw new Error("external Computer upgrade coordinator was rejected");
+  const xmlPath = join(tmpdir(), `coforge-upgrade-task-${randomUUID()}.xml`);
+  try {
+    await writeTaskXml(
+      xmlPath,
+      windowsUpgradeTaskXml({
+        userId: hooks.userId ?? windowsUpgradeTaskUserId(),
+        action,
+      }),
+    );
+    const created = await run(["schtasks.exe", "/Create", "/TN", taskName, "/XML", xmlPath, "/F"]);
+    if (created !== 0) throw new Error("external Computer upgrade coordinator was rejected");
+    const started = await run(["schtasks.exe", "/Run", "/TN", taskName]);
+    if (started !== 0) throw new Error("external Computer upgrade coordinator was rejected");
+  } finally {
+    await removeTaskXml(xmlPath);
+  }
 }
 
 /** Builds the `/TR` string for schtasks: quoted executable, then unquoted argv words. */
@@ -162,6 +220,36 @@ export function quoteWindowsTaskAction(action: string[]): string {
   const quotedExe = `"${executable!.replaceAll('"', '""')}"`;
   if (args.length === 0) return quotedExe;
   return `${quotedExe} ${args.map((arg) => arg.replaceAll('"', '""')).join(" ")}`;
+}
+
+async function writeUtf16XmlFile(path: string, content: string): Promise<void> {
+  await Bun.write(path, Buffer.from(`\uFEFF${content}`, "utf16le"));
+}
+
+async function removeFileQuietly(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch {
+    // already gone
+  }
+}
+
+function windowsUpgradeTaskUserId(
+  environment: NodeJS.ProcessEnv = process.env,
+  username: string = userInfo().username,
+): string {
+  const domain = environment.USERDOMAIN?.trim();
+  const envUser = environment.USERNAME?.trim();
+  if (domain && envUser) return `${domain}\\${envUser}`;
+  return username;
+}
+
+function xml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 /**

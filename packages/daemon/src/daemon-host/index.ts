@@ -1,6 +1,6 @@
 export { LaunchdDaemonHost, launchdPlist } from "./launchd";
 export { SystemdUserDaemonHost, systemdUserUnit } from "./systemd-user";
-export { WindowsUserDaemonHost } from "./windows-task";
+export { WindowsUserDaemonHost, windowsDaemonTaskXml, windowsTaskUserId } from "./windows-task";
 export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./launcher";
 
 import { LaunchdDaemonHost } from "./launchd";

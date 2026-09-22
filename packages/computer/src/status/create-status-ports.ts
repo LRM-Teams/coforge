@@ -86,7 +86,18 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
     async probeCoordinator() {
       if (input.platform === "darwin") return probeDarwinCoordinator(coordinatorLabel);
       if (input.platform === "linux") return probeLinuxCoordinator(coordinatorLabel);
-      return probeWindowsCoordinator(coordinatorLabel);
+      return probeWindowsCoordinator(coordinatorLabel, {
+        resolvePid: async () => {
+          try {
+            const text = (await readFile(supervisorLockOwnerPath, "utf8")).trim();
+            const pid = Number(text);
+            if (!Number.isInteger(pid) || pid <= 0) return null;
+            return (await windowsPidIsAlive(pid)) ? pid : null;
+          } catch {
+            return null;
+          }
+        },
+      });
     },
     async probeDaemonSnapshot(): Promise<DaemonSnapshotProbe> {
       const launcher = new LocalDaemonLauncher({
@@ -217,4 +228,16 @@ function isSqliteLockContention(error: unknown): boolean {
     "code" in error &&
     (error.code === "SQLITE_BUSY" || error.code === "SQLITE_LOCKED")
   );
+}
+
+/** Best-effort liveness check for a Windows PID via `tasklist` (no mutation). */
+export async function windowsPidIsAlive(pid: number): Promise<boolean> {
+  const child = Bun.spawn(["tasklist.exe", "/FI", `PID eq ${pid}`, "/NH"], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const [code, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
+  if (code !== 0) return false;
+  return new RegExp(`\\b${pid}\\b`).test(stdout);
 }
