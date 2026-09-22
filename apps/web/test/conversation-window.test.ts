@@ -5,7 +5,7 @@ import {
   CONVERSATION_WINDOW_PAGE_SIZE,
   flushWindowUpdates,
   foldWindowUpdates,
-  newestSequence,
+  newestRootSequence,
   nextPageCursor,
   previousPageCursor,
   windowPageFlags,
@@ -43,13 +43,31 @@ describe("nextPageCursor", () => {
   });
 });
 
-describe("newestSequence", () => {
-  test("is the last message's sequence, reply included", () => {
-    expect(newestSequence([{ sequence: 3 }, { sequence: 4 }, { sequence: 9 }])).toBe(9);
+describe("newestRootSequence", () => {
+  test("is the last top-level message's sequence when the page ends in a reply", () => {
+    // Root 20 was fetched and answered twice; root 30 is the next root the page did not fetch.
+    // Using the last message (reply 32) as the cursor would skip root 30 entirely.
+    expect(
+      newestRootSequence([
+        { sequence: 20 },
+        { sequence: 25, threadRootId: "root-20" },
+        { sequence: 32, threadRootId: "root-20" },
+      ]),
+    ).toBe(20);
+  });
+
+  test("is the newest root, not the newest reply, when roots follow one another", () => {
+    expect(
+      newestRootSequence([
+        { sequence: 10 },
+        { sequence: 12, threadRootId: "root-10" },
+        { sequence: 20 },
+      ]),
+    ).toBe(20);
   });
 
   test("is undefined for an empty page", () => {
-    expect(newestSequence([])).toBeUndefined();
+    expect(newestRootSequence([])).toBeUndefined();
   });
 });
 
