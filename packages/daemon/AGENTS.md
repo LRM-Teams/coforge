@@ -121,8 +121,12 @@ submit-pack|submit-empty|submit-failure`. Daemon injects the Agent API key and
   Without systemd/launchd failure restart, the Coordinator's Windows reconcile
   loop (`windows-workspace-reconcile.ts`) periodically re-runs
   `MachineSupervisor.reconcile` so a dead child is started again; health latching
-  remains in the Workspace child's health journal. This seam does not replace
-  Job Object containment for external Agents.
+  remains in the Workspace child's health journal.
+- `platform/windows-job-object.ts` owns Win32 Job Object create/assign/terminate
+  and ActiveProcesses queries. `platform/process-tree.ts` places external Agent
+  children into a Job Object on Windows and waits for an empty job before
+  allowing a replacement launch; when Job Object APIs cannot be loaded it still
+  fails closed.
 - `platform/daemon-logging.ts` configures the shared LogTape sinks once per
   Daemon-role process. Entrypoints own logging context and disposal; modules use
   LogTape category loggers directly, without a logger facade.

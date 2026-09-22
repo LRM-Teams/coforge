@@ -709,8 +709,9 @@ object. Missing install/upgrade/lifecycle evidence must be reported explicitly;
 it is not silently counted as passing and does not prevent publishing a
 development candidate for testing. No partial platform publication is allowed.
 Stable-version production promotion additionally requires checks 4–8 for every
-target; publishing Windows bytes does not lift the architecture's fail-closed
-restriction on external Agent processes pending Job Object supervision.
+target; publishing Windows bytes still requires Job Object APIs at runtime for
+external Agent process trees (`ProcessTreeOwner`); when those APIs cannot be
+loaded the launch remains fail-closed.
 
 A local Computer release version is production-ready only when:
 
