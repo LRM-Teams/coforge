@@ -20,6 +20,7 @@ import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 import { discoverKiroCatalog } from "./kiro/catalog";
 import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "./kiro/version";
 import { discoverCursorCatalog } from "./cursor/catalog";
+import { discoverOpenCodeCatalog } from "./opencode/catalog";
 import { isOpenCodeVersionUnsupported, logOpenCodeVersionUnsupported } from "./opencode/version";
 import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
@@ -199,6 +200,7 @@ type CatalogCommands = {
   codex?: readonly string[];
   kiro?: readonly string[];
   cursor?: readonly string[];
+  opencode?: readonly string[];
 };
 
 export type CodeAgentDiscoveryOptions = {
@@ -371,6 +373,25 @@ export async function discoverCodeAgentCatalogs(
           .catch(() => undefined)
           .then((catalog) => ({
             provider: RUNTIME_PROVIDER.CURSOR,
+            keyPaths: [executable],
+            catalog,
+          })),
+      );
+  }
+  // OpenCode was the one cacheable provider this refresh had no branch for, so its catalog was
+  // never probed: an Agent whose runtime is OpenCode saw an empty model list in the UI even
+  // though `opencode models` lists models fine on the CLI.
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.OPENCODE)) {
+    const executable = probe.which(
+      externalCodeAgentExecutable[RUNTIME_PROVIDER.OPENCODE],
+      searchPath,
+    );
+    if (executable)
+      discoveries.push(
+        discoverOpenCodeCatalog(commands.opencode ?? [executable, "models"], cwd, environment)
+          .catch(() => undefined)
+          .then((catalog) => ({
+            provider: RUNTIME_PROVIDER.OPENCODE,
             keyPaths: [executable],
             catalog,
           })),
