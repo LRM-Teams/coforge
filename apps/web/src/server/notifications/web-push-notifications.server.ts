@@ -56,6 +56,11 @@ export class WebPushNotifications {
     return this.subscriptions.removeSubscription(userId, endpoint);
   }
 
+  /** Registered-device count for a user, used to make a zero-delivery test distinguishable. */
+  countSubscriptions(userId: string): Promise<number> {
+    return this.subscriptions.subscriptionsForUser(userId).then((all) => all.length);
+  }
+
   async notifyMessage(messageId: string): Promise<DeliveryResult> {
     const notification = await this.subscriptions.notificationForMessage(messageId);
     if (!notification) return { sent: 0, failed: 0, removed: 0 };

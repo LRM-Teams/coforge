@@ -38,6 +38,7 @@ import {
   conversationOpenMode,
   type ConversationOpenMode,
 } from "@/features/settings/conversation-open-mode";
+import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
 type Theme = "system" | "light" | "dark";
@@ -229,7 +230,12 @@ function SettingsPage() {
       await sendTestNotification({ data: { endpoint: subscription.endpoint } });
       return true;
     } catch (cause) {
-      toast.error(m.preferences_browser_notifications_test_error(), cause);
+      toast.error(
+        isAppError(cause) && cause.code === "NOT_FOUND"
+          ? m.preferences_browser_notifications_test_no_subscription()
+          : m.preferences_browser_notifications_test_error(),
+        cause,
+      );
       return false;
     }
   }

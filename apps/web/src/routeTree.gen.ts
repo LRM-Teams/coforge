@@ -97,8 +97,8 @@ import { Route as ApiAgentV1ChannelsChannelUnmuteRouteImport } from './routes/ap
 import { Route as ApiAgentV1MessagesMessageIdReactionsRouteImport } from './routes/api/agent/v1/messages_.$messageId.reactions'
 import { Route as ApiAgentV1MessagesMessageIdResolveRouteImport } from './routes/api/agent/v1/messages_.$messageId.resolve'
 import { Route as ApiAgentV1ThreadsThreadUnfollowRouteImport } from './routes/api/agent/v1/threads_.$thread.unfollow'
-import { Route as ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/users/$userId/avatar'
 import { Route as ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/agents/$agentId/avatar'
+import { Route as ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/users/$userId/avatar'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -575,16 +575,16 @@ const ApiAgentV1ThreadsThreadUnfollowRoute =
     path: '/api/agent/v1/threads/$thread/unfollow',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute =
-  ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport.update({
-    id: '/api/workspaces/$workspaceId/users/$userId/avatar',
-    path: '/api/workspaces/$workspaceId/users/$userId/avatar',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute =
   ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRouteImport.update({
     id: '/api/workspaces/$workspaceId/agents/$agentId/avatar',
     path: '/api/workspaces/$workspaceId/agents/$agentId/avatar',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute =
+  ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport.update({
+    id: '/api/workspaces/$workspaceId/users/$userId/avatar',
+    path: '/api/workspaces/$workspaceId/users/$userId/avatar',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -676,8 +676,8 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
-  '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
   '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
+  '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -764,8 +764,8 @@ export interface FileRoutesByTo {
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
-  '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
   '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
+  '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -857,8 +857,8 @@ export interface FileRoutesById {
   '/api/agent/v1/messages_/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages_/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/agent/v1/threads_/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
-  '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
   '/api/workspaces/$workspaceId/agents/$agentId/avatar': typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
+  '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -950,8 +950,8 @@ export interface FileRouteTypes {
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
     | '/api/agent/v1/threads/$thread/unfollow'
-    | '/api/workspaces/$workspaceId/users/$userId/avatar'
     | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
+    | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -1038,8 +1038,8 @@ export interface FileRouteTypes {
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
     | '/api/agent/v1/threads/$thread/unfollow'
-    | '/api/workspaces/$workspaceId/users/$userId/avatar'
     | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
+    | '/api/workspaces/$workspaceId/users/$userId/avatar'
   id:
     | '__root__'
     | '/'
@@ -1130,8 +1130,8 @@ export interface FileRouteTypes {
     | '/api/agent/v1/messages_/$messageId/reactions'
     | '/api/agent/v1/messages_/$messageId/resolve'
     | '/api/agent/v1/threads_/$thread/unfollow'
-    | '/api/workspaces/$workspaceId/users/$userId/avatar'
     | '/api/workspaces/$workspaceId/agents/$agentId/avatar'
+    | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1192,8 +1192,8 @@ export interface RootRouteChildren {
   ApiAgentV1MessagesMessageIdReactionsRoute: typeof ApiAgentV1MessagesMessageIdReactionsRoute
   ApiAgentV1MessagesMessageIdResolveRoute: typeof ApiAgentV1MessagesMessageIdResolveRoute
   ApiAgentV1ThreadsThreadUnfollowRoute: typeof ApiAgentV1ThreadsThreadUnfollowRoute
-  ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
   ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute
+  ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1814,18 +1814,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1ThreadsThreadUnfollowRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/workspaces/$workspaceId/users/$userId/avatar': {
-      id: '/api/workspaces/$workspaceId/users/$userId/avatar'
-      path: '/api/workspaces/$workspaceId/users/$userId/avatar'
-      fullPath: '/api/workspaces/$workspaceId/users/$userId/avatar'
-      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/workspaces/$workspaceId/agents/$agentId/avatar': {
       id: '/api/workspaces/$workspaceId/agents/$agentId/avatar'
       path: '/api/workspaces/$workspaceId/agents/$agentId/avatar'
       fullPath: '/api/workspaces/$workspaceId/agents/$agentId/avatar'
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workspaces/$workspaceId/users/$userId/avatar': {
+      id: '/api/workspaces/$workspaceId/users/$userId/avatar'
+      path: '/api/workspaces/$workspaceId/users/$userId/avatar'
+      fullPath: '/api/workspaces/$workspaceId/users/$userId/avatar'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -2044,10 +2044,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1MessagesMessageIdResolveRoute:
     ApiAgentV1MessagesMessageIdResolveRoute,
   ApiAgentV1ThreadsThreadUnfollowRoute: ApiAgentV1ThreadsThreadUnfollowRoute,
-  ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute:
-    ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute,
   ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute:
     ApiWorkspacesWorkspaceIdAgentsAgentIdAvatarRoute,
+  ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute:
+    ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
