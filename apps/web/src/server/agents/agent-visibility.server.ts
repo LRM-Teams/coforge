@@ -113,6 +113,22 @@ export function visibleAgentWhere(viewer: AgentVisibilityViewer): Prisma.AgentWh
 }
 
 /**
+ * The `Prisma.AgentWhereInput` fragment for every non-public Agent `viewer` can currently see
+ * (ADR 0059): their own private Agent(s), or — for an elevated viewer — every non-public Agent
+ * in the Workspace. Composed with `ACTIVE_AGENT_WHERE` and a `workspaceId` scope by the caller.
+ * Built for the realtime per-Agent subscription set: a viewer's own `listAgents` roster (their
+ * owned Agents) is narrower than what they are authorized to see — an owner/admin, or a private
+ * Agent's creator viewing it from somewhere other than their own roster, still needs its id to
+ * subscribe the matching per-Agent channels. Matches the routing rule every realtime publisher
+ * already applies — anything other than exactly `"public"`, not just the literal string
+ * `"private"` — so this list and the channel a given Agent's frames actually land on never
+ * disagree.
+ */
+export function visiblePrivateAgentWhere(viewer: AgentVisibilityViewer): Prisma.AgentWhereInput {
+  return { NOT: { visibility: AGENT_VISIBILITY.PUBLIC }, ...visibleAgentWhere(viewer) };
+}
+
+/**
  * Refuse a lookup aimed at an Agent `viewer` is not allowed to see (ADR 0059). Callers that
  * resolve an Agent by id/name/handle call this right after loading the row. The answer names
  * only the fact that the viewer cannot see it (the profile panel says so); it carries none of

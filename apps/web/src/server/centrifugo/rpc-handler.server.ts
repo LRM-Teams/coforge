@@ -37,8 +37,10 @@ import {
 } from "../agents/agent-status.server";
 import {
   agentStatusChannel,
+  agentStatusChannelForAgent,
   encodeAgentStatusEvent,
 } from "../../features/agents/agent-status-realtime";
+import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import type { CentrifugoServerApi } from "./server-api.server";
 import type { AgentDisplay } from "../agents/agent-display.server";
 import {
@@ -186,7 +188,9 @@ export function createAgentStartMethod(useCase: PublishAgentRuntimeControl): Cen
 
 export function createAgentStatusMethod(
   agents: {
-    getById(id: string): Promise<{ workspaceId: string; computerId?: string } | undefined>;
+    getById(
+      id: string,
+    ): Promise<{ workspaceId: string; computerId?: string; visibility?: string } | undefined>;
   },
   statuses?: AgentStatusCache,
   events?: Pick<CentrifugoServerApi, "publish">,
@@ -217,10 +221,21 @@ export function createAgentStatusMethod(
         // The optional display read model cannot reject an accepted process fact.
       }
     }
+    // ADR 0059: folded into the Agent row already fetched above for authorization — no extra
+    // query, and never optional in effect: `visibility === undefined` (the lookup found nothing
+    // to route by; never happens once the authorization check above passed for a real Agent row)
+    // skips fan-out entirely — fails closed — rather than guessing the shared channel. The
+    // process lease above is still accepted independently of this decision.
+    const visibility = agent.visibility;
+    const isPrivate = visibility !== undefined && visibility !== AGENT_VISIBILITY.PUBLIC;
+    const channel = isPrivate
+      ? agentStatusChannelForAgent(status.workspaceId, status.agentId)
+      : agentStatusChannel(status.workspaceId);
     try {
+      if (visibility === undefined) return new Uint8Array();
       if (events) {
         await events.publish(
-          agentStatusChannel(status.workspaceId),
+          channel,
           encodeAgentStatusEvent({
             agentId: status.agentId,
             status: status.status,
@@ -232,7 +247,7 @@ export function createAgentStatusMethod(
         );
       }
       if (snapshot && displayEvents)
-        await displayEvents.publishJson(agentStatusChannel(status.workspaceId), {
+        await displayEvents.publishJson(channel, {
           type: "agent:display",
           ...snapshot,
         });

@@ -1,7 +1,13 @@
 import { importJWK, SignJWT, type JWK } from "jose";
 
-import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
-import { agentActivityChannel } from "../../features/agents/agent-activity";
+import {
+  agentStatusChannel,
+  agentStatusChannelForAgent,
+} from "../../features/agents/agent-status-realtime";
+import {
+  agentActivityChannel,
+  agentActivityChannelForAgent,
+} from "../../features/agents/agent-activity";
 import {
   conversationRealtimeChannel,
   userConversationChannel,
@@ -56,6 +62,34 @@ export async function issueAgentStatusSubscriptionToken(
   return browserRealtimeSigner(
     environment,
     { channel: agentStatusChannel(input.workspaceId) },
+    input.userId,
+  );
+}
+
+/**
+ * ADR 0059: a private Agent's per-Agent Activity channel. Callers must check `canSeeAgent` for
+ * `input.agentId` before calling this — the token itself grants exactly this one channel, so a
+ * viewer who cannot see the Agent must never be issued one.
+ */
+export async function issueAgentActivitySubscriptionTokenForAgent(
+  input: { userId: string; workspaceId: string; agentId: string },
+  environment: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  return browserRealtimeSigner(
+    environment,
+    { channel: agentActivityChannelForAgent(input.workspaceId, input.agentId) },
+    input.userId,
+  );
+}
+
+/** The per-Agent status-channel sibling of `issueAgentActivitySubscriptionTokenForAgent`. */
+export async function issueAgentStatusSubscriptionTokenForAgent(
+  input: { userId: string; workspaceId: string; agentId: string },
+  environment: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  return browserRealtimeSigner(
+    environment,
+    { channel: agentStatusChannelForAgent(input.workspaceId, input.agentId) },
     input.userId,
   );
 }

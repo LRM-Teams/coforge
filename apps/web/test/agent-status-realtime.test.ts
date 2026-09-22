@@ -8,7 +8,9 @@ const {
   applyAgentStatusEvent,
   decodeAgentStatusEvent,
   expireAgentStatuses,
+  isAgentVisibilityChangedEvent,
   mergeAgentStatusSnapshot,
+  mergeExtraAgents,
   nextDisplayRefreshDelayMs,
 } = await import("../src/features/agents/agent-status-realtime");
 import type {
@@ -24,6 +26,46 @@ test("agentStatusChannelForAgent names the per-Agent re-routing destination (ADR
   expect(agentStatusChannelForAgent("workspace-1", "agent-1")).not.toBe(
     agentStatusChannel("workspace-1"),
   );
+});
+
+test("isAgentVisibilityChangedEvent recognizes the id-only visibility-change event (ADR 0059)", () => {
+  expect(
+    isAgentVisibilityChangedEvent({ type: "agent:visibility_changed", agentId: "agent-1" }),
+  ).toBe(true);
+  expect(isAgentVisibilityChangedEvent({ type: "agent:display", agentId: "agent-1" })).toBe(false);
+  expect(isAgentVisibilityChangedEvent({ type: "agent:visibility_changed" })).toBe(false);
+  expect(isAgentVisibilityChangedEvent(null)).toBe(false);
+  expect(isAgentVisibilityChangedEvent("agent:visibility_changed")).toBe(false);
+  expect(isAgentVisibilityChangedEvent([])).toBe(false);
+});
+
+// ADR 0059 realtime gap: an owner/admin (or a private Agent's creator) can see private Agents
+// outside their own primary `agents` list (e.g. another member's private Agent). `mergeExtraAgents`
+// keeps those visible without letting a fresh refresh of the primary list silently drop them.
+test("mergeExtraAgents appends extras the primary list does not already have", () => {
+  const primary: Array<{ id: string; status: AgentStatusView }> = [
+    { id: "own-1", status: { value: "active", expiresAt: 1 } },
+  ];
+  const extras: Array<{ id: string; status: AgentStatusView }> = [
+    { id: "extra-1", status: { value: "inactive", expiresAt: null } },
+    { id: "extra-2", status: { value: "inactive", expiresAt: null } },
+  ];
+  expect(mergeExtraAgents(primary, extras)).toEqual([...primary, ...extras]);
+});
+
+test("mergeExtraAgents lets the primary list win when the same id appears in both", () => {
+  const primary: Array<{ id: string; status: AgentStatusView }> = [
+    { id: "shared", status: { value: "active", expiresAt: 1 } },
+  ];
+  const extras: Array<{ id: string; status: AgentStatusView }> = [
+    { id: "shared", status: { value: "inactive", expiresAt: null } },
+  ];
+  expect(mergeExtraAgents(primary, extras)).toEqual(primary);
+});
+
+test("mergeExtraAgents is a no-op with no extras", () => {
+  const primary = [{ id: "own-1", status: { value: "active" as const, expiresAt: 1 } }];
+  expect(mergeExtraAgents(primary, [])).toEqual(primary);
 });
 
 const ordering = {
@@ -120,6 +162,41 @@ test("snapshot merges membership and fields without letting unordered status rep
       status: { value: "inactive", expiresAt: null },
     },
   ]);
+});
+
+// ADR 0059: the exact sequence `useAgentStatuses` runs on every refresh/agent:visibility_changed
+// cycle for an "extra" (owner/admin-visible-but-not-owned) Agent — `mergeExtraAgents` re-appends
+// its bare placeholder, then `mergeAgentStatusSnapshot` must carry its already-live status and
+// display forward rather than resetting it back to the placeholder's "inactive"/no-display.
+test("mergeAgentStatusSnapshot preserves an extra Agent's live status and display across a refresh", () => {
+  const extraId = "extra-agent";
+  type ExtraTrackedAgent = {
+    id: string;
+    status: AgentStatusView;
+    display?: AgentDisplaySnapshot;
+    displayRevisionHighWater?: number;
+  };
+  const placeholder: ExtraTrackedAgent = {
+    id: extraId,
+    status: { value: "inactive", expiresAt: null },
+  };
+  const liveDisplay = display({ agentId: extraId });
+  const live: ExtraTrackedAgent = {
+    id: extraId,
+    status: {
+      value: "active",
+      expiresAt: 90_000,
+      ordering: { daemonInstanceId: "daemon-1", clientSeq: 1, observedAtMs: 1_000 },
+    },
+    display: liveDisplay,
+    displayRevisionHighWater: liveDisplay.revision,
+  };
+
+  const refreshed = mergeAgentStatusSnapshot([live], mergeExtraAgents([], [placeholder]));
+
+  expect(refreshed).toHaveLength(1);
+  expect(refreshed[0]?.status).toEqual(live.status);
+  expect(refreshed[0]?.display).toEqual(live.display);
 });
 
 test("expires an active Agent locally when its lease renewal stops", () => {
