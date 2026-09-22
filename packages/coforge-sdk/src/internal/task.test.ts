@@ -2,10 +2,7 @@ import { expect, test } from "bun:test";
 import { validateTaskRequest } from "./index";
 
 const base = {
-  protocolMajor: 1,
   idempotencyKey: "request",
-  workspaceId: "workspace",
-  agentId: "agent",
   operation: "list",
   target: "#general",
 } as const;
@@ -58,10 +55,10 @@ test("validateTaskRequest requires the idempotency key, scope ids, and the proto
   expect(() => validateTaskRequest({ ...base, idempotencyKey: "" })).toThrow(
     "invalid Task request",
   );
-  expect(() => validateTaskRequest({ ...base, workspaceId: "" })).toThrow("invalid Task request");
-  expect(() => validateTaskRequest({ ...base, agentId: "" })).toThrow("invalid Task request");
-  expect(() => validateTaskRequest({ ...base, protocolMajor: 2 })).toThrow(
-    "unsupported Task protocol major",
+  // The envelope is gone: an unknown field is the browser bundle's problem, not this validator's,
+  // but a body that still carries the old `protocolMajor` names no rejected field of its own.
+  expect(() => validateTaskRequest({ ...base, operation: "bogus" as "list" })).toThrow(
+    "invalid Task request",
   );
 });
 

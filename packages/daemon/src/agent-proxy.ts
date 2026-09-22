@@ -681,14 +681,9 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     match: exactPath(LOCAL_PROXY_ROUTES.tasks.path),
     body: "json-object",
     handler: "agentTask",
-    parse: ({ fields, binding }) => {
+    parse: ({ fields }) => {
       const command = fields as TaskCommand;
-      validateTaskRequest({
-        ...command,
-        protocolMajor: 1,
-        workspaceId: "local",
-        agentId: binding.agentId,
-      });
+      validateTaskRequest(command);
       return command;
     },
   }),

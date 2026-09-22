@@ -15,10 +15,7 @@ test("the Task route hands the board the body it expects, key named idempotencyK
   let received: unknown;
   const result = await handleAgentTaskPost(
     request({
-      protocolMajor: 1,
       idempotencyKey: "request-1",
-      workspaceId: "workspace-1",
-      agentId: "agent-1",
       operation: "list",
       target: "#general",
     }),
@@ -118,14 +115,14 @@ test("a resource receipt accepts an ISO expiry with a timezone offset", async ()
   expect(received).toMatchObject({ receipt: { expiry: "2030-03-04T05:06:00+08:00" } });
 });
 
-test("a mismatched daemon envelope is rejected before the board is called", async () => {
+test("an unknown envelope field is rejected by the strict schema before the board is called", async () => {
+  // The request envelope is gone: a body still carrying `protocolMajor` (an old daemon) fails the
+  // strict schema instead of being silently tolerated — the daemon side ships the plain command.
   let called = false;
   const result = await handleAgentTaskPost(
     request({
       protocolMajor: 1,
       idempotencyKey: "request-1",
-      workspaceId: "workspace-1",
-      agentId: "another-agent",
       operation: "list",
       target: "#general",
     }),
@@ -138,7 +135,7 @@ test("a mismatched daemon envelope is rejected before the board is called", asyn
     },
   );
 
-  expect(result.status).toBe(403);
+  expect(result.status).toBe(400);
   expect(called).toBe(false);
 });
 
@@ -174,7 +171,7 @@ test("a board error carrying a domain code is answered 400 with that code, not o
   );
 
   expect(result.status).toBe(400);
-  expect(await result.json()).toEqual({ error: "invalid task request", code: "INVALID_INPUT" });
+  expect(await result.json()).toEqual({ error: "task request refused", code: "INVALID_INPUT" });
 });
 
 test("an unexpected failure is logged and answered 500 — never blamed on the caller", async () => {
@@ -200,4 +197,19 @@ test("an unexpected failure is logged and answered 500 — never blamed on the c
   } finally {
     console.error = original;
   }
+});
+
+test("a board refusal names its code and the HTTP status that code means", async () => {
+  const result = await handleAgentTaskPost(
+    request({ idempotencyKey: "request-1", operation: "claim", number: 98, target: "#coforge" }),
+    principal,
+    {
+      execute: async () => {
+        throw new AppError("CONFLICT");
+      },
+    },
+  );
+
+  expect(result.status).toBe(409);
+  expect(await result.json()).toEqual({ error: "task request refused", code: "CONFLICT" });
 });

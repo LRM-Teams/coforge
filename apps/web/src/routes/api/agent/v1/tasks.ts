@@ -22,13 +22,20 @@ const taskOperations = [
 ] as const;
 const taskStatuses = [...TASK_STATUSES, "all"] as const;
 
+/** The HTTP status a board refusal's code means. Codes outside this map (workspace/computer
+ * invariants the board does not raise) fall through to 500. */
+const TASK_REFUSAL_STATUS: Record<string, number> = {
+  INVALID_INPUT: 400,
+  NOT_FOUND: 404,
+  ACCESS_DENIED: 403,
+  CONFLICT: 409,
+  TEMPORARILY_UNAVAILABLE: 503,
+};
+
 const taskRequestSchema = z
   .object({
     operation: z.enum(taskOperations),
     idempotencyKey: z.string().min(1),
-    protocolMajor: z.literal(1).optional(),
-    workspaceId: z.string().min(1).optional(),
-    agentId: z.string().min(1).optional(),
     conversationId: z.string().uuid().optional(),
     target: z.string().min(1).optional(),
     number: z.number().int().positive().optional(),
@@ -68,18 +75,7 @@ export async function handleAgentTaskPost(
   },
 ): Promise<Response> {
   try {
-    const envelope = taskRequestSchema.parse(await request.json().catch(() => undefined));
-    if (
-      (envelope.workspaceId !== undefined && envelope.workspaceId !== principal.workspaceId) ||
-      (envelope.agentId !== undefined && envelope.agentId !== principal.agentId)
-    )
-      return Response.json({ error: "Task principal scope mismatch" }, { status: 403 });
-    const {
-      protocolMajor: _protocolMajor,
-      workspaceId: _workspaceId,
-      agentId: _agentId,
-      ...command
-    } = envelope;
+    const command = taskRequestSchema.parse(await request.json().catch(() => undefined));
     // Agent Task commands act as the agent, not its owner user.
     const result = await board.execute(
       { workspaceId: principal.workspaceId, agentId: principal.agentId },
@@ -87,9 +83,18 @@ export async function handleAgentTaskPost(
     );
     return Response.json({ ...result, idempotencyKey: command.idempotencyKey });
   } catch (error) {
-    if (error instanceof AppError || error instanceof z.ZodError) {
-      const code = error instanceof AppError ? error.code : "INVALID_INPUT";
-      return Response.json({ error: "invalid task request", code }, { status: 400 });
+    if (error instanceof AppError) {
+      // A board refusal is a business outcome, not a malformed request: name its code and give it
+      // the HTTP status that code means, so a claim of an already-claimed task is a 409 and not a
+      // shapeless 400 the caller can only report as an opaque failure.
+      const status = TASK_REFUSAL_STATUS[error.code] ?? 500;
+      return Response.json({ error: "task request refused", code: error.code }, { status });
+    }
+    if (error instanceof z.ZodError) {
+      return Response.json(
+        { error: "invalid task request", code: "INVALID_INPUT" },
+        { status: 400 },
+      );
     }
     console.error("[agent] Task command failed", error);
     return Response.json({ error: "Task command failed" }, { status: 500 });

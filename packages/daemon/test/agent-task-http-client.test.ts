@@ -3,10 +3,7 @@ import { AgentUpstreamRefusalError } from "../src/connection/agent-upstream-refu
 import { defaultAgentTaskHttpClient } from "../src/connection/daemon-connection";
 
 const request = {
-  protocolMajor: 1,
   idempotencyKey: "request-1",
-  workspaceId: "workspace-1",
-  agentId: "agent-1",
   operation: "list",
   target: "#general",
 } as const;

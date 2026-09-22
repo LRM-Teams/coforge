@@ -14,6 +14,9 @@ export class AgentUpstreamRefusalError extends Error {
     message: string,
     /** The `code` the server's JSON error body carried, when it carried one. */
     readonly upstreamCode?: string,
+    /** The HTTP status the server answered with — what lets the local proxy hand a business
+     * refusal (a 403/404/409) to the caller as that status instead of an opaque 502. */
+    readonly upstreamStatus?: number,
   ) {
     super(message);
     this.name = "AgentUpstreamRefusalError";

@@ -168,3 +168,35 @@ test("an unclassifiable upstream refusal logs the server's code, and publishes n
   expect(JSON.stringify(classified.body)).not.toContain("ACCESS_DENIED");
   expect(classified.body.proxy.cause_code).toBe("UNCLASSIFIED_PROXY_FAILURE");
 });
+
+test("a business refusal reaches the caller as its own status and code, not an opaque 502", () => {
+  const classified = classifyAgentProxyFailure(
+    new AgentUpstreamRefusalError("server Agent Task request failed (409)", "CONFLICT", 409),
+    { ...context, path: "/api/agent/v1/tasks", routeFamily: "agent-api/task" },
+  );
+  expect(classified.status).toBe(409);
+  expect(classified.body.code).toBe("CONFLICT");
+  expect(classified.body.proxy.cause_code).toBe("CONFLICT");
+  expect(classified.body.proxy.failure_class).toBe("upstream_http_response");
+  expect(classified.body.proxy.upstream_status).toBe(409);
+  expect(classified.body.error).toContain("changed since");
+});
+
+test("reviewer isolation withholds the refusal entirely, mapped or not", () => {
+  const redacted = classifyAgentProxyFailure(
+    new AgentUpstreamRefusalError("server Agent Task request failed (409)", "CONFLICT", 409),
+    { ...context, path: "/api/agent/v1/tasks", routeFamily: "agent-api/task", redact: true },
+  );
+  expect(redacted.status).toBe(502);
+  expect(redacted.body.proxy.cause_code).toBe("REVIEWER_ISOLATION_WITHHELD");
+  expect(JSON.stringify(redacted.body)).not.toContain("CONFLICT");
+});
+
+test("a refusal status outside the business set stays opaque", () => {
+  const classified = classifyAgentProxyFailure(
+    new AgentUpstreamRefusalError("server Agent Task request failed (500)", "INTERNAL_ERROR", 500),
+    context,
+  );
+  expect(classified.status).toBe(502);
+  expect(classified.body.proxy.cause_code).toBe("UNCLASSIFIED_PROXY_FAILURE");
+});

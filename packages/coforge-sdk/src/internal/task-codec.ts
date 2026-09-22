@@ -5,20 +5,15 @@ import {
   type TaskResult,
 } from "./tasks";
 
-export const TASK_PROTOCOL_MAJOR = 1 as const;
-
 /**
- * The request the daemon puts on the Agent HTTPS task route: the board's command plus the request
- * envelope (`protocolMajor`, `workspaceId`, `agentId`). The idempotency key is named
- * `idempotencyKey` here and everywhere the JSON path sees it — there is no other name on the wire.
- * (Protobuf payloads keep their own `request_id` spelling; that is the WebSocket path's contract,
- * not HTTP's.)
+ * The request the daemon puts on the Agent HTTPS task route: the board's command, nothing else.
+ * The former request envelope (`protocolMajor`, `workspaceId`, `agentId`) is gone — the route
+ * derives its principal from the Agent API key and never trusted these body fields. The
+ * idempotency key is named `idempotencyKey` here and everywhere the JSON path sees it — there is
+ * no other name on the wire. (Protobuf payloads keep their own `request_id` spelling; that is the
+ * WebSocket path's contract, not HTTP's.)
  */
-export type TaskRequest = TaskCommand & {
-  protocolMajor: number;
-  workspaceId: string;
-  agentId: string;
-};
+export type TaskRequest = TaskCommand;
 
 /** The route echoes the idempotency key alongside the board's result so the caller can correlate. */
 export type TaskResponse = TaskResult & { idempotencyKey: string };
@@ -73,15 +68,9 @@ function validReceipt(value: unknown): value is TaskResourceReceipt {
 }
 
 export function validateTaskRequest(value: TaskRequest): void {
-  if (!value || typeof value !== "object" || value.protocolMajor !== TASK_PROTOCOL_MAJOR)
-    throw new Error("unsupported Task protocol major");
-  if (
-    !isNonblank(value.idempotencyKey) ||
-    !isNonblank(value.workspaceId) ||
-    !isNonblank(value.agentId) ||
-    !operations.has(value.operation)
-  )
+  if (!value || typeof value !== "object" || !isNonblank(value.idempotencyKey))
     throw new Error("invalid Task request");
+  if (!operations.has(value.operation)) throw new Error("invalid Task request");
   if (
     value.conversationId !== undefined ||
     (value.target ? 1 : 0) + (value.mine === true ? 1 : 0) !== 1 ||

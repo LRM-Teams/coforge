@@ -57,7 +57,6 @@ import type {
 } from "../connection/daemon-connection";
 import {
   WORKSPACE_PROTOCOL_MAJOR,
-  TASK_PROTOCOL_MAJOR,
   AGENT_ACTIVITY_DETAIL_KIND,
   truncateCodePoints,
   type AgentActivity,
@@ -3699,6 +3698,9 @@ export class DaemonRuntime {
     return this.#transport.profileUpdate(request, agentApiKey);
   }
 
+  /** Dispatches one task command to the cloud task route over its HTTPS path. The body is the
+   * plain command — the route derives its principal from the Agent API key, so no envelope
+   * travels with it. */
   async agentTask(context: string, command: TaskCommand, agentApiKey: string): Promise<TaskResult> {
     this.#assertRunning();
     const agentId = this.#agentIdForContext(context);
@@ -3709,15 +3711,7 @@ export class DaemonRuntime {
       const held = await this.#heldTaskResult(agentId, command, command.target, agentApiKey);
       if (held) return held;
     }
-    return this.#transport.agentTask(
-      {
-        ...command,
-        protocolMajor: TASK_PROTOCOL_MAJOR,
-        workspaceId: this.#connection.workspaceId,
-        agentId,
-      },
-      agentApiKey,
-    );
+    return this.#transport.agentTask({ ...command }, agentApiKey);
   }
 
   /** Dispatches a channel lifecycle/roster command to the cloud route `agentChannel` maps it
