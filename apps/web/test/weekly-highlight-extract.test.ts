@@ -7,6 +7,25 @@ import {
 
 test("parseRecordAssistantPayload accepts offer-send", () => {
   expect(parseRecordAssistantPayload({ kind: "offer-send" })).toEqual({ kind: "offer-send" });
+  expect(
+    parseRecordAssistantPayload({
+      kind: "offer-send",
+      year: 2026,
+      week: 36,
+      weekTitle: "2026 W36 (08.31-09.04)",
+      updatedAt: "2026-09-05T07:00:00.000Z",
+      recipients: [{ displayName: "Ada", avatarUrl: null }],
+      recipientTotal: 3,
+    }),
+  ).toEqual({
+    kind: "offer-send",
+    year: 2026,
+    week: 36,
+    weekTitle: "2026 W36 (08.31-09.04)",
+    updatedAt: "2026-09-05T07:00:00.000Z",
+    recipients: [{ displayName: "Ada", avatarUrl: null }],
+    recipientTotal: 3,
+  });
 });
 
 test("parseRecordAssistantPayload accepts collect-plan and collect-run", () => {

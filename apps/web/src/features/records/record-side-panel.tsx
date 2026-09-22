@@ -13,9 +13,10 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   ChevronDown,
   ChevronRightDouble,
+  CheckCircle,
   DotsHorizontal,
   Edit01 as Edit,
-  File02 as FileIcon,
+  Link01 as LinkIcon,
   Microphone02 as Microphone,
   Paperclip,
   Pin01 as Pin,
@@ -42,6 +43,7 @@ import { shouldSendOnEnter } from "../conversations/composer-behavior";
 import { useConversationRealtime } from "../conversations/conversation-realtime-client";
 import type { WeeklyReportAssistantSuggestion } from "../../server/records/weekly-report-assistant-suggestion.server";
 import type { KeyPointExtractionMeta, ReportContent } from "./records-content";
+import { formatWeeklyReportCompletedAt } from "./records-content";
 import {
   addRecordComment,
   acceptMemberGenerateHelp,
@@ -54,6 +56,7 @@ import {
   declineMemberReportIntent,
   ensureRecordAssistantIntro,
   ensureWeeklyReportAssistantChatSessions,
+  dismissWeeklyFormatSend,
   loadWeeklyReportAssistantContext,
   loadWeeklyReportAssistantMessages,
   loadWeeklyReportAssistantStatus,
@@ -139,6 +142,8 @@ export function RecordSidePanel({
   open,
   onOpenChange,
   onRequestSend,
+  onWeekSendDismissed,
+  sendOfferActive = false,
   onBodyApplied,
   keyPointExtraction,
   keyPointRestartBusy,
@@ -154,6 +159,10 @@ export function RecordSidePanel({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRequestSend?: () => void;
+  /** After Leader dismisses this week's send from the offer-send card. */
+  onWeekSendDismissed?: () => void;
+  /** Whether the format can still be sent (hides offer actions when false). */
+  sendOfferActive?: boolean;
   /** After Confirm body-edit, parent syncs the open editor (draft + view). */
   onBodyApplied?: (reportId: string, content: ReportContent) => void;
   /** Leader member-report: show personal key-point status + re-extract. */
@@ -174,6 +183,7 @@ export function RecordSidePanel({
   const acceptGenerateHelp = useServerFn(acceptMemberGenerateHelp);
   const confirmIntent = useServerFn(confirmMemberReportIntent);
   const declineIntent = useServerFn(declineMemberReportIntent);
+  const dismissWeekSend = useServerFn(dismissWeeklyFormatSend);
   const loadAssistantContext = useServerFn(loadWeeklyReportAssistantContext);
   const loadAssistantStatus = useServerFn(loadWeeklyReportAssistantStatus);
   const loadAssistantMessages = useServerFn(loadWeeklyReportAssistantMessages);
@@ -520,6 +530,26 @@ export function RecordSidePanel({
       session.draft = "";
       setDraft("");
       await loadThread(ensured.activeSessionId, ensured.legacySessionId);
+    } catch {
+      setError(m.records_weekly_ai_request_failed());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDismissWeekSend() {
+    if (busy || subjectType !== "report" || !sendOfferActive) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const rows = await dismissWeekSend({
+        data: {
+          reportId: subjectId,
+          assistantSessionId: activeSessionId ?? undefined,
+        },
+      });
+      setComments(rows);
+      onWeekSendDismissed?.();
     } catch {
       setError(m.records_weekly_ai_request_failed());
     } finally {
@@ -1174,7 +1204,43 @@ export function RecordSidePanel({
                     {comment.body}
                   </p>
                   {payload?.kind === "offer-send" ? (
-                    <AssistantAttachmentCard payload={payload} countdown={countdown} />
+                    <div className="space-y-3">
+                      <AssistantAttachmentCard payload={payload} />
+                      {sendOfferActive &&
+                      !comments.slice(commentIndex + 1).some((row) => {
+                        const later = payloadOf(row);
+                        return (
+                          later?.kind === "offer-send" ||
+                          (row.authorType === "assistant" && row.body.includes("已取消本周周报"))
+                        );
+                      }) ? (
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              color="primary"
+                              isDisabled={busy}
+                              onPress={() => onRequestSend?.()}
+                            >
+                              {m.records_assistant_confirm_send()}
+                            </Button>
+                            <Button
+                              size="sm"
+                              color="secondary"
+                              isDisabled={busy}
+                              onPress={() => void onDismissWeekSend()}
+                            >
+                              {m.records_assistant_cancel_week()}
+                            </Button>
+                          </div>
+                          {countdown ? (
+                            <p className="text-xs text-tertiary">
+                              {m.records_assistant_auto_send_in({ countdown })}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   ) : null}
                   {payload?.kind === "offer-help-generate" && !generateHelpConsumed ? (
                     <Button
@@ -1236,16 +1302,6 @@ export function RecordSidePanel({
                         void loadThread(activeSessionId, legacySessionId);
                       }}
                     />
-                  ) : null}
-                  {payload?.kind === "offer-send" ? (
-                    <Button
-                      size="sm"
-                      color="primary"
-                      isDisabled={busy}
-                      onPress={() => onRequestSend?.()}
-                    >
-                      {m.records_assistant_confirm_send()}
-                    </Button>
                   ) : null}
                 </article>
               );
@@ -1469,22 +1525,61 @@ export function RecordSidePanel({
 }
 
 function AssistantAttachmentCard({
-  countdown,
+  payload,
 }: {
   payload: Extract<RecordAssistantPayload, { kind: "offer-send" }>;
-  countdown?: string | null;
 }) {
-  const status = countdown ?? m.records_assistant_template_ready();
+  const title =
+    payload.weekTitle?.trim() ||
+    (payload.year != null && payload.week != null
+      ? `${payload.year} W${payload.week}`
+      : m.records_assistant_template());
+  const updatedLabel = payload.updatedAt
+    ? m.records_assistant_template_updated({
+        time: formatWeeklyReportCompletedAt(payload.updatedAt).replace(/:\d{2}$/, ""),
+      })
+    : m.records_assistant_template_ready();
+  const recipients = payload.recipients ?? [];
+  const shown = recipients.slice(0, 5);
+  const overflow =
+    typeof payload.recipientTotal === "number"
+      ? Math.max(0, payload.recipientTotal - shown.length)
+      : Math.max(0, recipients.length - shown.length);
+
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-brand-primary_alt px-3 py-2">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-brand-secondary">
-        <FileIcon className="size-4" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-primary">
-          {m.records_assistant_template()}
-        </p>
-        <p className="text-xs text-tertiary">{status}</p>
+    <div className="overflow-hidden rounded-xl bg-gradient-to-br from-brand-primary via-brand-primary/40 to-primary p-3">
+      <div className="flex items-start gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-solid text-white">
+          <LinkIcon className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-primary">{title}</p>
+          <p className="text-xs text-tertiary">{m.records_assistant_template()}</p>
+          <p className="mt-1 flex items-center gap-1 text-xs text-tertiary">
+            <CheckCircle className="size-3.5 text-success-primary" />
+            <span>{updatedLabel}</span>
+          </p>
+          {shown.length > 0 ? (
+            <div className="mt-2 flex items-center">
+              {shown.map((person, index) => (
+                <Avatar
+                  key={`${person.displayName}-${index}`}
+                  size="xs"
+                  alt={person.displayName}
+                  src={person.avatarUrl ?? undefined}
+                  initials={avatarInitial(person.displayName)}
+                  contentClassName={avatarToneClassName(person.displayName)}
+                  className={cx("ring-2 ring-primary", index > 0 ? "-ml-1.5" : undefined)}
+                />
+              ))}
+              {overflow > 0 ? (
+                <span className="ml-1.5 text-xs font-medium text-tertiary">
+                  {m.records_assistant_recipients_overflow({ count: overflow })}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );

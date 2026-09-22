@@ -27,9 +27,11 @@ format. ADR 0011 armed the chip for the whole send weekday and let cron send at
    After WR-13 the live format page only persists on explicit「保存」(or the
    send path’s pre-send persist); cancel is written on that server save when
    the body changed inside the preview window—not on every keystroke.
-4. **Nav attention**: While any of the viewer’s streams is in the preview
-   window and not yet sent and not cancelled, the Records rail item shows a
-   dot. Not a Message unread.
+4. **Nav attention**: The Records rail item shows a dot while any of the
+   viewer’s streams is in the preview window and not yet sent and not
+   cancelled, **or** while the viewer still has an unread Leader assignment
+   under「我的周报」(cleared when the assignment is opened). Not a Message
+   unread.
 5. **Out of scope here**: Assistant side-chat copy, in-chat send, and dual
    highlight-template send (WR-09/10/22/23).
 

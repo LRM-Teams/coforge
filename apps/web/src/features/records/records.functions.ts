@@ -788,6 +788,23 @@ export const ensureRecordAssistantIntro = createServerFn({ method: "POST" })
     });
   });
 
+export const dismissWeeklyFormatSend = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z.object({
+      reportId: z.string().uuid(),
+      assistantSessionId: z.string().uuid().optional(),
+    }),
+  )
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).dismissWeeklyFormatSend({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+      assistantSessionId: data.assistantSessionId,
+    });
+  });
+
 export const acceptMemberGenerateHelp = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(

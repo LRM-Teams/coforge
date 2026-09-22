@@ -1678,9 +1678,21 @@ test("setReportFavorite rejects reports the viewer cannot open", async () => {
 test("saveReportContent with askToSend posts an offer-send assistant card when eligible", async () => {
   const comments: Array<Record<string, unknown>> = [];
   const contentUpdates: Array<Record<string, unknown>> = [];
+  const formatRow = {
+    id: "format-1",
+    authorId: "leader",
+    kind: "template",
+    settingsId: "settings-1",
+    content: { tabs: { Summary: { markdown: "old" } } },
+    cycle: { year: 2026, week: 38 },
+    submissions: [],
+    updatedAt: new Date("2026-09-18T06:00:00.000Z"),
+    author: { displayName: "Mark", username: "mark" },
+  };
   const db = {
     workspaceMembership: {
       findUnique: async () => ({ role: "member" }),
+      findMany: async () => [],
     },
     weeklyReport: {
       findFirst: async (query: {
@@ -1689,19 +1701,12 @@ test("saveReportContent with askToSend posts an offer-send assistant card when e
           settingsId?: string;
           submissions?: { some?: unknown; none?: unknown };
         };
+        select?: Record<string, unknown>;
       }) => {
         if (query.where?.submissions?.some) return null;
         if (query.where?.submissions?.none) return { id: "format-1" };
         if (query.where?.id === "format-1" || query.where?.settingsId) {
-          return {
-            id: "format-1",
-            authorId: "leader",
-            kind: "template",
-            settingsId: "settings-1",
-            content: { tabs: { Summary: { markdown: "old" } } },
-            cycle: { year: 2026, week: 38 },
-            submissions: [],
-          };
+          return formatRow;
         }
         return null;
       },
@@ -1721,6 +1726,17 @@ test("saveReportContent with askToSend posts an offer-send assistant card when e
         sendTime: "15:00",
         scheduleEnabled: true,
         applied: true,
+        allMembers: false,
+        recipients: [
+          {
+            user: {
+              id: "m1",
+              displayName: "Ada",
+              username: "ada",
+              avatarObjectKey: null,
+            },
+          },
+        ],
       }),
       update: async () => ({}),
     },
@@ -1750,7 +1766,12 @@ test("saveReportContent with askToSend posts an offer-send assistant card when e
   });
   expect(comments[1]).toMatchObject({
     authorType: "assistant",
-    payload: { kind: "offer-send" },
+    body: "hi，Mark，2026 W38的工作周报模板已生成，请确认是否发送。",
+    payload: {
+      kind: "offer-send",
+      year: 2026,
+      week: 38,
+    },
   });
   expect(
     (contentUpdates[0]?.content as { schedule?: { cancelledWeek?: number } })?.schedule
@@ -1829,6 +1850,7 @@ test("loadNavAttention reads every applied stream with two batched queries", asy
           ? [{ settingsId: "settings-sent" }]
           : [{ settingsId: "settings-soon", content: null }];
       },
+      findFirst: async () => null,
     },
   } as unknown as PrismaClient;
 
@@ -1852,6 +1874,7 @@ test("loadNavAttention stays quiet when the only armed stream was already sent",
     weeklyReport: {
       findMany: async (args: { where: { submissions: { some?: unknown } } }) =>
         args.where.submissions.some ? [{ settingsId: "settings-sent" }] : [],
+      findFirst: async () => null,
     },
   } as unknown as PrismaClient;
 
@@ -1859,6 +1882,55 @@ test("loadNavAttention stays quiet when the only armed stream was already sent",
     workspaceId: "workspace-1",
     userId: "leader",
     now,
+  });
+
+  expect(result).toEqual({ preview: false });
+});
+
+test("loadNavAttention lights the Records rail when the viewer has an unread assignment", async () => {
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    weeklyReportTemplate: { findMany: async () => [] },
+    weeklyReport: {
+      findFirst: async (args: {
+        where: {
+          kind?: string;
+          authorId?: string;
+          sourceTemplateId?: { not: null };
+          hiddenFromAuthor?: boolean;
+          content?: { path: string[]; equals: boolean };
+        };
+      }) => {
+        expect(args.where.kind).toBe("member");
+        expect(args.where.authorId).toBe("member-1");
+        expect(args.where.sourceTemplateId).toEqual({ not: null });
+        expect(args.where.hiddenFromAuthor).toBe(false);
+        expect(args.where.content).toEqual({ path: ["assignment", "unread"], equals: true });
+        return { id: "assignment-1" };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).loadNavAttention({
+    workspaceId: "workspace-1",
+    userId: "member-1",
+  });
+
+  expect(result).toEqual({ preview: true });
+});
+
+test("loadNavAttention stays quiet when the member has no unread assignment", async () => {
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    weeklyReportTemplate: { findMany: async () => [] },
+    weeklyReport: {
+      findFirst: async () => null,
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).loadNavAttention({
+    workspaceId: "workspace-1",
+    userId: "member-1",
   });
 
   expect(result).toEqual({ preview: false });

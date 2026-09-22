@@ -6,6 +6,7 @@ import {
   emptyReportContent,
   isAssignmentUnread,
   isAutoSendCancelled,
+  isWeekSendDismissed,
   isValidTemplateName,
   isHourlySendTime,
   memberReportTitle,
@@ -14,6 +15,7 @@ import {
   reportTabsEqual,
   withAssignmentUnread,
   withAutoSendCancelled,
+  withWeekSendDismissed,
   type ReportContent,
 } from "../../features/records/records-content";
 import {
@@ -28,6 +30,7 @@ import {
 import {
   canSendWeeklyAssignmentsNow,
   currentWeekTemplateTitle,
+  formatOfferSendWeekTitle,
   isWeeklySendArmed,
   splitWeeklyTemplateRoles,
 } from "../../features/records/weekly-send-window";
@@ -163,6 +166,11 @@ export class RecordCatalog {
       currentWeek.year,
       currentWeek.week,
     );
+    const weekDismissed = isWeekSendDismissed(
+      asReportContent(report.content),
+      currentWeek.year,
+      currentWeek.week,
+    );
     const schedule = {
       sendWeekday: settings.sendWeekday,
       sendTime: settings.sendTime,
@@ -171,15 +179,17 @@ export class RecordCatalog {
       alreadySent,
     };
     return {
-      canSend: canSendWeeklyAssignmentsNow({
-        applied: true,
-        alreadySent,
-        sendWeekday: settings.sendWeekday,
-        sendTime: settings.sendTime,
-        scheduleEnabled: settings.scheduleEnabled,
-        autoSendCancelled,
-        now,
-      }),
+      canSend:
+        !weekDismissed &&
+        canSendWeeklyAssignmentsNow({
+          applied: true,
+          alreadySent,
+          sendWeekday: settings.sendWeekday,
+          sendTime: settings.sendTime,
+          scheduleEnabled: settings.scheduleEnabled,
+          autoSendCancelled,
+          now,
+        }),
       schedule,
     };
   }
@@ -486,9 +496,22 @@ export class RecordCatalog {
     };
   }
 
-  /** Records rail dot: any applied scheduled stream is in the one-hour preview and not cancelled. */
+  /** Records rail dot: Leader preview hour, or an unread member assignment. */
   async loadNavAttention(input: { workspaceId: string; userId: string; now?: Date }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
+    const unreadAssignment = await this.db.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        kind: "member",
+        authorId: input.userId,
+        sourceTemplateId: { not: null },
+        hiddenFromAuthor: false,
+        content: { path: ["assignment", "unread"], equals: true },
+      },
+      select: { id: true },
+    });
+    if (unreadAssignment) return { preview: true as const };
+
     const now = input.now ?? new Date();
     const currentWeek = currentIsoWeek(zonedCalendarDate(now));
     const settings = await this.db.weeklyReportTemplate.findMany({
@@ -1814,19 +1837,19 @@ export class RecordCatalog {
         assistantPosted = true;
       }
       if (input.askToSend) {
-        const canSend = await this.canSendWeeklyAssignments({
+        const offer = await this.buildFormatOfferSend({
           workspaceId: input.workspaceId,
           userId: input.userId,
           reportId: report.id,
           now,
         });
-        if (canSend) {
+        if (offer) {
           await this.writeAssistantComment({
             workspaceId: input.workspaceId,
             subjectType: "report",
             subjectId: report.id,
-            body: "模板已保存。要现在发送给名单中的成员吗？",
-            payload: { kind: "offer-send" },
+            body: offer.body,
+            payload: offer.payload,
           });
           assistantPosted = true;
         }
@@ -2514,27 +2537,20 @@ export class RecordCatalog {
     surface: "format" | "member-leader" | "member-assignee" | "plain";
     formatCopy?: "preview" | "cancelled" | "ready";
     assistantSessionId: string;
+    now?: Date;
   }) {
     const existing = await this.listComments(input);
-    if (existing.length > 0 || input.surface === "plain" || input.surface === "member-leader") {
+    if (input.surface === "plain" || input.surface === "member-leader") {
       return existing;
     }
 
-    if (input.surface === "format") {
-      const body =
-        input.formatCopy === "cancelled"
-          ? "已取消本周自动发送。保存后请手动发送周报模板。"
-          : input.formatCopy === "preview"
-            ? "本周模板已进入发送预览。一小时内未编辑将自动发给名单；也可现在发送。"
-            : "需要把周报模板发给成员时，保存后点击发送即可。";
-      await this.writeAssistantComment({
-        workspaceId: input.workspaceId,
-        subjectType: input.subjectType,
-        subjectId: input.subjectId,
-        assistantSessionId: input.assistantSessionId,
-        body,
-      });
-    } else if (input.surface === "member-assignee" && input.subjectType === "report") {
+    if (input.surface === "format" && input.subjectType === "report") {
+      return this.ensureFormatSendOfferIntro({ ...input, existing });
+    }
+
+    if (existing.length > 0) return existing;
+
+    if (input.surface === "member-assignee" && input.subjectType === "report") {
       const report = await this.db.weeklyReport.findFirst({
         where: {
           id: input.subjectId,
@@ -2561,6 +2577,221 @@ export class RecordCatalog {
     }
 
     return this.listComments(input);
+  }
+
+  /**
+   * When the live format enters a sendable window, post the T2 offer-send card
+   * once per session. Outside the window, keep a short ready/cancelled tip if
+   * the thread is still empty.
+   */
+  private async ensureFormatSendOfferIntro(input: {
+    workspaceId: string;
+    userId: string;
+    subjectId: string;
+    assistantSessionId: string;
+    formatCopy?: "preview" | "cancelled" | "ready";
+    existing: Awaited<ReturnType<RecordCatalog["listComments"]>>;
+    now?: Date;
+  }) {
+    const hasOfferSend = input.existing.some(
+      (row) => parseRecordAssistantPayload(row.payload)?.kind === "offer-send",
+    );
+    if (hasOfferSend) return input.existing;
+
+    const offer = await this.buildFormatOfferSend({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      reportId: input.subjectId,
+      now: input.now,
+    });
+    if (offer) {
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+        body: offer.body,
+        payload: offer.payload,
+      });
+      return this.listComments({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        assistantSessionId: input.assistantSessionId,
+      });
+    }
+
+    if (input.existing.length > 0) return input.existing;
+
+    const body =
+      input.formatCopy === "cancelled"
+        ? "已取消本周自动发送。保存后请手动发送周报模板。"
+        : "需要把周报模板发给成员时，保存后点击发送即可。";
+    await this.writeAssistantComment({
+      workspaceId: input.workspaceId,
+      subjectType: "report",
+      subjectId: input.subjectId,
+      assistantSessionId: input.assistantSessionId,
+      body,
+    });
+    return this.listComments({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: input.subjectId,
+      assistantSessionId: input.assistantSessionId,
+    });
+  }
+
+  private async buildFormatOfferSend(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    now?: Date;
+  }): Promise<{
+    body: string;
+    payload: Extract<RecordAssistantPayload, { kind: "offer-send" }>;
+  } | null> {
+    const sendState = await this.loadFormatSendState(input);
+    if (!sendState.canSend) return null;
+
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+      },
+      select: {
+        id: true,
+        settingsId: true,
+        updatedAt: true,
+        cycle: { select: { year: true, week: true } },
+        author: { select: { displayName: true, username: true } },
+      },
+    });
+    if (!report?.settingsId) return null;
+
+    const settings = await this.db.weeklyReportTemplate.findFirst({
+      where: {
+        id: report.settingsId,
+        workspaceId: input.workspaceId,
+        ownerId: input.userId,
+      },
+      select: {
+        allMembers: true,
+        recipients: {
+          select: {
+            user: {
+              select: { id: true, displayName: true, username: true, avatarObjectKey: true },
+            },
+          },
+        },
+      },
+    });
+    if (!settings) return null;
+
+    let people: Array<{
+      id: string;
+      displayName: string | null;
+      username: string;
+      avatarObjectKey: string | null;
+    }>;
+    if (settings.allMembers) {
+      const memberships = await this.db.workspaceMembership.findMany({
+        where: { workspaceId: input.workspaceId },
+        select: {
+          user: {
+            select: { id: true, displayName: true, username: true, avatarObjectKey: true },
+          },
+        },
+        take: 40,
+      });
+      people = memberships.map((row) => row.user);
+    } else {
+      people = settings.recipients.map((row) => row.user);
+    }
+
+    const recipients = people
+      .filter((user) => user.id !== input.userId)
+      .map((user) => ({
+        displayName: user.displayName ?? user.username,
+        avatarUrl: workspaceUserAvatarUrl(input.workspaceId, user.id, user.avatarObjectKey),
+      }));
+    const year = report.cycle.year;
+    const week = report.cycle.week;
+    const displayName = report.author.displayName ?? report.author.username;
+    return {
+      body: `hi，${displayName}，${year} W${week}的工作周报模板已生成，请确认是否发送。`,
+      payload: {
+        kind: "offer-send",
+        year,
+        week,
+        weekTitle: formatOfferSendWeekTitle(year, week),
+        updatedAt: report.updatedAt.toISOString(),
+        recipients: recipients.slice(0, 8),
+        recipientTotal: recipients.length,
+      },
+    };
+  }
+
+  /** Leader cancels this week's template send entirely（取消本周周报）. */
+  async dismissWeeklyFormatSend(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    assistantSessionId?: string | null;
+    now?: Date;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+      },
+      select: {
+        id: true,
+        content: true,
+        settingsId: true,
+        cycle: { select: { year: true, week: true } },
+        submissions: { where: { kind: "member" }, select: { id: true }, take: 1 },
+      },
+    });
+    if (!report || report.submissions.length > 0) throw new AppError("NOT_FOUND");
+    const sendState = await this.loadFormatSendState({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      reportId: report.id,
+      now: input.now,
+    });
+    if (!sendState.canSend && !sendState.schedule) throw new AppError("INVALID_INPUT");
+
+    const content = withWeekSendDismissed(
+      asReportContent(report.content),
+      report.cycle.year,
+      report.cycle.week,
+    );
+    await this.db.weeklyReport.update({
+      where: { id: report.id },
+      data: { content: content as unknown as Prisma.InputJsonValue },
+    });
+    await this.writeAssistantComment({
+      workspaceId: input.workspaceId,
+      subjectType: "report",
+      subjectId: report.id,
+      assistantSessionId: input.assistantSessionId,
+      body: "已取消本周周报。",
+    });
+    return this.listComments({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      subjectType: "report",
+      subjectId: report.id,
+      assistantSessionId: input.assistantSessionId,
+    });
   }
 
   /** Assignee accepts 「需要」— posts the user turn and the E2 clarifying reply. */

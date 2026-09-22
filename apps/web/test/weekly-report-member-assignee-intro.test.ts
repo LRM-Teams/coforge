@@ -271,3 +271,109 @@ test("ensureAssistantIntro posts assignee welcome with 需要 offer", async () =
   expect(created[0]!.payload).toEqual({ kind: "offer-help-generate" });
   expect(rows).toHaveLength(1);
 });
+
+test("ensureAssistantIntro posts format offer-send when the send window is open", async () => {
+  const created: Array<{ body: string; payload: unknown }> = [];
+  const formatRow = {
+    id: "11111111-1111-1111-1111-111111111111",
+    authorId: "leader",
+    kind: "template",
+    settingsId: "settings-1",
+    content: { tabs: { Summary: { markdown: "outline" } } },
+    cycle: { year: 2026, week: 36 },
+    updatedAt: new Date("2026-09-05T07:00:00.000Z"),
+    author: { displayName: "Mark", username: "mark" },
+  };
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+      findMany: async () => [],
+    },
+    weeklyReport: {
+      findFirst: async (query: {
+        where?: { submissions?: { some?: unknown; none?: unknown } };
+      }) => {
+        if (query.where?.submissions?.some) return null;
+        if (query.where?.submissions?.none) return { id: formatRow.id };
+        return formatRow;
+      },
+    },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        sendWeekday: 5,
+        sendTime: "15:00",
+        scheduleEnabled: true,
+        applied: true,
+        allMembers: false,
+        recipients: [
+          {
+            user: {
+              id: "m1",
+              displayName: "Ada",
+              username: "ada",
+              avatarObjectKey: null,
+            },
+          },
+        ],
+      }),
+    },
+    recordComment: {
+      findMany: async () => [],
+      create: async ({
+        data,
+      }: {
+        data: { body: string; payload?: unknown; authorType: string };
+      }) => {
+        created.push({ body: data.body, payload: data.payload ?? null });
+        return {
+          id: "c1",
+          authorType: data.authorType,
+          body: data.body,
+          payload: data.payload ?? null,
+          createdAt: new Date("2026-09-05T07:00:00.000Z"),
+          authorUser: null,
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  let listed = 0;
+  (db as { recordComment: { findMany: () => Promise<unknown[]> } }).recordComment.findMany =
+    async () => {
+      listed += 1;
+      if (listed === 1) return [];
+      return [
+        {
+          id: "c1",
+          authorType: "assistant",
+          body: created[0]!.body,
+          payload: created[0]!.payload,
+          createdAt: new Date("2026-09-05T07:00:00.000Z"),
+          authorUser: null,
+        },
+      ];
+    };
+
+  const rows = await new RecordCatalog(db).ensureAssistantIntro({
+    workspaceId: "ws-1",
+    userId: "leader",
+    subjectType: "report",
+    subjectId: formatRow.id,
+    assistantSessionId: "session-1",
+    surface: "format",
+    formatCopy: "preview",
+    // Friday 14:30 Shanghai for a 15:00 send
+    now: new Date("2026-09-04T06:30:00.000Z"),
+  });
+
+  expect(created).toHaveLength(1);
+  expect(created[0]!.body).toBe("hi，Mark，2026 W36的工作周报模板已生成，请确认是否发送。");
+  expect(created[0]!.payload).toMatchObject({
+    kind: "offer-send",
+    year: 2026,
+    week: 36,
+    weekTitle: "2026 W36 (08.31-09.04)",
+  });
+  expect(rows).toHaveLength(1);
+});
