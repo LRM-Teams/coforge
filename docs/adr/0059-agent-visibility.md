@@ -51,20 +51,20 @@ Agent's direct conversation stays scoped to its own creator. The creator's plain
 still cannot manage it (the existing `Agent.role` management rule, unchanged).
 
 **D. Channels never contain a private Agent.** A private Agent is never an active channel member.
-Creating a private Agent does not enroll it in `#general`. Adding a private Agent to any channel is
-rejected, and a private Agent can neither join nor create a channel.
+Creating a private Agent does not auto-enroll it in any channel; ADR 0061 later retires the built-in
+`#general` default channel. Adding a private Agent to any channel is rejected, and a private Agent
+can neither join nor create a channel.
 
 **E. Changing visibility, both directions.** Only the Agent's creator or a human Workspace
 owner/admin may change it; there is no Agent CLI command for it.
 
 - **public → private**: the Web UI shows a confirmation dialog listing the consequences below,
-  then: soft-leave every channel including `#general` (the existing `softLeaveMember`/`leftAt`
-  mechanism — ADR 0024/0031); every existing DM between the Agent and a person who can no longer
-  see it becomes read-only (history stays readable, neither side can send); channel Tasks already
-  assigned to it are left untouched; its past messages keep their name and avatar unchanged.
-- **private → public**: re-join `#general` only (no other channel membership is restored); DMs
-  become writable again; Activity history from the private period becomes visible with no special
-  redaction or migration.
+  then: soft-leave every active channel (the existing `softLeaveMember`/`leftAt` mechanism — ADR
+  0024/0031); every existing DM between the Agent and a person who can no longer see it becomes
+  read-only (history stays readable, neither side can send); channel Tasks already assigned to it
+  are left untouched; its past messages keep their name and avatar unchanged.
+- **private → public**: do not restore channel membership automatically; DMs become writable again;
+  Activity history from the private period becomes visible with no special redaction or migration.
 
 **F. Realtime stays Daemon-unchanged; the Web publish proxy re-routes.** The Daemon keeps publishing
 Activity to the one shared `agent:activity:<workspace_id>` channel exactly as before — it has no

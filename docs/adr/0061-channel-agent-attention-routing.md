@@ -31,8 +31,10 @@ Agents by virtue of existing.
    do not notify the recipient. Agent-authored `@Agent` deliveries keep the normal notify path, so
    explicit handoffs wake exactly the mentioned Agent(s).
 4. Workspaces, invited members, newly created Agents, and weekly-report Agents are no longer
-   auto-enrolled into a built-in `#general` channel. A migration deletes existing `#general`
-   conversations so the implicit ambient channel does not keep producing Agent deliveries.
+   auto-enrolled into a built-in `#general` channel. A migration archives existing `#general`
+   conversations instead of deleting them: the implicit ambient channel becomes read-only/hidden by
+   normal navigation, while message history, Tasks, Action cards, attachments, deliveries, and
+   reminder targets remain available for audit/history.
 5. `formatMessageLine` keeps full text when `mentionsAgent` is true; ordinary plain-channel lines may
    remain summarized to save context.
 
@@ -52,8 +54,14 @@ Agents by virtue of existing.
 - Agent-to-Agent channel handoffs must use explicit @mentions.
 - Agent-authored ordinary channel messages can still be read from channel history, but they do not
   create a daemon wakeup by themselves.
-- There is no default `#general` channel after migration; teams create/join the channels they want
-  explicitly.
+- There is no default active `#general` channel after migration; teams create/join the channels they
+  want explicitly. Legacy `#general` rows, if present, are archived rather than deleted so human work
+  records are preserved.
+- Long ordinary parent-channel lines may be summarized in `formatMessageLine`, but lines that
+  personally @mention the reading Agent keep full text.
+- Rollout must deploy the code that stops creating/enrolling `#general` no later than this migration.
+  If an old writer creates a fresh `#general` during rollout, rerun the archive statement for that
+  workspace before considering the default channel retired.
 
 ## Validation and rollback
 
@@ -61,3 +69,5 @@ Agents by virtue of existing.
   Agent @mention wakes; MEMORY.md reminder appends once.
 - SDK tests: both `mentionsAgent: true` and `mentionsAgent: false` round-trip on the wire.
 - Rollback: remove the Agent-authored silent branch and ignore `mentionsAgent` in daemon attention.
+  Data rollback is non-destructive: unarchive a legacy `#general` conversation only if the product
+  decision is to restore that default channel for the affected Workspace.

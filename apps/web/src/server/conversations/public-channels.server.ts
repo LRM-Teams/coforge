@@ -219,8 +219,8 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
     })),
     skipDuplicates: true,
   });
-  // ADR 0059: a private Agent is never an active channel member, including #general — creating
-  // one must not enroll it here, and it stays out on every later repair/backfill pass too.
+  // ADR 0059/0061: a private Agent is never an active channel member. Even this legacy/test
+  // #general fixture must not enroll one, and later repair/backfill passes keep it out too.
   const agents = await db.agent.findMany({
     where: { workspaceId, visibility: AGENT_VISIBILITY.PUBLIC, ...ACTIVE_AGENT_WHERE },
     select: { id: true },
