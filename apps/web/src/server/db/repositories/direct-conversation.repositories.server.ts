@@ -1265,6 +1265,28 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       const sequence = await allocateSequence(tx, conversationId);
       // Validated before the message exists, then linked (messageId + position) once it does; see
       // the multi-attachment transaction pattern shared by every send path in this file.
+      const requestedAttachmentIds = attachmentIds ?? [];
+      const availableAttachments = requestedAttachmentIds.length
+        ? await tx.attachment.findMany({
+            where: {
+              id: { in: [...new Set(requestedAttachmentIds)] },
+              conversationId,
+              workspaceId: conversation.workspaceId,
+              uploaderId: senderUserId,
+              messageId: null,
+            },
+            select: {
+              id: true,
+              fileName: true,
+              contentType: true,
+              sizeBytes: true,
+              objectKey: true,
+            },
+          })
+        : [];
+      const attachmentsById = new Map(
+        availableAttachments.map((attachment) => [attachment.id, attachment]),
+      );
       const attachments: {
         id: string;
         fileName: string;
@@ -1272,17 +1294,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         sizeBytes: number;
         objectKey: string;
       }[] = [];
-      for (const attachmentId of attachmentIds ?? []) {
-        const attachment = await tx.attachment.findFirst({
-          where: {
-            id: attachmentId,
-            conversationId,
-            workspaceId: conversation.workspaceId,
-            uploaderId: senderUserId,
-            messageId: null,
-          },
-          select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
-        });
+      for (const attachmentId of requestedAttachmentIds) {
+        const attachment = attachmentsById.get(attachmentId);
         if (!attachment) throw new Error("attachment is not available for this message");
         attachments.push(attachment);
       }
@@ -1955,23 +1968,30 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       // "Known limitation" of never checking uploader identity, closed by ADR 0023's Agent
       // upload route: `uploaderAgentId` now names the uploading Agent). Validated before the
       // message exists, then linked (messageId + position) once it does.
+      const requestedAttachmentIds = attachmentIds ?? [];
+      const availableAttachments = requestedAttachmentIds.length
+        ? await tx.attachment.findMany({
+            where: {
+              id: { in: [...new Set(requestedAttachmentIds)] },
+              conversationId,
+              workspaceId: conversation.workspaceId,
+              uploaderAgentId: agentId,
+              messageId: null,
+            },
+            select: { id: true, fileName: true, contentType: true, sizeBytes: true },
+          })
+        : [];
+      const attachmentsById = new Map(
+        availableAttachments.map((attachment) => [attachment.id, attachment]),
+      );
       const attachments: {
         id: string;
         fileName: string;
         contentType: string;
         sizeBytes: number;
       }[] = [];
-      for (const attachmentId of attachmentIds ?? []) {
-        const attachment = await tx.attachment.findFirst({
-          where: {
-            id: attachmentId,
-            conversationId,
-            workspaceId: conversation.workspaceId,
-            uploaderAgentId: agentId,
-            messageId: null,
-          },
-          select: { id: true, fileName: true, contentType: true, sizeBytes: true },
-        });
+      for (const attachmentId of requestedAttachmentIds) {
+        const attachment = attachmentsById.get(attachmentId);
         if (!attachment)
           throw new AgentSendRejectedError(403, "attachment is not available for this message");
         attachments.push(attachment);
