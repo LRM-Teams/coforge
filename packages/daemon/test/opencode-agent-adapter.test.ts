@@ -42,6 +42,29 @@ function nthCompleted(
   });
 }
 
+test("a turn starts even though the CLI waits for stdin EOF before it emits anything", async () => {
+  // s144, 2026-09-22: `opencode run` reads its piped stdin to EOF before starting, the spawned
+  // child kept that pipe open, so no record ever arrived - `createAgentSession` never returned
+  // and two OpenCode Agents sat Offline with hung turn processes (one per Start click).
+  const directory = await mkdtemp(join(tmpdir(), "opencode-stdin-eof-"));
+  try {
+    const session = await provider().createAgentSession({
+      agentWorkspaceDirectory: directory,
+      instructions: INSTRUCTIONS,
+      environment: { COFORGE_OPENCODE_MODE: "text", COFORGE_OPENCODE_REQUIRE_STDIN_EOF: "1" },
+    });
+    try {
+      const completed = nthCompleted(session, 1);
+      await completed;
+      expect((await session.readSessionIdentity!())?.state).toBe("resumable");
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 20_000);
+
 test("a fresh session's first turn carries only the standing instructions, no --session", async () => {
   const directory = await mkdtemp(join(tmpdir(), "opencode-fresh-"));
   const log = join(directory, "launches.jsonl");
