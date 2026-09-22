@@ -148,10 +148,9 @@ export function ThreadFollowingAgents({
         color="tertiary"
         size="sm"
         aria-label={m.conversation_thread_following_agents_count({ count })}
-        className="h-8 min-w-8 gap-1 rounded-md p-1.5! *:data-icon:size-5"
+        className="h-8 w-8 rounded-md p-1.5! *:data-icon:size-5"
       >
         {lead ? <LeadFollowingAgentAvatar agent={lead} /> : <Cpu data-icon />}
-        <span className="text-xs font-medium tabular-nums">{count}</span>
       </Button>
       <AriaPopover
         placement="bottom end"
