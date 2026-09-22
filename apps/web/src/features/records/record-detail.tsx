@@ -845,11 +845,15 @@ function TemplateReportDetail({
   }
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 flex-1">
       <div
-        className={`${sideOpen ? "hidden md:flex" : "flex"} min-w-0 flex-1 flex-col overflow-hidden`}
+        className={`${sideOpen ? "hidden md:flex" : "flex"} relative min-w-0 flex-1 flex-col overflow-hidden`}
       >
-        <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-brand-primary via-brand-primary/40 to-transparent"
+        />
+        <header className="relative flex h-12 shrink-0 items-center gap-3 px-4 sm:px-6">
           <span className="flex shrink-0 items-center gap-2">
             {returnTo ? <RecordsKeyPointReturnBack returnTo={returnTo} /> : <BackToRecords />}
             <WeekBadge week={report.cycle.week} />
@@ -863,7 +867,7 @@ function TemplateReportDetail({
                 {hasUnsavedEdits ? (
                   <Button
                     size="sm"
-                    color="primary"
+                    color="secondary"
                     isDisabled={saving || sending}
                     onPress={() => void saveFormatEdits()}
                   >
@@ -872,7 +876,8 @@ function TemplateReportDetail({
                 ) : null}
                 <Button
                   size="sm"
-                  color={hasUnsavedEdits ? "secondary" : "primary"}
+                  color="primary"
+                  className="bg-primary-solid ring-transparent hover:bg-primary-solid data-loading:bg-primary-solid"
                   isDisabled={saving || sending || !canSendAssignments || hasUnsavedEdits}
                   onPress={() => setConfirmOpen(true)}
                 >

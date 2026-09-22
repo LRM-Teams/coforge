@@ -744,7 +744,7 @@ export function WeekBadge({ week }: { week: number }) {
   return (
     <span
       aria-hidden="true"
-      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-primary text-xs font-semibold text-brand-secondary"
+      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-solid text-xs font-semibold text-white"
     >
       {week}
     </span>
