@@ -1,6 +1,6 @@
 # Causal Memory owns an internal, replaceable Fact Index
 
-**Status: accepted.** CoForge will continue to depend on Causal Memory as one deep group-memory module through its causal `search`, `trace`, and `intervene` interface. Retrieval backends such as OpenViking or LanceDB will not become peer memory runtimes selected by a CoForge-level query router. Instead, they may serve as adapters at an internal Fact Index seam owned by Causal Memory.
+**Status: superseded by [ADR 0062](0062-openviking-only-workspace-memory.md).** CoForge will continue to depend on Causal Memory as one deep group-memory module through its causal `search`, `trace`, and `intervene` interface. Retrieval backends such as OpenViking or LanceDB will not become peer memory runtimes selected by a CoForge-level query router. Instead, they may serve as adapters at an internal Fact Index seam owned by Causal Memory.
 
 Causal Memory remains responsible for admitting evidence, distilling canonical Fact Documents, maintaining causal relationships, adjudicating corrections, and defining causal-query semantics. The Fact Index is a tenant-isolated, rebuildable projection of canonical Fact Documents. An adapter may change how facts are indexed and recalled, but it may not decide what constitutes a fact, reinterpret causal edges, become the sole owner of source evidence, or weaken citation provenance.
 

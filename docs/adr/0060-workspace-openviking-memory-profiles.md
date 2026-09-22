@@ -1,6 +1,6 @@
 # Workspaces choose complete OpenViking or Causal Memory augmented OpenViking
 
-**Status: accepted.** Each CoForge Workspace chooses one Workspace Memory Profile: `openviking` or `causal_openviking`. The choice is Workspace-wide rather than per Agent or per query. Both profiles retain OpenViking's complete product capability; the causal profile additionally enables Causal Memory admission, canonical facts and causal edges, Hippocampus reasoning, grounded corrections, and a Managed Causal Projection inside OpenViking.
+**Status: superseded by [ADR 0062](0062-openviking-only-workspace-memory.md) — the dual-profile model is replaced by OpenViking-only workspace memory.** Each CoForge Workspace chooses one Workspace Memory Profile: `openviking` or `causal_openviking`. The choice is Workspace-wide rather than per Agent or per query. Both profiles retain OpenViking's complete product capability; the causal profile additionally enables Causal Memory admission, canonical facts and causal edges, Hippocampus reasoning, grounded corrections, and a Managed Causal Projection inside OpenViking.
 
 This profile selection is not the rejected natural-language intent router. In the causal profile, factual candidate retrieval and causal traversal may form one internal pipeline. Callers do not guess whether a mixed question belongs to a tree or a graph.
 
