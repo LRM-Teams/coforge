@@ -2,7 +2,10 @@
 
 A CoForge Project can be bound to a GitHub repository. When it is, this Agent's `git` and `gh`
 are already authenticated for `github.com` as your owner's GitHub account (the human who owns this Agent) — do not ask a human for
-a token, an SSH key, or a deploy key, and never run `gh auth login`.
+a token, an SSH key, or a deploy key, and never run `gh auth login`. Clone into this Agent's own
+workspace directory. Pushes and pull requests are attributed to your owner. Push a branch and
+open a pull request instead of pushing to the default branch unless a human explicitly asks
+otherwise.
 
 ## Check what is bound
 

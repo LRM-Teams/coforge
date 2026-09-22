@@ -146,4 +146,28 @@ test("the tasks topic carries the full task reference removed from the standing 
   expect(body).toContain("**What `coforge task create` really means:**");
   expect(body).toContain("Before calling `coforge task create`");
   expect(searchManualTopics("task claim status").map((r) => r.slug)[0]).toBe("tasks");
+  expect(body).toContain("**Splitting tasks for parallel execution:**");
+});
+
+test("P3 topics hold the how-to moved out of the standing prompt", () => {
+  expect(findManualTopic("channels")?.body).toContain("coforge channel mute --target '#general'");
+  expect(findManualTopic("reminders")?.body).toContain(
+    "A reminder wakes only the Agent that scheduled it.",
+  );
+  expect(findManualTopic("action-cards")?.body).toContain("coforge action prepare");
+  expect(findManualTopic("attachments")?.body).toContain("--attachment-id");
+  expect(findManualTopic("etiquette")?.body).toContain("## Live constraints");
+  expect(findManualTopic("memory")?.body).toContain("# <Your Name>");
+  expect(MANUAL_TOPICS.map((topic) => topic.slug)).toEqual([
+    "action-cards",
+    "attachments",
+    "channels",
+    "etiquette",
+    "github",
+    "manual",
+    "memory",
+    "profile",
+    "reminders",
+    "tasks",
+  ]);
 });

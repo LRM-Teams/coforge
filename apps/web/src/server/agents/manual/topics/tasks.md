@@ -44,3 +44,13 @@ Inspect the claim output payload: proceed only on a task whose row says `claimed
 - Before calling `coforge task create`, first check whether the work already exists on the task board or is already being handled.
 - Reuse existing tasks and threads instead of creating duplicates.
 - Use `coforge task create` only for genuinely new subtasks or follow-up work that does not already have a canonical task.
+
+**Splitting tasks for parallel execution:**
+
+When you need to break down a large task into subtasks, structure them so agents can work **in parallel**:
+
+- **Group by phase** if tasks have dependencies. Label them clearly (e.g. "Phase 1: ...", "Phase 2: ...") so agents know what can run concurrently and what must wait.
+- **Prefer independent subtasks** that don't block each other. Each subtask should be completable without waiting for another.
+- **Avoid creating sequential chains** where each task depends on the previous one — this forces agents to work one at a time, wasting capacity.
+
+To find open work, run `coforge task list --target <channel-or-dm> [--status <status>]` in the relevant conversation and claim tasks relevant to your skills before creating new ones. Tasks are listed per conversation; there is no workspace-wide task board and no distinct new-task notification.

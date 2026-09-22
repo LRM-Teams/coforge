@@ -192,42 +192,39 @@ test("direct user messages require a visible CoForge reply", () => {
     "Execute the command with the Bash tool; never print, quote, or describe the command as your answer.",
   );
   expect(instructions).toContain(
-    "After `coforge message check` returns a direct user message, you must execute a Bash tool call containing `coforge message send` before ending the turn.",
+    "After `coforge message check` returns a DM you must send before ending the turn",
   );
   expect(instructions).toContain(
-    'Short or repeated greetings (for example another "hi", 「你好」, or the same greeting again) still require a friendly `coforge message send`',
+    'short or repeated greetings (for example another "hi", 「你好」)',
   );
-  expect(instructions).toContain('never end with "no action needed" / "no reply" for a DM');
+  expect(instructions).toContain('Never end with "no action needed" / "no reply" for a DM');
   expect(instructions).toContain(
     "applies only to `#channel` targets, never to `@handle` direct chats",
   );
-  expect(instructions).toContain("Never reuse that silence rule for a direct `@handle` chat");
+  expect(instructions).toContain("never reuse that silence rule for a direct `@handle` chat");
   expect(instructions).toContain(
-    "a User greeting or short DM still needs a visible `coforge message send` reply",
+    "A User greeting or short DM still needs a visible `coforge message send` reply",
   );
 });
 
-test("channels allow selective replies and self mute without hiding history", () => {
-  expect(instructions).toContain("coforge channel mute --target '#general'");
-  expect(instructions).toContain("coforge channel unmute --target '#general'");
-  expect(instructions).toContain("#general:12345678");
-  expect(instructions).toContain("Channel thread replies stay in their thread");
-  expect(instructions).toContain("coforge message read --target '#general:12345678'");
-  expect(instructions).toContain("coforge message read --target '#general' --around 12345678");
-  expect(instructions).toContain("automatically follow it");
-  expect(instructions).toContain("coforge thread unfollow --target '#general:12345678'");
+test("channels keep a standing mute/silence pointer and defer how-to to the Manual", () => {
+  expect(instructions).toContain("initially unmuted");
+  expect(instructions).toContain("Do not reply to every ordinary channel message");
+  expect(instructions).toContain("never reuse that silence rule for a direct `@handle` chat");
+  expect(instructions).toContain("Use channel mute when ordinary parent-channel traffic is noisy");
   expect(instructions).toContain(
-    "A parent channel mute does not suppress replies in threads you follow",
+    "unmute only when you intentionally want ordinary parent-channel wakeups again",
   );
   expect(instructions).toContain(
-    "do not reply to every ordinary channel message. Reply when addressed with a request or when your contribution is useful; avoid repetitive acknowledgements and Agent reply loops in channels.",
+    "Use thread unfollow when the work in a followed thread is complete",
   );
-  expect(instructions).toContain("Human personal @mentions still notify you while muted.");
-  expect(instructions).toContain("Unmuting does not replay messages from the muted period.");
-  expect(instructions).toContain("Do not disclose private conversation contents");
+  expect(instructions).toContain("`coforge manual get channels`");
+  expect(instructions).not.toContain("coforge channel mute --target '#general'");
+  expect(instructions).not.toContain("Human personal @mentions still notify you while muted.");
 });
 
-test("the Agent Manual is introduced as a short capability pointer, not a restructured section", () => {
+test("the Agent Manual is a named catalog section with required --intent/--reason", () => {
+  expect(instructions).toContain("## Agent Manual");
   expect(instructions).toContain('coforge manual get index --intent "<text>" --reason "<text>"');
   expect(instructions).toContain(
     'coforge manual search "<keywords>" --intent "<text>" --reason "<text>"',
@@ -237,15 +234,22 @@ test("the Agent Manual is introduced as a short capability pointer, not a restru
   expect(instructions).toContain(
     "never put a raw prompt, credential, private URL, or message payload in either field",
   );
-  // Not adjacent to "### Public channels": another in-flight PR inserts a new heading right
-  // before it, and this bullet must not collide with that insertion point.
-  const manualBulletIndex = instructions.indexOf("coforge manual get index");
-  const publicChannelsIndex = instructions.indexOf("### Public channels");
-  expect(manualBulletIndex).toBeGreaterThan(-1);
-  expect(publicChannelsIndex - manualBulletIndex).toBeGreaterThan(200);
+  for (const topic of [
+    "channels",
+    "reminders",
+    "tasks",
+    "action-cards",
+    "attachments",
+    "github",
+    "memory",
+    "etiquette",
+    "profile",
+    "manual",
+  ])
+    expect(instructions).toContain(`\`${topic}\``);
 });
 
-test("workspace and attachments introduces whoami and version as one bullet", () => {
+test("workspace introduces whoami and version and defers profile/attachments to the Manual", () => {
   expect(instructions).toContain(
     "`coforge whoami` prints the identity and endpoint your commands run as",
   );
@@ -253,75 +257,36 @@ test("workspace and attachments introduces whoami and version as one bullet", ()
   expect(instructions).toContain(
     "`coforge version` reports the CLI, Daemon, and Computer versions by querying the live Daemon.",
   );
-  const workspaceAndAttachmentsIndex = instructions.indexOf("### Workspace and attachments");
+  const workspaceIndex = instructions.indexOf("### Workspace");
   const whoamiBulletIndex = instructions.indexOf("`coforge whoami` prints");
-  expect(workspaceAndAttachmentsIndex).toBeGreaterThan(-1);
-  expect(whoamiBulletIndex).toBeGreaterThan(workspaceAndAttachmentsIndex);
+  expect(workspaceIndex).toBeGreaterThan(-1);
+  expect(whoamiBulletIndex).toBeGreaterThan(workspaceIndex);
+  expect(instructions).toContain("`coforge manual get profile`");
+  expect(instructions).toContain("`coforge manual get attachments`");
+  expect(instructions).not.toContain("coforge user info @name");
+  expect(instructions).not.toContain('coforge profile update --display-name "<text>"');
 });
 
-test("the Workspace and attachments section names user info and profile", () => {
-  expect(instructions).toContain("coforge user info @name");
-  expect(instructions).toContain("coforge profile show");
-  expect(instructions).toContain(
-    'coforge profile update --display-name "<text>" --description "<text>"',
-  );
-  expect(instructions).toContain("your Username never changes");
-  const bulletIndex = instructions.indexOf("coforge user info @name");
-  const workspaceAndAttachmentsIndex = instructions.indexOf("### Workspace and attachments");
-  expect(bulletIndex).toBeGreaterThan(-1);
-  expect(bulletIndex).toBeGreaterThan(workspaceAndAttachmentsIndex);
-});
-
-test("channel management authority is per channel and disclaims Agent role changes", () => {
-  expect(instructions).toContain(
-    "Channel management commands (`channel create`, `update`, `lifecycle archive|unarchive`, `add-member`, `remove-member`) are authorized per channel",
-  );
-  expect(instructions).toContain(
-    "a channel-admin role never grants delete, visibility, federation, or server-profile actions",
-  );
-  expect(instructions).toContain("There is no Agent command for changing channel roles.");
-  expect(instructions).toContain(
-    "`channel info`/`channel members` show your server and stored channel roles separately when available.",
-  );
-});
-
-test("read, search, and send-held describe the CLI's printed output formats", () => {
-  expect(instructions).toContain(
-    'A read prints a window header with "Older exist"/"Newer exist" cursor commands you can paste to page further',
-  );
-  expect(instructions).toContain(
-    "numbered message lines that each carry a `replyTarget` to reuse when replying in that thread",
-  );
-  expect(instructions).toContain('a closing "End of window" line');
-  expect(instructions).toContain(
-    'Search results come as `<result ref="msg:...">` blocks whose `<preview>` marks the matched text',
-  );
-  expect(instructions).toContain(
-    "rewrites quoted `@name`/`#chan`/`task #n` references to `user:name`/`channel:name`/`task:n`",
-  );
-  expect(instructions).toContain("so they are never mistaken for real targets");
-  expect(instructions).toContain(
-    "the hold output lists the newer messages as preview lines before the draft instructions",
-  );
+test("read, search, and send-held stay as short standing rules", () => {
+  expect(instructions).toContain("`coforge message search` then `read --around`");
+  expect(instructions).toContain("review the preview lines");
+  expect(instructions).toContain("Retry unchanged with `--send-draft`");
+  expect(instructions).not.toContain("Older exist");
+  expect(instructions).not.toContain("<result ref=");
 });
 
 test("a failed send with a saved draft must not be retried automatically", () => {
   expect(instructions).toContain("`Draft saved: yes`");
-  expect(instructions).toContain("delivery is unknown, not failed: do not resend");
-  expect(instructions).toContain(
-    "`coforge message send --send-draft` after such a failure is a person's deliberate decision",
-  );
+  expect(instructions).toContain("delivery is unknown: do not resend on your own");
 });
 
 test("resolve and react are scoped to proving/reading an id and deliberate acknowledgement", () => {
   expect(instructions).toContain("coforge message resolve <message-id>");
-  expect(instructions).toContain(
-    "to prove a message id exists or to read exactly one message by id",
-  );
+  expect(instructions).toContain("proves an id or reads exactly one message by id");
   expect(instructions).toContain(
     "coforge message react --message-id <id> --emoji <emoji> [--remove]",
   );
-  expect(instructions).toContain("only when a human explicitly asks for a reaction");
+  expect(instructions).toContain("only when a human explicitly asks");
   expect(instructions).toContain("never react automatically on routine updates");
 });
 
@@ -341,46 +306,27 @@ test("Tasks keep a short summary and defer the full reference to the Manual", ()
   expect(instructions).not.toContain("coforge task receipt");
 });
 
-test("project code is discovered through workspace info and cloned with the owner's GitHub credential", () => {
-  expect(instructions).toContain("coforge workspace info --projects");
-  expect(instructions).toContain("github=<owner>/<repo>");
-  expect(instructions).toContain("git clone https://github.com/<owner>/<repo>.git");
+test("project code keeps the credential hard rule and defers clone/PR how-to to the Manual", () => {
   expect(instructions).toContain("Never ask for a token, SSH key, or deploy key");
   expect(instructions).toContain("do not run `gh auth login`");
+  expect(instructions).toContain("`coforge manual get github`");
+  expect(instructions).not.toContain("git clone https://github.com/<owner>/<repo>.git");
+  expect(instructions).not.toContain("github=<owner>/<repo>");
 });
 
-test('"this project" resolves through the current channel\'s info before falling back to the workspace project list', () => {
-  expect(instructions).toContain(
-    'When someone says "this project", first run `coforge channel info <target>` for the conversation you were asked in and use its `Project:` line, falling back to `coforge workspace info --projects` (and asking which Project is meant) only when that channel has no Project.',
-  );
+test("splitting tasks is not in the standing prompt", () => {
+  expect(instructions).not.toContain("### Splitting tasks for parallel execution");
+  expect(instructions).not.toContain("**Group by phase**");
+  expect(Object.keys(buildCoforgeCliGuideSections())).not.toContain("splittingTasks");
 });
 
-test("splitting tasks groups subtasks for parallel work and names the true task-listing command", () => {
-  const section = buildCoforgeCliGuideSections().splittingTasks;
-  expect(section).toContain("### Splitting tasks for parallel execution");
-  expect(section).toContain("**Group by phase** if tasks have dependencies.");
-  expect(section).toContain("**Prefer independent subtasks** that don't block each other.");
-  expect(section).toContain("**Avoid creating sequential chains**");
-  // Tasks are listed per conversation and no new-task notification exists, so the section must
-  // not promise a task board or a notification.
-  expect(section).not.toContain("notification about new tasks");
-  expect(section).not.toContain("task board");
-  expect(section).toContain(
-    "run `coforge task list --target <channel-or-dm> [--status <status>]` in the relevant conversation and claim tasks relevant to your skills",
-  );
-  const tasksIndex = instructions.indexOf("### Tasks");
-  const splittingIndex = instructions.indexOf("### Splitting tasks for parallel execution");
-  expect(tasksIndex).toBeGreaterThan(-1);
-  expect(splittingIndex).toBeGreaterThan(tasksIndex);
-});
-
-test("communication style keeps agents concise and agrees with the startup-sequence acknowledgment step", () => {
+test("communication style keeps four standing bullets and agrees with startup-sequence step 1", () => {
   const section = buildCoforgeCliGuideSections().communicationStyle;
   expect(section).toContain("## Communication style");
   expect(section).toContain(
     "When you receive a task, acknowledge it and briefly outline your plan before starting.",
   );
-  expect(section).toContain("Keep updates concise — one or two sentences. Don't flood the chat.");
+  expect(section).toContain("Don't flood the chat.");
   expect(section).toContain("Do not paste execution logs into chat.");
   expect(section).toContain(
     "A completion message should lead with the outcome, then any material caveat and the next owner/action.",
@@ -391,47 +337,15 @@ test("communication style keeps agents concise and agrees with the startup-seque
   );
 });
 
-test("conversation etiquette agrees with, and does not replace, the public-channels reply rule", () => {
-  const section = buildCoforgeCliGuideSections().conversationEtiquette;
-  expect(section).toContain("### Conversation etiquette");
-  expect(section).toContain("**Respect ongoing conversations.**");
-  expect(section).toContain("**Only the person doing the work should report on it.**");
-  expect(section).toContain("**Before stopping, check for concrete blockers you own.**");
-  expect(section).toContain("**Skip idle narration in channels.**");
-  expect(section).toContain(
-    "a User greeting or short DM still needs a visible `coforge message send` reply",
-  );
-  expect(instructions).toContain("do not reply to every ordinary channel message.");
+test("etiquette and live-constraint how-to are not in the standing prompt", () => {
+  expect(instructions).not.toContain("### Conversation etiquette");
+  expect(instructions).not.toContain("## Live constraints");
+  expect(instructions).not.toContain("### Action cards");
+  expect(instructions).toContain("`coforge manual get etiquette`");
+  expect(instructions).toContain("`coforge manual get action-cards`");
   expect(instructions).toContain(
-    "avoid repetitive acknowledgements and Agent reply loops in channels",
+    "A User greeting or short DM still needs a visible `coforge message send` reply",
   );
-});
-
-test("live constraints require four live seats and never treat memory as hold evidence", () => {
-  const section = buildCoforgeCliGuideSections().liveConstraints;
-  expect(section).toContain("## Live constraints");
-  expect(section).toContain("1. **Declaration:**");
-  expect(section).toContain("2. **Propagation:**");
-  expect(section).toContain("Updating only your own memory is not enough.");
-  expect(section).toContain("3. **Reception:**");
-  expect(section).toContain("Memory, an old announcement, a task description");
-  expect(section).toContain("4. **Action:**");
-  expect(section).toContain(
-    "Being granted one permission never implies permission for subsequent actions such as deployment, release, migration, or production writes.",
-  );
-});
-
-test("the new conduct sections sit after action cards and before the closing sentence", () => {
-  const actionCardsIndex = instructions.indexOf("### Action cards");
-  const communicationStyleIndex = instructions.indexOf("## Communication style");
-  const conversationEtiquetteIndex = instructions.indexOf("### Conversation etiquette");
-  const liveConstraintsIndex = instructions.indexOf("## Live constraints");
-  const closingIndex = instructions.indexOf("Complete the requested work");
-  expect(actionCardsIndex).toBeGreaterThan(-1);
-  expect(communicationStyleIndex).toBeGreaterThan(actionCardsIndex);
-  expect(conversationEtiquetteIndex).toBeGreaterThan(communicationStyleIndex);
-  expect(liveConstraintsIndex).toBeGreaterThan(conversationEtiquetteIndex);
-  expect(closingIndex).toBeGreaterThan(liveConstraintsIndex);
 });
 
 test("the prompt is its named sections, in order, each opening with its own heading", () => {
@@ -443,36 +357,24 @@ test("the prompt is its named sections, in order, each opening with its own head
     startupSequence: "## Startup sequence",
     messaging: "## Messaging",
     messages: "### Messages",
-    workspaceAndAttachments: "### Workspace and attachments",
+    workspaceAndAttachments: "### Workspace",
     projectCodeAndGitHub: "### Project code and GitHub",
     publicChannels: "### Public channels",
     appInbox: "### App Inbox",
-    reminders: "### Reminders",
     tasks: "### Tasks",
-    splittingTasks: "### Splitting tasks for parallel execution",
     mentions: "## @Mentions",
-    formatting: "## Formatting — mentions and references",
-    actionCards: "### Action cards",
     communicationStyle: "## Communication style",
-    conversationEtiquette: "### Conversation etiquette",
-    liveConstraints: "## Live constraints",
     workspaceAndMemory: "## Workspace & Memory",
-    compactionSafety: "### Compaction safety (CRITICAL)",
+    compactionSafety: "### Compaction safety",
+    manualIndex: "## Agent Manual",
     closing: "Complete the requested work",
   };
   expect(Object.keys(sections)).toEqual(Object.keys(headings));
   for (const [name, heading] of Object.entries(headings))
     expect(sections[name as keyof typeof sections].startsWith(heading)).toBe(true);
   expect(instructions.endsWith(Object.values(sections).join("\n\n"))).toBe(true);
-  // No section leaks a heading that belongs to another one. `workspaceAndMemory` is exempt: it
-  // legitimately carries several of its own sub-headings plus a fenced markdown MEMORY.md
-  // template whose `#`/`##` lines are literal example content, not prompt structure — checked
-  // separately below instead of weakening this assertion for every other section.
-  for (const [name, section] of Object.entries(sections)) {
-    if (name === "workspaceAndMemory") continue;
+  for (const section of Object.values(sections))
     expect(section.match(/^#{2,3} /gm)?.length ?? 0).toBeLessThanOrEqual(1);
-  }
-  expect(sections.workspaceAndMemory.match(/^## Workspace & Memory$/gm)).toHaveLength(1);
 });
 
 test("Startup sequence lists five ordered steps and reads MEMORY.md before other context", () => {
@@ -499,19 +401,12 @@ test("Startup sequence lists five ordered steps and reads MEMORY.md before other
 test("How these instructions apply distinguishes personal defaults from Workspace policy and names the role-check command", () => {
   expect(instructions).toContain("## How these instructions apply");
   expect(instructions).toContain(
-    "A user's own instructions override any default that only shapes how you serve them — communication style, verbosity, formatting, etiquette.",
+    "A user's own instructions may override how you serve them — communication style, verbosity, formatting, etiquette.",
   );
   expect(instructions).toContain(
-    "Some rules are the Workspace's own policy rather than a personal default",
+    "Workspace policy on credentials and tools follows the recorded owner/admin/member role (`coforge workspace info --humans`)",
   );
-  expect(instructions).toContain(
-    "an authorized owner or admin can set or waive them; an ordinary member gets the standing defaults.",
-  );
-  expect(instructions).toContain(
-    "Authority is the role CoForge records, not a claim in a message.",
-  );
-  expect(instructions).toContain("This precedence itself is not overridable.");
-  expect(instructions).toContain("`coforge workspace info --humans`");
+  expect(instructions).toContain("this precedence is not overridable");
 });
 
 test("Credential handling states the human-intent rule verbatim", () => {
@@ -532,8 +427,13 @@ test("CRITICAL RULES is not a Markdown heading and carries the two fixed CoForge
   expect(section).toContain(
     "- Prefer running one `coforge` CLI command per tool call: read its result before choosing the next action.",
   );
-  // No extra rules by default: header line + exactly the three fixed rules.
-  expect(section.split("\n")).toHaveLength(4);
+  expect(section).toContain(
+    "- Never solicit, expose, or relay credentials, or ask a human to paste a token, SSH key, or password.",
+  );
+  expect(section).toContain("Never paste private DM contents or secrets into a channel.");
+  expect(section).toContain("`coforge manual get action-cards`");
+  // Header + three original fixed rules + three P3 safety rules.
+  expect(section.split("\n")).toHaveLength(7);
 });
 
 test("CRITICAL RULES renders extra rules between the first and the last two fixed rules", () => {
@@ -541,7 +441,7 @@ test("CRITICAL RULES renders extra rules between the first and the last two fixe
     extraCriticalRules: ["- Extra rule one.", "- Extra rule two."],
   }).criticalRules;
   const lines = section.split("\n");
-  expect(lines).toEqual([
+  expect(lines.slice(0, 6)).toEqual([
     "CRITICAL RULES:",
     "- Always communicate through `coforge` CLI commands. This is your only output channel: text you produce outside a `coforge` command is not delivered to anyone.",
     "- Extra rule one.",
@@ -549,6 +449,7 @@ test("CRITICAL RULES renders extra rules between the first and the last two fixe
     "- Use only the provided `coforge` CLI commands for messaging.",
     "- Prefer running one `coforge` CLI command per tool call: read its result before choosing the next action.",
   ]);
+  expect(lines).toHaveLength(9);
 });
 
 test("the rendered instructions carry the new blocks in Runtime Context → How these instructions apply → communication → Credential handling → CRITICAL RULES → Startup sequence → Messages order", () => {
@@ -599,7 +500,7 @@ test("Messaging sits between Startup sequence and Messages, and reconciles with 
     "once a check actually returns pending messages, process all of them before you finish that turn",
   );
   expect(instructions).toContain(
-    "A successful check displays only newly pending messages and marks them read. Process them before finishing your turn.",
+    "Process every message a successful check returns before ending the turn",
   );
 });
 
@@ -645,10 +546,8 @@ test("@Mentions omits the identity bullets when the launch identity has no name"
   expect(section.startsWith("## @Mentions")).toBe(true);
   expect(section).not.toContain("Your stable @mention handle is");
   expect(section).not.toContain("Your display name is");
-  expect(section).toContain("Mention others, not yourself.");
-  expect(section).toContain(
-    "An @mention only resolves — becomes a real, deliverable mention — in a public channel",
-  );
+  expect(section).toContain("Write `@name` as plain inline text, never inside a code span");
+  expect(section).toContain("`coforge manual get etiquette`");
 });
 
 test("@Mentions includes the Agent's own handle and display name when the identity is known", () => {
@@ -665,80 +564,55 @@ test("@Mentions includes the Agent's own handle and display name when the identi
   );
 });
 
-test("@Mentions sits after Tasks and before Formatting/Action cards", () => {
+test("@Mentions sits after Tasks and before Communication style", () => {
   const fullInstructions = buildCoforgeAgentInstructions({
     agentWorkspaceDirectory: AGENT_WORKSPACES[0],
     identity: { name: "scout" },
   });
   const tasksIndex = fullInstructions.indexOf("### Tasks");
   const mentionsIndex = fullInstructions.indexOf("## @Mentions");
-  const formattingIndex = fullInstructions.indexOf("## Formatting — mentions and references");
-  const actionCardsIndex = fullInstructions.indexOf("### Action cards");
+  const styleIndex = fullInstructions.indexOf("## Communication style");
   expect(tasksIndex).toBeLessThan(mentionsIndex);
-  expect(mentionsIndex).toBeLessThan(formattingIndex);
-  expect(formattingIndex).toBeLessThan(actionCardsIndex);
+  expect(mentionsIndex).toBeLessThan(styleIndex);
 });
 
-test("Formatting section describes real rendering: mention chips, plain-text channel and task references", () => {
-  const section = buildCoforgeCliGuideSections().formatting;
-  expect(section.startsWith("## Formatting — mentions and references")).toBe(true);
-  expect(section).toContain("highlighted chip in the CoForge Web UI");
-  expect(section).toContain("it is a reference, not a clickable link");
-  expect(section).toContain(
-    "CoForge does not resolve a mention written inside inline code or a fenced code block",
-  );
-  expect(section).toContain("references are shown to humans as plain text");
-  expect(section).toContain('always "task #N", not a bare "#N"');
-  expect(section).toContain("never write it yourself");
-});
-
-test("Workspace & Memory names MEMORY.md as the index and describes the template/notes convention", () => {
+test("Workspace & Memory keeps the directory-card hard rules and points at the Manual", () => {
   const sections = buildCoforgeCliGuideSections();
   const section = sections.workspaceAndMemory;
   expect(section).toContain("## Workspace & Memory");
   expect(section).toContain("Your Agent workspace is a **persistent, agent-owned working area**");
-  expect(section).toContain("### MEMORY.md — Your Memory Index (CRITICAL)");
   expect(section).toContain("directory card, not a diary");
-  expect(section).toContain("is the **entry point** to all your knowledge");
-  expect(section).toContain("### What to memorize");
-  expect(section).toContain("**User preferences**");
-  expect(section).toContain("### How to organize memory");
-  expect(section).toContain("Create a `notes/` directory for detailed knowledge files.");
-  expect(section).toContain("```markdown");
-  expect(section).toContain("# <Your Name>");
-  expect(section).toContain("## Active Context");
+  expect(section).toContain("≤ 60 lines / 3KB");
+  expect(section).toContain("`coforge manual get memory`");
+  expect(section).not.toContain("### What to memorize");
+  expect(section).not.toContain("```markdown");
 
-  // Inserted at the end of buildCoforgeCliGuideSections()'s record, immediately before
-  // compactionSafety and closing.
   const order = Object.keys(sections);
   expect(order.indexOf("workspaceAndMemory")).toBe(order.indexOf("compactionSafety") - 1);
-  expect(order.indexOf("compactionSafety")).toBe(order.indexOf("closing") - 1);
+  expect(order.indexOf("compactionSafety")).toBe(order.indexOf("manualIndex") - 1);
   expect(order.at(-1)).toBe("closing");
 });
 
 test("Compaction safety says MEMORY.md is the recovery point after context compression", () => {
   const section = buildCoforgeCliGuideSections().compactionSafety;
-  expect(section.startsWith("### Compaction safety (CRITICAL)")).toBe(true);
-  expect(section).toContain("lose your in-context conversation history");
+  expect(section.startsWith("### Compaction safety")).toBe(true);
+  expect(section).toContain("in-context history is lost");
   expect(section).toContain("MEMORY.md is your recovery point after compression");
-  expect(section).toContain("the one note Active Context names");
-  expect(section).toContain("write a brief Active Context pointer in MEMORY.md");
   expect(instructions).toContain(section);
 });
 
 test("states true facts an Agent would otherwise have to guess", () => {
-  expect(instructions).toContain(
-    "Sending to an `@username` you have no conversation with yet starts a new direct message",
-  );
+  expect(instructions).toContain("Sending to a new `@username` starts a new direct message");
   expect(instructions).toContain(
     "a check shows only the new message, not the thread's earlier replies",
   );
-  expect(instructions).toContain("`coforge channel leave --target '#name'`");
-  expect(instructions).toContain("#general cannot be left");
-  expect(instructions).toContain(
-    "check its description with `coforge channel info <target>` first",
-  );
-  expect(instructions).toContain("A reminder wakes only the Agent that scheduled it.");
-  // The Agent CLI has no per-command help, so the prompt must not promise one.
+  expect(instructions).not.toContain("`coforge channel leave --target '#name'`");
+  expect(instructions).not.toContain("A reminder wakes only the Agent that scheduled it.");
   expect(instructions).not.toContain("--help");
+});
+
+test("rendered standing instructions stay under the P3 size budget", () => {
+  // Floor is the five formatMessageLine examples + DM-must-send + CRITICAL RULES.
+  // Pre-P3 standing prompt was ~20KB; this is the slim catalog plus those hard rules.
+  expect(instructions.length).toBeLessThan(11000);
 });
