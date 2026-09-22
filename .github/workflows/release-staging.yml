@@ -40,7 +40,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    # dev.70 uploaded all 13 objects in about 7 minutes through transfer acceleration; 30 minutes
+    # Through transfer acceleration a publish takes about 2 minutes (dev.72-75); 30 minutes
     # leaves room for a slow day without letting a stalled upload hold the job indefinitely.
     timeout-minutes: 30
     steps:
