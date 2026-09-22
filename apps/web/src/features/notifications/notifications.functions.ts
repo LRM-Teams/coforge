@@ -79,8 +79,14 @@ export const sendTestBrowserNotification = createServerFn({ method: "POST" })
     if (!(await preferences.getBrowserNotificationsEnabled(user.id)))
       throw new AppError("ACCESS_DENIED");
     try {
-      const result = await (await createWebPushNotifications(db)).sendTest(user.id, data.endpoint);
-      if (result.sent === 0) throw new AppError("TEMPORARILY_UNAVAILABLE");
+      const notifications = await createWebPushNotifications(db);
+      const registered = await notifications.countSubscriptions(user.id);
+      const result = await notifications.sendTest(user.id, data.endpoint);
+      if (result.sent === 0) {
+        // With no registered subscription the fix is the reader's: re-enable notifications so the
+        // browser re-registers. Anything else (pruned endpoint, egress failure) stays generic.
+        throw new AppError(registered === 0 ? "NOT_FOUND" : "TEMPORARILY_UNAVAILABLE");
+      }
       return result;
     } catch (error) {
       if (error instanceof AppError) throw error;

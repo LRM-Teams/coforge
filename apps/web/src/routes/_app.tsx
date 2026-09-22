@@ -12,6 +12,7 @@ import {
 import { loadRecordsNavAttention } from "@/features/records/records.functions";
 import { BrowserRealtimeProvider } from "@/features/realtime/browser-realtime";
 import { getBrowserRealtimeConnectionToken } from "@/features/realtime/realtime.functions";
+import { BrowserPushLifecycle } from "@/features/notifications/browser-push-lifecycle";
 import { getBrowserNotificationSettings } from "@/features/notifications/notifications.functions";
 import { listAgents } from "@/features/agents/agents.functions";
 import { WorkspaceAgentsProvider } from "@/features/agents/workspace-agents-realtime";
@@ -43,7 +44,8 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
-  const { user, workspaces, currentWorkspace, agents, recordsPreview } = Route.useLoaderData();
+  const { user, workspaces, currentWorkspace, agents, recordsPreview, notifications } =
+    Route.useLoaderData();
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
   const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
   const router = useRouter();
@@ -55,6 +57,9 @@ function AppLayout() {
       getConnectionToken={getConnectionToken}
     >
       <WorkspaceAgentsProvider workspaceId={currentWorkspace?.id} agents={agents}>
+        {/* ADR: the server prunes dead web-push subscriptions (404/410), and nothing else ever
+            re-registers them — without this the phone stays silent until a manual toggle. */}
+        <BrowserPushLifecycle enabled={notifications.enabled} publicKey={notifications.publicKey} />
         <AppShell
           user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
           workspaces={workspaces}
