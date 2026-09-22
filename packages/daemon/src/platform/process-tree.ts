@@ -54,7 +54,8 @@ const runCommand: ProcessCommandRunner = async (command) => {
 export class ProcessTreeOwner implements ProcessTreeSpawner {
   constructor(
     private readonly platform = globalThis.process.platform,
-    private readonly commandRunner: ProcessCommandRunner = runCommand,
+    // Kept as a constructor seam for tests; Unix terminate uses process.kill, Windows uses Job Objects.
+    _commandRunner: ProcessCommandRunner = runCommand,
     private readonly options: ProcessTreeOwnerOptions = {},
   ) {}
 
