@@ -133,16 +133,24 @@ async function postLocalProxy(path: string, body: unknown): Promise<unknown> {
     body: JSON.stringify(body),
   });
   const payload = await response.json().catch(() => undefined);
-  if (!response.ok)
-    throw new Error(
-      typeof payload === "object" &&
-        payload &&
-        "error" in payload &&
-        typeof payload.error === "string"
-        ? payload.error
-        : `CoForge Agent proxy request failed (${response.status})`,
-    );
+  if (!response.ok) throw new Error(proxyFailureText(payload, response.status));
   return payload;
+}
+
+function proxyFailureText(payload: unknown, status: number): string {
+  if (!payload || typeof payload !== "object" || !("error" in payload))
+    return `CoForge Agent proxy request failed (${status})`;
+  const error = payload.error;
+  if (typeof error === "string" && error.length > 0) return error;
+  if (error && typeof error === "object") {
+    const record = error as { code?: unknown; message?: unknown };
+    const message = typeof record.message === "string" ? record.message : "";
+    const code = typeof record.code === "string" ? record.code : "";
+    if (message && code) return `${message} (${code})`;
+    if (message) return message;
+    if (code) return code;
+  }
+  return `CoForge Agent proxy request failed (${status})`;
 }
 
 function toolResult(value: unknown): ProxyToolResult {
@@ -280,13 +288,10 @@ export function createMemoryFenceTools(
     [CAUSAL_TOOL_NAMES.offer]: causalTool(
       CAUSAL_TOOL_NAMES.offer,
       "Publish Memory Offer",
-      "Publish one visible, cited Memory Offer for this triggering message.",
+      "Publish one visible, cited Memory Offer. This is the only visible answer to an explicit @memory question. citationRefs are citation ids already returned in this workspace. The server binds the channel and recipient.",
       "offer",
       {
         operationId: Type.String(),
-        conversationId: Type.String(),
-        targetAgentId: Type.String(),
-        recipientRationale: Type.String(),
         citationRefs: Type.Array(Type.String(), { minItems: 1 }),
         body: Type.String(),
       },
@@ -341,13 +346,10 @@ export function createMemoryFenceTools(
     [OPENVIKING_TOOL_NAMES.offer]: openvikingTool(
       OPENVIKING_TOOL_NAMES.offer,
       "Publish Memory Offer",
-      "Publish one visible, cited Memory Offer for this triggering message.",
+      "Publish one visible, cited Memory Offer. This is the only visible answer to an explicit @memory question. citationRefs are citation ids already returned in this workspace. The server binds the channel and recipient.",
       "offer",
       {
         operationId: Type.String(),
-        conversationId: Type.String(),
-        targetAgentId: Type.String(),
-        recipientRationale: Type.String(),
         citationRefs: Type.Array(Type.String(), { minItems: 1 }),
         body: Type.String(),
       },
@@ -388,7 +390,7 @@ export function createMemoryFenceTools(
     messageTool(
       "send_channel_message",
       "Send channel message",
-      "Send a visible public-channel message through CoForge.",
+      "Send a visible public-channel message through CoForge. This cannot answer an explicit @memory question; use memory_offer.",
       "send",
       { target: Type.String(), content: Type.String() },
     ),
@@ -423,6 +425,29 @@ export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
     diagnostics: services.diagnostics,
   };
 };
+
+export const EVAL_DISABLE_HOST_PI_INJECTION = "COFORGE_EVAL_DISABLE_HOST_PI_INJECTION";
+
+export function evalDisablesHostPiInjection(
+  env: { [key: string]: string | undefined } = Bun.env,
+): boolean {
+  const value = env[EVAL_DISABLE_HOST_PI_INJECTION];
+  return value === "1" || value === "true";
+}
+
+/** Memory Agent and public-channel eval sessions must not ingest Pi host skills,
+ * context files, or extensions. Team memory and skills come from the Memory Agent. */
+export function resourceLoaderOptionsForSession(input: {
+  instructions: string;
+  memoryFence?: boolean;
+  disableHostPiInjection?: boolean;
+}) {
+  const isolate = Boolean(input.memoryFence || input.disableHostPiInjection);
+  return {
+    systemPromptOverride: () => input.instructions,
+    ...(isolate ? { noSkills: true, noContextFiles: true, noExtensions: true } : {}),
+  };
+}
 
 export async function createSession(options: {
   cwd: string;
@@ -493,11 +518,19 @@ export async function createSession(options: {
       );
     }
   }
+  const memoryFence = isMemoryAgentToolProfile(options.toolProfile)
+    ? options.toolProfile
+    : undefined;
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
     modelRuntime,
-    resourceLoaderOptions: { systemPromptOverride: () => options.instructions },
+    resourceLoaderOptions: resourceLoaderOptionsForSession({
+      instructions: options.instructions,
+      memoryFence: Boolean(memoryFence),
+      disableHostPiInjection:
+        evalDisablesHostPiInjection(options.environment) || evalDisablesHostPiInjection(),
+    }),
   });
   if (sessionKind === "coforge") {
     const skillDiagnostics = services.resourceLoader.getSkills().diagnostics;
@@ -518,9 +551,6 @@ export async function createSession(options: {
   const extensionDefinesBash = services.resourceLoader
     .getExtensions()
     .extensions.some((extension) => extension.tools.has("bash"));
-  const memoryFence = isMemoryAgentToolProfile(options.toolProfile)
-    ? options.toolProfile
-    : undefined;
   const causalBudget = memoryFence ? new CausalMemoryTurnBudget(memoryFence) : undefined;
   const causalTools =
     memoryFence && causalBudget ? createMemoryFenceTools(memoryFence, causalBudget) : [];

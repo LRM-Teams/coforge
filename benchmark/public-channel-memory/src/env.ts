@@ -1,6 +1,10 @@
 import { DEFAULT_LOCOMO_PATH } from "./locomo";
 import { EVAL_ARMS, type EvalArm } from "./types";
 
+/** Same pin as Pi `~/.pi/agent/models.json` and ADR 0053 memory-explorer smoke. */
+export const PI_DEEPSEEK_V4_FLASH_PROVIDER = "lenovo-deepseek-v4-flash";
+export const PI_DEEPSEEK_V4_FLASH_MODEL = "DeepSeek";
+
 export type EvalEnv = {
   locomoPath: string;
   sampleId: string;
@@ -11,10 +15,11 @@ export type EvalEnv = {
   ovUrl: string;
   ovConfPath: string;
   webUrl: string | null;
-  judgeBaseUrl: string;
-  judgeApiKey: string;
+  cursorApiKey: string;
+  cursorCli: string;
   judgeModel: string;
-  memoryAgentModel: string | null;
+  memoryAgentProvider: string;
+  memoryAgentModel: string;
   pollMs: number;
   pollTimeoutMs: number;
   resultDir: string;
@@ -38,9 +43,10 @@ export function loadEvalEnv(env: Record<string, string | undefined> = Bun.env): 
     .map((arm) => arm.trim())
     .filter((arm): arm is EvalArm => (EVAL_ARMS as readonly string[]).includes(arm));
   if (arms.length === 0) throw new Error("COFORGE_EVAL_ARMS has no recognized arm");
-  const judgeModel = required(env, "COFORGE_EVAL_JUDGE_MODEL");
-  const memoryAgentModel = env.COFORGE_EVAL_MEMORY_AGENT_MODEL ?? null;
-  if (memoryAgentModel && memoryAgentModel === judgeModel) {
+  const judgeModel = env.COFORGE_EVAL_JUDGE_MODEL ?? "grok-4.6";
+  const memoryAgentProvider = env.COFORGE_EVAL_MEMORY_AGENT_PROVIDER ?? PI_DEEPSEEK_V4_FLASH_PROVIDER;
+  const memoryAgentModel = env.COFORGE_EVAL_MEMORY_AGENT_MODEL ?? PI_DEEPSEEK_V4_FLASH_MODEL;
+  if (memoryAgentModel === judgeModel) {
     throw new Error("judge model must differ from Memory Agent model");
   }
   return {
@@ -55,9 +61,10 @@ export function loadEvalEnv(env: Record<string, string | undefined> = Bun.env): 
       env.OPENVIKING_PROTOTYPE_CONF ??
       new URL("../../../infra/secrets/openviking_prototype_ov_conf", import.meta.url).pathname,
     webUrl: env.COFORGE_WEB_URL ?? null,
-    judgeBaseUrl: required(env, "COFORGE_EVAL_JUDGE_BASE_URL"),
-    judgeApiKey: required(env, "COFORGE_EVAL_JUDGE_API_KEY"),
+    cursorApiKey: required(env, "CURSOR_API_KEY"),
+    cursorCli: env.CURSOR_CLI ?? "agent",
     judgeModel,
+    memoryAgentProvider,
     memoryAgentModel,
     pollMs: Number(env.COFORGE_EVAL_POLL_MS ?? "2000"),
     pollTimeoutMs: Number(env.COFORGE_EVAL_POLL_TIMEOUT_MS ?? "180000"),

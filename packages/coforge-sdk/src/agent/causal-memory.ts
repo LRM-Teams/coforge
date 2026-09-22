@@ -97,9 +97,9 @@ export type CausalOfferCommand = {
   protocol: typeof CAUSAL_AGENT_PROTOCOL;
   op: "offer";
   operationId: string;
-  conversationId: string;
-  targetAgentId: string;
-  recipientRationale: string;
+  conversationId?: string;
+  targetAgentId?: string;
+  recipientRationale?: string;
   citationRefs: string[];
   body: string;
 };
@@ -219,6 +219,26 @@ export function isCausalCitation(value: unknown): value is CausalCitation {
   );
 }
 
+function coerceCitationRefs(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[")) return value;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+}
+
+function coerceInteger(value: unknown): unknown {
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    if (Number.isInteger(parsed)) return parsed;
+  }
+  return value;
+}
+
 export function decodeCausalAgentCommand(value: unknown): CausalAgentCommand {
   if (!value || typeof value !== "object") throw new Error("invalid causal command");
   const command = value as Partial<CausalAgentCommand>;
@@ -230,17 +250,20 @@ export function decodeCausalAgentCommand(value: unknown): CausalAgentCommand {
   if (command.op === "search") {
     if (typeof command.query !== "string" || command.query.trim() === "")
       throw new Error("invalid causal search query");
+    const limit = coerceInteger(command.limit);
     if (
       command.limit !== undefined &&
-      (!Number.isInteger(command.limit) ||
-        command.limit < 1 ||
-        command.limit > CAUSAL_CANDIDATE_LIMIT_MAX)
+      (!Number.isInteger(limit) ||
+        (limit as number) < 1 ||
+        (limit as number) > CAUSAL_CANDIDATE_LIMIT_MAX)
     )
       throw new Error("invalid causal search limit");
-    const tokenBudget = (command as Partial<CausalSearchCommand>).tokenBudget;
+    const tokenBudget = coerceInteger((command as Partial<CausalSearchCommand>).tokenBudget);
     if (
-      tokenBudget !== undefined &&
-      (!Number.isInteger(tokenBudget) || tokenBudget < 1 || tokenBudget > CAUSAL_READ_TOKEN_MAX)
+      (command as Partial<CausalSearchCommand>).tokenBudget !== undefined &&
+      (!Number.isInteger(tokenBudget) ||
+        (tokenBudget as number) < 1 ||
+        (tokenBudget as number) > CAUSAL_READ_TOKEN_MAX)
     )
       throw new Error("invalid causal search tokenBudget");
     return {
@@ -248,8 +271,10 @@ export function decodeCausalAgentCommand(value: unknown): CausalAgentCommand {
       op: "search",
       operationId,
       query: command.query,
-      ...(command.limit === undefined ? {} : { limit: command.limit }),
-      ...(tokenBudget === undefined ? {} : { tokenBudget }),
+      ...(command.limit === undefined ? {} : { limit: limit as number }),
+      ...((command as Partial<CausalSearchCommand>).tokenBudget === undefined
+        ? {}
+        : { tokenBudget: tokenBudget as number }),
     };
   }
 
@@ -279,16 +304,14 @@ export function decodeCausalAgentCommand(value: unknown): CausalAgentCommand {
   }
 
   if (command.op === "offer") {
-    if (typeof command.conversationId !== "string" || command.conversationId.length === 0)
-      throw new Error("invalid causal offer conversation");
-    if (typeof command.targetAgentId !== "string" || command.targetAgentId.length === 0)
-      throw new Error("invalid causal offer recipient");
-    if (typeof command.recipientRationale !== "string" || command.recipientRationale.trim() === "")
-      throw new Error("invalid causal offer rationale");
+    const conversationId = optionalCausalOfferId(command.conversationId, "conversation");
+    const targetAgentId = optionalCausalOfferId(command.targetAgentId, "recipient");
+    const recipientRationale = optionalCausalOfferRationale(command.recipientRationale);
+    const citationRefs = coerceCitationRefs(command.citationRefs);
     if (
-      !Array.isArray(command.citationRefs) ||
-      command.citationRefs.length === 0 ||
-      !command.citationRefs.every((id) => typeof id === "string" && id.length > 0)
+      !Array.isArray(citationRefs) ||
+      citationRefs.length === 0 ||
+      !citationRefs.every((id) => typeof id === "string" && id.length > 0)
     )
       throw new Error("invalid causal offer citations");
     if (typeof command.body !== "string" || command.body.trim() === "")
@@ -297,10 +320,10 @@ export function decodeCausalAgentCommand(value: unknown): CausalAgentCommand {
       protocol: CAUSAL_AGENT_PROTOCOL,
       op: "offer",
       operationId,
-      conversationId: command.conversationId,
-      targetAgentId: command.targetAgentId,
-      recipientRationale: command.recipientRationale,
-      citationRefs: command.citationRefs,
+      ...(conversationId === undefined ? {} : { conversationId }),
+      ...(targetAgentId === undefined ? {} : { targetAgentId }),
+      ...(recipientRationale === undefined ? {} : { recipientRationale }),
+      citationRefs,
       body: command.body,
     };
   }
@@ -325,6 +348,20 @@ export function decodeCausalAgentCommand(value: unknown): CausalAgentCommand {
     contradictoryCitationRefs: proposal.contradictoryCitationRefs,
     rationale: proposal.rationale,
   };
+}
+
+function optionalCausalOfferId(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length === 0)
+    throw new Error(`invalid causal offer ${label}`);
+  return value;
+}
+
+function optionalCausalOfferRationale(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "")
+    throw new Error("invalid causal offer rationale");
+  return value;
 }
 
 export function decodeCausalAgentResponse(

@@ -3698,7 +3698,7 @@ export class DaemonRuntime {
 
   async agentOpenviking(
     context: string,
-    command: import("../openviking-read-proxy").OpenVikingAgentReadCommand,
+    command: import("../openviking-read-proxy").OpenVikingAgentProxyCommand,
     agentApiKey: string,
   ): Promise<unknown> {
     this.#assertRunning();

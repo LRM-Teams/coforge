@@ -56,9 +56,10 @@ import {
 } from "./connection/weekly-report-key-points";
 import { getLogger } from "@logtape/logtape";
 import {
+  admitOpenVikingOffer,
   admitOpenVikingRead,
   OpenVikingReadProxyError,
-  type OpenVikingAgentReadCommand,
+  type OpenVikingAgentProxyCommand,
 } from "./openviking-read-proxy";
 
 export type AgentProxy = {
@@ -176,7 +177,7 @@ export type AgentProxyRuntime = {
   ): Promise<import("@lrm/coforge-sdk/agent").CausalAgentResponse>;
   agentOpenviking?(
     context: string,
-    request: OpenVikingAgentReadCommand,
+    request: OpenVikingAgentProxyCommand,
     agentApiKey: string,
   ): Promise<unknown>;
   /** Workspace-launch fence for the token-bound Agent. Absent or a non-OV fence fail-closes. */
@@ -812,7 +813,10 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     body: "json-object",
     handler: "agentOpenviking",
     parse: ({ fields, binding }) => {
-      const admitted = admitOpenVikingRead({ body: fields, fence: binding.memoryFence });
+      const admitted =
+        fields.op === "offer"
+          ? admitOpenVikingOffer({ body: fields, fence: binding.memoryFence })
+          : admitOpenVikingRead({ body: fields, fence: binding.memoryFence });
       return admitted.ok
         ? admitted.command
         : Response.json(admitted.body, { status: admitted.status });

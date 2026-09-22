@@ -89,6 +89,37 @@ test("find and read bind OpenViking citations through the injected client", asyn
   });
 });
 
+test("binds catalog find hits that use abstract, numeric level, and no content hash", async () => {
+  const { reads } = harness({
+    status: "ok",
+    accountId: "acct-a",
+    result: {
+      memories: [],
+      resources: [
+        {
+          uri: "viking://resources/docs/caroline.md",
+          abstract: "Caroline went to the group in May",
+          level: 1,
+        },
+      ],
+      skills: [],
+    },
+  });
+  const found = await reads.find({
+    workspaceId: "ws-a",
+    agentId: "mem-1",
+    operationId: "find-env",
+    query: "Caroline",
+  });
+  expect(found[0]).toMatchObject({
+    uri: "viking://resources/docs/caroline.md",
+    matchedLevel: "L1",
+    excerpt: "Caroline went to the group in May",
+    accountId: "acct-a",
+  });
+  expect(found[0]?.contentHash).toMatch(/^sha256:/);
+});
+
 test("search_context disables query expansion and never issues an OpenViking write", async () => {
   const { reads, calls } = harness({ results: [] });
   await reads.searchContext({

@@ -88,6 +88,27 @@ test("decodes read-only OpenViking commands without tenant credentials", () => {
   expect(JSON.stringify(find)).not.toContain("apiKey");
 });
 
+test("accepts a numeric string limit inside the candidate cap", () => {
+  expect(
+    decodeOpenVikingAgentCommand({
+      protocol: OPENVIKING_AGENT_PROTOCOL,
+      op: "find",
+      operationId: "string-limit",
+      query: "deploy",
+      limit: "5",
+    }),
+  ).toMatchObject({ op: "find", limit: 5 });
+  expect(() =>
+    decodeOpenVikingAgentCommand({
+      protocol: OPENVIKING_AGENT_PROTOCOL,
+      op: "find",
+      operationId: "string-limit",
+      query: "deploy",
+      limit: "11",
+    }),
+  ).toThrow("invalid openviking find limit");
+});
+
 test("rejects credential fields and candidate limits above ten", () => {
   expect(() =>
     decodeOpenVikingAgentCommand({
@@ -117,6 +138,36 @@ test("rejects credential fields and candidate limits above ten", () => {
   });
   expect("tenantToken" in decoded).toBe(false);
   expect("apiKey" in decoded).toBe(false);
+});
+
+test("accepts citationRefs sent as a JSON string", () => {
+  expect(
+    decodeOpenVikingAgentCommand({
+      protocol: OPENVIKING_AGENT_PROTOCOL,
+      op: "offer",
+      operationId: "offer-string-refs",
+      citationRefs: '["ov:wiki/deploy"]',
+      body: "the last skip-tests deploy rolled back",
+    }),
+  ).toMatchObject({ citationRefs: ["ov:wiki/deploy"] });
+});
+
+test("an offer may omit the channel and recipient for the server to bind", () => {
+  expect(
+    decodeOpenVikingAgentCommand({
+      protocol: OPENVIKING_AGENT_PROTOCOL,
+      op: "offer",
+      operationId: "offer-1",
+      citationRefs: ["ov:wiki/deploy"],
+      body: "the last skip-tests deploy rolled back",
+    }),
+  ).toEqual({
+    protocol: OPENVIKING_AGENT_PROTOCOL,
+    op: "offer",
+    operationId: "offer-1",
+    citationRefs: ["ov:wiki/deploy"],
+    body: "the last skip-tests deploy rolled back",
+  });
 });
 
 test("rejects a malformed command before it can cross the proxy", () => {

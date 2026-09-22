@@ -73,9 +73,9 @@ export type OpenVikingOfferCommand = {
   protocol: typeof OPENVIKING_AGENT_PROTOCOL;
   op: "offer";
   operationId: string;
-  conversationId: string;
-  targetAgentId: string;
-  recipientRationale: string;
+  conversationId?: string;
+  targetAgentId?: string;
+  recipientRationale?: string;
   citationRefs: string[];
   body: string;
 };
@@ -154,15 +154,36 @@ export function isOpenVikingAgentReadOperation(
   );
 }
 
+function coerceCitationRefs(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[")) return value;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+}
+
+function coerceInteger(value: unknown): unknown {
+  if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    if (Number.isInteger(parsed)) return parsed;
+  }
+  return value;
+}
+
 function optionalCandidateLimit(value: unknown, label: string): number | undefined {
   if (value === undefined) return undefined;
+  const numeric = coerceInteger(value);
   if (
-    !Number.isInteger(value) ||
-    (value as number) < 1 ||
-    (value as number) > OPENVIKING_CANDIDATE_LIMIT_MAX
+    !Number.isInteger(numeric) ||
+    (numeric as number) < 1 ||
+    (numeric as number) > OPENVIKING_CANDIDATE_LIMIT_MAX
   )
     throw new Error(`invalid ${label} limit`);
-  return value as number;
+  return numeric as number;
 }
 
 function optionalTargetUri(value: unknown, label: string): string | undefined {
@@ -174,9 +195,10 @@ function optionalTargetUri(value: unknown, label: string): string | undefined {
 
 function optionalTokenBudget(value: unknown, label: string): number | undefined {
   if (value === undefined) return undefined;
-  if (!Number.isInteger(value) || (value as number) < 1)
+  const numeric = coerceInteger(value);
+  if (!Number.isInteger(numeric) || (numeric as number) < 1)
     throw new Error(`invalid ${label} tokenBudget`);
-  return value as number;
+  return numeric as number;
 }
 
 export function decodeOpenVikingAgentCommand(value: unknown): OpenVikingAgentCommand {
@@ -236,17 +258,15 @@ export function decodeOpenVikingAgentCommand(value: unknown): OpenVikingAgentCom
   }
 
   const offer = command as Partial<OpenVikingOfferCommand>;
+  if (offer.op !== "offer") throw new Error("invalid openviking offer");
+  const conversationId = optionalOfferId(offer.conversationId);
+  const targetAgentId = optionalOfferId(offer.targetAgentId);
+  const recipientRationale = optionalOfferRationale(offer.recipientRationale);
+  const citationRefs = coerceCitationRefs(offer.citationRefs);
   if (
-    offer.op !== "offer" ||
-    typeof offer.conversationId !== "string" ||
-    offer.conversationId.length === 0 ||
-    typeof offer.targetAgentId !== "string" ||
-    offer.targetAgentId.length === 0 ||
-    typeof offer.recipientRationale !== "string" ||
-    offer.recipientRationale.trim() === "" ||
-    !Array.isArray(offer.citationRefs) ||
-    offer.citationRefs.length === 0 ||
-    !offer.citationRefs.every((id) => typeof id === "string" && id.length > 0) ||
+    !Array.isArray(citationRefs) ||
+    citationRefs.length === 0 ||
+    !citationRefs.every((id) => typeof id === "string" && id.length > 0) ||
     typeof offer.body !== "string" ||
     offer.body.trim() === ""
   )
@@ -255,12 +275,24 @@ export function decodeOpenVikingAgentCommand(value: unknown): OpenVikingAgentCom
     protocol: OPENVIKING_AGENT_PROTOCOL,
     op: "offer",
     operationId,
-    conversationId: offer.conversationId,
-    targetAgentId: offer.targetAgentId,
-    recipientRationale: offer.recipientRationale,
-    citationRefs: offer.citationRefs,
+    ...(conversationId === undefined ? {} : { conversationId }),
+    ...(targetAgentId === undefined ? {} : { targetAgentId }),
+    ...(recipientRationale === undefined ? {} : { recipientRationale }),
+    citationRefs,
     body: offer.body,
   };
+}
+
+function optionalOfferId(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length === 0) throw new Error("invalid openviking offer");
+  return value;
+}
+
+function optionalOfferRationale(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim() === "") throw new Error("invalid openviking offer");
+  return value;
 }
 
 function decodeOpenVikingCitationList(value: unknown, label: string): OpenVikingCitation[] {

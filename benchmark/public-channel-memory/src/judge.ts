@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { JudgeLabel } from "./types";
 
 export const JUDGE_SYSTEM_PROMPT =
@@ -68,37 +71,65 @@ export function parseJudgeResult(content: string): { label: JudgeLabel; reason: 
   return { label: "UNJUDGED", reason: "judge response missing CORRECT/WRONG label" };
 }
 
+export function cursorJudgeArgv(input: {
+  cli: string;
+  model: string;
+  workspace: string;
+  prompt: string;
+}): string[] {
+  return [
+    input.cli,
+    "-p",
+    "--mode",
+    "ask",
+    "--output-format",
+    "text",
+    "--trust",
+    "--sandbox",
+    "enabled",
+    "--workspace",
+    input.workspace,
+    "--model",
+    input.model,
+    input.prompt,
+  ];
+}
+
 export async function gradeReply(input: {
   category: number;
   question: string;
   goldAnswer: string;
   response: string;
-  baseUrl: string;
   apiKey: string;
   model: string;
+  cli: string;
 }): Promise<{ label: JudgeLabel; reason: string }> {
-  const prompt = buildJudgePrompt(input);
-  const url = new URL("/chat/completions", input.baseUrl.endsWith("/") ? input.baseUrl : `${input.baseUrl}/`);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: input.model,
-      temperature: 0,
-      messages: [
-        { role: "system", content: JUDGE_SYSTEM_PROMPT },
-        { role: "user", content: prompt },
-      ],
-    }),
+  const workspace = await mkdtemp(join(tmpdir(), "pcm-judge-"));
+  const prompt = [
+    JUDGE_SYSTEM_PROMPT,
+    "Do not use tools. Do not read or edit files. Reply with JSON only.",
+    buildJudgePrompt(input),
+  ].join("\n\n");
+  const argv = cursorJudgeArgv({
+    cli: input.cli,
+    model: input.model,
+    workspace,
+    prompt,
   });
-  if (!response.ok) {
-    return { label: "UNJUDGED", reason: `judge http_${response.status}` };
+  const child = Bun.spawn(argv, {
+    cwd: workspace,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...Bun.env, CURSOR_API_KEY: input.apiKey },
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  if (exitCode !== 0) {
+    return { label: "UNJUDGED", reason: `cursor cli exit ${exitCode}` };
   }
-  const payload = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  return parseJudgeResult(payload.choices?.[0]?.message?.content ?? "");
+  void stderr;
+  return parseJudgeResult(stdout);
 }

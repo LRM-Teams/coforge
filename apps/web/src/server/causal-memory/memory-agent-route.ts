@@ -33,6 +33,10 @@ import {
 import { MemoryAgentBudgetError, type MemoryAgentBudgetLedger } from "./memory-agent-budget";
 import type { MemoryOffers } from "./memory-offers";
 import { MemoryAgentMutationError, type OpenVikingMemoryReads } from "./openviking-memory-reads";
+import {
+  DEFAULT_OFFER_RATIONALE,
+  MemoryOfferTargetError,
+} from "./explicit-memory-answer";
 
 export const MEMORY_AGENT_TRIGGER_HEADER = "x-coforge-trigger-message-id";
 
@@ -74,6 +78,13 @@ export type MemoryAgentCommandResult =
       message: string;
     };
 
+export type MemoryOfferTargetResolver = {
+  resolve(
+    workspaceId: string,
+    memoryAgentId: string,
+  ): Promise<{ conversationId: string; targetAgentId: string } | null>;
+};
+
 export type MemoryAgentCommands = {
   handle(input: {
     workspaceId: string;
@@ -92,6 +103,7 @@ export function createMemoryAgentCommands(deps: {
   openviking: OpenVikingMemoryReads;
   causalRuntime: CausalRuntimeRead;
   tenantToken: (workspaceId: string) => Promise<string>;
+  offerTargets?: MemoryOfferTargetResolver;
 }): MemoryAgentCommands {
   return {
     async handle(input) {
@@ -131,10 +143,37 @@ export function createMemoryAgentCommands(deps: {
   };
 }
 
+async function offerDelivery(
+  deps: { offerTargets?: MemoryOfferTargetResolver },
+  input: { workspaceId: string; agentId: string },
+  command: {
+    conversationId?: string;
+    targetAgentId?: string;
+    recipientRationale?: string;
+  },
+): Promise<{ conversationId: string; targetAgentId: string; recipientRationale: string }> {
+  const rationale = command.recipientRationale?.trim();
+  if (command.conversationId && command.targetAgentId) {
+    return {
+      conversationId: command.conversationId,
+      targetAgentId: command.targetAgentId,
+      recipientRationale: rationale || DEFAULT_OFFER_RATIONALE,
+    };
+  }
+  const resolved = (await deps.offerTargets?.resolve(input.workspaceId, input.agentId)) ?? null;
+  if (!resolved) throw new MemoryOfferTargetError();
+  return {
+    conversationId: resolved.conversationId,
+    targetAgentId: resolved.targetAgentId,
+    recipientRationale: rationale || DEFAULT_OFFER_RATIONALE,
+  };
+}
+
 async function handleOpenViking(
   deps: {
     openviking: OpenVikingMemoryReads;
     offers: MemoryOffers;
+    offerTargets?: MemoryOfferTargetResolver;
   },
   input: { workspaceId: string; agentId: string },
   command: OpenVikingAgentCommand,
@@ -190,12 +229,13 @@ async function handleOpenViking(
       content: read.content,
     };
   }
+  const delivery = await offerDelivery(deps, input, command);
   const offer = await deps.offers.publish({
     workspaceId: input.workspaceId,
     operationId: command.operationId,
-    conversationId: command.conversationId,
-    targetAgentId: command.targetAgentId,
-    recipientRationale: command.recipientRationale,
+    conversationId: delivery.conversationId,
+    targetAgentId: delivery.targetAgentId,
+    recipientRationale: delivery.recipientRationale,
     citationRefs: command.citationRefs,
     body: command.body,
     memoryAgentId: input.agentId,
@@ -220,6 +260,7 @@ async function handleCausal(
     offers: MemoryOffers;
     causalRuntime: CausalRuntimeRead;
     tenantToken: (workspaceId: string) => Promise<string>;
+    offerTargets?: MemoryOfferTargetResolver;
   },
   input: { workspaceId: string; agentId: string },
   command: CausalAgentCommand,
@@ -271,12 +312,13 @@ async function handleCausal(
     };
   }
   if (command.op === "offer") {
+    const delivery = await offerDelivery(deps, input, command);
     const offer = await deps.offers.publish({
       workspaceId: input.workspaceId,
       operationId: command.operationId,
-      conversationId: command.conversationId,
-      targetAgentId: command.targetAgentId,
-      recipientRationale: command.recipientRationale,
+      conversationId: delivery.conversationId,
+      targetAgentId: delivery.targetAgentId,
+      recipientRationale: delivery.recipientRationale,
       citationRefs: command.citationRefs,
       body: command.body,
       memoryAgentId: input.agentId,
@@ -373,10 +415,14 @@ function translateError(
     return failure(400, command.protocol, command.operationId, "citation", error.message);
   if (error instanceof MemoryAgentMutationError)
     return failure(403, command.protocol, command.operationId, "unauthorized", error.message);
+  if (error instanceof MemoryOfferTargetError)
+    return failure(400, command.protocol, command.operationId, "invalid", error.message);
   if (error instanceof CausalWorkspaceScopeError)
     return failure(403, command.protocol, command.operationId, "unauthorized");
   if (error instanceof MemoryAgentUnauthorizedError)
     return failure(403, command.protocol, command.operationId, "unauthorized");
+  if (error instanceof Error && /^openviking upstream status \d+$/.test(error.message))
+    return failure(400, command.protocol, command.operationId, "invalid", error.message);
   return failure(400, command.protocol, command.operationId, "invalid");
 }
 
@@ -396,7 +442,7 @@ function failure(
   } as const;
   const messages = {
     unauthorized: "not the workspace Memory Agent",
-    invalid: "invalid memory request",
+    invalid: message ?? "invalid memory request",
     citation: message ?? "citation was not served",
     budget: message ?? "memory budget exhausted",
   };

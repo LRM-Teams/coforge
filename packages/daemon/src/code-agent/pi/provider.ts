@@ -94,6 +94,16 @@ export class CoforgeProvider implements CodeAgentProvider {
     if (runtime.providerConfig.providerId !== runtime.modelProvider)
       throw new Error("Pi runtime provider does not match the selected model");
 
+    const environment = agentEnvironment(options.environment, Bun.env, process.platform, {
+      envVars: runtime.envVars,
+      gitHooks: options.gitHooks,
+    });
+    // In-process tools read the process env. A child Agent process would inherit
+    // these from `environment`; this provider shares the Daemon process.
+    if (environment.COFORGE_AGENT_PROXY_URL)
+      Bun.env.COFORGE_AGENT_PROXY_URL = environment.COFORGE_AGENT_PROXY_URL;
+    if (environment.COFORGE_AGENT_CONTEXT)
+      Bun.env.COFORGE_AGENT_CONTEXT = environment.COFORGE_AGENT_CONTEXT;
     const session = await createSession({
       cwd: options.agentWorkspaceDirectory,
       agentId: options.agentId,
@@ -106,10 +116,7 @@ export class CoforgeProvider implements CodeAgentProvider {
       reasoning: runtime.reasoning,
       apiKey: runtime.providerConfig.apiKey,
       instructions: options.instructions,
-      environment: agentEnvironment(options.environment, Bun.env, process.platform, {
-        envVars: runtime.envVars,
-        gitHooks: options.gitHooks,
-      }),
+      environment,
       toolProfile: runtime.toolProfile,
     });
     try {

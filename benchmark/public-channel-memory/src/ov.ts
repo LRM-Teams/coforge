@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { createOpenVikingTypedAccountDelete } from "../../../apps/web/src/server/openviking/typed-account-delete.server";
 import {
   createOpenVikingRuntimeClient,
@@ -108,6 +110,58 @@ export async function provisionDisposableAccount(
     throw new Error("typed user create did not return a user key");
   }
   return { adminUserId: "eval-admin", userId: "eval-user", adminKey, userKey };
+}
+
+export async function rotateEvalAdminKey(
+  runtime: OpenVikingRuntimeClient,
+  root: ServerOpenVikingIdentity,
+  accountId: string,
+): Promise<OvUsers> {
+  const rotated = await readRuntimeJson(
+    await runtime.request({
+      method: "POST",
+      path: `/api/v1/admin/accounts/${accountId}/users/eval-admin/key`,
+      identity: root,
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }),
+  );
+  if (rotated.status >= 300) throw new Error(`typed admin key rotate failed status=${rotated.status}`);
+  const adminKey = resultField(rotated.json).user_key;
+  if (typeof adminKey !== "string" || adminKey.length === 0) {
+    throw new Error("typed admin key rotate did not return a user key");
+  }
+  return { adminUserId: "eval-admin", userId: "eval-user", adminKey, userKey: adminKey };
+}
+
+async function readAccountKeyFile(path: string): Promise<Record<string, string>> {
+  try {
+    const parsed = JSON.parse(await Bun.file(path).text()) as Record<string, unknown>;
+    const keys: Record<string, string> = {};
+    for (const [name, value] of Object.entries(parsed)) {
+      if (typeof value === "string" && value.length > 0) keys[name] = value;
+    }
+    return keys;
+  } catch {
+    return {};
+  }
+}
+
+export async function rememberEvalAccountKey(accountId: string, adminKey: string): Promise<void> {
+  const path = Bun.env.COFORGE_OPENVIKING_ACCOUNT_KEYS_FILE;
+  if (!path) throw new Error("openviking account key file is not configured");
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const keys = await readAccountKeyFile(path);
+  keys[`secret:ov-${accountId}`] = adminKey;
+  await writeFile(path, `${JSON.stringify(keys)}\n`, { mode: 0o600 });
+}
+
+export async function forgetEvalAccountKey(accountId: string): Promise<void> {
+  const path = Bun.env.COFORGE_OPENVIKING_ACCOUNT_KEYS_FILE;
+  if (!path) return;
+  const keys = await readAccountKeyFile(path);
+  delete keys[`secret:ov-${accountId}`];
+  await writeFile(path, `${JSON.stringify(keys)}\n`, { mode: 0o600 });
 }
 
 export async function deleteDisposableAccount(

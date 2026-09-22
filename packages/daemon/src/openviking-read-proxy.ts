@@ -15,6 +15,7 @@ import {
   type OpenVikingAgentErrorCode,
   type OpenVikingAgentReadOperation,
   type OpenVikingFindCommand,
+  type OpenVikingOfferCommand,
   type OpenVikingReadCommand,
   type OpenVikingSearchContextCommand,
 } from "@lrm/coforge-sdk/agent";
@@ -23,6 +24,8 @@ export type OpenVikingAgentReadCommand =
   | OpenVikingFindCommand
   | OpenVikingSearchContextCommand
   | OpenVikingReadCommand;
+
+export type OpenVikingAgentProxyCommand = OpenVikingAgentReadCommand | OpenVikingOfferCommand;
 
 const OPENVIKING_READ_FENCES = [OPENVIKING_TOOL_PROFILE, CAUSAL_OPENVIKING_TOOL_PROFILE] as const;
 const FORBIDDEN_PAYLOAD_KEYS = [
@@ -136,6 +139,89 @@ export async function forwardOpenVikingRead(input: {
   return payload;
 }
 
+export type OpenVikingOfferAdmission =
+  | { ok: true; command: OpenVikingOfferCommand }
+  | { ok: false; status: number; body: OpenVikingAgentError };
+
+/** Memory Offer is a CoForge channel publish, not an OpenViking write. The read proxy still refuses it. */
+export function admitOpenVikingOffer(input: {
+  body: unknown;
+  fence: string | undefined;
+}): OpenVikingOfferAdmission {
+  let decoded;
+  try {
+    decoded = decodeOpenVikingAgentCommand(input.body);
+  } catch {
+    return {
+      ok: false,
+      status: 400,
+      body: sanitizedError(
+        "openviking-request-invalid",
+        "OpenViking offer request is invalid",
+        peekOperationId(input.body),
+      ),
+    };
+  }
+  if (decoded.op !== "offer") {
+    return {
+      ok: false,
+      status: 400,
+      body: sanitizedError(
+        "openviking-request-invalid",
+        "OpenViking offer request is invalid",
+        decoded.operationId,
+      ),
+    };
+  }
+  if (!allowsOpenVikingReadFence(input.fence)) {
+    return {
+      ok: false,
+      status: 403,
+      body: sanitizedError(
+        "openviking-unauthorized",
+        "OpenViking offer is not allowed for this Agent profile",
+        decoded.operationId,
+      ),
+    };
+  }
+  return { ok: true, command: decoded };
+}
+
+export async function forwardOpenVikingOffer(input: {
+  url: string;
+  command: OpenVikingOfferCommand;
+  agentApiKey: string;
+  daemonApiKey: string;
+  fetch?: OpenVikingReadFetch;
+  timeoutMs?: number;
+}): Promise<unknown> {
+  const fetcher = input.fetch ?? globalThis.fetch;
+  let response: Response;
+  try {
+    response = await fetcher(input.url, {
+      method: "POST",
+      signal: AbortSignal.timeout(input.timeoutMs ?? DEFAULT_FORWARD_TIMEOUT_MS),
+      headers: {
+        authorization: `Bearer ${input.daemonApiKey}`,
+        "x-coforge-agent-api-key": `Bearer ${input.agentApiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(input.command),
+    });
+  } catch {
+    throw unavailable(input.command.operationId, 503);
+  }
+
+  const payload: unknown = await response.json().catch(() => undefined);
+  if (payloadLeaksOpenVikingCredentials(payload)) throw unavailable(input.command.operationId, 502);
+  if (isOpenVikingAgentError(payload))
+    throw new OpenVikingReadProxyError(payload, response.ok ? 200 : response.status);
+  if (!response.ok) throw unavailable(input.command.operationId, sanitizeStatus(response.status));
+  if (!isTrustedOpenVikingOfferEnvelope(input.command, payload))
+    throw unavailable(input.command.operationId, 502);
+  return payload;
+}
+
 function sanitizedError(
   code: OpenVikingAgentErrorCode,
   message: string,
@@ -159,6 +245,27 @@ function payloadLeaksOpenVikingCredentials(value: unknown): boolean {
     value &&
     typeof value === "object" &&
     FORBIDDEN_PAYLOAD_KEYS.some((key) => key in (value as object)),
+  );
+}
+
+function isTrustedOpenVikingOfferEnvelope(
+  command: OpenVikingOfferCommand,
+  value: unknown,
+): boolean {
+  if (!value || typeof value !== "object") return false;
+  const response = value as {
+    protocol?: unknown;
+    op?: unknown;
+    operationId?: unknown;
+    duplicate?: unknown;
+    published?: unknown;
+  };
+  return (
+    response.protocol === OPENVIKING_AGENT_PROTOCOL &&
+    response.op === "offer" &&
+    response.operationId === command.operationId &&
+    typeof response.duplicate === "boolean" &&
+    typeof response.published === "boolean"
   );
 }
 

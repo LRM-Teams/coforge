@@ -1,6 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type { AgentHistoryResponse, AgentSendResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
-import { isValidMentionSelectorArray } from "@lrm/coforge-sdk/internal";
+import {
+  isChannelMessageTarget,
+  isValidMentionSelectorArray,
+  MEMORY_OFFER_REQUIRED_MESSAGE,
+} from "@lrm/coforge-sdk/internal";
+import { createPrismaMemoryAgentDirectory } from "#/server/causal-memory/memory-agent-http.server";
+import { explicitMemoryQuestionRequiresOffer } from "#/server/causal-memory/explicit-memory-answer";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
@@ -124,7 +130,13 @@ export type AgentMessagesPostPrincipal = { workspaceId: string; agentId: string 
 export async function handleAgentMessagesPost(
   request: Request,
   principal: AgentMessagesPostPrincipal,
-  dependencies: Parameters<typeof executeAgentSendMessageWithPolicy>[0],
+  dependencies: Parameters<typeof executeAgentSendMessageWithPolicy>[0] & {
+    memoryOfferRequired?: (input: {
+      workspaceId: string;
+      agentId: string;
+      target: string;
+    }) => Promise<boolean>;
+  },
 ): Promise<Response> {
   const body = await request.json().catch(() => undefined);
   if (
@@ -146,6 +158,15 @@ export async function handleAgentMessagesPost(
   if (body.mentions !== undefined && !isValidMentionSelectorArray(body.mentions))
     return Response.json({ error: "invalid mentions" }, { status: 400 });
   const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
+  const channelTarget = body.target.split(":")[0] ?? body.target;
+  if (dependencies.memoryOfferRequired && isChannelMessageTarget(channelTarget)) {
+    const offerRequired = await dependencies.memoryOfferRequired({
+      workspaceId: principal.workspaceId,
+      agentId: principal.agentId,
+      target: channelTarget,
+    });
+    if (offerRequired) return new Response(MEMORY_OFFER_REQUIRED_MESSAGE, { status: 400 });
+  }
   try {
     const result = await executeAgentSendMessageWithPolicy(dependencies, {
       requestId,
@@ -191,8 +212,27 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
       POST: ({ request, context: { principal, db } }) => {
         const repository = new PrismaDirectConversationRepository(db);
         const centrifugo = createCentrifugoServerApi();
+        const directory = createPrismaMemoryAgentDirectory(db);
         return handleAgentMessagesPost(request, principal, {
           repository,
+          memoryOfferRequired: async ({ workspaceId, agentId, target }) => {
+            try {
+              const conversation = await repository.getAgentChannel(workspaceId, agentId, target);
+              return explicitMemoryQuestionRequiresOffer(
+                db,
+                { workspaceId, agentId, conversationId: conversation.id },
+                (currentWorkspaceId, currentAgentId) =>
+                  directory.isDesignated(currentWorkspaceId, currentAgentId),
+              );
+            } catch (error) {
+              if (
+                isAppError(error) &&
+                (error.code === "ACCESS_DENIED" || error.code === "INVALID_INPUT")
+              )
+                return false;
+              throw error;
+            }
+          },
           sender: new SendDirectMessage(
             repository,
             getMessageRequestIdempotency(),

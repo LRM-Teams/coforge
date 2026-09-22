@@ -11,6 +11,7 @@ import {
 import {
   CausalMemoryTurnBudget,
   createMemoryFenceTools,
+  resourceLoaderOptionsForSession,
   type MemoryAgentProxy,
 } from "../src/runner";
 
@@ -58,6 +59,26 @@ async function executeTool(
   if (!tool) throw new Error(`missing tool ${name}`);
   return tool.execute(name, params, undefined, undefined, undefined as never);
 }
+
+test("Memory Agent sessions disable Pi skill, context, and extension injection", () => {
+  expect(resourceLoaderOptionsForSession({ instructions: "stand", memoryFence: false })).toEqual({
+    systemPromptOverride: expect.any(Function),
+  });
+  expect(resourceLoaderOptionsForSession({ instructions: "stand", memoryFence: true })).toEqual({
+    systemPromptOverride: expect.any(Function),
+    noSkills: true,
+    noContextFiles: true,
+    noExtensions: true,
+  });
+  expect(
+    resourceLoaderOptionsForSession({ instructions: "stand", disableHostPiInjection: true }),
+  ).toEqual({
+    systemPromptOverride: expect.any(Function),
+    noSkills: true,
+    noContextFiles: true,
+    noExtensions: true,
+  });
+});
 
 test("the openviking-memory fence exposes only ov_* reads, one offer, and channel message tools", () => {
   const names = createMemoryFenceTools(OPENVIKING_TOOL_PROFILE, new CausalMemoryTurnBudget()).map(

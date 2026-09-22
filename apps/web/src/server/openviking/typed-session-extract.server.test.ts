@@ -153,6 +153,70 @@ test("typed session extract writes the session then commits then extracts with s
   expect(batchBody.messages[0]?.source_message_ids).toEqual(["m-live"]);
 });
 
+test("typed session extract waits for the commit task and does not extract an archived session", async () => {
+  const captured: string[] = [];
+  let polls = 0;
+  const sessions = channel(
+    async (input, init) => {
+      const url = String(input);
+      captured.push(`${init?.method ?? "GET"} ${url}`);
+      if (url.endsWith("/commit")) {
+        return new Response(
+          JSON.stringify({ status: "ok", result: { task_id: "task-1", archived: true } }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/tasks/task-1")) {
+        polls += 1;
+        const status = polls < 2 ? "running" : "completed";
+        return new Response(JSON.stringify({ status: "ok", result: { status } }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
+    },
+    "sink-owner",
+  );
+  expect(
+    await sessions.writeCommitAndExtract({
+      owner: "sink-owner",
+      write: SAMPLE_WRITE,
+    }),
+  ).toEqual({ ok: true, sessionId: SAMPLE_WRITE.sessionId });
+  expect(captured.filter((line) => line.includes("/extract"))).toEqual([]);
+  expect(captured.filter((line) => line.includes("/tasks/task-1"))).toHaveLength(2);
+});
+
+test("typed session extract fails closed when the commit task fails", async () => {
+  const sessions = createOpenVikingTypedSessionExtract({
+    runtime: createOpenVikingRuntimeClient({
+      baseUrl: "http://ov.internal:1933",
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.endsWith("/commit")) {
+          return new Response(JSON.stringify({ status: "ok", result: { task_id: "task-fail" } }), {
+            status: 200,
+          });
+        }
+        if (url.endsWith("/tasks/task-fail")) {
+          return new Response(JSON.stringify({ status: "ok", result: { status: "failed" } }), {
+            status: 200,
+          });
+        }
+        return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
+      },
+    }),
+    authorizedOwner: "sink-owner",
+    sinkIdentity: SINK_IDENTITY,
+    commitTimeoutMs: 1_000,
+    sleep: async () => undefined,
+  });
+  expect(
+    await sessions.writeCommitAndExtract({
+      owner: "sink-owner",
+      write: SAMPLE_WRITE,
+    }),
+  ).toEqual({ ok: false, sanitizedError: "openviking session extract failed" });
+});
+
 test("typed session extract keeps a remote failure sanitized and never reports success", async () => {
   const sessions = channel(async (input) => {
     if (String(input).endsWith("/commit")) {

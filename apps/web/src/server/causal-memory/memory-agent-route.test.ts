@@ -39,7 +39,14 @@ const causalHit = {
   displayContent: "skipping tests caused a rollback",
 };
 
-function commands(desired: "openviking" | "causal_openviking") {
+function commands(
+  desired: "openviking" | "causal_openviking",
+  extras: {
+    offerTargets?: {
+      resolve: () => Promise<{ conversationId: string; targetAgentId: string } | null>;
+    };
+  } = {},
+) {
   const ovRows = new Map<string, OpenVikingCitationRecord>();
   const offerRows = new Map<string, MemoryOfferRecord>();
   const gatewayCalls: Array<{ operation: string }> = [];
@@ -117,6 +124,7 @@ function commands(desired: "openviking" | "causal_openviking") {
     async tenantToken() {
       return "tok";
     },
+    ...(extras.offerTargets ? { offerTargets: extras.offerTargets } : {}),
   });
   return { handler, offerRows, gatewayCalls, runtimeCalls, mutations };
 }
@@ -415,4 +423,62 @@ test("openviking profile cannot invoke causal commands", async () => {
   expect(result.ok).toBe(false);
   if (result.ok) throw new Error("expected unauthorized");
   expect(result.code).toBe("causal-unauthorized");
+});
+
+test("an offer omits channel ids and the server binds the unanswered @memory target", async () => {
+  const { handler, offerRows } = commands("openviking", {
+    offerTargets: {
+      async resolve() {
+        return { conversationId: "ch-bound", targetAgentId: "task-1" };
+      },
+    },
+  });
+  await handler.handle({
+    workspaceId: "ws-a",
+    agentId: "mem-1",
+    triggerMessageId: "msg-1",
+    command: {
+      protocol: OPENVIKING_AGENT_PROTOCOL,
+      op: "find",
+      operationId: "find-1",
+      query: "deploy",
+    },
+  });
+  const offered = await handler.handle({
+    workspaceId: "ws-a",
+    agentId: "mem-1",
+    triggerMessageId: "msg-2",
+    command: {
+      protocol: OPENVIKING_AGENT_PROTOCOL,
+      op: "offer",
+      operationId: "offer-bound",
+      citationRefs: ["ov:viking://resources/docs/deploy.md"],
+      body: "cited from an earlier retrieval",
+    },
+  });
+  expect(offered.ok).toBe(true);
+  expect(offerRows.get("ws-a:offer-bound")).toMatchObject({
+    conversationId: "ch-bound",
+    recipientAgentId: "task-1",
+    recipientRationale: "answers the explicit @memory question",
+  });
+});
+
+test("an offer without channel ids fails when no @memory target is bound", async () => {
+  const { handler } = commands("openviking");
+  const offered = await handler.handle({
+    workspaceId: "ws-a",
+    agentId: "mem-1",
+    triggerMessageId: "msg-1",
+    command: {
+      protocol: OPENVIKING_AGENT_PROTOCOL,
+      op: "offer",
+      operationId: "offer-unbound",
+      citationRefs: ["ov:viking://resources/docs/deploy.md"],
+      body: "cited",
+    },
+  });
+  expect(offered.ok).toBe(false);
+  if (offered.ok) throw new Error("expected unresolved target");
+  expect(offered.message).toContain("unresolved");
 });

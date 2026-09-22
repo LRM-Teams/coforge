@@ -8,6 +8,7 @@ import {
   createDefaultWorkspaceMemoryProfile,
 } from "../../../apps/web/src/server/workspace-memory/profile";
 import { saveProfileTransition } from "../../../apps/web/src/server/workspace-memory/stores";
+import { PI_DEEPSEEK_V4_FLASH_MODEL, PI_DEEPSEEK_V4_FLASH_PROVIDER } from "./env";
 import { turnBody } from "./locomo-time";
 import type { EvalArm } from "./types";
 import type { LocomoSample } from "./types";
@@ -15,12 +16,14 @@ import type { LocomoSample } from "./types";
 export type EvalWorkspace = {
   db: PrismaClient;
   workspaceId: string;
+  slug: string;
   channelId: string;
   evalUserId: string;
   memoryAgentId: string;
   recipientAgentId: string;
   userIds: string[];
   computerId: string;
+  machineId: string;
 };
 
 function slugFor(arm: EvalArm, sampleId: string): string {
@@ -36,6 +39,8 @@ export async function provisionEvalWorkspace(input: {
   arm: EvalArm;
   sample: LocomoSample;
   ovAccountId: string;
+  memoryAgentProvider?: string;
+  memoryAgentModel?: string;
 }): Promise<EvalWorkspace> {
   const suffix = crypto.randomUUID();
   const owner = await input.db.user.create({
@@ -60,26 +65,33 @@ export async function provisionEvalWorkspace(input: {
       },
     },
   });
+  const machineId = crypto.randomUUID();
   const computer = await input.db.computer.create({
-    data: { ownerId: owner.id, machineId: crypto.randomUUID(), name: "pcm-eval" },
+    data: { ownerId: owner.id, machineId, name: "pcm-eval" },
   });
   const memoryAgent = await input.db.agent.create({
     data: {
       workspaceId: workspace.id,
       ownerId: owner.id,
-      computerId: computer.id,
       name: "memory",
       displayName: "Memory",
-      runtimeConfig: {},
+      computerId: null,
+      runtimeConfig: {
+        runtime: "pi",
+        provider: { kind: "default" },
+        model: input.memoryAgentModel ?? PI_DEEPSEEK_V4_FLASH_MODEL,
+        modelProvider: input.memoryAgentProvider ?? PI_DEEPSEEK_V4_FLASH_PROVIDER,
+        reasoning: "",
+      },
     },
   });
   const recipient = await input.db.agent.create({
     data: {
       workspaceId: workspace.id,
       ownerId: owner.id,
-      computerId: computer.id,
       name: "task",
       displayName: "Task",
+      computerId: null,
       runtimeConfig: {},
     },
   });
@@ -149,12 +161,14 @@ export async function provisionEvalWorkspace(input: {
   return {
     db: input.db,
     workspaceId: workspace.id,
+    slug: workspace.slug,
     channelId: channel.id,
     evalUserId: owner.id,
     memoryAgentId: memoryAgent.id,
     recipientAgentId: recipient.id,
     userIds: [owner.id, speakerA.id, speakerB.id],
     computerId: computer.id,
+    machineId,
   };
 }
 
@@ -197,9 +211,11 @@ export async function insertHistoricalSession(input: {
 }
 
 export async function resetMemoryAgentSession(workspace: EvalWorkspace): Promise<void> {
+  // Only drop the Session association. Writing `runtimeSession: null` becomes JSON null, which
+  // makes AgentControl's JSONB CAS (`Prisma.DbNull`) miss on every attempt.
   await workspace.db.agent.update({
     where: { id: workspace.memoryAgentId },
-    data: { currentSessionId: null, runtimeSession: null },
+    data: { currentSessionId: null },
   });
 }
 

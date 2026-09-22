@@ -61,6 +61,18 @@ test("accepts a stable operation id and rejects questions or spaces", () => {
   expect(isCausalOperationId("")).toBe(false);
 });
 
+test("accepts a numeric string search limit", () => {
+  expect(
+    decodeCausalAgentCommand({
+      protocol: CAUSAL_AGENT_PROTOCOL,
+      op: "search",
+      operationId: "string-limit",
+      query: "deploy",
+      limit: "5",
+    }),
+  ).toMatchObject({ op: "search", limit: 5 });
+});
+
 test("decodes a search command without tenant credentials", () => {
   const command = decodeCausalAgentCommand({
     protocol: CAUSAL_AGENT_PROTOCOL,
@@ -103,6 +115,24 @@ test("decodes offer and correction-proposal commands with citation refs", () => 
       rationale: "later admitted evidence contradicts the old conclusion",
     }).op,
   ).toBe("propose_correction");
+  expect(
+    decodeCausalAgentCommand({
+      protocol: CAUSAL_AGENT_PROTOCOL,
+      op: "offer",
+      operationId: "offer-2",
+      citationRefs: ["item:decision-1"],
+      body: "the last skip-tests deploy rolled back",
+    }),
+  ).toMatchObject({ op: "offer", citationRefs: ["item:decision-1"] });
+  expect(
+    decodeCausalAgentCommand({
+      protocol: CAUSAL_AGENT_PROTOCOL,
+      op: "offer",
+      operationId: "offer-3",
+      citationRefs: '["item:decision-1"]',
+      body: "the last skip-tests deploy rolled back",
+    }),
+  ).toMatchObject({ citationRefs: ["item:decision-1"] });
 });
 
 test("rejects a malformed command before it can cross the proxy", () => {

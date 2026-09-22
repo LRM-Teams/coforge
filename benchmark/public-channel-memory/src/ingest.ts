@@ -104,13 +104,17 @@ export async function ingestSample(input: {
   workspace: EvalWorkspace;
   sample: LocomoSample;
   dispatcher: AdmissionDispatcher;
+  fromSession?: number;
 }): Promise<number> {
   const profiles = new PrismaWorkspaceMemoryProfileStore(input.workspace.db);
   const profile = await profiles.get(input.workspace.workspaceId);
   if (!profile) throw new Error("workspace memory profile missing");
+  const fromSession = input.fromSession ?? 1;
   let sequence = 1;
   let ingested = 0;
   for (const session of input.sample.sessions) {
+    if (session.sessionNumber < fromSession) continue;
+    console.log(`ingest session ${session.sessionNumber}`);
     const inserted = await insertHistoricalSession({
       db: input.workspace.db,
       workspace: input.workspace,
@@ -135,7 +139,11 @@ export async function ingestSample(input: {
     });
     if (detected.length === 0) throw new Error(`quiet window not detected for session ${session.sessionNumber}`);
     for (const segment of detected) {
-      const outcome = await input.dispatcher.dispatch({ profile, detected: segment });
+      let outcome = await input.dispatcher.dispatch({ profile, detected: segment });
+      for (let attempt = 1; outcome.outcome === "retryable_failure" && attempt <= 2; attempt += 1) {
+        console.log(`ingest session ${session.sessionNumber} retry ${attempt}`);
+        outcome = await input.dispatcher.dispatch({ profile, detected: segment });
+      }
       if (outcome.outcome !== "dispatched" && outcome.outcome !== "replayed") {
         const detail = outcome.outcome === "skipped" ? outcome.reason : outcome.sanitizedError;
         throw new Error(`ingest session ${session.sessionNumber} ${outcome.outcome}: ${detail}`);

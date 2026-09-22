@@ -72,6 +72,8 @@ export const threadParentTarget = (target: string): string | undefined => {
 /** A reaction emoji: trimmed, one to sixteen characters, no whitespace. */
 export const isValidReactionEmoji = (value: string): boolean =>
   value.trim() === value && value.length >= 1 && value.length <= 16 && !/\s/.test(value);
+export const MEMORY_OFFER_REQUIRED_MESSAGE =
+  "An explicit @memory question must be answered with memory_offer";
 export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "message anchor must be eight hexadecimal characters or a full UUID",
   "ambiguous message prefix; use the full UUID",
@@ -82,6 +84,7 @@ export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "reaction emoji must be one to sixteen characters without whitespace",
   "mute requires a channel target",
   "unfollow requires a channel thread target",
+  MEMORY_OFFER_REQUIRED_MESSAGE,
 ] as const;
 export type AgentMessageValidationMessage = (typeof AGENT_MESSAGE_VALIDATION_MESSAGES)[number];
 export const AGENT_STATUS_METHOD = RPC_METHODS.agentStatus;

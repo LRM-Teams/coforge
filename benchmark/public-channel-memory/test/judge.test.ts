@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildJudgePrompt, parseJudgeResult, preprocessAnswer } from "../src/judge";
+import { buildJudgePrompt, cursorJudgeArgv, parseJudgeResult, preprocessAnswer } from "../src/judge";
 
 test("category 3 gold answers keep only the clause before a semicolon", () => {
   expect(preprocessAnswer(3, "Paris; also Lyon")).toBe("Paris");
@@ -28,4 +28,17 @@ test("judge prompt includes the gold and generated answers", () => {
   expect(prompt).toContain("Where does Caroline live?");
   expect(prompt).toContain("Seattle");
   expect(prompt).toContain("She lives in Seattle");
+});
+
+test("Cursor CLI judge is non-interactive ask mode and never puts the key on argv", () => {
+  const argv = cursorJudgeArgv({
+    cli: "agent",
+    model: "grok-4.6",
+    workspace: "/tmp/pcm-judge",
+    prompt: '{"label":"CORRECT"}',
+  });
+  expect(argv[0]).toBe("agent");
+  expect(argv).toContain("-p");
+  expect(argv).toContain("ask");
+  expect(argv.join(" ")).not.toMatch(/api-key|CURSOR_API_KEY|cursor_/);
 });
