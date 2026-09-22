@@ -1,4 +1,4 @@
-import { CheckSquare as ListTodo, File02 as FileText, MessageChatSquare } from "@untitledui/icons";
+import { CheckSquare as ListTodo, MessageChatSquare, Paperclip } from "@untitledui/icons";
 
 import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
@@ -55,7 +55,7 @@ export function ConversationTaskTabs({
           color={active === "files" ? "secondary" : "tertiary"}
           size="sm"
           aria-current={active === "files" ? "page" : undefined}
-          iconLeading={FileText}
+          iconLeading={Paperclip}
           onPress={onShowFiles}
         >
           {m.files_tab()}
