@@ -1,4 +1,10 @@
 import { LaunchdProcessOwner } from "./launchd-process";
+import {
+  createWindowsJobObject,
+  windowsJobObjectsAvailable,
+  type WindowsJobObject,
+  type WindowsJobObjectFactory,
+} from "./windows-job-object";
 
 type ProcessSignal = "SIGINT" | "SIGKILL" | "SIGTERM";
 
@@ -28,6 +34,11 @@ export interface ProcessTreeSpawner {
   ): OwnedProcessTree;
 }
 
+export type ProcessTreeOwnerOptions = {
+  /** Test seam / production factory for Windows Job Objects. */
+  createJobObject?: WindowsJobObjectFactory;
+};
+
 const runCommand: ProcessCommandRunner = async (command) => {
   const process = Bun.spawn({
     cmd: [...command],
@@ -44,6 +55,7 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
   constructor(
     private readonly platform = globalThis.process.platform,
     private readonly commandRunner: ProcessCommandRunner = runCommand,
+    private readonly options: ProcessTreeOwnerOptions = {},
   ) {}
 
   spawn(
@@ -51,9 +63,7 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
     cwd: string,
     environment: Readonly<Record<string, string>>,
   ): OwnedProcessTree {
-    if (this.platform === "win32") {
-      throw new Error("Windows Agent process isolation is unavailable");
-    }
+    if (this.platform === "win32") return this.#spawnWindows(command, cwd, environment);
     if (this.platform === "darwin" && Bun.env.COFORGE_WORKSPACE_AGENT_PREFIX) {
       const directory = Bun.env.COFORGE_WORKSPACE_JOB_DIRECTORY;
       if (!directory) throw new Error("Workspace Agent job directory is missing");
@@ -100,16 +110,6 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
       terminate: async (force) => {
         const pid = child.pid;
         if (pid === undefined) return;
-        if (this.platform === "win32") {
-          await this.commandRunner([
-            "taskkill",
-            "/PID",
-            String(pid),
-            "/T",
-            ...(force ? ["/F"] : []),
-          ]);
-          return;
-        }
         try {
           globalThis.process.kill(-pid, force ? "SIGKILL" : "SIGTERM");
         } catch (error) {
@@ -124,6 +124,101 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
           if (Date.now() >= deadline) return false;
           await Bun.sleep(20);
         }
+        return true;
+      },
+    };
+  }
+
+  #spawnWindows(
+    command: readonly string[],
+    cwd: string,
+    environment: Readonly<Record<string, string>>,
+  ): OwnedProcessTree {
+    const createJob = this.options.createJobObject ?? defaultWindowsJobFactory;
+    let job: WindowsJobObject;
+    try {
+      job = createJob();
+    } catch (error) {
+      throw new Error("Windows Agent process isolation is unavailable", { cause: error });
+    }
+
+    const spawned = Bun.spawn({
+      cmd: [...command],
+      cwd,
+      env: { ...environment },
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+      windowsHide: true,
+    });
+    const pid = spawned.pid;
+    if (pid === undefined) {
+      job.close();
+      throw new Error("Windows Agent child did not report a PID");
+    }
+    try {
+      job.assign(pid);
+    } catch (error) {
+      try {
+        spawned.kill();
+      } catch {
+        // Best-effort: assignment failed, so the Job Object never owned the tree.
+      }
+      job.close();
+      throw error;
+    }
+
+    const child: OwnedChildProcess = {
+      get pid() {
+        return spawned.pid;
+      },
+      exited: spawned.exited.finally(() => {
+        // Keep the job handle until waitForExit/terminate can observe ActiveProcesses.
+      }),
+      get exitCode() {
+        return spawned.exitCode;
+      },
+      stdin: {
+        write: (value) => {
+          spawned.stdin.write(value);
+          return true;
+        },
+        end: () => spawned.stdin.end(),
+        flush: async () => {
+          await spawned.stdin.flush();
+        },
+      },
+      stdout: spawned.stdout,
+      stderr: spawned.stderr,
+      kill: (signal) => void spawned.kill(signal),
+    };
+
+    let closed = false;
+    const closeJob = () => {
+      if (closed) return;
+      closed = true;
+      job.close();
+    };
+
+    return {
+      child,
+      terminate: async () => {
+        if (closed) return;
+        try {
+          job.terminate(1);
+        } catch (error) {
+          // Already-empty jobs may reject terminate; only rethrow when members remain.
+          if (!closed && job.activeProcesses() !== 0) throw error;
+        }
+      },
+      waitForExit: async (timeoutMs) => {
+        if (closed) return true;
+        const deadline = Date.now() + timeoutMs;
+        while (!closed && job.activeProcesses() > 0) {
+          if (Date.now() >= deadline) return false;
+          await Bun.sleep(20);
+        }
+        closeJob();
         return true;
       },
     };
@@ -149,7 +244,7 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
       return false;
     }
     try {
-      globalThis.process.kill(this.platform === "win32" ? pid : -pid, 0);
+      globalThis.process.kill(-pid, 0);
       return true;
     } catch (error) {
       if (this.#groupIsGone(error)) return false;
@@ -168,4 +263,11 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
     const code = (error as { code?: string }).code;
     return code === "ESRCH" || (this.platform === "darwin" && code === "EPERM");
   }
+}
+
+function defaultWindowsJobFactory(): WindowsJobObject {
+  if (!windowsJobObjectsAvailable()) {
+    throw new Error("Windows Job Object APIs are unavailable");
+  }
+  return createWindowsJobObject();
 }
