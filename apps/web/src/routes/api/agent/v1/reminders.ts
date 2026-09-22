@@ -1,11 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
   type AgentReminderOperationRequest,
+  type AgentReminderOperationResponse,
   validateAgentReminderOperationRequest,
 } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "#/lib/app-error";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { createAgentReminderService } from "#/server/agents/agent-api-http.server";
+import { ReminderRefusal } from "#/server/reminders/reminders.server";
 
 export type AgentReminderPrincipal = {
   workspaceId: string;
@@ -17,20 +19,7 @@ export type AgentReminderPrincipal = {
 type AgentReminderService = (
   command: AgentReminderOperationRequest,
   userId: string,
-) => Promise<unknown>;
-
-function isReminderAuthorizationFailure(error: unknown): boolean {
-  if (isAppError(error)) return error.code === "ACCESS_DENIED";
-  return (
-    error instanceof Error &&
-    [
-      "reminder operation is not authorized",
-      "reminder target is not authorized",
-      "reminder snapshot is not authorized",
-      "reminder fire is not authorized",
-    ].includes(error.message)
-  );
-}
+) => Promise<AgentReminderOperationResponse>;
 
 /**
  * The Agent API names the request's idempotency key `idempotencyKey`; the reminder command — whose
@@ -40,40 +29,77 @@ function isReminderAuthorizationFailure(error: unknown): boolean {
  * Exported and taking its service as an argument so this boundary is testable on its own: a
  * mismatch here turns every reminder command into `400 invalid reminder request`.
  */
+
+/** `null`, an array, a string and a number are all valid JSON and none of them is a command body. */
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+function malformedReminderRequest(): Response {
+  return Response.json(
+    { error: "invalid reminder request", code: "INVALID_INPUT" },
+    { status: 400 },
+  );
+}
+
+/**
+ * How a refusal reaches the caller. An authorization refusal is a valid, well-formed request, so it
+ * is a 403 — not the same 400 malformed JSON gets — and every other named refusal carries the
+ * domain's own `code`. The Daemon reads `code` into its failure log as `upstream_code`, which is the
+ * only reason a reminder refusal used to be recorded as `UNCLASSIFIED_PROXY_FAILURE` and nothing
+ * could say which of the several causes it was.
+ */
+function refusalResponse(error: unknown): Response | undefined {
+  if (error instanceof ReminderRefusal)
+    return error.code === "ACCESS_DENIED"
+      ? Response.json({ error: "reminder access denied", code: "ACCESS_DENIED" }, { status: 403 })
+      : Response.json({ error: "invalid reminder request", code: error.code }, { status: 400 });
+  // An `AppError` access denial is the same refusal from a path that still answers in `AppError`.
+  if (isAppError(error) && error.code === "ACCESS_DENIED")
+    return Response.json(
+      { error: "reminder access denied", code: "ACCESS_DENIED" },
+      { status: 403 },
+    );
+  return undefined;
+}
+
 export async function handleAgentReminderPost(
   request: Request,
   principal: AgentReminderPrincipal,
   service: AgentReminderService,
 ): Promise<Response> {
+  let command: AgentReminderOperationRequest;
+  let idempotencyKey: string | undefined;
   try {
-    const body = (await request.json()) as AgentReminderOperationRequest & {
-      idempotencyKey?: string;
-    };
-    const { idempotencyKey, ...fields } = body;
+    const raw: unknown = await request.json();
+    if (!isRecord(raw)) return malformedReminderRequest();
+    const { idempotencyKey: key, ...fields } = raw;
+    idempotencyKey = typeof key === "string" ? key : undefined;
     // JSON in, JSON out: the request is validated against the same rules the codec applies, but
     // this route never becomes protobuf. Protobuf is the WebSocket path's contract, not HTTP's.
-    const command = validateAgentReminderOperationRequest({
-      ...fields,
-      requestId: idempotencyKey,
-    });
-    if (
-      command.agentId !== principal.agentId ||
-      command.workspaceId !== principal.workspaceId ||
-      command.computerId !== principal.computerId
-    )
-      return Response.json({ error: "reminder scope denied" }, { status: 403 });
+    command = validateAgentReminderOperationRequest({ ...fields, requestId: key });
+  } catch {
+    return malformedReminderRequest();
+  }
+  if (
+    command.agentId !== principal.agentId ||
+    command.workspaceId !== principal.workspaceId ||
+    command.computerId !== principal.computerId
+  )
+    return Response.json({ error: "reminder scope denied" }, { status: 403 });
+  try {
     const result = await service(command, principal.userId);
     // The caller's own name for the key is what it matches the answer against.
-    return Response.json({ ...(result as Record<string, unknown>), idempotencyKey });
+    return Response.json({ ...result, idempotencyKey });
   } catch (error) {
-    // Authorization failures are a valid, well-formed request. Returning 400 here made the
-    // daemon report the same status as malformed JSON and hid the ACCESS_DENIED cause.
-    if (isReminderAuthorizationFailure(error))
-      return Response.json(
-        { error: "reminder access denied", code: "ACCESS_DENIED" },
-        { status: 403 },
-      );
-    return Response.json({ error: "invalid reminder request" }, { status: 400 });
+    const refusal = refusalResponse(error);
+    if (refusal) return refusal;
+    // A fault of ours, answered 500 after logging: blaming the caller for it with a 400 is what hid
+    // the original defect behind "invalid reminder request".
+    console.error("[agent] Reminder command failed", error);
+    return Response.json(
+      { error: "Reminder command failed", code: "INTERNAL_ERROR" },
+      { status: 500 },
+    );
   }
 }
 

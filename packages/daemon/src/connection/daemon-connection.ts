@@ -1,5 +1,5 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
-import { AgentTaskUpstreamError } from "./agent-task-upstream-error";
+import { AgentUpstreamRefusalError } from "./agent-upstream-refusal-error";
 import {
   agentApiRoutes,
   decodeGitHubCredentialResponse,
@@ -1069,7 +1069,16 @@ export const createAgentMessageHttpClient = (
     } catch {
       throw new Error("Agent reminder request failed");
     }
-    if (!response.ok) throw new Error(`Agent reminder request failed (${response.status})`);
+    if (!response.ok) {
+      // The server names *why* it refused in the body's `code`, exactly as the Task route does; it
+      // must not ride in the caller-facing message, but it is the only record of the cause, so it is
+      // attached for the daemon's own log (see `classifyAgentProxyFailure`).
+      const upstreamCode = await readUpstreamErrorCode(response);
+      throw new AgentUpstreamRefusalError(
+        `Agent reminder request failed (${response.status})`,
+        upstreamCode,
+      );
+    }
     let envelope: AgentReminderOperationResponse;
     try {
       envelope = (await response.json()) as AgentReminderOperationResponse;
@@ -1181,7 +1190,7 @@ export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
       // test pins that — but it is the only record of the cause that exists anywhere, so it is
       // attached for the daemon's own log (see `classifyAgentProxyFailure`).
       const upstreamCode = await readUpstreamErrorCode(response);
-      throw new AgentTaskUpstreamError(
+      throw new AgentUpstreamRefusalError(
         `server Agent Task request failed (${response.status})`,
         upstreamCode,
       );

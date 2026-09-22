@@ -10,6 +10,7 @@ import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import {
   MAX_ACTIVE_REMINDERS,
+  ReminderRefusal,
   nextOccurrence,
   type ReminderRepository,
   type StoredReminder,
@@ -99,7 +100,10 @@ export class PrismaReminderRepository implements ReminderRepository {
       receipt.fingerprint !== fingerprint ||
       (reminderId !== undefined && receipt.reminderId !== reminderId)
     )
-      throw new Error("request ID was already used with different reminder input");
+      throw new ReminderRefusal(
+        "CONFLICT",
+        "request ID was already used with different reminder input",
+      );
     return decodeStored(scope, receipt.response);
   }
 
@@ -127,7 +131,8 @@ export class PrismaReminderRepository implements ReminderRepository {
           },
           select: { id: true },
         });
-    if (!conversation) throw new Error("reminder target is not authorized");
+    if (!conversation)
+      throw new ReminderRefusal("ACCESS_DENIED", "reminder target is not authorized");
     let rootId: string | undefined;
     if (threadPrefix) {
       const roots = await this.db.message.findMany({
@@ -142,7 +147,8 @@ export class PrismaReminderRepository implements ReminderRepository {
         select: { id: true },
         take: 2,
       });
-      if (roots.length !== 1) throw new Error("thread target is missing or ambiguous");
+      if (roots.length !== 1)
+        throw new ReminderRefusal("NOT_FOUND", "thread target is missing or ambiguous");
       rootId = roots[0]!.id;
     }
     const candidates = await this.db.message.findMany({
@@ -154,7 +160,8 @@ export class PrismaReminderRepository implements ReminderRepository {
       select: { id: true },
       take: 2,
     });
-    if (candidates.length !== 1) throw new Error("message anchor is missing or ambiguous");
+    if (candidates.length !== 1)
+      throw new ReminderRefusal("NOT_FOUND", "message anchor is missing or ambiguous");
     return { messageId: candidates[0]!.id, target: rootId ? `${base}:${rootId}` : base! };
   }
 
@@ -172,7 +179,10 @@ export class PrismaReminderRepository implements ReminderRepository {
         });
         if (replay) {
           if (replay.workspaceId !== scope.workspaceId || replay.fingerprint !== fingerprint)
-            throw new Error("request ID was already used with different reminder input");
+            throw new ReminderRefusal(
+              "CONFLICT",
+              "request ID was already used with different reminder input",
+            );
           return decodeStored(scope, replay.response);
         }
         const active = await tx.reminder.count({
@@ -183,7 +193,10 @@ export class PrismaReminderRepository implements ReminderRepository {
           },
         });
         if (active >= MAX_ACTIVE_REMINDERS)
-          throw new Error(`active reminder limit (${MAX_ACTIVE_REMINDERS}) reached`);
+          throw new ReminderRefusal(
+            "CONFLICT",
+            `active reminder limit (${MAX_ACTIVE_REMINDERS}) reached`,
+          );
         const row = await tx.reminder.create({
           data: {
             workspaceId: scope.workspaceId,
@@ -242,7 +255,8 @@ export class PrismaReminderRepository implements ReminderRepository {
       orderBy: { fireAt: "asc" },
       take: 101,
     });
-    if (rows.length > 100) throw new Error("too many reminder results; use a status filter");
+    if (rows.length > 100)
+      throw new ReminderRefusal("INVALID_INPUT", "too many reminder results; use a status filter");
     return rows.map(summary);
   }
 
@@ -280,7 +294,10 @@ export class PrismaReminderRepository implements ReminderRepository {
             replay.reminderId !== id ||
             replay.fingerprint !== fingerprint
           )
-            throw new Error("request ID was already used with different reminder input");
+            throw new ReminderRefusal(
+              "CONFLICT",
+              "request ID was already used with different reminder input",
+            );
           return decodeStored(scope, replay.response);
         }
         const existing = await tx.reminder.findFirst({
@@ -291,15 +308,15 @@ export class PrismaReminderRepository implements ReminderRepository {
             computerId: scope.computerId,
           },
         });
-        if (!existing) throw new Error("reminder not found");
+        if (!existing) throw new ReminderRefusal("NOT_FOUND", "reminder not found");
         if (eventType === "updated" && existing.status !== "scheduled")
-          throw new Error("only scheduled reminders can be updated");
+          throw new ReminderRefusal("CONFLICT", "only scheduled reminders can be updated");
         if (eventType === "snoozed" && existing.status === "canceled")
-          throw new Error("canceled reminders cannot be snoozed");
+          throw new ReminderRefusal("CONFLICT", "canceled reminders cannot be snoozed");
         if (request.timezone && request.repeat === "none")
-          throw new Error("repeat none cannot include timezone");
+          throw new ReminderRefusal("INVALID_INPUT", "repeat none cannot include timezone");
         if (request.timezone && !request.repeat && !existing.repeat)
-          throw new Error("timezone requires a recurring reminder");
+          throw new ReminderRefusal("INVALID_INPUT", "timezone requires a recurring reminder");
         if (eventType === "snoozed" && existing.status !== "scheduled") {
           const active = await tx.reminder.count({
             where: {
@@ -309,7 +326,10 @@ export class PrismaReminderRepository implements ReminderRepository {
             },
           });
           if (active >= MAX_ACTIVE_REMINDERS)
-            throw new Error(`active reminder limit (${MAX_ACTIVE_REMINDERS}) reached`);
+            throw new ReminderRefusal(
+              "CONFLICT",
+              `active reminder limit (${MAX_ACTIVE_REMINDERS}) reached`,
+            );
         }
         const zone =
           request.repeat && request.repeat !== "none"
@@ -350,7 +370,7 @@ export class PrismaReminderRepository implements ReminderRepository {
                 now,
               ).toISOString();
         if (patch.fireAt && new Date(patch.fireAt).getTime() <= now.getTime())
-          throw new Error("reminder time must be in the future");
+          throw new ReminderRefusal("INVALID_INPUT", "reminder time must be in the future");
         const cancelNoop = eventType === "canceled" && existing.status === "canceled";
         const row = cancelNoop
           ? existing
@@ -392,7 +412,7 @@ export class PrismaReminderRepository implements ReminderRepository {
   }
 
   async events(scope: Scope, id: string, limit: number) {
-    if (!(await this.get(scope, id))) throw new Error("reminder not found");
+    if (!(await this.get(scope, id))) throw new ReminderRefusal("NOT_FOUND", "reminder not found");
     return (
       await this.db.reminderEvent.findMany({
         where: { reminderId: id, workspaceId: scope.workspaceId },
@@ -433,7 +453,10 @@ export class PrismaReminderRepository implements ReminderRepository {
             replay.agentId !== scope.agentId ||
             replay.version !== request.version
           )
-            throw new Error("request ID was already used with different reminder fire input");
+            throw new ReminderRefusal(
+              "CONFLICT",
+              "request ID was already used with different reminder fire input",
+            );
           const result = decodeReminderFireResponse(replay.response);
           const current =
             result.result === "accepted" && reminder.status === "scheduled"
@@ -505,8 +528,9 @@ export class PrismaReminderRepository implements ReminderRepository {
     const authorized = await tx.$queryRaw<
       Array<{ id: string }>
     >`SELECT "id" FROM "agents" WHERE "id" = ${scope.agentId}::uuid AND "workspaceId" = ${scope.workspaceId}::uuid AND "ownerId" = ${scope.userId}::uuid AND "computerId" = ${scope.computerId}::uuid FOR UPDATE`;
-    if (authorized.length !== 1) throw new Error(failure);
-    if (!(await this.transactionScopeExists(tx, scope))) throw new Error(failure);
+    if (authorized.length !== 1) throw new ReminderRefusal("ACCESS_DENIED", failure);
+    if (!(await this.transactionScopeExists(tx, scope)))
+      throw new ReminderRefusal("ACCESS_DENIED", failure);
   }
 
   private async transactionScopeExists(tx: Prisma.TransactionClient, scope: Scope) {

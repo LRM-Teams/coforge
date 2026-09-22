@@ -8,6 +8,7 @@ import {
   type CentrifugeWorkspaceClient,
 } from "../src/connection/daemon-connection";
 import type { AgentSendResponse } from "@lrm/coforge-sdk/agent";
+import { AgentUpstreamRefusalError } from "../src/connection/agent-upstream-refusal-error";
 import {
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_STATUS_METHOD,
@@ -828,6 +829,38 @@ test("Agent reminder HTTP transport rejects network and malformed responses with
       }),
     ).rejects.toThrow(/Agent reminder (request failed|response is malformed)/);
   }
+});
+
+test("a reminder refusal keeps the server's code for the daemon log, not the caller", async () => {
+  const request: AgentReminderOperationRequest = {
+    protocolMajor: 1,
+    requestId: "request-reminder",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId: "agent-a",
+    operation: "schedule",
+    title: "check the release",
+    target: "#coforge",
+    messageId: "55555555-5555-4555-8555-555555555555",
+    delaySeconds: 3600,
+  };
+  const client = createAgentMessageHttpClient(async () =>
+    Response.json(
+      { error: "invalid reminder request", code: "TEMPORARILY_UNAVAILABLE" },
+      { status: 400 },
+    ),
+  );
+  const error = await client.requestReminder!({
+    url: "https://server.example/api/agent/v1/reminders",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request,
+  }).catch((thrown: unknown) => thrown);
+
+  // The caller-facing message stays opaque; the cause is carried alongside it for the log.
+  expect(error).toBeInstanceOf(AgentUpstreamRefusalError);
+  expect((error as AgentUpstreamRefusalError).message).toBe("Agent reminder request failed (400)");
+  expect((error as AgentUpstreamRefusalError).upstreamCode).toBe("TEMPORARILY_UNAVAILABLE");
 });
 
 test("GitHub credential HTTP transport authenticates the Agent request", async () => {

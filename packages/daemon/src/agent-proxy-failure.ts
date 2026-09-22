@@ -4,7 +4,7 @@ import {
 } from "./connection/agent-transport-error";
 import { AgentMessageRequestError } from "./connection/agent-message-request-error";
 import { AgentTaskRequestError } from "./connection/agent-task-request-error";
-import { AgentTaskUpstreamError } from "./connection/agent-task-upstream-error";
+import { AgentUpstreamRefusalError } from "./connection/agent-upstream-refusal-error";
 import { AgentWeeklyReportRequestError } from "./connection/agent-weekly-report-request-error";
 import { AgentPreflightError } from "./daemon-runtime/agent-preflight-error";
 
@@ -190,7 +190,7 @@ export function classifyAgentProxyFailure(
     // A refusal this layer could not classify is exactly the case where the server's own code is
     // the only thing that says what happened; the caller still gets the correlation id and nothing
     // else, and the code is written to the daemon log beside it.
-    ...(error instanceof AgentTaskUpstreamError && error.upstreamCode !== undefined
+    ...(error instanceof AgentUpstreamRefusalError && error.upstreamCode !== undefined
       ? { upstreamCode: error.upstreamCode }
       : {}),
   });
