@@ -15,10 +15,7 @@ import {
 import { AGENT_VISIBILITY } from "./agent-visibility";
 import { publishAgentVisibilityChanged } from "../../server/agents/agent-visibility-realtime.server";
 import { ChangeAgentVisibility } from "../../server/agents/change-agent-visibility.server";
-import {
-  PrismaChangeAgentVisibilityStore,
-  previewAgentVisibilityChange as previewAgentVisibilityChangeQuery,
-} from "../../server/db/repositories/agent-visibility-change.repositories.server";
+import { PrismaChangeAgentVisibilityStore } from "../../server/db/repositories/agent-visibility-change.repositories.server";
 import { setAgentRole } from "../../server/agents/agent-role.server";
 import { AppError } from "../../lib/app-error";
 import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
@@ -438,17 +435,19 @@ export const changeAgentVisibility = createServerFn({ method: "POST" })
 
 /**
  * The public→private confirmation dialog's preview: channels the Agent will leave and how many
- * existing direct conversations will become read-only. Any current member may call this — the
- * data it reveals (channel names, a DM count) is no more sensitive than the Members directory
- * already is — but only a viewer who could actually change visibility ever reaches the dialog
- * that calls it.
+ * existing direct conversations will become read-only. Only someone who may change the Agent's
+ * visibility gets it.
  */
 export const previewAgentVisibilityChange = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
-  .handler(async ({ data: agentId, context: { db, workspaceId } }) => {
+  .handler(async ({ data: agentId, context: { user, db, workspaceId } }) => {
     setResponseHeader("cache-control", "no-store");
-    return previewAgentVisibilityChangeQuery(db, { workspaceId, agentId });
+    const role = await workspaceMemberRole(db, workspaceId, user.id);
+    return changeAgentVisibilityUseCase(db).preview(
+      { userId: user.id, workspaceId, role },
+      agentId,
+    );
   });
 
 /**

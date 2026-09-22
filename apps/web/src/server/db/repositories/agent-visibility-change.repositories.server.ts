@@ -1,7 +1,10 @@
 import type { Prisma, PrismaClient } from "../../../../generated/client";
 import { AGENT_VISIBILITY } from "../../../features/agents/agent-visibility";
 import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
-import type { ChangeAgentVisibilityStore } from "../../agents/change-agent-visibility.server";
+import type {
+  AgentVisibilityChangePreview,
+  ChangeAgentVisibilityStore,
+} from "../../agents/change-agent-visibility.server";
 
 /**
  * The atomic visibility transition (ADR 0059 "Changing visibility, both directions"), scoped to a
@@ -70,18 +73,11 @@ export class PrismaChangeAgentVisibilityStore implements ChangeAgentVisibilitySt
       return { changed: true };
     });
   }
-}
 
-export type AgentVisibilityChangePreview = {
-  /** Names of the channels (including `#general`, unprefixed) a public→private change would
-   * soft-leave; empty for an Agent already private or in no active channel. */
-  channelNames: string[];
-  /** Existing direct conversations that would become read-only: every DM the Agent has with
-   * someone other than its own creator, who alone keeps write access to a private Agent's DM
-   * (ADR 0059). Static for private→public (nothing becomes read-only), so the caller need not
-   * call this for that direction. */
-  readOnlyDirectMessageCount: number;
-};
+  preview(input: { agentId: string; workspaceId: string }): Promise<AgentVisibilityChangePreview> {
+    return previewAgentVisibilityChange(this.db, input);
+  }
+}
 
 /**
  * The confirmation dialog's preview for a public→private change: which channels the Agent will

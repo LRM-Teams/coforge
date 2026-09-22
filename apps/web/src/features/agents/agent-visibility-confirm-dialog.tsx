@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { m } from "@/paraglide/messages";
 import { isAppError } from "@/lib/app-error";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
-import type { AgentVisibilityChangePreview } from "@/server/db/repositories/agent-visibility-change.repositories.server";
+import type { AgentVisibilityChangePreview } from "@/server/agents/change-agent-visibility.server";
 import type { AgentVisibility } from "./agent-visibility";
 
 /**

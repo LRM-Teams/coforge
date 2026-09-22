@@ -52,6 +52,7 @@ function fixture(options?: { record?: AgentRecord; changed?: boolean }) {
       applied.push(input);
       return { changed: options?.changed ?? true };
     },
+    preview: async () => ({ channelNames: ["general"], readOnlyDirectMessageCount: 1 }),
   };
   const useCase = new ChangeAgentVisibility(
     repositoryFor(record),
@@ -146,7 +147,10 @@ describe("ChangeAgentVisibility", () => {
     const record = agent();
     const useCase = new ChangeAgentVisibility(
       repositoryFor(record),
-      { apply: async () => ({ changed: true }) },
+      {
+        apply: async () => ({ changed: true }),
+        preview: async () => ({ channelNames: [], readOnlyDirectMessageCount: 0 }),
+      },
       async () => {
         throw new Error("realtime unavailable");
       },
@@ -156,5 +160,32 @@ describe("ChangeAgentVisibility", () => {
       { agentId: "agent-1", visibility: "private" },
     );
     expect(result).toEqual({ visibility: "private", changed: true });
+  });
+
+  test("the preview is shown to the creator", async () => {
+    const { useCase } = fixture();
+    expect(
+      await useCase.preview(
+        { userId: "user-1", workspaceId: "workspace-1", role: "member" },
+        "agent-1",
+      ),
+    ).toEqual({ channelNames: ["general"], readOnlyDirectMessageCount: 1 });
+  });
+
+  test("the preview is shown to a Workspace admin for someone else's Agent", async () => {
+    const { useCase } = fixture({ record: agent({ ownerId: "user-2" }) });
+    expect(
+      await useCase.preview(
+        { userId: "user-1", workspaceId: "workspace-1", role: "admin" },
+        "agent-1",
+      ),
+    ).toEqual({ channelNames: ["general"], readOnlyDirectMessageCount: 1 });
+  });
+
+  test("the preview is refused to a member who cannot change visibility", async () => {
+    const { useCase } = fixture({ record: agent({ ownerId: "user-2", visibility: "private" }) });
+    await expect(
+      useCase.preview({ userId: "user-1", workspaceId: "workspace-1", role: "member" }, "agent-1"),
+    ).rejects.toMatchObject({ name: "AppError", code: "ACCESS_DENIED" });
   });
 });

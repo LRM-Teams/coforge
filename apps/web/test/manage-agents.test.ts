@@ -739,7 +739,7 @@ describe("ManageAgents", () => {
     expect(records[0]?.visibility).toBe("public");
   });
 
-  test("create forwards an explicit private visibility (weekly-report Collector alignment)", async () => {
+  test("create forwards the visibility chosen in the create form", async () => {
     const { agentManagement, records } = fixture();
     const result = await agentManagement.create(
       { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },

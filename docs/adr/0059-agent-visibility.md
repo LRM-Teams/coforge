@@ -20,8 +20,9 @@ to "some Agents are private." These rules are CoForge's own.
 ## Decision
 
 **A. `Agent.visibility`: `"public" | "private"`, default `"public"`.** Existing rows stay public;
-no data migration. New weekly-report Collector Agents (ADR 0032) are created `"private"`; every
-other creation path keeps creating `"public"` Agents.
+no data migration. The Agent create form offers Public/Private, defaulting to Public (creating an
+Agent stays Workspace owner/admin only). New weekly-report Collector Agents (ADR 0032) are created
+`"private"`; an Agent-prepared `agent:create` action card creates `"public"`.
 
 **B. Who can see a private Agent.** A viewer (human or Agent) can see a private Agent iff any of:
 

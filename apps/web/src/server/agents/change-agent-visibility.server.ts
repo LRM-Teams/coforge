@@ -16,7 +16,21 @@ export interface ChangeAgentVisibilityStore {
     workspaceId: string;
     visibility: AgentVisibility;
   }): Promise<{ changed: boolean }>;
+  /** What a public→private change would do, for the confirmation dialog. Read-only. */
+  preview(input: { agentId: string; workspaceId: string }): Promise<AgentVisibilityChangePreview>;
 }
+
+export type AgentVisibilityChangePreview = {
+  /** Names of the channels (including `#general`, unprefixed) a public→private change would
+   * soft-leave; empty for an Agent already private or in no active channel. */
+  channelNames: string[];
+  /** Existing direct conversations that would become read-only: every DM the Agent has with
+   * someone other than its own creator, who alone keeps write access to a private Agent's DM
+   * (ADR 0059). */
+  readOnlyDirectMessageCount: number;
+};
+
+type VisibilityPrincipal = { userId: string; workspaceId: string; role: WorkspaceMemberRole };
 
 /**
  * Changes one Agent's visibility (ADR 0059 "Changing visibility, both directions"). Authorized
@@ -34,16 +48,10 @@ export class ChangeAgentVisibility {
   ) {}
 
   async execute(
-    principal: { userId: string; workspaceId: string; role: WorkspaceMemberRole },
+    principal: VisibilityPrincipal,
     input: { agentId: string; visibility: AgentVisibility },
   ): Promise<{ visibility: AgentVisibility; changed: boolean }> {
-    const agent = await this.agents.getById(input.agentId);
-    if (!agent || agent.workspaceId !== principal.workspaceId) throw new AppError("NOT_FOUND");
-    // A deleted Agent has no visibility left to change, the same "already inert" refusal every
-    // other post-delete mutation gives (ADR 0044).
-    assertAgentLive(agent);
-    const isCreator = agent.ownerId === principal.userId;
-    if (!isCreator && !isAdminLike(principal.role)) throw new AppError("ACCESS_DENIED");
+    const agent = await this.authorize(principal, input.agentId);
     const { changed } = await this.store.apply({
       agentId: agent.id,
       workspaceId: agent.workspaceId,
@@ -51,5 +59,26 @@ export class ChangeAgentVisibility {
     });
     if (changed) await this.onVisibilityChanged(agent.workspaceId, agent.id).catch(() => {});
     return { visibility: input.visibility, changed };
+  }
+
+  /** The confirmation dialog's preview, shown only to someone who may make the change: it names
+   * the Agent's channels, which a viewer who cannot see a private Agent must never learn. */
+  async preview(
+    principal: VisibilityPrincipal,
+    agentId: string,
+  ): Promise<AgentVisibilityChangePreview> {
+    const agent = await this.authorize(principal, agentId);
+    return this.store.preview({ agentId: agent.id, workspaceId: agent.workspaceId });
+  }
+
+  private async authorize(principal: VisibilityPrincipal, agentId: string) {
+    const agent = await this.agents.getById(agentId);
+    if (!agent || agent.workspaceId !== principal.workspaceId) throw new AppError("NOT_FOUND");
+    // A deleted Agent has no visibility left to change, the same "already inert" refusal every
+    // other post-delete mutation gives (ADR 0044).
+    assertAgentLive(agent);
+    const isCreator = agent.ownerId === principal.userId;
+    if (!isCreator && !isAdminLike(principal.role)) throw new AppError("ACCESS_DENIED");
+    return agent;
   }
 }
