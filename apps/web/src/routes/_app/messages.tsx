@@ -1,9 +1,6 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 
-import {
-  MessagesPending,
-  CONVERSATION_PENDING_MS,
-} from "@/features/conversations/conversation-pending";
+import { MessagesPending } from "@/features/conversations/conversation-pending";
 import { ConversationNavigation } from "@/features/conversations/conversation-navigation";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { listPublicChannels } from "@/features/conversations/channels.functions";
@@ -31,8 +28,6 @@ export const Route = createFileRoute("/_app/messages")({
       viewerId: badges.viewerId || undefined,
     };
   },
-  pendingMs: CONVERSATION_PENDING_MS,
-  pendingMinMs: CONVERSATION_PENDING_MS,
   pendingComponent: MessagesPending,
   errorComponent: PageLoadError,
   component: MessagesPage,

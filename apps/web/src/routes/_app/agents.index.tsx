@@ -34,8 +34,6 @@ export const Route = createFileRoute("/_app/agents/")({
     ]);
     return { computers, directory, weeklyReportAssistantAgentId: assistant.agentId };
   },
-  pendingMs: 300,
-  pendingMinMs: 0,
   pendingComponent: AgentsPending,
   errorComponent: PageLoadError,
   component: AgentsPage,

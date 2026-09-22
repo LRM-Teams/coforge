@@ -81,8 +81,6 @@ export const Route = createFileRoute("/_app/settings")({
       },
     };
   },
-  pendingMs: 300,
-  pendingMinMs: 0,
   pendingComponent: SettingsPending,
   errorComponent: PageLoadError,
   component: SettingsPage,

@@ -25,8 +25,6 @@ export const Route = createFileRoute("/_app/computers")({
       latestComputerVersion,
     };
   },
-  pendingMs: 300,
-  pendingMinMs: 0,
   pendingComponent: ComputersPending,
   errorComponent: PageLoadError,
   component: ComputersPage,

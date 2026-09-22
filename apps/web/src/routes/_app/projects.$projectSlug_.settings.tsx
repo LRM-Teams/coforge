@@ -11,8 +11,6 @@ export const Route = createFileRoute("/_app/projects/$projectSlug_/settings")({
     if (!project) throw notFound();
     return project;
   },
-  pendingMs: 300,
-  pendingMinMs: 0,
   pendingComponent: () => <ProjectsPending heading={m.project_settings()} />,
   errorComponent: PageLoadError,
   component: ProjectSettingsRoute,
