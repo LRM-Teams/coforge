@@ -84,12 +84,19 @@ export const sendTestBrowserNotification = createServerFn({ method: "POST" })
       const result = await notifications.sendTest(user.id, data.endpoint);
       if (result.sent === 0) {
         // With no registered subscription the fix is the reader's: re-enable notifications so the
-        // browser re-registers. Anything else (pruned endpoint, egress failure) stays generic.
-        throw new AppError(registered === 0 ? "NOT_FOUND" : "TEMPORARILY_UNAVAILABLE");
+        // browser re-registers. Anything else (pruned endpoint, egress failure) stays generic for
+        // the reader, so it must at least leave a trace: the same event name the message-delivery
+        // path uses for the same cause, so one grep finds both.
+        if (registered === 0) throw new AppError("NOT_FOUND");
+        console.warn(JSON.stringify({ event: "web_push.unavailable", operation: "test" }));
+        throw new AppError("TEMPORARILY_UNAVAILABLE");
       }
       return result;
     } catch (error) {
       if (error instanceof AppError) throw error;
+      // An unusable configuration (bad key pair, missing private key file) or any other refusal
+      // used to become `TEMPORARILY_UNAVAILABLE` with nothing logged at all.
+      console.warn(JSON.stringify({ event: "web_push.unavailable", operation: "test" }));
       throw new AppError("TEMPORARILY_UNAVAILABLE");
     }
   });

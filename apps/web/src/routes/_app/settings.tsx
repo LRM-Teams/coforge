@@ -225,7 +225,11 @@ function SettingsPage() {
 
   async function testBrowserNotification() {
     try {
-      const subscription = await registerCurrentBrowser(false);
+      // Ask when the permission is still `default`: the test cannot send anything unless it is
+      // granted, and this click is the user gesture that lets the browser prompt. Without it the
+      // button can never succeed on a browser whose permission went back to `default` - it only
+      // reaches "check this browser's permission", which offers no way to fix it from there.
+      const subscription = await registerCurrentBrowser(true);
       if (!subscription) throw new Error("Browser notification permission is not granted");
       await sendTestNotification({ data: { endpoint: subscription.endpoint } });
       return true;

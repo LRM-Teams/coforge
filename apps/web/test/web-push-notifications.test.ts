@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import {
   WebPushDeliveryError,
@@ -108,6 +108,33 @@ describe("WebPushNotifications", () => {
 
     expect(result).toEqual({ sent: 0, failed: 1, removed: 1 });
     expect(repository.removed).toEqual([first.id]);
+  });
+
+  test("a test for an endpoint with no stored subscription says so in the log", async () => {
+    // Observed 2026-09-22: a member saw only "check this browser's permission" while the server log
+    // said nothing, which cannot tell a pruned endpoint from a broken push service.
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const repository = store({ subscriptions: [first] });
+      const notifications = new WebPushNotifications(repository.value, {
+        send: async () => {
+          throw new Error("must not attempt delivery");
+        },
+      });
+
+      await expect(notifications.sendTest("user-a", second.endpoint)).resolves.toEqual({
+        sent: 0,
+        failed: 0,
+        removed: 0,
+      });
+      const logged = warn.mock.calls.map((call) => String(call[0])).join("\n");
+      expect(logged).toContain("web_push.test_no_subscription");
+      // Only the host: the endpoint is a capability URL.
+      expect(logged).toContain("updates.push.services.mozilla.com");
+      expect(logged).not.toContain("/wpush/v2/subscription-b");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test("uses the production delivery path for a test notification", async () => {
