@@ -115,17 +115,42 @@ test("a resource receipt accepts an ISO expiry with a timezone offset", async ()
   expect(received).toMatchObject({ receipt: { expiry: "2030-03-04T05:06:00+08:00" } });
 });
 
-test("an unknown envelope field is rejected by the strict schema before the board is called", async () => {
-  // The request envelope is gone: a body still carrying `protocolMajor` (an old daemon) fails the
-  // strict schema instead of being silently tolerated — the daemon side ships the plain command.
-  let called = false;
+test("a legacy envelope field from an installed client is ignored, not rejected", async () => {
+  // The envelope is gone server-side, but every Computer installed before that still sends it.
+  // Rejecting it (`.strict()`, #643) turned **every** Agent Task request from **every** installed
+  // Computer into a 400 the proxy reports as an opaque 502 — an outage this compatibility window
+  // exists to avoid. The principal still comes from the Agent API key alone.
+  let received: unknown;
   const result = await handleAgentTaskPost(
     request({
       protocolMajor: 1,
+      workspaceId: "some-other-workspace",
+      agentId: "some-other-agent",
       idempotencyKey: "request-1",
       operation: "list",
       target: "#general",
     }),
+    principal,
+    {
+      execute: async (_principal, command) => {
+        received = command;
+        return { tasks: [] };
+      },
+    },
+  );
+
+  expect(result.status).toBe(200);
+  // The board sees the command without the ignored envelope.
+  expect(received).toMatchObject({ operation: "list", idempotencyKey: "request-1" });
+  expect(received).not.toHaveProperty("protocolMajor");
+  expect(received).not.toHaveProperty("workspaceId");
+  expect(received).not.toHaveProperty("agentId");
+});
+
+test("an unknown field is still rejected by the strict schema before the board is called", async () => {
+  let called = false;
+  const result = await handleAgentTaskPost(
+    request({ idempotencyKey: "request-1", operation: "list", bogusField: "x" }),
     principal,
     {
       execute: async () => {
