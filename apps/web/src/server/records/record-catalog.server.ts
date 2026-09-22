@@ -432,27 +432,34 @@ export class RecordCatalog {
       actorAvatarUrl: me
         ? workspaceUserAvatarUrl(input.workspaceId, me.id, me.avatarObjectKey)
         : null,
-      favorites: favorites.map((row) => ({
-        id: row.report.id,
-        title: memberReportTitle(
-          row.report.author.displayName ?? row.report.author.username,
-          row.report.cycle.year,
-          row.report.cycle.week,
-        ),
-        author: {
-          userId: row.report.author.id,
-          username: row.report.author.username,
-          displayName: row.report.author.displayName ?? row.report.author.username,
-          avatarUrl: workspaceUserAvatarUrl(
-            input.workspaceId,
-            row.report.author.id,
-            row.report.author.avatarObjectKey,
+      favorites: favorites
+        .filter((row) => !(row.report.authorId === input.userId && row.report.hiddenFromAuthor))
+        .map((row) => ({
+          id: row.report.id,
+          title: memberReportTitle(
+            row.report.author.displayName ?? row.report.author.username,
+            row.report.cycle.year,
+            row.report.cycle.week,
           ),
-        },
-      })),
+          author: {
+            userId: row.report.author.id,
+            username: row.report.author.username,
+            displayName: row.report.author.displayName ?? row.report.author.username,
+            avatarUrl: workspaceUserAvatarUrl(
+              input.workspaceId,
+              row.report.author.id,
+              row.report.author.avatarObjectKey,
+            ),
+          },
+        })),
       myReports: cycles.flatMap((cycle) =>
         cycle.reports
-          .filter((report) => report.kind === "member" && report.authorId === input.userId)
+          .filter(
+            (report) =>
+              report.kind === "member" &&
+              report.authorId === input.userId &&
+              !report.hiddenFromAuthor,
+          )
           .map((report) => ({
             id: report.id,
             title: memberReportTitle(
@@ -1051,9 +1058,16 @@ export class RecordCatalog {
         kind: "member",
         authorId: input.userId,
       },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!report) throw new AppError("NOT_FOUND");
+    if (report.status === "submitted" || report.status === "shared") {
+      await this.db.weeklyReport.update({
+        where: { id: report.id },
+        data: { hiddenFromAuthor: true },
+      });
+      return { ok: true as const };
+    }
     await this.db.weeklyReport.delete({ where: { id: report.id } });
     return { ok: true as const };
   }
@@ -1403,6 +1417,7 @@ export class RecordCatalog {
       } else if (report.kind === "member") {
         const isAuthor = report.author.id === input.userId;
         const isTemplateOwner = report.sourceTemplate?.authorId === input.userId;
+        if (report.hiddenFromAuthor && isAuthor) throw new AppError("NOT_FOUND");
         if (!isAuthor && !isTemplateOwner) {
           const favorite = await this.db.weeklyReportFavorite.findUnique({
             where: {
@@ -1704,6 +1719,7 @@ export class RecordCatalog {
         authorId: true,
         kind: true,
         status: true,
+        hiddenFromAuthor: true,
         settingsId: true,
         content: true,
         cycle: { select: { year: true, week: true } },
@@ -1711,6 +1727,7 @@ export class RecordCatalog {
       },
     });
     if (!report) throw new AppError("NOT_FOUND");
+    if (report.kind === "member" && report.hiddenFromAuthor) throw new AppError("NOT_FOUND");
     if (
       !canEditWeeklyReportContent({
         viewerUserId: input.userId,

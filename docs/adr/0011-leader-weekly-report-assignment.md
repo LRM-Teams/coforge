@@ -90,7 +90,9 @@ matches the product.
   product path; parents and assignments are created by send.
 - Catalog and parent overview filter children to submitted/shared.
 - Leader review of a submitted assignment is read-only; only the author may
-  edit, send, or delete that document.
+  edit, send, or delete that document. Deleting a draft removes the assignment.
+  Deleting a submitted or shared report removes it from the author's「我的周报」
+  only (`hiddenFromAuthor`); the Leader parent keeps that sent copy.
 - Assignment unread state lives in `content.assignment.unread` until a dedicated
   column is approved; opening an assignment clears unread; submit/resubmit sets
   `submitted` on the same row (overwrite).
