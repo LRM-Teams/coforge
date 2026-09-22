@@ -68,12 +68,14 @@ test("events drain returns unread rows in canonical order, advances read boundar
     // Both must come from the message rather than from the conversation's member list, whose
     // "other member" is the *recipient* — an Agent-authored message would be attributed to the
     // wrong side, and in a conversation with no user member to nothing at all. Read before the
-    // drain below, which acknowledges and so empties the recovery context.
+    // drain below, which acknowledges and so empties the recovery context. The sender projection
+    // names that author as structured facts (ADR 0052) — a bare handle, not the rendered
+    // `@handle` — while `target` keeps the rendered form.
     expect(
       (await repo.readAgentRecoveryContext(workspace.id, agent.id)).resumeMessages.find(
         (message) => message.target === dmTarget,
       ),
-    ).toMatchObject({ latestSender: dmTarget, target: dmTarget });
+    ).toMatchObject({ latestSenderKind: "human", latestSenderHandle: username, target: dmTarget });
 
     // First drain returns every unread row; root sorts before its reply within the same
     // conversation regardless of how the DM and channel conversation ids happen to compare.
