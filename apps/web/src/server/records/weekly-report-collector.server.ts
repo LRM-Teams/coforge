@@ -115,9 +115,8 @@ export async function ensureCollector(
             displayName: weeklyReportCollectorDisplayName(label),
             description: "",
             // ADR 0059: a Collector works on its owning User's own records and should not appear
-            // to the rest of the Workspace at all. NOTE: until Slice A's `enrollGeneralChannel`
-            // learns to skip private Agents, this Collector is still enrolled in #general below —
-            // tracked as a known follow-up, not fixed here (Slice A owns that call site).
+            // to the rest of the Workspace at all. `enrollGeneralChannel` below skips private
+            // Agents, so it never joins #general.
             visibility: AGENT_VISIBILITY.PRIVATE,
             runtimeConfig: {
               runtime: RUNTIME_PROVIDER.COFORGE,
