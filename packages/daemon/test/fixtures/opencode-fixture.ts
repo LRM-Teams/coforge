@@ -40,7 +40,7 @@ aiberm/gpt-5.6-luna
 const argv = process.argv.slice(2);
 
 if (argv.includes("--version")) {
-  process.stdout.write(`${Bun.env.COFORGE_OPENCODE_VERSION ?? "1.18.31"}\n`);
+  process.stdout.write(`${Bun.env.COFORGE_OPENCODE_VERSION ?? "2.0.7"}\n`);
   process.exit(0);
 }
 

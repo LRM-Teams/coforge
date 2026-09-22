@@ -7,7 +7,7 @@ import {
 
 const FIXTURE = new URL("./fixtures/opencode-fixture.ts", import.meta.url).pathname;
 
-/** A trimmed real capture of `opencode models --verbose` (2026-09-21, opencode 1.2.24 on s144). */
+/** A trimmed capture of the v2-compatible `opencode models --verbose` shape. */
 const VERBOSE_OUTPUT = `opencode/big-pickle
 {
   "id": "big-pickle",

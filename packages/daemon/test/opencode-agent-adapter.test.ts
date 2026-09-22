@@ -262,10 +262,10 @@ test("interrupting a running turn ends it as interrupted", async () => {
   }
 });
 
-test("gates the CLI on the 1.15 baseline the runtime is written against", () => {
-  expect(isOpenCodeVersionUnsupported("1.2.24")).toBe(true);
-  expect(isOpenCodeVersionUnsupported("1.15.0")).toBe(false);
-  expect(isOpenCodeVersionUnsupported("1.18.31")).toBe(false);
+test("gates the CLI on the OpenCode v2 runtime contract", () => {
+  expect(isOpenCodeVersionUnsupported("1.18.31")).toBe(true);
+  expect(isOpenCodeVersionUnsupported("2.0.0")).toBe(false);
+  expect(isOpenCodeVersionUnsupported("2.0.7")).toBe(false);
   // A version we cannot parse confidently is never gated.
   expect(isOpenCodeVersionUnsupported("nightly")).toBe(false);
 });

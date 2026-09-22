@@ -6,14 +6,14 @@ const logger = getLogger(["coforge", "daemon", "runtime-inventory"]);
 /**
  * The OpenCode CLI baseline this runtime launches against.
  *
- * 1.15 is where OpenCode's own model catalog and non-interactive surface match what the daemon
- * uses (`opencode run --format json`, `--variant`, `--dangerously-skip-permissions`; Raft's
- * adapter records the same baseline: "Newer opencode (1.15+) syncs its hosted free-model catalog
- * over the network on `opencode models`"). An older build silently prints its usage and exits 0
- * when handed a flag it does not know, so gating on the version is what keeps a stale install
- * from looking like a healthy runtime that never runs anything.
+ * OpenCode v2 is the supported CLI contract. Its `opencode run` command retains the machine
+ * interface this adapter consumes (`--format json`, `--model`, `--variant`, `--session`, and
+ * `--dir`), while v1 is no longer a supported runtime surface. An older build can silently print
+ * its usage and exit 0 when handed a flag it does not know, so gating on the major version keeps a
+ * stale v1 install from looking like a healthy runtime that never runs anything. The v2 command
+ * and event shape are documented at https://opencode.ai/v2/docs/cli/commands/.
  */
-export const OPENCODE_MIN_CLI_VERSION = "1.15.0";
+export const OPENCODE_MIN_CLI_VERSION = "2.0.0";
 
 /**
  * A confidently-parsed dotted numeric version below `minimum` is rejected; a version that cannot
