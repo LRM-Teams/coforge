@@ -27,6 +27,8 @@ import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { useResizeObserver } from "@/hooks/use-resize-observer";
 import { copyText } from "@/features/records/report-editor/lib/clipboard";
 import { ProjectFileView, ProjectFileViewSkeleton } from "@/features/projects/project-file-view";
+import { Attachment } from "@/features/records/report-editor/attachment";
+import { workspaceImageSource } from "./agent-workspace-image";
 import { m } from "@/paraglide/messages";
 import { cn } from "@/lib/utils";
 import { SECTION_CAPTION_CLASS } from "./inline-edit-field";
@@ -586,7 +588,12 @@ function FilePane({ state, onRetry }: { state: FileState | undefined; onRetry: (
   }
   const name = state.path.split("/").pop() ?? state.path;
 
-  if (state.status === "ready")
+  if (state.status === "ready") {
+    // An image read carries its bytes rather than text (the daemon sniffs the format), so it goes
+    // to the existing image renderer: ProjectFileView is a text viewer and would show the data URL
+    // as source. Everything else — text, and any read without an image payload — stays with it.
+    const imageSource = workspaceImageSource(state.result);
+    if (imageSource) return <WorkspaceImagePreview name={name} url={imageSource} />;
     return (
       <ProjectFileView
         key={state.path}
@@ -597,12 +604,23 @@ function FilePane({ state, onRetry }: { state: FileState | undefined; onRetry: (
         githubUrl={undefined}
       />
     );
+  }
   if (state.status === "offline") return <EmptyFileState text={m.agent_workspace_offline()} />;
   if (state.status === "timeout")
     return <EmptyFileState text={m.agent_workspace_timeout()} onRetry={onRetry} />;
   if (state.status === "binary") return <EmptyFileState text={m.agent_workspace_binary()} />;
   if (state.status === "too_large") return <EmptyFileState text={m.agent_workspace_too_large()} />;
   return <EmptyFileState text={m.agent_workspace_file_error()} onRetry={onRetry} />;
+}
+
+function WorkspaceImagePreview({ name, url }: { name: string; url: string }) {
+  return (
+    // The image is sized by the pane, not by the file: `overflow-auto` keeps a tall screenshot
+    // scrollable instead of letting it push the tree and header out of view.
+    <div className="min-h-0 flex-1 overflow-auto p-4">
+      <Attachment attachment={{ kind: "url", url, filename: name, forceKind: "image" }} />
+    </div>
+  );
 }
 
 function EmptyFileState({ text, onRetry }: { text: string; onRetry?: () => void }) {

@@ -21,12 +21,58 @@ export type AgentWorkspaceFileReadOutcome = {
   sizeBytes: number;
   modifiedAtMs: number;
   text: string;
+  /** The media type of `contentBase64` — sniffed from the bytes, never the file name — or `""` for
+   * every read that fills `text` instead. */
+  contentType: string;
+  /** Standard base64 of a previewable image's bytes, or `""` for a text read. */
+  contentBase64: string;
 };
 
 // Must stay under Centrifugo's websocket.message_size_limit (infra/*/centrifugo/config.yaml):
 // the whole text travels in one RPC message.
 const MAX_TEXT_BYTES = 1024 * 1024;
+// An image travels that same single-publish path, so it is bounded by that same ceiling; past it
+// the read reports `too_large` rather than risking a publish the transport would refuse.
+const MAX_IMAGE_BYTES = MAX_TEXT_BYTES;
 const SNIFF_BYTES = 8192;
+
+/**
+ * The magic bytes that name an image this daemon carries back for preview. Sniffed rather than
+ * inferred from the file name, which the writer controls and the reader would then trust.
+ *
+ * Deliberately absent: BMP, whose two-byte `BM` magic is not distinctive enough to separate a
+ * bitmap from prose that opens with those two letters — guessing wrong would cost the reader the
+ * text they could otherwise have seen, which is worse than leaving one rare format unpreviewed.
+ */
+const IMAGE_SIGNATURES: ReadonlyArray<{ offset?: number; text: string; contentType: string }> = [
+  { text: "\x89PNG\r\n\x1a\n", contentType: "image/png" },
+  { text: "\xff\xd8\xff", contentType: "image/jpeg" },
+  { text: "GIF87a", contentType: "image/gif" },
+  { text: "GIF89a", contentType: "image/gif" },
+  { text: "II*\x00", contentType: "image/tiff" },
+  { text: "MM\x00*", contentType: "image/tiff" },
+  { text: "\x00\x00\x01\x00", contentType: "image/x-icon" },
+  // ISO-BMFF brands: the format is named four bytes into the `ftyp` box.
+  { offset: 4, text: "ftypavif", contentType: "image/avif" },
+  { offset: 4, text: "ftypavis", contentType: "image/avif" },
+];
+
+function matchesSignature(bytes: Uint8Array, offset: number, text: string): boolean {
+  for (let index = 0; index < text.length; index++)
+    if (bytes[offset + index] !== text.charCodeAt(index)) return false;
+  return true;
+}
+
+/** The media type of a previewable image, or `null` for anything this daemon will not preview. */
+function sniffImageContentType(bytes: Uint8Array): string | null {
+  for (const signature of IMAGE_SIGNATURES)
+    if (matchesSignature(bytes, signature.offset ?? 0, signature.text))
+      return signature.contentType;
+  // RIFF is a container, not a format: only the subtype says WebP rather than WAV or AVI.
+  if (matchesSignature(bytes, 0, "RIFF") && matchesSignature(bytes, 8, "WEBP")) return "image/webp";
+  return null;
+}
+
 // Directory names a workspace browse must never surface, matching the runtime's own reserved
 // storage (packages/agent/src/paths.ts). Resolved through the package's exported helpers rather
 // than duplicated literals, so a rename there cannot silently reopen this boundary.
@@ -148,7 +194,7 @@ export async function readAgentWorkspaceFile(params: {
   agentWorkspaceDirectory: string;
   path: string;
 }): Promise<AgentWorkspaceFileReadOutcome> {
-  const empty = { sizeBytes: 0, modifiedAtMs: 0, text: "" };
+  const empty = { sizeBytes: 0, modifiedAtMs: 0, text: "", contentType: "", contentBase64: "" };
   try {
     if (!isSafeRelativePath(params.path) || containsBuiltinSegment(params.path))
       return { status: "unreadable", ...empty };
@@ -171,17 +217,65 @@ export async function readAgentWorkspaceFile(params: {
       const sizeBytes = info.size;
       const modifiedAtMs = Math.round(info.mtimeMs);
       const sniffLength = Math.min(SNIFF_BYTES, sizeBytes);
+      let sniff = Buffer.alloc(0);
       if (sniffLength > 0) {
-        const sniff = Buffer.alloc(sniffLength);
-        const { bytesRead } = await file.read(sniff, 0, sniffLength, 0);
-        if (sniff.subarray(0, bytesRead).includes(0))
-          return { status: "binary", sizeBytes, modifiedAtMs, text: "" };
+        const head = Buffer.alloc(sniffLength);
+        const { bytesRead } = await file.read(head, 0, sniffLength, 0);
+        sniff = head.subarray(0, bytesRead);
       }
+      // An image is decided before the NUL test below, because compressed image data routinely
+      // carries NUL bytes: the binary rule would otherwise answer first and the reader would never
+      // see the picture.
+      const contentType = sniffImageContentType(sniff);
+      if (contentType) {
+        if (sizeBytes > MAX_IMAGE_BYTES)
+          return {
+            status: "too_large",
+            sizeBytes,
+            modifiedAtMs,
+            text: "",
+            contentType: "",
+            contentBase64: "",
+          };
+        const buffer = Buffer.alloc(sizeBytes);
+        if (sizeBytes > 0) await file.read(buffer, 0, sizeBytes, 0);
+        return {
+          status: "ok",
+          sizeBytes,
+          modifiedAtMs,
+          text: "",
+          contentType,
+          contentBase64: buffer.toString("base64"),
+        };
+      }
+      if (sniff.includes(0))
+        return {
+          status: "binary",
+          sizeBytes,
+          modifiedAtMs,
+          text: "",
+          contentType: "",
+          contentBase64: "",
+        };
       if (sizeBytes > MAX_TEXT_BYTES)
-        return { status: "too_large", sizeBytes, modifiedAtMs, text: "" };
+        return {
+          status: "too_large",
+          sizeBytes,
+          modifiedAtMs,
+          text: "",
+          contentType: "",
+          contentBase64: "",
+        };
       const buffer = Buffer.alloc(sizeBytes);
       if (sizeBytes > 0) await file.read(buffer, 0, sizeBytes, 0);
-      return { status: "ok", sizeBytes, modifiedAtMs, text: buffer.toString("utf8") };
+      return {
+        status: "ok",
+        sizeBytes,
+        modifiedAtMs,
+        text: buffer.toString("utf8"),
+        contentType: "",
+        contentBase64: "",
+      };
     } finally {
       await file.close();
     }

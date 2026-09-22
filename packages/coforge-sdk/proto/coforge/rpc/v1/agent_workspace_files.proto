@@ -56,4 +56,9 @@ message AgentWorkspaceFileReadResult {
   uint64 size_bytes = 9;
   uint64 modified_at_ms = 10;
   string text = 11;
+  // Set together, and only for a ``status == "ok"`` read of a previewable image: the media type
+  // the bytes really are (sniffed, never the file name), and the file's bytes themselves. `text`
+  // is empty in that case, and `content` is empty for every read that fills `text` instead.
+  string content_type = 12;
+  bytes content = 13;
 }
