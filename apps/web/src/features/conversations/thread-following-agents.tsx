@@ -102,25 +102,6 @@ function FollowingAgentRow({
   );
 }
 
-/** `@handle` list shown next to the Thread title so following Agents are visible without opening the popover. */
-export function ThreadFollowingAgentHandles({
-  channelId,
-  threadRootId,
-}: {
-  channelId: string;
-  threadRootId: string;
-}) {
-  const query = useThreadFollowingAgents(channelId, threadRootId);
-  const agents = query.data?.agents ?? [];
-  if (agents.length === 0) return null;
-  return (
-    <span className="min-w-0 truncate font-normal text-tertiary">
-      <span aria-hidden="true"> — </span>
-      {agents.map((agent) => `@${agent.name}`).join(" ")}
-    </span>
-  );
-}
-
 /**
  * Channel thread header control: the first following Agent's avatar plus a count, opening the
  * Agents currently following this Thread. A channel member can stop one Agent following; the
