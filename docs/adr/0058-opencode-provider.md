@@ -14,15 +14,18 @@ CoForge can reuse directly: when a model exposes `variants`, Raft shows them as 
 selector and passes the chosen value through `opencode run --variant`, while other runtimes (Cursor,
 for one — ADR 0046) bake the effort into the model id.
 
-The team measured the installed CLI on `s144` (OpenCode `1.2.24`, 2026-09-21): `opencode --help`
-and `opencode run --help` (every flag used below), and `opencode models --verbose`, whose output is
+The v2 contract is published as OpenCode `2.0.x`; the current `s144` installation is still
+OpenCode `1.18.31` and is intentionally gated out. The v2 `opencode --help` and
+`opencode run --help` surfaces (including every flag used below), plus `opencode models --verbose`,
+were checked against the v2 CLI source. That catalog output is
 one `provider/model` row followed by that model's pretty-printed JSON — `id`, `providerID`, `name`,
 `limit`, `capabilities.reasoning`, and the `variants` map (`{"low": {"reasoningEffort": "low"}, …}`)
 that becomes the reasoning picker. Raft's Go adapter
-(`server/pkg/agent/opencode.go`, `opencode_serve.go`, `opencode_mcp.go`, `models.go`) and its
-provider docs were read as the reference contract; its comment records **1.15+** as the baseline its
-adapter targets ("Newer opencode (1.15+) syncs its hosted free-model catalog over the network on
-`opencode models`"), and the same comment explains why the 15 s model-discovery budget exists.
+(`server/pkg/agent/opencode.go`, `opencode_serve.go`, `opencode_mcp.go`, `models.go`) and the
+[OpenCode v2 CLI implementation](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/cli/cmd/run.ts)
+were read as the reference contract. The v2 CLI retains the JSON event stream, session resume,
+model/variant selection, and non-interactive `run` surface used below; v1 is intentionally not a
+supported runtime.
 
 ## Decision
 
@@ -40,8 +43,8 @@ faulting the session.
   `agentEnvironment(...)` plus `NO_COLOR=1` and `PWD=<agentWorkspaceDirectory>`; OpenCode resolves
   its discovery root (the `AGENTS.md` walk-up and `.opencode/skills/`) from `PWD` and prefers it
   over the process cwd, which Raft pins for the same reason.
-- A **fresh session** sends the standing instructions as its whole first-turn prompt (OpenCode reads
-  a project's `AGENTS.md` itself, and 1.2.x has no system-prompt flag); a **resumed session**
+- A **fresh session** sends the standing instructions as its whole first-turn prompt (OpenCode v2
+  reads a project's `AGENTS.md` itself and has no system-prompt flag); a **resumed session**
   spawns nothing until real input arrives. Input while a turn is running queues and is delivered,
   joined with `"\n\n"`, as the next turn.
 - Session identity comes from OpenCode's own events (`sessionID`, on the event or inside `part`),
@@ -59,7 +62,7 @@ faulting the session.
   (`none < minimal < low < medium < high < xhigh < max`). A model is only given a picker when it
   declares `capabilities.reasoning` or carries a variant that looks like an effort, mirroring
   Raft's gate. Failure of any kind means "no catalog", never a thrown error.
-- **Version gate**: runtime discovery reports an OpenCode install below **1.15** as unavailable
+- **Version gate**: runtime discovery reports an OpenCode install below **2.0.0** as unavailable
   (`opencode/version.ts`), and an existing Agent's launch is re-checked immediately before spawn.
   This is a correctness gate, not polish: an older build handed a flag it does not know silently
   prints its usage and exits 0 instead of running, so without it a stale install would look like a
@@ -84,5 +87,5 @@ faulting the session.
 - **Model metadata we do not carry.** The catalog's `limit.context`/`maxTokens` are parsed by
   OpenCode but have no field in `CodeAgentModelMetadata`; `recommended` stays false because the CLI
   marks no default model (Cursor's `(default)` marker has no OpenCode equivalent).
-- **Non-interactive permissions** rely on `--dangerously-skip-permissions`, which is why the 1.15
+- **Non-interactive permissions** rely on `--dangerously-skip-permissions`, which is why the 2.0
   baseline matters; the provider does not fall back to `OPENCODE_PERMISSION`.
