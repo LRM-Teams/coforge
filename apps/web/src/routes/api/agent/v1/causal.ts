@@ -6,6 +6,7 @@ import {
 } from "@lrm/coforge-sdk/agent";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { PrismaCausalMemoryRepository } from "#/server/db/repositories/causal-memory.repositories.server";
+import { PrismaWorkspaceMemoryProfileStore } from "#/server/db/repositories/workspace-memory-profile.repositories.server";
 import {
   CausalCitationUngroundedError,
   CausalMemory,
@@ -17,6 +18,7 @@ import {
   tenantTokenForWorkspace,
 } from "#/server/causal-memory/config.server";
 import { CAUSAL_RUNTIME_PROTOCOL } from "#/server/causal-memory/contract";
+import { handleMemoryAgentHttp } from "#/server/causal-memory/memory-agent-http.server";
 import { createPrismaCausalOfferPublisher } from "#/server/causal-memory/offer-delivery.server";
 import {
   CausalReplayConflictError,
@@ -29,7 +31,20 @@ export const Route = createFileRoute("/api/agent/v1/causal")({
     handlers: {
       POST: async ({ request, context: { principal, db } }) => {
         try {
-          const command = decodeCausalAgentCommand(await request.json());
+          const body = await request.json();
+          const profile = await new PrismaWorkspaceMemoryProfileStore(db).get(
+            principal.workspaceId,
+          );
+          if (profile?.desired === "openviking" || profile?.desired === "causal_openviking") {
+            return handleMemoryAgentHttp({
+              db,
+              workspaceId: principal.workspaceId,
+              agentId: principal.agentId,
+              request,
+              body,
+            });
+          }
+          const command = decodeCausalAgentCommand(body);
           const tenants = new PrismaCausalMemoryRepository(db);
           const tenant = await tenants.designatedMemoryAgent(principal.workspaceId);
           if (!tenant?.enabled || tenant.memoryAgentId !== principal.agentId)

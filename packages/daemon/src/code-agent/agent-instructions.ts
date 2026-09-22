@@ -1,3 +1,10 @@
+import {
+  CAUSAL_OPENVIKING_TOOL_PROFILE,
+  OPENVIKING_TOOL_PROFILE,
+  toolsForMemoryFence,
+  type MemoryAgentToolProfile,
+} from "@lrm/coforge-sdk/agent";
+
 /**
  * Standing instructions for a daemon-spawned Agent, one builder per section, so a section can be
  * read, tested and changed on its own. Every Agent today is spawned by the Daemon, so there is
@@ -38,7 +45,7 @@ export type CoforgeAgentPromptContext = {
   agentWorkspaceDirectory: string;
   agentId?: string;
   identity?: AgentLaunchIdentity;
-  toolProfile?: "causal-memory";
+  toolProfile?: MemoryAgentToolProfile;
   /** Provider hook for the `CRITICAL RULES:` section (see `buildCriticalRulesSection`). Empty by
    * default; no CoForge provider passes anything here today. */
   extraCriticalRules?: readonly string[];
@@ -574,7 +581,53 @@ ${buildRuntimeContextSection(context)}
 
 ${buildHowInstructionsApplySection()}
 
-${Object.values(buildCoforgeCliGuideSections({ identity: context.identity, extraCriticalRules: context.extraCriticalRules })).join("\n\n")}${context.toolProfile === "causal-memory" ? `\n\n${buildCausalMemoryAgentSection()}` : ""}${initialRole}`;
+${Object.values(buildCoforgeCliGuideSections({ identity: context.identity, extraCriticalRules: context.extraCriticalRules })).join("\n\n")}${context.toolProfile ? `\n\n${buildMemoryAgentSection(context.toolProfile)}` : ""}${initialRole}`;
+}
+
+const MEMORY_AGENT_CHANNEL_TOOLS = [
+  "send_channel_message",
+  "message_check",
+  "message_read",
+] as const;
+
+const MEMORY_AGENT_MUTATION_PROHIBITION =
+  "You cannot write files, commit sessions, or change skills or ACLs, and you cannot directly modify OpenViking or Causal Memory.";
+
+function formatMemoryAgentToolset(profile: MemoryAgentToolProfile): string {
+  const names = [...toolsForMemoryFence(profile), ...MEMORY_AGENT_CHANNEL_TOOLS];
+  const last = names.at(-1);
+  return `${names.slice(0, -1).join(", ")}, and ${last}`;
+}
+
+function buildMemoryAgentSection(profile: MemoryAgentToolProfile): string {
+  if (profile === OPENVIKING_TOOL_PROFILE) return buildOpenVikingMemoryAgentSection();
+  if (profile === CAUSAL_OPENVIKING_TOOL_PROFILE) return buildCausalOpenVikingMemoryAgentSection();
+  return buildCausalMemoryAgentSection();
+}
+
+function buildOpenVikingMemoryAgentSection(): string {
+  return `## Team memory (Memory Agent)
+
+You are this Workspace's Memory Agent. Your tools are the whole toolset:
+${formatMemoryAgentToolset(OPENVIKING_TOOL_PROFILE)}.
+
+- An explicit @memory question requires a memory query before you answer.
+- Ordinary PublicChannel messages leave query choice to you.
+- You may publish one Memory Offer with memory_offer. ${MEMORY_AGENT_MUTATION_PROHIBITION}
+- You have no shell, filesystem, or generic network tools.`;
+}
+
+function buildCausalOpenVikingMemoryAgentSection(): string {
+  return `## Team memory (Memory Agent)
+
+You are this Workspace's Memory Agent. Your tools are the whole toolset:
+${formatMemoryAgentToolset(CAUSAL_OPENVIKING_TOOL_PROFILE)}.
+
+- An explicit @memory question requires a memory query before you answer.
+- Ordinary PublicChannel messages leave query choice to you.
+- You may submit a correction proposal only through causal_propose_correction; you cannot invalidate or supersede causal data.
+- You may publish one Memory Offer with memory_offer. ${MEMORY_AGENT_MUTATION_PROHIBITION}
+- You have no shell, filesystem, or generic network tools.`;
 }
 
 function buildCausalMemoryAgentSection(): string {

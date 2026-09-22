@@ -39,6 +39,7 @@ import { AgentManualRequestError } from "./agent-manual-request-error";
 import { AgentUserInfoRequestError } from "./agent-user-info-request-error";
 import { AgentProfileRequestError } from "./agent-profile-request-error";
 import { AgentTransportError } from "./agent-transport-error";
+import { forwardOpenVikingRead, type OpenVikingAgentReadCommand } from "../openviking-read-proxy";
 import {
   decodeAgentWorkspaceResetRequest,
   encodeAgentControlResult,
@@ -516,6 +517,7 @@ export interface DaemonConnectionClient {
     request: import("@lrm/coforge-sdk/agent").CausalAgentCommand,
     agentApiKey: string,
   ): Promise<import("@lrm/coforge-sdk/agent").CausalAgentResponse>;
+  agentOpenviking?(request: OpenVikingAgentReadCommand, agentApiKey: string): Promise<unknown>;
   agentAttachment?(attachmentId: string, agentApiKey: string): Promise<Response>;
   agentAttachmentUpload?(request: Request, agentApiKey: string): Promise<Response>;
   agentAttachmentUploadSessionCreate?(body: unknown, agentApiKey: string): Promise<Response>;
@@ -2006,6 +2008,21 @@ export class DaemonConnection implements DaemonConnectionClient {
     const payload = await response.json().catch(() => undefined);
     if (!response.ok) throw new Error(`server Agent causal request failed (${response.status})`);
     return decodeCausalAgentResponse(request.op, payload);
+  }
+
+  async agentOpenviking(
+    request: OpenVikingAgentReadCommand,
+    agentApiKey: string,
+  ): Promise<unknown> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    const url = this.#serverEndpoint("Agent OpenViking HTTP", agentApiRoutes.cloud.openviking.path);
+    return forwardOpenVikingRead({
+      url,
+      command: request,
+      agentApiKey,
+      daemonApiKey: this.#token,
+      timeoutMs: AGENT_RPC_TIMEOUT_MS,
+    });
   }
 
   async agentTask(request: TaskRequest, agentApiKey: string): Promise<TaskResponse> {

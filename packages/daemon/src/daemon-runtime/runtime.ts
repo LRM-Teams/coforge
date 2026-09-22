@@ -3689,6 +3689,25 @@ export class DaemonRuntime {
     return this.#transport.agentCausal(command, agentApiKey);
   }
 
+  memoryFence(agentId: string): string | undefined {
+    return (
+      this.#agentProcessManager.runtime(agentId)?.config.toolProfile ??
+      this.#agentProcessManager.restartConfig(agentId)?.config.toolProfile
+    );
+  }
+
+  async agentOpenviking(
+    context: string,
+    command: import("../openviking-read-proxy").OpenVikingAgentReadCommand,
+    agentApiKey: string,
+  ): Promise<unknown> {
+    this.#assertRunning();
+    this.#agentIdForContext(context);
+    if (!this.#transport.agentOpenviking) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.agentOpenviking(command, agentApiKey);
+  }
+
   async agentTask(context: string, command: TaskCommand, agentApiKey: string): Promise<TaskResult> {
     this.#assertRunning();
     const agentId = this.#agentIdForContext(context);

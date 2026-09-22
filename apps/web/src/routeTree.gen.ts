@@ -62,6 +62,7 @@ import { Route as ApiAgentV1GithubCommitTrailersRouteImport } from './routes/api
 import { Route as ApiAgentV1GithubCredentialsRouteImport } from './routes/api/agent/v1/github-credentials'
 import { Route as ApiAgentV1ManualRouteImport } from './routes/api/agent/v1/manual'
 import { Route as ApiAgentV1MessagesRouteImport } from './routes/api/agent/v1/messages'
+import { Route as ApiAgentV1OpenvikingRouteImport } from './routes/api/agent/v1/openviking'
 import { Route as ApiAgentV1ProfileRouteImport } from './routes/api/agent/v1/profile'
 import { Route as ApiAgentV1RemindersRouteImport } from './routes/api/agent/v1/reminders'
 import { Route as ApiAgentV1TasksRouteImport } from './routes/api/agent/v1/tasks'
@@ -73,6 +74,7 @@ import { Route as ApiComputersComputerIdCreatorAvatarRouteImport } from './route
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as ApiIntegrationsGithubWebhookRouteImport } from './routes/api/integrations/github/webhook'
+import { Route as ApiOpenvikingWorkspaceIdSplatRouteImport } from './routes/api/openviking/$workspaceId/$'
 import { Route as ApiProjectsProjectIdIconRouteImport } from './routes/api/projects.$projectId.icon'
 import { Route as AppProjectsProjectSlugTreeSplatRouteImport } from './routes/_app/projects.$projectSlug_.tree.$'
 import { Route as AppRecordsWeeksYearWeekRouteImport } from './routes/_app/records.weeks.$year.$week'
@@ -373,6 +375,11 @@ const ApiAgentV1MessagesRoute = ApiAgentV1MessagesRouteImport.update({
   path: '/api/agent/v1/messages',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentV1OpenvikingRoute = ApiAgentV1OpenvikingRouteImport.update({
+  id: '/api/agent/v1/openviking',
+  path: '/api/agent/v1/openviking',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAgentV1ProfileRoute = ApiAgentV1ProfileRouteImport.update({
   id: '/api/agent/v1/profile',
   path: '/api/agent/v1/profile',
@@ -431,6 +438,12 @@ const ApiIntegrationsGithubWebhookRoute =
   ApiIntegrationsGithubWebhookRouteImport.update({
     id: '/api/integrations/github/webhook',
     path: '/api/integrations/github/webhook',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiOpenvikingWorkspaceIdSplatRoute =
+  ApiOpenvikingWorkspaceIdSplatRouteImport.update({
+    id: '/api/openviking/$workspaceId/$',
+    path: '/api/openviking/$workspaceId/$',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiProjectsProjectIdIconRoute =
@@ -640,6 +653,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
+  '/api/agent/v1/openviking': typeof ApiAgentV1OpenvikingRoute
   '/api/agent/v1/profile': typeof ApiAgentV1ProfileRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
@@ -651,6 +665,7 @@ export interface FileRoutesByFullPath {
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
+  '/api/openviking/$workspaceId/$': typeof ApiOpenvikingWorkspaceIdSplatRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
   '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
@@ -728,6 +743,7 @@ export interface FileRoutesByTo {
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
+  '/api/agent/v1/openviking': typeof ApiAgentV1OpenvikingRoute
   '/api/agent/v1/profile': typeof ApiAgentV1ProfileRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
@@ -739,6 +755,7 @@ export interface FileRoutesByTo {
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
+  '/api/openviking/$workspaceId/$': typeof ApiOpenvikingWorkspaceIdSplatRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
   '/projects/$projectSlug/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
@@ -821,6 +838,7 @@ export interface FileRoutesById {
   '/api/agent/v1/github-credentials': typeof ApiAgentV1GithubCredentialsRoute
   '/api/agent/v1/manual': typeof ApiAgentV1ManualRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
+  '/api/agent/v1/openviking': typeof ApiAgentV1OpenvikingRoute
   '/api/agent/v1/profile': typeof ApiAgentV1ProfileRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
@@ -832,6 +850,7 @@ export interface FileRoutesById {
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/integrations/github/webhook': typeof ApiIntegrationsGithubWebhookRoute
+  '/api/openviking/$workspaceId/$': typeof ApiOpenvikingWorkspaceIdSplatRoute
   '/api/projects/$projectId/icon': typeof ApiProjectsProjectIdIconRoute
   '/_app/projects/$projectSlug_/tree/$': typeof AppProjectsProjectSlugTreeSplatRoute
   '/_app/records/weeks/$year/$week': typeof AppRecordsWeeksYearWeekRoute
@@ -914,6 +933,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
     | '/api/agent/v1/messages'
+    | '/api/agent/v1/openviking'
     | '/api/agent/v1/profile'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
@@ -925,6 +945,7 @@ export interface FileRouteTypes {
     | '/api/e2e/workspaces/$slug'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
+    | '/api/openviking/$workspaceId/$'
     | '/api/projects/$projectId/icon'
     | '/projects/$projectSlug/tree/$'
     | '/records/weeks/$year/$week'
@@ -1002,6 +1023,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
     | '/api/agent/v1/messages'
+    | '/api/agent/v1/openviking'
     | '/api/agent/v1/profile'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
@@ -1013,6 +1035,7 @@ export interface FileRouteTypes {
     | '/api/e2e/workspaces/$slug'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
+    | '/api/openviking/$workspaceId/$'
     | '/api/projects/$projectId/icon'
     | '/projects/$projectSlug/tree/$'
     | '/records/weeks/$year/$week'
@@ -1094,6 +1117,7 @@ export interface FileRouteTypes {
     | '/api/agent/v1/github-credentials'
     | '/api/agent/v1/manual'
     | '/api/agent/v1/messages'
+    | '/api/agent/v1/openviking'
     | '/api/agent/v1/profile'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
@@ -1105,6 +1129,7 @@ export interface FileRouteTypes {
     | '/api/e2e/workspaces/$slug'
     | '/api/integrations/github/callback'
     | '/api/integrations/github/webhook'
+    | '/api/openviking/$workspaceId/$'
     | '/api/projects/$projectId/icon'
     | '/_app/projects/$projectSlug_/tree/$'
     | '/_app/records/weeks/$year/$week'
@@ -1166,6 +1191,7 @@ export interface RootRouteChildren {
   ApiAgentV1GithubCredentialsRoute: typeof ApiAgentV1GithubCredentialsRoute
   ApiAgentV1ManualRoute: typeof ApiAgentV1ManualRoute
   ApiAgentV1MessagesRoute: typeof ApiAgentV1MessagesRoute
+  ApiAgentV1OpenvikingRoute: typeof ApiAgentV1OpenvikingRoute
   ApiAgentV1ProfileRoute: typeof ApiAgentV1ProfileRoute
   ApiAgentV1RemindersRoute: typeof ApiAgentV1RemindersRoute
   ApiAgentV1TasksRoute: typeof ApiAgentV1TasksRoute
@@ -1177,6 +1203,7 @@ export interface RootRouteChildren {
   ApiE2eWorkspacesSlugRoute: typeof ApiE2eWorkspacesSlugRoute
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiIntegrationsGithubWebhookRoute: typeof ApiIntegrationsGithubWebhookRoute
+  ApiOpenvikingWorkspaceIdSplatRoute: typeof ApiOpenvikingWorkspaceIdSplatRoute
   ApiProjectsProjectIdIconRoute: typeof ApiProjectsProjectIdIconRoute
   ApiAgentV1ActionsPrepareRoute: typeof ApiAgentV1ActionsPrepareRoute
   ApiAgentV1AttachmentUploadSessionsUploadIdRoute: typeof ApiAgentV1AttachmentUploadSessionsUploadIdRouteWithChildren
@@ -1568,6 +1595,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1MessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v1/openviking': {
+      id: '/api/agent/v1/openviking'
+      path: '/api/agent/v1/openviking'
+      fullPath: '/api/agent/v1/openviking'
+      preLoaderRoute: typeof ApiAgentV1OpenvikingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/profile': {
       id: '/api/agent/v1/profile'
       path: '/api/agent/v1/profile'
@@ -1643,6 +1677,13 @@ declare module '@tanstack/react-router' {
       path: '/api/integrations/github/webhook'
       fullPath: '/api/integrations/github/webhook'
       preLoaderRoute: typeof ApiIntegrationsGithubWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/openviking/$workspaceId/$': {
+      id: '/api/openviking/$workspaceId/$'
+      path: '/api/openviking/$workspaceId/$'
+      fullPath: '/api/openviking/$workspaceId/$'
+      preLoaderRoute: typeof ApiOpenvikingWorkspaceIdSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/projects/$projectId/icon': {
@@ -2011,6 +2052,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentV1GithubCredentialsRoute: ApiAgentV1GithubCredentialsRoute,
   ApiAgentV1ManualRoute: ApiAgentV1ManualRoute,
   ApiAgentV1MessagesRoute: ApiAgentV1MessagesRoute,
+  ApiAgentV1OpenvikingRoute: ApiAgentV1OpenvikingRoute,
   ApiAgentV1ProfileRoute: ApiAgentV1ProfileRoute,
   ApiAgentV1RemindersRoute: ApiAgentV1RemindersRoute,
   ApiAgentV1TasksRoute: ApiAgentV1TasksRoute,
@@ -2023,6 +2065,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiE2eWorkspacesSlugRoute: ApiE2eWorkspacesSlugRoute,
   ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
   ApiIntegrationsGithubWebhookRoute: ApiIntegrationsGithubWebhookRoute,
+  ApiOpenvikingWorkspaceIdSplatRoute: ApiOpenvikingWorkspaceIdSplatRoute,
   ApiProjectsProjectIdIconRoute: ApiProjectsProjectIdIconRoute,
   ApiAgentV1ActionsPrepareRoute: ApiAgentV1ActionsPrepareRoute,
   ApiAgentV1AttachmentUploadSessionsUploadIdRoute:

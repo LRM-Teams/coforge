@@ -9,3 +9,6 @@ export * from "./version";
 export * from "./user-info";
 export * from "./profile";
 export * from "./causal-memory";
+export * from "./memory-citations";
+export * from "./openviking-memory";
+export * from "./memory-tool-fences";

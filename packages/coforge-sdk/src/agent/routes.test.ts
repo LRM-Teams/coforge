@@ -45,6 +45,12 @@ test("uses versioned Agent API routes for the Proxy and cloud", () => {
   expect(agentApiRoutes.proxy.causal).toEqual({ method: "POST", path: "/api/agent/v1/causal" });
   expect(agentApiRoutes.local.causal).toEqual(agentApiRoutes.proxy.causal);
   expect(agentApiRoutes.cloud.causal).toEqual(agentApiRoutes.proxy.causal);
+  expect(agentApiRoutes.proxy.openviking).toEqual({
+    method: "POST",
+    path: "/api/agent/v1/openviking",
+  });
+  expect(agentApiRoutes.local.openviking).toEqual(agentApiRoutes.proxy.openviking);
+  expect(agentApiRoutes.cloud.openviking).toEqual(agentApiRoutes.proxy.openviking);
 });
 
 test("builds encoded resource paths from the shared contract", () => {

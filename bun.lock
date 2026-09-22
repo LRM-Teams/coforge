@@ -114,6 +114,15 @@
         "vite": "8.2.2",
       },
     },
+    "benchmark/public-channel-memory": {
+      "name": "@coforge/public-channel-memory-eval",
+      "version": "0.0.0",
+      "dependencies": {
+        "@lrm/coforge-sdk": "workspace:*",
+        "@prisma/adapter-pg": "^7.10.0",
+        "@prisma/client": "^7.10.0",
+      },
+    },
     "packages/agent": {
       "name": "@coforge/agent",
       "version": "0.1.0",
@@ -340,6 +349,8 @@
     "@coforge/agent": ["@coforge/agent@workspace:packages/agent"],
 
     "@coforge/computer": ["@coforge/computer@workspace:packages/computer"],
+
+    "@coforge/public-channel-memory-eval": ["@coforge/public-channel-memory-eval@workspace:benchmark/public-channel-memory"],
 
     "@coforge/web": ["@coforge/web@workspace:apps/web"],
 

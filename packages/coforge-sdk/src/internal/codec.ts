@@ -1,4 +1,5 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { isMemoryAgentToolProfile } from "../agent/memory-tool-fences";
 import { parseActivityEntries, type ActivityTrajectoryEntry } from "./activity-entries";
 import { assertValidMessageSender, isValidMessageSender } from "./message-sender";
 import {
@@ -684,7 +685,7 @@ export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
     throw new Error("managed Agent start intent requires a launchId");
   if (value.launchId !== undefined && (!value.launchId.trim() || value.launchId.length > 512))
     throw new Error("invalid Agent start launchId");
-  if (value.toolProfile !== undefined && value.toolProfile !== "causal-memory")
+  if (value.toolProfile !== undefined && !isMemoryAgentToolProfile(value.toolProfile))
     throw new Error(`unsupported Agent tool profile: ${value.toolProfile}`);
   if ((value.resumeMessages?.length ?? 0) > 100)
     throw new Error("Agent recovery resumeMessages exceeds 100");
@@ -762,7 +763,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error("invalid agent start intent: managed start requires a launchId");
   if (v.launchId !== undefined && v.launchId.length > 512)
     throw new Error("invalid agent start intent launchId");
-  if (v.toolProfile !== undefined && v.toolProfile !== "causal-memory")
+  if (v.toolProfile !== undefined && !isMemoryAgentToolProfile(v.toolProfile))
     throw new Error(`unsupported Agent tool profile: ${v.toolProfile}`);
   const recoveryMessages = [...(v.wakeMessage ? [v.wakeMessage] : []), ...v.resumeMessages];
   const summaryTargets = new Set(v.unreadSummary.map(({ target }) => target));
@@ -826,7 +827,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     ...(v.sessionMode ? { sessionMode: v.sessionMode } : {}),
     ...(v.controlEpoch !== undefined ? { controlEpoch: v.controlEpoch } : {}),
     ...(v.launchId ? { launchId: v.launchId } : {}),
-    ...(v.toolProfile ? { toolProfile: v.toolProfile } : {}),
+    ...(v.toolProfile ? { toolProfile: v.toolProfile as AgentStartIntent["toolProfile"] } : {}),
     ...(v.wakeMessage ? { wakeMessage: recoveryMessage(v.wakeMessage) } : {}),
     ...(v.resumeMessages.length ? { resumeMessages: v.resumeMessages.map(recoveryMessage) } : {}),
     ...(v.unreadSummary.length

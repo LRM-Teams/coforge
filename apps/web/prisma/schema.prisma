@@ -50,6 +50,16 @@ model Workspace {
   causalCorrectionProposals CausalCorrectionProposalRecord[]
   causalSupersessions    CausalSupersessionResult[]
   causalOffers           CausalOfferRecord[]
+  memoryProfile          WorkspaceMemoryProfile?
+  openvikingBinding      OpenVikingBinding?
+  openvikingMappedIdentities OpenVikingMappedIdentity[]
+  admittedPublicChannelSegments AdmittedPublicChannelSegment[]
+  admittedSegmentSourceMessages AdmittedSegmentSourceMessage[]
+  admittedSegmentDispatches AdmittedSegmentDispatch[]
+  openvikingCitations    OpenVikingCitationRecord[]
+  memoryOffers           MemoryOfferRecord[]
+  memoryOfferCitations   MemoryOfferCitation[]
+  memoryCleanupWork      WorkspaceMemoryCleanupWork[]
 
   @@map("workspaces")
 }
@@ -1236,6 +1246,7 @@ model CausalCitationRecord {
   displayContent     String    @default("") @map("display_content")
   createdAt          DateTime  @default(now()) @map("created_at")
   workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  memoryOfferCitations MemoryOfferCitation[]
 
   @@unique([workspaceId, citationId])
   @@index([workspaceId, boundOperationId])
@@ -1288,4 +1299,196 @@ model CausalOfferRecord {
 
   @@unique([workspaceId, operationId])
   @@map("causal_offer_records")
+}
+
+/// Workspace-wide desired/observed memory profile. One row per Workspace.
+model WorkspaceMemoryProfile {
+  workspaceId             String    @id @map("workspace_id") @db.Uuid
+  desired                 String
+  observed                String
+  generation              Int       @default(0)
+  activationCursorKind    String?   @map("activation_cursor_kind")
+  activationOccurredAt    DateTime? @map("activation_occurred_at")
+  activationMessageId     String?   @map("activation_message_id")
+  reconcileKind           String?   @map("reconcile_kind")
+  sanitizedFailureCode    String?   @map("sanitized_failure_code")
+  sanitizedFailureMessage String?   @map("sanitized_failure_message")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  workspace               Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_memory_profiles")
+}
+
+/// OpenViking account/identity binding. Stores only a credential reference, never plaintext.
+model OpenVikingBinding {
+  workspaceId       String                     @id @map("workspace_id") @db.Uuid
+  accountId         String                     @map("account_id")
+  serviceIdentityId String                     @map("service_identity_id")
+  /// Opaque secret-store reference. Must start with `secret:`. Never persist plaintext.
+  credentialRef     String                     @map("credential_ref")
+  generation        Int
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+  workspace         Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  mappedIdentities  OpenVikingMappedIdentity[]
+
+  @@unique([accountId])
+  @@map("openviking_bindings")
+}
+
+model OpenVikingMappedIdentity {
+  id               String            @id @default(uuid()) @db.Uuid
+  workspaceId      String            @map("workspace_id") @db.Uuid
+  actorKind        String            @map("actor_kind")
+  actorSubject     String            @map("actor_subject")
+  openvikingUserId String            @map("openviking_user_id")
+  role             String
+  access           String
+  generation       Int
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade, map: "openviking_mapped_identities_workspace_fkey")
+  binding          OpenVikingBinding @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade, map: "openviking_mapped_identities_binding_fkey")
+
+  @@unique([workspaceId, actorKind, actorSubject])
+  @@index([workspaceId, openvikingUserId])
+  @@map("openviking_mapped_identities")
+}
+
+/// Immutable admitted PublicChannel segment. Not the causal ingest ledger.
+model AdmittedPublicChannelSegment {
+  id                String                         @id @default(uuid()) @db.Uuid
+  workspaceId       String                         @map("workspace_id") @db.Uuid
+  segmentId         String                         @map("segment_id")
+  channelId         String                         @map("channel_id")
+  kind              String
+  conversationKind  String                         @map("conversation_kind")
+  sourcePayloadHash String                         @map("source_payload_hash")
+  profileGeneration Int                            @map("profile_generation")
+  closedAt          DateTime                       @map("closed_at")
+  createdAt         DateTime                       @default(now()) @map("created_at")
+  workspace         Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceMessages    AdmittedSegmentSourceMessage[]
+  dispatch          AdmittedSegmentDispatch?
+
+  @@unique([workspaceId, segmentId])
+  @@index([workspaceId, profileGeneration])
+  @@index([workspaceId, closedAt])
+  @@map("admitted_public_channel_segments")
+}
+
+model AdmittedSegmentSourceMessage {
+  id          String                       @id @default(uuid()) @db.Uuid
+  workspaceId String                       @map("workspace_id") @db.Uuid
+  segmentId   String                       @map("segment_id")
+  messageId   String                       @map("message_id")
+  payloadHash String                       @map("payload_hash")
+  createdAt   DateTime                     @default(now()) @map("created_at")
+  workspace   Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade, map: "admitted_segment_source_messages_workspace_fkey")
+  segment     AdmittedPublicChannelSegment @relation(fields: [workspaceId, segmentId], references: [workspaceId, segmentId], onDelete: Cascade, map: "admitted_segment_source_messages_segment_fkey")
+
+  @@unique([workspaceId, segmentId, messageId])
+  @@map("admitted_segment_source_messages")
+}
+
+/// One-sink dispatch ledger for an admitted segment. Replay/no-op on the same operation.
+model AdmittedSegmentDispatch {
+  id                String                       @id @default(uuid()) @db.Uuid
+  workspaceId       String                       @map("workspace_id") @db.Uuid
+  segmentId         String                       @map("segment_id")
+  operationId       String                       @map("operation_id")
+  sinkProfile       String                       @map("sink_profile")
+  profileGeneration Int                          @map("profile_generation")
+  state             String
+  attemptCount      Int                          @default(0) @map("attempt_count")
+  sanitizedError    String?                      @map("sanitized_error")
+  createdAt         DateTime                     @default(now()) @map("created_at")
+  updatedAt         DateTime                     @updatedAt @map("updated_at")
+  workspace         Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Cascade, map: "admitted_segment_dispatches_workspace_fkey")
+  segment           AdmittedPublicChannelSegment @relation(fields: [workspaceId, segmentId], references: [workspaceId, segmentId], onDelete: Cascade, map: "admitted_segment_dispatches_segment_fkey")
+
+  @@unique([workspaceId, segmentId])
+  @@unique([workspaceId, operationId])
+  @@index([workspaceId, state])
+  @@map("admitted_segment_dispatches")
+}
+
+model OpenVikingCitationRecord {
+  id               String                @id @default(uuid()) @db.Uuid
+  workspaceId      String                @map("workspace_id") @db.Uuid
+  citationId       String                @map("citation_id")
+  accountId        String                @map("account_id")
+  uri              String
+  contentHash      String?               @map("content_hash")
+  contentVersion   String?               @map("content_version")
+  matchedLevel     String                @map("matched_level")
+  title            String?
+  excerpt          String?
+  boundOperationId String                @map("bound_operation_id")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  workspace        Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  offerCitations   MemoryOfferCitation[]
+
+  @@unique([workspaceId, citationId])
+  @@index([workspaceId, boundOperationId])
+  @@index([workspaceId, accountId])
+  @@map("openviking_citation_records")
+}
+
+/// Profile-neutral Memory Offer. Typed citation refs live in MemoryOfferCitation.
+model MemoryOfferRecord {
+  id                 String                @id @default(uuid()) @db.Uuid
+  workspaceId        String                @map("workspace_id") @db.Uuid
+  operationId        String                @map("operation_id")
+  conversationId     String                @map("conversation_id")
+  recipientAgentId   String                @map("recipient_agent_id")
+  recipientRationale String                @map("recipient_rationale")
+  messageId          String                @map("message_id")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  workspace          Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  citations          MemoryOfferCitation[]
+
+  @@unique([workspaceId, operationId])
+  @@map("memory_offer_records")
+}
+
+model MemoryOfferCitation {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  workspaceId          String                    @map("workspace_id") @db.Uuid
+  offerOperationId     String                    @map("offer_operation_id")
+  citationKind         String                    @map("citation_kind")
+  citationId           String                    @map("citation_id")
+  openvikingCitationId String?                   @map("openviking_citation_id")
+  causalCitationId     String?                   @map("causal_citation_id")
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  workspace            Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade, map: "memory_offer_citations_workspace_fkey")
+  offer                MemoryOfferRecord         @relation(fields: [workspaceId, offerOperationId], references: [workspaceId, operationId], onDelete: Cascade, map: "memory_offer_citations_offer_fkey")
+  openvikingCitation   OpenVikingCitationRecord? @relation(fields: [workspaceId, openvikingCitationId], references: [workspaceId, citationId], onDelete: Restrict, map: "memory_offer_citations_openviking_citation_fkey")
+  causalCitation       CausalCitationRecord?     @relation(fields: [workspaceId, causalCitationId], references: [workspaceId, citationId], onDelete: Restrict, map: "memory_offer_citations_causal_citation_fkey")
+
+  @@unique([workspaceId, offerOperationId, citationKind, citationId])
+  @@index([workspaceId, citationKind, citationId])
+  @@map("memory_offer_citations")
+}
+
+/// Durable, leaseable Workspace-memory cleanup. Survives remote failure; Restrict blocks silent Workspace delete.
+model WorkspaceMemoryCleanupWork {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @map("workspace_id") @db.Uuid
+  operationId    String    @map("operation_id")
+  target         String
+  state          String
+  attemptCount   Int       @default(0) @map("attempt_count")
+  leaseOwner     String?   @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  sanitizedError String?   @map("sanitized_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, operationId, target])
+  @@index([workspaceId, state])
+  @@index([state, leaseExpiresAt])
+  @@map("workspace_memory_cleanup_work")
 }

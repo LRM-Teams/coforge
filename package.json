@@ -4,7 +4,8 @@
   "packageManager": "bun@1.4.2",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "benchmark/*"
   ],
   "scripts": {
     "test": "bun run test:ci && bun run --cwd packages/coforge-sdk generate && bun run --filter \"*\" --if-present test",

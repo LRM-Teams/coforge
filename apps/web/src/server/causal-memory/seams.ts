@@ -5,6 +5,9 @@
  * 2. Web CausalMemory module — `CausalMemoryModule` in `contract.ts`.
  * 3. Agent local proxy contract — SDK `CAUSAL_AGENT_PROTOCOL` + `/api/agent/v1/causal`.
  * 4. Public-channel scenario — Workspace isolation, admission, read, Offer, correction.
+ *
+ * F4 dual-citation / Offer / correction tests attach to the existing Web module
+ * and Agent proxy seams plus `/api/agent/v1/openviking`.
  */
 export const CAUSAL_MEMORY_TEST_SEAMS = [
   "extension-http",

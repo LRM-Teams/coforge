@@ -1,3 +1,4 @@
+import type { MemoryAgentToolProfile } from "../agent/memory-tool-fences";
 import { RPC_METHODS } from "./rpc-methods";
 /** TypeScript boundary approved by ADR 0004; codec/transport remains an adapter concern. */
 export const COMPUTER_REGISTER_METHOD = RPC_METHODS.computerRegister;
@@ -582,7 +583,7 @@ export type AgentStartIntent = {
    * whenever `controlEpoch` is set (every managed start). */
   launchId?: string;
   /** Fenced Agent runtime profile. Unknown values are rejected by the codec. */
-  toolProfile?: "causal-memory";
+  toolProfile?: MemoryAgentToolProfile;
   providerConfig?: AgentRuntimeProviderConfig;
   wakeMessage?: AgentRecoveryMessage;
   resumeMessages?: AgentRecoveryMessage[];

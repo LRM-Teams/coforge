@@ -3,10 +3,15 @@ import {
   CAUSAL_AGENT_ERROR_CODES,
   CAUSAL_AGENT_OPERATIONS,
   CAUSAL_AGENT_PROTOCOL,
+  CAUSAL_CANDIDATE_LIMIT_MAX,
   CAUSAL_OFFER_BUDGET_PER_TRIGGER,
   CAUSAL_READ_BUDGET_PER_TRIGGER,
+  CAUSAL_READ_TOKEN_DEFAULT,
+  CAUSAL_READ_TOKEN_MAX,
+  CAUSAL_SHARED_TOKEN_BUDGET,
   CAUSAL_TOOL_NAMES,
   CAUSAL_TOOL_PROFILE,
+  allocateCausalReadTokens,
   decodeCausalAgentCommand,
   decodeCausalAgentResponse,
   isCausalAgentError,
@@ -42,6 +47,10 @@ test("freezes the agent causal protocol, profile, tools, and turn budget", () =>
   ]);
   expect(CAUSAL_READ_BUDGET_PER_TRIGGER).toBe(3);
   expect(CAUSAL_OFFER_BUDGET_PER_TRIGGER).toBe(1);
+  expect(CAUSAL_SHARED_TOKEN_BUDGET).toBe(4800);
+  expect(CAUSAL_READ_TOKEN_DEFAULT).toBe(1600);
+  expect(CAUSAL_READ_TOKEN_MAX).toBe(3200);
+  expect(CAUSAL_CANDIDATE_LIMIT_MAX).toBe(10);
 });
 
 test("accepts a stable operation id and rejects questions or spaces", () => {
@@ -144,6 +153,59 @@ test("decodes a cited read response and a replayed offer", () => {
       citations: [citation],
     }).duplicate,
   ).toBe(true);
+});
+
+test("rejects causal search limits above ten and token budgets above the per-read maximum", () => {
+  expect(() =>
+    decodeCausalAgentCommand({
+      protocol: CAUSAL_AGENT_PROTOCOL,
+      op: "search",
+      operationId: "too-many",
+      query: "deploy",
+      limit: 11,
+    }),
+  ).toThrow("invalid causal search limit");
+  expect(() =>
+    decodeCausalAgentCommand({
+      protocol: CAUSAL_AGENT_PROTOCOL,
+      op: "search",
+      operationId: "too-large",
+      query: "deploy",
+      tokenBudget: 3201,
+    }),
+  ).toThrow("invalid causal search tokenBudget");
+  expect(
+    decodeCausalAgentCommand({
+      protocol: CAUSAL_AGENT_PROTOCOL,
+      op: "search",
+      operationId: "budgeted-search",
+      query: "deploy",
+      limit: 10,
+      tokenBudget: 3200,
+    }),
+  ).toEqual({
+    protocol: CAUSAL_AGENT_PROTOCOL,
+    op: "search",
+    operationId: "budgeted-search",
+    query: "deploy",
+    limit: 10,
+    tokenBudget: 3200,
+  });
+});
+
+test("allocates the shared causal token budget and rejects remaining overshoot", () => {
+  expect(allocateCausalReadTokens({ remainingTokens: 4800 })).toBe(1600);
+  expect(allocateCausalReadTokens({ remainingTokens: 800 })).toBe(800);
+  expect(allocateCausalReadTokens({ requestedTokens: 2400, remainingTokens: 3200 })).toBe(2400);
+  expect(() => allocateCausalReadTokens({ remainingTokens: 0 })).toThrow(
+    "causal token budget exhausted",
+  );
+  expect(() => allocateCausalReadTokens({ requestedTokens: 3201, remainingTokens: 4800 })).toThrow(
+    "causal read token budget exceeds per-read maximum",
+  );
+  expect(() => allocateCausalReadTokens({ requestedTokens: 2000, remainingTokens: 1600 })).toThrow(
+    "causal read token budget exceeds remaining shared budget",
+  );
 });
 
 test("keeps agent errors sanitized and enumerated", () => {

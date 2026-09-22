@@ -19,6 +19,10 @@ export const CAUSAL_OPERATION_ID_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
 
 export const CAUSAL_READ_BUDGET_PER_TRIGGER = 3 as const;
 export const CAUSAL_OFFER_BUDGET_PER_TRIGGER = 1 as const;
+export const CAUSAL_SHARED_TOKEN_BUDGET = 4800 as const;
+export const CAUSAL_READ_TOKEN_DEFAULT = 1600 as const;
+export const CAUSAL_READ_TOKEN_MAX = 3200 as const;
+export const CAUSAL_CANDIDATE_LIMIT_MAX = 10 as const;
 
 export const CAUSAL_AGENT_OPERATIONS = [
   "search",
@@ -66,6 +70,12 @@ export type CausalSearchCommand = {
   operationId: string;
   query: string;
   limit?: number;
+  tokenBudget?: number;
+};
+
+export type CausalReadBudgetRequest = {
+  requestedTokens?: number;
+  remainingTokens: number;
 };
 
 export type CausalTraceCommand = {
@@ -156,8 +166,25 @@ export type CausalBudgetDiagnostic = {
   triggerMessageId: string;
   causalReadsUsed: number;
   offersPublished: number;
-  stoppedReason?: "read_budget" | "offer_budget";
+  tokensUsed: number;
+  tokensRemaining: number;
+  stoppedReason?: "read_budget" | "offer_budget" | "token_budget";
 };
+
+export function allocateCausalReadTokens(request: CausalReadBudgetRequest): number {
+  if (!Number.isInteger(request.remainingTokens) || request.remainingTokens < 0)
+    throw new Error("invalid causal remaining token budget");
+  if (request.remainingTokens === 0) throw new Error("causal token budget exhausted");
+  if (request.requestedTokens === undefined)
+    return Math.min(CAUSAL_READ_TOKEN_DEFAULT, request.remainingTokens, CAUSAL_READ_TOKEN_MAX);
+  if (!Number.isInteger(request.requestedTokens) || request.requestedTokens < 1)
+    throw new Error("invalid causal read token budget");
+  if (request.requestedTokens > CAUSAL_READ_TOKEN_MAX)
+    throw new Error("causal read token budget exceeds per-read maximum");
+  if (request.requestedTokens > request.remainingTokens)
+    throw new Error("causal read token budget exceeds remaining shared budget");
+  return request.requestedTokens;
+}
 
 export function isCausalOperationId(value: unknown): value is string {
   return typeof value === "string" && new RegExp(CAUSAL_OPERATION_ID_PATTERN).test(value);
@@ -203,14 +230,26 @@ export function decodeCausalAgentCommand(value: unknown): CausalAgentCommand {
   if (command.op === "search") {
     if (typeof command.query !== "string" || command.query.trim() === "")
       throw new Error("invalid causal search query");
-    if (command.limit !== undefined && (!Number.isInteger(command.limit) || command.limit < 1))
+    if (
+      command.limit !== undefined &&
+      (!Number.isInteger(command.limit) ||
+        command.limit < 1 ||
+        command.limit > CAUSAL_CANDIDATE_LIMIT_MAX)
+    )
       throw new Error("invalid causal search limit");
+    const tokenBudget = (command as Partial<CausalSearchCommand>).tokenBudget;
+    if (
+      tokenBudget !== undefined &&
+      (!Number.isInteger(tokenBudget) || tokenBudget < 1 || tokenBudget > CAUSAL_READ_TOKEN_MAX)
+    )
+      throw new Error("invalid causal search tokenBudget");
     return {
       protocol: CAUSAL_AGENT_PROTOCOL,
       op: "search",
       operationId,
       query: command.query,
       ...(command.limit === undefined ? {} : { limit: command.limit }),
+      ...(tokenBudget === undefined ? {} : { tokenBudget }),
     };
   }
 
@@ -303,6 +342,8 @@ export function decodeCausalAgentResponse(
     const read = response as CausalReadResponse;
     if (!Array.isArray(read.items) || !read.items.every(isCausalCitation))
       throw new Error("invalid causal citations");
+    if (read.items.length > CAUSAL_CANDIDATE_LIMIT_MAX)
+      throw new Error("causal candidate limit exceeded");
     return read;
   }
 

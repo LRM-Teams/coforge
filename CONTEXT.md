@@ -288,25 +288,41 @@ The canonical tenant-local factual representation distilled by Causal Memory fro
 _Avoid_: raw message, embedding record, vector row, adapter-specific document
 
 **Fact Index**:
-The rebuildable, tenant-isolated retrieval projection through which Causal Memory recalls Fact Documents. It helps Causal Memory find relevant evidence but does not distill facts or own source messages, Fact Documents, causal relationships, correction decisions, or the meaning of `trace` and `intervene`.
-_Avoid_: source of truth, fact distiller, causal graph, Memory Runtime, generic vector database
+The rebuildable retrieval projection through which Causal Memory recalls only active Fact Documents. Each Workspace has an independent index namespace, and every recalled item is checked against its Causal Memory Tenant before use. The index does not retain superseded facts, distill facts, or own source messages, Fact Documents, causal relationships, correction decisions, or the meaning of `trace` and `intervene`.
+_Avoid_: source of truth, historical record, shared cross-Workspace collection, fact distiller, causal graph, Memory Runtime, generic vector database
+
+**Fact Partition**:
+A stable group of active Fact Documents whose L0 abstract and L1 overview help retrieval decide which full documents to inspect. Causal Memory determines membership; the summaries and full documents form a rebuildable projection rather than causal evidence or a second source of truth.
+_Avoid_: causal cluster, arbitrary folder, fact authority, summary as evidence
+
+**Managed Causal Projection**:
+The dedicated OpenViking namespace containing Fact Partitions and Fact Document projections produced from one Causal Memory Tenant. OpenViking may index, summarize, and navigate this namespace, but only Causal Memory changes its membership and factual lifecycle.
+_Avoid_: OpenViking-authored causal memory, shared user folder, canonical evidence store
+
+**Workspace Memory Profile**:
+The Workspace-wide choice between complete OpenViking memory and complete OpenViking augmented by Causal Memory. It keeps automatic team-memory admission, memory authority, Agent tools, and citation semantics consistent for the whole Workspace; it is not selected independently by each Agent or query.
+_Avoid_: query router, per-Agent memory mode, retrieval backend
 
 **Admitted PublicChannel Segment**:
-A completed Task discussion window or a PublicChannel quiet window whose messages may be distilled into retrievable team knowledge. DirectConversation messages are never an admitted segment.
+A completed Task discussion window or a PublicChannel quiet window whose messages may become retrievable Workspace team knowledge under the active Workspace Memory Profile. DirectConversation messages are never an admitted segment.
 _Avoid_: chat log, every message, unreviewed conversation
 
+**OpenViking Citation**:
+An auditable reference to a versioned OpenViking object, identified by its Workspace account, URI, content hash or version, matched detail level, and display title or excerpt. It proves which retrievable object was used, but not that the object is admitted causal evidence.
+_Avoid_: Causal Memory Citation, causal provenance, unversioned path, free-form source label
+
 **Causal Memory Citation**:
-An auditable reference from a Memory Offer or Causal Correction Proposal to a tenant-local causal item, the Admitted PublicChannel Segment that made it eligible, and that segment's source PublicChannel Messages. It never exposes a DirectConversation message.
-_Avoid_: free-form citation text, ungrounded memory identifier, transcript copy
+An auditable reference from a Memory Offer or Causal Correction Proposal to a tenant-local causal item, the Admitted PublicChannel Segment that made it eligible, and that segment's source PublicChannel Messages. Unlike an OpenViking Citation, it proves admitted causal evidence; it never exposes a DirectConversation message.
+_Avoid_: OpenViking URI, free-form citation text, ungrounded memory identifier, transcript copy
 
 **Causal Correction Proposal**:
 A read-only Memory Agent's cited request for Web/backend to reconsider an existing causal-memory conclusion in light of contradictory admitted evidence. It is not itself an invalidation or a mutation of tenant data.
 _Avoid_: Agent-written correction, automatic edge deletion, fact rewrite
 
 **Memory Agent**:
-The managed Workspace-scoped Agent that observes PublicChannel messages and uses causal memory when helpful. An explicit `@memory` question requires a causal query before it answers; otherwise it autonomously decides whether retrieval or a Memory Offer is useful. It may submit Causal Correction Proposals but never writes, invalidates, or supersedes causal-memory data.
-_Avoid_: memory bot, distiller, causal-memory writer
+The managed Workspace-scoped Agent that observes PublicChannel messages and receives profile-specific, read-only memory tools. An explicit `@memory` question requires a memory query before it answers; otherwise it autonomously decides whether retrieval or a Memory Offer is useful. Under a causal profile it may submit Causal Correction Proposals, but under no profile may it directly write, invalidate, or supersede Workspace memory.
+_Avoid_: memory bot, distiller, memory administrator, causal-memory writer
 
 **Memory Offer**:
-A cited PublicChannel message from the Memory Agent that offers relevant causal-memory evidence or guidance to one recipient Agent. The Memory Agent may choose that recipient from active channel Agents, but the cited rationale for its selection is retained for audit. It is information, not an instruction, grant of authority, or proof of benefit.
+A cited PublicChannel message from the Memory Agent that offers relevant OpenViking or causal-memory evidence or guidance to one recipient Agent. The Memory Agent may choose that recipient from active channel Agents, but the cited rationale for its selection is retained for audit. It is information, not an instruction, grant of authority, or proof of benefit.
 _Avoid_: skill offer, injection, broadcast

@@ -55,6 +55,11 @@ import {
   type WeeklyReportKeyPointsResult,
 } from "./connection/weekly-report-key-points";
 import { getLogger } from "@logtape/logtape";
+import {
+  admitOpenVikingRead,
+  OpenVikingReadProxyError,
+  type OpenVikingAgentReadCommand,
+} from "./openviking-read-proxy";
 
 export type AgentProxy = {
   url: string;
@@ -169,6 +174,13 @@ export type AgentProxyRuntime = {
     request: import("@lrm/coforge-sdk/agent").CausalAgentCommand,
     agentApiKey: string,
   ): Promise<import("@lrm/coforge-sdk/agent").CausalAgentResponse>;
+  agentOpenviking?(
+    context: string,
+    request: OpenVikingAgentReadCommand,
+    agentApiKey: string,
+  ): Promise<unknown>;
+  /** Workspace-launch fence for the token-bound Agent. Absent or a non-OV fence fail-closes. */
+  memoryFence?(agentId: string): string | undefined;
   issueAgentContext?: (agentId: string, context?: string) => string;
 };
 
@@ -220,7 +232,12 @@ function proxyFailureResponse(
 }
 
 /** What a Local Proxy token stands for: the Agent, its runtime context and its Agent API key. */
-type TokenBinding = { agentId: string; context: string; agentApiKey: string };
+type TokenBinding = {
+  agentId: string;
+  context: string;
+  agentApiKey: string;
+  memoryFence?: string;
+};
 type JsonObject = Record<string, unknown>;
 
 /**
@@ -233,7 +250,7 @@ type JsonObject = Record<string, unknown>;
 type BodyRead = "none" | "json" | "json-object";
 
 /** The runtime methods a route can dispatch to; each takes `(context, request, agentApiKey)`. */
-type HandlerName = Exclude<keyof AgentProxyRuntime, "issueAgentContext">;
+type HandlerName = Exclude<keyof AgentProxyRuntime, "issueAgentContext" | "memoryFence">;
 type RuntimeHandler<K extends HandlerName> = NonNullable<AgentProxyRuntime[K]>;
 type RequestOf<K extends HandlerName> = Parameters<RuntimeHandler<K>>[1];
 type ResultOf<K extends HandlerName> = Awaited<ReturnType<RuntimeHandler<K>>>;
@@ -364,6 +381,12 @@ function profileDomainFailure(error: unknown): Response | undefined {
     { ok: false, errorCode: error.errorCode, error: error.message },
     { status: error.status },
   );
+}
+
+/** OpenViking reads answer a sanitized C2 error instead of the generic proxy-failure shape. */
+function openvikingDomainFailure(error: unknown): Response | undefined {
+  if (!(error instanceof OpenVikingReadProxyError)) return undefined;
+  return Response.json(error.body, { status: error.status });
 }
 
 function parseProfileUpdateFields(fields: JsonObject): AgentProfileUpdateRequest | Response {
@@ -783,6 +806,20 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     },
   }),
   defineRoute({
+    family: "agent-api/openviking",
+    method: LOCAL_PROXY_ROUTES.openviking.method,
+    match: exactPath(LOCAL_PROXY_ROUTES.openviking.path),
+    body: "json-object",
+    handler: "agentOpenviking",
+    parse: ({ fields, binding }) => {
+      const admitted = admitOpenVikingRead({ body: fields, fence: binding.memoryFence });
+      return admitted.ok
+        ? admitted.command
+        : Response.json(admitted.body, { status: admitted.status });
+    },
+    domainFailure: openvikingDomainFailure,
+  }),
+  defineRoute({
     family: "agent-api/inbox",
     method: LOCAL_PROXY_ROUTES.inbox.method,
     match: exactPath(LOCAL_PROXY_ROUTES.inbox.path),
@@ -843,8 +880,12 @@ export function startAgentProxy(input: {
       const authorization = request.headers.get("authorization");
       const candidate = authorization?.match(/^Bearer (.+)$/)?.[1];
       const token = candidate && LOCAL_PROXY_TOKEN.test(candidate) ? candidate : undefined;
-      const binding = token ? contexts.get(token) : undefined;
-      if (!binding) return new Response("unauthorized", { status: 401 });
+      const registered = token ? contexts.get(token) : undefined;
+      if (!registered) return new Response("unauthorized", { status: 401 });
+      const binding: TokenBinding = {
+        ...registered,
+        memoryFence: input.runtime.memoryFence?.(registered.agentId),
+      };
 
       // `inbox` declares no key parameter; every other runtime method takes all three.
       const handler = input.runtime[route.handler] as

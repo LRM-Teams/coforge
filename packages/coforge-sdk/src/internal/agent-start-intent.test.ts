@@ -52,6 +52,26 @@ test("round-trips the causal-memory tool profile and rejects unknown profiles", 
   expect(() => decodeAgentStartIntent(encoded)).toThrow("unsupported Agent tool profile");
 });
 
+test("round-trips OpenViking and causal-openviking memory fences and rejects Workspace profile names", () => {
+  for (const toolProfile of ["openviking-memory", "causal-openviking-memory"] as const) {
+    const fenced = { ...base, toolProfile };
+    expect(decodeAgentStartIntent(encodeAgentStartIntent(fenced))).toEqual({
+      ...fenced,
+      modelProvider: "",
+      providerConfig: undefined,
+    });
+  }
+  expect(() =>
+    encodeAgentStartIntent({ ...base, toolProfile: "openviking" as "openviking-memory" }),
+  ).toThrow("unsupported Agent tool profile");
+  expect(() =>
+    encodeAgentStartIntent({
+      ...base,
+      toolProfile: "causal_openviking" as "causal-openviking-memory",
+    }),
+  ).toThrow("unsupported Agent tool profile");
+});
+
 test("rejects encoding a managed start intent with no launchId", () => {
   expect(() => encodeAgentStartIntent({ ...base, controlEpoch: 1 })).toThrow("launchId");
   expect(() => encodeAgentStartIntent({ ...base, controlEpoch: 1, launchId: "  " })).toThrow(

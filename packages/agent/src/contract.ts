@@ -1,4 +1,4 @@
-import type { CAUSAL_TOOL_PROFILE } from "@lrm/coforge-sdk/agent";
+import type { MemoryAgentToolProfile } from "@lrm/coforge-sdk/agent";
 import type {
   RuntimeProvider,
   ActivityTrajectoryEntry,
@@ -26,7 +26,7 @@ export type AgentRuntimeConfig = Readonly<{
   reasoning: string;
   providerConfig?: AgentRuntimeProviderConfig;
   /** An explicitly fenced tool profile supplied by the versioned Agent start intent. */
-  toolProfile?: typeof CAUSAL_TOOL_PROFILE;
+  toolProfile?: MemoryAgentToolProfile;
   envVars?: Readonly<Record<string, string>>;
 }>;
 /** Raft-aligned plan-usage window status (task #50): `limit_reached` once the window's ratio

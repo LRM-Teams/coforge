@@ -45,6 +45,51 @@ instructions for the TanStack Start Web/backend modular monolith.
   responses. Do not create an API route just to serve data to a TanStack Start
   page.
 
+## Workspace memory modules
+
+Assign these server modules before adding profile, gateway, or Fact Index
+implementation. Dependencies point downward. Routes and background entrypoints
+only assemble the modules; they do not own profile transitions, OpenViking HTTP
+details, or Causal SQLite details.
+
+```text
+src/server/
+├── workspace-memory/        # profile aggregate, reconciler, common admission, citation policy
+├── openviking/              # typed provisioning, route policy, policy gateway, runtime client
+├── causal-memory/           # causal intent module, runtime adapter, causal Offer/correction
+└── db/repositories/         # Prisma adapters for the three modules above
+```
+
+- `workspace-memory/` owns Workspace Memory Profile desired/observed state,
+  generation fencing, common Admitted PublicChannel Segment detection, one-sink
+  dispatch, and citation-kind policy. It does not import OpenViking HTTP paths
+  or Causal Memory SQLite details.
+- `openviking/` owns typed account/user/ACL provisioning, the deny-by-default
+  route catalog, `OpenVikingPolicyGateway`, and the private runtime client. It
+  does not own Workspace profile state transitions.
+- `causal-memory/` owns causal ingest, search/trace/intervene, Offer and
+  correction composition against the Causal Memory runtime. It does not select
+  the Workspace Memory Profile. Existing `admission*.ts` stay here only until
+  the P4 owner moves profile-neutral admission into `workspace-memory/`.
+- Prisma adapters live in `db/repositories/workspace-memory-*.server.ts`,
+  `openviking-binding.repositories.server.ts`, and the existing
+  `causal-memory.repositories.server.ts`. Do not add profile or OpenViking
+  methods to `PrismaCausalMemoryRepository` unless the Causal module itself
+  requires them. Credential plaintext does not belong in ordinary business
+  tables.
+- Thin Server Routes under `src/routes/api/` bind raw HTTP only: the existing
+  Agent causal route, and later a splat OpenViking gateway adapter. Loaders and
+  feature UI call Server Functions; they do not talk to Prisma or either
+  private runtime.
+- One background-lifecycle composition owner wires the profile reconciler,
+  common admission sweep, and OpenViking/Causal provisioners. That composition
+  is server-owned and independent of incidental Centrifugo traffic. Do not
+  start a second sweep from a route or RPC handler.
+
+The canonical architecture for these boundaries is
+[`docs/architecture.md`](../../docs/architecture.md) §15. Do not add a second
+architecture source here.
+
 ## PostgreSQL and Prisma
 
 - Prisma is the Web/backend database standard. Use the repository's Prisma
@@ -355,6 +400,9 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   │   ├── auth/
   │   ├── db/
   │   ├── middleware/
+  │   ├── workspace-memory/
+  │   ├── openviking/
+  │   ├── causal-memory/
   │   └── services/
   └── server.ts
   ```
