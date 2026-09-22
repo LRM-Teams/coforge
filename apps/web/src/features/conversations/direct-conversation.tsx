@@ -86,7 +86,13 @@ export type DirectConversationView = {
   threadReadThrough?: Record<string, number>;
   hasOlder?: boolean;
   hasNewer?: boolean;
-  agent: { id: string; name: string; displayName: string; deletedAt?: Date | null };
+  agent: {
+    id: string;
+    name: string;
+    displayName: string;
+    deletedAt?: Date | null;
+    avatarUrl?: string | null;
+  };
   /** Whether the viewer may still send here (ADR 0059): a private Agent's DM stays scoped to its
    * own creator, so an existing DM held by anyone else reads read-only once it goes private.
    * The server enforces the same rule on send; this only chooses the composer or the notice. */
