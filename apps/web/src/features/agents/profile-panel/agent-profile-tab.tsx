@@ -435,9 +435,9 @@ export function AgentProfileTab({
 
 /**
  * Visibility (ADR 0059) reads as a badge, same as Role; an authorized viewer (creator or
- * Workspace owner/admin) gets a single action button naming the opposite state — "Make private"
- * or "Make public" — that opens the container's confirmation dialog rather than applying
- * immediately, since both directions have real consequences worth a confirm step.
+ * Workspace owner/admin) gets a pencil that swaps it for the Select — both directions have real
+ * consequences, so picking an option still opens the container's confirmation dialog rather
+ * than applying immediately.
  */
 function VisibilityField({
   visibility,
@@ -446,29 +446,43 @@ function VisibilityField({
   visibility: AgentVisibility;
   onRequest?: (target: AgentVisibility) => void;
 }) {
+  const [editing, setEditing] = useState(false);
   const isPrivate = visibility === AGENT_VISIBILITY.PRIVATE;
   return (
     <div>
-      <p className={SUBFIELD_LABEL_CLASS}>{m.agent_profile_visibility()}</p>
-      <div className="mt-1 flex items-center gap-2">
-        <Badge color={isPrivate ? "gray" : "brand"} size="sm">
-          {isPrivate ? m.agent_visibility_label_private() : m.agent_visibility_label_public()}
-        </Badge>
-        {onRequest && (
-          <Button
-            color="link-color"
-            size="sm"
-            noTextPadding
+      <div className="flex items-center gap-1.5">
+        <span className={SUBFIELD_LABEL_CLASS}>{m.agent_profile_visibility()}</span>
+        {onRequest && !editing && (
+          <ButtonUtility
+            size="xs"
+            color="tertiary"
+            icon={Edit01}
             aria-label={m.agent_profile_edit_visibility()}
-            className="h-auto p-0 font-medium"
-            onPress={() =>
-              onRequest(isPrivate ? AGENT_VISIBILITY.PUBLIC : AGENT_VISIBILITY.PRIVATE)
-            }
+            tooltip={m.agent_profile_edit_visibility()}
+            onClick={() => setEditing(true)}
+          />
+        )}
+      </div>
+      <div className="mt-1">
+        {editing && onRequest ? (
+          <Select
+            aria-label={m.agent_profile_edit_visibility()}
+            size="sm"
+            selectedKey={isPrivate ? "private" : "public"}
+            onSelectionChange={(key) => {
+              setEditing(false);
+              const target = key === "private" ? AGENT_VISIBILITY.PRIVATE : AGENT_VISIBILITY.PUBLIC;
+              if (target !== visibility) onRequest(target);
+            }}
+            className="w-36"
           >
-            {isPrivate
-              ? m.agent_visibility_confirm_public_submit()
-              : m.agent_visibility_confirm_private_submit()}
-          </Button>
+            <Select.Item id="public" label={m.agent_visibility_label_public()} />
+            <Select.Item id="private" label={m.agent_visibility_label_private()} />
+          </Select>
+        ) : (
+          <Badge color={isPrivate ? "gray" : "brand"} size="sm">
+            {isPrivate ? m.agent_visibility_label_private() : m.agent_visibility_label_public()}
+          </Badge>
         )}
       </div>
     </div>

@@ -50,6 +50,8 @@ function profileFixture(overrides: Partial<AgentProfile> = {}): AgentProfile {
     canManageAgentRole: false,
     canFullResetAgent: false,
     runtimeUsageVisible: false,
+    visibility: "public",
+    canChangeVisibility: false,
     ...overrides,
   } as unknown as AgentProfile;
 }
@@ -389,4 +391,55 @@ test("a Claude Code Agent's context badge becomes the breakdown popover trigger"
       time: formatDateForDisplay(new Date("2026-09-18T12:00:00.000Z"), "UTC", "en"),
     })}"`,
   );
+});
+
+test("a viewer who cannot change visibility sees the plain Visibility badge, no pencil", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture()}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain("Visibility");
+  expect(markup).toContain("Public");
+  expect(markup).not.toContain("Edit visibility");
+});
+
+test("the creator (or owner/admin) gets the Visibility pencil like the Role pencil", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ visibility: "private", canChangeVisibility: true })}
+      timeZone="UTC"
+      canManage
+      controls={controlsFixture(true)}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      onRequestVisibilityChange={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain("Edit visibility");
+  // The badge reflects the current state before any edit.
+  expect(markup).toContain("Private");
+});
+
+test("a private Agent without the visibility grant shows the Private badge with no edit affordance", () => {
+  const markup = render(
+    <AgentProfileTab
+      profile={profileFixture({ visibility: "private", canChangeVisibility: false })}
+      timeZone="UTC"
+      canManage={false}
+      controls={controlsFixture(true)}
+      onSaveDisplayName={noop}
+      onSaveDescription={noop}
+      runtimeCredentialDialog={null}
+    />,
+  );
+  expect(markup).toContain("Private");
+  expect(markup).not.toContain("Edit visibility");
 });
