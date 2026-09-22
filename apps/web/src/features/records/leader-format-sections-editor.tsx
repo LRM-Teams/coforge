@@ -68,8 +68,18 @@ export function LeaderFormatSectionsEditor({
           </Button>
         ) : null}
         {blocks.map((block, index) => (
-          <section key={block.id} className="group rounded-xl bg-secondary px-4 py-3">
+          <section key={block.id} className="group relative rounded-xl bg-secondary px-4 py-3">
             <div className="mb-2 flex items-center gap-2">
+              <input
+                aria-label={m.records_template_heading_level_two()}
+                value={block.title}
+                onChange={(event) => updateAt(index, { title: event.target.value })}
+                onBlur={onBlur}
+                className="min-w-0 flex-1 bg-transparent px-0 text-base font-semibold text-primary outline-none"
+              />
+              <span className="shrink-0 text-xs text-tertiary">
+                {m.records_template_heading_level_two()}
+              </span>
               <ButtonUtility
                 size="xs"
                 color="tertiary"
@@ -78,16 +88,6 @@ export function LeaderFormatSectionsEditor({
                 onClick={() => addAfter(index)}
                 className="size-6 shrink-0 p-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
               />
-              <input
-                aria-label={m.records_template_heading_level_two()}
-                value={block.title}
-                onChange={(event) => updateAt(index, { title: event.target.value })}
-                onBlur={onBlur}
-                className="min-w-0 flex-1 bg-transparent text-base font-semibold text-primary outline-none"
-              />
-              <span className="shrink-0 text-xs text-tertiary">
-                {m.records_template_heading_level_two()}
-              </span>
               <ButtonUtility
                 size="xs"
                 color="tertiary"
@@ -105,7 +105,7 @@ export function LeaderFormatSectionsEditor({
               onBlur={onBlur}
               rows={3}
               className={cn(
-                "w-full resize-y bg-transparent text-sm leading-6 text-primary outline-none",
+                "w-full resize-y bg-transparent px-0 text-sm leading-6 text-primary outline-none",
                 "placeholder:text-placeholder",
               )}
             />

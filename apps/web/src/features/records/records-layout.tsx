@@ -687,17 +687,17 @@ function CollapsibleSection({
       <div className="mb-1.5 flex items-center gap-1">
         <Button
           type="button"
-          size="xs"
+          size="sm"
           color="tertiary"
           aria-expanded={open}
           onPress={() => onOpenChange(!open)}
           iconLeading={
             <ChevronDown
               aria-hidden="true"
-              className={cn("size-3.5 transition-transform", open && "rotate-180")}
+              className={cn("size-4 transition-transform", open && "rotate-180")}
             />
           }
-          className="min-w-0 flex-1 justify-start px-1 text-left text-xs text-tertiary"
+          className="min-w-0 flex-1 justify-start px-1 text-left text-sm text-primary"
         >
           {title}
         </Button>
