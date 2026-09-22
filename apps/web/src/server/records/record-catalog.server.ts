@@ -1174,6 +1174,8 @@ export class RecordCatalog {
    * the author's「我的周报」copy and any「已收藏的周报」row remain; they are
    * unlinked from this parent so they leave the Leader's member-week tree.
    * The live format template in the same cycle is not this node.
+   * Stamps auto-send cancelled for this ISO week on the live format so cron
+   * does not recreate the week (ADR 0012); manual send remains available.
    */
   async deleteOverviewReport(input: { workspaceId: string; userId: string; reportId: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
@@ -1184,7 +1186,12 @@ export class RecordCatalog {
         kind: "template",
         authorId: input.userId,
       },
-      select: { id: true, cycleId: true },
+      select: {
+        id: true,
+        cycleId: true,
+        settingsId: true,
+        cycle: { select: { year: true, week: true } },
+      },
     });
     if (!overview) throw new AppError("NOT_FOUND");
 
@@ -1205,6 +1212,14 @@ export class RecordCatalog {
         await tx.weeklyReportCycle.delete({ where: { id: overview.cycleId } });
       }
     });
+
+    await this.cancelScheduledSendForWeek({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      settingsId: overview.settingsId,
+      year: overview.cycle.year,
+      week: overview.cycle.week,
+    });
     return { ok: true as const };
   }
 
@@ -1213,12 +1228,13 @@ export class RecordCatalog {
    * template parents in that cycle and member submissions under those parents.
    * Other leaders' templates/submissions are left alone. The cycle row is
    * removed only when nothing remains.
+   * Cancels auto-send for each deleted settings stream's ISO week (ADR 0012).
    */
   async deleteMemberWeek(input: { workspaceId: string; userId: string; cycleId: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const cycle = await this.db.weeklyReportCycle.findFirst({
       where: { id: input.cycleId, workspaceId: input.workspaceId },
-      select: { id: true },
+      select: { id: true, year: true, week: true },
     });
     if (!cycle) throw new AppError("NOT_FOUND");
 
@@ -1229,10 +1245,17 @@ export class RecordCatalog {
         kind: "template",
         authorId: input.userId,
       },
-      select: { id: true },
+      select: { id: true, settingsId: true },
     });
     if (myTemplates.length === 0) throw new AppError("NOT_FOUND");
     const templateIds = myTemplates.map((row) => row.id);
+    const settingsIds = [
+      ...new Set(
+        myTemplates
+          .map((row) => row.settingsId)
+          .filter((settingsId): settingsId is string => Boolean(settingsId)),
+      ),
+    ];
 
     const submissions = await this.db.weeklyReport.findMany({
       where: {
@@ -1256,7 +1279,49 @@ export class RecordCatalog {
         await tx.weeklyReportCycle.delete({ where: { id: cycle.id } });
       }
     });
+
+    for (const settingsId of settingsIds) {
+      await this.cancelScheduledSendForWeek({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        settingsId,
+        year: cycle.year,
+        week: cycle.week,
+      });
+    }
     return { ok: true as const };
+  }
+
+  /**
+   * After a Leader deletes a sent week, stamp the live format so cron skips
+   * that ISO week (ADR 0012). No-op when there is no settings stream or live
+   * format yet; ensureFormat will still see a later cancel only if stamped.
+   */
+  private async cancelScheduledSendForWeek(input: {
+    workspaceId: string;
+    userId: string;
+    settingsId: string | null;
+    year: number;
+    week: number;
+  }) {
+    if (!input.settingsId) return;
+    const liveFormat = await this.db.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+        settingsId: input.settingsId,
+        submissions: { none: { kind: "member" } },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, content: true },
+    });
+    if (!liveFormat) return;
+    const next = withAutoSendCancelled(asReportContent(liveFormat.content), input.year, input.week);
+    await this.db.weeklyReport.update({
+      where: { id: liveFormat.id },
+      data: { content: next as unknown as Prisma.InputJsonValue },
+    });
   }
 
   async loadAssistantContextManifest(input: {

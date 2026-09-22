@@ -19,7 +19,10 @@ format. ADR 0011 armed the chip for the whole send weekday and let cron send at
 2. **Auto-send**: Cron still fires when local clock is `>= sendTime` on
    `sendWeekday`, once per stream per ISO week. If the Leader **changed the
    live format body** at or after the preview start, cron **skips** that week
-   (`auto-send-cancelled`); the Leader must send manually.
+   (`auto-send-cancelled`); the Leader must send manually. Deleting that ISO
+   week's overview (or the Leader's member-week scope) stamps the same cancel
+   on the live format so cron does not recreate the week; manual send remains
+   available unless `dismissSend` was also set.
 3. **Cancel flag**: Stored on the format document as
    `content.schedule.cancelledYear` / `cancelledWeek` (same JSON-meta pattern
    as assignment unread). No new Prisma column. Opening the format without a
