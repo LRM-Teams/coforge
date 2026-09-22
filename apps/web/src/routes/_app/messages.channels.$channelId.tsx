@@ -45,6 +45,7 @@ import {
 } from "@/features/conversations/conversation-unread";
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { threadFollowingAgentsQueryPrefix } from "@/features/conversations/conversation-query-keys";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
@@ -86,7 +87,7 @@ function ChannelPage() {
       Promise.all([
         taskView.refresh(),
         queryClient.invalidateQueries({
-          queryKey: ["conversation", "thread-following-agents", channelId],
+          queryKey: threadFollowingAgentsQueryPrefix(channelId),
         }),
       ]),
   });
