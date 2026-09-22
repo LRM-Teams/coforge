@@ -318,17 +318,18 @@ export function ReportTabsEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {readingTabs ? (
-        <div className="relative shrink-0">
-          <RecordsReadingColumn className="pb-0 pt-2">
-            <div className="flex items-end gap-1 border-b border-secondary/40">{tabBar}</div>
-          </RecordsReadingColumn>
-        </div>
-      ) : (
-        <div className="flex shrink-0 items-end gap-1 border-b border-secondary px-2 pt-3 sm:px-6">
-          {tabBar}
-        </div>
-      )}
+      <div className="relative shrink-0">
+        <RecordsReadingColumn className={cn("pb-0", readingTabs ? "pt-2" : "pt-3")}>
+          <div
+            className={cn(
+              "flex items-end gap-1 border-b",
+              readingTabs ? "border-secondary/40" : "border-secondary",
+            )}
+          >
+            {tabBar}
+          </div>
+        </RecordsReadingColumn>
+      </div>
 
       {trailingActive ? (
         (renderTrailingTab?.(activeTab) ?? null)
