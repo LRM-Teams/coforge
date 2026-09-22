@@ -57,7 +57,7 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
   loader: ({ context, params }) =>
     context.queryClient.infiniteQuery(directConversationQuery(params.agentId).query),
   pendingMs: 300,
-  pendingMinMs: 0,
+  pendingMinMs: 300,
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
   component: DirectConversationPage,

@@ -60,7 +60,7 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   loader: ({ context, params }) =>
     context.queryClient.infiniteQuery(publicChannelQuery(params.channelId).query),
   pendingMs: 300,
-  pendingMinMs: 0,
+  pendingMinMs: 300,
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,
   component: ChannelPage,

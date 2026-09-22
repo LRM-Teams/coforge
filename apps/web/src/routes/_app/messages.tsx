@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_app/messages")({
     };
   },
   pendingMs: 300,
-  pendingMinMs: 0,
+  pendingMinMs: 300,
   pendingComponent: MessagesPending,
   errorComponent: PageLoadError,
   component: MessagesPage,
