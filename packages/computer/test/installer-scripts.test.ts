@@ -362,7 +362,10 @@ test("install.sh fails closed without requesting anything else when photon_rs_bg
     COFORGE_INSTALLER_TEST_MODE: "1",
   });
   expect(child.exitCode).not.toBe(0);
-  expect(fixture.requested).not.toContain(`/${fixture.version}/${fixture.target}/coforge-computer`);
+  expect(fixture.requested).toContain(`/${fixture.version}/photon_rs_bg.wasm`);
+  expect(fixture.requested).not.toContain(
+    `/${fixture.version}/${fixture.target}/coforge-computer.sha256`,
+  );
 });
 
 test("install.sh downloads photon_rs_bg.wasm silently, under the existing Downloading CoForge Computer step, with no new progress line", async () => {
