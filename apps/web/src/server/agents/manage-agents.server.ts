@@ -5,6 +5,7 @@ import {
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
 import { AppError } from "../../lib/app-error";
+import { AGENT_VISIBILITY, type AgentVisibility } from "../../features/agents/agent-visibility";
 import { assertAgentLive } from "./active-agent.server";
 import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repositories.server";
 import { publicAgentRuntimeConfig } from "./agent-runtime-config.server";
@@ -23,6 +24,9 @@ export type AgentCreateInput = {
   reasoning?: string;
   computerId: string;
   apiKey?: string;
+  /** ADR 0059; defaults to public when omitted, matching every creation path except the
+   * weekly-report Collector Agent, which is created private outside this use case. */
+  visibility?: AgentVisibility;
 };
 
 /**
@@ -125,6 +129,7 @@ export class ManageAgents {
       displayName: name,
       description,
       computerId: input.computerId,
+      visibility: input.visibility ?? AGENT_VISIBILITY.PUBLIC,
       runtimeConfig: {
         runtime: selection.provider,
         provider: storedProvider,

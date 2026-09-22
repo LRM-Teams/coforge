@@ -4,6 +4,7 @@ import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
   agentIdInputSchema,
   agentIdSchema,
+  changeAgentVisibilityInputSchema,
   createAgentInputSchema,
   deleteAgentInputSchema,
   saveAgentRuntimeCredentialInputSchema,
@@ -11,6 +12,10 @@ import {
   updateAgentInputSchema,
   updateAgentRoleInputSchema,
 } from "./agent.schemas";
+import { AGENT_VISIBILITY } from "./agent-visibility";
+import { publishAgentVisibilityChanged } from "../../server/agents/agent-visibility-realtime.server";
+import { ChangeAgentVisibility } from "../../server/agents/change-agent-visibility.server";
+import { PrismaChangeAgentVisibilityStore } from "../../server/db/repositories/agent-visibility-change.repositories.server";
 import { setAgentRole } from "../../server/agents/agent-role.server";
 import { AppError } from "../../lib/app-error";
 import { ACTIVE_AGENT_WHERE } from "../../server/agents/active-agent.server";
@@ -189,6 +194,14 @@ function agentDeletion(db: Database) {
     new PrismaAgentDeletionStore(db),
     runtimeControl(db, agents),
     getAgentRuntimeLock(),
+  );
+}
+
+function changeAgentVisibilityUseCase(db: Database) {
+  return new ChangeAgentVisibility(
+    new PrismaAgentRepository(db),
+    new PrismaChangeAgentVisibilityStore(db),
+    publishAgentVisibilityChanged,
   );
 }
 
@@ -404,6 +417,40 @@ export const updateAgentRole = createServerFn({ method: "POST" })
   );
 
 /**
+ * Changes one Agent's visibility (ADR 0059): the creator or a human Workspace owner/admin only.
+ * `ChangeAgentVisibility.execute` authorizes and runs the transition; the shared
+ * `AppError`→HTTP mapping surfaces `NOT_FOUND`/`ACCESS_DENIED` to the profile panel's inline
+ * error the same way every other Agent mutation does.
+ */
+export const changeAgentVisibility = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(changeAgentVisibilityInputSchema)
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    const role = await workspaceMemberRole(db, workspaceId, user.id);
+    return changeAgentVisibilityUseCase(db).execute(
+      { userId: user.id, workspaceId, role },
+      { agentId: data.agentId, visibility: data.visibility },
+    );
+  });
+
+/**
+ * The public→private confirmation dialog's preview: channels the Agent will leave and how many
+ * existing direct conversations will become read-only. Only someone who may change the Agent's
+ * visibility gets it.
+ */
+export const previewAgentVisibilityChange = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(agentIdSchema)
+  .handler(async ({ data: agentId, context: { user, db, workspaceId } }) => {
+    setResponseHeader("cache-control", "no-store");
+    const role = await workspaceMemberRole(db, workspaceId, user.id);
+    return changeAgentVisibilityUseCase(db).preview(
+      { userId: user.id, workspaceId, role },
+      agentId,
+    );
+  });
+
+/**
  * Backs `getAgentProfile`, the one seam the Members page and every conversation panel share:
  * identity, permissions, live display, runtime config summary and Activity. Does not run
  * `listComputers`/`getUserPreferences` — those stay owned by the route loaders that actually need
@@ -496,6 +543,10 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
   // weekly-report assistant is provisioned by Records on demand, so it is never a delete target
   // even for an owner/admin viewer. Server-side authorization lives in `AgentDeletion.delete()`.
   const canDeleteAgent = canManageAgentRole && !result.isWeeklyReportAssistant;
+  // ADR 0059: the creator or a human Workspace owner/admin may change visibility; never an Agent
+  // (this seam is always reached by a human viewer) and never a plain member acting on someone
+  // else's Agent.
+  const canChangeVisibility = ownedByCurrentUser || canManageAgentRole;
   // Best-effort: the Agent profile panel's Computer meta line ("Connected · v0.1.0-dev.35"). Redis
   // unavailability degrades to "unknown" (`undefined`), never a false "offline".
   const computerOnline = result.computer
@@ -533,6 +584,13 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
     canManageAgentRole,
     canFullResetAgent,
     canDeleteAgent,
+    // Fails closed the same way `canSeeAgent`/`visibleAgentWhere` do: anything but exactly
+    // `"public"` displays as private, since that is also how the authorization seam treats it.
+    visibility:
+      result.visibility === AGENT_VISIBILITY.PUBLIC
+        ? AGENT_VISIBILITY.PUBLIC
+        : AGENT_VISIBILITY.PRIVATE,
+    canChangeVisibility,
     runtimeUsageVisible: Boolean(ownedRuntime),
     runtimeVersion: ownedRuntime?.version,
     // Always the same shape (`online` present, possibly `undefined`) whether or not a Computer is

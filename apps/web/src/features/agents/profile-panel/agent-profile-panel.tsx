@@ -48,8 +48,13 @@ import {
   deleteAgentRuntimeCredential,
   saveAgentEnvironment,
   deleteAgent,
+  changeAgentVisibility,
+  previewAgentVisibilityChange,
 } from "@/features/agents/agents.functions";
 import { AgentDeleteDialog } from "@/features/agents/agent-delete-dialog";
+import { AgentVisibilityConfirmDialog } from "@/features/agents/agent-visibility-confirm-dialog";
+import type { AgentVisibility } from "@/features/agents/agent-visibility";
+import { useAppToast } from "@/components/ui/toast";
 import { AgentProfileHeader } from "./agent-profile-header";
 import { AgentProfileTabs } from "./agent-profile-tabs";
 import { AgentProfileTab } from "./agent-profile-tab";
@@ -161,6 +166,10 @@ export function AgentProfilePanel({
   const deleteCredential = useServerFn(deleteAgentRuntimeCredential);
   const removeAgent = useServerFn(deleteAgent);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const changeVisibility = useServerFn(changeAgentVisibility);
+  const loadVisibilityPreview = useServerFn(previewAgentVisibilityChange);
+  const [visibilityTarget, setVisibilityTarget] = useState<AgentVisibility | null>(null);
+  const toast = useAppToast();
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [runtimeSaving, guardRuntime] = useSubmitGuard();
   const [runtimeError, setRuntimeError] = useState("");
@@ -362,6 +371,9 @@ export function AgentProfilePanel({
             onLoadSkills={profile.ownedByCurrentUser ? onLoadSkills : undefined}
             envVars={profile.ownedByCurrentUser ? (envQuery.data ?? {}) : undefined}
             onStartDelete={profile.canDeleteAgent ? () => setDeleteDialogOpen(true) : undefined}
+            onRequestVisibilityChange={
+              profile.canChangeVisibility ? (target) => setVisibilityTarget(target) : undefined
+            }
             runtimeCredentialDialog={
               profile.ownedByCurrentUser && profile.runtimeConfig.provider.kind === "coforge" ? (
                 <>
@@ -454,6 +466,30 @@ export function AgentProfilePanel({
         />
       )}
       <AgentControlDialogs agentName={knownName} control={controls} />
+      {profile && visibilityTarget && (
+        <AgentVisibilityConfirmDialog
+          agentName={profile.displayName || profile.name}
+          creatorName={profile.owner.displayName?.trim() || profile.owner.username}
+          viewerIsCreator={profile.ownedByCurrentUser}
+          target={visibilityTarget}
+          open={visibilityTarget !== null}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setVisibilityTarget(null);
+          }}
+          onLoadPreview={() => loadVisibilityPreview({ data: agentId })}
+          onConfirm={async () => {
+            await changeVisibility({ data: { agentId, visibility: visibilityTarget } });
+            setVisibilityTarget(null);
+            await invalidate();
+            const displayName = profile.displayName || profile.name;
+            toast.success(
+              visibilityTarget === "private"
+                ? m.agent_visibility_changed_private_toast({ name: displayName })
+                : m.agent_visibility_changed_public_toast({ name: displayName }),
+            );
+          }}
+        />
+      )}
       {profile && (
         <AgentDeleteDialog
           agentName={profile.name}

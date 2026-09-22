@@ -99,6 +99,20 @@ export function canSeeAgent(
 }
 
 /**
+ * Whether `userId` may open or send a direct message with `agent` (ADR 0059's "Manage stays
+ * independent of see-and-DM" rule). Stricter than `canSeeAgent`: an owner/admin viewer can see
+ * and manage another member's private Agent, but a private Agent's direct conversation stays
+ * scoped to its own creator, so the elevated-role escape hatch `canSeeAgent` grants does not apply
+ * here. Fails closed on an unrecognized visibility value, the same as `canSeeAgent`.
+ */
+export function canDirectMessageAgent(
+  userId: string,
+  agent: { visibility: string; ownerId: string },
+): boolean {
+  return agent.visibility === AGENT_VISIBILITY.PUBLIC || agent.ownerId === userId;
+}
+
+/**
  * The `Prisma.AgentWhereInput` fragment meant to be composed with `ACTIVE_AGENT_WHERE` (and any
  * other scope) on every Agent list/query: `{}` for an owner/admin-like viewer, since there is
  * nothing to hide from them; otherwise "public, or mine", so a private Agent never appears in a

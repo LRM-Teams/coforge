@@ -1186,6 +1186,9 @@ describe("PrismaDirectConversationRepository", () => {
       threadFollow: { createMany: async () => {} },
     };
     const db = {
+      agent: {
+        findUnique: async () => ({ ownerId: "user-1", visibility: "public" }),
+      },
       conversation: {
         findUnique: async () => ({
           id: "conversation-1",
@@ -1280,7 +1283,7 @@ describe("PrismaDirectConversationRepository", () => {
               id: "member-agent",
               userId: null,
               agentId: "agent-1",
-              agent: { name: "helper", computerId: null },
+              agent: { name: "helper", computerId: null, ownerId: "user-1", visibility: "public" },
             },
           ],
         }),
@@ -1302,6 +1305,192 @@ describe("PrismaDirectConversationRepository", () => {
       { where: { id: "attach-b" }, data: { messageId: "message-new", position: 0 } },
       { where: { id: "attach-a" }, data: { messageId: "message-new", position: 1 } },
     ]);
+  });
+
+  test("sendMessage rejects a non-creator sending into a since-privatized DM (ADR 0059)", async () => {
+    const db = {
+      conversation: {
+        findUnique: async () => ({
+          workspaceId: "workspace-1",
+          members: [
+            { id: "member-user", userId: "user-2", agentId: null, user: { username: "bob" } },
+            {
+              id: "member-agent",
+              userId: null,
+              agentId: "agent-1",
+              agent: {
+                name: "helper",
+                computerId: null,
+                ownerId: "user-1",
+                visibility: "private",
+              },
+            },
+          ],
+        }),
+      },
+    } as unknown as PrismaClient;
+    await expect(
+      new PrismaDirectConversationRepository(db).sendMessage(
+        "conversation-1",
+        "member-user",
+        "user-2",
+        "hello",
+      ),
+    ).rejects.toMatchObject({ name: "AppError", code: "AGENT_DM_RESTRICTED" });
+  });
+
+  test("sendAgentMessage rejects a private Agent's own outbound DM to a non-creator (ADR 0059)", async () => {
+    const db = {
+      agent: {
+        findUnique: async () => ({ ownerId: "user-1", visibility: "private" }),
+      },
+      conversation: {
+        findUnique: async () => ({
+          id: "conversation-1",
+          workspaceId: "workspace-1",
+          channelName: null,
+          members: [
+            {
+              id: "member-agent",
+              agentId: "agent-1",
+              userId: null,
+              agent: { name: "agent-1", description: "" },
+            },
+            { id: "member-user", agentId: null, userId: "user-2" },
+          ],
+        }),
+      },
+      $transaction: async (fn: (tx: unknown) => unknown) => fn({}),
+    } as unknown as PrismaClient;
+    await expect(
+      new PrismaDirectConversationRepository(db).sendAgentMessage(
+        "conversation-1",
+        "agent-1",
+        "hello",
+      ),
+    ).rejects.toMatchObject({ name: "AgentSendRejectedError", status: 403 });
+  });
+
+  describe("getOrCreateUserAgent (ADR 0059)", () => {
+    function fixture(options: { visibility: string; ownerId: string; existing?: { id: string } }) {
+      const created: unknown[] = [];
+      const db = {
+        agent: {
+          findFirst: async () => ({
+            id: "agent-1",
+            ownerId: options.ownerId,
+            visibility: options.visibility,
+          }),
+        },
+        conversation: {
+          findUnique: async () => options.existing ?? null,
+          create: async (input: { data: unknown }) => {
+            created.push(input.data);
+            return { id: "conversation-new" };
+          },
+        },
+      } as unknown as PrismaClient;
+      return { repository: new PrismaDirectConversationRepository(db), created };
+    }
+
+    test("a non-creator cannot start a brand-new DM with a private Agent", async () => {
+      const { repository, created } = fixture({ visibility: "private", ownerId: "user-1" });
+      await expect(
+        repository.getOrCreateUserAgent("workspace-1", "user-2", "agent-1"),
+      ).rejects.toMatchObject({ name: "AppError", code: "AGENT_DM_RESTRICTED" });
+      expect(created).toEqual([]);
+    });
+
+    test("the creator can always start a DM with their own private Agent", async () => {
+      const { repository, created } = fixture({ visibility: "private", ownerId: "user-1" });
+      await repository.getOrCreateUserAgent("workspace-1", "user-1", "agent-1");
+      expect(created).toHaveLength(1);
+    });
+
+    test("anyone can start a DM with a public Agent", async () => {
+      const { repository, created } = fixture({ visibility: "public", ownerId: "user-1" });
+      await repository.getOrCreateUserAgent("workspace-1", "user-2", "agent-1");
+      expect(created).toHaveLength(1);
+    });
+
+    test("an existing DM with a since-privatized Agent stays open for reading, not creation", async () => {
+      const { repository, created } = fixture({
+        visibility: "private",
+        ownerId: "user-1",
+        existing: { id: "conversation-old" },
+      });
+      const conversation = await repository.getOrCreateUserAgent(
+        "workspace-1",
+        "user-2",
+        "agent-1",
+      );
+      expect(conversation).toEqual({ id: "conversation-old" });
+      expect(created).toEqual([]);
+    });
+  });
+
+  describe("openForUser reports dmWritable (ADR 0059)", () => {
+    function fixture(options: { visibility: string; ownerId: string; viewerId: string }) {
+      const db = {
+        conversation: {
+          findUnique: async () => ({
+            id: "conversation-1",
+            workspaceId: "workspace-1",
+            directKey: `agent:agent-1|user:${options.viewerId}`,
+            members: [
+              {
+                id: "member-user",
+                userId: options.viewerId,
+                agentId: null,
+                readThroughSequence: 0,
+                threadReads: [],
+                user: { username: "viewer" },
+              },
+              {
+                id: "member-agent",
+                userId: null,
+                agentId: "agent-1",
+                readThroughSequence: 0,
+                threadReads: [],
+                agent: {
+                  id: "agent-1",
+                  name: "helper",
+                  displayName: "Helper",
+                  deletedAt: null,
+                  ownerId: options.ownerId,
+                  visibility: options.visibility,
+                },
+              },
+            ],
+            messages: [],
+          }),
+        },
+      } as unknown as PrismaClient;
+      class TestConversationRepository extends PrismaDirectConversationRepository {
+        override async getOrCreateUserAgent() {
+          return { id: "conversation-1" };
+        }
+      }
+      return new TestConversationRepository(db);
+    }
+
+    test("the creator can always send, public or private", async () => {
+      const repository = fixture({ visibility: "private", ownerId: "user-1", viewerId: "user-1" });
+      const page = await repository.openForUser("workspace-1", "user-1", "agent-1");
+      expect(page.dmWritable).toBe(true);
+    });
+
+    test("a non-creator's existing DM with a private Agent reads read-only", async () => {
+      const repository = fixture({ visibility: "private", ownerId: "user-1", viewerId: "user-2" });
+      const page = await repository.openForUser("workspace-1", "user-2", "agent-1");
+      expect(page.dmWritable).toBe(false);
+    });
+
+    test("a public Agent's DM is always writable", async () => {
+      const repository = fixture({ visibility: "public", ownerId: "user-1", viewerId: "user-2" });
+      const page = await repository.openForUser("workspace-1", "user-2", "agent-1");
+      expect(page.dmWritable).toBe(true);
+    });
   });
 
   test("unread counts group per DM by the Agent whose row owns the badge", async () => {

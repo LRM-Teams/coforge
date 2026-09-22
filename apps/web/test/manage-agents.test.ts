@@ -724,4 +724,34 @@ describe("ManageAgents", () => {
     ).toBe("deferred");
     expect(deferred.controls).toEqual(["stop", "persist", "start"]);
   });
+
+  test("a created Agent defaults to public visibility (ADR 0059)", async () => {
+    const { agentManagement, records } = fixture();
+    await agentManagement.create(
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
+      {
+        name: "builder",
+        description: "",
+        provider: RUNTIME_PROVIDER.CODEX,
+        computerId: "computer-1",
+      },
+    );
+    expect(records[0]?.visibility).toBe("public");
+  });
+
+  test("create forwards the visibility chosen in the create form", async () => {
+    const { agentManagement, records } = fixture();
+    const result = await agentManagement.create(
+      { userId: "user-1", workspaceId: "workspace-1", role: "admin" as const },
+      {
+        name: "collector",
+        description: "",
+        provider: RUNTIME_PROVIDER.CODEX,
+        computerId: "computer-1",
+        visibility: "private",
+      },
+    );
+    expect(result.agent.visibility).toBe("private");
+    expect(records[0]?.visibility).toBe("private");
+  });
 });

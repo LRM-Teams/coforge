@@ -11,6 +11,7 @@ export const APP_ERROR_CODES = [
   "RELEASE_FEED_UNAVAILABLE",
   "AGENT_CONTEXT_UNAVAILABLE",
   "AGENT_NOT_VISIBLE",
+  "AGENT_DM_RESTRICTED",
 ] as const;
 
 export type AppErrorCode = (typeof APP_ERROR_CODES)[number];

@@ -93,6 +93,11 @@
   "agent_form_api_key_required": "CoForge runtime requires an API key.",
   "agent_form_runtime_unavailable": "That runtime is not available on the selected Computer in this Workspace. Confirm the Computer is bound here, choose CoForge (or Pi with a concrete model), and keep the Daemon online.",
   "agent_form_computer_required": "Select a Computer that is connected to the current Workspace.",
+  "agent_form_visibility": "Visibility",
+  "agent_form_visibility_public": "Public",
+  "agent_form_visibility_public_hint": "Visible to everyone in the Workspace.",
+  "agent_form_visibility_private": "Private",
+  "agent_form_visibility_private_hint": "Visible only to you, your Agents, and Workspace owners/admins.",
   "agent_profile_id": "Agent ID",
   "agent_profile_display_name": "Display name",
   "agent_profile_description": "Description",
@@ -217,6 +222,47 @@
   "agent_profile_edit_display_name": "Edit display name",
   "agent_profile_edit_description": "Edit description",
   "agent_profile_edit_role": "Edit role",
+  "agent_profile_visibility": "Visibility",
+  "agent_profile_edit_visibility": "Edit visibility",
+  "agent_visibility_label_public": "Public",
+  "agent_visibility_label_private": "Private",
+  "agent_visibility_confirm_private_title": "Make {name} private?",
+  "agent_visibility_confirm_private_intro_self": "Only you, your Agents, and Workspace owners/admins will be able to see {agent}.",
+  "agent_visibility_confirm_private_intro_other": "Only {creator}, their Agents, and Workspace owners/admins will be able to see {agent}.",
+  "agent_visibility_confirm_private_channels": [
+    {
+      "declarations": ["input count", "input names", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "It will leave {count} channel: {names}",
+        "countPlural=other": "It will leave {count} channels: {names}"
+      }
+    }
+  ],
+  "agent_visibility_confirm_private_no_channels": "It is not currently a member of any channel.",
+  "agent_visibility_confirm_private_dms": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} person will no longer be able to message it; their history stays readable.",
+        "countPlural=other": "{count} people will no longer be able to message it; their history stays readable."
+      }
+    }
+  ],
+  "agent_visibility_confirm_private_no_dms": "No one else has a direct message with it.",
+  "agent_visibility_confirm_private_tasks": "Tasks already assigned to it stay assigned.",
+  "agent_visibility_confirm_private_submit": "Make private",
+  "agent_visibility_confirm_private_pending": "Making private…",
+  "agent_visibility_confirm_public_title": "Make {name} public?",
+  "agent_visibility_confirm_public_body": "Everyone in the Workspace will be able to see this Agent again; its Activity from the private period becomes visible. It re-joins #general.",
+  "agent_visibility_confirm_public_submit": "Make public",
+  "agent_visibility_confirm_public_pending": "Making public…",
+  "agent_visibility_change_error": "Visibility could not be changed. Try again.",
+  "agent_visibility_change_access_denied": "Only the creator or a Workspace owner/admin can change this Agent's visibility.",
+  "agent_visibility_changed_private_toast": "{name} is now private.",
+  "agent_visibility_changed_public_toast": "{name} is now public.",
+  "agent_dm_restricted_notice": "This Agent is private. Messages can't be sent here.",
   "agent_profile_save": "Save",
   "agent_profile_saving": "Saving…",
   "agent_profile_save_error": "Could not save. Try again.",
