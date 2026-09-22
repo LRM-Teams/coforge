@@ -1049,6 +1049,61 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
     expect(
       (await pushSubscriptions.notificationForMessage(unfollowedNotice.id))?.subscriptions,
     ).toEqual([]);
+
+    // An Agent's first reply enrolls the root author, while a later reply respects that author's
+    // explicit unfollow just as the human send path does.
+    const agentOnlyRoot = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "agent-only root",
+    });
+    await repo.sendAgentMessage(
+      general.id,
+      agent.id,
+      "first Agent reply",
+      undefined,
+      agentOnlyRoot.id.slice(0, 8),
+    );
+    const aliceMember = await db.conversationMember.findFirstOrThrow({
+      where: { conversationId: general.id, userId: alice.id },
+      select: { id: true },
+    });
+    expect(
+      await db.threadFollow.findUnique({
+        where: {
+          memberId_rootMessageId: {
+            memberId: aliceMember.id,
+            rootMessageId: agentOnlyRoot.id,
+          },
+        },
+      }),
+    ).not.toBeNull();
+    await channels.setUserThreadFollowed(
+      workspace.id,
+      alice.id,
+      general.id,
+      agentOnlyRoot.id,
+      false,
+    );
+    await repo.sendAgentMessage(
+      general.id,
+      agent.id,
+      "second Agent reply",
+      undefined,
+      agentOnlyRoot.id.slice(0, 8),
+    );
+    expect(
+      await db.threadFollow.findUnique({
+        where: {
+          memberId_rootMessageId: {
+            memberId: aliceMember.id,
+            rootMessageId: agentOnlyRoot.id,
+          },
+        },
+      }),
+    ).toBeNull();
   } finally {
     await db.workspace.deleteMany({ where: { id: { in: [workspace.id, foreignWorkspace.id] } } });
     await db.computer.deleteMany({ where: { ownerId: alice.id } });
