@@ -37,13 +37,13 @@ test("isDevSkipAuthEnabled is always off in production", () => {
   ).toBe(false);
 });
 
-test("requireBrowserUser returns the fixed dev user without a session cookie", () => {
+test("requireBrowserUser returns the fixed dev user without a session cookie", async () => {
   const previous = process.env.COFORGE_DEV_SKIP_AUTH;
   const previousNodeEnv = process.env.NODE_ENV;
   process.env.COFORGE_DEV_SKIP_AUTH = "1";
   process.env.NODE_ENV = "development";
   try {
-    expect(requireBrowserUser(undefined)).toEqual(DEV_BROWSER_USER);
+    expect(await requireBrowserUser(undefined)).toEqual(DEV_BROWSER_USER);
   } finally {
     if (previous === undefined) delete process.env.COFORGE_DEV_SKIP_AUTH;
     else process.env.COFORGE_DEV_SKIP_AUTH = previous;
@@ -52,7 +52,7 @@ test("requireBrowserUser returns the fixed dev user without a session cookie", (
   }
 });
 
-test("optionalBrowserUser returns the fixed dev user without Authing config", () => {
+test("optionalBrowserUser returns the fixed dev user without Authing config", async () => {
   const previous = process.env.COFORGE_DEV_SKIP_AUTH;
   const previousNodeEnv = process.env.NODE_ENV;
   const previousSecret = process.env.COFORGE_SESSION_SECRET;
@@ -60,7 +60,7 @@ test("optionalBrowserUser returns the fixed dev user without Authing config", ()
   process.env.COFORGE_DEV_SKIP_AUTH = "1";
   process.env.NODE_ENV = "development";
   try {
-    expect(optionalBrowserUser(undefined)).toEqual(DEV_BROWSER_USER);
+    expect(await optionalBrowserUser(undefined)).toEqual(DEV_BROWSER_USER);
   } finally {
     if (previous === undefined) delete process.env.COFORGE_DEV_SKIP_AUTH;
     else process.env.COFORGE_DEV_SKIP_AUTH = previous;

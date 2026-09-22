@@ -5,5 +5,5 @@ import { optionalBrowserUser } from "./require-user.server";
 
 export const getAuthenticationStatus = createServerFn({ method: "GET" }).handler(async () => {
   setResponseHeader("cache-control", "no-store");
-  return optionalBrowserUser(getRequest().headers.get("cookie") ?? undefined) !== null;
+  return (await optionalBrowserUser(getRequest().headers.get("cookie") ?? undefined)) !== null;
 });

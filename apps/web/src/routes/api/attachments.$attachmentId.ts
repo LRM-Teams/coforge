@@ -21,7 +21,7 @@ export const Route = createFileRoute("/api/attachments/$attachmentId")({
 });
 
 type AttachmentDownloadDependencies = {
-  authenticate(cookieHeader: string | undefined): { id: string };
+  authenticate(cookieHeader: string | undefined): { id: string } | Promise<{ id: string }>;
   database(): PrismaClient | null | undefined;
   read(
     db: PrismaClient,
@@ -51,7 +51,7 @@ export async function handleAttachmentDownload(
   params: { attachmentId: string },
   dependencies: AttachmentDownloadDependencies = attachmentDownloadDependencies,
 ): Promise<Response> {
-  const user = dependencies.authenticate(request.headers.get("cookie") ?? undefined);
+  const user = await dependencies.authenticate(request.headers.get("cookie") ?? undefined);
   const db = dependencies.database();
   if (!db) return new Response("persistence unavailable", { status: 503 });
   try {

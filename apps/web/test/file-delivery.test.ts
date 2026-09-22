@@ -7,17 +7,54 @@ import {
   createFileDelivery,
   FILE_DELIVERY_TTL_SECONDS,
   FileDeliveryConfigError,
+  fileDeliveryStatus,
+  getFileDelivery,
   readFileDeliveryConfig,
+  rememberFileDeliveryConfig,
 } from "../src/server/files/file-delivery.server";
 
-test("delivery is disabled when the CDN URL is unset", () => {
-  expect(readFileDeliveryConfig({})).toBeNull();
-  expect(createFileDelivery(readFileDeliveryConfig({}))).toBeNull();
+test("delivery is disabled when the CDN URL is unset", async () => {
+  expect(await readFileDeliveryConfig({})).toBeNull();
+  expect(createFileDelivery(await readFileDeliveryConfig({}))).toBeNull();
 });
 
-test("parses a configured CDN delivery URL and key", () => {
+test("an unpublished secret file is not reported as delivery disabled", () => {
+  const previousUrl = process.env.COFORGE_FILE_DELIVERY_URL;
+  const previousKey = process.env.COFORGE_FILE_DELIVERY_KEY;
+  const previousKeyFile = process.env.COFORGE_FILE_DELIVERY_KEY_FILE;
+  // Publishing null is the only public way to drop a config remembered by an earlier test.
+  // The lookup below must not treat that as "CDN off", and must not read the secret file.
+  rememberFileDeliveryConfig(null);
+  process.env.COFORGE_FILE_DELIVERY_URL = "https://files-staging.coforge.cn";
+  delete process.env.COFORGE_FILE_DELIVERY_KEY;
+  process.env.COFORGE_FILE_DELIVERY_KEY_FILE = "/run/secrets/coforge_file_delivery_key";
+  try {
+    expect(fileDeliveryStatus()).toEqual({ state: "unavailable" });
+    expect(getFileDelivery()).toBeNull();
+    rememberFileDeliveryConfig({
+      baseUrl: "https://files-staging.coforge.cn",
+      key: "primarykey",
+    });
+    expect(fileDeliveryStatus()).toEqual({ state: "configured" });
+    expect(getFileDelivery()?.signedUrl("workspaces/w/attachments/a/original").url).toContain(
+      "auth_key=",
+    );
+  } finally {
+    restoreEnv("COFORGE_FILE_DELIVERY_URL", previousUrl);
+    restoreEnv("COFORGE_FILE_DELIVERY_KEY", previousKey);
+    restoreEnv("COFORGE_FILE_DELIVERY_KEY_FILE", previousKeyFile);
+    rememberFileDeliveryConfig(null);
+  }
+});
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+test("parses a configured CDN delivery URL and key", async () => {
   expect(
-    readFileDeliveryConfig({
+    await readFileDeliveryConfig({
       COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn",
       COFORGE_FILE_DELIVERY_KEY: "primarykey",
     }),
@@ -27,49 +64,51 @@ test("parses a configured CDN delivery URL and key", () => {
   });
 });
 
-test("strips exactly one trailing slash from the CDN URL", () => {
+test("strips exactly one trailing slash from the CDN URL", async () => {
   expect(
-    readFileDeliveryConfig({
-      COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn/",
-      COFORGE_FILE_DELIVERY_KEY: "k",
-    })?.baseUrl,
+    (
+      await readFileDeliveryConfig({
+        COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn/",
+        COFORGE_FILE_DELIVERY_KEY: "k",
+      })
+    )?.baseUrl,
   ).toBe("https://files-staging.coforge.cn");
 });
 
-test("rejects http, a path/query/hash, and a missing key", () => {
-  expect(() =>
+test("rejects http, a path/query/hash, and a missing key", async () => {
+  await expect(
     readFileDeliveryConfig({
       COFORGE_FILE_DELIVERY_URL: "http://files-staging.coforge.cn",
       COFORGE_FILE_DELIVERY_KEY: "k",
     }),
-  ).toThrow(FileDeliveryConfigError);
+  ).rejects.toThrow(FileDeliveryConfigError);
 
-  expect(() =>
+  await expect(
     readFileDeliveryConfig({
       COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn/objects",
       COFORGE_FILE_DELIVERY_KEY: "k",
     }),
-  ).toThrow(FileDeliveryConfigError);
+  ).rejects.toThrow(FileDeliveryConfigError);
 
-  expect(() =>
+  await expect(
     readFileDeliveryConfig({
       COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn?x=1",
       COFORGE_FILE_DELIVERY_KEY: "k",
     }),
-  ).toThrow(FileDeliveryConfigError);
+  ).rejects.toThrow(FileDeliveryConfigError);
 
-  expect(() =>
+  await expect(
     readFileDeliveryConfig({
       COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn#frag",
       COFORGE_FILE_DELIVERY_KEY: "k",
     }),
-  ).toThrow(FileDeliveryConfigError);
+  ).rejects.toThrow(FileDeliveryConfigError);
 
-  expect(() =>
+  await expect(
     readFileDeliveryConfig({
       COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn",
     }),
-  ).toThrow(FileDeliveryConfigError);
+  ).rejects.toThrow(FileDeliveryConfigError);
 });
 
 test("Type A signing matches Alibaba Cloud's algorithm against a fixed clock, key, and rand", () => {
@@ -116,9 +155,9 @@ describe("delivery must not be the application's own origin", () => {
   // cannot be sandboxed). On the application's own host such a document would reach the session
   // cookies, which is exactly what the inline-type refusal exists to prevent, so a deployment that
   // points delivery at that host is refused rather than trusted.
-  test("a delivery origin different from the application origin is accepted", () => {
+  test("a delivery origin different from the application origin is accepted", async () => {
     expect(
-      readFileDeliveryConfig({
+      await readFileDeliveryConfig({
         COFORGE_FILE_DELIVERY_URL: "https://files.coforge.cn",
         COFORGE_FILE_DELIVERY_KEY: "k".repeat(32),
         AUTHING_REDIRECT_URI: "https://app.coforge.cn/auth/callback",
@@ -126,19 +165,19 @@ describe("delivery must not be the application's own origin", () => {
     ).toEqual({ baseUrl: "https://files.coforge.cn", key: "k".repeat(32) });
   });
 
-  test("a delivery origin equal to the application origin is refused", () => {
-    expect(() =>
+  test("a delivery origin equal to the application origin is refused", async () => {
+    await expect(
       readFileDeliveryConfig({
         COFORGE_FILE_DELIVERY_URL: "https://app.coforge.cn",
         COFORGE_FILE_DELIVERY_KEY: "k".repeat(32),
         AUTHING_REDIRECT_URI: "https://app.coforge.cn/auth/callback",
       } as NodeJS.ProcessEnv),
-    ).toThrow("must not be the application's own origin");
+    ).rejects.toThrow("must not be the application's own origin");
   });
 
-  test("without a configured application origin there is nothing to compare", () => {
+  test("without a configured application origin there is nothing to compare", async () => {
     expect(
-      readFileDeliveryConfig({
+      await readFileDeliveryConfig({
         COFORGE_FILE_DELIVERY_URL: "https://files.coforge.cn",
         COFORGE_FILE_DELIVERY_KEY: "k".repeat(32),
       } as NodeJS.ProcessEnv),

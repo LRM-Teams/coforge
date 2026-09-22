@@ -17,23 +17,23 @@ import { createOssFileStorage } from "../src/server/files/oss-file-storage.serve
 import { storeUserAvatar } from "../src/server/profiles/user-avatar.server";
 
 describe("file storage configuration", () => {
-  test("defaults to the local directory under the working directory", () => {
-    expect(readFileStorageConfig({})).toEqual({
+  test("defaults to the local directory under the working directory", async () => {
+    expect(await readFileStorageConfig({})).toEqual({
       kind: "local",
       root: join(process.cwd(), ".data", "files"),
     });
-    expect(readFileStorageConfig({ COFORGE_FILE_STORAGE_DIR: "/data/files" })).toEqual({
+    expect(await readFileStorageConfig({ COFORGE_FILE_STORAGE_DIR: "/data/files" })).toEqual({
       kind: "local",
       root: "/data/files",
     });
   });
 
-  test("oss requires a bucket and region and accepts either region spelling", () => {
-    expect(() => readFileStorageConfig({ COFORGE_FILE_STORAGE: "oss" })).toThrow(
+  test("oss requires a bucket and region and accepts either region spelling", async () => {
+    await expect(readFileStorageConfig({ COFORGE_FILE_STORAGE: "oss" })).rejects.toThrow(
       new FileStorageConfigError("COFORGE_OSS_BUCKET is required when COFORGE_FILE_STORAGE=oss"),
     );
     expect(
-      readFileStorageConfig({
+      await readFileStorageConfig({
         COFORGE_FILE_STORAGE: "oss",
         COFORGE_OSS_BUCKET: "coforge-files-staging",
         COFORGE_OSS_REGION: "oss-cn-beijing",
@@ -53,7 +53,7 @@ describe("file storage configuration", () => {
     try {
       await Bun.write(join(directory, "id"), "AKID\n");
       await Bun.write(join(directory, "secret"), "SECRET\n");
-      const config = readFileStorageConfig({
+      const config = await readFileStorageConfig({
         COFORGE_FILE_STORAGE: "oss",
         COFORGE_OSS_BUCKET: "b",
         COFORGE_OSS_REGION: "cn-beijing",
@@ -62,15 +62,15 @@ describe("file storage configuration", () => {
       });
       if (config.kind !== "oss") throw new Error("expected oss config");
       expect(config.accessKey).toEqual({ accessKeyId: "AKID", accessKeySecret: "SECRET" });
-      expect(() =>
+      await expect(
         readFileStorageConfig({
           COFORGE_FILE_STORAGE: "oss",
           COFORGE_OSS_BUCKET: "b",
           COFORGE_OSS_REGION: "cn-beijing",
           ALIBABA_CLOUD_ACCESS_KEY_ID: "AKID",
         }),
-      ).toThrow(FileStorageConfigError);
-      expect(() =>
+      ).rejects.toThrow(FileStorageConfigError);
+      await expect(
         readFileStorageConfig({
           COFORGE_FILE_STORAGE: "oss",
           COFORGE_OSS_BUCKET: "b",
@@ -79,14 +79,14 @@ describe("file storage configuration", () => {
           ALIBABA_CLOUD_ACCESS_KEY_ID_FILE: join(directory, "id"),
           ALIBABA_CLOUD_ACCESS_KEY_SECRET: "SECRET",
         }),
-      ).toThrow(FileStorageConfigError);
+      ).rejects.toThrow(FileStorageConfigError);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });
 
-  test("rejects an unknown storage kind", () => {
-    expect(() => readFileStorageConfig({ COFORGE_FILE_STORAGE: "s3" })).toThrow(
+  test("rejects an unknown storage kind", async () => {
+    await expect(readFileStorageConfig({ COFORGE_FILE_STORAGE: "s3" })).rejects.toThrow(
       FileStorageConfigError,
     );
   });

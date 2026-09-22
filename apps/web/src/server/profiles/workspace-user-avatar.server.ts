@@ -9,14 +9,16 @@ export async function handleWorkspaceUserAvatar(
   workspaceId: string,
   userId: string,
   dependencies: {
-    authenticate?: (cookie: string | undefined) => { id: string } | null;
+    authenticate?: (
+      cookie: string | undefined,
+    ) => { id: string } | null | Promise<{ id: string } | null>;
     database?: () => PrismaClient | null | undefined;
     read?: typeof readUserAvatar;
   } = {},
 ) {
   try {
     const authenticate = dependencies.authenticate ?? ((cookie) => optionalBrowserUser(cookie));
-    const viewer = authenticate(request.headers.get("cookie") ?? undefined);
+    const viewer = await authenticate(request.headers.get("cookie") ?? undefined);
     if (!viewer) throw new AppError("ACCESS_DENIED");
     const db = (dependencies.database ?? getDatabaseClient)();
     if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");

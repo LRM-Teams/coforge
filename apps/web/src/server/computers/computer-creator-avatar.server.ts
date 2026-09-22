@@ -30,7 +30,7 @@ export function computerCreatorAvatarUrl(
 
 const scopeSchema = z.object({ computerId: z.uuid(), workspaceId: z.uuid() });
 type Dependencies = {
-  authenticate(cookie: string | undefined): { id: string };
+  authenticate(cookie: string | undefined): { id: string } | Promise<{ id: string }>;
   database(): PrismaClient | null | undefined;
   read(
     db: PrismaClient,
@@ -39,8 +39,8 @@ type Dependencies = {
 };
 
 const dependencies: Dependencies = {
-  authenticate(cookie) {
-    const user = optionalBrowserUser(cookie);
+  async authenticate(cookie) {
+    const user = await optionalBrowserUser(cookie);
     if (!user) throw new AppError("ACCESS_DENIED");
     return user;
   },
@@ -54,7 +54,7 @@ export async function handleComputerCreatorAvatar(
   deps = dependencies,
 ) {
   try {
-    const user = deps.authenticate(request.headers.get("cookie") ?? undefined);
+    const user = await deps.authenticate(request.headers.get("cookie") ?? undefined);
     const scope = scopeSchema.safeParse({
       computerId,
       workspaceId: new URL(request.url).searchParams.get("workspaceId"),

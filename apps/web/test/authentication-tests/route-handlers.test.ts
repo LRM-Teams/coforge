@@ -19,15 +19,15 @@ test("login start returns a safe 503 when Authing config is missing", async () =
   delete process.env.COFORGE_SESSION_SECRET;
 
   try {
-    const response = loginStartHandler({
+    const response = await loginStartHandler({
       request: new Request("http://localhost:3000/auth/login"),
     });
     expect(response).toBeInstanceOf(Response);
-    expect((response as Response).status).toBe(503);
-    expect(await (response as Response).json()).toEqual({
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
       code: "TEMPORARILY_UNAVAILABLE",
     });
-    expect((response as Response).headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("cache-control")).toBe("no-store");
   } finally {
     restoreEnv(previous);
   }
@@ -37,7 +37,7 @@ test("current user returns a safe 503 when the session secret is missing", async
   const previous = process.env.COFORGE_SESSION_SECRET;
   delete process.env.COFORGE_SESSION_SECRET;
   try {
-    const response = currentUserHandler({
+    const response = await currentUserHandler({
       request: new Request("http://localhost:3000/api/me"),
     });
     expect(response.status).toBe(503);

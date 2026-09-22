@@ -25,7 +25,9 @@ import {
  * The object-key layout is the same in either bucket, so moving a deployment onto the image
  * bucket is copying objects — no key, database row, or client contract changes.
  */
-export function readPublicImageStorageConfig(env: NodeJS.ProcessEnv): FileStorageConfig | null {
+export async function readPublicImageStorageConfig(
+  env: NodeJS.ProcessEnv,
+): Promise<FileStorageConfig | null> {
   const bucket = env.COFORGE_IMAGE_OSS_BUCKET?.trim();
   if (!bucket) {
     // A deployment that publishes public image URLs must have the bucket the image domain reads;
@@ -37,7 +39,7 @@ export function readPublicImageStorageConfig(env: NodeJS.ProcessEnv): FileStorag
     }
     return null;
   }
-  const privateStore = readFileStorageConfig(env);
+  const privateStore = await readFileStorageConfig(env);
   if (privateStore.kind !== "oss") {
     throw new FileStorageConfigError("COFORGE_IMAGE_OSS_BUCKET requires COFORGE_FILE_STORAGE=oss");
   }
@@ -56,7 +58,7 @@ let current: Promise<FileStorage> | undefined;
  * uploads keep working unchanged and the authenticated routes keep serving them.
  */
 export function getPublicImageStorage(): Promise<FileStorage> {
-  current ??= createPublicImageStorage(readPublicImageStorageConfig(process.env));
+  current ??= readPublicImageStorageConfig(process.env).then(createPublicImageStorage);
   return current;
 }
 

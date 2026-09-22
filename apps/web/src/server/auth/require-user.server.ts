@@ -4,13 +4,13 @@ import { readBrowserSession, type BrowserUser } from "./browser-login.server";
 import { AuthConfigError, readSessionSecret } from "./config.server";
 import { devBrowserUser } from "./dev-skip-auth.server";
 
-export function requireBrowserUser(cookieHeader: string | undefined): BrowserUser {
+export async function requireBrowserUser(cookieHeader: string | undefined): Promise<BrowserUser> {
   const skipped = devBrowserUser();
   if (skipped) return skipped;
 
   let sessionSecret: string;
   try {
-    sessionSecret = readSessionSecret(process.env);
+    sessionSecret = await readSessionSecret(process.env);
   } catch (error) {
     if (error instanceof AuthConfigError) throw redirect({ href: "/login" });
     throw error;
@@ -23,13 +23,15 @@ export function requireBrowserUser(cookieHeader: string | undefined): BrowserUse
   return user;
 }
 
-export function optionalBrowserUser(cookieHeader: string | undefined): BrowserUser | null {
+export async function optionalBrowserUser(
+  cookieHeader: string | undefined,
+): Promise<BrowserUser | null> {
   const skipped = devBrowserUser();
   if (skipped) return skipped;
 
   try {
     return readBrowserSession({
-      sessionSecret: readSessionSecret(process.env),
+      sessionSecret: await readSessionSecret(process.env),
       cookieHeader: cookieHeader ?? "",
     });
   } catch (error) {

@@ -169,7 +169,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         let envVars;
         try {
           const config = parseAgentRuntimeConfig(agent.runtimeConfig);
-          const encryptionKey = readOptionalAgentRuntimeCredentialEncryptionKey(Bun.env);
+          const encryptionKey = await readOptionalAgentRuntimeCredentialEncryptionKey(Bun.env);
           providerConfig = await new AgentRuntimeCredentials(
             new PrismaAgentRuntimeCredentialRepository(db),
             encryptionKey,

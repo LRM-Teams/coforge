@@ -61,7 +61,9 @@ export class ManageAgents {
     private readonly runtimeControl: AgentRuntimeControl,
     private readonly availability: RuntimeAvailability,
     private readonly runtimeLock: AgentRuntimeLock,
-    private readonly credentials?: () => Pick<AgentRuntimeCredentials, "encrypt">,
+    private readonly credentials?: () =>
+      | Pick<AgentRuntimeCredentials, "encrypt">
+      | Promise<Pick<AgentRuntimeCredentials, "encrypt">>,
   ) {}
 
   list(principal: AgentPrincipal) {
@@ -246,7 +248,7 @@ export class ManageAgents {
   async #encrypt(agentId: string, providerId: string, apiKey: string) {
     if (!providerId) throw new Error("model provider is required for an API key");
     if (!this.credentials) throw new Error("Agent runtime credential encryption is unavailable");
-    return this.credentials().encrypt(agentId, providerId, apiKey);
+    return (await this.credentials()).encrypt(agentId, providerId, apiKey);
   }
 }
 

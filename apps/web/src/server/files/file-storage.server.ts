@@ -70,7 +70,7 @@ export type FileStorageConfig =
  * `ALIBABA_CLOUD_ACCESS_KEY_ID`/`ALIBABA_CLOUD_ACCESS_KEY_SECRET` (each also readable from a
  * `*_FILE` Docker secret) or, when neither is set, from the SDK's default credential chain.
  */
-export function readFileStorageConfig(env: NodeJS.ProcessEnv): FileStorageConfig {
+export async function readFileStorageConfig(env: NodeJS.ProcessEnv): Promise<FileStorageConfig> {
   const kind = env.COFORGE_FILE_STORAGE?.trim() || "local";
   if (kind === "local") {
     return {
@@ -81,10 +81,10 @@ export function readFileStorageConfig(env: NodeJS.ProcessEnv): FileStorageConfig
   if (kind !== "oss") {
     throw new FileStorageConfigError(`COFORGE_FILE_STORAGE must be "local" or "oss"`);
   }
-  const bucket = required(env, "COFORGE_OSS_BUCKET");
-  const region = required(env, "COFORGE_OSS_REGION");
-  const accessKeyId = optional(env, "ALIBABA_CLOUD_ACCESS_KEY_ID");
-  const accessKeySecret = optional(env, "ALIBABA_CLOUD_ACCESS_KEY_SECRET");
+  const bucket = await required(env, "COFORGE_OSS_BUCKET");
+  const region = await required(env, "COFORGE_OSS_REGION");
+  const accessKeyId = await optional(env, "ALIBABA_CLOUD_ACCESS_KEY_ID");
+  const accessKeySecret = await optional(env, "ALIBABA_CLOUD_ACCESS_KEY_SECRET");
   if (Boolean(accessKeyId) !== Boolean(accessKeySecret)) {
     throw new FileStorageConfigError(
       "ALIBABA_CLOUD_ACCESS_KEY_ID and ALIBABA_CLOUD_ACCESS_KEY_SECRET must be set together",
@@ -104,7 +104,7 @@ let current: Promise<FileStorage> | undefined;
 
 /** The process-wide storage selected by the environment, created on first use. */
 export function getFileStorage(): Promise<FileStorage> {
-  current ??= createFileStorage(readFileStorageConfig(process.env));
+  current ??= readFileStorageConfig(process.env).then(createFileStorage);
   return current;
 }
 
@@ -152,13 +152,13 @@ export class LocalFileStorage implements FileStorage {
   }
 }
 
-function required(env: NodeJS.ProcessEnv, name: string): string {
-  const value = optional(env, name);
+async function required(env: NodeJS.ProcessEnv, name: string): Promise<string> {
+  const value = await optional(env, name);
   if (!value) throw new FileStorageConfigError(`${name} is required when COFORGE_FILE_STORAGE=oss`);
   return value;
 }
 
-function optional(env: NodeJS.ProcessEnv, name: string): string | undefined {
+function optional(env: NodeJS.ProcessEnv, name: string): Promise<string | undefined> {
   return readEnvSecret(env, name, (message) => {
     throw new FileStorageConfigError(message);
   });
