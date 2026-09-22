@@ -47,11 +47,16 @@ export class FileBindingStore implements BindingStore {
         await file.close();
       }
       await rename(temporary, this.#path);
-      const directory = await open(this.directory, "r");
-      try {
-        await directory.sync();
-      } finally {
-        await directory.close();
+      // Windows cannot fsync a directory handle (EPERM). The renamed file was already
+      // synced above; skipping the directory sync keeps the registry durable without
+      // failing the whole Coordinator configure path on win32.
+      if (process.platform !== "win32") {
+        const directory = await open(this.directory, "r");
+        try {
+          await directory.sync();
+        } finally {
+          await directory.close();
+        }
       }
     } finally {
       await rm(temporary, { force: true });

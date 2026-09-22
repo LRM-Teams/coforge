@@ -530,6 +530,14 @@ export class ComputerUpdater {
       const temporary = `${launcherPath}.${crypto.randomUUID()}.tmp`;
       await writeFile(temporary, launcher, { mode: 0o700 });
       await rename(temporary, launcherPath);
+      // Same `active` → `versions/<current>` pointer as Unix: Daemon/Computer resolve
+      // `installRoot/active/coforge-computer.exe`. Junction needs no elevation on Windows.
+      // Rename-over an existing junction fails with EPERM; replace by remove then rename.
+      const activeLink = join(this.#installRoot, "active");
+      const temporaryActive = `${activeLink}.${crypto.randomUUID()}.tmp`;
+      await symlink(join("versions", state.current), temporaryActive, "junction");
+      await rm(activeLink, { recursive: true, force: true });
+      await rename(temporaryActive, activeLink);
       return;
     }
     const activeLink = join(this.#installRoot, "active");

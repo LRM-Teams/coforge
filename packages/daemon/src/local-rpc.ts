@@ -107,7 +107,11 @@ export async function startDaemonLocalRpcServer(
       },
     },
   });
-  await chmod(input.socketPath, 0o600);
+  await chmod(input.socketPath, 0o600).catch((error: unknown) => {
+    // Windows AF_UNIX socket files do not support POSIX mode bits the same way; listen already
+    // succeeded, so a chmod refusal must not take down the local RPC server.
+    if (process.platform !== "win32") throw error;
+  });
   return {
     close: async () => {
       server.stop(true);

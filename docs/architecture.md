@@ -126,7 +126,7 @@ packages/
 
 Members 是 Workspace 内的人员与 Agent 目录，不是当前用户拥有的 Agent 管理列表。经用户批准，Workspace 真人成员可读取同一 Workspace 全体人员与 Agent 的名称、简介、类型，以及 Agent 所绑定且仍关联此 Workspace 的电脑名称。目录仅返回显式选择的基本字段，不返回邮箱、头像存储键、运行配置或凭据。目录可见性不授予 Agent 私聊、资料管理、配置或重启权限；这些操作继续使用原有 owner 授权接口。无需新增 schema、邀请或角色模型。
 
-`coforge-computer` 与 `coforge-daemon` 通过 Unix domain socket 通信。不得为了方便而给本地管理接口开放 TCP 监听端口。
+`coforge-computer` 与 `coforge-daemon` 通过本地 AF_UNIX 文件 socket（各平台均位于 Daemon state directory 下的 `daemon.sock`）通信。不得为了方便而给本地管理接口开放 TCP 监听端口。Windows 曾规划 named pipe；当前 Bun 运行时对 `unix:` 仅可靠支持文件系统 AF_UNIX 路径，因此 Windows 与 Linux/macOS 统一使用 `daemon.sock`。
 
 ## 4. 云端职责
 
@@ -699,7 +699,7 @@ Agent 1 ──执行于──> 1 CoForge SDK session 或外部 runtime process
 
 每个逻辑 Workspace binding 由其独立 daemon instance 直接维持云端连接。CoForge Agent session 与该 instance 同进程，外部 provider execution 才是其独立 child process；同一 Workspace 的重启不会迁移到其他 instance，新的运行实例仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
 
-每个 coforge-daemon instance 负责一个配置、WSS 生命周期、SDK session 生命周期、外部子进程创建/回收和版本兼容，但不直接解析各家 Agent 的输出协议。Coordinator 不在 instance 之间迁移运行时。替换同一 Agent 时必须先撤销旧本地权限；外部 child 需要有界等待 graceful stop，超时后终止整个进程树，并等待 direct child exited 完成父进程回收，旧 child 未确认退出前禁止新 launch。CoForge SDK session 通过 SDK abort/dispose 结束。Unix runtime 使用独立进程组并按组终止。Windows 在引入 Job Object 并能确认整个进程树为空之前 fail closed，不启动外部 Agent，不能用只检查根 PID 的 `taskkill /T` 结果伪装完整回收。MVP 不设置 capacity pool、排队或跨 Workspace 调度。
+每个 coforge-daemon instance 负责一个配置、WSS 生命周期、SDK session 生命周期、外部子进程创建/回收和版本兼容，但不直接解析各家 Agent 的输出协议。Coordinator 不在 instance 之间迁移运行时。替换同一 Agent 时必须先撤销旧本地权限；外部 child 需要有界等待 graceful stop，超时后终止整个进程树，并等待 direct child exited 完成父进程回收，旧 child 未确认退出前禁止新 launch。CoForge SDK session 通过 SDK abort/dispose 结束。Unix runtime 使用独立进程组并按组终止。Windows 的 Workspace daemon 由 Coordinator 直接 `spawn` 为独立 OS 子进程（`WindowsWorkspaceInstance`），并用 state directory 内的 durable invocation id 支持崩溃恢复；因没有 systemd/launchd 级 `Restart`/`KeepAlive`，Coordinator 以约 3s 轮询对 enabled binding 做 `reconcile`（死后重新 `ensureStarted`），子进程自身的 health journal 仍负责 crash-loop latch。安装侧与 Unix 一样维护 `install/active` → `versions/<current>` 指针（Windows 为 directory junction，并另有 PATH 用的 `.cmd` shim）。外部 Agent 进程树在引入 Job Object 并能确认整树为空之前仍 fail closed，不能用只检查根 PID 的 `taskkill /T` 结果伪装完整回收。MVP 不设置 capacity pool、排队或跨 Workspace 调度。
 
 Computer 的云端在线状态由 daemon 的单条 Workspace WSS 连接实时派生；`online` 与 `last_seen_at` 不作为持久化真相。
 

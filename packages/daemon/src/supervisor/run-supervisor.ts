@@ -20,6 +20,8 @@ import { configureDaemonLogging } from "../platform/daemon-logging";
 import { COFORGE_DAEMON_VERSION } from "../version";
 import { SystemdWorkspaceInstance } from "./systemd-workspace-instance";
 import { LaunchdWorkspaceInstance } from "./launchd-workspace-instance";
+import { WindowsWorkspaceInstance } from "./windows-workspace-instance";
+import { startWindowsWorkspaceReconcileLoop } from "./windows-workspace-reconcile";
 import { workspaceStateDirectory, type WorkspaceInstance } from "./workspace-instance";
 import {
   WorkspaceHealthJournal,
@@ -175,11 +177,14 @@ async function runWithSupervisorLock(
       unitDirectory:
         process.platform === "darwin"
           ? join(stateDirectory, "launchd-workspaces")
-          : join(homedir(), ".config", "systemd", "user"),
+          : process.platform === "win32"
+            ? join(stateDirectory, "windows-workspaces")
+            : join(homedir(), ".config", "systemd", "user"),
       supervisorSocketPath: socketPath,
       daemonConnectionEndpoint: Bun.env.COFORGE_DAEMON_CONNECTION_ENDPOINT,
     };
     if (process.platform === "darwin") return new LaunchdWorkspaceInstance(config);
+    if (process.platform === "win32") return new WindowsWorkspaceInstance(config);
     if (process.platform !== "linux")
       throw new Error("per-Workspace OS containment is not implemented on this platform");
     return new SystemdWorkspaceInstance(config, async (args) => {
@@ -391,7 +396,9 @@ async function runWithSupervisorLock(
       },
       async instance(binding) {
         const observed = await workspaceInstance(binding.workspaceId).identity();
-        return observed && observed.mainPid > 0 ? observed.invocationId : null;
+        // Require `active`: a durable Windows record can keep mainPid after death; treating that
+        // as the live instance would skip ensureStarted and leave the Workspace down.
+        return observed?.active ? observed.invocationId : null;
       },
       // Per-Workspace, so a restart never reaches past its own target: an unscoped restart holds
       // each enabled binding in turn as the loop gets to it, not the whole machine at once. The
@@ -593,82 +600,102 @@ async function runWithSupervisorLock(
     // the normal resume handshake.
     for (const operation of await pendingUpgradeOperations())
       watchPendingUpgrade(operation.workspaceId, operation.requestId, operation.requestedAt);
-    rpc = await startDaemonLocalRpcServer({
-      socketPath,
-      version: COFORGE_DAEMON_VERSION,
-      validateCredential: async (value) => value.length > 0 && !(await Bun.file(holdPath).exists()),
-      credentials: {
-        load: (w, c) => scopedCredentials(w).load(w, c),
-        save: (w, c, key) => scopedCredentials(w).save(w, c, key),
-        delete: (w, c) => scopedCredentials(w).delete(w, c),
+    // Windows has no systemd/launchd Workspace restart; the Coordinator polls enabled bindings
+    // and re-runs ensureStarted when a child dies. Health latching stays in the child journal.
+    const windowsReconcile = startWindowsWorkspaceReconcileLoop(() => supervisor.reconcile(), {
+      onError: (error) => {
+        if (error instanceof WorkspaceRecoveryError) {
+          supervisorLogger.error("Windows Workspace reconcile incomplete: {error}", { error });
+          return;
+        }
+        supervisorLogger.error("Windows Workspace reconcile failed", {
+          event: "workspace:windows_reconcile_failed",
+          error_message: error instanceof Error ? error.message : String(error),
+        });
       },
-      runtime: {
-        configure: (config) => supervisor.configure(config),
-        hold: (reason) => fanOutRunnerHold("hold", reason),
-        release: () => fanOutRunnerHold("release", "upgrade"),
-        async command(method, request) {
-          if (method === "daemon:pause") await supervisor.pause();
-          else if (method === "daemon:resume") {
-            if (heldRecovery?.active) await heldRecovery.finish(request.requestId);
-            else await supervisor.resume();
-          } else if (method === "daemon:upgrade") {
-            if (!request.workspaceId || !request.expectedVersion)
-              throw new Error("upgrade requires workspace and expected version");
-            const created = await supervisor.recordUpgrade(
-              request.workspaceId,
-              request.requestId,
-              request.expectedVersion,
-            );
-            if (created) {
-              // Pushes down any settlement `recordUpgrade` just applied to the pending operation
-              // it replaced, in addition to the new one, without restarting this Workspace.
-              await refreshChildUpgradeConfig(request.workspaceId);
-              try {
-                await launchComputerUpgrade(request.requestId, request.expectedVersion, {
-                  stateDirectory,
-                });
-              } catch (error) {
-                // `recordUpgrade` already committed a "pending" operation for this request; a
-                // job that never started must not leave it sitting there for the full pending
-                // TTL, refusing every later upgrade in the meantime (the requirement this
-                // record exists for: never leave an operation pending when the launch itself is
-                // what failed).
-                const message = error instanceof Error ? error.message : String(error);
-                await completeUpgrade(request.workspaceId, request.requestId, {
-                  requestId: request.requestId,
-                  status: "failed",
-                  at: Date.now(),
-                  error: message,
-                  errorCode: UPGRADE_ERROR_CODE.LAUNCH_FAILED,
-                });
-                throw new UpgradeLaunchFailedError(message, { cause: error });
-              }
-              watchPendingUpgrade(request.workspaceId, request.requestId, Date.now());
-            }
-          } else if (method === "daemon:upgrade_ack") {
-            if (!request.workspaceId) throw new Error("upgrade acknowledgement requires workspace");
-            if (await supervisor.acknowledgeUpgrade(request.workspaceId, request.requestId))
-              // Drops the now-acknowledged operation from the child's local config too, or a
-              // later reconnect would keep re-reporting the same already-acknowledged result.
-              await refreshChildUpgradeConfig(request.workspaceId);
-          } else if (method !== "daemon:snapshot") {
-            const operation = method.slice("daemon:".length);
-            if (operation !== "start" && operation !== "stop" && operation !== "restart")
-              throw new Error("unknown lifecycle operation");
-            await supervisor.command(
-              operation,
-              request.workspaceId,
-              operation === "restart" ? request.requestId : undefined,
-            );
-          }
-          return snapshot();
+    });
+    try {
+      rpc = await startDaemonLocalRpcServer({
+        socketPath,
+        version: COFORGE_DAEMON_VERSION,
+        validateCredential: async (value) =>
+          value.length > 0 && !(await Bun.file(holdPath).exists()),
+        credentials: {
+          load: (w, c) => scopedCredentials(w).load(w, c),
+          save: (w, c, key) => scopedCredentials(w).save(w, c, key),
+          delete: (w, c) => scopedCredentials(w).delete(w, c),
         },
-      },
-    });
-    await new Promise<void>((resolve) => {
-      process.once("SIGTERM", () => resolve());
-      process.once("SIGINT", () => resolve());
-    });
+        runtime: {
+          configure: (config) => supervisor.configure(config),
+          hold: (reason) => fanOutRunnerHold("hold", reason),
+          release: () => fanOutRunnerHold("release", "upgrade"),
+          async command(method, request) {
+            if (method === "daemon:pause") await supervisor.pause();
+            else if (method === "daemon:resume") {
+              if (heldRecovery?.active) await heldRecovery.finish(request.requestId);
+              else await supervisor.resume();
+            } else if (method === "daemon:upgrade") {
+              if (!request.workspaceId || !request.expectedVersion)
+                throw new Error("upgrade requires workspace and expected version");
+              const created = await supervisor.recordUpgrade(
+                request.workspaceId,
+                request.requestId,
+                request.expectedVersion,
+              );
+              if (created) {
+                // Pushes down any settlement `recordUpgrade` just applied to the pending operation
+                // it replaced, in addition to the new one, without restarting this Workspace.
+                await refreshChildUpgradeConfig(request.workspaceId);
+                try {
+                  await launchComputerUpgrade(request.requestId, request.expectedVersion, {
+                    stateDirectory,
+                  });
+                } catch (error) {
+                  // `recordUpgrade` already committed a "pending" operation for this request; a
+                  // job that never started must not leave it sitting there for the full pending
+                  // TTL, refusing every later upgrade in the meantime (the requirement this
+                  // record exists for: never leave an operation pending when the launch itself is
+                  // what failed).
+                  const message = error instanceof Error ? error.message : String(error);
+                  await completeUpgrade(request.workspaceId, request.requestId, {
+                    requestId: request.requestId,
+                    status: "failed",
+                    at: Date.now(),
+                    error: message,
+                    errorCode: UPGRADE_ERROR_CODE.LAUNCH_FAILED,
+                  });
+                  throw new UpgradeLaunchFailedError(message, { cause: error });
+                }
+                watchPendingUpgrade(request.workspaceId, request.requestId, Date.now());
+              }
+            } else if (method === "daemon:upgrade_ack") {
+              if (!request.workspaceId)
+                throw new Error("upgrade acknowledgement requires workspace");
+              if (await supervisor.acknowledgeUpgrade(request.workspaceId, request.requestId))
+                // Drops the now-acknowledged operation from the child's local config too, or a
+                // later reconnect would keep re-reporting the same already-acknowledged result.
+                await refreshChildUpgradeConfig(request.workspaceId);
+            } else if (method !== "daemon:snapshot") {
+              const operation = method.slice("daemon:".length);
+              if (operation !== "start" && operation !== "stop" && operation !== "restart")
+                throw new Error("unknown lifecycle operation");
+              await supervisor.command(
+                operation,
+                request.workspaceId,
+                operation === "restart" ? request.requestId : undefined,
+              );
+            }
+            return snapshot();
+          },
+        },
+      });
+      await new Promise<void>((resolve) => {
+        process.once("SIGTERM", () => resolve());
+        process.once("SIGINT", () => resolve());
+      });
+    } finally {
+      windowsReconcile?.stop();
+    }
   } finally {
     // Every upgrade receipt watch is Coordinator-owned and must not outlive this process: an
     // uncancelled one is exactly the pending `Bun.sleep` that kept the Coordinator alive past its

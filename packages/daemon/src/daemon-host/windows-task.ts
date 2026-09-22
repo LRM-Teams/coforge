@@ -1,4 +1,4 @@
-import { LocalDaemonLauncher } from "./launcher";
+import { LocalDaemonLauncher, type LocalDaemonLauncherOptions } from "./launcher";
 import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -20,10 +20,12 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     serverUrl?: string;
     daemonConnectionEndpoint?: string;
     run?: CommandRunner;
+    connect?: LocalDaemonLauncherOptions["connect"];
+    timeoutMilliseconds?: number;
   }) {
     this.#taskName = options.taskName ?? "CoForge Daemon";
     this.#run = options.run ?? runCommand;
-    const daemonCommand = `"${options.executablePath.replaceAll('"', '""')}" __daemon --socket ${options.socketPath}${options.stateDirectory ? ` --state-directory "${options.stateDirectory}"` : ""}`;
+    const daemonCommand = `"${options.executablePath.replaceAll('"', '""')}" __daemon --socket "${options.socketPath.replaceAll('"', '""')}"${options.stateDirectory ? ` --state-directory "${options.stateDirectory.replaceAll('"', '""')}"` : ""}`;
     this.#command = options.daemonConnectionEndpoint
       ? `cmd.exe /d /s /c "set COFORGE_DAEMON_CONNECTION_ENDPOINT=${options.daemonConnectionEndpoint}&& ${daemonCommand}"`
       : daemonCommand;
@@ -32,6 +34,8 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
       socketPath: options.socketPath,
       stateDirectory: options.stateDirectory ?? join(homedir(), ".coforge", "daemon"),
       serverUrl: options.serverUrl,
+      connect: options.connect,
+      timeoutMilliseconds: options.timeoutMilliseconds,
     });
   }
 
@@ -40,7 +44,10 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
   }
 
   async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
-    const result = await this.#run([
+    // Prefer the user logon task when registration is allowed. When Create/Run is refused
+    // (common without elevation), fall back to an already-running foreground supervisor —
+    // never detach an unmanaged process.
+    const created = await this.#run([
       "schtasks.exe",
       "/Create",
       "/TN",
@@ -51,9 +58,21 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
       this.#command,
       "/F",
     ]);
-    if (result !== 0) throw new Error("could not register the CoForge Daemon user task");
-    await this.ensureRunning();
-    await this.#local.ensureStarted(config);
+    if (created === 0) {
+      const started = await this.#run(["schtasks.exe", "/Run", "/TN", this.#taskName]);
+      if (started === 0) {
+        await this.#local.ensureStarted(config);
+        return;
+      }
+    }
+    try {
+      await this.#local.ensureStarted(config);
+    } catch (error) {
+      throw new Error(
+        "The Windows user task could not start CoForge Daemon. Run `coforge-computer foreground` under an external supervisor; CoForge will not detach a fallback process.",
+        { cause: error },
+      );
+    }
   }
 
   async ensureRunning(): Promise<void> {

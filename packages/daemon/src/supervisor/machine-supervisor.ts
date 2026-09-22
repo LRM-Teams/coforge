@@ -143,6 +143,19 @@ export class MachineSupervisor {
     });
   }
 
+  /**
+   * Re-applies enabled/disabled intent for every binding. Used on Coordinator startup/resume and,
+   * on Windows (no OS-level Workspace restart), by a periodic poll that replaces systemd/launchd
+   * failure restart. No-ops while paused for Computer upgrade.
+   */
+  reconcile() {
+    return this.#serialize(async () => {
+      if (this.#paused) return;
+      await this.#refresh();
+      await this.#reconcileBindings();
+    });
+  }
+
   configure(config: DaemonConfig) {
     return this.#serialize(async () => {
       this.#assertMutable();

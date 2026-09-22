@@ -6,6 +6,7 @@ import {
   resolveComputerCredentialsDirectory,
   resolveComputerInstallDirectory,
   resolveComputerStateDirectory,
+  resolveDaemonSocketPath,
 } from "../src/paths";
 
 test("Computer and Daemon use separate directories under the user's .coforge directory", () => {
@@ -40,6 +41,18 @@ test("Windows uses the user's .coforge directory", () => {
   };
   expect(resolveComputerConfigDirectory(input)).toBe("C:\\Users\\alice\\.coforge\\computer");
   expect(resolveComputerStateDirectory(input)).toBe("C:\\Users\\alice\\.coforge\\daemon");
+});
+
+test("Coordinator local RPC socket is a file path under the Daemon state directory on every platform", () => {
+  expect(
+    resolveDaemonSocketPath({ platform: "linux", stateDirectory: "/home/alice/.coforge/daemon" }),
+  ).toBe("/home/alice/.coforge/daemon/daemon.sock");
+  expect(
+    resolveDaemonSocketPath({
+      platform: "win32",
+      stateDirectory: "C:\\Users\\alice\\.coforge\\daemon",
+    }),
+  ).toBe("C:\\Users\\alice\\.coforge\\daemon\\daemon.sock");
 });
 
 test("Computer installation paths stay under its directory", () => {

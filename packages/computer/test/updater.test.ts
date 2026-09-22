@@ -716,5 +716,25 @@ test("the supported platform matrix selects one complete target set", async () =
       : join(input.directory, "bin", "coforge-computer");
     const shimStat = await stat(shim);
     expect(shimStat.isFile() || shimStat.isSymbolicLink()).toBe(true);
+    expect(
+      await Bun.file(join(input.directory, "active", `coforge-computer${suffix}`)).exists(),
+    ).toBe(true);
   }
+});
+
+test("windows activation keeps PATH shim and an active junction for Daemon resolution", async () => {
+  const input = await fixture({ target: "windows-x64" });
+  await updater(input).install(input.version);
+  expect(await Bun.file(join(input.directory, "bin", "coforge-computer.cmd")).exists()).toBe(true);
+  expect(await Bun.file(join(input.directory, "active", "coforge-computer.exe")).exists()).toBe(
+    true,
+  );
+  expect(await readFile(join(input.directory, "active", "coforge-computer.exe"), "utf8")).toBe(
+    "computer-payload-v2",
+  );
+  // Second activation replaces the junction and still resolves the active binary.
+  await updater(input).install(input.version);
+  expect(await Bun.file(join(input.directory, "active", "coforge-computer.exe")).exists()).toBe(
+    true,
+  );
 });
