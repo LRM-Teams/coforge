@@ -369,120 +369,150 @@ export interface UploadResult {
  * to the local copy, and only then writes the mutable `latest` pointer - see the file banner for
  * why that order matters. Any failure (an upload, a read-back mismatch) throws before `latest`
  * is ever written, and stops uploading/verifying the objects after it. */
-export async function uploadReleaseTree(
-  outputDirectory: string,
+/**
+ * What every phase of a publication shares: the OSS client, the feed origin it probes, and the
+ * progress line sink. Threading this one object keeps the phases below to their own arguments.
+ */
+type UploadContext = {
+  client: OSS;
+  connection: OssConnection;
+  fetchImpl: typeof fetch;
+  log: (line: string) => void;
+  outputDirectory: string;
+  requestTimeoutMs?: number;
+};
+
+/** What this publication is responsible for, settled before any network call is made. */
+type UploadPlan = {
+  allowExisting: boolean;
+  /** An objects-only job leaves `latest` — and the manifest — to the finalize pass. */
+  objectsOnly: boolean;
+  /** Every object this job covers; an objects-only job excludes the manifest. */
+  files: string[];
+  /** The order objects go up: everything but the manifest, then the manifest itself, last. */
+  uploads: string[];
+};
+
+/**
+ * The manifest is pinned last explicitly rather than relying on `tree.files` being sorted:
+ * `build-release.ts` sorts the whole list, so "manifest.json" only happens to sort after the POSIX
+ * targets, but before Windows. Relying on that order would silently break the completion marker
+ * `assertVersionIsUnpublished` depends on.
+ *
+ * An objects-only job must not write the manifest either, even though the ordinary path pins it
+ * last. The manifest is the version's completion marker *and* a hash of every object, so a
+ * per-platform job - which compiles only its own target - would race five others and leave an
+ * incomplete manifest behind as the marker. The finalize job writes the one true manifest after
+ * every platform is up.
+ */
+function planUpload(
   tree: ReleaseTree,
-  options: UploadOptions,
-): Promise<UploadResult> {
-  const { client, connection } = options;
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const log = options.log ?? ((): void => undefined);
-
-  const allowExisting = options.allowExisting === true;
-  // A normal publication refuses a version the feed has already seen; a finalize pass is exactly that
-  // version, so it verifies the objects that are up instead (see `UploadOptions.allowExisting`).
-  if (!allowExisting) await assertVersionIsUnpublished(tree.version, { client });
-
-  // The manifest is pinned last explicitly rather than relying on `tree.files` being sorted:
-  // `build-release.ts` sorts the whole list, so "manifest.json" only happens to sort after the
-  // POSIX targets, but before Windows. Relying on that order would silently break the
-  // completion marker `assertVersionIsUnpublished` depends on.
+  options: Pick<UploadOptions, "activate" | "allowExisting">,
+): UploadPlan {
   const manifestKey = manifestObjectKey(tree.version);
-  const manifestFiles = tree.files.filter((file) => file === manifestKey);
-  if (manifestFiles.length !== 1) {
+  if (tree.files.filter((file) => file === manifestKey).length !== 1) {
     throw new Error(`Release tree does not contain exactly one ${manifestKey} to upload last`);
   }
   const uploadOrder = [...tree.files.filter((file) => file !== manifestKey), manifestKey];
-
-  // An objects-only job must not write the manifest either, even though the ordinary path pins it last.
-  // The manifest is the version's completion marker *and* a hash of every object, so a per-platform job
-  // - which compiles only its own target - would race five others and leave an incomplete manifest
-  // behind as the marker. The finalize job writes the one true manifest after every platform is up.
   const objectsOnly = options.activate === false;
   const files = objectsOnly ? tree.files.filter((file) => file !== manifestKey) : tree.files;
+  return {
+    // A normal publication refuses a version the feed has already seen; a finalize pass is exactly
+    // that version, so it verifies the objects that are up instead (see `UploadOptions.allowExisting`).
+    allowExisting: options.allowExisting === true,
+    objectsOnly,
+    files,
+    uploads: objectsOnly ? uploadOrder.filter((file) => file !== manifestKey) : uploadOrder,
+  };
+}
 
-  const uploads = objectsOnly ? uploadOrder.filter((file) => file !== manifestKey) : uploadOrder;
-  for (const relativePath of uploads) {
-    const bytes = await readFile(join(outputDirectory, relativePath));
-    if (allowExisting && (await objectExists(client, relativePath))) {
-      const remote = await getObject(client, relativePath);
+/** Phase 1: put every object up, verifying — rather than re-uploading — the ones a finalize pass finds. */
+async function uploadObjects(context: UploadContext, plan: UploadPlan): Promise<void> {
+  for (const relativePath of plan.uploads) {
+    const bytes = await readFile(join(context.outputDirectory, relativePath));
+    if (plan.allowExisting && (await objectExists(context.client, relativePath))) {
+      const remote = await getObject(context.client, relativePath);
       if (!bytesEqual(bytes, remote)) {
         throw new Error(
           `OSS object mismatch: ${relativePath} is up but does not match the freshly compiled bytes`,
         );
       }
-      log(`already present, verified ${relativePath}`);
+      context.log(`already present, verified ${relativePath}`);
       continue;
     }
-    await putObject(client, relativePath, bytes, options.requestTimeoutMs);
-    log(`uploaded ${relativePath}`);
+    await putObject(context.client, relativePath, bytes, context.requestTimeoutMs);
+    context.log(`uploaded ${relativePath}`);
   }
+}
 
-  for (const relativePath of objectsOnly ? files : tree.files) {
-    const local = await readFile(join(outputDirectory, relativePath));
-    const remote = await getObject(client, relativePath);
+/** Phase 2: every object must read back byte-for-byte identical to what was compiled. */
+async function verifyUploadedBytes(
+  context: UploadContext,
+  files: readonly string[],
+): Promise<void> {
+  for (const relativePath of files) {
+    const local = await readFile(join(context.outputDirectory, relativePath));
+    const remote = await getObject(context.client, relativePath);
     if (!bytesEqual(local, remote)) {
       throw new Error(`OSS read-back mismatch: ${relativePath} does not match the uploaded bytes`);
     }
-    log(`verified ${relativePath}`);
+    context.log(`verified ${relativePath}`);
   }
+}
 
-  async function verifyPrivateOrigin(key: string): Promise<void> {
-    try {
-      const response = await fetchImpl(objectOrigin(connection, key), {
-        method: "GET",
-        credentials: "omit",
-        redirect: "manual",
-        signal: AbortSignal.timeout(30_000),
-      });
-      await response.body?.cancel();
-      if (response.status !== 403 || response.headers.has("location"))
-        throw new Error("Origin is not private");
-    } catch {
-      throw new Error(`Private origin verification failed: ${key}`);
-    }
-    log(`verified private origin ${key}`);
+/**
+ * Phase 3: the public origin must refuse an anonymous GET — the bytes are reachable only through the
+ * signed CDN URL. `redirect: "manual"` separates a real refusal from a redirect to a public copy.
+ */
+async function verifyPrivateOrigin(context: UploadContext, key: string): Promise<void> {
+  try {
+    const response = await context.fetchImpl(objectOrigin(context.connection, key), {
+      method: "GET",
+      credentials: "omit",
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
+    });
+    await response.body?.cancel();
+    if (response.status !== 403 || response.headers.has("location"))
+      throw new Error("Origin is not private");
+  } catch {
+    throw new Error(`Private origin verification failed: ${key}`);
   }
+  context.log(`verified private origin ${key}`);
+}
 
-  for (const key of files) {
-    await verifyPrivateOrigin(key);
-  }
-  // Objects-only publication: stop before touching `latest`. See `UploadOptions.activate`.
-  if (objectsOnly) {
-    log(`uploaded ${files.length} objects; manifest and latest left to the finalize job`);
-    return { uploaded: [...files], latestKey: LATEST_OBJECT_KEY };
-  }
-
-  const previous = (await objectExists(client, LATEST_OBJECT_KEY))
-    ? await getObject(client, LATEST_OBJECT_KEY)
+/** Phase 4: move `latest`, and put the previous selector back if the move cannot be verified. */
+async function activateLatest(context: UploadContext, version: string): Promise<void> {
+  const previous = (await objectExists(context.client, LATEST_OBJECT_KEY))
+    ? await getObject(context.client, LATEST_OBJECT_KEY)
     : null;
-  if (previous) await verifyPrivateOrigin(LATEST_OBJECT_KEY);
-  log(
+  if (previous) await verifyPrivateOrigin(context, LATEST_OBJECT_KEY);
+  context.log(
     previous
       ? `previous latest sha256=${new Bun.CryptoHasher("sha256").update(previous).digest("hex")}`
       : "previous latest: empty bootstrap",
   );
 
-  async function writeLatest(bytes: Uint8Array): Promise<void> {
-    await putObject(client, LATEST_OBJECT_KEY, bytes);
-    const readback = await getObject(client, LATEST_OBJECT_KEY);
+  const writeLatest = async (bytes: Uint8Array): Promise<void> => {
+    await putObject(context.client, LATEST_OBJECT_KEY, bytes);
+    const readback = await getObject(context.client, LATEST_OBJECT_KEY);
     if (!bytesEqual(bytes, readback)) throw new Error("OSS latest read-back mismatch");
-    await verifyPrivateOrigin(LATEST_OBJECT_KEY);
-  }
+    await verifyPrivateOrigin(context, LATEST_OBJECT_KEY);
+  };
 
   try {
-    await writeLatest(new TextEncoder().encode(`${tree.version}\n`));
+    await writeLatest(new TextEncoder().encode(`${version}\n`));
   } catch {
     try {
       if (previous) {
         await writeLatest(previous);
       } else {
         try {
-          await client.delete(LATEST_OBJECT_KEY);
+          await context.client.delete(LATEST_OBJECT_KEY);
         } catch (error) {
           throw ossError("delete", LATEST_OBJECT_KEY, error);
         }
-        if (await objectExists(client, LATEST_OBJECT_KEY)) {
+        if (await objectExists(context.client, LATEST_OBJECT_KEY)) {
           throw new Error("could not restore empty selector");
         }
       }
@@ -493,7 +523,42 @@ export async function uploadReleaseTree(
     }
     throw new Error("Release activation failed; previous latest restored and verified.");
   }
+}
 
+export async function uploadReleaseTree(
+  outputDirectory: string,
+  tree: ReleaseTree,
+  options: UploadOptions,
+): Promise<UploadResult> {
+  const context: UploadContext = {
+    client: options.client,
+    connection: options.connection,
+    fetchImpl: options.fetchImpl ?? fetch,
+    log: options.log ?? ((): void => undefined),
+    outputDirectory,
+    ...(options.requestTimeoutMs !== undefined
+      ? { requestTimeoutMs: options.requestTimeoutMs }
+      : {}),
+  };
+  const plan = planUpload(tree, options);
+  // A finalize pass is publishing a version the feed has already seen, so it must not assert.
+  if (!plan.allowExisting)
+    await assertVersionIsUnpublished(tree.version, { client: context.client });
+
+  await uploadObjects(context, plan);
+  await verifyUploadedBytes(context, plan.files);
+  for (const key of plan.files) {
+    await verifyPrivateOrigin(context, key);
+  }
+  // Objects-only publication: stop before touching `latest`. See `UploadOptions.activate`.
+  if (plan.objectsOnly) {
+    context.log(
+      `uploaded ${plan.files.length} objects; manifest and latest left to the finalize job`,
+    );
+    return { uploaded: [...plan.files], latestKey: LATEST_OBJECT_KEY };
+  }
+
+  await activateLatest(context, tree.version);
   return { uploaded: [...tree.files], latestKey: LATEST_OBJECT_KEY };
 }
 
