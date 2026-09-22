@@ -213,9 +213,10 @@ class OpenCodeAgentSession implements AgentSession {
         envVars: this.#options.runtime?.envVars,
         gitHooks: this.#options.gitHooks,
       }),
-      // OpenCode resolves its discovery root (AGENTS.md walk-up, `.opencode/skills/`) from `PWD`
-      // when `--dir` is absent, and prefers it over the process cwd; Raft pins both for the same
-      // reason (its `opencodeBackend` overrides PWD and passes `--dir`).
+      // OpenCode resolves its discovery root (AGENTS.md walk-up, `.opencode/skills/`) from the
+      // process working directory / `PWD`; v2 has no `--dir` flag, so the turn pins both (cwd is
+      // passed to the spawn) and this override keeps an inherited `PWD` from pointing the Agent at
+      // the wrong tree. Raft pins the same pair.
       PWD: this.#options.agentWorkspaceDirectory,
       NO_COLOR: "1",
     };
@@ -226,14 +227,20 @@ class OpenCodeAgentSession implements AgentSession {
   }
 
   #buildArgv(prompt: string): string[] {
-    const argv = [...this.#command, "run", "--format", "json", "--dangerously-skip-permissions"];
-    argv.push("--dir", this.#options.agentWorkspaceDirectory);
+    // OpenCode v2's `run` surface, verified against the released `2.0.x` CLI: `--auto` replaced
+    // `--dangerously-skip-permissions`, the working directory is the process cwd (there is no
+    // `--dir`), and the reasoning effort rides the model id as `provider/model#variant` (there is
+    // no standalone `--variant`). `--format json` and `--session` are unchanged.
+    const argv = [...this.#command, "run", "--format", "json", "--auto"];
     const model = this.#options.runtime?.model;
-    if (model && model !== "default") argv.push("--model", model);
     // OpenCode calls the reasoning-effort selection a `variant`; the catalog's `variants` keys are
-    // exactly what `--variant` accepts.
+    // exactly what `#variant` accepts.
     const reasoning = this.#options.runtime?.reasoning;
-    if (reasoning) argv.push("--variant", reasoning);
+    if (model && model !== "default") {
+      argv.push("--model", reasoning ? `${model}#${reasoning}` : model);
+    }
+    // A variant with no explicit model has nowhere to go in v2 (`#variant` needs a model id), so
+    // it is dropped rather than invented; the runtime's own default model keeps its own effort.
     if (this.#resumeId) argv.push("--session", this.#resumeId);
     argv.push(prompt);
     return argv;

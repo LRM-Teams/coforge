@@ -3,8 +3,12 @@ import { appendFile } from "node:fs/promises";
 /**
  * Stand-in for the `opencode` binary: a fresh process per invocation, argv-driven, no stdin.
  * Handles the version probe (`--version`), the catalog (`models [--verbose]`) and turn
- * invocations (`run --format json ...`), controlled by `COFORGE_OPENCODE_*` env vars so one
- * fixture script covers every scenario the OpenCodeProvider tests exercise.
+ * invocations (`run --format json --auto ...`), controlled by `COFORGE_OPENCODE_*` env vars so
+ * one fixture script covers every scenario the OpenCodeProvider tests exercise.
+ *
+ * The turn surface mirrors OpenCode **v2**: `--auto` (not `--dangerously-skip-permissions`), no
+ * `--dir` (the workspace is the process cwd / `PWD`), and the reasoning effort riding the model id
+ * as `provider/model#variant` (not a standalone `--variant`).
  */
 
 // A representative excerpt of real `opencode models --verbose` output (2026-09-21 capture: one
@@ -77,13 +81,21 @@ if (formatIndex < 0 || argv[formatIndex + 1] !== "json") {
   console.error("missing --format json");
   process.exit(1);
 }
-if (!argv.includes("--dangerously-skip-permissions")) {
-  console.error("missing --dangerously-skip-permissions");
+if (!argv.includes("--auto")) {
+  console.error("missing --auto");
   process.exit(1);
 }
-const dirIndex = argv.indexOf("--dir");
-if (dirIndex < 0 || argv[dirIndex + 1] !== Bun.env.PWD) {
-  console.error("--dir must match PWD");
+// v2 has no `--dir`; the workspace must arrive as the cwd / PWD instead.
+if (argv.includes("--dir")) {
+  console.error("--dir is not part of the v2 turn surface");
+  process.exit(1);
+}
+if (argv.includes("--variant") || argv.includes("--dangerously-skip-permissions")) {
+  console.error("v1-only flag passed to a v2 turn");
+  process.exit(1);
+}
+if (!Bun.env.PWD) {
+  console.error("missing PWD for the agent workspace");
   process.exit(1);
 }
 if (Bun.env.NO_COLOR !== "1") {
@@ -91,10 +103,13 @@ if (Bun.env.NO_COLOR !== "1") {
   process.exit(1);
 }
 
+// v2 folds the reasoning effort into the model id (`provider/model#variant`); split it back out so
+// the launch log keeps the model and variant as separate fields.
 const modelIndex = argv.indexOf("--model");
-const model = modelIndex >= 0 ? argv[modelIndex + 1] : undefined;
-const variantIndex = argv.indexOf("--variant");
-const variant = variantIndex >= 0 ? argv[variantIndex + 1] : undefined;
+const modelArgument = modelIndex >= 0 ? argv[modelIndex + 1] : undefined;
+const hashIndex = modelArgument?.indexOf("#") ?? -1;
+const model = hashIndex >= 0 ? modelArgument!.slice(0, hashIndex) : modelArgument;
+const variant = hashIndex >= 0 ? modelArgument!.slice(hashIndex + 1) : undefined;
 const sessionIndex = argv.indexOf("--session");
 const resumeId = sessionIndex >= 0 ? argv[sessionIndex + 1] : undefined;
 const prompt = argv.at(-1);
@@ -103,7 +118,7 @@ const launchLog = Bun.env.COFORGE_OPENCODE_LAUNCH_LOG;
 if (launchLog) {
   await appendFile(
     launchLog,
-    `${JSON.stringify({ prompt, model, variant, resumeId, dir: argv[dirIndex + 1] })}\n`,
+    `${JSON.stringify({ prompt, model, variant, resumeId, dir: Bun.env.PWD })}\n`,
   );
 }
 

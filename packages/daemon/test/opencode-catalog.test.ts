@@ -149,6 +149,26 @@ test("falls back to the plain catalog when verbose output is empty", async () =>
   expect(catalog?.models[0]?.reasoningEfforts).toEqual([]);
 });
 
+test("falls back to the plain catalog when the CLI rejects `--verbose` (the released v2 CLI)", async () => {
+  const catalog = await discoverOpenCodeCatalog(
+    [process.execPath, FIXTURE, "models"],
+    process.cwd(),
+    {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      // Exactly what `opencode models --verbose` prints on 2.0.12: usage plus an unrecognized-flag
+      // error. It is not a model list, so the plain command must be retried.
+      COFORGE_OPENCODE_MODELS_OUTPUT:
+        "USAGE\n  opencode models [flags]\n\nERROR\n  Unrecognized flag: --verbose in command opencode models\n",
+    },
+  );
+  expect(catalog?.models.map((model) => model.id)).toEqual([
+    "opencode/big-pickle",
+    "aiberm/gpt-5.6-luna",
+  ]);
+  expect(catalog?.models[0]?.reasoningEfforts).toEqual([]);
+});
+
 test("no catalog (never a thrown error) when the CLI cannot be run", async () => {
   expect(
     await discoverOpenCodeCatalog(["/nonexistent/opencode"], process.cwd(), {}, 200),

@@ -12,7 +12,8 @@ const logger = getLogger(["coforge", "daemon", "code-agent", "opencode"]);
 /**
  * OpenCode's reasoning-effort names and their order, copied from Raft's `opencodeVariantOrder`
  * (`server/pkg/agent/models.go:790`). A model's `variants` map keyed by these names is what makes
- * its thinking selector: the value is what `opencode run --variant` accepts.
+ * its thinking selector: the value is what the model id's `#variant` suffix accepts in v2
+ * (`opencode run --model provider/model#variant`).
  */
 const VARIANT_ORDER: Readonly<Record<string, number>> = {
   none: 0,
@@ -32,8 +33,10 @@ const MAX_METADATA_LINES = 400;
  * Parses `opencode models --verbose` output: one `provider/model` row per model, optionally
  * followed by a pretty-printed JSON object describing it. The id is kept **verbatim** — it is
  * exactly what `opencode run --model` accepts — and each enabled, non-disabled `variants` entry
- * becomes a reasoning level (`--variant`), ordered by OpenCode's own effort order. Non-verbose
- * output (just the id rows) yields the same models with no reasoning levels.
+ * becomes a reasoning level (the model id's `#variant` suffix in v2), ordered by OpenCode's own
+ * effort order. Non-verbose output (just the id rows) yields the same models with no reasoning
+ * levels. The released v2 CLI (`2.0.12`) does not accept `--verbose` yet — it is on OpenCode's
+ * `dev` branch — so today the call degrades to the plain list through the fallback below.
  *
  * Raft's `parseOpenCodeModels` (`models.go:687`) is the reference: it too keeps the id verbatim
  * and projects variants into the thinking picker.
@@ -153,8 +156,9 @@ function reasoningLevels(variants: unknown): string[] {
 
 /**
  * Runs `opencode models --verbose` (Raft's own 15 s budget: a recent OpenCode syncs its hosted
- * model catalog over the network here) and parses the catalog. An empty verbose result retries
- * the plain command, which omits per-model metadata but still lists the ids. Any failure - missing
+ * model catalog over the network here) and parses the catalog. An empty or unusable verbose result
+ * retries the plain command, which omits per-model metadata but still lists the ids — the path the
+ * released v2 CLI takes, since it rejects `--verbose` as an unknown flag. Any failure - missing
  * CLI, non-zero exit, timeout, unparseable output - means no catalog, never a thrown error.
  */
 export async function discoverOpenCodeCatalog(
@@ -164,7 +168,10 @@ export async function discoverOpenCodeCatalog(
   timeoutMs = 15_000,
 ): Promise<CodeAgentModelCatalog | undefined> {
   const verbose = await runOpenCodeModels([...command, "--verbose"], cwd, environment, timeoutMs);
-  const models = verbose ? parseOpenCodeModelList(verbose) : [];
+  // A CLI that does not know `--verbose` answers with its usage text; that is not a model list, so
+  // treat it exactly like an empty result and fall through to the plain command.
+  const usable = verbose && !/unrecognized flag/i.test(verbose) ? verbose : undefined;
+  const models = usable ? parseOpenCodeModelList(usable) : [];
   const resolved = models.length > 0 ? models : await runPlainModels(command, cwd, environment);
   return resolved.length > 0
     ? { provider: RUNTIME_PROVIDER.OPENCODE, models: resolved }
