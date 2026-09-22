@@ -11,7 +11,7 @@
 > runtime as a shippable CoForge capability.
 
 This runbook delivers I1 of the
-[OpenViking + Causal Memory profiles plan](../implementation-slices/openviking-causal-memory-profiles-plan.md).
+historical [OpenViking + Causal Memory profiles plan](../implementation-slices/openviking-causal-memory-profiles-plan.md), superseded by [ADR 0062](../adr/0062-openviking-only-workspace-memory.md).
 It applies to one local development machine. The only added runtime is the
 private `openviking-prototype` HTTP service declared in
 [`infra/compose.openviking-prototype.yml`](../../infra/compose.openviking-prototype.yml).
@@ -361,7 +361,7 @@ CoForge product defects and they do not authorize an OpenViking source patch.
    do not require a settled empty account list.
 3. **`GET /api/v1/fs/attrs` does not echo `k=v` tags.** V1.4 verdict:
    retrieval depends on `POST /api/v1/search/find` `tags` / equivalent
-   `filter`. Attrs-based scenes use a stable URI plus Causal Memory-side
+   `filter`. Attrs-based scenes (recorded before Causal Memory removal) use a stable URI plus caller-side
    binding. Do not assert `attrs.tags` for fact id / version / generation.
 
 ## C4 tag / filter round-trip (V1.4 verdict)
@@ -372,7 +372,7 @@ C4 deferred this check to I1/V1.4. **V1.4 closed it** on the pinned
 > `find()` tags and the equivalent metadata `filter` round-trip fact id /
 > version / generation exactly. `GET /fs/attrs` does not echo those tags.
 > V1 retrieval may rely on `find` tags/filter. Attrs-based binding must use
-> stable URI + Causal Memory-side binding.
+> stable URI + caller-side binding.
 
 Provisional tag keys from D3 (final names belong to C3 / V1.1):
 

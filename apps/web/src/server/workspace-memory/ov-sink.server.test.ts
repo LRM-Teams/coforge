@@ -6,9 +6,7 @@ import type {
 import { detectAdmittedPublicChannelSegments } from "./detect-segments";
 import {
   createAdmissionDispatcher,
-  createCausalOpenVikingSink,
   createInMemoryWorkspaceMemoryAdmissionStore,
-  type AdmissionSink,
   type AdmissionSinkDelivery,
 } from "./dispatch";
 import {
@@ -22,12 +20,12 @@ import { applyWorkspaceMemoryCommand, createDefaultWorkspaceMemoryProfile } from
 const activatedAt = new Date("2026-09-21T12:00:00.000Z");
 const enabled = { prototypeEnabled: true };
 
-function readyProfile(desired: "openviking" | "causal_openviking", workspaceId = "ws-a") {
+function readyProfile(workspaceId = "ws-a") {
   const selected = applyWorkspaceMemoryCommand(
     createDefaultWorkspaceMemoryProfile(workspaceId),
     {
       type: "select_desired",
-      desired,
+      desired: "openviking",
       at: activatedAt,
       afterMessageId: "msg-boundary",
     },
@@ -155,10 +153,9 @@ test("OV sink delivers through the typed channel and retries as retryable_failur
   });
 });
 
-test("both profiles share the detector and a segment reaches exactly one sink", async () => {
+test("a detected segment reaches exactly one sink and replays without rewriting", async () => {
   const admission = createInMemoryWorkspaceMemoryAdmissionStore();
   const { channel, writes } = recordingChannel();
-  const ingested: string[] = [];
   const dispatcher = createAdmissionDispatcher({
     admission,
     sinks: {
@@ -166,27 +163,19 @@ test("both profiles share the detector and a segment reaches exactly one sink", 
         sessions: channel,
         owner: "sink-owner",
       }),
-      causal_openviking: createCausalOpenVikingSink({
-        async ingest(input) {
-          ingested.push(input.segment.segmentId);
-          return { state: "succeeded" };
-        },
-      }),
     },
   });
   const detected = liveDetected();
   expect(detected.conversationKind).toBe("public_channel");
-  expect(
-    await dispatcher.dispatch({ profile: readyProfile("openviking"), detected }),
-  ).toMatchObject({ outcome: "dispatched", sinkProfile: "openviking" });
-  expect(
-    await dispatcher.dispatch({
-      profile: readyProfile("causal_openviking"),
-      detected,
-    }),
-  ).toEqual({ outcome: "skipped", reason: "replay_conflict" });
+  expect(await dispatcher.dispatch({ profile: readyProfile(), detected })).toMatchObject({
+    outcome: "dispatched",
+    sinkProfile: "openviking",
+  });
+  expect(await dispatcher.dispatch({ profile: readyProfile(), detected })).toEqual({
+    outcome: "replayed",
+    sinkProfile: "openviking",
+  });
   expect(writes).toHaveLength(1);
-  expect(ingested).toEqual([]);
   expect(await admission.getDispatch("ws-a", detected.segmentId)).toMatchObject({
     sinkProfile: "openviking",
     state: "delivered",
@@ -196,19 +185,12 @@ test("both profiles share the detector and a segment reaches exactly one sink", 
 test("DirectConversation stays excluded while the activation cursor blocks backfill", async () => {
   const admission = createInMemoryWorkspaceMemoryAdmissionStore();
   const { channel, writes } = recordingChannel();
-  const ingested: string[] = [];
   const dispatcher = createAdmissionDispatcher({
     admission,
     sinks: {
       openviking: createOpenVikingAdmittedDeliverySink({
         sessions: channel,
         owner: "sink-owner",
-      }),
-      causal_openviking: createCausalOpenVikingSink({
-        async ingest(input) {
-          ingested.push(input.segment.segmentId);
-          return { state: "succeeded" };
-        },
       }),
     },
   });
@@ -236,21 +218,12 @@ test("DirectConversation stays excluded while the activation cursor blocks backf
   const live = liveDetected();
   expect(
     await dispatcher.dispatch({
-      profile: readyProfile("openviking"),
-      detected: historical,
-    }),
-  ).toEqual({ outcome: "skipped", reason: "before_activation_cursor" });
-  expect(
-    await dispatcher.dispatch({
-      profile: readyProfile("causal_openviking"),
+      profile: readyProfile(),
       detected: historical,
     }),
   ).toEqual({ outcome: "skipped", reason: "before_activation_cursor" });
   expect(writes).toEqual([]);
-  expect(ingested).toEqual([]);
-  expect(
-    await dispatcher.dispatch({ profile: readyProfile("openviking"), detected: live }),
-  ).toEqual({
+  expect(await dispatcher.dispatch({ profile: readyProfile(), detected: live })).toEqual({
     outcome: "dispatched",
     sinkProfile: "openviking",
     replay: false,
@@ -277,15 +250,10 @@ test("a retryable OV sink failure keeps the admitted segment for later replay", 
         sessions: flaky,
         owner: "sink-owner",
       }),
-      causal_openviking: {
-        async deliver() {
-          throw new Error("causal sink must not receive this segment");
-        },
-      } satisfies AdmissionSink,
     },
   });
   const live = liveDetected();
-  const profile = readyProfile("openviking");
+  const profile = readyProfile();
   expect(await dispatcher.dispatch({ profile, detected: live })).toEqual({
     outcome: "retryable_failure",
     sanitizedError: "openviking session extract failed",

@@ -1,7 +1,7 @@
 /**
  * P4 port extension: profile-neutral admitted-segment detection.
  * C1 only froze the segment DTO and canAdmitSegment; detection lives here so
- * both OpenViking and causal_openviking sinks share one extractor window.
+ * the OpenViking sink consumes one extractor window.
  */
 import type { AdmittedSegmentKind } from "./admission";
 

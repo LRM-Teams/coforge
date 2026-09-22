@@ -6,7 +6,7 @@ import {
   WorkspaceMemoryReplayConflictError,
 } from "./workspace-memory-errors.server";
 
-export const MEMORY_CITATION_KINDS = ["openviking", "causal_memory"] as const;
+export const MEMORY_CITATION_KINDS = ["openviking"] as const;
 export type MemoryCitationKind = (typeof MEMORY_CITATION_KINDS)[number];
 
 export const OPENVIKING_MATCHED_LEVELS = ["L0", "L1", "L2"] as const;
@@ -25,9 +25,7 @@ export type OpenVikingCitationRecord = {
   boundOperationId: string;
 };
 
-export type MemoryOfferCitationRef =
-  | { kind: "openviking"; citationId: string }
-  | { kind: "causal_memory"; citationId: string };
+export type MemoryOfferCitationRef = { kind: "openviking"; citationId: string };
 
 export type MemoryOfferRecord = {
   workspaceId: string;
@@ -138,8 +136,7 @@ export class PrismaWorkspaceMemoryCitationStore implements WorkspaceMemoryCitati
             create: input.citations.map((citation) => ({
               citationKind: citation.kind,
               citationId: citation.citationId,
-              openvikingCitationId: citation.kind === "openviking" ? citation.citationId : null,
-              causalCitationId: citation.kind === "causal_memory" ? citation.citationId : null,
+              openvikingCitationId: citation.citationId,
             })),
           },
         },
@@ -167,33 +164,17 @@ export class PrismaWorkspaceMemoryCitationStore implements WorkspaceMemoryCitati
 
   private async assertCitationKindIntegrity(input: MemoryOfferRecord): Promise<void> {
     for (const citation of input.citations) {
-      if (citation.kind === "openviking") {
-        const record = await this.db.openVikingCitationRecord.findUnique({
-          where: {
-            workspaceId_citationId: {
-              workspaceId: input.workspaceId,
-              citationId: citation.citationId,
-            },
+      if (citation.kind !== "openviking") throw new WorkspaceMemoryCitationKindError();
+      const record = await this.db.openVikingCitationRecord.findUnique({
+        where: {
+          workspaceId_citationId: {
+            workspaceId: input.workspaceId,
+            citationId: citation.citationId,
           },
-          select: { citationId: true },
-        });
-        if (!record) throw new WorkspaceMemoryCitationKindError();
-        continue;
-      }
-      if (citation.kind === "causal_memory") {
-        const record = await this.db.causalCitationRecord.findUnique({
-          where: {
-            workspaceId_citationId: {
-              workspaceId: input.workspaceId,
-              citationId: citation.citationId,
-            },
-          },
-          select: { citationId: true },
-        });
-        if (!record) throw new WorkspaceMemoryCitationKindError();
-        continue;
-      }
-      throw new WorkspaceMemoryCitationKindError();
+        },
+        select: { citationId: true },
+      });
+      if (!record) throw new WorkspaceMemoryCitationKindError();
     }
   }
 }

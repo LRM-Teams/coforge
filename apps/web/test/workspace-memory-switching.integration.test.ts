@@ -111,7 +111,7 @@ async function unwrap<T extends { ok: boolean }>(result: T): Promise<Extract<T, 
 }
 
 test.skipIf(!connectionString)(
-  "Prisma switching retains the OV binding and CM tenant receipt, fences dispatcher/gateway, and never backfills",
+  "Prisma switching retains the OV binding, fences dispatcher/gateway, and never backfills",
   async () => {
     const harness = await openHarness();
     try {
@@ -148,21 +148,15 @@ test.skipIf(!connectionString)(
         },
       };
       const openviking = recordingSink();
-      const causal = recordingSink();
-      const retrieved: string[] = [];
       const switching = createWorkspaceMemorySwitching({
         profiles: profileApi,
         reconciler,
         dispatcher: createAdmissionDispatcher({
           admission: harness.admission,
-          sinks: { openviking: openviking.sink, causal_openviking: causal.sink },
+          sinks: { openviking: openviking.sink },
         }),
         getBinding: (workspaceId) => harness.bindings.get(workspaceId),
         snapshotRuntimes: (workspaceId) => provisioner.snapshot(workspaceId),
-        retrieveCausal: async ({ workspaceId, query }) => {
-          retrieved.push(`${workspaceId}:${query}`);
-          return { hits: [query] };
-        },
       });
       const runtimeCalls: string[] = [];
       const gateway = createOpenVikingPolicyGateway({
@@ -195,10 +189,15 @@ test.skipIf(!connectionString)(
         new Date("2026-09-21T11:00:00.000Z"),
         "m-old",
       );
-      const causalLive = liveDetected(
+      const laterLive = liveDetected(
         harness.workspaceA,
         new Date("2026-09-21T13:05:00.000Z"),
         "m-cm",
+      );
+      const newestLive = liveDetected(
+        harness.workspaceA,
+        new Date("2026-09-21T14:05:00.000Z"),
+        "m-new",
       );
 
       await unwrap(
@@ -215,18 +214,17 @@ test.skipIf(!connectionString)(
         await switching.dispatch({ workspaceId: harness.workspaceA, detected: ovLive }),
       ).toMatchObject({ outcome: { outcome: "dispatched", sinkProfile: "openviking" } });
 
-      const switchingToCausal = await unwrap(
+      const switchingOff = await unwrap(
         await switching.selectDesired({
           workspaceId: harness.workspaceA,
-          desired: "causal_openviking",
+          desired: "off",
           at: later,
-          afterMessageId: "msg-100",
         }),
       );
-      expect(switchingToCausal.observation.observed).toBe("switching");
+      expect(switchingOff.observation.observed).toBe("switching");
       expect(
-        await switching.dispatch({ workspaceId: harness.workspaceA, detected: causalLive }),
-      ).toMatchObject({ outcome: { outcome: "skipped", reason: "not_ready" } });
+        await switching.dispatch({ workspaceId: harness.workspaceA, detected: laterLive }),
+      ).toMatchObject({ outcome: { outcome: "skipped", reason: "profile_off" } });
       expect(
         await gateway.forward(OWNER, { ...FIND, workspaceId: harness.workspaceA }),
       ).toMatchObject({
@@ -235,15 +233,24 @@ test.skipIf(!connectionString)(
       });
       expect(runtimeCalls).toEqual([]);
 
-      const readyCausal = await unwrap(await switching.reconcile(harness.workspaceA));
-      expect(readyCausal.retained).toMatchObject({
-        openviking: { resourceId: `acct-${harness.workspaceA}` },
-        causalTenant: { resourceId: `tenant-${harness.workspaceA}` },
-      });
+      const off = await unwrap(await switching.reconcile(harness.workspaceA));
+      expect(off.observation).toMatchObject({ desired: "off", observed: "ready" });
+      expect(off.retained.openviking?.resourceId).toBe(`acct-${harness.workspaceA}`);
       expect(await harness.bindings.get(harness.workspaceA)).toMatchObject({
         accountId: `acct-${harness.workspaceA}`,
-        generation: 2,
       });
+      expect(provisioner.deleted).toEqual([]);
+
+      await unwrap(
+        await switching.selectDesired({
+          workspaceId: harness.workspaceA,
+          desired: "openviking",
+          at: new Date("2026-09-21T14:00:00.000Z"),
+          afterMessageId: "msg-100",
+        }),
+      );
+      const back = await unwrap(await switching.reconcile(harness.workspaceA));
+      expect(back.observation.surfaces.openvikingGateway.open).toBe(true);
       expect(
         await switching.dispatch({ workspaceId: harness.workspaceA, detected: historical }),
       ).toMatchObject({ outcome: { outcome: "skipped", reason: "before_activation_cursor" } });
@@ -251,30 +258,15 @@ test.skipIf(!connectionString)(
         await switching.dispatch({ workspaceId: harness.workspaceA, detected: ovLive }),
       ).toMatchObject({ outcome: { outcome: "skipped", reason: "before_activation_cursor" } });
       expect(
-        await switching.dispatch({ workspaceId: harness.workspaceA, detected: causalLive }),
-      ).toMatchObject({
-        outcome: { outcome: "dispatched", sinkProfile: "causal_openviking" },
-      });
-      expect(openviking.deliveries).toHaveLength(1);
-      expect(causal.deliveries.map((row) => row.segment.sourceMessageIds)).toEqual([["m-cm"]]);
+        await switching.dispatch({ workspaceId: harness.workspaceA, detected: laterLive }),
+      ).toMatchObject({ outcome: { outcome: "skipped", reason: "before_activation_cursor" } });
       expect(
-        await switching.retrieveCausal({ workspaceId: harness.workspaceA, query: "facts" }),
-      ).toMatchObject({ allowed: true });
-
-      await unwrap(
-        await switching.selectDesired({
-          workspaceId: harness.workspaceA,
-          desired: "openviking",
-          at: new Date("2026-09-21T14:00:00.000Z"),
-        }),
-      );
-      const back = await unwrap(await switching.reconcile(harness.workspaceA));
-      expect(back.retained.causalTenant?.resourceId).toBe(`tenant-${harness.workspaceA}`);
-      expect(provisioner.deleted).toEqual([]);
-      expect(
-        await switching.retrieveCausal({ workspaceId: harness.workspaceA, query: "after" }),
-      ).toMatchObject({ allowed: false });
-      expect(retrieved).toEqual([`${harness.workspaceA}:facts`]);
+        await switching.dispatch({ workspaceId: harness.workspaceA, detected: newestLive }),
+      ).toMatchObject({ outcome: { outcome: "dispatched", sinkProfile: "openviking" } });
+      expect(openviking.deliveries.map((row) => row.segment.sourceMessageIds)).toEqual([
+        ["m-ov"],
+        ["m-new"],
+      ]);
       expect(await harness.profiles.get(harness.workspaceA)).toMatchObject({
         desired: "openviking",
         observed: "ready",
@@ -307,7 +299,6 @@ test.skipIf(!connectionString)(
           admission: harness.admission,
           sinks: {
             openviking: recordingSink().sink,
-            causal_openviking: recordingSink().sink,
           },
         }),
         getBinding: (workspaceId) => harness.bindings.get(workspaceId),
@@ -326,7 +317,7 @@ test.skipIf(!connectionString)(
       await unwrap(
         await switching.selectDesired({
           workspaceId: harness.workspaceA,
-          desired: "causal_openviking",
+          desired: "off",
           at: later,
         }),
       );
@@ -336,16 +327,24 @@ test.skipIf(!connectionString)(
         failure: { code: "stale_generation", message: "profile generation is stale" },
       });
       expect(await harness.profiles.get(harness.workspaceA)).toMatchObject({
-        desired: "causal_openviking",
+        desired: "off",
         observed: "switching",
         generation: 2,
       });
+      await unwrap(await switching.reconcile(harness.workspaceA));
 
-      provisioner.failNext("causal_tenant", "token=super-secret");
+      provisioner.failNext("openviking", "token=super-secret");
+      await unwrap(
+        await switching.selectDesired({
+          workspaceId: harness.workspaceA,
+          desired: "openviking",
+          at: new Date("2026-09-21T14:00:00.000Z"),
+        }),
+      );
       const failed = await unwrap(await switching.reconcile(harness.workspaceA));
       expect(failed.observation).toMatchObject({
         observed: "error",
-        generation: 2,
+        generation: 3,
         sanitizedFailure: {
           code: "provisioning_failed",
           message: "memory runtime provisioning failed",
@@ -359,12 +358,12 @@ test.skipIf(!connectionString)(
 
       const recovered = await unwrap(await switching.reconcile(harness.workspaceA));
       expect(recovered.observation).toMatchObject({
-        desired: "causal_openviking",
+        desired: "openviking",
         observed: "ready",
-        generation: 2,
+        generation: 3,
         sanitizedFailure: null,
       });
-      expect(recovered.retained.causalTenant?.resourceId).toBe(`tenant-${harness.workspaceA}`);
+      expect(recovered.retained.openviking?.resourceId).toBe(`acct-${harness.workspaceA}`);
     } finally {
       await harness.dispose();
     }

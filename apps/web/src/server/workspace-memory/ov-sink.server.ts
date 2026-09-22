@@ -6,7 +6,6 @@ import type { AdmissionSink, AdmissionSinkDelivery, AdmissionSinkResult } from "
 
 export const OPENVIKING_ADMITTED_SESSION_ID_PREFIX = "coforge-";
 
-const CAUSAL_CLAIM_PATTERN = /causal|cm_fact|cm_ver|provenance|audit_id|fact_id/i;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9._:-]+$/;
 
 export type OpenVikingAdmittedSessionLineage = {
@@ -48,9 +47,6 @@ export function admittedSessionWriteFromDelivery(
     `coforge_kind=${lineage.kind}`,
     `coforge_source_message_ids=${lineage.sourceMessageIds.join(",")}`,
   ];
-  if (tags.some((tag) => CAUSAL_CLAIM_PATTERN.test(tag))) {
-    throw new Error("openviking admitted session write must not claim causal provenance");
-  }
   return {
     sessionId: openVikingSessionIdForSegment(lineage.segmentId),
     workspaceId: lineage.workspaceId,

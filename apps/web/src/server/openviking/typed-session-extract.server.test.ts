@@ -156,25 +156,22 @@ test("typed session extract writes the session then commits then extracts with s
 test("typed session extract waits for the commit task and does not extract an archived session", async () => {
   const captured: string[] = [];
   let polls = 0;
-  const sessions = channel(
-    async (input, init) => {
-      const url = String(input);
-      captured.push(`${init?.method ?? "GET"} ${url}`);
-      if (url.endsWith("/commit")) {
-        return new Response(
-          JSON.stringify({ status: "ok", result: { task_id: "task-1", archived: true } }),
-          { status: 200 },
-        );
-      }
-      if (url.endsWith("/tasks/task-1")) {
-        polls += 1;
-        const status = polls < 2 ? "running" : "completed";
-        return new Response(JSON.stringify({ status: "ok", result: { status } }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
-    },
-    "sink-owner",
-  );
+  const sessions = channel(async (input, init) => {
+    const url = String(input);
+    captured.push(`${init?.method ?? "GET"} ${url}`);
+    if (url.endsWith("/commit")) {
+      return new Response(
+        JSON.stringify({ status: "ok", result: { task_id: "task-1", archived: true } }),
+        { status: 200 },
+      );
+    }
+    if (url.endsWith("/tasks/task-1")) {
+      polls += 1;
+      const status = polls < 2 ? "running" : "completed";
+      return new Response(JSON.stringify({ status: "ok", result: { status } }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
+  }, "sink-owner");
   expect(
     await sessions.writeCommitAndExtract({
       owner: "sink-owner",

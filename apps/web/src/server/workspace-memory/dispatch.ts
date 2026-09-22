@@ -17,7 +17,7 @@ import type { DesiredWorkspaceMemoryProfile, WorkspaceMemoryProfile } from "./pr
 export const DISPATCH_STATES = ["pending", "delivered", "retryable_failure"] as const;
 export type DispatchState = (typeof DISPATCH_STATES)[number];
 
-export const DISPATCH_SINK_PROFILES = ["openviking", "causal_openviking"] as const;
+export const DISPATCH_SINK_PROFILES = ["openviking"] as const;
 export type DispatchSinkProfile = (typeof DISPATCH_SINK_PROFILES)[number];
 
 export type AdmittedSegmentDispatchRecord = {
@@ -112,7 +112,7 @@ export type AdmissionDispatcher = {
 export function asDispatchSinkProfile(
   desired: DesiredWorkspaceMemoryProfile,
 ): DispatchSinkProfile | null {
-  return desired === "openviking" || desired === "causal_openviking" ? desired : null;
+  return desired === "openviking" ? desired : null;
 }
 
 export function createAdmissionDispatcher(deps: {
@@ -211,30 +211,6 @@ export function createOpenVikingNativeSessionSink(
         return {
           outcome: "retryable_failure",
           sanitizedError: "openviking native session unavailable",
-        };
-      }
-    },
-  };
-}
-
-export function createCausalOpenVikingSink(deps: {
-  ingest(delivery: AdmissionSinkDelivery): Promise<{ state: string }>;
-}): AdmissionSink {
-  return {
-    async deliver(input) {
-      try {
-        const result = await deps.ingest(input);
-        if (result.state === "temporary_failure") {
-          return {
-            outcome: "retryable_failure",
-            sanitizedError: "causal ingest temporarily unavailable",
-          };
-        }
-        return { outcome: "delivered" };
-      } catch {
-        return {
-          outcome: "retryable_failure",
-          sanitizedError: "causal ingest temporarily unavailable",
         };
       }
     },

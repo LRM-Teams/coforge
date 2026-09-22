@@ -26,7 +26,7 @@ async function unwrap<T extends { ok: boolean }>(result: T): Promise<Extract<T, 
   return result as Extract<T, { ok: true }>;
 }
 
-test("off provisions openviking, then switches to causal and back without deleting runtimes or the cursor", async () => {
+test("off provisions openviking, then switches off and back without deleting the runtime or the cursor", async () => {
   const { profiles, reconciler, provisioner } = harness();
 
   const selected = await unwrap(
@@ -55,33 +55,31 @@ test("off provisions openviking, then switches to causal and back without deleti
   expect(openviking.effects.ensured).toEqual(["openviking"]);
   expect(provisioner.snapshot("ws-a")).toMatchObject({
     openviking: { resourceId: "acct-ws-a", generation: 1 },
-    causalTenant: null,
   });
 
   await unwrap(
     await profiles.selectDesired({
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "off",
       at: later,
-      afterMessageId: "msg-100",
     }),
   );
-  const causal = await unwrap(await reconciler.reconcile("ws-a"));
-  expect(causal.profile).toMatchObject({
-    desired: "causal_openviking",
+  const firstOff = await unwrap(await reconciler.reconcile("ws-a"));
+  expect(firstOff.profile).toMatchObject({
+    desired: "off",
     observed: "ready",
     generation: 2,
-    activationCursor: { kind: "message", occurredAt: later.toISOString(), messageId: "msg-100" },
+    reconcileKind: null,
   });
-  expect(causal.effects.ensured).toEqual(["openviking", "causal_tenant"]);
-  expect(provisioner.snapshot("ws-a").openviking?.resourceId).toBe("acct-ws-a");
-  expect(provisioner.snapshot("ws-a").causalTenant?.resourceId).toBe("tenant-ws-a");
+  expect(firstOff.effects.processing).toBe("stopped");
+  expect(firstOff.effects.ensured).toEqual([]);
 
   await unwrap(
     await profiles.selectDesired({
       workspaceId: "ws-a",
       desired: "openviking",
       at: new Date("2026-09-21T14:00:00.000Z"),
+      afterMessageId: "msg-100",
     }),
   );
   const back = await unwrap(await reconciler.reconcile("ws-a"));
@@ -89,15 +87,16 @@ test("off provisions openviking, then switches to causal and back without deleti
     desired: "openviking",
     observed: "ready",
     generation: 3,
+    activationCursor: {
+      kind: "message",
+      occurredAt: "2026-09-21T14:00:00.000Z",
+      messageId: "msg-100",
+    },
   });
   expect(back.effects.processing).toBe("active");
+  expect(back.effects.ensured).toEqual(["openviking"]);
   expect(provisioner.snapshot("ws-a")).toMatchObject({
-    openviking: { resourceId: "acct-ws-a" },
-    causalTenant: { resourceId: "tenant-ws-a" },
-  });
-  expect(back.profile.activationCursor).toEqual({
-    kind: "time",
-    occurredAt: "2026-09-21T14:00:00.000Z",
+    openviking: { resourceId: "acct-ws-a", generation: 3 },
   });
 
   await unwrap(
@@ -117,57 +116,56 @@ test("off provisions openviking, then switches to causal and back without deleti
   expect(off.effects.processing).toBe("stopped");
   expect(off.effects.ensured).toEqual([]);
   expect(off.profile.activationCursor).toEqual({
-    kind: "time",
+    kind: "message",
     occurredAt: "2026-09-21T14:00:00.000Z",
+    messageId: "msg-100",
   });
   expect(provisioner.snapshot("ws-a")).toMatchObject({
     openviking: { resourceId: "acct-ws-a" },
-    causalTenant: { resourceId: "tenant-ws-a" },
   });
   expect(provisioner.deleted).toEqual([]);
 });
 
-test("off can provision causal_openviking directly and keep both runtimes after turning off", async () => {
+test("off can provision openviking directly and keeps the runtime after turning off", async () => {
   const { profiles, reconciler, provisioner } = harness();
   await unwrap(
     await profiles.selectDesired({
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "openviking",
       at: now,
     }),
   );
   const ready = await unwrap(await reconciler.reconcile("ws-a"));
   expect(ready.profile).toMatchObject({
-    desired: "causal_openviking",
+    desired: "openviking",
     observed: "ready",
     generation: 1,
     reconcileKind: null,
   });
-  expect(ready.effects.ensured).toEqual(["openviking", "causal_tenant"]);
+  expect(ready.effects.ensured).toEqual(["openviking"]);
 
   await unwrap(await profiles.selectDesired({ workspaceId: "ws-a", desired: "off", at: later }));
   const off = await unwrap(await reconciler.reconcile("ws-a"));
   expect(off.profile.observed).toBe("ready");
   expect(off.effects.processing).toBe("stopped");
   expect(provisioner.snapshot("ws-a").openviking).not.toBeNull();
-  expect(provisioner.snapshot("ws-a").causalTenant).not.toBeNull();
   expect(provisioner.deleted).toEqual([]);
 });
 
-test("partial provisioning failure is retryable at the same generation and keeps the successful binding", async () => {
+test("a provisioning failure is retryable at the same generation", async () => {
   const { profiles, reconciler, provisioner } = harness();
-  provisioner.failNext("causal_tenant", "Bearer ov-secret at /var/lib/openviking/account.db");
+  provisioner.failNext("openviking", "Bearer ov-secret at /var/lib/openviking/account.db");
   await unwrap(
     await profiles.selectDesired({
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "openviking",
       at: now,
     }),
   );
 
   const failed = await unwrap(await reconciler.reconcile("ws-a"));
   expect(failed.profile).toMatchObject({
-    desired: "causal_openviking",
+    desired: "openviking",
     observed: "error",
     generation: 1,
     reconcileKind: "provision",
@@ -179,11 +177,8 @@ test("partial provisioning failure is retryable at the same generation and keeps
   expect(failed.profile.sanitizedFailure?.message).not.toContain("Bearer");
   expect(failed.profile.sanitizedFailure?.message).not.toContain("/var/lib");
   expect(failed.profile.sanitizedFailure?.message).not.toContain("ov-secret");
-  expect(failed.effects.ensured).toEqual(["openviking"]);
-  expect(provisioner.snapshot("ws-a")).toMatchObject({
-    openviking: { resourceId: "acct-ws-a" },
-    causalTenant: null,
-  });
+  expect(failed.effects.ensured).toEqual([]);
+  expect(provisioner.snapshot("ws-a")).toEqual({ openviking: null });
 
   const recovered = await unwrap(await reconciler.reconcile("ws-a"));
   expect(recovered.profile).toMatchObject({
@@ -191,30 +186,32 @@ test("partial provisioning failure is retryable at the same generation and keeps
     generation: 1,
     sanitizedFailure: null,
   });
-  expect(provisioner.snapshot("ws-a").causalTenant?.resourceId).toBe("tenant-ws-a");
+  expect(provisioner.snapshot("ws-a").openviking?.resourceId).toBe("acct-ws-a");
 });
 
-test("a failed switch retries as switching and does not delete the prior OpenViking binding", async () => {
+test("a failed re-provision retries without deleting the prior OpenViking binding", async () => {
   const { profiles, reconciler, provisioner } = harness();
   await unwrap(
     await profiles.selectDesired({ workspaceId: "ws-a", desired: "openviking", at: now }),
   );
   await unwrap(await reconciler.reconcile("ws-a"));
-  provisioner.failNext("causal_tenant", "token=super-secret");
+  await unwrap(await profiles.selectDesired({ workspaceId: "ws-a", desired: "off", at: later }));
+  await unwrap(await reconciler.reconcile("ws-a"));
+  provisioner.failNext("openviking", "token=super-secret");
   await unwrap(
     await profiles.selectDesired({
       workspaceId: "ws-a",
-      desired: "causal_openviking",
-      at: later,
+      desired: "openviking",
+      at: new Date("2026-09-21T14:00:00.000Z"),
     }),
   );
 
   const failed = await unwrap(await reconciler.reconcile("ws-a"));
   expect(failed.profile).toMatchObject({
-    desired: "causal_openviking",
+    desired: "openviking",
     observed: "error",
-    generation: 2,
-    reconcileKind: "switch",
+    generation: 3,
+    reconcileKind: "provision",
   });
   expect(failed.profile.sanitizedFailure?.message).not.toContain("super-secret");
   expect(provisioner.snapshot("ws-a").openviking?.resourceId).toBe("acct-ws-a");
@@ -222,9 +219,9 @@ test("a failed switch retries as switching and does not delete the prior OpenVik
 
   const recovered = await unwrap(await reconciler.reconcile("ws-a"));
   expect(recovered.profile).toMatchObject({
-    desired: "causal_openviking",
+    desired: "openviking",
     observed: "ready",
-    generation: 2,
+    generation: 3,
     reconcileKind: null,
   });
 });
@@ -265,7 +262,7 @@ test("a stale generation cannot take over during reconcile or overwrite a newer 
   await unwrap(
     await profiles.selectDesired({
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "off",
       at: later,
     }),
   );
@@ -276,17 +273,27 @@ test("a stale generation cannot take over during reconcile or overwrite a newer 
     failure: { code: "stale_generation", message: "profile generation is stale" },
   });
   expect(await profiles.get("ws-a")).toMatchObject({
-    desired: "causal_openviking",
+    desired: "off",
     observed: "switching",
     generation: 2,
   });
 
   const settled = await unwrap(await reconciler.reconcile("ws-a"));
   expect(settled.profile).toMatchObject({
-    desired: "causal_openviking",
+    desired: "off",
     observed: "ready",
     generation: 2,
   });
+
+  // Advance the provisioned runtime past the stale snapshot's generation.
+  await unwrap(
+    await profiles.selectDesired({
+      workspaceId: "ws-a",
+      desired: "openviking",
+      at: new Date("2026-09-21T14:00:00.000Z"),
+    }),
+  );
+  await unwrap(await reconciler.reconcile("ws-a"));
 
   const staleState = createDefaultWorkspaceMemoryProfile("ws-a");
   staleState.desired = "openviking";
@@ -296,7 +303,7 @@ test("a stale generation cannot take over during reconcile or overwrite a newer 
     ok: false,
     failure: { code: "stale_generation", message: "profile generation is stale" },
   });
-  expect(await store.get("ws-a")).toMatchObject({ desired: "causal_openviking", generation: 2 });
+  expect(await store.get("ws-a")).toMatchObject({ desired: "openviking", generation: 3 });
 });
 
 test("selectDesired rejects a stale expected generation and an unknown profile without writing", async () => {
@@ -307,7 +314,7 @@ test("selectDesired rejects a stale expected generation and an unknown profile w
   expect(
     await profiles.selectDesired({
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "off",
       at: later,
       expectedGeneration: 0,
     }),
@@ -352,7 +359,7 @@ test("a missing Workspace is desired off, observed ready, and reconcile is a sto
   const result = await unwrap(await reconciler.reconcile("ws-missing"));
   expect(result.profile).toEqual(createDefaultWorkspaceMemoryProfile("ws-missing"));
   expect(result.effects).toEqual({ ensured: [], processing: "stopped" });
-  expect(provisioner.snapshot("ws-missing")).toEqual({ openviking: null, causalTenant: null });
+  expect(provisioner.snapshot("ws-missing")).toEqual({ openviking: null });
 });
 
 test("P1 modules stay framework-free and never import OpenViking HTTP details", async () => {

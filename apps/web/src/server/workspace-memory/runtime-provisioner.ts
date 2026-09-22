@@ -1,6 +1,6 @@
 /**
  * P4 port extension: production MemoryRuntimeProvisioner adapter.
- * Wraps frozen OpenViking/Causal provisioner ports; does not edit P1 reconciler.
+ * Wraps the frozen OpenViking provisioner port; does not edit P1 reconciler.
  */
 import {
   mapMemoryActor,
@@ -14,7 +14,6 @@ import type {
   MemoryRuntimeProvisioner,
   MemoryRuntimeReceipt,
 } from "./reconciler";
-import type { CausalMemoryProvisioner } from "./stores";
 
 export type WorkspaceIdentityDirectory = {
   listActors(workspaceId: string): Promise<readonly CoforgeMemoryActor[]>;
@@ -51,37 +50,14 @@ export type MemoryRuntimeReadiness = {
 export function createProductionMemoryRuntimeProvisioner(deps: {
   openviking: OpenVikingProvisioner;
   bindings: OpenVikingBindingStore;
-  causal: CausalMemoryProvisioner;
   identities: WorkspaceIdentityDirectory;
   readiness: MemoryRuntimeReadiness;
   mappedIdentities?: MappedIdentityWriter;
 }): MemoryRuntimeProvisioner {
   return {
     async ensure({ workspaceId, generation, kind }) {
-      if (kind === "openviking") {
-        return ensureOpenViking(deps, workspaceId, generation);
-      }
-      const tenant = await deps.causal.provisionTenant({ workspaceId, generation });
-      if (tenant.workspaceId !== workspaceId || tenant.generation !== generation) {
-        return {
-          workspaceId: tenant.workspaceId,
-          generation: tenant.generation,
-          kind,
-          resourceId: tenant.tenantId,
-        };
-      }
-      await deps.readiness.ensureNamespace({
-        workspaceId,
-        generation,
-        kind,
-        binding: await deps.bindings.get(workspaceId),
-      });
-      return {
-        workspaceId,
-        generation,
-        kind,
-        resourceId: tenant.tenantId,
-      };
+      void kind;
+      return ensureOpenViking(deps, workspaceId, generation);
     },
     async inspectHealth({ workspaceId, generation }) {
       try {

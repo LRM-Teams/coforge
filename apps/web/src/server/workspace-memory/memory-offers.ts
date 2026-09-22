@@ -1,39 +1,22 @@
 /**
- * F4 Memory Offer + correction composition. Mixed citation kinds stay tagged.
- * Correction is a proposal against Causal Memory only; it never writes OpenViking.
+ * Memory Offer composition. An offer is a cited channel message to one
+ * recipient Agent; it never writes OpenViking.
  */
 
-import {
-  CAUSAL_MEMORY_CITATION_KIND,
-  type CausalMemoryCitation,
-  type MemoryCitation,
-} from "@lrm/coforge-sdk/agent";
+import type { MemoryCitation } from "@lrm/coforge-sdk/agent";
 import type {
   MemoryOfferRecord,
   WorkspaceMemoryCitationStore,
 } from "../db/repositories/workspace-memory-citation.repositories.server";
 import { WorkspaceMemoryCitationKindError } from "../db/repositories/workspace-memory-errors.server";
-import { CausalWorkspaceScopeError } from "../db/repositories/causal-memory.repositories.server";
-import type { CausalOfferPublisher } from "./offer-delivery.server";
-import {
-  MemoryCitationCorrectionError,
-  MemoryCitationUngroundedError,
-  type MemoryCitationBindings,
-} from "./memory-citations";
+import { WorkspaceMemoryScopeError } from "../db/repositories/workspace-memory-errors.server";
+import type { MemoryOfferPublisher } from "./offer-delivery.server";
+import { MemoryCitationUngroundedError, type MemoryCitationBindings } from "./memory-citations";
 
 export type MemoryOfferResult = {
   offer: MemoryOfferRecord;
   citations: MemoryCitation[];
   duplicate: boolean;
-};
-
-export type CausalCorrectionPort = {
-  propose(input: {
-    operationId: string;
-    causalItemId: string;
-    citations: CausalMemoryCitation[];
-    rationale: string;
-  }): Promise<{ accepted: boolean; duplicate: boolean; proposalId: string }>;
 };
 
 export type MemoryOfferChannel = {
@@ -55,21 +38,13 @@ export type MemoryOffers = {
     body: string;
     memoryAgentId: string;
   }): Promise<MemoryOfferResult>;
-  proposeCorrection(input: {
-    workspaceId: string;
-    operationId: string;
-    causalItemId: string;
-    contradictoryCitationRefs: string[];
-    rationale: string;
-  }): Promise<{ accepted: boolean; duplicate: boolean; proposalId: string }>;
 };
 
 export function createMemoryOffers(deps: {
   citations: MemoryCitationBindings;
   offers: Pick<WorkspaceMemoryCitationStore, "putOffer" | "getOffer">;
-  publisher: CausalOfferPublisher;
+  publisher: MemoryOfferPublisher;
   channels: MemoryOfferChannel;
-  corrections: CausalCorrectionPort;
 }): MemoryOffers {
   return {
     async publish(input) {
@@ -84,7 +59,7 @@ export function createMemoryOffers(deps: {
         input.conversationId,
         input.targetAgentId,
       );
-      if (!active) throw new CausalWorkspaceScopeError();
+      if (!active) throw new WorkspaceMemoryScopeError();
       const delivered = await deps.publisher.publish({
         workspaceId: input.workspaceId,
         conversationId: input.conversationId,
@@ -109,21 +84,6 @@ export function createMemoryOffers(deps: {
           throw new MemoryCitationUngroundedError();
         throw error;
       }
-    },
-
-    async proposeCorrection(input) {
-      const evidence = await deps.citations.resolveCorrectionEvidence(
-        input.workspaceId,
-        input.contradictoryCitationRefs,
-      );
-      if (evidence.some((citation) => citation.kind !== CAUSAL_MEMORY_CITATION_KIND))
-        throw new MemoryCitationCorrectionError();
-      return deps.corrections.propose({
-        operationId: input.operationId,
-        causalItemId: input.causalItemId,
-        citations: evidence,
-        rationale: input.rationale,
-      });
     },
   };
 }

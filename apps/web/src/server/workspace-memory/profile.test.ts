@@ -45,11 +45,11 @@ test("OpenViking stays off unless the prototype flag is an explicit opt-in", () 
   expect(isOpenVikingPrototypeEnabled({ OPENVIKING_PROTOTYPE_ENABLED: "1" })).toBe(true);
 });
 
-test("selecting openviking or causal_openviking without prototype opt-in fails closed and stays off", () => {
-  for (const desired of ["openviking", "causal_openviking"] as const) {
+test("selecting openviking without prototype opt-in fails closed and stays off", () => {
+  {
     const result = applyWorkspaceMemoryCommand(
       seed(),
-      { type: "select_desired", desired, at: now },
+      { type: "select_desired", desired: "openviking", at: now },
       disabled,
     );
     expect(result).toEqual({
@@ -69,7 +69,7 @@ test("selecting openviking or causal_openviking without prototype opt-in fails c
   });
 });
 
-test("off provisions openviking, then causal, and both reverse switches retain data", () => {
+test("off provisions openviking and reverse switches retain the activation cursor", () => {
   const openviking = unwrap(
     applyWorkspaceMemoryCommand(
       seed(),
@@ -92,44 +92,48 @@ test("off provisions openviking, then causal, and both reverse switches retain d
   expect(ovReady.observed).toBe("ready");
   expect(ovReady.reconcileKind).toBeNull();
 
-  const toCausal = unwrap(
+  const toOff = unwrap(
     applyWorkspaceMemoryCommand(
       ovReady,
+      { type: "select_desired", desired: "off", at: later },
+      enabled,
+    ),
+  );
+  expect(toOff).toMatchObject({
+    desired: "off",
+    observed: "switching",
+    generation: 2,
+    reconcileKind: "switch",
+    activationCursor: { kind: "time", occurredAt: now.toISOString() },
+  });
+  const offReady = unwrap(
+    applyWorkspaceMemoryCommand(toOff, { type: "observe_ready", generation: 2 }),
+  );
+  expect(offReady.observed).toBe("ready");
+
+  const backToOv = unwrap(
+    applyWorkspaceMemoryCommand(
+      offReady,
       {
         type: "select_desired",
-        desired: "causal_openviking",
-        at: later,
+        desired: "openviking",
+        at: new Date("2026-09-21T14:00:00.000Z"),
         afterMessageId: "msg-100",
       },
       enabled,
     ),
   );
-  expect(toCausal).toMatchObject({
-    desired: "causal_openviking",
-    observed: "switching",
-    generation: 2,
-    reconcileKind: "switch",
-    activationCursor: { kind: "message", occurredAt: later.toISOString(), messageId: "msg-100" },
-  });
-  const causalReady = unwrap(
-    applyWorkspaceMemoryCommand(toCausal, { type: "observe_ready", generation: 2 }),
-  );
-  expect(causalReady.observed).toBe("ready");
-
-  const backToOv = unwrap(
-    applyWorkspaceMemoryCommand(
-      causalReady,
-      { type: "select_desired", desired: "openviking", at: new Date("2026-09-21T14:00:00.000Z") },
-      enabled,
-    ),
-  );
   expect(backToOv).toMatchObject({
     desired: "openviking",
-    observed: "switching",
+    observed: "provisioning",
     generation: 3,
-    reconcileKind: "switch",
+    reconcileKind: "provision",
+    activationCursor: {
+      kind: "message",
+      occurredAt: "2026-09-21T14:00:00.000Z",
+      messageId: "msg-100",
+    },
   });
-  expect(backToOv.activationCursor?.occurredAt).toBe("2026-09-21T14:00:00.000Z");
 
   const off = unwrap(
     applyWorkspaceMemoryCommand(
@@ -147,16 +151,16 @@ test("off provisions openviking, then causal, and both reverse switches retain d
   expect(off.activationCursor).not.toBeNull();
 });
 
-test("off can provision causal_openviking directly when the prototype is opted in", () => {
+test("off can provision openviking directly when the prototype is opted in", () => {
   const profile = unwrap(
     applyWorkspaceMemoryCommand(
       seed(),
-      { type: "select_desired", desired: "causal_openviking", at: now },
+      { type: "select_desired", desired: "openviking", at: now },
       enabled,
     ),
   );
   expect(profile).toMatchObject({
-    desired: "causal_openviking",
+    desired: "openviking",
     observed: "provisioning",
     generation: 1,
     reconcileKind: "provision",
@@ -244,7 +248,7 @@ test("a failed switch retries as switching, not as a first-time provision", () =
   const switching = unwrap(
     applyWorkspaceMemoryCommand(
       ready,
-      { type: "select_desired", desired: "causal_openviking", at: later },
+      { type: "select_desired", desired: "off", at: later },
       enabled,
     ),
   );
@@ -257,7 +261,7 @@ test("a failed switch retries as switching, not as a first-time provision", () =
   );
   const retried = unwrap(applyWorkspaceMemoryCommand(failed, { type: "retry", generation: 2 }));
   expect(retried).toMatchObject({
-    desired: "causal_openviking",
+    desired: "off",
     observed: "switching",
     generation: 2,
     reconcileKind: "switch",
@@ -282,7 +286,7 @@ test("an old generation cannot apply observed updates or overwrite a newer profi
   const newer = unwrap(
     applyWorkspaceMemoryCommand(
       unwrap(applyWorkspaceMemoryCommand(selected, { type: "observe_ready", generation: 1 })),
-      { type: "select_desired", desired: "causal_openviking", at: later },
+      { type: "select_desired", desired: "off", at: later },
       enabled,
     ),
   );
@@ -292,7 +296,7 @@ test("an old generation cannot apply observed updates or overwrite a newer profi
     observed: "ready",
   });
   expect(staleOverwrite).toBe("stale_generation");
-  expect(await store.get("ws-a")).toMatchObject({ desired: "causal_openviking", generation: 2 });
+  expect(await store.get("ws-a")).toMatchObject({ desired: "off", generation: 2 });
 });
 
 test("selecting the current desired profile while ready is a no-op", () => {
@@ -320,7 +324,7 @@ test("selecting the current desired profile while ready is a no-op", () => {
 test("unknown desired or observed values fail closed", () => {
   expect(parseDesiredWorkspaceMemoryProfile("off")).toBe("off");
   expect(parseDesiredWorkspaceMemoryProfile("openviking")).toBe("openviking");
-  expect(parseDesiredWorkspaceMemoryProfile("causal_openviking")).toBe("causal_openviking");
+  expect(parseDesiredWorkspaceMemoryProfile("causal_openviking")).toBeNull();
   expect(parseDesiredWorkspaceMemoryProfile("every_agent")).toBeNull();
   expect(parseDesiredWorkspaceMemoryProfile("on")).toBeNull();
   expect(parseObservedWorkspaceMemoryState("ready")).toBe("ready");

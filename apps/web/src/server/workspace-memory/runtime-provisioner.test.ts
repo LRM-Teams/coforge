@@ -11,15 +11,12 @@ import {
   createProductionMemoryRuntimeProvisioner,
   createPrototypeMemoryRuntimeReadiness,
 } from "./runtime-provisioner";
-import {
-  createFakeCausalMemoryProvisioner,
-  createInMemoryWorkspaceMemoryProfileStore,
-} from "./stores";
+import { createInMemoryWorkspaceMemoryProfileStore } from "./stores";
 
 const now = new Date("2026-09-21T12:00:00.000Z");
 const enabled = { prototypeEnabled: true };
 
-test("production reconciler provisions OV account, mapped identities, optional CM tenant, and namespace readiness", async () => {
+test("production reconciler provisions the OV account, mapped identities, and namespace readiness", async () => {
   const store = createInMemoryWorkspaceMemoryProfileStore();
   const bindings = createInMemoryOpenVikingBindingStore();
   const identities = createInMemoryWorkspaceIdentityDirectory([
@@ -31,7 +28,6 @@ test("production reconciler provisions OV account, mapped identities, optional C
   const provisioner = createProductionMemoryRuntimeProvisioner({
     openviking: createFakeOpenVikingProvisioner(),
     bindings,
-    causal: createFakeCausalMemoryProvisioner(),
     identities,
     mappedIdentities: mapped,
     readiness: {
@@ -48,7 +44,7 @@ test("production reconciler provisions OV account, mapped identities, optional C
 
   const selected = await profiles.selectDesired({
     workspaceId: "ws-a",
-    desired: "causal_openviking",
+    desired: "openviking",
     at: now,
   });
   expect(selected.ok).toBe(true);
@@ -56,11 +52,11 @@ test("production reconciler provisions OV account, mapped identities, optional C
   expect(ready.ok).toBe(true);
   if (!ready.ok) throw new Error("reconcile failed");
   expect(ready.profile).toMatchObject({
-    desired: "causal_openviking",
+    desired: "openviking",
     observed: "ready",
     generation: 1,
   });
-  expect(ready.effects.ensured).toEqual(["openviking", "causal_tenant"]);
+  expect(ready.effects.ensured).toEqual(["openviking"]);
   expect(await bindings.get("ws-a")).toMatchObject({
     accountId: "acct-ws-a",
     serviceIdentityId: "svc-projection-ws-a",
@@ -72,7 +68,7 @@ test("production reconciler provisions OV account, mapped identities, optional C
     "agent",
     "projection_worker",
   ]);
-  expect(readinessCalls).toEqual(["openviking:ws-a", "causal_tenant:ws-a"]);
+  expect(readinessCalls).toEqual(["openviking:ws-a"]);
 });
 
 test("namespace unreadiness becomes a retryable provisioning error and does not mark ready", async () => {
@@ -80,7 +76,6 @@ test("namespace unreadiness becomes a retryable provisioning error and does not 
   const provisioner = createProductionMemoryRuntimeProvisioner({
     openviking: createFakeOpenVikingProvisioner(),
     bindings: createInMemoryOpenVikingBindingStore(),
-    causal: createFakeCausalMemoryProvisioner(),
     identities: createInMemoryWorkspaceIdentityDirectory(),
     readiness: {
       async ensureNamespace() {
@@ -108,7 +103,6 @@ test("inspectHealth degrades a ready profile without changing generation or dele
   const provisioner = createProductionMemoryRuntimeProvisioner({
     openviking: createFakeOpenVikingProvisioner(),
     bindings,
-    causal: createFakeCausalMemoryProvisioner(),
     identities: createInMemoryWorkspaceIdentityDirectory(),
     readiness: {
       ...createPrototypeMemoryRuntimeReadiness(),

@@ -115,10 +115,7 @@ async function latestExplicitMemoryQuestion(
     where: {
       workspaceId,
       conversationId: { in: conversationIds },
-      OR: [
-        { body: { contains: "@memory" } },
-        { body: { contains: `<@agent:${memoryAgentId}>` } },
-      ],
+      OR: [{ body: { contains: "@memory" } }, { body: { contains: `<@agent:${memoryAgentId}>` } }],
       sender: { userId: { not: null } },
     },
     orderBy: { createdAt: "desc" },

@@ -1,10 +1,6 @@
 import { sanitizeWorkspaceMemoryFailure, type SanitizedFailure } from "./errors";
 
-export const DESIRED_WORKSPACE_MEMORY_PROFILES = [
-  "off",
-  "openviking",
-  "causal_openviking",
-] as const;
+export const DESIRED_WORKSPACE_MEMORY_PROFILES = ["off", "openviking"] as const;
 export type DesiredWorkspaceMemoryProfile = (typeof DESIRED_WORKSPACE_MEMORY_PROFILES)[number];
 
 export const OBSERVED_WORKSPACE_MEMORY_STATES = [

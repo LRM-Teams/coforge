@@ -51,10 +51,8 @@ export {
   type WorkspaceMemoryProfileReconciler,
 } from "./reconciler";
 export {
-  createFakeCausalMemoryProvisioner,
   createInMemoryWorkspaceMemoryProfileStore,
   saveProfileTransition,
-  type CausalMemoryProvisioner,
   type WorkspaceMemoryProfileStore,
 } from "./stores";
 export {
@@ -71,7 +69,6 @@ export {
   DISPATCH_SINK_PROFILES,
   DISPATCH_STATES,
   createAdmissionDispatcher,
-  createCausalOpenVikingSink,
   createInMemoryWorkspaceMemoryAdmissionStore,
   createOpenVikingNativeSessionSink,
   type AdmissionDispatcher,
@@ -105,7 +102,6 @@ export {
 export {
   createWorkspaceMemorySwitching,
   observeWorkspaceMemoryAccess,
-  type CausalRetrieveResult,
   type MemoryBindingRef,
   type MemorySurfaceDecision,
   type SwitchReconcileResult,

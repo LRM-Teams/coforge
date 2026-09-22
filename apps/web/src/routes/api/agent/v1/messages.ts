@@ -5,8 +5,8 @@ import {
   isValidMentionSelectorArray,
   MEMORY_OFFER_REQUIRED_MESSAGE,
 } from "@lrm/coforge-sdk/internal";
-import { createPrismaMemoryAgentDirectory } from "#/server/causal-memory/memory-agent-http.server";
-import { explicitMemoryQuestionRequiresOffer } from "#/server/causal-memory/explicit-memory-answer";
+import { createPrismaMemoryAgentDirectory } from "#/server/workspace-memory/memory-agent-http.server";
+import { explicitMemoryQuestionRequiresOffer } from "#/server/workspace-memory/explicit-memory-answer";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {

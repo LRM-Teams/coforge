@@ -11,10 +11,7 @@ import {
   createProductionMemoryRuntimeProvisioner,
   createPrototypeMemoryRuntimeReadiness,
 } from "../../workspace-memory/runtime-provisioner";
-import {
-  createFakeCausalMemoryProvisioner,
-  createInMemoryWorkspaceMemoryProfileStore,
-} from "../../workspace-memory/stores";
+import { createInMemoryWorkspaceMemoryProfileStore } from "../../workspace-memory/stores";
 import {
   AGGREGATED_OPENVIKING_GATEWAY_CATALOG,
   AGGREGATED_OPENVIKING_ROUTE_CATALOG,
@@ -171,7 +168,6 @@ async function seedReadyWorkspace() {
   const provisioner = createProductionMemoryRuntimeProvisioner({
     openviking: createFakeOpenVikingProvisioner(),
     bindings,
-    causal: createFakeCausalMemoryProvisioner(),
     identities: createInMemoryWorkspaceIdentityDirectory([OWNER, MEMBER, MEMORY_AGENT]),
     readiness: createPrototypeMemoryRuntimeReadiness(),
   });

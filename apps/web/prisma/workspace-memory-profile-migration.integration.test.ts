@@ -45,12 +45,12 @@ test("workspace memory migration is additive and never stores credential plainte
 });
 
 test("workspace memory migration freezes C4 names and Workspace-scoped uniqueness", () => {
-  expect(migration).toContain("CHECK (\"desired\" IN ('off', 'openviking', 'causal_openviking'))");
+  expect(migration).toContain("CHECK (\"desired\" IN ('off', 'openviking'))");
   expect(migration).toContain(
     "CHECK (\"observed\" IN ('provisioning', 'ready', 'degraded', 'switching', 'error'))",
   );
   expect(migration).toContain('"activation_cursor_kind"');
-  expect(migration).toContain("CHECK (\"citation_kind\" IN ('openviking', 'causal_memory'))");
+  expect(migration).toContain("CHECK (\"citation_kind\" IN ('openviking'))");
   expect(migration).toContain(
     'CREATE UNIQUE INDEX "admitted_public_channel_segments_workspace_id_segment_id_key"',
   );
@@ -78,16 +78,7 @@ async function createMigratedSchema() {
   const client = await pool!.connect();
   await client.query(`CREATE SCHEMA "${schema}"`);
   await client.query(`SET search_path TO "${schema}"`);
-  await client.query(`
-    CREATE TABLE "workspaces" ("id" UUID PRIMARY KEY);
-    CREATE TABLE "causal_citation_records" (
-      "id" UUID PRIMARY KEY,
-      "workspace_id" UUID NOT NULL,
-      "citation_id" TEXT NOT NULL
-    );
-    CREATE UNIQUE INDEX "causal_citation_records_workspace_id_citation_id_key"
-      ON "causal_citation_records"("workspace_id", "citation_id");
-  `);
+  await client.query(`CREATE TABLE "workspaces" ("id" UUID PRIMARY KEY)`);
   await client.query(migration);
   return { client, schema };
 }
@@ -175,7 +166,7 @@ async function assertReplay(client: PoolClient, workspaceId: string) {
       `INSERT INTO "admitted_segment_dispatches"
         ("id", "workspace_id", "segment_id", "operation_id", "sink_profile", "profile_generation",
          "state", "updated_at")
-       VALUES ($1, $2, 'seg-1', 'op-2', 'causal_openviking', 1, 'pending', CURRENT_TIMESTAMP)`,
+       VALUES ($1, $2, 'seg-1', 'op-2', 'openviking', 1, 'pending', CURRENT_TIMESTAMP)`,
       ["30000000-0000-0000-0000-000000000099", workspaceId],
     ),
   ).rejects.toThrow(/admitted_segment_dispatches_workspace_id_segment_id_key/);
@@ -233,8 +224,7 @@ async function assertActivationCursor(client: PoolClient, workspaceId: string) {
   );
   await client.query(
     `UPDATE "workspace_memory_profiles"
-        SET "desired" = 'causal_openviking',
-            "observed" = 'switching',
+        SET "observed" = 'switching',
             "generation" = 2,
             "activation_cursor_kind" = 'message',
             "activation_occurred_at" = '2026-09-21T00:01:00Z',
@@ -250,7 +240,7 @@ async function assertActivationCursor(client: PoolClient, workspaceId: string) {
   );
   expect(stored.rows).toEqual([
     {
-      desired: "causal_openviking",
+      desired: "openviking",
       observed: "switching",
       generation: 2,
       activation_cursor_kind: "message",
@@ -268,7 +258,7 @@ async function assertActivationCursor(client: PoolClient, workspaceId: string) {
   ).rejects.toThrow(/workspace_memory_profiles_activation_cursor_check/);
   await expect(
     client.query(
-      `UPDATE "workspace_memory_profiles" SET "desired" = 'causal-memory' WHERE "workspace_id" = $1`,
+      `UPDATE "workspace_memory_profiles" SET "desired" = 'causal_openviking' WHERE "workspace_id" = $1`,
       [workspaceId],
     ),
   ).rejects.toThrow(/workspace_memory_profiles_desired_check/);
@@ -287,11 +277,6 @@ async function assertCitationKindIntegrity(
     ["40000000-0000-0000-0000-000000000001", workspaceA],
   );
   await client.query(
-    `INSERT INTO "causal_citation_records" ("id", "workspace_id", "citation_id")
-     VALUES ($1, $2, 'cm-1')`,
-    ["50000000-0000-0000-0000-000000000001", workspaceA],
-  );
-  await client.query(
     `INSERT INTO "memory_offer_records"
       ("id", "workspace_id", "operation_id", "conversation_id", "recipient_agent_id",
        "recipient_rationale", "message_id")
@@ -304,29 +289,19 @@ async function assertCitationKindIntegrity(
      VALUES ($1, $2, 'offer-1', 'openviking', 'ov-1', 'ov-1')`,
     ["70000000-0000-0000-0000-000000000001", workspaceA],
   );
-  await client.query(
-    `INSERT INTO "memory_offer_citations"
-      ("id", "workspace_id", "offer_operation_id", "citation_kind", "citation_id", "causal_citation_id")
-     VALUES ($1, $2, 'offer-1', 'causal_memory', 'cm-1', 'cm-1')`,
-    ["70000000-0000-0000-0000-000000000002", workspaceA],
-  );
-
   await expect(
     client.query(
       `INSERT INTO "memory_offer_citations"
-        ("id", "workspace_id", "offer_operation_id", "citation_kind", "citation_id", "causal_citation_id")
+        ("id", "workspace_id", "offer_operation_id", "citation_kind", "citation_id", "openviking_citation_id")
        VALUES ($1, $2, 'offer-1', 'causal_memory', 'ov-1', 'ov-1')`,
       ["70000000-0000-0000-0000-000000000099", workspaceA],
     ),
-  ).rejects.toThrow(
-    /memory_offer_citations_typed_ref_check|memory_offer_citations_causal_citation_fkey/,
-  );
+  ).rejects.toThrow(/memory_offer_citations_kind_check/);
   await expect(
     client.query(
       `INSERT INTO "memory_offer_citations"
-        ("id", "workspace_id", "offer_operation_id", "citation_kind", "citation_id",
-         "openviking_citation_id", "causal_citation_id")
-       VALUES ($1, $2, 'offer-1', 'openviking', 'ov-1', 'ov-1', 'cm-1')`,
+        ("id", "workspace_id", "offer_operation_id", "citation_kind", "citation_id", "openviking_citation_id")
+       VALUES ($1, $2, 'offer-1', 'openviking', 'ov-mismatched', 'ov-1')`,
       ["70000000-0000-0000-0000-000000000098", workspaceA],
     ),
   ).rejects.toThrow(/memory_offer_citations_typed_ref_check/);

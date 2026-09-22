@@ -37,7 +37,7 @@ test("workspace deletion enqueues every cleanup target and replay is a no-op", a
     operationId: "del-1",
   });
   expect(replay).toEqual(first);
-  expect(await store.get("ws-b", "del-1", "causal_tenant")).toBeNull();
+  expect(await store.get("ws-b", "del-1", "openviking_account")).toBeNull();
 });
 
 test("run leases each target in order, then settles after a successful remote step", async () => {
@@ -84,9 +84,8 @@ test("a remote failure stays visible as retryable_failure, stops later targets, 
   });
   expect(failed.work.sanitizedError).not.toContain("Bearer");
   expect(failed.work.sanitizedError).not.toContain("/var/lib");
-  expect(remotes.calls).toEqual(["causal_tenant", "openviking_account"]);
-  expect(await store.get("ws-a", "del-1", "causal_tenant")).toMatchObject({ state: "settled" });
-  expect(await store.get("ws-a", "del-1", "managed_causal_projection")).toMatchObject({
+  expect(remotes.calls).toEqual(["openviking_account"]);
+  expect(await store.get("ws-a", "del-1", "openviking_binding")).toMatchObject({
     state: "pending",
   });
   expect(
@@ -112,7 +111,7 @@ test("a completed cleanup run and a repeated settle are no-ops", async () => {
     ttlMs: 60_000,
   });
   expect(first.status).toBe("completed");
-  remotes.fail("causal_tenant");
+  remotes.fail("openviking_account");
   const replay = await cleanup.run({
     workspaceId: "ws-a",
     operationId: "del-1",
@@ -144,7 +143,7 @@ test("profile switching and off retain runtimes and never enqueue cleanup work",
 
   const selected = await profileApi.selectDesired({
     workspaceId: "ws-a",
-    desired: "causal_openviking",
+    desired: "openviking",
     at: now,
   });
   expect(selected.ok).toBe(true);
@@ -162,12 +161,13 @@ test("profile switching and off retain runtimes and never enqueue cleanup work",
   expect(stopped.effects.processing).toBe("stopped");
   expect(provisioner.deleted).toEqual([]);
   expect(provisioner.snapshot("ws-a").openviking).not.toBeNull();
-  expect(provisioner.snapshot("ws-a").causalTenant).not.toBeNull();
   expect(remotes.calls).toEqual([]);
-  expect(await store.get("ws-a", "del-1", "causal_tenant")).toBeNull();
+  expect(await store.get("ws-a", "del-1", "openviking_account")).toBeNull();
 
   await cleanup.enqueueWorkspaceDeletion({ workspaceId: "ws-a", operationId: "del-1" });
-  expect(await store.get("ws-a", "del-1", "causal_tenant")).toMatchObject({ state: "pending" });
+  expect(await store.get("ws-a", "del-1", "openviking_account")).toMatchObject({
+    state: "pending",
+  });
 });
 
 test("profile and lifecycle modules do not enqueue workspace deletion cleanup", async () => {

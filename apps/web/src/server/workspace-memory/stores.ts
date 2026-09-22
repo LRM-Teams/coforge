@@ -9,13 +9,6 @@ export type WorkspaceMemoryProfileStore = {
   }): Promise<"saved" | "stale_generation">;
 };
 
-export type CausalMemoryProvisioner = {
-  provisionTenant(input: {
-    workspaceId: string;
-    generation: number;
-  }): Promise<{ workspaceId: string; tenantId: string; generation: number }>;
-};
-
 export function createInMemoryWorkspaceMemoryProfileStore(): WorkspaceMemoryProfileStore {
   const records = new Map<string, WorkspaceMemoryProfile>();
   return {
@@ -47,12 +40,4 @@ export async function saveProfileTransition(
     expectedGeneration: previous.generation,
     profile: next,
   });
-}
-
-export function createFakeCausalMemoryProvisioner(): CausalMemoryProvisioner {
-  return {
-    async provisionTenant({ workspaceId, generation }) {
-      return { workspaceId, tenantId: `tenant-${workspaceId}`, generation };
-    },
-  };
 }

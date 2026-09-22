@@ -1,12 +1,9 @@
 import { expect, test } from "bun:test";
 import { OPENVIKING_CITATION_KIND } from "@lrm/coforge-sdk/agent";
 import type { OpenVikingCitationRecord } from "../db/repositories/workspace-memory-citation.repositories.server";
-import {
-  createInMemoryCausalMemoryCitationBindings,
-  createMemoryCitationBindings,
-} from "./memory-citations";
+import { createMemoryCitationBindings } from "../workspace-memory/memory-citations";
 import { createOpenVikingMemoryReads } from "./openviking-memory-reads";
-import type { OpenVikingMemoryReadInvocation } from "../openviking/memory-agent-reads";
+import type { OpenVikingMemoryReadInvocation } from "./memory-agent-reads";
 
 function harness(results: unknown) {
   const calls: OpenVikingMemoryReadInvocation[] = [];
@@ -21,7 +18,6 @@ function harness(results: unknown) {
         return ovRows.get(`${workspaceId}:${citationId}`) ?? null;
       },
     },
-    causal: createInMemoryCausalMemoryCitationBindings(),
   });
   const reads = createOpenVikingMemoryReads({
     client: {

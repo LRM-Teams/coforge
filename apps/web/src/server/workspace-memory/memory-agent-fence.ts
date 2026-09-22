@@ -1,6 +1,6 @@
 /**
  * Profile → Memory Agent fence mapping. Workspace-memory owns this decision;
- * causal-memory only consumes the injected fence.
+ * The openviking-memory fence is consumed from the injected lookup.
  */
 
 import { workspaceProfileToToolFence, type MemoryAgentToolProfile } from "@lrm/coforge-sdk/agent";

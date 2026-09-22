@@ -12,7 +12,7 @@ import {
 export const DISPATCH_STATES = ["pending", "delivered", "retryable_failure"] as const;
 export type DispatchState = (typeof DISPATCH_STATES)[number];
 
-export const DISPATCH_SINK_PROFILES = ["openviking", "causal_openviking"] as const;
+export const DISPATCH_SINK_PROFILES = ["openviking"] as const;
 export type DispatchSinkProfile = (typeof DISPATCH_SINK_PROFILES)[number];
 
 export type AdmittedSegmentDispatchRecord = {

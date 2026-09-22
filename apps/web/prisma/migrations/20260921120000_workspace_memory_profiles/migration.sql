@@ -1,4 +1,4 @@
--- Workspace Memory Profile persistence (P2). Additive only; causal migrations stay immutable.
+-- Workspace Memory Profile persistence (P2). OpenViking-only; Causal Memory is removed (ADR 0062).
 -- Credential plaintext is never stored. CHECK constraints encode the C4 frozen vocabularies.
 
 -- CreateTable
@@ -17,7 +17,7 @@ CREATE TABLE "workspace_memory_profiles" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "workspace_memory_profiles_pkey" PRIMARY KEY ("workspace_id"),
-    CONSTRAINT "workspace_memory_profiles_desired_check" CHECK ("desired" IN ('off', 'openviking', 'causal_openviking')),
+    CONSTRAINT "workspace_memory_profiles_desired_check" CHECK ("desired" IN ('off', 'openviking')),
     CONSTRAINT "workspace_memory_profiles_observed_check" CHECK ("observed" IN ('provisioning', 'ready', 'degraded', 'switching', 'error')),
     CONSTRAINT "workspace_memory_profiles_generation_check" CHECK ("generation" >= 0),
     CONSTRAINT "workspace_memory_profiles_reconcile_kind_check" CHECK ("reconcile_kind" IS NULL OR "reconcile_kind" IN ('provision', 'switch')),
@@ -122,7 +122,7 @@ CREATE TABLE "admitted_segment_dispatches" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "admitted_segment_dispatches_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "admitted_segment_dispatches_sink_profile_check" CHECK ("sink_profile" IN ('openviking', 'causal_openviking')),
+    CONSTRAINT "admitted_segment_dispatches_sink_profile_check" CHECK ("sink_profile" IN ('openviking')),
     CONSTRAINT "admitted_segment_dispatches_state_check" CHECK ("state" IN ('pending', 'delivered', 'retryable_failure')),
     CONSTRAINT "admitted_segment_dispatches_attempt_count_check" CHECK ("attempt_count" >= 0),
     CONSTRAINT "admitted_segment_dispatches_profile_generation_check" CHECK ("profile_generation" >= 0)
@@ -176,25 +176,14 @@ CREATE TABLE "memory_offer_citations" (
     "offer_operation_id" TEXT NOT NULL,
     "citation_kind" TEXT NOT NULL,
     "citation_id" TEXT NOT NULL,
-    "openviking_citation_id" TEXT,
-    "causal_citation_id" TEXT,
+    "openviking_citation_id" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "memory_offer_citations_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "memory_offer_citations_kind_check" CHECK ("citation_kind" IN ('openviking', 'causal_memory')),
+    CONSTRAINT "memory_offer_citations_kind_check" CHECK ("citation_kind" IN ('openviking')),
     CONSTRAINT "memory_offer_citations_typed_ref_check" CHECK (
-        (
-            "citation_kind" = 'openviking'
-            AND "openviking_citation_id" IS NOT NULL
-            AND "causal_citation_id" IS NULL
-            AND "openviking_citation_id" = "citation_id"
-        )
-        OR (
-            "citation_kind" = 'causal_memory'
-            AND "causal_citation_id" IS NOT NULL
-            AND "openviking_citation_id" IS NULL
-            AND "causal_citation_id" = "citation_id"
-        )
+        "citation_kind" = 'openviking'
+        AND "openviking_citation_id" = "citation_id"
     )
 );
 
@@ -214,10 +203,7 @@ CREATE TABLE "workspace_memory_cleanup_work" (
 
     CONSTRAINT "workspace_memory_cleanup_work_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "workspace_memory_cleanup_work_target_check" CHECK ("target" IN (
-        'causal_tenant',
         'openviking_account',
-        'managed_causal_projection',
-        'pending_projection_work',
         'openviking_binding'
     )),
     CONSTRAINT "workspace_memory_cleanup_work_state_check" CHECK ("state" IN ('pending', 'leased', 'retryable_failure', 'settled')),
@@ -322,9 +308,6 @@ ALTER TABLE "memory_offer_citations" ADD CONSTRAINT "memory_offer_citations_offe
 
 -- AddForeignKey
 ALTER TABLE "memory_offer_citations" ADD CONSTRAINT "memory_offer_citations_openviking_citation_fkey" FOREIGN KEY ("workspace_id", "openviking_citation_id") REFERENCES "openviking_citation_records"("workspace_id", "citation_id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "memory_offer_citations" ADD CONSTRAINT "memory_offer_citations_causal_citation_fkey" FOREIGN KEY ("workspace_id", "causal_citation_id") REFERENCES "causal_citation_records"("workspace_id", "citation_id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "workspace_memory_cleanup_work" ADD CONSTRAINT "workspace_memory_cleanup_work_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

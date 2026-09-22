@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  channelSendNeedsMemoryOffer,
-  isExplicitMemoryQuestion,
-} from "./explicit-memory-answer";
+import { channelSendNeedsMemoryOffer, isExplicitMemoryQuestion } from "./explicit-memory-answer";
 
 test("an explicit @memory question is a token, not a substring", () => {
   expect(isExplicitMemoryQuestion("@memory When did Caroline go?")).toBe(true);

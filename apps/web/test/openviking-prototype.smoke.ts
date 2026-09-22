@@ -22,10 +22,7 @@ import { Pool, type PoolClient } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/client";
 import { PrismaWorkspaceMemoryCitationStore } from "../src/server/db/repositories/workspace-memory-citation.repositories.server";
-import {
-  createInMemoryCausalMemoryCitationBindings,
-  createMemoryCitationBindings,
-} from "../src/server/causal-memory/memory-citations";
+import { createMemoryCitationBindings } from "../src/server/workspace-memory/memory-citations";
 import {
   composeOpenVikingGatewayContext,
   createOpenVikingPolicyGateway,
@@ -612,7 +609,6 @@ test.skipIf(!canRun)(
             const citations = new PrismaWorkspaceMemoryCitationStore(db);
             const bindingsCitations = createMemoryCitationBindings({
               openviking: citations,
-              causal: createInMemoryCausalMemoryCitationBindings(),
             });
             const [bound] = await bindingsCitations.bindOpenVikingHits(
               workspaceId,

@@ -1,12 +1,11 @@
 import { expect, test } from "bun:test";
-import { CAUSAL_OPENVIKING_TOOL_PROFILE, OPENVIKING_TOOL_PROFILE } from "@lrm/coforge-sdk/agent";
+import { OPENVIKING_TOOL_PROFILE } from "@lrm/coforge-sdk/agent";
 import { createMemoryAgentFenceLookup, memoryAgentFenceForDesired } from "./memory-agent-fence";
 import { createDefaultWorkspaceMemoryProfile } from "./profile";
 import { createInMemoryWorkspaceMemoryProfileStore } from "./stores";
 
 test("maps Workspace Memory Profile to the injected Memory Agent fence", () => {
   expect(memoryAgentFenceForDesired("openviking")).toBe(OPENVIKING_TOOL_PROFILE);
-  expect(memoryAgentFenceForDesired("causal_openviking")).toBe(CAUSAL_OPENVIKING_TOOL_PROFILE);
   expect(memoryAgentFenceForDesired("off")).toBeUndefined();
   expect(memoryAgentFenceForDesired(null)).toBeUndefined();
 });

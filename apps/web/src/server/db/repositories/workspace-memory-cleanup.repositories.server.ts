@@ -4,13 +4,7 @@ import {
   WorkspaceMemoryScopeError,
 } from "./workspace-memory-errors.server";
 
-export const CLEANUP_TARGETS = [
-  "causal_tenant",
-  "openviking_account",
-  "managed_causal_projection",
-  "pending_projection_work",
-  "openviking_binding",
-] as const;
+export const CLEANUP_TARGETS = ["openviking_account", "openviking_binding"] as const;
 export type CleanupTarget = (typeof CLEANUP_TARGETS)[number];
 
 export const CLEANUP_STATES = ["pending", "leased", "retryable_failure", "settled"] as const;

@@ -112,7 +112,7 @@ test.skipIf(!connectionString)(
         await harness.cleanupStore.get(harness.workspaceA, "del-1", "openviking_account"),
       ).toEqual(failed.work);
       expect(
-        await harness.cleanupStore.get(harness.workspaceA, "del-1", "managed_causal_projection"),
+        await harness.cleanupStore.get(harness.workspaceA, "del-1", "openviking_binding"),
       ).toMatchObject({ state: "pending" });
 
       const retried = await cleanup.lease({
@@ -157,7 +157,7 @@ test.skipIf(!connectionString)(
         (
           await profileApi.selectDesired({
             workspaceId: harness.workspaceA,
-            desired: "causal_openviking",
+            desired: "openviking",
             at: now,
           })
         ).ok,
@@ -176,7 +176,7 @@ test.skipIf(!connectionString)(
       expect(off.ok).toBe(true);
       expect(provisioner.deleted).toEqual([]);
       expect(
-        await harness.cleanupStore.get(harness.workspaceA, "del-1", "causal_tenant"),
+        await harness.cleanupStore.get(harness.workspaceA, "del-1", "openviking_account"),
       ).toBeNull();
       expect(remotes.calls).toEqual([]);
 
@@ -192,7 +192,7 @@ test.skipIf(!connectionString)(
         ttlMs: 60_000,
       });
       expect(first.status).toBe("completed");
-      remotes.fail("causal_tenant");
+      remotes.fail("openviking_account");
       const replay = await cleanup.run({
         workspaceId: harness.workspaceA,
         operationId: "del-1",
@@ -201,13 +201,7 @@ test.skipIf(!connectionString)(
         ttlMs: 60_000,
       });
       expect(replay.status).toBe("completed");
-      expect(remotes.calls).toEqual([
-        "causal_tenant",
-        "openviking_account",
-        "managed_causal_projection",
-        "pending_projection_work",
-        "openviking_binding",
-      ]);
+      expect(remotes.calls).toEqual(["openviking_account", "openviking_binding"]);
       const settled = await cleanup.settle({
         workspaceId: harness.workspaceA,
         operationId: "del-1",

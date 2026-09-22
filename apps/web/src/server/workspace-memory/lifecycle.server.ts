@@ -1,8 +1,5 @@
 import { RedisClient } from "bun";
 import type { PrismaClient } from "../../../generated/client";
-import { CausalMemory, createCausalRuntimeClient } from "../causal-memory/module";
-import { causalMemoryRuntimeUrl, tenantTokenForWorkspace } from "../causal-memory/config.server";
-import { PrismaCausalMemoryRepository } from "../db/repositories/causal-memory.repositories.server";
 import { getDatabaseClient } from "../db/client.server";
 import { PrismaOpenVikingBindingStore } from "../db/repositories/openviking-binding.repositories.server";
 import { PrismaWorkspaceMemoryAdmissionStore } from "../db/repositories/workspace-memory-admission.repositories.server";
@@ -11,11 +8,7 @@ import { PrismaWorkspaceMemoryIdentityDirectory } from "../db/repositories/works
 import { PrismaWorkspaceMemoryProfileStore } from "../db/repositories/workspace-memory-profile.repositories.server";
 import { createFakeOpenVikingProvisioner } from "../openviking/stores";
 import type { OpenVikingTypedSessionExtract } from "../openviking/typed-session-extract.server";
-import {
-  createAdmissionDispatcher,
-  createCausalOpenVikingSink,
-  createOpenVikingNativeSessionSink,
-} from "./dispatch";
+import { createAdmissionDispatcher, createOpenVikingNativeSessionSink } from "./dispatch";
 import { createOpenVikingAdmittedDeliverySink } from "./ov-sink.server";
 import { createWorkspaceMemoryProfileReconciler } from "./reconciler";
 import { createWorkspaceMemoryProfiles } from "./profiles";
@@ -77,7 +70,6 @@ export function composeWorkspaceMemoryLifecycle(input: {
   db: PrismaClient;
   lock: WorkspaceMemorySweepLock;
   now?: () => Date;
-  createCausalMemory?: (workspaceId: string, tenantId: string) => CausalMemory;
   openvikingSessions?: OpenVikingTypedSessionExtract;
   openvikingSinkOwner?: string;
 }): WorkspaceMemoryLifecycle {
@@ -86,16 +78,9 @@ export function composeWorkspaceMemoryLifecycle(input: {
   const admission = new PrismaWorkspaceMemoryAdmissionStore(input.db);
   const catalog = new PrismaWorkspaceMemoryCatalog(input.db);
   const identities = new PrismaWorkspaceMemoryIdentityDirectory(input.db);
-  const causalRepository = new PrismaCausalMemoryRepository(input.db);
   const provisioner = createProductionMemoryRuntimeProvisioner({
     openviking: createFakeOpenVikingProvisioner(),
     bindings,
-    causal: {
-      async provisionTenant({ workspaceId, generation }) {
-        const tenant = await causalRepository.ensureTenant(workspaceId);
-        return { workspaceId, tenantId: tenant.tenantId, generation };
-      },
-    },
     identities,
     mappedIdentities: identities,
     readiness: createPrototypeMemoryRuntimeReadiness(),
@@ -105,15 +90,6 @@ export function composeWorkspaceMemoryLifecycle(input: {
     gate: { prototypeEnabled: isOpenVikingPrototypeEnabled(Bun.env) },
   });
   const reconciler = createWorkspaceMemoryProfileReconciler({ store: profiles, provisioner });
-  const createMemory =
-    input.createCausalMemory ??
-    ((workspaceId: string, tenantId: string) =>
-      new CausalMemory(
-        causalRepository,
-        createCausalRuntimeClient(causalMemoryRuntimeUrl()),
-        async () => tenantTokenForWorkspace(workspaceId, tenantId),
-        workspaceId,
-      ));
   const dispatcher = createAdmissionDispatcher({
     admission,
     sinks: {
@@ -124,29 +100,6 @@ export function composeWorkspaceMemoryLifecycle(input: {
               owner: input.openvikingSinkOwner,
             })
           : createOpenVikingNativeSessionSink(),
-      causal_openviking: createCausalOpenVikingSink({
-        async ingest(delivery) {
-          const tenant = await causalRepository.ensureTenant(
-            delivery.segment.workspace.workspaceId,
-          );
-          const memory = createMemory(delivery.segment.workspace.workspaceId, tenant.tenantId);
-          return memory.ingestAdmittedSegment({
-            workspaceId: delivery.segment.workspace.workspaceId,
-            admittedSegmentId: delivery.segment.segmentId,
-            operationId: delivery.operationId,
-            kind: delivery.segment.kind,
-            sourceMessageIds: [...delivery.segment.sourceMessageIds],
-            sourcePayloadHash: delivery.segment.sourcePayloadHash,
-            state: "pending",
-            attemptCount: 0,
-            session: {
-              workspaceId: delivery.segment.workspace.workspaceId,
-              channelId: delivery.segment.workspace.channelId,
-            },
-            turns: [...delivery.turns],
-          });
-        },
-      }),
     },
   });
   const switching = createWorkspaceMemorySwitching({
@@ -156,7 +109,6 @@ export function composeWorkspaceMemoryLifecycle(input: {
     getBinding: (workspaceId) => bindings.get(workspaceId),
     snapshotRuntimes: async (workspaceId) => {
       const binding = await bindings.get(workspaceId);
-      const tenant = await causalRepository.getTenant(workspaceId);
       return {
         openviking: binding
           ? {
@@ -164,14 +116,6 @@ export function composeWorkspaceMemoryLifecycle(input: {
               generation: binding.generation,
               kind: "openviking",
               resourceId: binding.accountId,
-            }
-          : null,
-        causalTenant: tenant
-          ? {
-              workspaceId,
-              generation: binding?.generation ?? 0,
-              kind: "causal_tenant",
-              resourceId: tenant.tenantId,
             }
           : null,
       };

@@ -1,5 +1,8 @@
 # OpenViking and Causal Memory Workspace profiles implementation plan
 
+> **Superseded 2026-09-22:** the causal direction was falsified; Workspace memory is OpenViking-only ([ADR 0062](../adr/0062-openviking-only-workspace-memory.md)). This task graph is a historical record.
+
+
 **Status:** design frozen; implementation plan pending final shared-understanding confirmation and required Frank approvals.  
 **Primary worktree:** `feat/causal-memory` at `/home/zhoujie22/river2_0/.worktrees/coforge-causal-memory`.  
 **External source trees:** `/home/zhoujie22/river2_0/causal-memory` (patched Causal Memory runtime) and `/home/zhoujie22/river2_0/OpenViking` (read-only during the prototype).  

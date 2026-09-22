@@ -94,22 +94,16 @@ function harness() {
     },
   };
   const openviking = recordingSink();
-  const causal = recordingSink();
   const dispatcher = createAdmissionDispatcher({
     admission,
-    sinks: { openviking: openviking.sink, causal_openviking: causal.sink },
+    sinks: { openviking: openviking.sink },
   });
-  const retrieved: string[] = [];
   const switching = createWorkspaceMemorySwitching({
     profiles,
     reconciler,
     dispatcher,
     getBinding: (workspaceId) => bindings.get(workspaceId),
     snapshotRuntimes: (workspaceId) => provisioner.snapshot(workspaceId),
-    retrieveCausal: async ({ workspaceId, query }) => {
-      retrieved.push(`${workspaceId}:${query}`);
-      return { hits: [`tenant-${workspaceId}:${query}`] };
-    },
   });
   const runtimeCalls: Array<{ method: string; path: string }> = [];
   const gateway = createOpenVikingPolicyGateway({
@@ -144,8 +138,6 @@ function harness() {
     switching,
     gateway,
     openviking,
-    causal,
-    retrieved,
     runtimeCalls,
   };
 }
@@ -175,14 +167,13 @@ test("observeWorkspaceMemoryAccess closes every surface while switching, errorin
     surfaces: {
       admission: { open: false, reason: "profile_off" },
       openvikingGateway: { open: false, reason: "profile_off" },
-      causalRetrieval: { open: false, reason: "profile_off" },
     },
   });
 
   const switching = observeWorkspaceMemoryAccess({
     profile: {
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "openviking",
       observed: "switching",
       generation: 2,
       activationCursor: { kind: "time", occurredAt: later.toISOString() },
@@ -194,12 +185,11 @@ test("observeWorkspaceMemoryAccess closes every surface while switching, errorin
   expect(switching.observed).toBe("switching");
   expect(switching.surfaces.admission).toEqual({ open: false, reason: "not_ready" });
   expect(switching.surfaces.openvikingGateway).toEqual({ open: false, reason: "not_ready" });
-  expect(switching.surfaces.causalRetrieval).toEqual({ open: false, reason: "not_ready" });
 
   const errored = observeWorkspaceMemoryAccess({
     profile: {
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "openviking",
       observed: "error",
       generation: 2,
       activationCursor: { kind: "time", occurredAt: later.toISOString() },
@@ -218,14 +208,13 @@ test("observeWorkspaceMemoryAccess closes every surface while switching, errorin
   });
   expect(errored.surfaces.admission.open).toBe(false);
   expect(errored.surfaces.openvikingGateway.open).toBe(false);
-  expect(errored.surfaces.causalRetrieval.open).toBe(false);
 });
 
-test("degraded keeps admission and causal retrieval open but closes the ready gateway", () => {
+test("degraded keeps admission open but closes the ready gateway", () => {
   const degraded = observeWorkspaceMemoryAccess({
     profile: {
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "openviking",
       observed: "degraded",
       generation: 2,
       activationCursor: { kind: "time", occurredAt: later.toISOString() },
@@ -235,15 +224,14 @@ test("degraded keeps admission and causal retrieval open but closes the ready ga
     binding: { workspaceId: "ws-a", generation: 2 },
   });
   expect(degraded.surfaces.admission).toEqual({ open: true });
-  expect(degraded.surfaces.causalRetrieval).toEqual({ open: true });
   expect(degraded.surfaces.openvikingGateway).toEqual({ open: false, reason: "not_ready" });
 });
 
-test("off→openviking→causal_openviking→openviking→off retains runtimes and never backfills", async () => {
+test("off→openviking→off retains runtimes and never backfills", async () => {
   const ctx = harness();
   const historical = liveDetected("ws-a", new Date("2026-09-21T11:00:00.000Z"), "m-old");
   const ovLive = liveDetected("ws-a", new Date("2026-09-21T12:05:00.000Z"), "m-ov");
-  const causalLive = liveDetected("ws-a", new Date("2026-09-21T13:05:00.000Z"), "m-cm");
+  const laterLive = liveDetected("ws-a", new Date("2026-09-21T13:05:00.000Z"), "m-later");
 
   const selectedOv = await unwrap(
     await ctx.switching.selectDesired({ workspaceId: "ws-a", desired: "openviking", at: now }),
@@ -263,17 +251,10 @@ test("off→openviking→causal_openviking→openviking→off retains runtimes a
     surfaces: {
       admission: { open: true },
       openvikingGateway: { open: true },
-      causalRetrieval: { open: false, reason: "not_causal" },
     },
   });
   expect(readyOv.retained.openviking?.resourceId).toBe("acct-ws-a");
-  expect(readyOv.retained.causalTenant).toBeNull();
   expect((await ctx.gateway.forward(OWNER, FIND)).ok).toBe(true);
-  expect(await ctx.switching.retrieveCausal({ workspaceId: "ws-a", query: "old ov" })).toEqual({
-    allowed: false,
-    observation: readyOv.observation,
-  });
-  expect(ctx.retrieved).toEqual([]);
   expect(await ctx.switching.dispatch({ workspaceId: "ws-a", detected: historical })).toMatchObject(
     {
       outcome: { outcome: "skipped", reason: "before_activation_cursor" },
@@ -284,105 +265,27 @@ test("off→openviking→causal_openviking→openviking→off retains runtimes a
   });
   expect(ctx.openviking.deliveries.map((row) => row.segment.sourceMessageIds)).toEqual([["m-ov"]]);
 
-  const switchingToCausal = await unwrap(
+  const switchingOff = await unwrap(
     await ctx.switching.selectDesired({
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "off",
       at: later,
       afterMessageId: "msg-100",
     }),
   );
-  expect(switchingToCausal.observation).toMatchObject({
-    desired: "causal_openviking",
-    observed: "switching",
-    generation: 2,
-    surfaces: {
-      admission: { open: false, reason: "not_ready" },
-      openvikingGateway: { open: false, reason: "not_ready" },
-      causalRetrieval: { open: false, reason: "not_ready" },
-    },
+  expect(switchingOff.observation.observed).toBe("switching");
+  expect(switchingOff.observation.surfaces).toMatchObject({
+    admission: { open: false, reason: "profile_off" },
+    openvikingGateway: { open: false, reason: "profile_off" },
   });
-  expect(await ctx.switching.dispatch({ workspaceId: "ws-a", detected: causalLive })).toMatchObject(
-    {
-      outcome: { outcome: "skipped", reason: "not_ready" },
-    },
-  );
+  expect(await ctx.switching.dispatch({ workspaceId: "ws-a", detected: laterLive })).toMatchObject({
+    outcome: { outcome: "skipped", reason: "profile_off" },
+  });
   expect(await ctx.gateway.forward(OWNER, FIND)).toMatchObject({
     ok: false,
     failure: { code: "workspace_not_ready", observed: "switching", sanitizedFailure: null },
   });
-  expect(
-    await ctx.switching.retrieveCausal({ workspaceId: "ws-a", query: "during switch" }),
-  ).toMatchObject({
-    allowed: false,
-  });
-  expect(ctx.causal.deliveries).toEqual([]);
 
-  const readyCausal = await unwrap(await ctx.switching.reconcile("ws-a"));
-  expect(readyCausal.observation).toMatchObject({
-    desired: "causal_openviking",
-    observed: "ready",
-    activationCursor: { kind: "message", occurredAt: later.toISOString(), messageId: "msg-100" },
-    surfaces: {
-      admission: { open: true },
-      openvikingGateway: { open: true },
-      causalRetrieval: { open: true },
-    },
-  });
-  expect(readyCausal.retained).toMatchObject({
-    openviking: { resourceId: "acct-ws-a" },
-    causalTenant: { resourceId: "tenant-ws-a" },
-  });
-  expect(await ctx.switching.dispatch({ workspaceId: "ws-a", detected: ovLive })).toMatchObject({
-    outcome: { outcome: "skipped", reason: "before_activation_cursor" },
-  });
-  expect(await ctx.switching.dispatch({ workspaceId: "ws-a", detected: historical })).toMatchObject(
-    {
-      outcome: { outcome: "skipped", reason: "before_activation_cursor" },
-    },
-  );
-  expect(await ctx.switching.dispatch({ workspaceId: "ws-a", detected: causalLive })).toMatchObject(
-    {
-      outcome: { outcome: "dispatched", sinkProfile: "causal_openviking" },
-    },
-  );
-  expect(ctx.openviking.deliveries).toHaveLength(1);
-  expect(ctx.causal.deliveries.map((row) => row.segment.sourceMessageIds)).toEqual([["m-cm"]]);
-  expect(await ctx.switching.retrieveCausal({ workspaceId: "ws-a", query: "new facts" })).toEqual({
-    allowed: true,
-    observation: readyCausal.observation,
-    result: { hits: ["tenant-ws-a:new facts"] },
-  });
-
-  const switchingBack = await unwrap(
-    await ctx.switching.selectDesired({
-      workspaceId: "ws-a",
-      desired: "openviking",
-      at: afterSwitch,
-    }),
-  );
-  expect(switchingBack.observation.observed).toBe("switching");
-  expect(switchingBack.observation.surfaces.causalRetrieval.open).toBe(false);
-  const back = await unwrap(await ctx.switching.reconcile("ws-a"));
-  expect(back.observation.surfaces.causalRetrieval).toEqual({ open: false, reason: "not_causal" });
-  expect(back.retained.causalTenant?.resourceId).toBe("tenant-ws-a");
-  expect(back.retained.openviking?.resourceId).toBe("acct-ws-a");
-  expect(
-    await ctx.switching.retrieveCausal({ workspaceId: "ws-a", query: "after off causal" }),
-  ).toMatchObject({
-    allowed: false,
-  });
-  expect(ctx.retrieved).toEqual(["ws-a:new facts"]);
-  expect(ctx.provisioner.deleted).toEqual([]);
-
-  const offSelected = await unwrap(
-    await ctx.switching.selectDesired({
-      workspaceId: "ws-a",
-      desired: "off",
-      at: new Date("2026-09-21T15:00:00.000Z"),
-    }),
-  );
-  expect(offSelected.observation.observed).toBe("switching");
   const off = await unwrap(await ctx.switching.reconcile("ws-a"));
   expect(off.observation).toMatchObject({
     desired: "off",
@@ -390,20 +293,11 @@ test("off→openviking→causal_openviking→openviking→off retains runtimes a
     surfaces: {
       admission: { open: false, reason: "profile_off" },
       openvikingGateway: { open: false, reason: "profile_off" },
-      causalRetrieval: { open: false, reason: "profile_off" },
     },
   });
-  expect(off.retained).toMatchObject({
-    openviking: { resourceId: "acct-ws-a" },
-    causalTenant: { resourceId: "tenant-ws-a" },
-  });
-  expect(off.observation.activationCursor).toEqual({
-    kind: "time",
-    occurredAt: afterSwitch.toISOString(),
-  });
+  expect(off.retained.openviking?.resourceId).toBe("acct-ws-a");
   expect(ctx.provisioner.deleted).toEqual([]);
   expect(ctx.openviking.deliveries).toHaveLength(1);
-  expect(ctx.causal.deliveries).toHaveLength(1);
 });
 
 test("a failed switch is visible as error, then retry completes without deleting the OV account", async () => {
@@ -412,20 +306,24 @@ test("a failed switch is visible as error, then retry completes without deleting
     await ctx.switching.selectDesired({ workspaceId: "ws-a", desired: "openviking", at: now }),
   );
   await unwrap(await ctx.switching.reconcile("ws-a"));
-  ctx.provisioner.failNext("causal_tenant", "Bearer ov-secret at /var/lib/openviking/account.db");
+  await unwrap(
+    await ctx.switching.selectDesired({ workspaceId: "ws-a", desired: "off", at: later }),
+  );
+  await unwrap(await ctx.switching.reconcile("ws-a"));
+  ctx.provisioner.failNext("openviking", "Bearer ov-secret at /var/lib/openviking/account.db");
   await unwrap(
     await ctx.switching.selectDesired({
       workspaceId: "ws-a",
-      desired: "causal_openviking",
-      at: later,
+      desired: "openviking",
+      at: afterSwitch,
     }),
   );
 
   const failed = await unwrap(await ctx.switching.reconcile("ws-a"));
   expect(failed.observation).toMatchObject({
-    desired: "causal_openviking",
+    desired: "openviking",
     observed: "error",
-    generation: 2,
+    generation: 3,
     sanitizedFailure: {
       code: "provisioning_failed",
       message: "memory runtime provisioning failed",
@@ -433,7 +331,6 @@ test("a failed switch is visible as error, then retry completes without deleting
     surfaces: {
       admission: { open: false, reason: "not_ready" },
       openvikingGateway: { open: false, reason: "not_ready" },
-      causalRetrieval: { open: false, reason: "not_ready" },
     },
   });
   expect(JSON.stringify(failed.observation.sanitizedFailure)).not.toContain("Bearer");
@@ -455,11 +352,11 @@ test("a failed switch is visible as error, then retry completes without deleting
   const recovered = await unwrap(await ctx.switching.reconcile("ws-a"));
   expect(recovered.observation).toMatchObject({
     observed: "ready",
-    generation: 2,
+    generation: 3,
     sanitizedFailure: null,
-    surfaces: { causalRetrieval: { open: true }, openvikingGateway: { open: true } },
+    surfaces: { admission: { open: true }, openvikingGateway: { open: true } },
   });
-  expect(recovered.retained.causalTenant?.resourceId).toBe("tenant-ws-a");
+  expect(recovered.retained.openviking?.resourceId).toBe("acct-ws-a");
 });
 
 test("a stale generation cannot take over the switching composition", async () => {
@@ -472,7 +369,7 @@ test("a stale generation cannot take over the switching composition", async () =
   await unwrap(
     await ctx.switching.selectDesired({
       workspaceId: "ws-a",
-      desired: "causal_openviking",
+      desired: "off",
       at: later,
     }),
   );
@@ -483,13 +380,13 @@ test("a stale generation cannot take over the switching composition", async () =
     failure: { code: "stale_generation", message: "profile generation is stale" },
   });
   expect(await ctx.store.get("ws-a")).toMatchObject({
-    desired: "causal_openviking",
+    desired: "off",
     observed: "switching",
     generation: 2,
   });
   const settled = await unwrap(await ctx.switching.reconcile("ws-a"));
   expect(settled.observation).toMatchObject({
-    desired: "causal_openviking",
+    desired: "off",
     observed: "ready",
     generation: 2,
   });

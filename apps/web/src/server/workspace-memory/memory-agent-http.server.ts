@@ -1,24 +1,17 @@
 /**
- * Thin HTTP assembly for F4 Memory Agent routes. Routes stay adapters.
+ * Thin HTTP assembly for the Memory Agent route. Routes stay adapters.
  */
 
 import { readFileSync } from "node:fs";
 import type { PrismaClient } from "../../../generated/client";
-import { PrismaCausalMemoryRepository } from "../db/repositories/causal-memory.repositories.server";
 import { PrismaOpenVikingBindingStore } from "../db/repositories/openviking-binding.repositories.server";
 import { PrismaWorkspaceMemoryCitationStore } from "../db/repositories/workspace-memory-citation.repositories.server";
 import { PrismaWorkspaceMemoryProfileStore } from "../db/repositories/workspace-memory-profile.repositories.server";
 import { createOpenVikingPolicyGateway } from "../openviking/policy-gateway.server";
 import { createOpenVikingRuntimeClient } from "../openviking/runtime-client.server";
-import { createMemoryAgentFenceLookup } from "../workspace-memory/memory-agent-fence";
+import { createMemoryAgentFenceLookup } from "./memory-agent-fence";
 import { resolveUnansweredMemoryOfferTarget } from "./explicit-memory-answer";
-import { CAUSAL_RUNTIME_PROTOCOL, CAUSAL_RUNTIME_ROUTES } from "./contract";
-import { createCausalRuntimeClient } from "./module";
-import { causalMemoryRuntimeUrl, tenantTokenForWorkspace } from "./config.server";
-import {
-  createMemoryCitationBindings,
-  createPrismaCausalMemoryCitationBindings,
-} from "./memory-citations";
+import { createMemoryCitationBindings } from "./memory-citations";
 import { createMemoryAgentBudgetLedger } from "./memory-agent-budget";
 import {
   createMemoryAgentCommands,
@@ -27,24 +20,22 @@ import {
   type MemoryAgentCommands,
   type MemoryAgentDirectory,
 } from "./memory-agent-route";
-import { createMemoryOffers, type CausalCorrectionPort } from "./memory-offers";
-import { createPrismaCausalOfferPublisher } from "./offer-delivery.server";
+import { createMemoryOffers } from "./memory-offers";
+import {
+  createPrismaMemoryOfferChannels,
+  createPrismaMemoryOfferPublisher,
+} from "./offer-delivery.server";
 import {
   createCatalogOpenVikingMemoryReadClient,
   type OpenVikingMemoryReadClient,
 } from "../openviking/memory-agent-reads";
-import { createOpenVikingMemoryReads } from "./openviking-memory-reads";
+import { createOpenVikingMemoryReads } from "../openviking/openviking-memory-reads";
 
 const budgets = createMemoryAgentBudgetLedger();
 
 export function createPrismaMemoryAgentDirectory(db: PrismaClient): MemoryAgentDirectory {
   return {
     async isDesignated(workspaceId, agentId) {
-      const tenant = await db.causalWorkspaceTenant.findUnique({
-        where: { workspaceId },
-        select: { memoryAgentId: true },
-      });
-      if (tenant?.memoryAgentId === agentId) return true;
       const mapped = await db.openVikingMappedIdentity.findFirst({
         where: { workspaceId, actorKind: "memory_agent", actorSubject: agentId },
         select: { id: true },
@@ -54,65 +45,9 @@ export function createPrismaMemoryAgentDirectory(db: PrismaClient): MemoryAgentD
   };
 }
 
-export function createScopedCorrectionPort(input: {
-  workspaceId: string;
-  repo: PrismaCausalMemoryRepository;
-  tenantToken: () => Promise<string>;
-}): CausalCorrectionPort {
-  const runtime = createCausalRuntimeClient(causalMemoryRuntimeUrl());
-  return {
-    async propose(command) {
-      const existing = await input.repo.putProposal({
-        workspaceId: input.workspaceId,
-        proposalId: command.operationId,
-        operationId: command.operationId,
-        causalItemId: command.causalItemId,
-        contradictoryCitationIds: command.citations.map((citation) => citation.citationId),
-        rationale: command.rationale,
-      });
-      const first = command.citations[0]!;
-      const verdict = await runtime.request<{
-        verdict: "accept" | "reject";
-        superseded: boolean;
-        auditId: string;
-      }>(
-        CAUSAL_RUNTIME_ROUTES.adjudicateCorrection.path,
-        command.operationId,
-        await input.tenantToken(),
-        {
-          protocol: CAUSAL_RUNTIME_PROTOCOL,
-          operationId: command.operationId,
-          proposal: {
-            causalItemId: command.causalItemId,
-            contradictoryEvidence: {
-              admittedSegmentId: first.admittedSegmentId,
-              sourceMessageIds: [
-                ...new Set(command.citations.flatMap((citation) => citation.sourceMessageIds)),
-              ],
-              summary: command.rationale,
-            },
-          },
-        },
-      );
-      await input.repo.putSupersession({
-        workspaceId: input.workspaceId,
-        proposalId: existing.proposalId,
-        verdict: verdict.verdict,
-        superseded: verdict.superseded,
-        auditId: verdict.auditId,
-      });
-      return {
-        accepted: verdict.verdict === "accept",
-        duplicate: false,
-        proposalId: existing.proposalId,
-      };
-    },
-  };
-}
-
 export function createScopedMemoryAgentHttpCommands(
   db: PrismaClient,
-  workspaceId: string,
+  _workspaceId: string,
   extras: {
     openvikingReads?: OpenVikingMemoryReadClient;
     directory?: MemoryAgentDirectory;
@@ -120,11 +55,7 @@ export function createScopedMemoryAgentHttpCommands(
 ): MemoryAgentCommands {
   const profiles = new PrismaWorkspaceMemoryProfileStore(db);
   const citationsStore = new PrismaWorkspaceMemoryCitationStore(db);
-  const causalRepo = new PrismaCausalMemoryRepository(db);
-  const citations = createMemoryCitationBindings({
-    openviking: citationsStore,
-    causal: createPrismaCausalMemoryCitationBindings(causalRepo),
-  });
+  const citations = createMemoryCitationBindings({ openviking: citationsStore });
   return createMemoryAgentCommands({
     fence: createMemoryAgentFenceLookup(profiles),
     directory: extras.directory ?? createPrismaMemoryAgentDirectory(db),
@@ -133,28 +64,13 @@ export function createScopedMemoryAgentHttpCommands(
     offers: createMemoryOffers({
       citations,
       offers: citationsStore,
-      publisher: createPrismaCausalOfferPublisher(db),
-      channels: causalRepo,
-      corrections: createScopedCorrectionPort({
-        workspaceId,
-        repo: causalRepo,
-        async tenantToken() {
-          const tenant = await causalRepo.designatedMemoryAgent(workspaceId);
-          if (!tenant) throw new Error("causal tenant is not provisioned");
-          return tenantTokenForWorkspace(workspaceId, tenant.tenantId);
-        },
-      }),
+      publisher: createPrismaMemoryOfferPublisher(db),
+      channels: createPrismaMemoryOfferChannels(db),
     }),
     openviking: createOpenVikingMemoryReads({
       client: extras.openvikingReads ?? createDefaultOpenVikingReadClient(db),
       citations,
     }),
-    causalRuntime: createCausalRuntimeClient(causalMemoryRuntimeUrl()),
-    async tenantToken() {
-      const tenant = await causalRepo.designatedMemoryAgent(workspaceId);
-      if (!tenant) throw new Error("causal tenant is not provisioned");
-      return tenantTokenForWorkspace(workspaceId, tenant.tenantId);
-    },
     offerTargets: {
       resolve(currentWorkspaceId, memoryAgentId) {
         return resolveUnansweredMemoryOfferTarget(db, currentWorkspaceId, memoryAgentId);
@@ -220,8 +136,7 @@ function createDefaultOpenVikingReadClient(db: PrismaClient): OpenVikingMemoryRe
           method: request.method,
           path: request.path,
           query: request.query,
-          headers:
-            request.body === undefined ? undefined : { "content-type": "application/json" },
+          headers: request.body === undefined ? undefined : { "content-type": "application/json" },
           body: request.body === undefined ? undefined : JSON.stringify(request.body),
         },
       );

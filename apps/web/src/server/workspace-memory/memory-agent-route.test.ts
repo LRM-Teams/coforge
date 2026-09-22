@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
 import {
-  CAUSAL_AGENT_PROTOCOL,
-  CAUSAL_MEMORY_CITATION_KIND,
-  decodeCausalAgentResponse,
   decodeOpenVikingAgentResponse,
   OPENVIKING_AGENT_PROTOCOL,
   OPENVIKING_CITATION_KIND,
@@ -12,13 +9,10 @@ import type {
   MemoryOfferRecord,
   OpenVikingCitationRecord,
 } from "../db/repositories/workspace-memory-citation.repositories.server";
-import {
-  createInMemoryCausalMemoryCitationBindings,
-  createMemoryCitationBindings,
-} from "./memory-citations";
+import { createMemoryCitationBindings } from "./memory-citations";
 import { createMemoryAgentBudgetLedger } from "./memory-agent-budget";
 import { createMemoryOffers } from "./memory-offers";
-import { createOpenVikingMemoryReads } from "./openviking-memory-reads";
+import { createOpenVikingMemoryReads } from "../openviking/openviking-memory-reads";
 import { createMemoryAgentCommands } from "./memory-agent-route";
 
 const ovHit = {
@@ -30,17 +24,7 @@ const ovHit = {
   excerpt: "skipped tests",
 };
 
-const causalHit = {
-  citationId: "cm:decision-1",
-  causalItemId: "decision-1",
-  factVersion: 3,
-  admittedSegmentId: "segment-1",
-  sourceMessageIds: ["11111111-1111-1111-1111-111111111111"],
-  displayContent: "skipping tests caused a rollback",
-};
-
 function commands(
-  desired: "openviking" | "causal_openviking",
   extras: {
     offerTargets?: {
       resolve: () => Promise<{ conversationId: string; targetAgentId: string } | null>;
@@ -50,8 +34,6 @@ function commands(
   const ovRows = new Map<string, OpenVikingCitationRecord>();
   const offerRows = new Map<string, MemoryOfferRecord>();
   const gatewayCalls: Array<{ operation: string }> = [];
-  const runtimeCalls: string[] = [];
-  const mutations = { openviking: 0, causal: 0 };
   const citations = createMemoryCitationBindings({
     openviking: {
       async putOpenVikingCitation(record) {
@@ -62,7 +44,6 @@ function commands(
         return ovRows.get(`${workspaceId}:${citationId}`) ?? null;
       },
     },
-    causal: createInMemoryCausalMemoryCitationBindings(),
   });
   const offers = createMemoryOffers({
     citations,
@@ -85,17 +66,11 @@ function commands(
         return true;
       },
     },
-    corrections: {
-      async propose(input) {
-        mutations.causal += 1;
-        return { accepted: true, duplicate: false, proposalId: input.operationId };
-      },
-    },
   });
   const handler = createMemoryAgentCommands({
     fence: {
       async resolve() {
-        return workspaceProfileToToolFence(desired);
+        return workspaceProfileToToolFence("openviking");
       },
     },
     directory: {
@@ -115,78 +90,35 @@ function commands(
       },
       citations,
     }),
-    causalRuntime: {
-      async request<T>(_path: string) {
-        runtimeCalls.push(_path);
-        return { duplicate: false, items: [causalHit] } as T;
-      },
-    },
-    async tenantToken() {
-      return "tok";
-    },
     ...(extras.offerTargets ? { offerTargets: extras.offerTargets } : {}),
   });
-  return { handler, offerRows, gatewayCalls, runtimeCalls, mutations };
+  return { handler, offerRows, gatewayCalls };
 }
 
-test("forged citations cannot become an Offer on either profile", async () => {
-  for (const desired of ["openviking", "causal_openviking"] as const) {
-    const { handler } = commands(desired);
-    const result = await handler.handle({
-      workspaceId: "ws-a",
-      agentId: "mem-1",
-      triggerMessageId: "msg-1",
-      command: {
-        protocol: desired === "openviking" ? OPENVIKING_AGENT_PROTOCOL : CAUSAL_AGENT_PROTOCOL,
-        op: "offer",
-        operationId: "offer-forged",
-        conversationId: "ch-1",
-        targetAgentId: "helper-1",
-        recipientRationale: "guess",
-        citationRefs: ["forged"],
-        body: "no",
-      },
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected failure");
-    expect(result.code).toContain("citation-ungrounded");
-  }
-});
-
-test("OpenViking citations cannot satisfy a correction", async () => {
-  const { handler } = commands("causal_openviking");
-  const found = await handler.handle({
-    workspaceId: "ws-a",
-    agentId: "mem-1",
-    triggerMessageId: "msg-1",
-    command: {
-      protocol: OPENVIKING_AGENT_PROTOCOL,
-      op: "find",
-      operationId: "find-1",
-      query: "deploy",
-    },
-  });
-  expect(found.ok).toBe(true);
+test("forged citations cannot become an Offer", async () => {
+  const { handler } = commands();
   const result = await handler.handle({
     workspaceId: "ws-a",
     agentId: "mem-1",
     triggerMessageId: "msg-1",
     command: {
-      protocol: CAUSAL_AGENT_PROTOCOL,
-      op: "propose_correction",
-      operationId: "fix-ov",
-      causalItemId: "decision-1",
-      contradictoryCitationRefs: ["ov:viking://resources/docs/deploy.md"],
-      rationale: "OV is not admitted provenance",
+      protocol: OPENVIKING_AGENT_PROTOCOL,
+      op: "offer",
+      operationId: "offer-forged",
+      conversationId: "ch-1",
+      targetAgentId: "helper-1",
+      recipientRationale: "guess",
+      citationRefs: ["forged"],
+      body: "no",
     },
   });
   expect(result.ok).toBe(false);
   if (result.ok) throw new Error("expected failure");
-  expect(result.message).toContain("openviking citation cannot satisfy causal correction");
+  expect(result.code).toContain("citation-ungrounded");
 });
 
-test("mixed causal_openviking answers preserve citation kinds on the Offer record", async () => {
-  const { handler, offerRows } = commands("causal_openviking");
+test("openviking answers preserve the citation kind on the Offer record", async () => {
+  const { handler, offerRows } = commands();
   await handler.handle({
     workspaceId: "ws-a",
     agentId: "mem-1",
@@ -195,17 +127,6 @@ test("mixed causal_openviking answers preserve citation kinds on the Offer recor
       protocol: OPENVIKING_AGENT_PROTOCOL,
       op: "find",
       operationId: "find-1",
-      query: "deploy",
-    },
-  });
-  await handler.handle({
-    workspaceId: "ws-a",
-    agentId: "mem-1",
-    triggerMessageId: "msg-1",
-    command: {
-      protocol: CAUSAL_AGENT_PROTOCOL,
-      op: "search",
-      operationId: "search-1",
       query: "deploy",
     },
   });
@@ -214,78 +135,36 @@ test("mixed causal_openviking answers preserve citation kinds on the Offer recor
     agentId: "mem-1",
     triggerMessageId: "msg-1",
     command: {
-      protocol: CAUSAL_AGENT_PROTOCOL,
+      protocol: OPENVIKING_AGENT_PROTOCOL,
       op: "offer",
       operationId: "offer-1",
       conversationId: "ch-1",
       targetAgentId: "helper-1",
       recipientRationale: "owns the task",
-      citationRefs: ["ov:viking://resources/docs/deploy.md", "cm:decision-1"],
-      body: "mixed evidence",
+      citationRefs: ["ov:viking://resources/docs/deploy.md"],
+      body: "cited evidence",
     },
   });
   expect(offered.ok).toBe(true);
-  if (!offered.ok) throw new Error("expected mixed offer");
+  if (!offered.ok) throw new Error("expected offer");
   if (offered.response.op !== "offer") throw new Error("expected offer op");
   expect(offered.response.citations).toEqual([
     expect.objectContaining({
-      kind: CAUSAL_MEMORY_CITATION_KIND,
-      citationId: "cm:decision-1",
-    }),
-  ]);
-  expect(offered.response.openvikingCitations).toEqual([
-    expect.objectContaining({
       kind: OPENVIKING_CITATION_KIND,
       citationId: "ov:viking://resources/docs/deploy.md",
     }),
   ]);
-  expect(decodeCausalAgentResponse("offer", offered.response)).toMatchObject({
-    op: "offer",
-    citations: [expect.objectContaining({ citationId: "cm:decision-1" })],
-  });
-  expect(offerRows.get("ws-a:offer-1")?.citations).toEqual([
-    { kind: OPENVIKING_CITATION_KIND, citationId: "ov:viking://resources/docs/deploy.md" },
-    { kind: CAUSAL_MEMORY_CITATION_KIND, citationId: "cm:decision-1" },
-  ]);
-
-  const ovOffered = await handler.handle({
-    workspaceId: "ws-a",
-    agentId: "mem-1",
-    triggerMessageId: "msg-2",
-    command: {
-      protocol: OPENVIKING_AGENT_PROTOCOL,
-      op: "offer",
-      operationId: "offer-ov",
-      conversationId: "ch-1",
-      targetAgentId: "helper-1",
-      recipientRationale: "owns the task",
-      citationRefs: ["ov:viking://resources/docs/deploy.md", "cm:decision-1"],
-      body: "mixed evidence via ov protocol",
-    },
-  });
-  expect(ovOffered.ok).toBe(true);
-  if (!ovOffered.ok) throw new Error("expected mixed ov offer");
-  if (ovOffered.response.op !== "offer") throw new Error("expected offer op");
-  expect(ovOffered.response.citations).toEqual([
-    expect.objectContaining({
-      kind: OPENVIKING_CITATION_KIND,
-      citationId: "ov:viking://resources/docs/deploy.md",
-    }),
-  ]);
-  expect(ovOffered.response.causalCitations).toEqual([
-    expect.objectContaining({
-      kind: CAUSAL_MEMORY_CITATION_KIND,
-      citationId: "cm:decision-1",
-    }),
-  ]);
-  expect(decodeOpenVikingAgentResponse("offer", ovOffered.response)).toMatchObject({
+  expect(decodeOpenVikingAgentResponse("offer", offered.response)).toMatchObject({
     op: "offer",
     citations: [expect.objectContaining({ citationId: "ov:viking://resources/docs/deploy.md" })],
   });
+  expect(offerRows.get("ws-a:offer-1")?.citations).toEqual([
+    { kind: OPENVIKING_CITATION_KIND, citationId: "ov:viking://resources/docs/deploy.md" },
+  ]);
 });
 
-test("both profiles execute the shared read and Offer budget", async () => {
-  const ov = commands("openviking");
+test("the openviking profile executes the shared read and Offer budget", async () => {
+  const ov = commands();
   for (const index of [1, 2, 3]) {
     const read = await ov.handler.handle({
       workspaceId: "ws-a",
@@ -315,58 +194,35 @@ test("both profiles execute the shared read and Offer budget", async () => {
   if (fourth.ok) throw new Error("expected budget failure");
   expect(fourth.code).toBe("openviking-budget-exhausted");
 
-  const mixed = commands("causal_openviking");
-  await mixed.handler.handle({
-    workspaceId: "ws-a",
-    agentId: "mem-1",
-    triggerMessageId: "msg-cm",
-    command: {
-      protocol: CAUSAL_AGENT_PROTOCOL,
-      op: "search",
-      operationId: "search-1",
-      query: "deploy",
-    },
-  });
-  await mixed.handler.handle({
-    workspaceId: "ws-a",
-    agentId: "mem-1",
-    triggerMessageId: "msg-cm",
-    command: {
-      protocol: OPENVIKING_AGENT_PROTOCOL,
-      op: "find",
-      operationId: "find-1",
-      query: "deploy",
-    },
-  });
   const offer = {
-    protocol: CAUSAL_AGENT_PROTOCOL,
+    protocol: OPENVIKING_AGENT_PROTOCOL,
     op: "offer" as const,
     conversationId: "ch-1",
     targetAgentId: "helper-1",
     recipientRationale: "owns the task",
-    citationRefs: ["cm:decision-1"],
+    citationRefs: ["ov:viking://resources/docs/deploy.md"],
     body: "cited",
   };
-  const firstOffer = await mixed.handler.handle({
+  const firstOffer = await ov.handler.handle({
     workspaceId: "ws-a",
     agentId: "mem-1",
-    triggerMessageId: "msg-cm",
+    triggerMessageId: "msg-ov",
     command: { ...offer, operationId: "offer-1" },
   });
   expect(firstOffer.ok).toBe(true);
-  const secondOffer = await mixed.handler.handle({
+  const secondOffer = await ov.handler.handle({
     workspaceId: "ws-a",
     agentId: "mem-1",
-    triggerMessageId: "msg-cm",
+    triggerMessageId: "msg-ov",
     command: { ...offer, operationId: "offer-2" },
   });
   expect(secondOffer.ok).toBe(false);
   if (secondOffer.ok) throw new Error("expected offer budget failure");
-  expect(secondOffer.code).toBe("causal-budget-exhausted");
+  expect(secondOffer.code).toBe("openviking-budget-exhausted");
 });
 
-test("Memory Agent citation paths do not write OpenViking and only propose causal correction", async () => {
-  const { handler, gatewayCalls, runtimeCalls, mutations } = commands("causal_openviking");
+test("Memory Agent citation paths never write OpenViking", async () => {
+  const { handler, gatewayCalls } = commands();
   await handler.handle({
     workspaceId: "ws-a",
     agentId: "mem-1",
@@ -379,54 +235,28 @@ test("Memory Agent citation paths do not write OpenViking and only propose causa
     },
   });
   expect(gatewayCalls.every((call) => call.operation === "find")).toBe(true);
-  await handler.handle({
-    workspaceId: "ws-a",
-    agentId: "mem-1",
-    triggerMessageId: "msg-1",
-    command: {
-      protocol: CAUSAL_AGENT_PROTOCOL,
-      op: "search",
-      operationId: "search-1",
-      query: "deploy",
-    },
-  });
-  expect(runtimeCalls.every((path) => path.includes("/search"))).toBe(true);
-  await handler.handle({
-    workspaceId: "ws-a",
-    agentId: "mem-1",
-    triggerMessageId: "msg-1",
-    command: {
-      protocol: CAUSAL_AGENT_PROTOCOL,
-      op: "propose_correction",
-      operationId: "fix-1",
-      causalItemId: "decision-1",
-      contradictoryCitationRefs: ["cm:decision-1"],
-      rationale: "later admitted evidence",
-    },
-  });
-  expect(mutations).toEqual({ openviking: 0, causal: 1 });
 });
 
-test("openviking profile cannot invoke causal commands", async () => {
-  const { handler } = commands("openviking");
+test("foreign protocol commands are rejected as invalid", async () => {
+  const { handler } = commands();
   const result = await handler.handle({
     workspaceId: "ws-a",
     agentId: "mem-1",
     triggerMessageId: "msg-1",
     command: {
-      protocol: CAUSAL_AGENT_PROTOCOL,
+      protocol: "coforge.causal.agent.v1",
       op: "search",
       operationId: "search-1",
       query: "deploy",
     },
   });
   expect(result.ok).toBe(false);
-  if (result.ok) throw new Error("expected unauthorized");
-  expect(result.code).toBe("causal-unauthorized");
+  if (result.ok) throw new Error("expected invalid");
+  expect(result.code).toBe("openviking-request-invalid");
 });
 
 test("an offer omits channel ids and the server binds the unanswered @memory target", async () => {
-  const { handler, offerRows } = commands("openviking", {
+  const { handler, offerRows } = commands({
     offerTargets: {
       async resolve() {
         return { conversationId: "ch-bound", targetAgentId: "task-1" };
@@ -465,7 +295,7 @@ test("an offer omits channel ids and the server binds the unanswered @memory tar
 });
 
 test("an offer without channel ids fails when no @memory target is bound", async () => {
-  const { handler } = commands("openviking");
+  const { handler } = commands();
   const offered = await handler.handle({
     workspaceId: "ws-a",
     agentId: "mem-1",

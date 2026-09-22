@@ -92,17 +92,7 @@ async function openHarness(): Promise<Harness & { dispose: () => Promise<void> }
   const client = await pool.connect();
   await client.query(`CREATE SCHEMA "${schema}"`);
   await client.query(`SET search_path TO "${schema}"`);
-  await client.query(`
-    CREATE TABLE "workspaces" ("id" UUID PRIMARY KEY);
-    CREATE TABLE "causal_citation_records" (
-      "id" UUID PRIMARY KEY,
-      "workspace_id" UUID NOT NULL,
-      "citation_id" TEXT NOT NULL,
-      "fact_version" INTEGER
-    );
-    CREATE UNIQUE INDEX "causal_citation_records_workspace_id_citation_id_key"
-      ON "causal_citation_records"("workspace_id", "citation_id");
-  `);
+  await client.query(`CREATE TABLE "workspaces" ("id" UUID PRIMARY KEY)`);
   await client.query(migration);
   const workspaceA = crypto.randomUUID();
   const workspaceB = crypto.randomUUID();
@@ -161,23 +151,34 @@ test.skipIf(!connectionString)(
       const ready = unwrap(
         applyWorkspaceMemoryCommand(selected, { type: "observe_ready", generation: 1 }),
       );
-      const switched = unwrap(
+      const switchedOff = unwrap(
         applyWorkspaceMemoryCommand(
           ready,
+          { type: "select_desired", desired: "off", at: later },
+          enabled,
+        ),
+      );
+      expect(await saveProfileTransition(harness.profiles, selected, switchedOff)).toBe("saved");
+      const offReady = unwrap(
+        applyWorkspaceMemoryCommand(switchedOff, { type: "observe_ready", generation: 2 }),
+      );
+      const switched = unwrap(
+        applyWorkspaceMemoryCommand(
+          offReady,
           {
             type: "select_desired",
-            desired: "causal_openviking",
+            desired: "openviking",
             at: later,
             afterMessageId: "msg-activate",
           },
           enabled,
         ),
       );
-      expect(await saveProfileTransition(harness.profiles, selected, switched)).toBe("saved");
+      expect(await saveProfileTransition(harness.profiles, switchedOff, switched)).toBe("saved");
       expect(await harness.profiles.get(harness.workspaceA)).toMatchObject({
-        desired: "causal_openviking",
-        observed: "switching",
-        generation: 2,
+        desired: "openviking",
+        observed: "provisioning",
+        generation: 3,
         activationCursor: {
           kind: "message",
           occurredAt: later.toISOString(),
@@ -189,8 +190,8 @@ test.skipIf(!connectionString)(
         await saveProfileTransition(harness.profiles, selected, { ...selected, observed: "ready" }),
       ).toBe("stale_generation");
       expect(await harness.profiles.get(harness.workspaceA)).toMatchObject({
-        desired: "causal_openviking",
-        generation: 2,
+        desired: "openviking",
+        generation: 3,
       });
       expect(await harness.profiles.get(harness.workspaceB)).toBeNull();
       expect(
@@ -342,9 +343,9 @@ test.skipIf(!connectionString)(
         harness.admission.consumeDispatch({
           workspaceId: harness.workspaceA,
           segmentId: "seg-1",
-          operationId: "op-2",
-          sinkProfile: "causal_openviking",
-          profileGeneration: 1,
+          operationId: "op-1",
+          sinkProfile: "openviking",
+          profileGeneration: 2,
         }),
       ).rejects.toBeInstanceOf(WorkspaceMemoryReplayConflictError);
       expect(
@@ -399,11 +400,6 @@ test.skipIf(!connectionString)(
       expect(ov.citationId).toBe("ov-1");
       expect(await harness.citations.getOpenVikingCitation(harness.workspaceB, "ov-1")).toBeNull();
 
-      await harness.client.query(
-        `INSERT INTO "causal_citation_records" ("id", "workspace_id", "citation_id") VALUES ($1, $2, 'cm-1')`,
-        [crypto.randomUUID(), harness.workspaceA],
-      );
-
       const offer = await harness.citations.putOffer({
         workspaceId: harness.workspaceA,
         operationId: "offer-1",
@@ -411,16 +407,10 @@ test.skipIf(!connectionString)(
         recipientAgentId: "agent-1",
         recipientRationale: "owns the task",
         messageId: "msg-offer",
-        citations: [
-          { kind: "openviking", citationId: "ov-1" },
-          { kind: "causal_memory", citationId: "cm-1" },
-        ],
+        citations: [{ kind: "openviking", citationId: "ov-1" }],
       });
       expect(offer.outcome).toBe("saved");
-      expect(offer.offer.citations).toEqual([
-        { kind: "causal_memory", citationId: "cm-1" },
-        { kind: "openviking", citationId: "ov-1" },
-      ]);
+      expect(offer.offer.citations).toEqual([{ kind: "openviking", citationId: "ov-1" }]);
       expect(await harness.citations.putOffer(offer.offer)).toEqual({
         outcome: "replay",
         offer: offer.offer,
@@ -429,17 +419,13 @@ test.skipIf(!connectionString)(
       expect(
         harness.citations.putOffer({
           ...offer.offer,
-          citations: [{ kind: "causal_memory", citationId: "ov-1" }],
+          citations: [],
         }),
       ).rejects.toBeInstanceOf(WorkspaceMemoryCitationKindError);
       expect(
         harness.citations.putOffer({
           ...offer.offer,
-          operationId: "offer-2",
-          citations: [
-            { kind: "openviking", citationId: "ov-1" },
-            { kind: "causal_memory", citationId: "ov-1" },
-          ],
+          citations: [{ kind: "openviking", citationId: "ov-unserved" }],
         }),
       ).rejects.toBeInstanceOf(WorkspaceMemoryCitationKindError);
       expect(

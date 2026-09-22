@@ -11,22 +11,10 @@ export const WORKSPACE_DELETION_CLEANUP_TARGETS = CLEANUP_TARGETS;
 export type CleanupRemoteResult = { ok: true } | { ok: false; sanitizedError: string };
 
 export type WorkspaceMemoryCleanupRemotes = {
-  deleteCausalTenant(input: {
-    workspaceId: string;
-    operationId: string;
-  }): Promise<CleanupRemoteResult>;
   deleteOpenVikingAccount(input: {
     workspaceId: string;
     operationId: string;
     owner: string;
-  }): Promise<CleanupRemoteResult>;
-  deleteManagedProjection(input: {
-    workspaceId: string;
-    operationId: string;
-  }): Promise<CleanupRemoteResult>;
-  discardPendingProjectionWork(input: {
-    workspaceId: string;
-    operationId: string;
   }): Promise<CleanupRemoteResult>;
   removeBinding(input: { workspaceId: string; operationId: string }): Promise<CleanupRemoteResult>;
 };
@@ -66,10 +54,7 @@ export type WorkspaceMemoryCleanup = {
 };
 
 const SANITIZED_REMOTE_ERRORS: Record<CleanupTarget, string> = {
-  causal_tenant: "causal tenant delete failed",
   openviking_account: "openviking account delete failed",
-  managed_causal_projection: "managed causal projection delete failed",
-  pending_projection_work: "pending projection work delete failed",
   openviking_binding: "openviking binding delete failed",
 };
 
@@ -165,14 +150,8 @@ async function invokeRemote(
 ): Promise<CleanupRemoteResult> {
   try {
     switch (target) {
-      case "causal_tenant":
-        return await remotes.deleteCausalTenant(input);
       case "openviking_account":
         return await remotes.deleteOpenVikingAccount(input);
-      case "managed_causal_projection":
-        return await remotes.deleteManagedProjection(input);
-      case "pending_projection_work":
-        return await remotes.discardPendingProjectionWork(input);
       case "openviking_binding":
         return await remotes.removeBinding(input);
     }
@@ -204,10 +183,7 @@ export function createFakeWorkspaceMemoryCleanupRemotes(): FakeWorkspaceMemoryCl
     fail(target, raw = SANITIZED_REMOTE_ERRORS[target]) {
       failures.set(target, raw);
     },
-    deleteCausalTenant: () => invoke("causal_tenant"),
     deleteOpenVikingAccount: () => invoke("openviking_account"),
-    deleteManagedProjection: () => invoke("managed_causal_projection"),
-    discardPendingProjectionWork: () => invoke("pending_projection_work"),
     removeBinding: () => invoke("openviking_binding"),
   };
 }

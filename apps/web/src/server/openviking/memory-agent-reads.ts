@@ -10,7 +10,7 @@ export type MemoryAgentReadOperation = (typeof MEMORY_AGENT_READ_OPERATIONS)[num
 
 export class MemoryAgentMutationError extends Error {
   constructor() {
-    super("Memory Agent cannot mutate OpenViking or Causal Memory");
+    super("Memory Agent cannot mutate OpenViking memory");
     this.name = "MemoryAgentMutationError";
   }
 }

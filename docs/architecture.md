@@ -37,7 +37,6 @@ flowchart LR
     Realtime <--> Redis[(Redis<br/>transport state · message request idempotency)]
     Web <-->|short-lived request idempotency| Redis
     Web -->|private HTTP · deny-by-default gateway| OV[OpenViking runtime<br/>prototype · default off]
-    Web -->|private HTTP · tenant token| CM[Causal Memory runtime<br/>SQLite tenant]
 
     subgraph Host[用户机器]
         Computer[coforge-computer<br/>独立进程]
@@ -151,7 +150,7 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 - 使用 Redis 对消息发送 `request_id` 做短期幂等抑制；
 - 向目标 Agent 发送易失 attention，并以 canonical Message/read boundary 支持恢复；
 - 普通业务 API、Web 页面和 PostgreSQL migration（统一使用 Prisma，详见 [ADR 0003](adr/0003-prisma-as-postgresql-data-access.md)）；
-- Workspace Memory Profile 的 desired/observed 状态、OpenViking policy gateway 与 Causal Memory 的外部 HTTP 合同；私有记忆 runtime 不是 Caddy 路由，也不是第三个本地产品组件；
+- Workspace Memory Profile 的 desired/observed 状态、OpenViking policy gateway 与 OpenViking runtime 的外部 HTTP 合同；私有记忆 runtime 不是 Caddy 路由，也不是第三个本地产品组件；
 - 接收并保存 Agent response/stream，再推送给会话参与者。
 
 初始实现使用 Bun 1.4 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。生产构建使用 Nitro 的 Bun preset 生成自包含 server output，并以非 root 用户运行在不可变 Docker image 中；Nitro 3 adapter 当前仍是 beta，进入 production 前必须验证构建、启动、健康检查、优雅停止及 PostgreSQL/Centrifugo 集成路径。
@@ -1808,58 +1807,40 @@ machine-owner 授权模型仍未解决；在形成并批准该安全边界前，
 
 ## 15. Workspace Memory Profile
 
-每个 Workspace 选择恰好一个 desired Workspace Memory Profile：`off | openviking | causal_openviking`。选择是 Workspace 范围的，不是 per-Agent 或 per-query。[ADR 0058](adr/0058-causal-memory-workspace-tenant.md) 已经用 Causal Memory 替换旧 Group Memory；[ADR 0060](adr/0060-workspace-openviking-memory-profiles.md) 把完整 OpenViking 能力纳入同一 Workspace 选择，而不是用自然语言路由器在两套对等记忆真源之间分流。[ADR 0059](adr/0059-causal-memory-internal-fact-index.md) 把 OpenViking 放在 Causal Memory 内部的可替换 Fact Index 缝上。[ADR 0061](adr/0061-policy-gateway-for-complete-openviking.md) 要求完整 OpenViking backend 只经过 deny-by-default 的 CoForge policy gateway。
+每个 Workspace 选择恰好一个 desired Workspace Memory Profile：`off | openviking`。选择是 Workspace 范围的，不是 per-Agent 或 per-query。[ADR 0062](adr/0062-openviking-only-workspace-memory.md) 记录了移除 Causal Memory 的决策：因果方向被证伪，Workspace 记忆是 OpenViking-only。[ADR 0061](adr/0061-policy-gateway-for-complete-openviking.md) 要求完整 OpenViking backend 只经过 deny-by-default 的 CoForge policy gateway，该设计不变。
 
-非规范走查见 [`docs/walkthroughs/causal-memory-vs-openviking.html`](walkthroughs/causal-memory-vs-openviking.html)。术语以 [`CONTEXT.md`](../CONTEXT.md) 为准。
+术语以 [`CONTEXT.md`](../CONTEXT.md) 为准。
 
 ### 15.1 私有 runtime 与所有权
 
-每个部署环境最多运行一套私有 OpenViking HTTP runtime 和一套私有 Causal Memory HTTP runtime。二者都在私有部署网络上，都不是 Caddy 公网路由，也都不是第三个本地 Computer/Daemon 产品组件。浏览器、Computer、Daemon 和 Agent 进程都不持有 Workspace 管理凭据或 OpenViking/Causal Memory 租户密钥。
+每个部署环境最多运行一套私有 OpenViking HTTP runtime。它在私有部署网络上，不是 Caddy 公网路由，也不是第三个本地 Computer/Daemon 产品组件。浏览器、Computer、Daemon 和 Agent 进程都不持有 Workspace 管理凭据或 OpenViking 账号密钥。
 
 | 运行时 | 存储 | 谁持有凭据 | 职责 |
 | --- | --- | --- | --- |
 | OpenViking（prototype，默认关闭） | OpenViking 自己的文件系统 / 向量索引 | 仅 Web/backend 经 `OpenVikingBinding` 持有安全凭据引用；明文不进普通业务表 | 完整 backend 能力：resource、filesystem、memory、skill、session/commit、检索、task、watch、pack、snapshot、observer 与 typed 管理面 |
-| Causal Memory | 每 Workspace 一个隔离 tenant SQLite | 仅 Web/backend 持有 tenant token | 接纳证据、蒸馏 canonical Fact Document、因果图、校正裁决、`search` / `trace` / `intervene` |
 
-Web/backend 仍拥有 Workspace 授权、canonical PublicChannel Message、共同 admission、ingest/dispatch ledger、Offer、Citation 对外合同，以及所有面向浏览器/Agent 的 HTTP。OpenViking 不得成为因果事实、admitted provenance、校正或图语义的权威。Causal Memory 不得拥有 OpenViking 原生文档、个人 session 或 skill 的写权威。
-
-`openviking` 暴露完整 OpenViking backend 能力。`causal_openviking` 保留该完整能力，并额外启用 Causal Memory。普通文档、导入资源、个人 session 与 skill 留在 OpenViking 原生写域。只有 Admitted PublicChannel Segment 进入 Causal Memory 写域。
+Web/backend 仍拥有 Workspace 授权、canonical PublicChannel Message、admission、dispatch ledger、Memory Offer、Citation 对外合同，以及所有面向浏览器/Agent 的 HTTP。`openviking` profile 暴露完整 OpenViking backend 能力；普通文档、导入资源、个人 session 与 skill 留在 OpenViking 原生写域。
 
 ### 15.2 desired / observed 状态与调和
 
-Workspace 把 desired profile 与 observed 调和状态分开存储，因为 account、身份、tenant、namespace 与 health 不能原子提交。
+Workspace 把 desired profile 与 observed 调和状态分开存储，因为 account、身份、namespace 与 health 不能原子提交。
 
 | 字段 | 取值 | 含义 |
 | --- | --- | --- |
-| desired profile | `off` \| `openviking` \| `causal_openviking` | Workspace 选择的目标能力集 |
+| desired profile | `off` \| `openviking` | Workspace 选择的目标能力集 |
 | observed state | `provisioning` \| `ready` \| `degraded` \| `switching` \| `error` | 调和器观察到的供给结果 |
 | generation | 单调递增整数 | 防止过期调和覆盖更新的选择 |
-| activation cursor | 时间或 Message 边界 | 因果自动接纳只从激活之后开始，禁止静默回填历史 |
+| activation cursor | 时间或 Message 边界 | 自动接纳只从激活之后开始，禁止静默回填历史 |
 
-`WorkspaceMemoryProfile` 聚合 desired、observed、generation 与脱敏失败。`OpenVikingBinding` 保存映射的 OpenViking account、service identity 与安全凭据引用，与已有 `CausalMemoryTenant` 分开。纯 OpenViking 运行不得要求一条误导性的 causal-tenant 记录。
+`WorkspaceMemoryProfile` 聚合 desired、observed、generation 与脱敏失败。`OpenVikingBinding` 保存映射的 OpenViking account、service identity 与安全凭据引用。`off` 停止访问与后台处理，不是删除。
 
-从 `openviking` 切到 `causal_openviking` 不会把已有 OpenViking 记忆重新解释为因果证据。Causal Memory Tenant 从空开始，只接纳激活之后的合格 PublicChannel 段。切回 `openviking` 停止因果接纳与检索，但保留 tenant 以便再启用。`off` 停止访问与后台处理，不是删除。任何未来的历史导入必须显式重放原始 CoForge PublicChannel 证据；OpenViking 摘要不得被静默回填为因果事实。
+### 15.3 共同 admission 与单一 sink
 
-### 15.3 共同 admission 与单一抽取器
-
-两个启用中的 profile 使用同一条自动团队记忆规则：只有已完成的 Task 讨论窗口和 PublicChannel quiet window 可以成为 Admitted PublicChannel Segment；DirectConversation 永远排除。一个被接纳的段只由当前 profile 的一个抽取器处理：
-
-- `openviking`：进入 OpenViking session/archive，可走原生 commit 与 memory extraction，并保留 segment ID、source Message IDs 与 Workspace 元数据。该 lineage 标识 OpenViking 来源，但不表示为因果 provenance。
-- `causal_openviking`：进入 Causal Memory 的 audit/distill/outbox/projection 流。
+自动团队记忆规则：只有已完成的 Task 讨论窗口和 PublicChannel quiet window 可以成为 Admitted PublicChannel Segment；DirectConversation 永远排除。一个被接纳的段只由一个抽取器处理：进入 OpenViking session/archive，走原生 commit 与 memory extraction，并保留 segment ID、source Message IDs 与 Workspace 元数据。
 
 Web/backend 用既有 Redis-locked sweep 识别段，把不可变 source Message IDs/hash、稳定 operation ID 和 profile generation 写入 PostgreSQL ledger，再派发到恰好一个 sink。重复投递是 replay/no-op。记忆失败不得阻塞 Message 持久化或投递；pending ingest 在恢复后重试。
 
-### 15.4 Fact Index、投影 outbox 与 Managed Causal Projection
-
-Causal callers 与 Memory Agent 继续使用因果 `search` / `trace` / `intervene`，不接收 OpenViking URI、embedding、collection 或 task 概念。Fact Index 是 tenant 隔离、可重建的 active Fact Document 投影，接口只有 `apply(batch, generation)`、`search(query, limit)`、`reset(generation)`。
-
-Canonical Fact Document 的 ID、正文、provenance、active lifecycle 与 projection version 住在 Causal Memory tenant。**投影 outbox（sequence、generation、command、hash、attempt、failure）是 Causal Memory SQLite 状态，与 fact lifecycle 同一 SQLite 事务提交；它不是 Web PostgreSQL 状态。** 异步、幂等的 projector 把 active Fact Document 写入 Managed Causal Projection。投影失败不回滚已接纳证据。
-
-Managed Causal Projection 是该 tenant 的专用 OpenViking namespace。Fact Partition 成员资格由 Causal Memory 决定：已完成 Task 投影到稳定 Task 分区；quiet PublicChannel 投影到稳定 Channel + 日历月分区。目录 L0 abstract 与 L1 overview 是检索导航，不是因果证据。被 supersede 的 Fact Document 离开 active 投影，canonical 历史仍可供 `trace`。每个 Workspace 有独立投影 namespace；返回的投影记录必须对照 Causal Memory Tenant 校验后才能播种 Hippocampus 或成为 Causal Memory Citation。
-
-每个 Workspace 映射一个 OpenViking account。Workspace 真人与 Agent 映射为 account users；Managed Causal Projection 写入使用仅能改固定子树的 service identity。多个 Workspace account 可以共享一套 OpenViking runtime，但目录命名本身不是租户隔离控制。
-
-### 15.5 Policy gateway 与身份
+### 15.4 Policy gateway 与身份
 
 OpenViking 权威跟随 CoForge 权威。Gateway 默认拒绝：分类允许的 method/path，剥离客户端提供的身份与 account header，选择 server-owned 映射身份，只转发到配置的私有 runtime。未知或新引入的 OpenViking 路由保持拒绝，直到被分类。Root、跨 account、身份管理与破坏性管理操作走 typed control module，不能因为 OpenViking 暴露了它们就进入 generic data-plane。
 
@@ -1868,40 +1849,26 @@ OpenViking 权威跟随 CoForge 权威。Gateway 默认拒绝：分类允许的 
 | Workspace Owner / Admin | account 管理身份 | Workspace 级配置、ACL、共享资源 |
 | Member | 自己的 user | 自己的 user namespace 与明确共享访问 |
 | 普通 Agent | 独立 user + 显式 grant | 被授予的资源，不能冒充其他身份 |
-| Memory Agent | 只读 user | Workspace-shared 内容与 Managed Causal Projection 的只读检索 |
-| Projection worker | 受限 service identity | 只能改 Managed Causal Projection |
+| Memory Agent | 只读 user | Workspace-shared 内容的只读检索 |
 | 运维 | 无默认业务读权限 | 不因运维身份获得 Workspace 内容 |
 
-### 15.6 检索预算、确定性、watermark 与降级
+### 15.5 检索预算与降级
 
-每个触发 Message 最多三次因果 read，共享 4,800 token。单次 read 默认 1,600，在剩余预算允许时最多 3,200，最多十个 candidate，最多一条可见 Memory Offer。耗尽共享预算后返回已组装证据，不隐式第四次 read。独立 `openviking` profile 保留 OpenViking 原生可配置 context 预算。
+每个触发 Message 最多三次 read、最多十个 candidate、最多一条可见 Memory Offer。`ov_search_context` 保留 OpenViking 原生可配置 context 预算（tokenBudget 参数原样转发）。耗尽预算后返回已组装证据，不隐式第四次 read。
 
-因果 profile 里 OpenViking 只做确定性 candidate 检索：只打 Managed Causal Projection，关闭 query expansion，不加载 OpenViking session context，不跑 OpenViking long-term-memory extraction。层级 L0/L1/L2 在剩余共享预算内展开。OpenViking ranking 只排序 candidate；active 状态、因果展开与 citation 资格仍属 Causal Memory。
+OpenViking 不可用时，read 报告 `runtime_unavailable`，不阻塞普通群聊。
 
-每次 Fact Index `search` 携带 index watermark。Causal Memory 把该 watermark 上的 OpenViking candidate 与 watermark 之后变更的 active canonical facts 合并去重，拒绝 unknown、stale version、superseded 或 tenant-mismatched candidate，然后才播种 Hippocampus。这提供 read-your-writes，同时投影保持最终一致。
+### 15.6 Citation、Memory Agent 与 Memory Offer
 
-OpenViking 不可用时，因果 candidate 召回降级到本地 SQLite lexical Fact Index；基于 identifier 的 `trace` / `intervene` 继续走因果图。原生 OpenViking 操作可以报告 `degraded`。OpenViking 或 Causal Memory 失败都不阻塞普通群聊。
+Citation 是带版本的 OpenViking 对象引用：Workspace/account、URI、content hash 或 version、matched detail level 与 display title/excerpt。citation 只能引用本 Workspace 已被服务过的记录；offer 引用未服务过的 citation 会被拒绝。
 
-LanceDB 不在本次范围。若以后引入，必须放在 OpenViking 的 `CollectionAdapter` 后面，而不是新的 CoForge 缝。
+Memory Agent 是 Workspace 范围、只读的工具围栏：`ov_find`、`ov_search_context`、`ov_read`、`memory_offer`，加频道消息 I/O。任何情况下 Memory Agent 都不得写文件、commit session、改 skill/ACL。完整 OpenViking 变更只通过另外授权的产品面与 Agent 角色。显式 `@memory` 问题必须先做记忆查询，且只能用 `memory_offer` 回答；否则 Agent 自主决定是否检索或发 Offer。Offer 选择一个活跃频道 Agent，保留 citation 与 recipient-selection 理由。
 
-### 15.7 双 Citation、Memory Agent 与校正
+PublicChannel 正文是未信任证据，不是指令。Ingest prompt 把它们当作标识过的数据记录；结构化输出必须 schema-validated，并引用 admitted segment 与 source Message。
 
-OpenViking Citation 与 Causal Memory Citation 是带 discriminator 的不同证据类型。OpenViking Citation 标识 Workspace/account、URI、content hash 或 version、matched detail level 与 display title/excerpt。Causal Memory Citation 标识因果 item 或 path、canonical fact version、Admitted PublicChannel Segment 与 source Message IDs。一条回答可以同时携带两类，但 OpenViking URI 或摘要不得充当 admitted causal provenance。只有 Causal Memory Citation 可以满足 Causal Correction Proposal。
+### 15.7 清理、恢复与 prototype 许可门
 
-Memory Agent 是 Workspace 范围、只读、profile-specific 的工具围栏：
-
-- `openviking`：`ov_find`、`ov_search_context`、`ov_read`；每触发 Message 最多三次 read、一条可见 Offer。
-- `causal_openviking`：保留 `causal_search`、`causal_trace`、`causal_intervention`、`propose_correction`，并可额外获得批准的只读 OpenViking 检索。
-
-任何 profile 下 Memory Agent 都不得写文件、commit session、改 skill/ACL，或绕过因果校正工作流。完整 OpenViking 变更只通过另外授权的产品面与 Agent 角色。显式 `@memory` 问题必须先做记忆查询；否则 Agent 自主决定是否检索或发 Offer。Offer 选择一个活跃频道 Agent，保留 citation 与 recipient-selection 理由，没有跨消息 cooldown。
-
-PublicChannel 正文是未信任证据，不是指令。Ingest、蒸馏与校正 prompt 把它们当作标识过的数据记录；结构化输出必须 schema-validated，并引用 admitted segment 与 source Message。
-
-### 15.8 清理、恢复与 prototype 许可门
-
-切换或关闭 profile 保留 OpenViking account/原生内容与 Causal Memory tenant。删除 Workspace 入队可观察、可重试、幂等的清理：Causal Memory Tenant、OpenViking account、Managed Causal Projection、pending projection work 与 binding。远端失败保持可见，不得报成删除成功。
-
-Causal Memory volume 接受托管加密、application-consistent 的 SQLite 快照；恢复先验证 health/readiness 与 tenant isolation，再切换内部 endpoint。旧 Group Memory Prisma 表及其历史数据已被替换迁移删除，没有 PostgreSQL 回退路径。
+切换或关闭 profile 保留 OpenViking account/原生内容。删除 Workspace 入队可观察、可重试、幂等的清理：OpenViking account 与 binding。远端失败保持可见，不得报成删除成功。
 
 本地 OpenViking 源码是 AGPL-3.0，尚未获得可分发产品集成批准。因此本次只做隔离的、仅合成数据的接口与集成 prototype：默认 `OPENVIKING_PROTOTYPE_ENABLED` 关闭；OpenViking 不进入默认 Compose、release manifest、staging 或 production。单独的 development override 必须标注 `non-production / license-review-required`。在项目 owner 完成许可审查并明确批准发货之前，不得把该 runtime 表述为可发布能力。本文记录交付门，不是法律意见。不计划修改 OpenViking 源码；任何补丁需要单独记录的缺口、许可审查、回滚计划与明确批准。
 

@@ -11,7 +11,6 @@ import {
   createPrototypeMemoryRuntimeReadiness,
 } from "../workspace-memory/runtime-provisioner";
 import {
-  createFakeCausalMemoryProvisioner,
   createInMemoryWorkspaceMemoryProfileStore,
   saveProfileTransition,
 } from "../workspace-memory/stores";
@@ -86,7 +85,6 @@ async function seedReadyWorkspace(workspaceId = WORKSPACE_ID) {
   const provisioner = createProductionMemoryRuntimeProvisioner({
     openviking: createFakeOpenVikingProvisioner(),
     bindings,
-    causal: createFakeCausalMemoryProvisioner(),
     identities: createInMemoryWorkspaceIdentityDirectory([
       OWNER,
       ADMIN,

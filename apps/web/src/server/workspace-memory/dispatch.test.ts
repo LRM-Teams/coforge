@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import {
   createAdmissionDispatcher,
-  createCausalOpenVikingSink,
   createInMemoryWorkspaceMemoryAdmissionStore,
   createOpenVikingNativeSessionSink,
   type AdmissionSink,
@@ -13,12 +12,12 @@ import { applyWorkspaceMemoryCommand, createDefaultWorkspaceMemoryProfile } from
 const activatedAt = new Date("2026-09-21T12:00:00.000Z");
 const enabled = { prototypeEnabled: true };
 
-function readyProfile(desired: "openviking" | "causal_openviking", workspaceId = "ws-a") {
+function readyProfile(workspaceId = "ws-a") {
   const selected = applyWorkspaceMemoryCommand(
     createDefaultWorkspaceMemoryProfile(workspaceId),
     {
       type: "select_desired",
-      desired,
+      desired: "openviking",
       at: activatedAt,
       afterMessageId: "msg-boundary",
     },
@@ -71,12 +70,11 @@ function recordingSink() {
 test("activation cursor history is not dispatched and a live segment reaches exactly one sink", async () => {
   const admission = createInMemoryWorkspaceMemoryAdmissionStore();
   const openviking = recordingSink();
-  const causal = recordingSink();
   const dispatcher = createAdmissionDispatcher({
     admission,
-    sinks: { openviking: openviking.sink, causal_openviking: causal.sink },
+    sinks: { openviking: openviking.sink },
   });
-  const profile = readyProfile("causal_openviking");
+  const profile = readyProfile();
   const historical = liveDetected({ closedAt: new Date("2026-09-21T11:00:00.000Z") });
   const live = liveDetected();
 
@@ -86,26 +84,24 @@ test("activation cursor history is not dispatched and a live segment reaches exa
   });
   expect(await dispatcher.dispatch({ profile, detected: live })).toEqual({
     outcome: "dispatched",
-    sinkProfile: "causal_openviking",
+    sinkProfile: "openviking",
     replay: false,
   });
   expect(await dispatcher.dispatch({ profile, detected: live })).toEqual({
     outcome: "replayed",
-    sinkProfile: "causal_openviking",
+    sinkProfile: "openviking",
   });
-  expect(openviking.deliveries).toEqual([]);
-  expect(causal.deliveries).toHaveLength(1);
-  expect(causal.deliveries[0]?.segment.segmentId).toBe(live.segmentId);
+  expect(openviking.deliveries).toHaveLength(1);
+  expect(openviking.deliveries[0]?.segment.segmentId).toBe(live.segmentId);
   expect(await admission.listAdmittedMessageIds("ws-a")).toEqual(new Set(["m-live"]));
 });
 
 test("off, provisioning, switching, and a stale generation do not ingest", async () => {
   const admission = createInMemoryWorkspaceMemoryAdmissionStore();
   const openviking = recordingSink();
-  const causal = recordingSink();
   const dispatcher = createAdmissionDispatcher({
     admission,
-    sinks: { openviking: openviking.sink, causal_openviking: causal.sink },
+    sinks: { openviking: openviking.sink },
   });
   const live = liveDetected();
   const off = createDefaultWorkspaceMemoryProfile("ws-a");
@@ -127,21 +123,23 @@ test("off, provisioning, switching, and a stale generation do not ingest", async
     }),
   ).toEqual({ outcome: "skipped", reason: "not_ready" });
 
-  const ready = readyProfile("openviking");
-  const switching = applyWorkspaceMemoryCommand(
-    ready,
-    {
-      type: "select_desired",
-      desired: "causal_openviking",
-      at: new Date("2026-09-21T13:00:00.000Z"),
-    },
-    enabled,
-  );
+  const ready = readyProfile();
+  const switching = applyWorkspaceMemoryCommand(ready, {
+    type: "select_desired",
+    desired: "off",
+    at: new Date("2026-09-21T13:00:00.000Z"),
+  });
   if (!switching.ok) throw new Error(switching.failure.code);
   expect(await dispatcher.dispatch({ profile: switching.profile, detected: live })).toEqual({
     outcome: "skipped",
-    reason: "not_ready",
+    reason: "profile_off",
   });
+  expect(
+    await dispatcher.dispatch({
+      profile: { ...ready, observed: "switching", generation: ready.generation + 1 },
+      detected: live,
+    }),
+  ).toEqual({ outcome: "skipped", reason: "not_ready" });
 
   expect(
     await dispatcher.dispatch({
@@ -151,57 +149,18 @@ test("off, provisioning, switching, and a stale generation do not ingest", async
   ).toMatchObject({ outcome: "dispatched", sinkProfile: "openviking" });
   const stored = await admission.getSegment("ws-a", live.segmentId);
   expect(stored).not.toBeNull();
-  const advanced = applyWorkspaceMemoryCommand(
-    ready,
-    {
-      type: "select_desired",
-      desired: "causal_openviking",
-      at: new Date("2026-09-21T14:00:00.000Z"),
-    },
-    enabled,
-  );
-  if (!advanced.ok) throw new Error(advanced.failure.code);
-  const readyNext = applyWorkspaceMemoryCommand(advanced.profile, {
-    type: "observe_ready",
-    generation: 2,
-  });
-  if (!readyNext.ok) throw new Error(readyNext.failure.code);
   expect(
     await dispatcher.dispatch({
-      profile: readyNext.profile,
+      profile: { ...ready, generation: ready.generation + 1 },
       detected: live,
       admitted: stored!,
     }),
   ).toEqual({ outcome: "skipped", reason: "stale_generation" });
   expect(openviking.deliveries).toHaveLength(1);
-  expect(causal.deliveries).toEqual([]);
 });
 
-test("openviking and causal_openviking never share a segment", async () => {
-  const admission = createInMemoryWorkspaceMemoryAdmissionStore();
-  const openviking = recordingSink();
-  const causal = recordingSink();
-  const dispatcher = createAdmissionDispatcher({
-    admission,
-    sinks: { openviking: openviking.sink, causal_openviking: causal.sink },
-  });
-  const live = liveDetected();
-  expect(
-    await dispatcher.dispatch({ profile: readyProfile("openviking"), detected: live }),
-  ).toMatchObject({ outcome: "dispatched", sinkProfile: "openviking" });
-  expect(
-    await dispatcher.dispatch({
-      profile: readyProfile("causal_openviking"),
-      detected: live,
-    }),
-  ).toEqual({ outcome: "skipped", reason: "replay_conflict" });
-  expect(openviking.deliveries).toHaveLength(1);
-  expect(causal.deliveries).toEqual([]);
-});
-
-test("the OpenViking sink is a native-session seam and the causal sink reuses ingest", async () => {
+test("the OpenViking sink is a native-session seam", async () => {
   const sessions: string[] = [];
-  const ingested: string[] = [];
   const dispatcher = createAdmissionDispatcher({
     admission: createInMemoryWorkspaceMemoryAdmissionStore(),
     sinks: {
@@ -210,25 +169,11 @@ test("the OpenViking sink is a native-session seam and the causal sink reuses in
           sessions.push(delivery.segment.segmentId);
         },
       }),
-      causal_openviking: createCausalOpenVikingSink({
-        async ingest(delivery) {
-          ingested.push(delivery.segment.segmentId);
-          return { state: "succeeded" };
-        },
-      }),
     },
   });
   const live = liveDetected();
-  await dispatcher.dispatch({ profile: readyProfile("openviking"), detected: live });
-  await dispatcher.dispatch({
-    profile: readyProfile("causal_openviking", "ws-b"),
-    detected: {
-      ...live,
-      workspace: { workspaceId: "ws-b", channelId: "ch-eng" },
-    },
-  });
+  await dispatcher.dispatch({ profile: readyProfile(), detected: live });
   expect(sessions).toEqual([live.segmentId]);
-  expect(ingested).toEqual([live.segmentId]);
 });
 
 test("a retryable sink failure keeps the segment and a later replay can deliver", async () => {
@@ -249,15 +194,10 @@ test("a retryable sink failure keeps the segment and a later replay can deliver"
           return { outcome: "delivered" };
         },
       },
-      causal_openviking: {
-        async deliver() {
-          throw new Error("causal sink must stay unused");
-        },
-      },
     },
   });
   const live = liveDetected();
-  const profile = readyProfile("openviking");
+  const profile = readyProfile();
   expect(await dispatcher.dispatch({ profile, detected: live })).toEqual({
     outcome: "retryable_failure",
     sanitizedError: "openviking native session unavailable",

@@ -4,11 +4,14 @@
  */
 
 import { OPENVIKING_CANDIDATE_LIMIT_MAX, type OpenVikingCitation } from "@lrm/coforge-sdk/agent";
-import { MemoryCitationUngroundedError, type MemoryCitationBindings } from "./memory-citations";
-import type { OpenVikingMemoryReadClient } from "../openviking/memory-agent-reads";
+import {
+  MemoryCitationUngroundedError,
+  type MemoryCitationBindings,
+} from "../workspace-memory/memory-citations";
+import type { OpenVikingMemoryReadClient } from "./memory-agent-reads";
 
-export { MemoryAgentMutationError } from "../openviking/memory-agent-reads";
-export type { OpenVikingMemoryReadClient } from "../openviking/memory-agent-reads";
+export { MemoryAgentMutationError } from "./memory-agent-reads";
+export type { OpenVikingMemoryReadClient } from "./memory-agent-reads";
 
 export type OpenVikingMemoryReads = {
   find(input: {
@@ -134,11 +137,7 @@ function hitList(payload: unknown): unknown[] {
   return typeof record.uri === "string" ? [payload] : [];
 }
 
-function normalizeHit(
-  value: unknown,
-  workspaceId: string,
-  accountId: string | undefined,
-): unknown {
+function normalizeHit(value: unknown, workspaceId: string, accountId: string | undefined): unknown {
   if (!value || typeof value !== "object") return value;
   const hit = value as Record<string, unknown>;
   const uri = typeof hit.uri === "string" ? hit.uri : undefined;

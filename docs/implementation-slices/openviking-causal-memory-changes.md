@@ -1,5 +1,8 @@
 # OpenViking + Causal Memory profiles — change inventory
 
+> **Superseded 2026-09-22:** Causal Memory is removed ([ADR 0062](../adr/0062-openviking-only-workspace-memory.md)). This inventory is a historical record of the dual-profile implementation; the tree it describes no longer exists. Keep as archaeology.
+
+
 **Status:** implementation complete in two uncommitted worktrees; **not
 release-ready**. AGPL / shipping remains user-owned and pending
 ([approval ledger](approval-ledger.md)).

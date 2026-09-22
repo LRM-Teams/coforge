@@ -50,39 +50,33 @@ instructions for the TanStack Start Web/backend modular monolith.
 Assign these server modules before adding profile, gateway, or Fact Index
 implementation. Dependencies point downward. Routes and background entrypoints
 only assemble the modules; they do not own profile transitions, OpenViking HTTP
-details, or Causal SQLite details.
+details.
 
 ```text
 src/server/
-├── workspace-memory/        # profile aggregate, reconciler, common admission, citation policy
-├── openviking/              # typed provisioning, route policy, policy gateway, runtime client
-├── causal-memory/           # causal intent module, runtime adapter, causal Offer/correction
-└── db/repositories/         # Prisma adapters for the three modules above
+├── workspace-memory/        # profile aggregate, reconciler, common admission, Memory Agent orchestration
+├── openviking/              # typed provisioning, route policy, policy gateway, runtime client, agent reads
+└── db/repositories/         # Prisma adapters for the two modules above
 ```
 
-- `workspace-memory/` owns Workspace Memory Profile desired/observed state,
-  generation fencing, common Admitted PublicChannel Segment detection, one-sink
-  dispatch, and citation-kind policy. It does not import OpenViking HTTP paths
-  or Causal Memory SQLite details.
+- `workspace-memory/` owns Workspace Memory Profile desired/observed state
+  (`off | openviking`), generation fencing, common Admitted PublicChannel
+  Segment detection, one-sink dispatch, the Memory Agent command route,
+  Memory Offers, and citation policy. It does not import OpenViking HTTP
+  paths.
 - `openviking/` owns typed account/user/ACL provisioning, the deny-by-default
-  route catalog, `OpenVikingPolicyGateway`, and the private runtime client. It
-  does not own Workspace profile state transitions.
-- `causal-memory/` owns causal ingest, search/trace/intervene, Offer and
-  correction composition against the Causal Memory runtime. It does not select
-  the Workspace Memory Profile. Existing `admission*.ts` stay here only until
-  the P4 owner moves profile-neutral admission into `workspace-memory/`.
-- Prisma adapters live in `db/repositories/workspace-memory-*.server.ts`,
-  `openviking-binding.repositories.server.ts`, and the existing
-  `causal-memory.repositories.server.ts`. Do not add profile or OpenViking
-  methods to `PrismaCausalMemoryRepository` unless the Causal module itself
-  requires them. Credential plaintext does not belong in ordinary business
-  tables.
-- Thin Server Routes under `src/routes/api/` bind raw HTTP only: the existing
-  Agent causal route, and later a splat OpenViking gateway adapter. Loaders and
-  feature UI call Server Functions; they do not talk to Prisma or either
-  private runtime.
+  route catalog, `OpenVikingPolicyGateway`, the private runtime client, and
+  Memory Agent read shaping. It does not own Workspace profile state
+  transitions.
+- Prisma adapters live in `db/repositories/workspace-memory-*.server.ts` and
+  `openviking-binding.repositories.server.ts`. Credential plaintext does not
+  belong in ordinary business tables.
+- Thin Server Routes under `src/routes/api/` bind raw HTTP only: the Agent
+  OpenViking route (`/api/agent/v1/openviking`), and later a splat OpenViking
+  gateway adapter. Loaders and feature UI call Server Functions; they do not
+  talk to Prisma or the private runtime.
 - One background-lifecycle composition owner wires the profile reconciler,
-  common admission sweep, and OpenViking/Causal provisioners. That composition
+  common admission sweep, and the OpenViking provisioner. That composition
   is server-owned and independent of incidental Centrifugo traffic. Do not
   start a second sweep from a route or RPC handler.
 
@@ -402,7 +396,6 @@ channels.functions.ts` exposes `loadPublicChannelMembers`/`addPublicChannelMembe
   │   ├── middleware/
   │   ├── workspace-memory/
   │   ├── openviking/
-  │   ├── causal-memory/
   │   └── services/
   └── server.ts
   ```

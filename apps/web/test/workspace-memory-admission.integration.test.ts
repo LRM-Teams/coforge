@@ -10,7 +10,6 @@ import { createFakeOpenVikingProvisioner } from "../src/server/openviking/stores
 import { detectAdmittedPublicChannelSegments } from "../src/server/workspace-memory/detect-segments";
 import {
   createAdmissionDispatcher,
-  createOpenVikingNativeSessionSink,
   type AdmissionSinkDelivery,
 } from "../src/server/workspace-memory/dispatch";
 import {
@@ -23,7 +22,6 @@ import {
   createProductionMemoryRuntimeProvisioner,
   createPrototypeMemoryRuntimeReadiness,
 } from "../src/server/workspace-memory/runtime-provisioner";
-import { createFakeCausalMemoryProvisioner } from "../src/server/workspace-memory/stores";
 import {
   WORKSPACE_MEMORY_PG_URL,
   applyWorkspaceMemoryPgStub,
@@ -100,7 +98,6 @@ test.skipIf(!connectionString)(
       const provisioner = createProductionMemoryRuntimeProvisioner({
         openviking: createFakeOpenVikingProvisioner(),
         bindings: harness.bindings,
-        causal: createFakeCausalMemoryProvisioner(),
         identities: {
           async listActors() {
             return [{ kind: "owner", userId: crypto.randomUUID() }];
@@ -182,7 +179,6 @@ test.skipIf(!connectionString)(
               return { outcome: "delivered" };
             },
           },
-          causal_openviking: createOpenVikingNativeSessionSink(),
         },
       });
       const historical = liveDetected(harness.workspaceA, new Date("2026-09-21T11:00:00.000Z"));

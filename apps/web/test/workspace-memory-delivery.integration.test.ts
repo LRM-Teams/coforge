@@ -9,10 +9,7 @@ import type {
   OpenVikingTypedSessionExtract,
 } from "../src/server/openviking/typed-session-extract.server";
 import { detectAdmittedPublicChannelSegments } from "../src/server/workspace-memory/detect-segments";
-import {
-  createAdmissionDispatcher,
-  createCausalOpenVikingSink,
-} from "../src/server/workspace-memory/dispatch";
+import { createAdmissionDispatcher } from "../src/server/workspace-memory/dispatch";
 import { createOpenVikingAdmittedDeliverySink } from "../src/server/workspace-memory/ov-sink.server";
 import {
   applyWorkspaceMemoryCommand,
@@ -127,19 +124,12 @@ test.skipIf(!connectionString)(
           return { ok: true, sessionId: input.write.sessionId };
         },
       };
-      const ingested: string[] = [];
       const dispatcher = createAdmissionDispatcher({
         admission: harness.admission,
         sinks: {
           openviking: createOpenVikingAdmittedDeliverySink({
             sessions: channel,
             owner: "sink-owner",
-          }),
-          causal_openviking: createCausalOpenVikingSink({
-            async ingest(delivery) {
-              ingested.push(delivery.segment.segmentId);
-              return { state: "succeeded" };
-            },
           }),
         },
       });
@@ -175,14 +165,13 @@ test.skipIf(!connectionString)(
       });
       expect(
         await dispatcher.dispatch({
-          profile: { ...profile, desired: "causal_openviking" },
+          profile: { ...profile, generation: profile.generation + 1 },
           detected: live,
         }),
       ).toEqual({ outcome: "skipped", reason: "replay_conflict" });
       expect(writes).toHaveLength(2);
       expect(writes[0]?.tags).toContain(`coforge_segment=${live.segmentId}`);
       expect(JSON.stringify(writes)).not.toMatch(/causal|cm_fact|provenance|audit_id/);
-      expect(ingested).toEqual([]);
       expect(attempts).toBe(2);
     } finally {
       await harness.dispose();

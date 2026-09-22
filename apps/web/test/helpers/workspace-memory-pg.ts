@@ -21,14 +21,6 @@ export type WorkspaceMemoryPgClient = {
 
 const WORKSPACE_MEMORY_STUB_SQL = `
   CREATE TABLE "workspaces" ("id" UUID PRIMARY KEY);
-  CREATE TABLE "causal_citation_records" (
-    "id" UUID PRIMARY KEY,
-    "workspace_id" UUID NOT NULL,
-    "citation_id" TEXT NOT NULL,
-    "fact_version" INTEGER
-  );
-  CREATE UNIQUE INDEX "causal_citation_records_workspace_id_citation_id_key"
-    ON "causal_citation_records"("workspace_id", "citation_id");
 `;
 
 export async function applyWorkspaceMemoryPgStub(

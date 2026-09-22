@@ -1,7 +1,7 @@
 import type { PrismaClient } from "../../../generated/client";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 
-export type CausalOfferPublisher = {
+export type MemoryOfferPublisher = {
   publish(input: {
     workspaceId: string;
     conversationId: string;
@@ -12,7 +12,7 @@ export type CausalOfferPublisher = {
   }): Promise<{ messageId: string }>;
 };
 
-export function createPrismaCausalOfferPublisher(db: PrismaClient): CausalOfferPublisher {
+export function createPrismaMemoryOfferPublisher(db: PrismaClient): MemoryOfferPublisher {
   const conversations = new PrismaDirectConversationRepository(db);
   return {
     async publish(input) {
@@ -32,6 +32,28 @@ export function createPrismaCausalOfferPublisher(db: PrismaClient): CausalOfferP
         [{ type: "agent", id: input.recipientAgentId, name: recipient.name }],
       );
       return { messageId: saved.id };
+    },
+  };
+}
+
+export function createPrismaMemoryOfferChannels(db: PrismaClient) {
+  return {
+    async isActiveChannelAgent(
+      workspaceId: string,
+      conversationId: string,
+      agentId: string,
+    ): Promise<boolean> {
+      const row = await db.conversationMember.findFirst({
+        where: {
+          workspaceId,
+          conversationId,
+          agentId,
+          leftAt: null,
+          conversation: { workspaceId, channelName: { not: null }, archivedAt: null },
+        },
+        select: { id: true },
+      });
+      return row !== null;
     },
   };
 }

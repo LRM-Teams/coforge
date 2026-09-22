@@ -8,7 +8,7 @@ import {
 } from "./profile";
 import { saveProfileTransition, type WorkspaceMemoryProfileStore } from "./stores";
 
-export const MEMORY_RUNTIME_KINDS = ["openviking", "causal_tenant"] as const;
+export const MEMORY_RUNTIME_KINDS = ["openviking"] as const;
 export type MemoryRuntimeKind = (typeof MEMORY_RUNTIME_KINDS)[number];
 export type MemoryRuntimeHealth = "healthy" | "degraded";
 
@@ -21,7 +21,6 @@ export type MemoryRuntimeReceipt = {
 
 export type MemoryRuntimeSnapshot = {
   openviking: MemoryRuntimeReceipt | null;
-  causalTenant: MemoryRuntimeReceipt | null;
 };
 
 export type MemoryRuntimeProvisioner = {
@@ -178,8 +177,6 @@ function neededKinds(desired: DesiredWorkspaceMemoryProfile): readonly MemoryRun
   switch (desired) {
     case "openviking":
       return ["openviking"];
-    case "causal_openviking":
-      return ["openviking", "causal_tenant"];
     case "off":
       return [];
   }
@@ -208,7 +205,6 @@ export type FakeMemoryRuntimeProvisioner = MemoryRuntimeProvisioner & {
 
 export function createFakeMemoryRuntimeProvisioner(): FakeMemoryRuntimeProvisioner {
   const openviking = new Map<string, MemoryRuntimeReceipt>();
-  const causalTenants = new Map<string, MemoryRuntimeReceipt>();
   const pendingFailures = new Map<MemoryRuntimeKind, string>();
   const deleted: MemoryRuntimeKind[] = [];
   let health: MemoryRuntimeHealth = "healthy";
@@ -232,7 +228,6 @@ export function createFakeMemoryRuntimeProvisioner(): FakeMemoryRuntimeProvision
     snapshot(workspaceId) {
       return {
         openviking: cloneReceipt(openviking.get(workspaceId)),
-        causalTenant: cloneReceipt(causalTenants.get(workspaceId)),
       };
     },
     async inspectHealth() {
@@ -245,7 +240,7 @@ export function createFakeMemoryRuntimeProvisioner(): FakeMemoryRuntimeProvision
         pendingFailures.delete(kind);
         throw new Error(raw);
       }
-      const records = kind === "openviking" ? openviking : causalTenants;
+      const records = openviking;
       const existing = records.get(workspaceId);
       if (existing) {
         if (generation < existing.generation) return structuredClone(existing);
@@ -257,7 +252,7 @@ export function createFakeMemoryRuntimeProvisioner(): FakeMemoryRuntimeProvision
         workspaceId,
         generation,
         kind,
-        resourceId: kind === "openviking" ? `acct-${workspaceId}` : `tenant-${workspaceId}`,
+        resourceId: `acct-${workspaceId}`,
       };
       records.set(workspaceId, receipt);
       return structuredClone(receipt);

@@ -42,7 +42,7 @@ function recordingSink() {
   return { sink, deliveries };
 }
 
-async function readyHarness(desired: "openviking" | "causal_openviking" = "causal_openviking") {
+async function readyHarness(desired: "openviking" = "openviking") {
   const store = createInMemoryWorkspaceMemoryProfileStore();
   const admission = createInMemoryWorkspaceMemoryAdmissionStore();
   const catalog = createInMemoryWorkspaceMemoryCatalog(admission);
@@ -50,10 +50,9 @@ async function readyHarness(desired: "openviking" | "causal_openviking" = "causa
   const provisioner = createFakeMemoryRuntimeProvisioner();
   const reconciler = createWorkspaceMemoryProfileReconciler({ store, provisioner });
   const openviking = recordingSink();
-  const causal = recordingSink();
   const dispatcher = createAdmissionDispatcher({
     admission,
-    sinks: { openviking: openviking.sink, causal_openviking: causal.sink },
+    sinks: { openviking: openviking.sink },
   });
   await profiles.selectDesired({
     workspaceId: "ws-a",
@@ -73,7 +72,6 @@ async function readyHarness(desired: "openviking" | "causal_openviking" = "causa
     reconciler,
     dispatcher,
     openviking,
-    causal,
     profile,
   };
 }
@@ -114,10 +112,9 @@ test("sweep does not backfill pre-activation PublicChannel history", async () =>
     quietAfterMs: 15 * 60 * 1000,
   });
   await sweep.tick();
-  expect(harness.causal.deliveries.map((row) => row.segment.sourceMessageIds)).toEqual([
+  expect(harness.openviking.deliveries.map((row) => row.segment.sourceMessageIds)).toEqual([
     ["m-live"],
   ]);
-  expect(harness.openviking.deliveries).toEqual([]);
 });
 
 test("off and provisioning workspaces do not ingest", async () => {
@@ -137,7 +134,7 @@ test("off and provisioning workspaces do not ingest", async () => {
   const openviking = recordingSink();
   const dispatcher = createAdmissionDispatcher({
     admission,
-    sinks: { openviking: openviking.sink, causal_openviking: recordingSink().sink },
+    sinks: { openviking: openviking.sink },
   });
   catalog.seedProfile(createDefaultWorkspaceMemoryProfile("ws-off"));
   await profiles.selectDesired({
@@ -212,7 +209,6 @@ test("DirectConversation never enters the common dispatcher", async () => {
     quietAfterMs: 1,
   });
   await sweep.tick();
-  expect(harness.causal.deliveries).toEqual([]);
   expect(harness.openviking.deliveries).toEqual([]);
 });
 
@@ -254,15 +250,15 @@ test("a second replica lock holder does not double-dispatch", async () => {
   });
   await sweepA.tick();
   await sweepB.tick();
-  expect(harness.causal.deliveries).toHaveLength(1);
+  expect(harness.openviking.deliveries).toHaveLength(1);
   expect(await harness.admission.getDispatch("ws-a", "quiet-ch-eng-m-live")).toMatchObject({
     state: "delivered",
-    sinkProfile: "causal_openviking",
+    sinkProfile: "openviking",
   });
 });
 
 test("a hung memory sink does not block Message persistence", async () => {
-  const harness = await readyHarness("openviking");
+  const harness = await readyHarness();
   harness.catalog.seedConversation({ id: "ch-eng", workspaceId: "ws-a", channelName: "eng" });
   harness.catalog.seedMessages([
     {
@@ -288,7 +284,7 @@ test("a hung memory sink does not block Message persistence", async () => {
   };
   const dispatcher = createAdmissionDispatcher({
     admission: harness.admission,
-    sinks: { openviking: hung, causal_openviking: recordingSink().sink },
+    sinks: { openviking: hung },
   });
   const sweep = createWorkspaceMemoryAdmissionSweep({
     profiles: harness.store,
@@ -325,12 +321,12 @@ test("sweep tick swallows sink failures so the Message path can continue", async
   ]);
   const failing: AdmissionSink = {
     async deliver() {
-      throw new Error("causal down");
+      throw new Error("sink down");
     },
   };
   const dispatcher = createAdmissionDispatcher({
     admission: harness.admission,
-    sinks: { openviking: recordingSink().sink, causal_openviking: failing },
+    sinks: { openviking: failing },
   });
   const sweep = createWorkspaceMemoryAdmissionSweep({
     profiles: harness.store,

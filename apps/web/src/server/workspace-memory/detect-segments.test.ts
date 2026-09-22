@@ -94,7 +94,7 @@ test("source payload hash is stable for the same identified bodies", () => {
   );
 });
 
-test("openviking and causal_openviking share one profile-neutral detector", async () => {
+test("the detector is profile-neutral and shared by dispatch and sweep", async () => {
   const input = {
     conversations: [{ id: "ch-1", workspaceId: "ws-a", channelName: "eng" }],
     messages: [

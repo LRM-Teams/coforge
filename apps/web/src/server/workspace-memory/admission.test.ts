@@ -9,12 +9,12 @@ import { applyWorkspaceMemoryCommand, createDefaultWorkspaceMemoryProfile } from
 const activatedAt = new Date("2026-09-21T12:00:00.000Z");
 const enabled = { prototypeEnabled: true };
 
-function readyCausal() {
+function readyOpenviking() {
   const selected = applyWorkspaceMemoryCommand(
     createDefaultWorkspaceMemoryProfile("ws-a"),
     {
       type: "select_desired",
-      desired: "causal_openviking",
+      desired: "openviking",
       at: activatedAt,
       afterMessageId: "msg-boundary",
     },
@@ -80,8 +80,8 @@ test("DirectConversation and incomplete lineage never become admitted segments",
   });
 });
 
-test("switching to causal does not admit PublicChannel history at or before the activation cursor", () => {
-  const profile = readyCausal();
+test("activating openviking does not admit PublicChannel history at or before the activation cursor", () => {
+  const profile = readyOpenviking();
   const cursor = profile.activationCursor;
   expect(cursor).toEqual({
     kind: "message",

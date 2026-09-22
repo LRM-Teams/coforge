@@ -21,7 +21,7 @@ import type { SanitizedFailure } from "./errors";
 
 export type MemorySurfaceDecision =
   | { open: true }
-  | { open: false; reason: "profile_off" | "not_ready" | "not_causal" };
+  | { open: false; reason: "profile_off" | "not_ready" };
 
 export type WorkspaceMemoryAccessObservation = {
   workspaceId: string;
@@ -34,7 +34,6 @@ export type WorkspaceMemoryAccessObservation = {
   surfaces: {
     admission: MemorySurfaceDecision;
     openvikingGateway: MemorySurfaceDecision;
-    causalRetrieval: MemorySurfaceDecision;
   };
 };
 
@@ -57,10 +56,6 @@ export type SwitchReconcileResult =
     }
   | { ok: false; failure: SanitizedFailure };
 
-export type CausalRetrieveResult =
-  | { allowed: true; observation: WorkspaceMemoryAccessObservation; result: unknown }
-  | { allowed: false; observation: WorkspaceMemoryAccessObservation };
-
 export type WorkspaceMemorySwitching = {
   selectDesired(input: SelectDesiredInput): Promise<SwitchSelectResult>;
   reconcile(workspaceId: string): Promise<SwitchReconcileResult>;
@@ -69,7 +64,6 @@ export type WorkspaceMemorySwitching = {
     workspaceId: string;
     detected: DetectedPublicChannelSegment;
   }): Promise<{ outcome: DispatchOutcome; observation: WorkspaceMemoryAccessObservation }>;
-  retrieveCausal(input: { workspaceId: string; query: string }): Promise<CausalRetrieveResult>;
 };
 
 export type MemoryBindingRef = {
@@ -94,14 +88,6 @@ export function observeWorkspaceMemoryAccess(input: {
     surfaces: {
       admission,
       openvikingGateway: gatewayDecision(profile, input.binding ?? null),
-      causalRetrieval:
-        profile.desired === "off"
-          ? { open: false, reason: "profile_off" }
-          : profile.desired !== "causal_openviking"
-            ? { open: false, reason: "not_causal" }
-            : admission.open
-              ? { open: true }
-              : { open: false, reason: "not_ready" },
     },
   };
 }
@@ -132,7 +118,6 @@ export function createWorkspaceMemorySwitching(deps: {
   dispatcher: AdmissionDispatcher;
   getBinding: (workspaceId: string) => Promise<MemoryBindingRef | OpenVikingBinding | null>;
   snapshotRuntimes: (workspaceId: string) => MemoryRuntimeSnapshot | Promise<MemoryRuntimeSnapshot>;
-  retrieveCausal?: (input: { workspaceId: string; query: string }) => Promise<unknown>;
 }): WorkspaceMemorySwitching {
   async function observeProfile(workspaceId: string): Promise<WorkspaceMemoryAccessObservation> {
     const profile = await deps.profiles.get(workspaceId);
@@ -172,14 +157,6 @@ export function createWorkspaceMemorySwitching(deps: {
       const observation = await observeProfile(input.workspaceId);
       const outcome = await deps.dispatcher.dispatch({ profile, detected: input.detected });
       return { outcome, observation };
-    },
-    async retrieveCausal(input) {
-      const observation = await observeProfile(input.workspaceId);
-      if (!observation.surfaces.causalRetrieval.open) {
-        return { allowed: false, observation };
-      }
-      const result = await deps.retrieveCausal?.(input);
-      return { allowed: true, observation, result };
     },
   };
 }

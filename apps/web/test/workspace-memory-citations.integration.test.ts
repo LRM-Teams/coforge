@@ -5,12 +5,10 @@ import { PrismaClient } from "../generated/client";
 import { PrismaWorkspaceMemoryCitationStore } from "../src/server/db/repositories/workspace-memory-citation.repositories.server";
 import { WorkspaceMemoryCitationKindError } from "../src/server/db/repositories/workspace-memory-errors.server";
 import {
-  createInMemoryCausalMemoryCitationBindings,
   createMemoryCitationBindings,
-  MemoryCitationCorrectionError,
   MemoryCitationUngroundedError,
-} from "../src/server/causal-memory/memory-citations";
-import { createMemoryOffers } from "../src/server/causal-memory/memory-offers";
+} from "../src/server/workspace-memory/memory-citations";
+import { createMemoryOffers } from "../src/server/workspace-memory/memory-offers";
 import {
   applyWorkspaceMemoryPgStub,
   warnIfWorkspaceMemoryPgSkipped,
@@ -44,14 +42,12 @@ async function openHarness() {
 }
 
 test.skipIf(!connectionString)(
-  "PG citation store persists OpenViking hits, mixed Offer kinds, and rejects forged or OV correction",
+  "PG citation store persists OpenViking hits, Offer citations, and rejects forged or unserved refs",
   async () => {
     const harness = await openHarness();
     try {
-      const causal = createInMemoryCausalMemoryCitationBindings();
       const bindings = createMemoryCitationBindings({
         openviking: harness.citations,
-        causal,
       });
       const [ov] = await bindings.bindOpenVikingHits(harness.workspaceA, "find-1", [
         {
@@ -70,21 +66,6 @@ test.skipIf(!connectionString)(
           ?.boundOperationId,
       ).toBe("find-1");
 
-      await bindings.bindCausalHits(harness.workspaceA, "search-1", [
-        {
-          citationId: "cm:decision-1",
-          causalItemId: "decision-1",
-          factVersion: 3,
-          admittedSegmentId: "segment-1",
-          sourceMessageIds: ["11111111-1111-1111-1111-111111111111"],
-          displayContent: "skipping tests caused a rollback",
-        },
-      ]);
-      await harness.client.query(
-        `INSERT INTO "causal_citation_records" ("id", "workspace_id", "citation_id") VALUES ($1, $2, 'cm:decision-1')`,
-        [crypto.randomUUID(), harness.workspaceA],
-      );
-
       const offers = createMemoryOffers({
         citations: bindings,
         offers: harness.citations,
@@ -96,11 +77,6 @@ test.skipIf(!connectionString)(
         channels: {
           async isActiveChannelAgent() {
             return true;
-          },
-        },
-        corrections: {
-          async propose(input) {
-            return { accepted: true, duplicate: false, proposalId: input.operationId };
           },
         },
       });
@@ -118,34 +94,20 @@ test.skipIf(!connectionString)(
         }),
       ).rejects.toBeInstanceOf(MemoryCitationUngroundedError);
 
-      const mixed = await offers.publish({
+      const published = await offers.publish({
         workspaceId: harness.workspaceA,
         operationId: "offer-1",
         conversationId: "conv-1",
         targetAgentId: "agent-1",
         recipientRationale: "owns the task",
-        citationRefs: ["ov:wiki/deploy", "cm:decision-1"],
-        body: "mixed evidence",
+        citationRefs: ["ov:wiki/deploy"],
+        body: "cited evidence",
         memoryAgentId: "memory-1",
       });
-      expect(mixed.citations.map((citation) => citation.kind)).toEqual([
-        "openviking",
-        "causal_memory",
-      ]);
+      expect(published.citations.map((citation) => citation.kind)).toEqual(["openviking"]);
       expect((await harness.citations.getOffer(harness.workspaceA, "offer-1"))?.citations).toEqual([
-        { kind: "causal_memory", citationId: "cm:decision-1" },
         { kind: "openviking", citationId: "ov:wiki/deploy" },
       ]);
-
-      await expect(
-        offers.proposeCorrection({
-          workspaceId: harness.workspaceA,
-          operationId: "fix-ov",
-          causalItemId: "decision-1",
-          contradictoryCitationRefs: ["ov:wiki/deploy"],
-          rationale: "OV is not admitted provenance",
-        }),
-      ).rejects.toBeInstanceOf(MemoryCitationCorrectionError);
 
       expect(
         harness.citations.putOffer({
