@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import type { PrismaClient } from "../generated/client";
-import { isAutoSendCancelled } from "../src/features/records/records-content";
+import {
+  isAutoSendCancelled,
+  type ReportContent,
+} from "../src/features/records/records-content";
 import { RecordCatalog } from "../src/server/records/record-catalog.server";
 
 test("deleteMemberWeek removes the viewer's templates and submissions only", async () => {
@@ -375,8 +378,8 @@ test("deleteOverviewReport cancels auto-send for that ISO week on the live forma
 
   expect(result).toEqual({ ok: true });
   expect(formatUpdates).toHaveLength(1);
-  expect(isAutoSendCancelled(formatContent as { tabs: object }, 2026, 39)).toBe(true);
-  expect(isAutoSendCancelled(formatContent as { tabs: object }, 2026, 38)).toBe(false);
+  expect(isAutoSendCancelled(formatContent as ReportContent, 2026, 39)).toBe(true);
+  expect(isAutoSendCancelled(formatContent as ReportContent, 2026, 38)).toBe(false);
 });
 
 test("deleteMemberWeek cancels auto-send for each deleted overview settings stream", async () => {
@@ -468,5 +471,5 @@ test("deleteMemberWeek cancels auto-send for each deleted overview settings stre
   expect(deletedReports.sort()).toEqual(["member-under-mine", "tpl-mine"].sort());
   expect(formatUpdates).toHaveLength(1);
   expect(formatUpdates[0]?.id).toBe("format-1");
-  expect(isAutoSendCancelled(formatUpdates[0]?.content as { tabs: object }, 2026, 39)).toBe(true);
+  expect(isAutoSendCancelled(formatUpdates[0]?.content as ReportContent, 2026, 39)).toBe(true);
 });
