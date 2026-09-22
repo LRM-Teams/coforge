@@ -727,17 +727,25 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
       (await repo.readPendingAgentDeliveries(workspace.id, scout.id)).find(
         (message) => message.messageId === handoff.id,
       ),
-    ).toMatchObject({ latestSender: "@helper", target: "#general" });
+    ).toMatchObject({
+      latestSenderKind: "agent",
+      latestSenderHandle: "helper",
+      target: "#general",
+    });
     expect(
       (await repo.readAgentRecoveryContext(workspace.id, scout.id)).resumeMessages.find(
         (message) => message.messageId === handoff.id,
       ),
-    ).toMatchObject({ latestSender: "@helper", target: "#general" });
+    ).toMatchObject({
+      latestSenderKind: "agent",
+      latestSenderHandle: "helper",
+      target: "#general",
+    });
     expect(
       (await repo.readPendingAgentContext(workspace.id, scout.id, "#general", 0)).find(
         (message) => message.id === handoff.id,
       ),
-    ).toMatchObject({ sender: "@helper", target: "#general" });
+    ).toMatchObject({ senderKind: "agent", senderHandle: "helper", target: "#general" });
     expect(
       (await repo.readMessages(workspace.id, scout.id, "#general")).find(
         (message) => message.id === handoff.id,
@@ -2353,7 +2361,7 @@ test("a thread's root author starts following that thread, so later replies reac
   }
 });
 
-test("a channel member can list and unfollow Agents following a thread; a private Agent is hidden from other members", async () => {
+test("a channel member can list and unfollow Agents following a thread; a private Agent is never a channel follower", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -2384,6 +2392,10 @@ test("a channel member can list and unfollow Agents following a thread; a privat
         runtimeConfig: {},
       },
     });
+    // ADR 0059: a private Agent is never an active channel member — not even in #general. It
+    // cannot be @mentioned there (mentions resolve against active members), is never delivered a
+    // channel reply, and so never becomes a thread follower. Only the public `helper` can appear
+    // in any follower list below; `scout` is here to prove it stays absent even for its creator.
     const scout = await db.agent.create({
       data: {
         workspaceId: workspace.id,
@@ -2401,6 +2413,16 @@ test("a channel member can list and unfollow Agents following a thread; a privat
       publishJson: async () => {},
     });
     const general = (await channels.list(workspace.id, alice.id))[0]!;
+    // ADR 0059's membership rule, pinned directly, so the absences below have one named cause:
+    // #general enrolls every public Agent and no private one.
+    expect(
+      (
+        await db.conversationMember.findMany({
+          where: { conversationId: general.id, agentId: { in: [helper.id, scout.id] } },
+          select: { agentId: true },
+        })
+      ).map((member) => member.agentId),
+    ).toEqual([helper.id]);
     const root = await channels.send({
       workspaceId: workspace.id,
       userId: alice.id,
@@ -2424,7 +2446,7 @@ test("a channel member can list and unfollow Agents following a thread; a privat
       root.id,
     );
     expect(aliceView.canUnfollow).toBe(true);
-    expect(aliceView.agents.map((agent) => agent.id).sort()).toEqual([helper.id, scout.id].sort());
+    expect(aliceView.agents.map((agent) => agent.id)).toEqual([helper.id]);
 
     const bobView = await channels.threadFollowingAgents(workspace.id, bob.id, general.id, root.id);
     expect(bobView.canUnfollow).toBe(true);
@@ -2459,11 +2481,13 @@ test("a channel member can list and unfollow Agents following a thread; a privat
         helper.id,
       ),
     ).toEqual({ followed: false });
+    // `helper` was the only follower alice could see (see the ADR 0059 note above), so
+    // unfollowing it leaves the list empty — the private `scout` is not a hidden fallback.
     expect(
       (
         await channels.threadFollowingAgents(workspace.id, alice.id, general.id, root.id)
       ).agents.map((agent) => agent.id),
-    ).toEqual([scout.id]);
+    ).toEqual([]);
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: alice.id } });
