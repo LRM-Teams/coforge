@@ -213,10 +213,7 @@ export function ReportTabsEditor({
             : "border-b-2 border-transparent text-tertiary hover:text-secondary",
         );
 
-  const chevronClass = cn(
-    "size-6 shrink-0 p-1 text-fg-quaternary",
-    editableTabs ? "" : "mb-2",
-  );
+  const chevronClass = cn("size-6 shrink-0 p-1 text-fg-quaternary", editableTabs ? "" : "mb-2");
 
   const tabBar = (
     <>
