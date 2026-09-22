@@ -9,7 +9,6 @@ import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/mod
 import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { HintText } from "@/components/base/input/hint-text";
 import { Input } from "@/components/base/input/input";
-import { RadioButton, RadioGroup } from "@/components/base/radio-buttons/radio-buttons";
 import { Select } from "@/components/base/select/select";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -174,22 +173,22 @@ export function AgentCreateDialog({
                     <span className="text-sm font-medium text-secondary">
                       {m.agent_form_visibility()}
                     </span>
-                    <RadioGroup
+                    <Select
                       aria-label={m.agent_form_visibility()}
-                      value={visibility}
-                      onChange={(value) => setVisibility(value as AgentVisibility)}
+                      selectedKey={visibility}
+                      onSelectionChange={(key) => setVisibility(key as AgentVisibility)}
                     >
-                      <RadioButton
-                        value={AGENT_VISIBILITY.PUBLIC}
+                      <Select.Item
+                        id={AGENT_VISIBILITY.PUBLIC}
                         label={m.agent_form_visibility_public()}
-                        hint={m.agent_form_visibility_public_hint()}
+                        supportingText={m.agent_form_visibility_public_hint()}
                       />
-                      <RadioButton
-                        value={AGENT_VISIBILITY.PRIVATE}
+                      <Select.Item
+                        id={AGENT_VISIBILITY.PRIVATE}
                         label={m.agent_form_visibility_private()}
-                        hint={m.agent_form_visibility_private_hint()}
+                        supportingText={m.agent_form_visibility_private_hint()}
                       />
-                    </RadioGroup>
+                    </Select>
                   </div>
                   {error && (
                     <HintText isInvalid role="alert" className="sm:col-span-2">
