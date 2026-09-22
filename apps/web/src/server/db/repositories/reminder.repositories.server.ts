@@ -7,6 +7,7 @@ import {
   type ReminderFireResponse,
 } from "@lrm/coforge-sdk/internal";
 import { ACTIVE_AGENT_WHERE } from "../../agents/active-agent.server";
+import { messageAnchorWhere } from "../message-anchor";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import {
   MAX_ACTIVE_REMINDERS,
@@ -139,10 +140,7 @@ export class PrismaReminderRepository implements ReminderRepository {
         where: {
           conversationId: conversation.id,
           threadRootId: null,
-          id:
-            threadPrefix.length === 8
-              ? { startsWith: threadPrefix, mode: "insensitive" }
-              : threadPrefix,
+          id: messageAnchorWhere(threadPrefix),
         },
         select: { id: true },
         take: 2,
@@ -154,7 +152,7 @@ export class PrismaReminderRepository implements ReminderRepository {
     const candidates = await this.db.message.findMany({
       where: {
         conversationId: conversation.id,
-        id: messageId.length === 8 ? { startsWith: messageId, mode: "insensitive" } : messageId,
+        id: messageAnchorWhere(messageId),
         ...(rootId ? { OR: [{ id: rootId }, { threadRootId: rootId }] } : { threadRootId: null }),
       },
       select: { id: true },

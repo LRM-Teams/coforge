@@ -201,6 +201,26 @@ test("Agent operation credential cannot act as another same-owner Agent", async 
   });
 });
 
+test("an eight-hex message anchor resolves to the message it prefixes", async () => {
+  // `Message.id` is a native `uuid` column, so a prefix has to be matched as an id RANGE — a
+  // `startsWith`/`LIKE` pattern does not apply to a `uuid` and the query fails outright. This pins
+  // the documented anchor form the CLI passes (`--message-id` accepts eight hex characters).
+  const repository = new PrismaReminderRepository(db);
+  const anchor = await repository.resolveAnchor(
+    {
+      workspaceId: fixture.workspaceId,
+      computerId: fixture.computerId,
+      agentId: fixture.agentId,
+      userId: fixture.userId,
+    },
+    fixture.target,
+    fixture.messageId.slice(0, 8),
+  );
+
+  // The anchor is normalized to the full id it prefixes.
+  expect(anchor).toEqual({ messageId: fixture.messageId, target: fixture.target });
+});
+
 afterAll(async () => {
   const workspaceIds = [fixture.workspaceId, fixture.otherWorkspaceId].filter(Boolean);
   const userIds = [fixture.userId, fixture.otherUserId].filter(Boolean);

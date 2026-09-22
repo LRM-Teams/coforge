@@ -12,6 +12,7 @@ import {
   resolveChannelAuthority,
 } from "./channel-authority.server";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { messageAnchorWhere } from "../db/message-anchor";
 import { AGENT_VISIBILITY } from "../../features/agents/agent-visibility";
 import {
   agentMessageSender,
@@ -275,13 +276,7 @@ export async function resolveChannelThreadRoot(
     where: {
       conversationId,
       threadRootId: null,
-      id:
-        anchor.length === 8
-          ? {
-              gte: `${anchor}-0000-0000-0000-000000000000`,
-              lte: `${anchor}-ffff-ffff-ffff-ffffffffffff`,
-            }
-          : anchor,
+      id: messageAnchorWhere(anchor),
     },
     take: 2,
     select: { id: true },
