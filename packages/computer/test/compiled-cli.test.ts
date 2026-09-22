@@ -30,6 +30,11 @@ function hostReleaseTarget(): string {
  * enough on every host `install.sh` supports. */
 const FIXTURE_ROOT = process.platform === "darwin" ? "/tmp" : tmpdir();
 
+/** A small, distinct fixture standing in for the real ~1.8 MB `photon_rs_bg.wasm` - these tests
+ * exercise the real compiled install.sh/updater round trip, not photon-wasm.ts's own resolution
+ * (covered separately by publish.test.ts). */
+const PHOTON_WASM_FIXTURE = new Uint8Array(Buffer.from("#wasm-fixture: photon_rs_bg.wasm\n"));
+
 test("single-file installation provides management and Agent CLI without a Daemon executable", async () => {
   const feed = join(directory, "feed");
   const version = "9.0.0-test";
@@ -39,6 +44,7 @@ test("single-file installation provides management and Agent CLI without a Daemo
       version,
       commit: "a".repeat(40),
       buildDate: "2026-09-05T00:00:00Z",
+      photonWasm: PHOTON_WASM_FIXTURE,
       artifacts: {
         [target]: {
           computer: new Uint8Array(await Bun.file(executable).arrayBuffer()),
@@ -161,6 +167,7 @@ test("detached upgrade shows one download and restores a healthy version after a
         version,
         commit: "a".repeat(40),
         buildDate: "2026-09-10T00:00:00Z",
+        photonWasm: PHOTON_WASM_FIXTURE,
         artifacts: {
           "linux-x64": {
             computer:

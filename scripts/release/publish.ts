@@ -36,6 +36,7 @@ import {
   type ReleaseTree,
 } from "./build-release";
 import { compileTargetArtifacts, isReleaseTarget, type ReleaseTarget } from "./compile-targets";
+import { resolvePhotonWasmBytes } from "./photon-wasm";
 
 /* -------------------------------------------------------------------------------------------- */
 /* OSS client and credentials                                                                    */
@@ -210,6 +211,14 @@ const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
  * stored, so an attempt after a timeout re-sends at most one part. */
 const MULTIPART_ATTEMPTS = 3;
 
+/** Every other release object (the computer binary, its gzip, checksum sidecars, the manifest) is
+ * served as opaque bytes; only photon_rs_bg.wasm has a real registered media type
+ * (https://www.iana.org/assignments/media-types/application/wasm), so it is the one object key
+ * this needs to special-case rather than a lookup table nothing else would ever hit. */
+function contentTypeFor(objectKey: string): string {
+  return objectKey.endsWith(".wasm") ? "application/wasm" : "application/octet-stream";
+}
+
 async function putObject(
   client: OSS,
   objectKey: string,
@@ -217,6 +226,7 @@ async function putObject(
   requestTimeoutMs?: number,
 ): Promise<void> {
   const buffer = Buffer.from(bytes);
+  const contentType = contentTypeFor(objectKey);
   // `requestTimeoutMs` is a test-only hook so the stalled-server fixture can pin the
   // `ResponseTimeoutError` reporting path; production uses ali-oss's 60 s default.
   const requestOptions = requestTimeoutMs ? { timeout: requestTimeoutMs } : {};
@@ -226,7 +236,7 @@ async function putObject(
         try {
           await client.multipartUpload(objectKey, buffer, {
             ...requestOptions,
-            headers: { "Content-Type": "application/octet-stream" },
+            headers: { "Content-Type": contentType },
           });
           return;
         } catch (error) {
@@ -247,7 +257,7 @@ async function putObject(
     }
     await client.put(objectKey, buffer, {
       ...requestOptions,
-      headers: { "Content-Type": "application/octet-stream" },
+      headers: { "Content-Type": contentType },
     });
   } catch (error) {
     throw ossError("upload", objectKey, error);
@@ -566,6 +576,8 @@ export interface PublishOptions {
   dryRun: boolean;
 }
 
+export type ResolvePhotonWasmFn = typeof resolvePhotonWasmBytes;
+
 export interface PublishDependencies {
   compile?: CompileFn;
   fetchImpl?: typeof fetch;
@@ -578,6 +590,10 @@ export interface PublishDependencies {
    * server instead of the real bucket; `bucket`/`endpoint` otherwise default to
    * `options.bucket`/`options.endpoint` over HTTPS. */
   connection?: Partial<OssConnection>;
+  /** Resolves Pi's photon_rs_bg.wasm bytes; defaults to the real installed-dependency walk in
+   * photon-wasm.ts. Tests override this with a fixture so they never depend on the exact
+   * installed @silvia-odwyer/photon-node version. */
+  resolvePhotonWasm?: ResolvePhotonWasmFn;
 }
 
 export interface PublishOutcome {
@@ -594,6 +610,7 @@ export async function runPublish(
   deps: PublishDependencies = {},
 ): Promise<PublishOutcome> {
   const compile = deps.compile ?? compileTargetArtifacts;
+  const resolvePhotonWasm = deps.resolvePhotonWasm ?? resolvePhotonWasmBytes;
   const log = deps.log ?? ((): void => undefined);
 
   // Resolve credentials before compiling. In CI the credential chain exchanges a GitHub OIDC
@@ -624,10 +641,14 @@ export async function runPublish(
       });
     }
 
+    log("resolving Pi's image library (photon_rs_bg.wasm)...");
+    const photonWasm = await resolvePhotonWasm();
+
     const inputs: ReleaseInputs = {
       version: options.version,
       commit: options.commit,
       buildDate: new Date().toISOString(),
+      photonWasm,
       artifacts,
     };
     const treeDirectory = join(workDirectory, "tree");

@@ -87,6 +87,9 @@ $maxPointerBytes = 4096
 $maxManifestBytes = 1048576
 # Fixed transport ceiling; the updater checks exact compressed and expanded manifest sizes.
 $maxBinaryBytes = 536870912
+# Pi's image library (photon_rs_bg.wasm) is a fixed, platform-independent object (~1.8 MB); the
+# updater checks its exact recorded size against the manifest.
+$maxWasmBytes = 16777216
 
 function Write-CoforgeStep([string]$Message) {
   [Console]::Error.WriteLine("==> $Message")
@@ -181,6 +184,10 @@ try {
   $compressedPath = Join-Path $temporaryDirectory "coforge-computer.gz"
   Write-CoforgeStep "Downloading CoForge Computer"
   Get-CoforgeObject -Uri "$feedUrl/$Version/$Target/coforge-computer.gz" -OutFile $compressedPath -MaxBytes $maxBinaryBytes -Binary
+  # Pi's image library is part of the Computer download step and gets no progress line of its
+  # own; only a failed fetch mentions it.
+  $wasmPath = Join-Path $temporaryDirectory "photon_rs_bg.wasm"
+  Get-CoforgeObject -Uri "$feedUrl/$Version/photon_rs_bg.wasm" -OutFile $wasmPath -MaxBytes $maxWasmBytes
   [System.IO.File]::WriteAllText((Join-Path $temporaryDirectory "version"), "$Version`n", [System.Text.UTF8Encoding]::new($false))
   if ($PrepareDirectory) { return }
 

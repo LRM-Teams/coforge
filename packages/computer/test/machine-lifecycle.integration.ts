@@ -296,6 +296,7 @@ test.skipIf(!systemdUserAvailable)(
           version,
           commit: "a".repeat(40),
           buildDate: "2026-09-07T00:00:00Z",
+          photonWasm: new Uint8Array(Buffer.from("#wasm-fixture: photon_rs_bg.wasm\n")),
           artifacts: { "linux-x64": { computer: bytes } },
         },
         feedDirectory,

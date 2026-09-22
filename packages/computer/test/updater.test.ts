@@ -24,6 +24,10 @@ function flipByte(buffer: Buffer): Buffer {
   return copy;
 }
 
+/** The real Pi WASM is ~1.8 MB; tests stand in with a small, distinct fixture - resolving and
+ * uploading the real file is scripts/release/photon-wasm.ts's and publish.test.ts's concern. */
+const PHOTON_WASM_FIXTURE = Buffer.from("#wasm-fixture: photon_rs_bg.wasm stand-in\n");
+
 async function fixture(
   options: {
     version?: string;
@@ -38,6 +42,9 @@ async function fixture(
     schemaVersion?: number;
     includeDaemon?: boolean;
     redirectLatest?: boolean;
+    omitPhotonWasm?: boolean;
+    tamperPhotonWasm?: boolean;
+    oversizePhotonWasm?: boolean;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "coforge-updater-"));
@@ -69,6 +76,15 @@ async function fixture(
             ...(options.includeDaemon ? { daemon: { binary: "coforge-daemon" } } : {}),
           },
         },
+    ...(options.omitPhotonWasm
+      ? {}
+      : {
+          photonWasm: {
+            file: "photon_rs_bg.wasm",
+            size: PHOTON_WASM_FIXTURE.length,
+            checksum: sha256hex(PHOTON_WASM_FIXTURE),
+          },
+        }),
   };
   const manifestBytes = Buffer.from(
     JSON.stringify(options.malformedManifest ? { schema_version: 2, oops: true } : manifest),
@@ -78,11 +94,19 @@ async function fixture(
     : options.tamperComputer
       ? flipByte(computer)
       : computer;
+  const servedPhotonWasm = options.oversizePhotonWasm
+    ? Buffer.concat([PHOTON_WASM_FIXTURE, Buffer.alloc(PHOTON_WASM_FIXTURE.length * 4, 0x41)])
+    : options.tamperPhotonWasm
+      ? flipByte(PHOTON_WASM_FIXTURE)
+      : PHOTON_WASM_FIXTURE;
 
   const files = new Map<string, Uint8Array>([
     [`/${version}/manifest.json`, manifestBytes],
     [`/${version}/${target}/coforge-computer.gz`, Bun.gzipSync(new Uint8Array(servedComputer))],
   ]);
+  if (!options.omitPhotonWasm) {
+    files.set(`/${version}/photon_rs_bg.wasm`, new Uint8Array(servedPhotonWasm));
+  }
   // redirectLatest points "/latest" at a 302 whose destination serves the very same, otherwise
   // completely valid, version content - so a full install would succeed if the redirect refusal
   // were the only thing missing, rather than tripping over some unrelated 404 downstream. See
@@ -135,6 +159,10 @@ test("install consumes a local bootstrap package without downloading it again", 
   await Bun.write(
     join(localDirectory, "coforge-computer.gz"),
     input.files.get(`/${input.version}/${input.target}/coforge-computer.gz`)!,
+  );
+  await Bun.write(
+    join(localDirectory, "photon_rs_bg.wasm"),
+    input.files.get(`/${input.version}/photon_rs_bg.wasm`)!,
   );
   const manager = new ComputerUpdater({
     baseUrl: input.baseUrl,
@@ -226,12 +254,42 @@ test("a manifest without gzip metadata is rejected rather than downloading raw b
   expect(input.requested).toEqual([path]);
 });
 
-test("offline rollback rejects a missing or corrupted version-local launcher", async () => {
+test("a manifest without a valid photonWasm entry is rejected, with no fallback", async () => {
+  // dev policy: no compatibility fallback for a manifest published without it - every version
+  // this updater installs must ship Pi's image library.
+  const missingEntirely = await fixture({ omitPhotonWasm: true });
+  await expect(updater(missingEntirely).install(missingEntirely.version)).rejects.toMatchObject({
+    code: "UPDATE_FEED_INVALID",
+  });
+
+  const wrongFileName = await fixture();
+  const path = `/${wrongFileName.version}/manifest.json`;
+  const manifest = JSON.parse(new TextDecoder().decode(wrongFileName.files.get(path)));
+  manifest.photonWasm.file = "photon.wasm";
+  wrongFileName.files.set(path, Buffer.from(JSON.stringify(manifest)));
+  await expect(updater(wrongFileName).install(wrongFileName.version)).rejects.toMatchObject({
+    code: "UPDATE_FEED_INVALID",
+  });
+});
+
+test("a candidate photon_rs_bg.wasm that fails its manifest identity is rejected before installation", async () => {
+  for (const failure of ["tamperPhotonWasm", "oversizePhotonWasm", "omitPhotonWasm"] as const) {
+    const input = await fixture({ [failure]: true });
+    await expect(updater(input).install(input.version)).rejects.toMatchObject({
+      code: failure === "omitPhotonWasm" ? "UPDATE_FEED_INVALID" : "UPDATE_INTEGRITY_FAILED",
+    });
+    expect(await Bun.file(join(input.directory, "active.json")).exists()).toBe(false);
+  }
+});
+
+test("offline rollback rejects a missing or corrupted version-local launcher or image library", async () => {
   for (const [name, missing] of [
     ["coforge", true],
     ["coforge", false],
     ["gh", true],
     ["gh", false],
+    ["photon_rs_bg.wasm", true],
+    ["photon_rs_bg.wasm", false],
   ] as const) {
     const input = await fixture();
     const client = updater(input);
@@ -352,6 +410,7 @@ test("resolving latest is read-only and preparation keeps the confirmed version 
     "/latest",
     "/2.0.0/manifest.json",
     `/2.0.0/${input.target}/coforge-computer.gz`,
+    "/2.0.0/photon_rs_bg.wasm",
   ]);
   expect(await Bun.file(join(input.directory, "active.json")).exists()).toBe(false);
 });
@@ -378,7 +437,7 @@ test("latest and an exact version selector resolve to the same install", async (
         ),
       ),
     ).toEqual({
-      schema_version: 3,
+      schema_version: 4,
       version: input.version,
       computer: {
         size: Buffer.byteLength("computer-payload-v2"),
@@ -386,7 +445,11 @@ test("latest and an exact version selector resolve to the same install", async (
       },
       agentCli: expect.any(Object),
       githubCli: expect.any(Object),
+      photonWasm: expect.any(Object),
     });
+    expect(
+      await readFile(join(input.directory, "versions", input.version, "photon_rs_bg.wasm")),
+    ).toEqual(PHOTON_WASM_FIXTURE);
   }
 });
 

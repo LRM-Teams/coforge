@@ -63,12 +63,21 @@ function fixtureArtifacts(): Record<string, { computer: Uint8Array }> {
   return artifacts;
 }
 
+/** A small, distinct fixture standing in for the real ~1.8 MB `photon_rs_bg.wasm` - resolving the
+ * real file from the installed dependency chain is photon-wasm.test.ts's concern. */
+const FIXTURE_PHOTON_WASM = new Uint8Array(Buffer.from("#wasm-fixture: photon_rs_bg.wasm\n"));
+
+function stubResolvePhotonWasm(): () => Promise<Uint8Array> {
+  return async () => FIXTURE_PHOTON_WASM;
+}
+
 async function fixtureTree(version: string, outputDirectory: string): Promise<ReleaseTree> {
   const inputs: ReleaseInputs = {
     version,
     commit: "a".repeat(40),
     buildDate: new Date("2026-09-01T00:00:00.000Z").toISOString(),
     artifacts: fixtureArtifacts(),
+    photonWasm: FIXTURE_PHOTON_WASM,
   };
   return buildReleaseTree(inputs, outputDirectory);
 }
@@ -101,6 +110,9 @@ interface FakeOss {
   /** Reads the fixture's in-memory store directly, bypassing HTTP - used to assert the final
    * state of `latest` after a rollback without needing a second signed client round trip. */
   peek(key: string): Uint8Array | undefined;
+  /** The `Content-Type` header the most recent PUT for this key carried, or undefined if it was
+   * never uploaded. */
+  contentType(key: string): string | undefined;
 }
 
 function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
@@ -109,6 +121,7 @@ function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
   if (options.previousLatest) store.set("latest", new TextEncoder().encode(options.previousLatest));
   const calls: Array<{ method: string; key: string }> = [];
   const authHeaders: Array<string | undefined> = [];
+  const contentTypes = new Map<string, string | undefined>();
 
   const server = Bun.serve({
     port: 0,
@@ -142,6 +155,7 @@ function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
           });
         }
         store.set(objectKey, new Uint8Array(await request.arrayBuffer()));
+        contentTypes.set(objectKey, request.headers.get("content-type") ?? undefined);
         return new Response(null, { status: 200 });
       }
 
@@ -184,6 +198,7 @@ function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
     calls,
     authHeaders,
     peek: (key) => store.get(key),
+    contentType: (key) => contentTypes.get(key),
   };
 }
 
@@ -281,6 +296,26 @@ test("publication uploads every object, verifies it by reading the bytes back, a
   const roundTrip = await client.get(manifestKey);
   const local = await readFile(join(outputDirectory, manifestKey));
   expect(Buffer.compare(roundTrip.content as Buffer, local)).toBe(0);
+});
+
+test("photon_rs_bg.wasm uploads with the application/wasm media type; every other object stays octet-stream", async () => {
+  const outputDirectory = await tempDir("coforge-publish-tree-");
+  const tree = await fixtureTree("9.9.9-wasm-content-type", outputDirectory);
+  const wasmKey = `${tree.version}/photon_rs_bg.wasm`;
+  const manifestKey = manifestObjectKey(tree.version);
+  const fake = startFakeOssServer();
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  await uploadReleaseTree(outputDirectory, tree, { client, connection });
+
+  expect(fake.contentType(wasmKey)).toBe("application/wasm");
+  expect(fake.contentType(manifestKey)).toBe("application/octet-stream");
+  for (const target of TEST_TARGETS) {
+    expect(fake.contentType(`${tree.version}/${target}/coforge-computer.gz`)).toBe(
+      "application/octet-stream",
+    );
+  }
 });
 
 test("a failed object upload never writes latest, and stops before uploading later objects", async () => {
@@ -576,6 +611,7 @@ test("a failed publish never prints the access key, secret, or an Authorization 
       ],
       {
         compile: stubCompile(),
+        resolvePhotonWasm: stubResolvePhotonWasm(),
         connection: { endpoint: fake.baseUrl, cname: true, secure: false },
       },
     );
@@ -623,7 +659,11 @@ test("--dry-run makes no network calls and reports the objects it would publish"
       endpoint: "oss-cn-beijing.aliyuncs.com",
       dryRun: true,
     },
-    { compile: stubCompile(), fetchImpl: throwingFetch },
+    {
+      compile: stubCompile(),
+      resolvePhotonWasm: stubResolvePhotonWasm(),
+      fetchImpl: throwingFetch,
+    },
   );
 
   expect(fetchCalls).toBe(0);

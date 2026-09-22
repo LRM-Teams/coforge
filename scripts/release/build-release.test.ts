@@ -81,12 +81,19 @@ function fixtureArtifacts(argumentLog: string): Record<string, { computer: Uint8
   return artifacts;
 }
 
+/** A small, distinct fixture standing in for the real ~1.8 MB `photon_rs_bg.wasm` -
+ * scripts/release/photon-wasm.ts and publish.test.ts cover resolving/uploading the real file. */
+function fixturePhotonWasm(): Uint8Array {
+  return Buffer.from("#wasm-fixture: photon_rs_bg.wasm stand-in\n");
+}
+
 function releaseInputs(overrides: Partial<ReleaseInputs> = {}): ReleaseInputs {
   return {
     version: overrides.version ?? "3.2.1",
     commit: overrides.commit ?? "a".repeat(40),
     buildDate: overrides.buildDate ?? "2026-09-04T12:00:00Z",
     artifacts: overrides.artifacts ?? fixtureArtifacts("/dev/null"),
+    photonWasm: overrides.photonWasm ?? fixturePhotonWasm(),
   };
 }
 
@@ -186,12 +193,31 @@ test("buildReleaseTree writes the full <version>/ tree and never a latest pointe
   expect(result.files).toEqual(
     [
       `${inputs.version}/manifest.json`,
+      `${inputs.version}/photon_rs_bg.wasm`,
       ...ALL_TARGETS.flatMap((target) => [
         `${inputs.version}/${target}/coforge-computer.gz`,
         `${inputs.version}/${target}/coforge-computer.sha256`,
       ]),
     ].sort(),
   );
+});
+
+test("buildReleaseTree writes photon_rs_bg.wasm once, uncompressed, with a manifest identity that matches an independently recomputed sha256", async () => {
+  const outputDirectory = await tempDir("coforge-release-tree-");
+  const inputs = releaseInputs();
+
+  const { version } = await buildReleaseTree(inputs, outputDirectory);
+  const manifest = JSON.parse(
+    await readFile(join(outputDirectory, version, "manifest.json"), "utf8"),
+  );
+  const wasmBytes = await readFile(join(outputDirectory, version, "photon_rs_bg.wasm"));
+
+  expect(wasmBytes.equals(Buffer.from(inputs.photonWasm))).toBe(true);
+  expect(manifest.photonWasm).toEqual({
+    file: "photon_rs_bg.wasm",
+    size: wasmBytes.byteLength,
+    checksum: sha256hex(wasmBytes),
+  });
 });
 
 test("every target's sidecar checksum matches the manifest's checksum, and both match an independently recomputed sha256 of the bytes on disk", async () => {

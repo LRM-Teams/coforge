@@ -47,7 +47,7 @@ redaction, and a non-root deployment identity.
 | Track                       | Candidate identity                                                                                      | Test target                                                  | Production effect                                                                                     |
 | --------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
 | Cloud application           | Full `registry/repository@sha256:...` image reference                                                   | `staging` GitHub Environment and Compose project             | Deploy the same digest to production Compose                                                          |
-| Local Computer distribution | A release version plus its manifest's SHA-256 checksum for every platform's unified Computer executable | Version published behind the staging feed's `latest` pointer | Build the same commit against the production feed, publish it, then point production's `latest` at it |
+| Local Computer distribution | A release version plus its manifest's SHA-256 checksum for every platform's unified Computer executable and for the one platform-independent `photon_rs_bg.wasm` sidecar | Version published behind the staging feed's `latest` pointer | Build the same commit against the production feed, publish it, then point production's `latest` at it |
 
 The daemon runtime role is released inside `coforge-daemon`; it is not a third local
 product component. `@coforge/agent` is independently packable for dependency and
@@ -132,9 +132,10 @@ platform-binary tree per version:
 
 ```text
 latest                                       plain text, one version string, e.g. "0.1.0"
-<version>/manifest.json                      unsigned JSON: schema_version, version, commit, buildDate, platforms
+<version>/manifest.json                      unsigned JSON: schema_version, version, commit, buildDate, platforms, photonWasm
 <version>/<target>/coforge-computer.gz       gzip transport copy
 <version>/<target>/coforge-computer.sha256   bare lowercase hex SHA-256 of that platform's coforge-computer, nothing else
+<version>/photon_rs_bg.wasm                  Pi's image-resize WASM, one platform-independent object per version
 computer/install.sh
 computer/install.ps1
 ```
@@ -186,6 +187,22 @@ signing field could be added without breaking older installers, but signing is
 explicitly out of scope for this contract: **integrity comes from HTTPS in
 transit plus the manifest's SHA-256 checksums, not a signed envelope.** This
 mirrors how Claude Code and `@botiverse/raft-daemon` ship updates.
+
+The top-level `photonWasm: { file, size, checksum }` manifest field is
+additive to `schema_version: 2`: an older updater that has never heard of it
+simply never reads it, the same reasoning that reserves `schema_version` for a
+future signing field above. It names Pi's image-resize WASM
+(`@silvia-odwyer/photon-node`'s `photon_rs_bg.wasm`, a `packages/agent`
+transitive dependency), published once per version as a platform-independent
+sidecar next to the per-platform `<target>/` directories - uncompressed, since
+it is already small (~1.8 MB) and gains nothing from gzip transport framing.
+`scripts/release/photon-wasm.ts` resolves its bytes from the installed
+dependency chain at publish time rather than a committed or separately pinned
+copy, so the shipped file can never drift from what Pi's own code loads at
+runtime. This updater has no compatibility fallback: a manifest published
+without a valid `photonWasm` entry is rejected (`UPDATE_FEED_INVALID`), the
+same fail-closed policy the platform/gzip fields already use. See
+[ADR 0062](adr/0062-photon-wasm-sidecar.md).
 
 `coforge-computer.sha256` is a sidecar, not a substitute for the manifest: it
 exists because `install.sh` and `install.ps1` are the bootstrap that fetches
@@ -340,14 +357,19 @@ launcher is covered by the installed version's offline integrity check and
 does not follow a later active-version switch underneath an existing Daemon.
 The installer supplies this launcher; Daemon startup does not repair older
 installations. No older-client or older-installer compatibility is maintained.
-Installer identity metadata uses schema 2 and records the `computer` identity
-plus the generated `agentCli` launcher identity. It contains no Daemon
-identity.
+Installer identity metadata (`installation.json`) now uses schema 4 and
+records the `computer` identity, the generated `agentCli` and `githubCli`
+launcher identities, and the installed `photon_rs_bg.wasm` identity. It
+contains no Daemon identity. Schemas 2 and 3 remain valid only as offline
+rollback targets for versions installed before `githubCli`/`photonWasm`
+existed; `#assertInstalled` checks each field only for the schema that
+introduced it, with no fallback for a version installed from here on.
 
 Previously published rc1 through rc3 remain immutable. They are not rewritten
-with schema 2 and receive no raw-artifact or two-payload fallback. Crossing
-from their layout requires a fresh bootstrap install; the old updater is not
-assumed to accept schema 2. Existing installations remain rollbackable to
+with a newer schema and receive no raw-artifact or two-payload fallback.
+Crossing from their layout requires a fresh bootstrap install; the old
+updater is not assumed to accept a newer manifest schema. Existing
+installations remain rollbackable to
 their own retained bytes, but rollback does not translate between layouts.
 
 Normal CLI lifecycle commands are one-shot local RPC clients. They start or
@@ -561,15 +583,18 @@ tracks' `latest` pointers are never the same object):
    same release version injected into both Computer and Daemon roles.
    Do not rebuild one platform after another platform passed.
 3. Compute every platform's Computer executable byte size and SHA-256 checksum,
-   assemble the schema 2 `manifest.json`, and generate each
-   platform's `coforge-computer.sha256` sidecar from the same Computer binary
-   bytes and the same checksum computation as the manifest entry - the two
-   must never be allowed to diverge.
+   resolve Pi's `photon_rs_bg.wasm` bytes from the installed dependency chain
+   (`scripts/release/photon-wasm.ts`) and its own identity, assemble the
+   schema 2 `manifest.json` (its additive `photonWasm` field), and generate
+   each platform's `coforge-computer.sha256` sidecar from the same Computer
+   binary bytes and the same checksum computation as the manifest entry - the
+   two must never be allowed to diverge.
 4. Publish `manifest.json`, every platform's `coforge-computer.sha256`
-   sidecar, and every platform's sole `coforge-computer.gz` beneath the new `<version>/` prefix on
-   the staging feed. Re-read every object through authenticated OSS access and
-   compare it byte-for-byte with the workflow source, then prove unsigned
-   anonymous/direct reads of the exact private-origin keys return 403.
+   sidecar, every platform's sole `coforge-computer.gz`, and the one
+   platform-independent `photon_rs_bg.wasm` beneath the new `<version>/`
+   prefix on the staging feed. Re-read every object through authenticated OSS
+   access and compare it byte-for-byte with the workflow source, then prove
+   unsigned anonymous/direct reads of the exact private-origin keys return 403.
 5. Only after every object under `<version>/` is published and verified,
    write the staging feed's `latest` pointer to the new version. A publish
    that fails before this step leaves an unreferenced version directory that
@@ -716,8 +741,8 @@ loaded the launch remains fail-closed.
 A local Computer release version is production-ready only when:
 
 1. the feed's `latest` pointer resolves the requested version and no other;
-2. the version's schema 2 manifest and every downloaded platform Computer executable match their
-   recorded byte sizes and SHA-256 checksums;
+2. the version's schema 2 manifest, every downloaded platform Computer executable, and the
+   downloaded `photon_rs_bg.wasm` match their recorded byte sizes and SHA-256 checksums;
 3. an unsigned anonymous/direct GET of each exact private OSS object key is
    rejected with 403, while authenticated OSS read-back for every version object
    and `latest` is byte-identical to the workflow's source bytes;

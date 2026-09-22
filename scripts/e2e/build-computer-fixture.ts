@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { zodResolvePlugin } from "../bun-resolve-zod-plugin";
+import { resolvePhotonWasmBytes } from "../release/photon-wasm";
 
 const root = resolve(import.meta.dir, "../..");
 const server = Bun.env.COFORGE_E2E_WEB_URL;
@@ -53,7 +54,9 @@ const gzip = Bun.gzipSync(bytes);
 const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
 const commit = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: root });
 if (commit.exitCode !== 0) throw new Error("Could not identify fixture source commit");
+const photonWasm = await resolvePhotonWasmBytes();
 await Bun.write(resolve(directory, "coforge-computer.gz"), gzip);
+await Bun.write(resolve(directory, "photon_rs_bg.wasm"), photonWasm);
 await Bun.write(
   resolve(directory, "manifest.json"),
   JSON.stringify({
@@ -74,6 +77,11 @@ await Bun.write(
           },
         },
       },
+    },
+    photonWasm: {
+      file: "photon_rs_bg.wasm",
+      size: photonWasm.byteLength,
+      checksum: new Bun.CryptoHasher("sha256").update(photonWasm).digest("hex"),
     },
   }),
 );
