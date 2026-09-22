@@ -6,12 +6,8 @@ import {
 } from "../src/supervisor/windows-workspace-reconcile";
 
 test("reconcile loop is null outside win32", () => {
-  expect(
-    startWindowsWorkspaceReconcileLoop(async () => {}, { platform: "linux" }),
-  ).toBeNull();
-  expect(
-    startWindowsWorkspaceReconcileLoop(async () => {}, { platform: "darwin" }),
-  ).toBeNull();
+  expect(startWindowsWorkspaceReconcileLoop(async () => {}, { platform: "linux" })).toBeNull();
+  expect(startWindowsWorkspaceReconcileLoop(async () => {}, { platform: "darwin" })).toBeNull();
 });
 
 test("win32 reconcile loop schedules reconcile and stops clearing the timer", async () => {

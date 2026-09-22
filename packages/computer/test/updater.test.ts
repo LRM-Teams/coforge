@@ -716,9 +716,9 @@ test("the supported platform matrix selects one complete target set", async () =
       : join(input.directory, "bin", "coforge-computer");
     const shimStat = await stat(shim);
     expect(shimStat.isFile() || shimStat.isSymbolicLink()).toBe(true);
-    expect(await Bun.file(join(input.directory, "active", `coforge-computer${suffix}`)).exists()).toBe(
-      true,
-    );
+    expect(
+      await Bun.file(join(input.directory, "active", `coforge-computer${suffix}`)).exists(),
+    ).toBe(true);
   }
 });
 

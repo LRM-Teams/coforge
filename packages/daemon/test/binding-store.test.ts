@@ -9,9 +9,7 @@ test("binding registry save completes on this platform without requiring directo
   const root = await mkdtemp(join(tmpdir(), "coforge-bindings-platform-"));
   try {
     const store = new FileBindingStore(root);
-    await store.save([
-      { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
-    ]);
+    await store.save([{ workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true }]);
     expect(await store.load()).toEqual([
       { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
     ]);

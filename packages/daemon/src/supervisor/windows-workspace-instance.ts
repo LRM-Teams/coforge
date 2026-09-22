@@ -17,6 +17,8 @@ export type WindowsWorkspaceSpawn = (input: {
 
 export type WindowsProcessProbe = (pid: number) => boolean;
 
+export type WindowsProcessSignal = (pid: number, signal?: NodeJS.Signals) => void;
+
 type InstanceRecord = { mainPid: number; invocationId: string };
 
 /**
@@ -34,6 +36,7 @@ export class WindowsWorkspaceInstance implements WorkspaceInstance {
     private readonly config: WorkspaceInstanceConfig,
     private readonly spawnChild: WindowsWorkspaceSpawn = defaultSpawn,
     private readonly isAlive: WindowsProcessProbe = defaultIsAlive,
+    private readonly signalProcess: WindowsProcessSignal = defaultSignal,
   ) {
     validateWorkspaceEndpoint(config.daemonConnectionEndpoint);
     this.identityKey = createHash("sha256")
@@ -50,16 +53,15 @@ export class WindowsWorkspaceInstance implements WorkspaceInstance {
     await mkdir(this.config.stateDirectory, { recursive: true, mode: 0o700 });
     const env: Record<string, string> = {
       ...Object.fromEntries(
-        Object.entries(Bun.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+        Object.entries(Bun.env).filter(
+          (entry): entry is [string, string] => entry[1] !== undefined,
+        ),
       ),
       COFORGE_DAEMON_HOME: this.config.stateDirectory,
     };
     if (this.config.supervisorSocketPath) {
       env.COFORGE_SUPERVISOR_SOCKET = this.config.supervisorSocketPath;
-      env.COFORGE_SUPERVISOR_STATE_PATH = join(
-        this.config.stateRoot,
-        "upgrade-request-ids.json",
-      );
+      env.COFORGE_SUPERVISOR_STATE_PATH = join(this.config.stateRoot, "upgrade-request-ids.json");
     }
     if (this.config.daemonConnectionEndpoint)
       env.COFORGE_DAEMON_CONNECTION_ENDPOINT = this.config.daemonConnectionEndpoint;
@@ -87,7 +89,7 @@ export class WindowsWorkspaceInstance implements WorkspaceInstance {
     const current = await this.#readRecord();
     if (current && this.isAlive(current.mainPid)) {
       try {
-        process.kill(current.mainPid);
+        this.signalProcess(current.mainPid);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
       }
@@ -95,7 +97,7 @@ export class WindowsWorkspaceInstance implements WorkspaceInstance {
       while (Date.now() < deadline && this.isAlive(current.mainPid)) await Bun.sleep(50);
       if (this.isAlive(current.mainPid)) {
         try {
-          process.kill(current.mainPid, "SIGKILL");
+          this.signalProcess(current.mainPid, "SIGKILL");
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
         }
@@ -168,4 +170,8 @@ function defaultIsAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+function defaultSignal(pid: number, signal?: NodeJS.Signals): void {
+  process.kill(pid, signal);
 }

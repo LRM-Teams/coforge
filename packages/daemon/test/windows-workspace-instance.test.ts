@@ -66,18 +66,21 @@ test("ensureStarted spawns __workspace-daemon once and reuses a live PID", async
 
 test("stop clears the durable instance record after signalling the child", async () => {
   const cfg = await config();
-  const signals: number[] = [];
+  const signals: Array<{ pid: number; signal?: NodeJS.Signals }> = [];
+  let alive = true;
   try {
     const instance = new WindowsWorkspaceInstance(
       cfg,
       async () => ({ pid: 77 }),
-      (pid) => {
-        signals.push(pid);
-        return signals.filter((value) => value === pid).length < 2;
+      () => alive,
+      (pid, signal) => {
+        signals.push({ pid, signal });
+        alive = false;
       },
     );
     await instance.ensureStarted();
     await instance.stop();
+    expect(signals).toEqual([{ pid: 77, signal: undefined }]);
     expect(await instance.identity()).toBeNull();
   } finally {
     await rm(cfg.root, { recursive: true, force: true });
@@ -87,8 +90,16 @@ test("stop clears the durable instance record after signalling the child", async
 test("identity key is stable for the state root and Workspace", async () => {
   const cfg = await config();
   try {
-    const a = new WindowsWorkspaceInstance(cfg, async () => ({ pid: 1 }), () => false);
-    const same = new WindowsWorkspaceInstance(cfg, async () => ({ pid: 1 }), () => false);
+    const a = new WindowsWorkspaceInstance(
+      cfg,
+      async () => ({ pid: 1 }),
+      () => false,
+    );
+    const same = new WindowsWorkspaceInstance(
+      cfg,
+      async () => ({ pid: 1 }),
+      () => false,
+    );
     const b = new WindowsWorkspaceInstance(
       { ...cfg, workspaceId: "workspace-b" },
       async () => ({ pid: 1 }),

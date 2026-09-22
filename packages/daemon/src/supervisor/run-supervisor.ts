@@ -618,7 +618,8 @@ async function runWithSupervisorLock(
       rpc = await startDaemonLocalRpcServer({
         socketPath,
         version: COFORGE_DAEMON_VERSION,
-        validateCredential: async (value) => value.length > 0 && !(await Bun.file(holdPath).exists()),
+        validateCredential: async (value) =>
+          value.length > 0 && !(await Bun.file(holdPath).exists()),
         credentials: {
           load: (w, c) => scopedCredentials(w).load(w, c),
           save: (w, c, key) => scopedCredentials(w).save(w, c, key),
@@ -668,7 +669,8 @@ async function runWithSupervisorLock(
                 watchPendingUpgrade(request.workspaceId, request.requestId, Date.now());
               }
             } else if (method === "daemon:upgrade_ack") {
-              if (!request.workspaceId) throw new Error("upgrade acknowledgement requires workspace");
+              if (!request.workspaceId)
+                throw new Error("upgrade acknowledgement requires workspace");
               if (await supervisor.acknowledgeUpgrade(request.workspaceId, request.requestId))
                 // Drops the now-acknowledged operation from the child's local config too, or a
                 // later reconnect would keep re-reporting the same already-acknowledged result.

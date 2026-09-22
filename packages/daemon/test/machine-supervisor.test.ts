@@ -105,9 +105,7 @@ test("reconcile is a no-op while paused for upgrade", async () => {
   const starts: string[] = [];
   const supervisor = new MachineSupervisor(
     {
-      load: async () => [
-        { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
-      ],
+      load: async () => [{ workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true }],
       save: async () => {},
     },
     {
