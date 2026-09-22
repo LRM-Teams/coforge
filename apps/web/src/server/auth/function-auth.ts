@@ -15,7 +15,7 @@ export type WorkspaceUserContext = {
 export const authMiddleware = createMiddleware({ type: "function" }).server(async ({ next }) =>
   next({
     context: {
-      user: requireBrowserUser(getRequest().headers.get("cookie") ?? undefined),
+      user: await requireBrowserUser(getRequest().headers.get("cookie") ?? undefined),
     },
   }),
 );

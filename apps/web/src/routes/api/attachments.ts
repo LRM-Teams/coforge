@@ -21,7 +21,7 @@ export const Route = createFileRoute("/api/attachments")({
 });
 
 type AttachmentUploadDependencies = {
-  authenticate(cookieHeader: string | undefined): { id: string };
+  authenticate(cookieHeader: string | undefined): { id: string } | Promise<{ id: string }>;
   database(): PrismaClient | null | undefined;
   store: typeof storeAttachment;
 };
@@ -37,7 +37,7 @@ export async function handleAttachmentUpload(
   dependencies: AttachmentUploadDependencies = attachmentUploadDependencies,
 ): Promise<Response> {
   try {
-    const user = dependencies.authenticate(request.headers.get("cookie") ?? undefined);
+    const user = await dependencies.authenticate(request.headers.get("cookie") ?? undefined);
     let form: FormData;
     try {
       form = await request.formData();

@@ -87,26 +87,26 @@ describe("Agent runtime credentials", () => {
 });
 
 describe("Agent runtime credential encryption key configuration", () => {
-  test("reads a 32-byte hexadecimal key from a mounted secret file", () => {
+  test("reads a 32-byte hexadecimal key from a mounted secret file", async () => {
     const directory = mkdtempSync(join(tmpdir(), "coforge-runtime-key-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "credential-key");
     writeFileSync(path, `${"ab".repeat(32)}\n`, { mode: 0o600 });
 
-    const key = readAgentRuntimeCredentialEncryptionKey({
+    const key = await readAgentRuntimeCredentialEncryptionKey({
       COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY_FILE: path,
     });
 
     expect(key).toEqual(Uint8Array.from({ length: 32 }, () => 0xab));
   });
 
-  test("rejects ambiguous inline and file configuration", () => {
-    expect(() =>
+  test("rejects ambiguous inline and file configuration", async () => {
+    await expect(
       readAgentRuntimeCredentialEncryptionKey({
         COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY: "ab".repeat(32),
         COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY_FILE: "/run/secrets/credential-key",
       }),
-    ).toThrow("cannot both be set");
+    ).rejects.toThrow("cannot both be set");
   });
 });
 

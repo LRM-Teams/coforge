@@ -11,7 +11,7 @@ export const Route = createFileRoute("/api/projects/$projectId/raw/$")({
     handlers: {
       GET: async ({ request, params }) => {
         try {
-          const user = optionalBrowserUser(request.headers.get("cookie") ?? undefined);
+          const user = await optionalBrowserUser(request.headers.get("cookie") ?? undefined);
           if (!user) throw new AppError("ACCESS_DENIED");
           if (!z.uuid().safeParse(params.projectId).success) throw new AppError("NOT_FOUND");
           const file = await new ProjectFiles(requireDatabaseClient()).download(

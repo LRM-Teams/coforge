@@ -10,17 +10,13 @@ export const Route = createFileRoute("/health")({
           // Operators can see whether signed CDN delivery loaded without host access. The value
           // is a state or an error class name, never configuration or secret material.
           headers: {
-            "X-CoForge-File-Delivery": describeFileDelivery(),
+            "X-CoForge-File-Delivery": describe(fileDeliveryStatus()),
             "X-CoForge-Image-Delivery": describe(publicImageDeliveryStatus()),
           },
         }),
     },
   },
 });
-
-function describeFileDelivery() {
-  return describe(fileDeliveryStatus());
-}
 
 function describe(status: { state: string; errorType?: string }) {
   return status.state === "error" ? `error:${status.errorType}` : status.state;

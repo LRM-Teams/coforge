@@ -10,8 +10,8 @@ import {
   readSessionSecret,
 } from "../../src/server/auth/config.server";
 
-test("readAuthingConfig uses issuer endpoints and the request origin callback", () => {
-  const config = readAuthingConfig(
+test("readAuthingConfig uses issuer endpoints and the request origin callback", async () => {
+  const config = await readAuthingConfig(
     {
       AUTHING_APP_ID: "6a8fde6fa804dd3bea560bac",
       AUTHING_APP_SECRET: "test-app-secret",
@@ -27,8 +27,8 @@ test("readAuthingConfig uses issuer endpoints and the request origin callback", 
   expect(config.redirectUri).toBe("http://localhost:3000/auth/callback");
 });
 
-test("readAuthingConfig honors an explicit redirect URI", () => {
-  const config = readAuthingConfig(
+test("readAuthingConfig honors an explicit redirect URI", async () => {
+  const config = await readAuthingConfig(
     {
       AUTHING_APP_ID: "6a8fde6fa804dd3bea560bac",
       AUTHING_APP_SECRET: "test-app-secret",
@@ -40,8 +40,8 @@ test("readAuthingConfig honors an explicit redirect URI", () => {
   expect(config.redirectUri).toBe("https://app.coforge.cn/auth/callback");
 });
 
-test("readAuthingConfig rejects a non-HTTPS issuer", () => {
-  expect(() =>
+test("readAuthingConfig rejects a non-HTTPS issuer", async () => {
+  await expect(
     readAuthingConfig(
       {
         AUTHING_APP_ID: "6a8fde6fa804dd3bea560bac",
@@ -50,10 +50,10 @@ test("readAuthingConfig rejects a non-HTTPS issuer", () => {
       },
       "http://localhost:3000",
     ),
-  ).toThrow("AUTHING_ISSUER must use HTTPS");
+  ).rejects.toThrow("AUTHING_ISSUER must use HTTPS");
 });
 
-test("reads Authing and session secrets from mounted files", async () => {
+test("reads Authing and session secrets from mounted files without blocking the event loop", async () => {
   const root = await mkdtemp(join(tmpdir(), "coforge-auth-config-"));
   try {
     const appIdFile = join(root, "authing_app_id");
@@ -63,7 +63,9 @@ test("reads Authing and session secrets from mounted files", async () => {
     await Bun.write(appSecretFile, "mounted-$app-${secret}\n");
     await Bun.write(sessionSecretFile, "mounted-$session-${secret}-at-least-32-characters\n");
 
-    const config = readAuthingConfig(
+    // `Bun.file().text()` returns a Promise, so a cached mount does not have to yield a timer.
+    // The contract is that the read itself is awaitable and does not throw synchronously.
+    const pending = readAuthingConfig(
       {
         AUTHING_APP_ID_FILE: appIdFile,
         AUTHING_APP_SECRET_FILE: appSecretFile,
@@ -71,9 +73,11 @@ test("reads Authing and session secrets from mounted files", async () => {
       },
       "http://localhost:3000",
     );
+    expect(pending).toBeInstanceOf(Promise);
+    const config = await pending;
     expect(config.appId).toBe("6a8fde6fa804dd3bea560bac");
     expect(config.appSecret).toBe("mounted-$app-${secret}");
-    expect(readSessionSecret({ COFORGE_SESSION_SECRET_FILE: sessionSecretFile })).toBe(
+    expect(await readSessionSecret({ COFORGE_SESSION_SECRET_FILE: sessionSecretFile })).toBe(
       "mounted-$session-${secret}-at-least-32-characters",
     );
   } finally {
@@ -81,22 +85,22 @@ test("reads Authing and session secrets from mounted files", async () => {
   }
 });
 
-test("rejects ambiguous inline and file secret configuration", () => {
-  expect(() =>
+test("rejects ambiguous inline and file secret configuration", async () => {
+  await expect(
     readSessionSecret({
       COFORGE_SESSION_SECRET: "inline-session-secret-at-least-32-characters",
       COFORGE_SESSION_SECRET_FILE: "/run/secrets/coforge_session_secret",
     }),
-  ).toThrow("COFORGE_SESSION_SECRET and COFORGE_SESSION_SECRET_FILE cannot both be set");
+  ).rejects.toThrow("COFORGE_SESSION_SECRET and COFORGE_SESSION_SECRET_FILE cannot both be set");
 });
 
-test("readSessionSecret rejects missing or short secrets", () => {
-  expect(() => readSessionSecret({})).toThrow(AuthConfigError);
-  expect(() => readSessionSecret({ COFORGE_SESSION_SECRET: "too-short" })).toThrow(
+test("readSessionSecret rejects missing or short secrets", async () => {
+  await expect(readSessionSecret({})).rejects.toThrow(AuthConfigError);
+  await expect(readSessionSecret({ COFORGE_SESSION_SECRET: "too-short" })).rejects.toThrow(
     "COFORGE_SESSION_SECRET must be at least 32 characters",
   );
   expect(
-    readSessionSecret({
+    await readSessionSecret({
       COFORGE_SESSION_SECRET: "test-session-secret-at-least-32-characters",
     }),
   ).toBe("test-session-secret-at-least-32-characters");

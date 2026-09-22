@@ -5,7 +5,7 @@ import { assertStartupConfig } from "./server/startup-config.server";
 import { startWeeklyReportScheduleTickFromEnv } from "./server/records/weekly-report-schedule-tick.server";
 
 // Fail the boot, not the first request, on invalid deployment configuration.
-assertStartupConfig();
+await assertStartupConfig();
 // Optional in-process clock for weekly-report auto-send (ADR 0011). No-op unless
 // COFORGE_WEEKLY_REPORT_SCHEDULE_TICK_MS is set; external HTTP cron remains valid.
 startWeeklyReportScheduleTickFromEnv();

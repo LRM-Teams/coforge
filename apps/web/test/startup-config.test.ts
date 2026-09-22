@@ -5,42 +5,42 @@ import { FileStorageConfigError } from "../src/server/files/file-storage.server"
 import { PublicImageDeliveryConfigError } from "../src/server/files/public-image-delivery.server";
 import { assertStartupConfig } from "../src/server/startup-config.server";
 
-test("boots without CDN delivery when it is not configured", () => {
-  expect(() => assertStartupConfig({})).not.toThrow();
+test("boots without CDN delivery when it is not configured", async () => {
+  await expect(assertStartupConfig({})).resolves.toBeUndefined();
 });
 
-test("refuses to boot when the delivery URL is set but its signing key is missing", () => {
-  expect(() =>
+test("refuses to boot when the delivery URL is set but its signing key is missing", async () => {
+  await expect(
     assertStartupConfig({ COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn" }),
-  ).toThrow(FileDeliveryConfigError);
+  ).rejects.toThrow(FileDeliveryConfigError);
 });
 
-test("refuses to boot when the signing key file cannot be read", () => {
-  expect(() =>
+test("refuses to boot when the signing key file cannot be read", async () => {
+  await expect(
     assertStartupConfig({
       COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn",
       COFORGE_FILE_DELIVERY_KEY_FILE: "/nonexistent/coforge_file_delivery_key",
     }),
-  ).toThrow(FileDeliveryConfigError);
+  ).rejects.toThrow(FileDeliveryConfigError);
 });
 
-test("refuses to boot when public image URLs would point at a bucket the image domain cannot read", () => {
-  expect(() =>
+test("refuses to boot when public image URLs would point at a bucket the image domain cannot read", async () => {
+  await expect(
     assertStartupConfig({
       COFORGE_IMAGE_DELIVERY_URL: "https://images-staging.coforge.cn",
       COFORGE_FILE_STORAGE: "oss",
       COFORGE_OSS_BUCKET: "coforge-files-staging",
       COFORGE_OSS_REGION: "oss-cn-beijing",
     }),
-  ).toThrow(FileStorageConfigError);
+  ).rejects.toThrow(FileStorageConfigError);
 });
 
-test("refuses to boot when profile images are published on the signed attachment domain", () => {
-  expect(() =>
+test("refuses to boot when profile images are published on the signed attachment domain", async () => {
+  await expect(
     assertStartupConfig({
       COFORGE_FILE_DELIVERY_URL: "https://files-staging.coforge.cn",
       COFORGE_FILE_DELIVERY_KEY: "primarykey",
       COFORGE_IMAGE_DELIVERY_URL: "https://files-staging.coforge.cn",
     }),
-  ).toThrow(PublicImageDeliveryConfigError);
+  ).rejects.toThrow(PublicImageDeliveryConfigError);
 });

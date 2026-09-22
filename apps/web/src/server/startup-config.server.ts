@@ -1,4 +1,4 @@
-import { readFileDeliveryConfig } from "./files/file-delivery.server";
+import { readFileDeliveryConfig, rememberFileDeliveryConfig } from "./files/file-delivery.server";
 import { readPublicImageDeliveryConfig } from "./files/public-image-delivery.server";
 import { readPublicImageStorageConfig } from "./files/public-image-storage.server";
 import { readWeeklyReportScheduleTickMs } from "./records/weekly-report-schedule-tick.server";
@@ -16,10 +16,11 @@ import { readWeeklyReportScheduleTickMs } from "./records/weekly-report-schedule
  * without the bucket that domain reads, or points them at the signed attachment domain, fails
  * here rather than serving broken avatars.
  */
-export function assertStartupConfig(env: NodeJS.ProcessEnv = process.env): void {
-  const delivery = readFileDeliveryConfig(env);
+export async function assertStartupConfig(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const delivery = await readFileDeliveryConfig(env);
+  if (env === process.env) rememberFileDeliveryConfig(delivery);
   const imageDelivery = readPublicImageDeliveryConfig(env);
-  const imageStorage = readPublicImageStorageConfig(env);
+  const imageStorage = await readPublicImageStorageConfig(env);
   const weeklyReportScheduleTickMs = readWeeklyReportScheduleTickMs(env);
   console.info(
     JSON.stringify({

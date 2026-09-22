@@ -133,7 +133,7 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
     const agents = new PrismaAgentRepository(db);
     const credentialEncryption = new AgentRuntimeCredentials(
       { findOwnedAgent: async () => undefined, updateRuntimeConfig: async () => undefined },
-      readAgentRuntimeCredentialEncryptionKey(process.env),
+      await readAgentRuntimeCredentialEncryptionKey(process.env),
     );
     const sessions = createAgentSessions(db);
     const centrifugo = createCentrifugoServerApi();

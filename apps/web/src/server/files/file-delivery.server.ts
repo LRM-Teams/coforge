@@ -42,12 +42,12 @@ export class FileDeliveryConfigError extends Error {
   }
 }
 
-export function readFileDeliveryConfig(env: NodeJS.ProcessEnv): FileDeliveryConfig {
+export async function readFileDeliveryConfig(env: NodeJS.ProcessEnv): Promise<FileDeliveryConfig> {
   const rawUrl = env.COFORGE_FILE_DELIVERY_URL?.trim();
   if (!rawUrl) return null;
   const baseUrl = normalizeBaseUrl(rawUrl);
   assertNotApplicationOrigin(baseUrl, env);
-  const key = readEnvSecret(env, "COFORGE_FILE_DELIVERY_KEY", (message) => {
+  const key = await readEnvSecret(env, "COFORGE_FILE_DELIVERY_KEY", (message) => {
     throw new FileDeliveryConfigError(message);
   });
   if (!key) {
@@ -114,36 +114,114 @@ function normalizeBaseUrl(rawUrl: string): string {
 export type FileDeliveryStatus =
   | { state: "configured" }
   | { state: "disabled" }
+  | { state: "unavailable" }
   | { state: "error"; errorType: string };
 
 let current: { delivery: FileDelivery | null; status: FileDeliveryStatus } | undefined;
+let publishedEnv: DeliveryEnvSnapshot | undefined;
 
 /**
  * The process-wide delivery selected by the environment, memoised like `getFileStorage`.
- * A configuration error is memoised too, logged once, and rethrown so callers can decide
- * whether to degrade; `fileDeliveryStatus()` reports it without the caller having to catch.
+ * A configuration error is memoised too, logged once, and reported as `error` so callers can
+ * degrade; `fileDeliveryStatus()` reports it without the caller having to catch.
+ *
+ * Startup awaits `readFileDeliveryConfig` and `rememberFileDeliveryConfig` before accepting
+ * requests. Later lookups observe that result. Inline configuration can be resolved without a
+ * file read; a secret file is never read from the request path.
  */
 export function getFileDelivery(): FileDelivery | null {
   return resolveFileDelivery().delivery;
 }
 
-/** Whether signed CDN delivery is configured, disabled, or failing to load (no secret values). */
+/**
+ * Whether signed CDN delivery is configured, disabled, unpublished, or failing to load
+ * (no secret values). `unavailable` means a secret file is configured but startup has not
+ * published it yet; it is not the same as an unset CDN URL.
+ */
 export function fileDeliveryStatus(): FileDeliveryStatus {
   return resolveFileDelivery().status;
 }
 
-function resolveFileDelivery() {
-  if (current) return current;
+/** Publishes a config already read at startup so request paths do not read the secret again. */
+export function rememberFileDeliveryConfig(config: FileDeliveryConfig): FileDeliveryStatus {
+  publishedEnv = deliveryEnvSnapshot(process.env);
   try {
-    const delivery = createFileDelivery(readFileDeliveryConfig(process.env));
+    const delivery = createFileDelivery(config);
     current = { delivery, status: { state: delivery ? "configured" : "disabled" } };
   } catch (error) {
-    const errorType = error instanceof Error ? error.name : typeof error;
-    // Message text may name a file path; the type alone says whether the secret is the problem.
-    console.error(JSON.stringify({ event: "file_delivery_unavailable", errorType }));
-    current = { delivery: null, status: { state: "error", errorType } };
+    current = { delivery: null, status: deliveryErrorStatus(error) };
   }
-  return current;
+  return current.status;
+}
+
+function resolveFileDelivery(): { delivery: FileDelivery | null; status: FileDeliveryStatus } {
+  if (current && sameDeliveryEnv(publishedEnv, process.env)) return current;
+  const inline = inlineFileDeliveryConfig(process.env);
+  // A `*_FILE` secret is read once at startup. Until that result is published, report it as
+  // unpublished rather than as CDN-off, and do not start a second read from the request path.
+  if ("pending" in inline) return { delivery: null, status: { state: "unavailable" } };
+  const status = rememberFileDeliveryConfig(inline.config);
+  return current ?? { delivery: null, status };
+}
+
+type DeliveryEnvSnapshot = {
+  url: string | undefined;
+  key: string | undefined;
+  keyFile: string | undefined;
+  redirectUri: string | undefined;
+};
+
+function deliveryEnvSnapshot(env: NodeJS.ProcessEnv): DeliveryEnvSnapshot {
+  return {
+    url: env.COFORGE_FILE_DELIVERY_URL,
+    key: env.COFORGE_FILE_DELIVERY_KEY,
+    keyFile: env.COFORGE_FILE_DELIVERY_KEY_FILE,
+    redirectUri: env.AUTHING_REDIRECT_URI,
+  };
+}
+
+function sameDeliveryEnv(
+  remembered: DeliveryEnvSnapshot | undefined,
+  env: NodeJS.ProcessEnv,
+): boolean {
+  if (!remembered) return false;
+  const currentEnv = deliveryEnvSnapshot(env);
+  return (
+    remembered.url === currentEnv.url &&
+    remembered.key === currentEnv.key &&
+    remembered.keyFile === currentEnv.keyFile &&
+    remembered.redirectUri === currentEnv.redirectUri
+  );
+}
+
+/** Inline secrets only. `pending` means startup still has to read a secret file. */
+function inlineFileDeliveryConfig(
+  env: NodeJS.ProcessEnv,
+): { config: FileDeliveryConfig } | { pending: true } {
+  const rawUrl = env.COFORGE_FILE_DELIVERY_URL?.trim();
+  if (!rawUrl) return { config: null };
+  if (env.COFORGE_FILE_DELIVERY_KEY?.trim() && env.COFORGE_FILE_DELIVERY_KEY_FILE?.trim()) {
+    throw new FileDeliveryConfigError(
+      "COFORGE_FILE_DELIVERY_KEY and COFORGE_FILE_DELIVERY_KEY_FILE cannot both be set",
+    );
+  }
+  if (env.COFORGE_FILE_DELIVERY_KEY_FILE?.trim()) return { pending: true };
+  const baseUrl = normalizeBaseUrl(rawUrl);
+  assertNotApplicationOrigin(baseUrl, env);
+  const key = env.COFORGE_FILE_DELIVERY_KEY?.trim();
+  if (!key) {
+    throw new FileDeliveryConfigError(
+      "COFORGE_FILE_DELIVERY_KEY is required when COFORGE_FILE_DELIVERY_URL is set",
+    );
+  }
+  return { config: { baseUrl, key } };
+}
+
+function deliveryErrorStatus(error: unknown): FileDeliveryStatus {
+  const errorType = error instanceof Error ? error.name : typeof error;
+  // Message text may name a file path; the type alone says whether the secret is the problem.
+  console.error(JSON.stringify({ event: "file_delivery_unavailable", errorType }));
+  return { state: "error", errorType };
 }
 
 export function createFileDelivery(config: FileDeliveryConfig): FileDelivery | null {

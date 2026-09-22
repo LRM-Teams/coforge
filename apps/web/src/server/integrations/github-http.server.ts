@@ -33,7 +33,7 @@ export function validGitHubInstallationState(cookie: string, state: string) {
 
 export async function githubCallbackHandler({ request }: { request: Request }) {
   const headers = new Headers({ "cache-control": "no-store", "referrer-policy": "no-referrer" });
-  const user = optionalBrowserUser(request.headers.get("cookie") ?? undefined);
+  const user = await optionalBrowserUser(request.headers.get("cookie") ?? undefined);
   if (!user) return new Response(null, { status: 401, headers });
   const params = new URL(request.url).searchParams;
   const setupAction = params.get("setup_action");

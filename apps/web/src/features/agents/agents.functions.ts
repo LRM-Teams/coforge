@@ -149,31 +149,31 @@ function manageAgents(db: Database) {
   return agentManagement;
 }
 
-function runtimeCredentials(db: Database, decrypt = false) {
+async function runtimeCredentials(db: Database, decrypt = false) {
   return new AgentRuntimeCredentials(
     new PrismaAgentRuntimeCredentialRepository(db),
-    decrypt ? readAgentRuntimeCredentialEncryptionKey(process.env) : undefined,
+    decrypt ? await readAgentRuntimeCredentialEncryptionKey(process.env) : undefined,
   );
 }
 
-function changeRuntimeCredential(db: Database, decrypt = false) {
+async function changeRuntimeCredential(db: Database, decrypt = false) {
   const agents = new PrismaAgentRepository(db);
   return new ChangeAgentRuntimeCredential(
     agents,
-    runtimeCredentials(db, decrypt),
+    await runtimeCredentials(db, decrypt),
     runtimeControl(db, agents),
     getAgentRuntimeLock(),
   );
 }
 
-function agentEnvironment(db: Database) {
+async function agentEnvironment(db: Database) {
   const agents = new PrismaAgentRepository(db);
   return new AgentEnvironment(
     new PrismaAgentRuntimeCredentialRepository(db),
     agents,
     runtimeControl(db, agents),
     getAgentRuntimeLock(),
-    readAgentRuntimeCredentialEncryptionKey(process.env),
+    await readAgentRuntimeCredentialEncryptionKey(process.env),
   );
 }
 
@@ -412,7 +412,7 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
   if (!result) return undefined;
   const ownedByCurrentUser = result.owner.id === user.id;
   const runtimeCredential = ownedByCurrentUser
-    ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
+    ? await (await runtimeCredentials(db)).summary({ workspaceId, userId: user.id }, agentId)
     : null;
   const canManageAgentRole = viewerMembership
     ? isAdminLike(viewerMembership.role as WorkspaceMemberRole)
@@ -489,7 +489,7 @@ export const saveAgentRuntimeCredential = createServerFn({ method: "POST" })
   .validator(saveAgentRuntimeCredentialInputSchema)
   .handler(async ({ data, context }) => {
     const { user, db, workspaceId } = context;
-    return changeRuntimeCredential(db, true).save(
+    return (await changeRuntimeCredential(db, true)).save(
       { workspaceId, userId: user.id },
       data.agentId,
       data.apiKey,
@@ -501,7 +501,7 @@ export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
     const { user, db, workspaceId } = context;
-    return changeRuntimeCredential(db).delete({ workspaceId, userId: user.id }, agentId);
+    return (await changeRuntimeCredential(db)).delete({ workspaceId, userId: user.id }, agentId);
   });
 
 /**
@@ -538,7 +538,7 @@ export const getAgentEnvironment = createServerFn({ method: "GET" })
   .handler(async ({ data: agentId, context }) => {
     const { user, db, workspaceId } = context;
     setResponseHeader("cache-control", "no-store");
-    return agentEnvironment(db).get({ workspaceId, userId: user.id }, agentId);
+    return (await agentEnvironment(db)).get({ workspaceId, userId: user.id }, agentId);
   });
 
 export const saveAgentEnvironment = createServerFn({ method: "POST" })
@@ -546,5 +546,9 @@ export const saveAgentEnvironment = createServerFn({ method: "POST" })
   .validator(saveAgentEnvironmentInputSchema)
   .handler(async ({ data, context }) => {
     const { user, db, workspaceId } = context;
-    return agentEnvironment(db).save({ workspaceId, userId: user.id }, data.agentId, data.envVars);
+    return (await agentEnvironment(db)).save(
+      { workspaceId, userId: user.id },
+      data.agentId,
+      data.envVars,
+    );
   });
