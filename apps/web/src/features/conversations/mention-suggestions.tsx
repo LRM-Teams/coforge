@@ -4,6 +4,7 @@ import { Badge } from "@/components/base/badges/badges";
 import { AgentDisplayAvatar } from "@/features/agents/agent-activity-avatar";
 import { useLiveAgents } from "@/features/agents/workspace-agents-realtime";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { swallowNextClick } from "@/utils/swallow-next-click";
 import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
 import type { Mentionable } from "./mention-text";
@@ -17,7 +18,9 @@ import type { Mentionable } from "./mention-text";
  * snapshot comes from the app shell's one subscription through `useLiveAgents`. People have no
  * presence in the product, so a person's avatar stays plain.
  * Pointer selection happens on `pointerdown` so the textarea never blurs mid-pick; keyboard
- * interaction lives in `useMentionCompletion`.
+ * interaction lives in `useMentionCompletion`. Because that press also unmounts the list, it
+ * swallows the gesture's trailing `click` (`swallowNextClick`): without it the click lands on the
+ * message row the popup covers and opens its action sheet on touch devices.
  */
 export function MentionSuggestionList({
   id,
@@ -51,7 +54,7 @@ export function MentionSuggestionList({
       role="listbox"
       id={id}
       aria-label={m.conversation_mention_suggestions()}
-      className="absolute bottom-full left-3 z-20 mb-1 w-80 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-xl bg-primary shadow-lg ring-1 ring-secondary_alt"
+      className="absolute bottom-full left-3 z-20 mb-1 w-80 max-w-[calc(100%-1.5rem)] animate-in fade-in slide-in-from-bottom-1 overflow-hidden rounded-xl bg-primary shadow-lg ring-1 ring-secondary_alt duration-150 ease-out"
     >
       <ul className="max-h-64 overflow-y-auto py-1">
         {items.map((item, index) => {
@@ -64,8 +67,10 @@ export function MentionSuggestionList({
               role="option"
               aria-selected={active}
               onPointerDown={(event) => {
-                // Keep the textarea focused; the press itself picks the candidate.
+                // Keep the textarea focused; the press itself picks the candidate — and this
+                // unmounts the list, so the trailing click must not reach the row underneath.
                 event.preventDefault();
+                swallowNextClick();
                 onChoose(item);
               }}
               onMouseEnter={() => onHighlight(index)}
