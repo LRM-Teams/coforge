@@ -253,7 +253,6 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           inbox: async (...input) => requireRuntime().inbox(...input),
           reminder: async (...input) => requireRuntime().reminder(...input),
           agentTask: async (...input) => requireRuntime().agentTask(...input),
-          agentCausal: async (...input) => requireRuntime().agentCausal(...input),
           agentOpenviking: async (...input) => requireRuntime().agentOpenviking(...input),
           memoryFence: (agentId) => requireRuntime().memoryFence(agentId),
           agentChannel: async (...input) => requireRuntime().agentChannel(...input),

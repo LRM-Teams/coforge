@@ -5,7 +5,6 @@
  */
 
 import {
-  CAUSAL_OPENVIKING_TOOL_PROFILE,
   OPENVIKING_AGENT_PROTOCOL,
   OPENVIKING_TOOL_PROFILE,
   decodeOpenVikingAgentCommand,
@@ -27,7 +26,7 @@ export type OpenVikingAgentReadCommand =
 
 export type OpenVikingAgentProxyCommand = OpenVikingAgentReadCommand | OpenVikingOfferCommand;
 
-const OPENVIKING_READ_FENCES = [OPENVIKING_TOOL_PROFILE, CAUSAL_OPENVIKING_TOOL_PROFILE] as const;
+const OPENVIKING_READ_FENCES = [OPENVIKING_TOOL_PROFILE] as const;
 const FORBIDDEN_PAYLOAD_KEYS = [
   "tenantToken",
   "credentialPlaintext",

@@ -20,7 +20,6 @@ export const agentApiRoutes = {
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
-    causal: { method: "POST", path: "/api/agent/v1/causal" },
     openviking: { method: "POST", path: "/api/agent/v1/openviking" },
     users: {
       method: "GET",
@@ -43,7 +42,6 @@ export const agentApiRoutes = {
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
     channels: { method: "POST", path: "/api/agent/v1/channels" },
-    causal: { method: "POST", path: "/api/agent/v1/causal" },
     openviking: { method: "POST", path: "/api/agent/v1/openviking" },
     attachments: {
       method: "GET",
@@ -170,7 +168,6 @@ export const agentApiRoutes = {
     weeklyReportKeyPoints: { method: "POST", path: "/api/agent/v1/weekly-report-key-points" },
     githubCredentials: { method: "POST", path: "/api/agent/v1/github-credentials" },
     githubCommitTrailers: { method: "POST", path: "/api/agent/v1/github-commit-trailers" },
-    causal: { method: "POST", path: "/api/agent/v1/causal" },
     openviking: { method: "POST", path: "/api/agent/v1/openviking" },
     attachments: {
       method: "GET",

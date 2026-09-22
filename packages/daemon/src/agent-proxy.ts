@@ -19,7 +19,6 @@ import {
 import {
   actionCardActionSchema,
   agentApiRoutes,
-  decodeCausalAgentCommand,
   validateActionCardAction,
   type AgentActionPrepareRequest,
   type AgentActionPrepareResponse,
@@ -170,11 +169,6 @@ export type AgentProxyRuntime = {
     request: WeeklyReportKeyPointsCommand,
     agentApiKey: string,
   ): Promise<WeeklyReportKeyPointsResult>;
-  agentCausal?(
-    context: string,
-    request: import("@lrm/coforge-sdk/agent").CausalAgentCommand,
-    agentApiKey: string,
-  ): Promise<import("@lrm/coforge-sdk/agent").CausalAgentResponse>;
   agentOpenviking?(
     context: string,
     request: OpenVikingAgentProxyCommand,
@@ -791,20 +785,6 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     handler: "githubCommitTrailers",
     parse: ({ fields }) => parseGithubCommitTrailersRequest(fields),
     respond: (result) => Response.json(result, { headers: { "cache-control": "no-store" } }),
-  }),
-  defineRoute({
-    family: "agent-api/causal",
-    method: LOCAL_PROXY_ROUTES.causal.method,
-    match: exactPath(LOCAL_PROXY_ROUTES.causal.path),
-    body: "json-object",
-    handler: "agentCausal",
-    parse: ({ fields }) => {
-      try {
-        return decodeCausalAgentCommand(fields);
-      } catch {
-        return badRequest();
-      }
-    },
   }),
   defineRoute({
     family: "agent-api/openviking",

@@ -517,10 +517,6 @@ export interface DaemonConnectionClient {
     request: import("./weekly-report-key-points").WeeklyReportKeyPointsCommand,
     agentApiKey: string,
   ): Promise<import("./weekly-report-key-points").WeeklyReportKeyPointsResult>;
-  agentCausal?(
-    request: import("@lrm/coforge-sdk/agent").CausalAgentCommand,
-    agentApiKey: string,
-  ): Promise<import("@lrm/coforge-sdk/agent").CausalAgentResponse>;
   agentOpenviking?(request: OpenVikingAgentProxyCommand, agentApiKey: string): Promise<unknown>;
   agentAttachment?(attachmentId: string, agentApiKey: string): Promise<Response>;
   agentAttachmentUpload?(request: Request, agentApiKey: string): Promise<Response>;
@@ -1994,24 +1990,6 @@ export class DaemonConnection implements DaemonConnectionClient {
   async requestSnapshot(request: ReminderSnapshotRequest): Promise<ReminderSync> {
     const reply = await this.#rpc(REMINDER_SNAPSHOT_METHOD, encodeReminderSnapshotRequest(request));
     return decodeReminderSync(rpcData(reply));
-  }
-
-  async agentCausal(
-    request: import("@lrm/coforge-sdk/agent").CausalAgentCommand,
-    agentApiKey: string,
-  ): Promise<import("@lrm/coforge-sdk/agent").CausalAgentResponse> {
-    if (!this.#connected) throw new Error("daemon connection is not connected");
-    const { decodeCausalAgentResponse } = await import("@lrm/coforge-sdk/agent");
-    const url = this.#serverEndpoint("Agent causal HTTP", agentApiRoutes.cloud.causal.path);
-    const response = await fetch(url, {
-      method: "POST",
-      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-      headers: agentHeaders(this.#agentKeys(agentApiKey), true),
-      body: JSON.stringify(request),
-    });
-    const payload = await response.json().catch(() => undefined);
-    if (!response.ok) throw new Error(`server Agent causal request failed (${response.status})`);
-    return decodeCausalAgentResponse(request.op, payload);
   }
 
   async agentOpenviking(

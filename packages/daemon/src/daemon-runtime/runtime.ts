@@ -3677,18 +3677,6 @@ export class DaemonRuntime {
     return this.#transport.profileUpdate(request, agentApiKey);
   }
 
-  async agentCausal(
-    context: string,
-    command: import("@lrm/coforge-sdk/agent").CausalAgentCommand,
-    agentApiKey: string,
-  ): Promise<import("@lrm/coforge-sdk/agent").CausalAgentResponse> {
-    this.#assertRunning();
-    this.#agentIdForContext(context);
-    if (!this.#transport.agentCausal) throw new Error("daemon connection is not connected");
-    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
-    return this.#transport.agentCausal(command, agentApiKey);
-  }
-
   memoryFence(agentId: string): string | undefined {
     return (
       this.#agentProcessManager.runtime(agentId)?.config.toolProfile ??

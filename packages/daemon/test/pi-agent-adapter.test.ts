@@ -805,3 +805,135 @@ test("embedded Pi notifications are accepted before completion and steer the exi
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("Pi notify resets the per-triggering-message memory budget like sendMessage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coforge-pi-notify-budget-"));
+  const workspace = join(root, "workspace");
+  const agentDir = join(root, "host-pi-agent");
+  await mkdir(workspace);
+  await mkdir(agentDir);
+  const proxyRequests: string[] = [];
+  const proxy = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      proxyRequests.push(await request.text());
+      const body = JSON.parse(proxyRequests[proxyRequests.length - 1]!) as {
+        operationId?: string;
+      };
+      return Response.json({
+        protocol: "coforge.openviking.agent.v1",
+        op: "find",
+        operationId: body.operationId ?? "memory",
+        duplicate: false,
+        items: [
+          {
+            kind: "openviking",
+            citationId: "cite-1",
+            workspaceId: "ws-1",
+            accountId: "acct-1",
+            uri: "ov:viking://doc/1",
+            matchedLevel: "L1",
+            contentVersion: "v1",
+            title: "Doc",
+          },
+        ],
+      });
+    },
+  });
+  const modelRequests: string[] = [];
+  let modelRequestCount = 0;
+  const findCalls = (ids: string[], opBase: string) =>
+    ids.map((id, index) => ({
+      index,
+      id,
+      type: "function",
+      function: {
+        name: "ov_find",
+        arguments: JSON.stringify({
+          operationId: `${opBase}${index}`,
+          query: "caroline group",
+        }),
+      },
+    }));
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      modelRequests.push(await request.text());
+      modelRequestCount += 1;
+      if (modelRequestCount === 1)
+        return completionStream(
+          {
+            role: "assistant",
+            tool_calls: findCalls(["find-1", "find-2", "find-3", "find-4"], "a"),
+          },
+          "tool_calls",
+        );
+      if (modelRequestCount === 3)
+        return completionStream(
+          { role: "assistant", tool_calls: findCalls(["find-5"], "b") },
+          "tool_calls",
+        );
+      return completionStream({ role: "assistant", content: "done" }, "stop");
+    },
+  });
+  await writeOpenAiHost(agentDir, `${server.url}v1`);
+  const oldProxyUrl = Bun.env.COFORGE_AGENT_PROXY_URL;
+  const oldContext = Bun.env.COFORGE_AGENT_CONTEXT;
+  Bun.env.COFORGE_AGENT_PROXY_URL = proxy.url;
+  Bun.env.COFORGE_AGENT_CONTEXT = "test-context";
+  const session = await new PiProvider().createAgentSession({
+    agentWorkspaceDirectory: workspace,
+    instructions: TEST_AGENT_INSTRUCTIONS,
+    environment: {
+      PI_CODING_AGENT_DIR: agentDir,
+      COFORGE_AGENT_PROXY_URL: proxy.url,
+      COFORGE_AGENT_CONTEXT: "test-context",
+    },
+    runtime: {
+      provider: "pi",
+      modelProvider: "openai",
+      model: "custom",
+      reasoning: "",
+      providerConfig: { kind: "coforge", providerId: "openai", apiKey: "agent-key" },
+      toolProfile: "openviking-memory",
+    },
+  });
+  try {
+    await session.sendMessage("first triggering message");
+    // Three reads fit the per-triggering-message budget; the fourth is
+    // rejected client-side before it can reach the agent proxy.
+    expect(proxyRequests).toHaveLength(3);
+    expect(modelRequests[1]).toContain("read budget exhausted");
+    // notify resolves at prompt preflight, so wait for the turn it started
+    // to settle before asserting on its tool traffic.
+    const turnCompleted = Promise.withResolvers<void>();
+    session.subscribe((event) => {
+      if (event.type === "completed") turnCompleted.resolve();
+    });
+    await session.notify!("second triggering message");
+    await turnCompleted.promise;
+    // The notification is a new triggering message, so its read must reach
+    // the proxy instead of starving on the previous turn's exhausted budget.
+    expect(proxyRequests).toHaveLength(4);
+    // The whole conversation replays in every request, so inspect the tool
+    // result for the post-notify read specifically: it must be the proxy's
+    // citation payload, not another client-side budget rejection.
+    const replay = JSON.parse(modelRequests[3] ?? "{}") as {
+      messages?: Array<{ role?: string; tool_call_id?: string; content?: unknown }>;
+    };
+    const postNotifyRead = replay.messages?.find(
+      (message) => message.role === "tool" && message.tool_call_id === "find-5",
+    );
+    expect(String(postNotifyRead?.content)).toContain("cite-1");
+    expect(String(postNotifyRead?.content)).not.toContain("exhausted");
+  } finally {
+    if (oldProxyUrl === undefined) delete Bun.env.COFORGE_AGENT_PROXY_URL;
+    else Bun.env.COFORGE_AGENT_PROXY_URL = oldProxyUrl;
+    if (oldContext === undefined) delete Bun.env.COFORGE_AGENT_CONTEXT;
+    else Bun.env.COFORGE_AGENT_CONTEXT = oldContext;
+    await session.dispose();
+    proxy.stop(true);
+    server.stop(true);
+    await rm(root, { recursive: true, force: true });
+  }
+});

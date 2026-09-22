@@ -7,7 +7,6 @@
  * or mutate skills or ACLs.
  */
 
-import { isCausalOperationId } from "./causal-memory";
 import { decodeOpenVikingCitation, type OpenVikingCitation } from "./memory-citations";
 
 export const OPENVIKING_AGENT_PROTOCOL = "coforge.openviking.agent.v1" as const;
@@ -137,7 +136,12 @@ export type OpenVikingAgentResponse =
   | OpenVikingReadResponse
   | OpenVikingOfferResponse;
 
-export const isOpenVikingOperationId = isCausalOperationId;
+/** Client-invented idempotency handle. Same pattern the server rejects with 400. */
+export const OPENVIKING_OPERATION_ID_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$";
+
+export function isOpenVikingOperationId(value: unknown): value is string {
+  return typeof value === "string" && new RegExp(OPENVIKING_OPERATION_ID_PATTERN).test(value);
+}
 
 export function isOpenVikingAgentOperation(value: unknown): value is OpenVikingAgentOperation {
   return (

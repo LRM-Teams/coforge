@@ -1,8 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import {
   agentApiRoutes,
-  CAUSAL_OPENVIKING_TOOL_PROFILE,
-  CAUSAL_TOOL_PROFILE,
   OPENVIKING_AGENT_PROTOCOL,
   OPENVIKING_TOOL_PROFILE,
   isOpenVikingAgentError,
@@ -94,7 +92,7 @@ test("admitOpenVikingRead accepts a fenced find and rejects malformed, mutation,
   expect(
     admitOpenVikingRead({
       body: { ...FIND_COMMAND, op: "search_context" },
-      fence: CAUSAL_OPENVIKING_TOOL_PROFILE,
+      fence: OPENVIKING_TOOL_PROFILE,
     }).ok,
   ).toBe(true);
 
@@ -134,7 +132,7 @@ test("admitOpenVikingRead accepts a fenced find and rejects malformed, mutation,
     },
   });
 
-  for (const fence of [undefined, CAUSAL_TOOL_PROFILE, "openviking", "causal_openviking", "off"]) {
+  for (const fence of [undefined, "causal-memory", "openviking", "off"]) {
     const denied = admitOpenVikingRead({ body: FIND_COMMAND, fence });
     expect(denied, `fence:${String(fence)}`).toMatchObject({
       ok: false,
@@ -180,7 +178,7 @@ test("the OpenViking read proxy fail-closed matrix: malformed, wrong path/method
   expect(revoked.status).toBe(401);
   expect(calls).toHaveLength(0);
 
-  const mismatch = startOpenVikingProxy({ fence: CAUSAL_TOOL_PROFILE });
+  const mismatch = startOpenVikingProxy({ fence: "causal-memory" });
   const mismatchResponse = await postOpenViking(mismatch.proxy.url, mismatch.token, FIND_COMMAND);
   expect(mismatchResponse.status).toBe(403);
   const mismatchBody = (await mismatchResponse.json()) as OpenVikingAgentError;
@@ -197,10 +195,7 @@ test("the OpenViking read proxy fail-closed matrix: malformed, wrong path/method
       protocol: OPENVIKING_AGENT_PROTOCOL,
       op: "offer",
       operationId: "offer-1",
-      conversationId: "conv-1",
-      targetAgentId: "agent-b",
-      recipientRationale: "share the runbook",
-      citationRefs: ["ov:wiki/deploy"],
+      citationRefs: [],
       body: "see deploy rollback",
     },
     {
@@ -223,11 +218,26 @@ test("the OpenViking read proxy fail-closed matrix: malformed, wrong path/method
     );
   }
   expect(mutating.calls).toHaveLength(0);
+
+  // A well-formed memory_offer is not a mutation: it is a channel publish and is
+  // forwarded to Web/backend for the designated Memory Agent to be authorized there.
+  const offered = await postOpenViking(mutating.proxy.url, mutating.token, {
+    protocol: OPENVIKING_AGENT_PROTOCOL,
+    op: "offer",
+    operationId: "offer-2",
+    conversationId: "conv-1",
+    targetAgentId: "agent-b",
+    recipientRationale: "share the runbook",
+    citationRefs: ["ov:wiki/deploy"],
+    body: "see deploy rollback",
+  });
+  expect(offered.status).toBe(200);
+  expect(mutating.calls).toHaveLength(1);
 });
 
 test("a valid OpenViking read preserves the stable operation ID and token-bound identity", async () => {
   const { proxy, calls, token } = startOpenVikingProxy({
-    fence: CAUSAL_OPENVIKING_TOOL_PROFILE,
+    fence: OPENVIKING_TOOL_PROFILE,
   });
   const response = await postOpenViking(proxy.url, token, {
     ...FIND_COMMAND,

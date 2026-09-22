@@ -1,26 +1,11 @@
 import { expect, test } from "bun:test";
 import {
-  CAUSAL_MEMORY_CITATION_KIND,
   OPENVIKING_CITATION_KIND,
-  decodeCausalCorrectionEvidence,
   decodeMemoryCitation,
-  isCausalMemoryCitation,
+  decodeOpenVikingCitationList,
   isOpenVikingCitation,
-  type CausalCorrectionEvidence,
-  type CausalMemoryCitation,
   type OpenVikingCitation,
 } from "./memory-citations";
-
-const causalCitation: CausalMemoryCitation = {
-  kind: CAUSAL_MEMORY_CITATION_KIND,
-  citationId: "cm:decision-1",
-  causalItemId: "decision-1",
-  causalPathId: "path-1",
-  factVersion: 3,
-  admittedSegmentId: "segment-1",
-  sourceMessageIds: ["11111111-1111-1111-1111-111111111111"],
-  displayContent: "skipping tests caused a rollback",
-};
 
 const openvikingCitation: OpenVikingCitation = {
   kind: OPENVIKING_CITATION_KIND,
@@ -34,13 +19,10 @@ const openvikingCitation: OpenVikingCitation = {
   excerpt: "the last skip-tests deploy rolled back",
 };
 
-test("decodes tagged OpenViking and versioned Causal Memory citations", () => {
+test("decodes a versioned OpenViking citation", () => {
   expect(decodeMemoryCitation(openvikingCitation)).toEqual(openvikingCitation);
-  expect(decodeMemoryCitation(causalCitation)).toEqual(causalCitation);
   expect(isOpenVikingCitation(openvikingCitation)).toBe(true);
-  expect(isCausalMemoryCitation(causalCitation)).toBe(true);
-  expect(isOpenVikingCitation(causalCitation)).toBe(false);
-  expect(isCausalMemoryCitation(openvikingCitation)).toBe(false);
+  expect(isOpenVikingCitation({ ...openvikingCitation, kind: "memory" })).toBe(false);
 });
 
 test("accepts an OpenViking citation versioned by content version instead of hash", () => {
@@ -59,7 +41,7 @@ test("accepts an OpenViking citation versioned by content version instead of has
 
 test("fail-closes malformed, mixed, and unversioned citations", () => {
   expect(() => decodeMemoryCitation(null)).toThrow("invalid memory citation");
-  expect(() => decodeMemoryCitation({ ...causalCitation, kind: "memory" })).toThrow(
+  expect(() => decodeMemoryCitation({ ...openvikingCitation, kind: "memory" })).toThrow(
     "invalid memory citation kind",
   );
   expect(() =>
@@ -69,15 +51,6 @@ test("fail-closes malformed, mixed, and unversioned citations", () => {
       admittedSegmentId: "segment-1",
     }),
   ).toThrow("mixed memory citation");
-  expect(() => decodeMemoryCitation({ ...causalCitation, uri: openvikingCitation.uri })).toThrow(
-    "mixed memory citation",
-  );
-  expect(() => decodeMemoryCitation({ ...causalCitation, factVersion: undefined })).toThrow(
-    "unversioned causal memory citation",
-  );
-  expect(() => decodeMemoryCitation({ ...causalCitation, factVersion: 0 })).toThrow(
-    "unversioned causal memory citation",
-  );
   const { contentHash: _hash, ...unversionedOpenviking } = openvikingCitation;
   expect(() => decodeMemoryCitation(unversionedOpenviking)).toThrow(
     "unversioned openviking citation",
@@ -98,21 +71,9 @@ test("strips tenant credentials and never echoes them on a valid citation", () =
   expect("tenantToken" in decoded).toBe(false);
 });
 
-test("rejects OpenViking citations as causal correction evidence", () => {
-  expect(decodeCausalCorrectionEvidence([causalCitation])).toEqual([causalCitation]);
-  expect(() => decodeCausalCorrectionEvidence([openvikingCitation])).toThrow(
-    "openviking citation cannot satisfy causal correction",
+test("decodes citation lists and rejects non-array input", () => {
+  expect(decodeOpenVikingCitationList([openvikingCitation])).toEqual([openvikingCitation]);
+  expect(() => decodeOpenVikingCitationList(openvikingCitation)).toThrow(
+    "invalid openviking citation list",
   );
-  expect(() => decodeCausalCorrectionEvidence([causalCitation, openvikingCitation])).toThrow(
-    "openviking citation cannot satisfy causal correction",
-  );
-  expect(() => decodeCausalCorrectionEvidence([])).toThrow("invalid causal correction evidence");
-});
-
-test("keeps correction evidence typed as causal citations only", () => {
-  const evidence: CausalCorrectionEvidence = [causalCitation];
-  expect(evidence.every(isCausalMemoryCitation)).toBe(true);
-  // @ts-expect-error OpenViking citations are not causal correction evidence
-  const _blocked: CausalCorrectionEvidence = [openvikingCitation];
-  void _blocked;
 });

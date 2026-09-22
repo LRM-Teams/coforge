@@ -14,24 +14,15 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   agentApiRoutes,
-  allocateCausalReadTokens,
-  CAUSAL_AGENT_PROTOCOL,
-  CAUSAL_CANDIDATE_LIMIT_MAX,
-  CAUSAL_OFFER_BUDGET_PER_TRIGGER,
-  CAUSAL_READ_BUDGET_PER_TRIGGER,
-  CAUSAL_SHARED_TOKEN_BUDGET,
-  CAUSAL_TOOL_NAMES,
-  CAUSAL_TOOL_PROFILE,
-  decodeCausalAgentCommand,
-  decodeCausalAgentResponse,
   decodeOpenVikingAgentCommand,
   decodeOpenVikingAgentResponse,
   isMemoryAgentToolProfile,
+  MEMORY_OFFER_BUDGET_PER_TRIGGER,
+  MEMORY_READ_BUDGET_PER_TRIGGER,
   OPENVIKING_AGENT_PROTOCOL,
+  OPENVIKING_CANDIDATE_LIMIT_MAX,
   OPENVIKING_TOOL_NAMES,
-  OPENVIKING_TOOL_PROFILE,
   toolsForMemoryFence,
-  type CausalAgentCommand,
   type MemoryAgentToolProfile,
   type OpenVikingAgentCommand,
 } from "@lrm/coforge-sdk/agent";
@@ -42,72 +33,44 @@ import { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory 
 import { API_KEY_ENV_BY_PROVIDER, configureRuntimeEnvironment } from "./runtime-provider";
 import { classifyPiLaunchFailure, PI_MODEL_UNAVAILABLE } from "./launch-error";
 
-const MEMORY_READ_OPS = new Set(["search", "trace", "intervene", "find", "search_context", "read"]);
-const MEMORY_TOKEN_OPS = new Set(["search", "trace", "intervene", "search_context"]);
+const MEMORY_READ_OPS = new Set(["find", "search_context", "read"]);
 
 export type MemoryAgentProxy = {
   post(path: string, body: unknown): Promise<unknown>;
 };
 
-/** Per-triggering-message shared budget for every Memory Agent fence. */
-export class CausalMemoryTurnBudget {
-  #fence: MemoryAgentToolProfile;
-  #causalReads = 0;
+/** Per-triggering-message budget for the Memory Agent fence. */
+export class MemoryAgentTurnBudget {
+  #reads = 0;
   #offers = 0;
-  #tokensRemaining: number = CAUSAL_SHARED_TOKEN_BUDGET;
-
-  constructor(fence: MemoryAgentToolProfile = CAUSAL_TOOL_PROFILE) {
-    this.#fence = fence;
-  }
 
   reset(): void {
-    this.#causalReads = 0;
+    this.#reads = 0;
     this.#offers = 0;
-    this.#tokensRemaining = CAUSAL_SHARED_TOKEN_BUDGET;
   }
 
-  consume(command: CausalAgentCommand | OpenVikingAgentCommand): number | undefined {
+  consume(command: OpenVikingAgentCommand): void {
     if (MEMORY_READ_OPS.has(command.op)) {
-      if (this.#causalReads >= CAUSAL_READ_BUDGET_PER_TRIGGER)
-        throw new Error("causal read budget exhausted for this triggering message");
+      if (this.#reads >= MEMORY_READ_BUDGET_PER_TRIGGER)
+        throw new Error("memory read budget exhausted for this triggering message");
       const limit = "limit" in command ? command.limit : undefined;
-      if (limit !== undefined && limit > CAUSAL_CANDIDATE_LIMIT_MAX)
+      if (limit !== undefined && limit > OPENVIKING_CANDIDATE_LIMIT_MAX)
         throw new Error("candidate limit exceeded");
-      let allocated: number | undefined;
-      if (MEMORY_TOKEN_OPS.has(command.op) && !this.#isStandaloneOpenVikingSearchContext(command)) {
-        const requestedTokens = "tokenBudget" in command ? command.tokenBudget : undefined;
-        allocated = allocateCausalReadTokens({
-          remainingTokens: this.#tokensRemaining,
-          requestedTokens,
-        });
-        this.#tokensRemaining -= allocated;
-      }
-      this.#causalReads += 1;
-      return allocated;
+      this.#reads += 1;
+      return;
     }
     if (command.op === "offer") {
-      if (this.#offers >= CAUSAL_OFFER_BUDGET_PER_TRIGGER)
-        throw new Error("causal offer budget exhausted for this triggering message");
+      if (this.#offers >= MEMORY_OFFER_BUDGET_PER_TRIGGER)
+        throw new Error("memory offer budget exhausted for this triggering message");
       this.#offers += 1;
     }
-    return undefined;
   }
 
   snapshot() {
     return {
-      causalReads: this.#causalReads,
+      reads: this.#reads,
       offers: this.#offers,
-      tokensUsed: CAUSAL_SHARED_TOKEN_BUDGET - this.#tokensRemaining,
-      tokensRemaining: this.#tokensRemaining,
     };
-  }
-
-  #isStandaloneOpenVikingSearchContext(command: CausalAgentCommand | OpenVikingAgentCommand) {
-    return (
-      this.#fence === OPENVIKING_TOOL_PROFILE &&
-      command.protocol === OPENVIKING_AGENT_PROTOCOL &&
-      command.op === "search_context"
-    );
   }
 }
 
@@ -161,48 +124,12 @@ function defaultMemoryProxy(): MemoryAgentProxy {
   return { post: postLocalProxy };
 }
 
-function withAllocatedTokenBudget<T extends { op: string; tokenBudget?: number }>(
-  command: T,
-  allocated: number | undefined,
-): T {
-  if (allocated === undefined || (command.op !== "search" && command.op !== "search_context"))
-    return command;
-  return { ...command, tokenBudget: allocated };
-}
-
 /** The only model-callable tools available under a Memory Agent fence. */
 export function createMemoryFenceTools(
   profile: MemoryAgentToolProfile,
-  budget: CausalMemoryTurnBudget,
+  budget: MemoryAgentTurnBudget,
   proxy: MemoryAgentProxy = defaultMemoryProxy(),
 ) {
-  const causalTool = <Params extends Record<string, unknown>>(
-    name: string,
-    label: string,
-    description: string,
-    op: CausalAgentCommand["op"],
-    parameters: Parameters<typeof Type.Object>[0],
-  ) =>
-    defineTool({
-      name,
-      label,
-      description,
-      parameters,
-      execute: async (_toolCallId, params) => {
-        const command = decodeCausalAgentCommand({
-          protocol: CAUSAL_AGENT_PROTOCOL,
-          op,
-          ...(params as Params),
-        });
-        const allocated = budget.consume(command);
-        const response = await proxy.post(
-          agentApiRoutes.proxy.causal.path,
-          withAllocatedTokenBudget(command, allocated),
-        );
-        return toolResult(decodeCausalAgentResponse(command.op, response));
-      },
-    });
-
   const openvikingTool = <Params extends Record<string, unknown>>(
     name: string,
     label: string,
@@ -221,11 +148,8 @@ export function createMemoryFenceTools(
           op,
           ...(params as Params),
         });
-        const allocated = budget.consume(command);
-        const response = await proxy.post(
-          agentApiRoutes.proxy.openviking.path,
-          withAllocatedTokenBudget(command, allocated),
-        );
+        budget.consume(command);
+        const response = await proxy.post(agentApiRoutes.proxy.openviking.path, command);
         return toolResult(decodeOpenVikingAgentResponse(command.op, response));
       },
     });
@@ -257,58 +181,6 @@ export function createMemoryFenceTools(
         return toolResult(await proxy.post(agentApiRoutes.proxy.messages.path, request));
       },
     });
-
-  const causalByName: Record<string, ReturnType<typeof defineTool>> = {
-    [CAUSAL_TOOL_NAMES.search]: causalTool(
-      CAUSAL_TOOL_NAMES.search,
-      "Causal search",
-      "Search cited causal memory for the current public-channel question.",
-      "search",
-      {
-        operationId: Type.String(),
-        query: Type.String(),
-        limit: Type.Optional(Type.Integer({ minimum: 1 })),
-        tokenBudget: Type.Optional(Type.Integer({ minimum: 1 })),
-      },
-    ),
-    [CAUSAL_TOOL_NAMES.trace]: causalTool(
-      CAUSAL_TOOL_NAMES.trace,
-      "Causal trace",
-      "Trace cited antecedents and consequences for a causal memory item.",
-      "trace",
-      { operationId: Type.String(), causalItemId: Type.String() },
-    ),
-    [CAUSAL_TOOL_NAMES.intervene]: causalTool(
-      CAUSAL_TOOL_NAMES.intervene,
-      "Causal intervention",
-      "Evaluate a bounded causal intervention with cited results.",
-      "intervene",
-      { operationId: Type.String(), action: Type.String(), context: Type.Optional(Type.String()) },
-    ),
-    [CAUSAL_TOOL_NAMES.offer]: causalTool(
-      CAUSAL_TOOL_NAMES.offer,
-      "Publish Memory Offer",
-      "Publish one visible, cited Memory Offer. This is the only visible answer to an explicit @memory question. citationRefs are citation ids already returned in this workspace. The server binds the channel and recipient.",
-      "offer",
-      {
-        operationId: Type.String(),
-        citationRefs: Type.Array(Type.String(), { minItems: 1 }),
-        body: Type.String(),
-      },
-    ),
-    [CAUSAL_TOOL_NAMES.proposeCorrection]: causalTool(
-      CAUSAL_TOOL_NAMES.proposeCorrection,
-      "Propose causal correction",
-      "Submit a cited correction proposal; this cannot invalidate or supersede memory.",
-      "propose_correction",
-      {
-        operationId: Type.String(),
-        causalItemId: Type.String(),
-        contradictoryCitationRefs: Type.Array(Type.String(), { minItems: 1 }),
-        rationale: Type.String(),
-      },
-    ),
-  };
 
   const openvikingByName: Record<string, ReturnType<typeof defineTool>> = {
     [OPENVIKING_TOOL_NAMES.find]: openvikingTool(
@@ -357,10 +229,7 @@ export function createMemoryFenceTools(
   };
 
   const fenced = toolsForMemoryFence(profile).map((name) => {
-    const tool =
-      profile === OPENVIKING_TOOL_PROFILE
-        ? openvikingByName[name]
-        : (causalByName[name] ?? openvikingByName[name]);
+    const tool = openvikingByName[name];
     if (!tool) throw new Error(`unsupported Memory Agent tool: ${name}`);
     return tool;
   });
@@ -397,9 +266,12 @@ export function createMemoryFenceTools(
   ];
 }
 
-/** The only model-callable tools available under the causal-memory fence. */
-export function createCausalMemoryTools(budget: CausalMemoryTurnBudget, proxy?: MemoryAgentProxy) {
-  return createMemoryFenceTools(CAUSAL_TOOL_PROFILE, budget, proxy);
+/** The only model-callable tools available under the openviking-memory fence. */
+export function createOpenVikingMemoryTools(
+  budget: MemoryAgentTurnBudget,
+  proxy?: MemoryAgentProxy,
+) {
+  return createMemoryFenceTools(OPENVIKING_TOOL_PROFILE, budget, proxy);
 }
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
@@ -551,11 +423,11 @@ export async function createSession(options: {
   const extensionDefinesBash = services.resourceLoader
     .getExtensions()
     .extensions.some((extension) => extension.tools.has("bash"));
-  const causalBudget = memoryFence ? new CausalMemoryTurnBudget(memoryFence) : undefined;
-  const causalTools =
-    memoryFence && causalBudget ? createMemoryFenceTools(memoryFence, causalBudget) : [];
+  const memoryBudget = memoryFence ? new MemoryAgentTurnBudget() : undefined;
+  const memoryTools =
+    memoryFence && memoryBudget ? createMemoryFenceTools(memoryFence, memoryBudget) : [];
   const customTools = [
-    ...(options.environment && !extensionDefinesBash && !causalBudget
+    ...(options.environment && !extensionDefinesBash && !memoryBudget
       ? [
           createBashTool(cwd, {
             shellPath: services.settingsManager.getShellPath(),
@@ -597,18 +469,18 @@ export async function createSession(options: {
           }),
         ]
       : []),
-    ...causalTools,
+    ...memoryTools,
   ];
   const created = await createAgentSessionFromServices({
     services,
     sessionManager,
     ...(model ? { model } : {}),
     ...(options.reasoning ? { thinkingLevel: options.reasoning as never } : {}),
-    ...(causalBudget
+    ...(memoryBudget
       ? {
           noTools: "all" as const,
-          tools: causalTools.map((tool) => tool.name),
-          customTools: causalTools,
+          tools: memoryTools.map((tool) => tool.name),
+          customTools: memoryTools,
         }
       : customTools.length > 0
         ? { customTools }
@@ -618,7 +490,7 @@ export async function createSession(options: {
     ...created,
     services,
     replacedSessionId,
-    resetCausalBudget: causalBudget ? () => causalBudget.reset() : undefined,
+    resetMemoryBudget: memoryBudget ? () => memoryBudget.reset() : undefined,
     get sessionId() {
       return sessionManager.getSessionId();
     },

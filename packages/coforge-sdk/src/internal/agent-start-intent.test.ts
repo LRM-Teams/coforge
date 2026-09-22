@@ -31,15 +31,15 @@ test("round-trips an unmanaged start intent without launchId or controlEpoch", (
   });
 });
 
-test("round-trips the causal-memory tool profile and rejects unknown profiles", () => {
-  const fenced = { ...base, toolProfile: "causal-memory" as const };
+test("round-trips the openviking-memory tool profile and rejects unknown profiles", () => {
+  const fenced = { ...base, toolProfile: "openviking-memory" as const };
   expect(decodeAgentStartIntent(encodeAgentStartIntent(fenced))).toEqual({
     ...fenced,
     modelProvider: "",
     providerConfig: undefined,
   });
   expect(() =>
-    encodeAgentStartIntent({ ...base, toolProfile: "all-tools" as "causal-memory" }),
+    encodeAgentStartIntent({ ...base, toolProfile: "all-tools" as "openviking-memory" }),
   ).toThrow("unsupported Agent tool profile");
   const encoded = toBinary(
     AgentStartIntentSchema,
@@ -52,23 +52,12 @@ test("round-trips the causal-memory tool profile and rejects unknown profiles", 
   expect(() => decodeAgentStartIntent(encoded)).toThrow("unsupported Agent tool profile");
 });
 
-test("round-trips OpenViking and causal-openviking memory fences and rejects Workspace profile names", () => {
-  for (const toolProfile of ["openviking-memory", "causal-openviking-memory"] as const) {
-    const fenced = { ...base, toolProfile };
-    expect(decodeAgentStartIntent(encodeAgentStartIntent(fenced))).toEqual({
-      ...fenced,
-      modelProvider: "",
-      providerConfig: undefined,
-    });
-  }
+test("rejects Workspace Memory Profile names as tool profiles", () => {
   expect(() =>
     encodeAgentStartIntent({ ...base, toolProfile: "openviking" as "openviking-memory" }),
   ).toThrow("unsupported Agent tool profile");
   expect(() =>
-    encodeAgentStartIntent({
-      ...base,
-      toolProfile: "causal_openviking" as "causal-openviking-memory",
-    }),
+    encodeAgentStartIntent({ ...base, toolProfile: "causal-memory" as "openviking-memory" }),
   ).toThrow("unsupported Agent tool profile");
 });
 
