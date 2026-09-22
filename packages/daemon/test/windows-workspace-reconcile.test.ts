@@ -21,8 +21,8 @@ test("win32 reconcile loop schedules reconcile and stops clearing the timer", as
     {
       platform: "win32",
       intervalMs: WINDOWS_WORKSPACE_RECONCILE_MS,
-      setIntervalFn: ((handler: TimerHandler) => {
-        scheduled = handler as () => void;
+      setIntervalFn: ((handler: () => void) => {
+        scheduled = handler;
         return 1 as unknown as ReturnType<typeof setInterval>;
       }) as typeof setInterval,
       clearIntervalFn: (() => {
@@ -42,8 +42,8 @@ test("win32 reconcile loop schedules reconcile and stops clearing the timer", as
   });
   const slow = startWindowsWorkspaceReconcileLoop(() => blocked, {
     platform: "win32",
-    setIntervalFn: ((handler: TimerHandler) => {
-      scheduled = handler as () => void;
+    setIntervalFn: ((handler: () => void) => {
+      scheduled = handler;
       return 2 as unknown as ReturnType<typeof setInterval>;
     }) as typeof setInterval,
     clearIntervalFn: clearInterval,
@@ -66,8 +66,8 @@ test("win32 reconcile loop reports errors without throwing from the timer", asyn
     },
     {
       platform: "win32",
-      setIntervalFn: ((handler: TimerHandler) => {
-        scheduled = handler as () => void;
+      setIntervalFn: ((handler: () => void) => {
+        scheduled = handler;
         return 3 as unknown as ReturnType<typeof setInterval>;
       }) as typeof setInterval,
       clearIntervalFn: (() => {}) as typeof clearInterval,

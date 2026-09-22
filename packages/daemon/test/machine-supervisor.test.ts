@@ -98,7 +98,7 @@ test("reconcile restarts an enabled Workspace whose OS instance went inactive", 
   live = null;
   await supervisor.reconcile();
   expect(starts).toEqual(["initial", "respawn"]);
-  expect(live).toBe("instance-2");
+  expect(live!).toBe("instance-2");
 });
 
 test("reconcile is a no-op while paused for upgrade", async () => {
