@@ -6,6 +6,10 @@ import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 import { ConversationListButton } from "./conversation-navigation";
 
+/** The conversation routes' pending timing, in one place: show the skeleton only when a load
+ * exceeds this, and never pull it down faster than it went up (no half-frame flash). */
+export const CONVERSATION_PENDING_MS = 300;
+
 export function MessagesPending() {
   return (
     <main className="flex h-svh min-w-0 flex-col bg-primary">
