@@ -78,6 +78,7 @@
   "preferences_browser_notifications_test_sent": "测试通知已发送。",
   "preferences_browser_notifications_save_error": "浏览器通知更新失败，请重试。",
   "preferences_browser_notifications_test_error": "测试通知发送失败，请检查此浏览器的通知权限后重试。",
+  "preferences_browser_notifications_test_browser_failed": "此浏览器没能创建推送订阅。请检查浏览器能否连上它自己的推送服务，然后重试。",
   "preferences_browser_notifications_test_no_subscription": "该账号没有已注册的推送订阅。请把浏览器通知关闭再开启，然后重新测试。",
   "notifications_home_screen_title": "将 CoForge 添加到主屏幕",
   "notifications_home_screen_description": "在 iPhone 和 iPad 上，需要先将 CoForge 安装为主屏幕 App，才能接收通知。",
