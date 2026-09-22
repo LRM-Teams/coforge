@@ -79,6 +79,8 @@ export {
   SystemdUserDaemonHost,
   systemdUserUnit,
   WindowsUserDaemonHost,
+  windowsDaemonTaskXml,
+  windowsTaskUserId,
 } from "./src/daemon-host";
 export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./src/daemon-host/launcher";
 export { cleanupComputerUpgradeJob } from "./src/platform/computer-upgrade-launcher";

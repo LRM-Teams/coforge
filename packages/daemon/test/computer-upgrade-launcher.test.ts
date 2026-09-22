@@ -8,7 +8,6 @@ import {
   computerUpgradeTaskName,
   deleteWindowsComputerUpgradeTask,
   launchWindowsComputerUpgrade,
-  quoteWindowsTaskAction,
 } from "../src/platform/computer-upgrade-launcher";
 
 const id = "123e4567-e89b-42d3-a456-426614174000";
@@ -114,38 +113,42 @@ test("the generated darwin upgrade plist runs once at load and is never kept ali
   expect(plist).toContain(`<key>StandardErrorPath</key><string>${paths.logPath}</string>`);
 });
 
-test("Windows upgrade schtasks Create+Run uses a quoted executable and far-future ONCE placeholder", async () => {
+test("Windows upgrade schtasks Create+Run uses locale-independent XML registration", async () => {
   const calls: string[][] = [];
+  const written: { path: string; content: string }[] = [];
   const action = computerUpgradeCommand(
     "win32",
     "C:\\Path With Space\\coforge-computer.exe",
     id,
     "9.9.9",
   );
-  await launchWindowsComputerUpgrade(id, action, async (command) => {
-    calls.push(command);
-    return 0;
+  await launchWindowsComputerUpgrade(id, action, {
+    userId: "DESKTOP\\alice",
+    writeTaskXml: async (path, content) => {
+      written.push({ path, content });
+    },
+    run: async (command) => {
+      calls.push(command);
+      return 0;
+    },
   });
+  expect(written).toHaveLength(1);
+  expect(written[0]!.content).toContain("<StartBoundary>2099-01-01T00:00:00</StartBoundary>");
+  expect(written[0]!.content).toContain("<RunLevel>LeastPrivilege</RunLevel>");
+  expect(written[0]!.content).toContain(
+    "<Command>C:\\Path With Space\\coforge-computer.exe</Command>",
+  );
+  expect(written[0]!.content).toContain("__remote-upgrade");
   expect(calls).toHaveLength(2);
-  expect(calls[0]).toEqual([
+  expect(calls[0]!.slice(0, 5)).toEqual([
     "schtasks.exe",
     "/Create",
     "/TN",
     `CoForge Upgrade ${id}`,
-    "/TR",
-    quoteWindowsTaskAction(action),
-    "/SC",
-    "ONCE",
-    "/ST",
-    "00:00",
-    "/SD",
-    "01/01/2099",
-    "/F",
-    "/RL",
-    "LIMITED",
+    "/XML",
   ]);
-  expect(calls[0]![5]).toContain('"C:\\Path With Space\\coforge-computer.exe"');
-  expect(calls[0]![5]).toContain("__remote-upgrade");
+  expect(calls[0]![5]).toBe(written[0]!.path);
+  expect(calls[0]!).toContain("/F");
   expect(calls[1]).toEqual(["schtasks.exe", "/Run", "/TN", `CoForge Upgrade ${id}`]);
 });
 
