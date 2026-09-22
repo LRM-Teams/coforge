@@ -14,7 +14,7 @@ import {
   CONVERSATION_WINDOW_PAGE_SIZE,
   flushWindowUpdates,
   foldWindowUpdates,
-  newestSequence,
+  newestRootSequence,
   nextPageCursor,
   previousPageCursor,
   type ConversationWindowCursor,
@@ -77,7 +77,7 @@ function conversationPages<M extends PageMessage, T extends ConversationPage<M>>
     // cursor from the boundary page, and an honest `hasNewer` tells whether the newest retained page
     // is still the tail.
     getPreviousPageParam: (oldest: T) => previousPageCursor(oldest, olderBefore(oldest.messages)),
-    getNextPageParam: (newest: T) => nextPageCursor(newest, newestSequence(newest.messages)),
+    getNextPageParam: (newest: T) => nextPageCursor(newest, newestRootSequence(newest.messages)),
   });
   /** The newest page on its own, for returning to the live end after the window slid up into
    * history and evicted the tail. */
