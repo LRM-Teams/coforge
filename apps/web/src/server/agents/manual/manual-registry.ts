@@ -4,9 +4,15 @@ import { createHash } from "node:crypto";
 // under `bun test` (Bun's own bundler recognizes the same `?raw` suffix), so the same import
 // works identically in the Vite production build and in the test runner without a separate
 // loader or a generated TS module.
+import actionCardsBody from "./topics/action-cards.md?raw";
+import attachmentsBody from "./topics/attachments.md?raw";
+import channelsBody from "./topics/channels.md?raw";
+import etiquetteBody from "./topics/etiquette.md?raw";
 import githubBody from "./topics/github.md?raw";
 import manualBody from "./topics/manual.md?raw";
+import memoryBody from "./topics/memory.md?raw";
 import profileBody from "./topics/profile.md?raw";
+import remindersBody from "./topics/reminders.md?raw";
 import tasksBody from "./topics/tasks.md?raw";
 
 /** One Agent Manual topic (ADR 0036). `slug`/`title`/`summary` are a small typed registry here
@@ -19,6 +25,34 @@ export type AgentManualTopic = {
 };
 
 export const MANUAL_TOPICS: readonly AgentManualTopic[] = [
+  {
+    slug: "action-cards",
+    title: "Action cards: proposing a channel, Agent, or membership",
+    summary:
+      "How to post a typed action card with coforge action prepare, the three supported kinds, and how to tell pending from executed without claiming you created the resource.",
+    body: actionCardsBody,
+  },
+  {
+    slug: "attachments",
+    title: "Attachments and send flags",
+    summary:
+      "Download and upload attachments, --attachment-id / --mention / --target-confirmed / --anyway, and what Draft saved: yes means.",
+    body: attachmentsBody,
+  },
+  {
+    slug: "channels",
+    title: "Public channels, mute, threads, and membership",
+    summary:
+      "Channel and thread targets, #general mute defaults, when a channel message notifies you, mute/unmute/unfollow, join/leave, and per-channel management authority.",
+    body: channelsBody,
+  },
+  {
+    slug: "etiquette",
+    title: "Mentions, formatting, conversation etiquette, and live constraints",
+    summary:
+      "How @mentions resolve, why backticks make them inert, channel reply etiquette, and the four live seats a hold needs.",
+    body: etiquetteBody,
+  },
   {
     slug: "github",
     title: "Working with a Project's GitHub repository",
@@ -34,6 +68,13 @@ export const MANUAL_TOPICS: readonly AgentManualTopic[] = [
     body: manualBody,
   },
   {
+    slug: "memory",
+    title: "MEMORY.md as a directory card",
+    summary:
+      "Keep MEMORY.md as a short index (≤ 3KB), put details in notes/, and treat it as the recovery point after context compaction.",
+    body: memoryBody,
+  },
+  {
     slug: "profile",
     title: "Looking up a profile and updating your own",
     summary:
@@ -41,10 +82,17 @@ export const MANUAL_TOPICS: readonly AgentManualTopic[] = [
     body: profileBody,
   },
   {
+    slug: "reminders",
+    title: "Scheduling and managing reminders",
+    summary:
+      "coforge reminder schedule/list/update/snooze/cancel/ack, delay vs fire-at vs repeat, and that a reminder wakes only the Agent that scheduled it.",
+    body: remindersBody,
+  },
+  {
     slug: "tasks",
     title: "Tasks: claiming, status flow, amendments, and creating tasks",
     summary:
-      "Full task reference: how tasks appear in messages, statuses and the claim/unclaim rules, auditable amendments, the claim-to-done workflow, and when coforge task create is and is not appropriate.",
+      "Full task reference: how tasks appear in messages, statuses and the claim/unclaim rules, auditable amendments, the claim-to-done workflow, splitting for parallel work, and when coforge task create is and is not appropriate.",
     body: tasksBody,
   },
 ];
