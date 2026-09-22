@@ -1,9 +1,6 @@
 import { expect, test } from "bun:test";
 import type { PrismaClient } from "../generated/client";
-import {
-  isAutoSendCancelled,
-  type ReportContent,
-} from "../src/features/records/records-content";
+import { isAutoSendCancelled, type ReportContent } from "../src/features/records/records-content";
 import { RecordCatalog } from "../src/server/records/record-catalog.server";
 
 test("deleteMemberWeek removes the viewer's templates and submissions only", async () => {
