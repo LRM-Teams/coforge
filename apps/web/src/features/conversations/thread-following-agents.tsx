@@ -20,6 +20,7 @@ import {
   loadPublicChannelThreadFollowingAgents,
   unfollowPublicChannelThreadAgent,
 } from "./channels.functions";
+import { threadFollowingAgentsQueryKey } from "./conversation-query-keys";
 
 type FollowingAgent = {
   id: string;
@@ -27,14 +28,10 @@ type FollowingAgent = {
   displayName: string;
 };
 
-function followingAgentsQueryKey(channelId: string, threadRootId: string) {
-  return ["conversation", "thread-following-agents", channelId, threadRootId] as const;
-}
-
 function useThreadFollowingAgents(channelId: string, threadRootId: string) {
   const load = useServerFn(loadPublicChannelThreadFollowingAgents);
   return useQuery({
-    queryKey: followingAgentsQueryKey(channelId, threadRootId),
+    queryKey: threadFollowingAgentsQueryKey(channelId, threadRootId),
     queryFn: () => load({ data: { channelId, threadRootId } }),
     staleTime: 15_000,
     refetchOnWindowFocus: true,
@@ -129,7 +126,7 @@ export function ThreadFollowingAgents({
   const queryClient = useQueryClient();
   const unfollow = useServerFn(unfollowPublicChannelThreadAgent);
   const query = useThreadFollowingAgents(channelId, threadRootId);
-  const queryKey = followingAgentsQueryKey(channelId, threadRootId);
+  const queryKey = threadFollowingAgentsQueryKey(channelId, threadRootId);
   const agents = query.data?.agents ?? [];
   const canUnfollow = query.data?.canUnfollow ?? false;
   const count = agents.length;
