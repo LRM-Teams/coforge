@@ -56,6 +56,7 @@
   "messages_title": "Messages",
   "messages_agent_list_label": "Agent conversations",
   "messages_agents_action": "Direct messages",
+  "messages_live_activity": "Live agent activity",
   "messages_empty_title": "Choose a conversation",
   "messages_empty_description": "Select a channel or direct message from the list.",
   "conversation_history": "Message history",

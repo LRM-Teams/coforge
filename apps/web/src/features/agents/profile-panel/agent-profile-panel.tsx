@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, useRouter } from "@tanstack/react-router";
 import { Edit01 as Pencil, UserX01, XClose as X } from "@untitledui/icons";
 
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -43,6 +43,8 @@ import {
 } from "@/features/agents/agent-form";
 import {
   updateAgent,
+  uploadAgentAvatar,
+  removeAgentAvatar,
   updateAgentRole,
   saveAgentRuntimeCredential,
   deleteAgentRuntimeCredential,
@@ -90,6 +92,7 @@ export function AgentProfilePanel({
   onClose: () => void;
 }) {
   const timeZone = appRoute.useLoaderData().timeZone;
+  const router = useRouter();
   // Escape closes the panel, like Thread's Close; an open overlay or a field being edited keeps it.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -161,6 +164,8 @@ export function AgentProfilePanel({
   });
 
   const update = useServerFn(updateAgent);
+  const uploadAvatar = useServerFn(uploadAgentAvatar);
+  const removeAvatar = useServerFn(removeAgentAvatar);
   const updateRole = useServerFn(updateAgentRole);
   const saveCredential = useServerFn(saveAgentRuntimeCredential);
   const deleteCredential = useServerFn(deleteAgentRuntimeCredential);
@@ -275,6 +280,7 @@ export function AgentProfilePanel({
           name: profile?.name ?? liveAgent?.name ?? "",
           displayName: knownName,
           description: profile?.description ?? undefined,
+          avatarUrl: profile?.avatarUrl,
         }}
         // ADR 0059: `liveAgent` (the shared realtime roster) is blank for an Agent outside the
         // viewer's own `listAgents` roster until its first live publication arrives — e.g. an
@@ -359,6 +365,27 @@ export function AgentProfilePanel({
               await update({ data: baseUpdateInput({ description: value }) });
               await invalidate();
             }}
+            onAvatarChange={
+              profile.ownedByCurrentUser
+                ? async (file) => {
+                    const data = new FormData();
+                    data.set("agentId", agentId);
+                    data.set("file", file);
+                    await uploadAvatar({ data });
+                    await invalidate();
+                    await router.invalidate();
+                  }
+                : undefined
+            }
+            onAvatarRemove={
+              profile.ownedByCurrentUser
+                ? async () => {
+                    await removeAvatar({ data: { agentId } });
+                    await invalidate();
+                    await router.invalidate();
+                  }
+                : undefined
+            }
             onSaveRole={
               profile.canManageAgentRole
                 ? async (role) => {

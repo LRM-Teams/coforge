@@ -86,6 +86,8 @@
   "settings_save_error": "偏好设置保存失败，请重试。",
   "preferences_sidebar": "侧栏",
   "preferences_rail_labels": "侧栏显示文字",
+  "preferences_live_agent_activity": "Agent 实时活动",
+  "preferences_live_agent_activity_hint": "在聊天列表底部显示最新的 Agent 状态。",
   "preferences_conversations": "会话",
   "preferences_conversation_open_mode": "打开会话时",
   "preferences_open_newest_read": "定位到最新消息并标记为已读",

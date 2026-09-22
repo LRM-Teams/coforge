@@ -86,6 +86,8 @@
   "settings_save_error": "The preference could not be saved. Try again.",
   "preferences_sidebar": "Sidebar",
   "preferences_rail_labels": "Show labels in the sidebar",
+  "preferences_live_agent_activity": "Live agent activity",
+  "preferences_live_agent_activity_hint": "Show the latest agent status at the bottom of the chat list.",
   "preferences_conversations": "Conversations",
   "preferences_conversation_open_mode": "When I view a conversation",
   "preferences_open_newest_read": "Start at the newest message and mark it read",

@@ -26,6 +26,7 @@ export type LiveAgent = {
   id: string;
   name: string;
   displayName: string;
+  avatarUrl?: string | null;
   status: AgentStatusView;
   display?: AgentDisplaySnapshot;
   /** ADR 0059. Optional: an Agent shape that predates this field (or came from a path that never

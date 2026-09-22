@@ -33,6 +33,9 @@ export type AgentRecord = {
    * `agentVisibility` dependency (see `agent-activity-publish.server.ts` and siblings), never by
    * trusting this field to be present on a hand-built fixture elsewhere in the codebase. */
   visibility?: AgentVisibility;
+  /** Current picture in the shared image store. Absent means no picture, not a missing column. */
+  avatarObjectKey?: string | null;
+  avatarContentType?: string | null;
 };
 
 function mapAgent(agent: {
@@ -49,6 +52,8 @@ function mapAgent(agent: {
   stoppedAt?: Date | null;
   deletedAt?: Date | null;
   visibility?: string;
+  avatarObjectKey?: string | null;
+  avatarContentType?: string | null;
 }): AgentRecord {
   let runtimeConfig;
   try {
@@ -77,6 +82,8 @@ function mapAgent(agent: {
       agent.visibility === undefined || agent.visibility === AGENT_VISIBILITY.PUBLIC
         ? AGENT_VISIBILITY.PUBLIC
         : AGENT_VISIBILITY.PRIVATE,
+    avatarObjectKey: agent.avatarObjectKey ?? null,
+    avatarContentType: agent.avatarContentType ?? null,
   };
 }
 

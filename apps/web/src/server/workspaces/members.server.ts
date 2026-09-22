@@ -2,6 +2,7 @@ import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { WorkspaceMemberRole } from "./member-role.server";
 import { ACTIVE_AGENT_WHERE } from "../agents/active-agent.server";
+import { agentAvatarUrl } from "../agents/agent-avatar.server";
 import { visibleAgentWhere, type AgentVisibilityViewer } from "../agents/agent-visibility.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 
@@ -51,6 +52,7 @@ export class WorkspaceMembers {
           name: true,
           displayName: true,
           description: true,
+          avatarObjectKey: true,
           computer: {
             select: {
               id: true,
@@ -82,6 +84,7 @@ export class WorkspaceMembers {
         name: agent.name,
         displayName: agent.displayName.trim() || agent.name,
         description: agent.description,
+        avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
         computerId: agent.computer?.workspaces.length ? agent.computer.id : null,
         computerName: agent.computer?.workspaces.length
           ? agent.computer.displayName.trim() || agent.computer.name.trim()

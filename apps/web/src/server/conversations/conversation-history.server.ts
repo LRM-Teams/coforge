@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { attachmentView } from "../attachments/attachment-view.server";
+import { agentAvatarUrl } from "../agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { BROWSER_MESSAGE_MENTIONS_SELECT, browserMessageMention } from "./mentions";
 import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions.server";
@@ -23,7 +24,7 @@ const browserMessageFields = {
       userId: true,
       agentId: true,
       user: { select: { username: true, displayName: true, avatarObjectKey: true } },
-      agent: { select: { name: true, displayName: true, deletedAt: true } },
+      agent: { select: { name: true, displayName: true, deletedAt: true, avatarObjectKey: true } },
     },
   },
   mentions: BROWSER_MESSAGE_MENTIONS_SELECT,
@@ -68,7 +69,13 @@ export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: strin
           message.sender.userId,
           message.sender.user?.avatarObjectKey ?? null,
         )
-      : null,
+      : message.sender?.agentId
+        ? agentAvatarUrl(
+            workspaceId,
+            message.sender.agentId,
+            message.sender.agent?.avatarObjectKey ?? null,
+          )
+        : null,
     body: message.body,
     createdAt: message.createdAt,
     mentions: message.mentions.map(browserMessageMention),

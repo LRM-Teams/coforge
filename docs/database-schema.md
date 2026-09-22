@@ -66,7 +66,8 @@ is null, the application displays the current identity-provider name.
 `avatarObjectKey` and `avatarContentType` identify the user's current private
 avatar in the shared user-files store; image bytes and delivery URLs are never
 stored in PostgreSQL. Replacing an avatar writes a new immutable object before
-the row points to it, then removes the previous object.
+the row points to it, then removes the previous object. `Agent` uses the same
+two columns for its own picture, in the same image store.
 
 Setup persistence consists of `User`, `UserIdentity`, `Workspace`,
 `WorkspaceMembership`, `WorkspaceInvitation`, `Computer`, and `WorkspaceComputer`.

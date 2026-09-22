@@ -319,6 +319,7 @@ describe("PrismaDirectConversationRepository", () => {
                     name: "helper",
                     displayName: "Helper",
                     description: "",
+                    avatarObjectKey: null,
                   },
                 },
               ],
@@ -373,6 +374,7 @@ describe("PrismaDirectConversationRepository", () => {
         handle: "helper",
         label: "Helper",
         description: "",
+        avatarUrl: null,
         mentionScore: 0,
       },
     ]);
@@ -446,7 +448,7 @@ describe("PrismaDirectConversationRepository", () => {
                 userId: null,
                 agentId: "agent-helper",
                 user: null,
-                agent: { name: "helper", displayName: "Helper" },
+                agent: { name: "helper", displayName: "Helper", avatarObjectKey: null },
               },
             },
           ];

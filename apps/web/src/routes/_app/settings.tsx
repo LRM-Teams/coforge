@@ -29,6 +29,10 @@ import {
 } from "@/features/workspaces/members.functions";
 import { getLocale, setLocale } from "@/paraglide/runtime";
 import { readRailLabels, writeRailLabels } from "@/features/settings/rail-labels";
+import {
+  readLiveAgentActivity,
+  writeLiveAgentActivity,
+} from "@/features/settings/live-agent-activity";
 import { readTextSize, writeTextSize, type TextSizeValue } from "@/features/settings/text-size";
 import {
   conversationOpenMode,
@@ -86,6 +90,7 @@ export const Route = createFileRoute("/_app/settings")({
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
   const [railLabels, setRailLabels] = useState(true);
+  const [liveAgentActivity, setLiveAgentActivity] = useState(true);
   const [textSize, setTextSize] = useState<TextSizeValue>("default");
   const { section, github } = Route.useSearch();
   const navigate = Route.useNavigate();
@@ -119,6 +124,7 @@ function SettingsPage() {
     setTheme(initialTheme);
     applyTheme(initialTheme);
     setRailLabels(readRailLabels());
+    setLiveAgentActivity(readLiveAgentActivity());
     setTextSize(readTextSize());
   }, []);
 
@@ -150,6 +156,11 @@ function SettingsPage() {
   function changeRailLabels(show: boolean) {
     setRailLabels(show);
     writeRailLabels(show);
+  }
+
+  function changeLiveAgentActivity(show: boolean) {
+    setLiveAgentActivity(show);
+    writeLiveAgentActivity(show);
   }
 
   function changeTextSize(next: TextSizeValue) {
@@ -269,6 +280,8 @@ function SettingsPage() {
       onThemeChange={changeTheme}
       railLabels={railLabels}
       onRailLabelsChange={changeRailLabels}
+      liveAgentActivity={liveAgentActivity}
+      onLiveAgentActivityChange={changeLiveAgentActivity}
       textSize={textSize}
       onTextSizeChange={changeTextSize}
       onTimeZoneChange={changeTimeZone}

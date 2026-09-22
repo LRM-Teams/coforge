@@ -51,6 +51,7 @@ describe("WorkspaceMembers", () => {
               name: "builder",
               displayName: "",
               description: "Builds releases",
+              avatarObjectKey: "workspaces/workspace-1/agents/other-agent/avatars/pic-1/original",
               ownerId: "another-user",
               runtimeConfig: { apiKey: "private" },
               computer: {
@@ -100,6 +101,7 @@ describe("WorkspaceMembers", () => {
         name: true,
         displayName: true,
         description: true,
+        avatarObjectKey: true,
         computer: {
           select: {
             id: true,
@@ -132,6 +134,7 @@ describe("WorkspaceMembers", () => {
           name: "builder",
           displayName: "builder",
           description: "Builds releases",
+          avatarUrl: "/api/workspaces/workspace-1/agents/other-agent/avatar?v=pic-1",
           computerId: "office-mac-id",
           computerName: "Team workstation",
         },
@@ -140,6 +143,7 @@ describe("WorkspaceMembers", () => {
           name: "reviewer",
           displayName: "Reviewer",
           description: "Reviews changes",
+          avatarUrl: null,
           computerId: null,
           computerName: null,
         },

@@ -42,7 +42,7 @@ local connections, while installation upgrade scope is the whole Computer.
 
 **Agent**:
 The logical collaborator belonging to exactly one Workspace, receiving messages, producing responses, and named in server-side authorization and audit records. It is owned by an external User identity.
-Its `name` is the unique-per-Workspace username used for @mentions, set at creation and never renamed; its `displayName` is the free-text label shown in conversations, editable at any time and initially equal to `name`.
+Its `name` is the unique-per-Workspace username used for @mentions, set at creation and never renamed; its `displayName` is the free-text label shown in conversations, editable at any time and initially equal to `name`. Its picture is optional and replaceable by its owner; without one, surfaces show initials.
 _Avoid_: Agent process, provider runtime, handle
 
 **DirectConversation**:

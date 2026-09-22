@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Edit01, Play, RefreshCcw01 as RotateCcw, Stop, Trash01 } from "@untitledui/icons";
+import {
+  Edit01,
+  Play,
+  RefreshCcw01 as RotateCcw,
+  Stop,
+  Trash01,
+  Upload01,
+} from "@untitledui/icons";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Badge } from "@/components/base/badges/badges";
@@ -149,6 +156,8 @@ export function AgentProfileTab({
   controls,
   onSaveDisplayName,
   onSaveDescription,
+  onAvatarChange,
+  onAvatarRemove,
   onSaveRole,
   onRequestVisibilityChange,
   runtimeCredentialDialog,
@@ -168,6 +177,9 @@ export function AgentProfileTab({
   controls: AgentRuntimeControls;
   onSaveDisplayName: (value: string) => Promise<void>;
   onSaveDescription: (value: string) => Promise<void>;
+  /** Creator-only. Omitted for every other viewer, who still sees the picture. */
+  onAvatarChange?: (file: File) => Promise<void>;
+  onAvatarRemove?: () => Promise<void>;
   onSaveRole?: (role: "admin" | "member") => Promise<void>;
   /** Opens the container's `AgentVisibilityConfirmDialog` for the given target visibility (ADR
    * 0059). Present only for the creator or a human Workspace owner/admin. */
@@ -193,6 +205,9 @@ export function AgentProfileTab({
   const runtimeLabel = runtimeProviderLabel(runtime);
   const runtimeIcon = <RuntimeProviderMark provider={runtime} className="size-3.5" />;
   const creatorName = profile.owner.displayName?.trim() || profile.owner.username;
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarError, setAvatarError] = useState("");
+  const [avatarBusy, setAvatarBusy] = useState(false);
   // Same rule as the Workspace members panel: the display name leads, the handle follows only
   // when it says something the display name does not.
   const creatorHandle = profile.owner.username;
@@ -206,9 +221,73 @@ export function AgentProfileTab({
     : undefined;
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      {/* The tab starts directly with DISPLAY NAME; the avatar, name and status dot live only
-       * in the panel header (`agent-profile-header.tsx`) and are not repeated here. */}
       <section className="border-b border-secondary px-6 py-5">
+        <div className="mb-5 flex flex-wrap items-center gap-4">
+          <Avatar
+            size="xl"
+            src={profile.avatarUrl}
+            alt={profile.displayName}
+            initials={avatarInitial(profile.displayName)}
+            contentClassName={avatarToneClassName(profile.displayName)}
+          />
+          {onAvatarChange && (
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  color="secondary"
+                  size="sm"
+                  iconLeading={Upload01}
+                  isDisabled={avatarBusy}
+                  onPress={() => avatarInputRef.current?.click()}
+                >
+                  {m.agent_avatar_change()}
+                </Button>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  aria-label={m.agent_avatar_change()}
+                  disabled={avatarBusy}
+                  className="sr-only"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
+                    if (!file) return;
+                    setAvatarError("");
+                    setAvatarBusy(true);
+                    void onAvatarChange(file)
+                      .catch(() => setAvatarError(m.agent_avatar_save_error()))
+                      .finally(() => setAvatarBusy(false));
+                  }}
+                />
+                {profile.avatarUrl && onAvatarRemove && (
+                  <Button
+                    type="button"
+                    color="tertiary"
+                    size="sm"
+                    isDisabled={avatarBusy}
+                    onPress={() => {
+                      setAvatarError("");
+                      setAvatarBusy(true);
+                      void onAvatarRemove()
+                        .catch(() => setAvatarError(m.agent_avatar_save_error()))
+                        .finally(() => setAvatarBusy(false));
+                    }}
+                  >
+                    {m.agent_avatar_remove()}
+                  </Button>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-tertiary">{m.agent_avatar_help()}</p>
+              {avatarError && (
+                <p role="alert" className="mt-1 text-xs text-error-primary">
+                  {avatarError}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
         {/* No error snapshot here: the Agent's current state belongs under its name in the panel
             header, and the Activity tab is where the record lives. A raw request id next to a
             transient "model at capacity" is developer debris in a profile — Frank, 2026-09-21. */}

@@ -87,6 +87,7 @@ export function MentionSuggestionList({
               {item.kind === "agent" ? (
                 <AgentDisplayAvatar
                   name={item.label}
+                  src={item.avatarUrl}
                   display={displayByAgentId.get(item.id)}
                   size="sm"
                 />

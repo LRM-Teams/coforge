@@ -349,7 +349,6 @@ function MemberCard({
     name: string;
     displayName: string;
     description: string | null;
-    /** Present only on human directory entries; Agents render no avatar image. */
     avatarUrl?: string | null;
   };
   label: string;
@@ -366,7 +365,12 @@ function MemberCard({
       )}
     >
       {ownedAgent ? (
-        <AgentDisplayAvatar name={member.displayName} display={ownedAgent.display} size="xl" />
+        <AgentDisplayAvatar
+          name={member.displayName}
+          src={member.avatarUrl}
+          display={ownedAgent.display}
+          size="xl"
+        />
       ) : (
         <Avatar
           size="xl"

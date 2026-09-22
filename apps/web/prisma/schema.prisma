@@ -196,6 +196,10 @@ model Agent {
   name                      String
   displayName               String
   description               String                     @default("")
+  /// Current picture in the shared image store. Bytes and delivery URLs stay out of PostgreSQL,
+  /// the same rule as User.avatarObjectKey.
+  avatarObjectKey           String?
+  avatarContentType         String?
   /// Agent's own server role for management authority: owner | admin | member (never "owner" in
   /// practice today, since only a human is ever created as a Workspace owner). Independent of
   /// `Agent.ownerId`'s WorkspaceMembership role; see ADR 0024.

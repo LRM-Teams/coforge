@@ -56,6 +56,7 @@
   "messages_title": "消息",
   "messages_agent_list_label": "智能体会话",
   "messages_agents_action": "私聊",
+  "messages_live_activity": "Agent 实时活动",
   "messages_empty_title": "选择一个会话",
   "messages_empty_description": "从列表选择频道或私聊，查看消息。",
   "conversation_history": "消息记录",
