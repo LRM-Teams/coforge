@@ -34,3 +34,4 @@ Do not use an ADR to silently rewrite history. Supersede the old record and link
 | [0059](0059-agent-visibility.md) | accepted | Per-Agent public/private visibility, with per-Agent realtime channels for private Agents |
 | [0060](0060-weekly-assistant-per-subject-runtime-session.md) | accepted | WeeklyReportAssistant uses one Agent session per Records subject |
 | [0061](0061-channel-agent-attention-routing.md) | accepted | Channel Agent attention routing |
+| [0062](0062-photon-wasm-sidecar.md) | accepted | photon_rs_bg.wasm ships as a release sidecar, not embedded in the executable |

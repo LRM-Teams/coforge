@@ -85,6 +85,7 @@ async function serveFixture(
     corruptGzip?: boolean;
     latestContent?: string;
     omitShim?: boolean;
+    omitPhotonWasm?: boolean;
   } = {},
 ) {
   const version = options.version ?? "3.2.1";
@@ -97,7 +98,7 @@ async function serveFixture(
   const computer = Buffer.from(
     `#!/bin/sh\n` +
       `[ "$1" = __install-local ] && [ "$2" = --version ] && [ "$4" = --directory ] || exit 90\n` +
-      `[ -f "$5/manifest.json" ] && [ -f "$5/coforge-computer.gz" ] && [ "$(cat "$5/version")" = "$3" ] || exit 91\n` +
+      `[ -f "$5/manifest.json" ] && [ -f "$5/coforge-computer.gz" ] && [ -f "$5/photon_rs_bg.wasm" ] && [ "$(cat "$5/version")" = "$3" ] || exit 91\n` +
       `printf '%s\\n' "$@" > "${log}"\n` +
       (options.omitShim
         ? ""
@@ -121,6 +122,9 @@ async function serveFixture(
   }
   if (!options.omitSidecar) {
     files.set(`/${version}/${target}/coforge-computer.sha256`, Buffer.from(`${checksum}\n`));
+  }
+  if (!options.omitPhotonWasm) {
+    files.set(`/${version}/photon_rs_bg.wasm`, Buffer.from("#wasm-fixture\n"));
   }
 
   const requested: string[] = [];
@@ -160,10 +164,12 @@ test("install.sh prepares cross-target gzip once without executing or configurin
     "/latest",
     `/${fixture.version}/manifest.json`,
     `/${fixture.version}/${fixture.target}/coforge-computer.gz`,
+    `/${fixture.version}/photon_rs_bg.wasm`,
   ]);
   expect((await readdir(directory)).sort()).toEqual([
     "coforge-computer.gz",
     "manifest.json",
+    "photon_rs_bg.wasm",
     "version",
   ]);
   expect(await Bun.file(join(directory, "version")).text()).toBe("3.2.1\n");
@@ -270,7 +276,7 @@ test("install.sh refuses unknown targets and nonexistent preparation directories
   expect(fixture.requested).toEqual([]);
 });
 
-for (const object of ["latest", "manifest.json", "coforge-computer.gz"]) {
+for (const object of ["latest", "manifest.json", "coforge-computer.gz", "photon_rs_bg.wasm"]) {
   test(`install.sh preparation refuses ${object} redirects, even with a usable response body`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "coforge-prepare-"));
     temporaryDirectories.push(directory);
@@ -317,6 +323,70 @@ test("install.sh bounds manifest downloads at 1 MiB", async () => {
   expect(child.exitCode).not.toBe(0);
   expect(child.stderr).toContain("curl: (63)");
   expect(await Bun.file(join(directory, "coforge-computer.gz")).exists()).toBe(false);
+});
+
+test("install.sh bounds photon_rs_bg.wasm downloads at 16 MiB", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-prepare-"));
+  temporaryDirectories.push(directory);
+  const version = "3.2.1";
+  const target = currentTarget();
+  const oversized = Buffer.alloc(16 * 1024 * 1024 + 1, 0x20);
+  const files = new Map<string, Uint8Array>([
+    [`/${version}/manifest.json`, Buffer.from("{}")],
+    [`/${version}/${target}/coforge-computer.gz`, Bun.gzipSync(Buffer.from("test"))],
+    [`/${version}/photon_rs_bg.wasm`, oversized],
+  ]);
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const bytes = files.get(new URL(request.url).pathname);
+      return bytes ? new Response(Buffer.from(bytes)) : new Response("not found", { status: 404 });
+    },
+  });
+  servers.push(server);
+  const child = await run(["--prepare-directory", directory, "--version", version], {
+    ...process.env,
+    COFORGE_RELEASE_FEED_URL: `http://localhost:${server.port}`,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(child.exitCode).not.toBe(0);
+  expect(child.stderr).toContain("curl: (63)");
+  expect(await Bun.file(join(directory, "photon_rs_bg.wasm")).exists()).toBe(false);
+});
+
+test("install.sh fails closed without requesting anything else when photon_rs_bg.wasm is missing", async () => {
+  const fixture = await serveFixture({ omitPhotonWasm: true });
+  const child = await run(["--version", fixture.version], {
+    ...process.env,
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(child.exitCode).not.toBe(0);
+  expect(fixture.requested).toContain(`/${fixture.version}/photon_rs_bg.wasm`);
+  expect(fixture.requested).not.toContain(
+    `/${fixture.version}/${fixture.target}/coforge-computer.sha256`,
+  );
+});
+
+test("install.sh downloads photon_rs_bg.wasm silently, under the existing Downloading CoForge Computer step, with no new progress line", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-prepare-"));
+  temporaryDirectories.push(directory);
+  const fixture = await serveFixture();
+  const child = await run(["--prepare-directory", directory, "--version", fixture.version], {
+    ...process.env,
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(child.exitCode).toBe(0);
+  expect(fixture.requested).toContain(`/${fixture.version}/photon_rs_bg.wasm`);
+  expect(await Bun.file(join(directory, "photon_rs_bg.wasm")).exists()).toBe(true);
+  // The image library downloads inside the existing Computer step, with no progress line of its own.
+  const steps = child.stderr.split("\n").filter((line) => line.startsWith("==>"));
+  expect(steps).toEqual([
+    expect.stringContaining("Detected platform:"),
+    `==> Resolved version: ${fixture.version}`,
+    "==> Downloading CoForge Computer",
+  ]);
 });
 
 test("install.sh fails on gzip HTTP 404 without requesting a raw binary", async () => {
@@ -467,6 +537,7 @@ test("install.sh caps the size of the latest pointer and sidecar downloads", asy
     ["/latest", oversized],
     [`/${version}/manifest.json`, Buffer.from("{}")],
     [`/${version}/${target}/coforge-computer.gz`, Bun.gzipSync(Buffer.from("test"))],
+    [`/${version}/photon_rs_bg.wasm`, Buffer.from("#wasm-fixture\n")],
     [`/${version}/${target}/coforge-computer.sha256`, oversized],
   ]);
   const server = Bun.serve({
@@ -954,8 +1025,14 @@ test("install scripts fail closed and stay within the current user's own account
   expect(shell).not.toMatch(/--max-filesize\s+["']?0(?!\d)/);
   expect(shell).toMatch(/^max_pointer_bytes=[1-9]\d*$/m);
   expect(shell).toMatch(/^max_binary_bytes=[1-9]\d*$/m);
+  expect(shell).toMatch(/^max_wasm_bytes=[1-9]\d*$/m);
   expect(powershell).toMatch(/^\$maxPointerBytes = [1-9]\d*$/m);
   expect(powershell).toMatch(/^\$maxBinaryBytes = [1-9]\d*$/m);
+  expect(powershell).toMatch(/^\$maxWasmBytes = [1-9]\d*$/m);
+  // Neither script prints a separate progress step for the wasm object - see the "downloads
+  // photon_rs_bg.wasm silently" test above.
+  expect(shell).toContain("photon_rs_bg.wasm");
+  expect(powershell).toContain("photon_rs_bg.wasm");
   // Shell does not parse JSON; the local installer owns manifest verification.
   expect(shell).not.toContain("jq ");
   expect(shell).toContain("/manifest.json");

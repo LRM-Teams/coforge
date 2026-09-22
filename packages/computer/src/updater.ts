@@ -34,6 +34,10 @@ type PlatformArtifact = ArtifactIdentity & {
   binary: string;
   gzip: ArtifactIdentity & { binary: string };
 };
+/** Pi's image-resize WASM: one platform-independent object per version, named explicitly (not
+ * merely "some safe filename") the same way a per-target `binary` field is - see
+ * docs/release.md's feed layout. */
+type PhotonWasmArtifact = ArtifactIdentity & { file: string };
 
 type ReleaseManifest = {
   schema_version: 2;
@@ -41,6 +45,7 @@ type ReleaseManifest = {
   commit: string;
   buildDate: string;
   platforms: Record<string, { computer: PlatformArtifact }>;
+  photonWasm: PhotonWasmArtifact;
 };
 
 type ActiveState = {
@@ -56,12 +61,21 @@ type InstalledIdentityV2 = {
   agentCli: ArtifactIdentity;
 };
 
-type InstalledIdentity =
-  | InstalledIdentityV2
-  | (Omit<InstalledIdentityV2, "schema_version"> & {
-      schema_version: 3;
-      githubCli: ArtifactIdentity;
-    });
+type InstalledIdentityV3 = Omit<InstalledIdentityV2, "schema_version"> & {
+  schema_version: 3;
+  githubCli: ArtifactIdentity;
+};
+
+/** photon_rs_bg.wasm joins the installed identity here, not in schema 3: dev policy is no
+ * compatibility fallback, so every version installed from here on ships and verifies it. Schemas
+ * 2 and 3 remain valid only because older retained versions (rollback targets) were installed
+ * before this field existed - see #assertInstalled. */
+type InstalledIdentityV4 = Omit<InstalledIdentityV3, "schema_version"> & {
+  schema_version: 4;
+  photonWasm: ArtifactIdentity;
+};
+
+type InstalledIdentity = InstalledIdentityV2 | InstalledIdentityV3 | InstalledIdentityV4;
 
 export type PreparedUpdate = {
   version: string;
@@ -125,13 +139,13 @@ export class ComputerUpdater {
   async install(selection: string): Promise<{ version: string; previous: string | null }> {
     return this.withExclusiveOperation(async () => {
       const version = await this.resolveVersion(selection);
-      const computerBytes = await this.#prepareArtifact(
+      const { computer, photonWasm } = await this.#prepareArtifact(
         version,
         selection === "latest" || selection === "",
       );
 
       const previousState = await this.#readJson<ActiveState>("active.json");
-      await this.#installVersion(version, computerBytes);
+      await this.#installVersion(version, computer, photonWasm);
       const previous =
         previousState?.current === version
           ? previousState.previous
@@ -156,10 +170,11 @@ export class ComputerUpdater {
       this.#assertVersion(active.current, "active version is invalid");
       await this.#assertInstalled(active.current);
     }
-    await this.#installVersion(
+    const { computer, photonWasm } = await this.#prepareArtifact(
       version,
-      await this.#prepareArtifact(version, selection === "latest" || selection === ""),
+      selection === "latest" || selection === "",
     );
+    await this.#installVersion(version, computer, photonWasm);
     return {
       version,
       previous: active?.current ?? null,
@@ -295,7 +310,11 @@ export class ComputerUpdater {
       typeof manifest.commit !== "string" ||
       typeof manifest.buildDate !== "string" ||
       typeof manifest.platforms !== "object" ||
-      manifest.platforms === null
+      manifest.platforms === null ||
+      // No fallback for a manifest published without it: every version this updater installs
+      // must carry Pi's image library, so a missing/invalid entry fails closed rather than
+      // silently reproducing the "resize" bug this sidecar exists to fix.
+      !validPhotonWasmEntry(manifest.photonWasm)
     ) {
       throw new UpdateError("UPDATE_FEED_INVALID", "manifest schema is invalid");
     }
@@ -320,7 +339,10 @@ export class ComputerUpdater {
     }
   }
 
-  async #prepareArtifact(version: string, resolvedLatest: boolean): Promise<Uint8Array> {
+  async #prepareArtifact(
+    version: string,
+    resolvedLatest: boolean,
+  ): Promise<{ computer: Uint8Array; photonWasm: Uint8Array }> {
     const directory = this.#localDirectory ?? (await mkdtemp(join(tmpdir(), "coforge-candidate-")));
     try {
       if (!this.#localDirectory) {
@@ -347,6 +369,9 @@ export class ComputerUpdater {
           `manifest has no platform entry for ${this.#target}`,
         );
       if (!this.#localDirectory) {
+        // install.sh's/install.ps1's "artifact" phase fetches both the per-target
+        // coforge-computer.gz and the platform-independent photon_rs_bg.wasm in this one pass -
+        // see docs/release.md.
         await runInstallationSource({
           baseUrl: this.#baseUrl.href,
           target: this.#target,
@@ -356,7 +381,9 @@ export class ComputerUpdater {
           phase: "artifact",
         });
       }
-      return await this.#verifyArtifact(directory, platform.computer);
+      const computer = await this.#verifyArtifact(directory, platform.computer);
+      const photonWasm = await this.#verifyPhotonWasm(directory, manifest.photonWasm);
+      return { computer, photonWasm };
     } catch (error) {
       if (error instanceof UpdateError) throw error;
       throw new UpdateError(
@@ -404,7 +431,28 @@ export class ComputerUpdater {
     return bytes;
   }
 
-  async #installVersion(version: string, computer: Uint8Array): Promise<void> {
+  /** photon_rs_bg.wasm is published uncompressed (see build-release.ts), so this is a plain
+   * size-then-checksum check with no gzip decompression step - the same size-before-read
+   * ordering #verifyArtifact uses for the compressed download, so an oversized object is never
+   * read into memory before being rejected. */
+  async #verifyPhotonWasm(directory: string, artifact: PhotonWasmArtifact): Promise<Uint8Array> {
+    const file = Bun.file(join(directory, artifact.file));
+    if (file.size > artifact.size)
+      throw integrity(`release object is larger than its recorded size: ${artifact.file}`);
+    if (file.size !== artifact.size)
+      throw integrity(`downloaded artifact failed integrity: ${artifact.file}`);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (!matchesIdentity(bytes, artifact)) {
+      throw integrity(`downloaded artifact failed integrity: ${artifact.file}`);
+    }
+    return bytes;
+  }
+
+  async #installVersion(
+    version: string,
+    computer: Uint8Array,
+    photonWasm: Uint8Array,
+  ): Promise<void> {
     const versions = join(this.#installRoot, "versions");
     const destination = join(versions, version);
     this.#onStage(`Installing CoForge Computer to ${destination}`);
@@ -433,11 +481,12 @@ export class ComputerUpdater {
         : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli github gh "$@"\n',
     );
     const installedIdentity: InstalledIdentity = {
-      schema_version: 3,
+      schema_version: 4,
       version,
       computer: { size: computer.byteLength, checksum: checksum(computer) },
       agentCli: { size: agentCli.byteLength, checksum: checksum(agentCli) },
       githubCli: { size: githubCli.byteLength, checksum: checksum(githubCli) },
+      photonWasm: { size: photonWasm.byteLength, checksum: checksum(photonWasm) },
     };
     await mkdir(staging, { recursive: true, mode: 0o700 });
     try {
@@ -451,6 +500,9 @@ export class ComputerUpdater {
         writeFile(join(staging, this.#target.startsWith("windows-") ? "gh.cmd" : "gh"), githubCli, {
           mode: 0o700,
         }),
+        // Data, not an executable: mode 0o600 like version/installation.json below, not the
+        // 0o700 the three launchers above get.
+        writeFile(join(staging, "photon_rs_bg.wasm"), photonWasm, { mode: 0o600 }),
         writeFile(join(staging, "version"), `${version}\n`, { mode: 0o600 }),
         writeFile(join(staging, "installation.json"), `${JSON.stringify(installedIdentity)}\n`, {
           mode: 0o600,
@@ -478,8 +530,11 @@ export class ComputerUpdater {
         readFile(join(directory, "installation.json"), "utf8"),
       ]);
       const identity = JSON.parse(identityText) as InstalledIdentity;
+      // Schema 3 introduced the GitHub CLI launcher; schema 4 (photonWasm, below) keeps carrying
+      // it, so both check it. Schema 2 installations predate it entirely and are only kept
+      // around as offline rollback targets - see the type comment on InstalledIdentityV4.
       if (
-        identity.schema_version === 3 &&
+        (identity.schema_version === 3 || identity.schema_version === 4) &&
         (!validIdentity(identity.githubCli) ||
           !matchesIdentity(
             await readFile(join(directory, this.#target.startsWith("windows-") ? "gh.cmd" : "gh")),
@@ -498,8 +553,19 @@ export class ComputerUpdater {
       )
         throw integrity("installed Agent CLI failed its offline integrity check");
       if (
+        identity.schema_version === 4 &&
+        (!validIdentity(identity.photonWasm) ||
+          !matchesIdentity(
+            await readFile(join(directory, "photon_rs_bg.wasm")),
+            identity.photonWasm,
+          ))
+      )
+        throw integrity("installed image library failed its offline integrity check");
+      if (
         marker.trim() !== version ||
-        (identity.schema_version !== 2 && identity.schema_version !== 3) ||
+        (identity.schema_version !== 2 &&
+          identity.schema_version !== 3 &&
+          identity.schema_version !== 4) ||
         identity.version !== version ||
         "daemon" in identity ||
         !validIdentity(identity.computer) ||
@@ -648,6 +714,18 @@ function validArtifact(value: unknown, expectedBinary: string): value is Platfor
     candidate.binary === expectedBinary &&
     validIdentity(candidate.gzip) &&
     candidate.gzip.binary === `${expectedBinary}.gz`
+  );
+}
+
+/** Same "pinned name, not merely a safe filename" reasoning as validPlatformEntry, applied to the
+ * one platform-independent manifest object instead of a per-target binary. */
+function validPhotonWasmEntry(value: unknown): value is PhotonWasmArtifact {
+  const candidate = value as PhotonWasmArtifact | undefined;
+  return (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    candidate.file === "photon_rs_bg.wasm" &&
+    validIdentity(candidate)
   );
 }
 
