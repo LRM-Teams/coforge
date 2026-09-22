@@ -207,8 +207,8 @@ const MULTIPART_MIN_BYTES = 20 * 1024 * 1024;
 /** Whole-multipart attempts before giving up. ali-oss's own retry never fires for a response
  * timeout: its guard only retries errors carrying status -1/-2, and a `ResponseTimeoutError`
  * carries none — so a timed-out part fails the whole call no matter what `retryMax` says. The
- * outer retry below is the only thing that rescues it; ali-oss resumes from the parts OSS already
- * stored, so an attempt after a timeout re-sends at most one part. */
+ * outer retry below is the only thing that rescues it. Without a checkpoint, each attempt starts a
+ * new multipart upload (a new uploadId) and re-sends the whole object. */
 const MULTIPART_ATTEMPTS = 3;
 
 /** Every other release object (the computer binary, its gzip, checksum sidecars, the manifest) is
