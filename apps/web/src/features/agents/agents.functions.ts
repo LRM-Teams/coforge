@@ -13,6 +13,7 @@ import {
   updateAgentRoleInputSchema,
 } from "./agent.schemas";
 import { AGENT_VISIBILITY } from "./agent-visibility";
+import { publishAgentVisibilityChanged } from "../../server/agents/agent-visibility-realtime.server";
 import { ChangeAgentVisibility } from "../../server/agents/change-agent-visibility.server";
 import {
   PrismaChangeAgentVisibilityStore,
@@ -199,15 +200,11 @@ function agentDeletion(db: Database) {
   );
 }
 
-/**
- * `onVisibilityChanged` is intentionally left unwired here (ADR 0059 Slice C): Slice B's realtime
- * `publishAgentVisibilityChanged(workspaceId, agentId)` (`agent-activity-realtime.server.ts`) is
- * composed in by the coordinator once that branch merges, so the two branches merge cleanly.
- */
 function changeAgentVisibilityUseCase(db: Database) {
   return new ChangeAgentVisibility(
     new PrismaAgentRepository(db),
     new PrismaChangeAgentVisibilityStore(db),
+    publishAgentVisibilityChanged,
   );
 }
 

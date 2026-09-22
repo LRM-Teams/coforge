@@ -84,6 +84,7 @@ test.skipIf(!connectionString)(
       const changeVisibility = new ChangeAgentVisibility(
         new PrismaAgentRepository(db),
         new PrismaChangeAgentVisibilityStore(db),
+        async () => {},
       );
 
       // The member starts a DM with the (still public) Agent and can send.

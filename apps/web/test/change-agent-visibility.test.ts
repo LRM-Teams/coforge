@@ -142,15 +142,15 @@ describe("ChangeAgentVisibility", () => {
     expect(notified).toEqual([]);
   });
 
-  test("works without an onVisibilityChanged dependency (unwired until Slice B merges)", async () => {
+  test("a failed browser notification does not fail the committed change", async () => {
     const record = agent();
-    const applied: Parameters<ChangeAgentVisibilityStore["apply"]>[0][] = [];
-    const useCase = new ChangeAgentVisibility(repositoryFor(record), {
-      apply: async (input) => {
-        applied.push(input);
-        return { changed: true };
+    const useCase = new ChangeAgentVisibility(
+      repositoryFor(record),
+      { apply: async () => ({ changed: true }) },
+      async () => {
+        throw new Error("realtime unavailable");
       },
-    });
+    );
     const result = await useCase.execute(
       { userId: "user-1", workspaceId: "workspace-1", role: "member" },
       { agentId: "agent-1", visibility: "private" },

@@ -21,17 +21,16 @@ export interface ChangeAgentVisibilityStore {
 /**
  * Changes one Agent's visibility (ADR 0059 "Changing visibility, both directions"). Authorized
  * for the Agent's own creator or a human Workspace owner/admin only — never an Agent, and never a
- * plain member acting on someone else's Agent. `onVisibilityChanged` is Slice B's realtime
- * `publishAgentVisibilityChanged(workspaceId, agentId)`; it is called once, after the transaction
- * commits, and only when the visibility actually changed. Left optional and unwired in this slice
- * so the two branches merge cleanly — the coordinator wires the real dependency after Slice B
- * merges.
+ * plain member acting on someone else's Agent. `onVisibilityChanged` tells connected browsers
+ * (`publishAgentVisibilityChanged`); it runs once, after the transaction commits, and only when the
+ * visibility actually changed. It is best-effort: the change is already committed, and a browser
+ * that misses it catches up on its next focus or reconnect refresh.
  */
 export class ChangeAgentVisibility {
   constructor(
     private readonly agents: AgentRepository,
     private readonly store: ChangeAgentVisibilityStore,
-    private readonly onVisibilityChanged?: (workspaceId: string, agentId: string) => Promise<void>,
+    private readonly onVisibilityChanged: (workspaceId: string, agentId: string) => Promise<void>,
   ) {}
 
   async execute(
@@ -50,7 +49,7 @@ export class ChangeAgentVisibility {
       workspaceId: agent.workspaceId,
       visibility: input.visibility,
     });
-    if (changed) await this.onVisibilityChanged?.(agent.workspaceId, agent.id);
+    if (changed) await this.onVisibilityChanged(agent.workspaceId, agent.id).catch(() => {});
     return { visibility: input.visibility, changed };
   }
 }

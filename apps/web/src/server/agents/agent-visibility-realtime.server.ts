@@ -12,9 +12,7 @@ import { agentStatusChannel } from "../../features/agents/agent-status-realtime"
  * already has the roster doesn't already know — so every member's already-open connection
  * receives it without a new subscription grant.
  *
- * The visibility-change use case (a separate, parallel slice) calls `publishAgentVisibilityChanged`
- * after its transaction commits; it does not import this module directly today, so the two slices
- * merge independently — the exact exported name/signature is the agreed seam between them.
+ * `ChangeAgentVisibility` calls it after its transaction commits.
  */
 export function createAgentVisibilityChangedPublisher(
   api: Pick<CentrifugoServerApi, "publishJson">,
