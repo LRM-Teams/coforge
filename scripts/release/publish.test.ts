@@ -713,14 +713,17 @@ test("a transport failure names its class, and still leaks nothing else", () => 
   expect(plain.message).not.toContain(" Error ");
 });
 
-test("the publish client gives an upload more than an interactive caller's budget", async () => {
-  // ali-oss's default is 60s per request. Three consecutive staging publishes died uploading the
-  // largest bundle with a transport failure that reports no status - what a timeout looks like - so
-  // the batch client must not inherit an interactive timeout.
+test("the publish client keeps ali-oss's documented defaults", async () => {
+  // Transfer acceleration fixed the slow cross-border link, so uploads use ali-oss's documented
+  // 60 s request timeout and its default keep-alive agent instead of batch-job overrides.
   const connection = fixtureConnection({ url: "https://oss.example" });
   const client = await createOssClient(connection, CREDENTIALS);
-  const options = (client as unknown as { options: { timeout?: number } }).options;
-  expect(options.timeout).toBeGreaterThanOrEqual(5 * 60 * 1000);
+  const options = (
+    client as unknown as { options: { timeout?: number; agent?: unknown; httpsAgent?: unknown } }
+  ).options;
+  expect(options.timeout).toBe(60_000);
+  expect(options.agent).toBeUndefined();
+  expect(options.httpsAgent).toBeUndefined();
 });
 
 test("an objects-only publication uploads its files and never touches latest", async () => {
