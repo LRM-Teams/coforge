@@ -19,8 +19,8 @@ import { assertOpenCodeVersionSupported } from "./version";
  * OpenCode reports on its own events (`sessionID`).
  *
  * The standing Agent instructions are sent as the whole prompt of a fresh session's first turn:
- * OpenCode reads a project's `AGENTS.md` itself, and 1.2.x has no system-prompt flag, so there is
- * no other channel for them. A resumed session never resends them.
+ * OpenCode v2 reads a project's `AGENTS.md` itself and has no system-prompt flag, so there is no
+ * other channel for them. A resumed session never resends them.
  */
 export class OpenCodeProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.OPENCODE;
