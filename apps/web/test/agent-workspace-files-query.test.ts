@@ -153,6 +153,8 @@ test("Workspace file read binds the owner's assignment and rechecks it before re
         sizeBytes: 3,
         modifiedAtMs: 1,
         text: "abc",
+        contentType: "",
+        contentBase64: "",
       } satisfies AgentWorkspaceFileReadResult;
     },
   });
@@ -209,6 +211,8 @@ test("Workspace file read result RPC trusts daemon claims rather than claimed pa
     sizeBytes: 3,
     modifiedAtMs: 1,
     text: "abc",
+    contentType: "",
+    contentBase64: "",
   };
   let accepted = 0;
   const method = createAgentWorkspaceFileReadResultMethod({

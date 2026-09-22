@@ -232,3 +232,98 @@ test("Workspace Files error paths never leak the workspace's absolute path", asy
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("Workspace File read carries a previewable image back as its media type and bytes", async () => {
+  const root = await mkdtemp(join(tempRoot, "workspace-files-image-"));
+  try {
+    // A real 1x1 PNG, so the bytes are carried verbatim rather than re-encoded on the way out.
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    await Bun.write(join(root, "shot.png"), png);
+
+    const result = await readAgentWorkspaceFile({
+      agentWorkspaceDirectory: root,
+      path: "shot.png",
+    });
+    expect(result.status).toBe("ok");
+    expect(result.contentType).toBe("image/png");
+    expect(result.contentBase64).toBe(png.toString("base64"));
+    expect(result.text).toBe("");
+    expect(result.sizeBytes).toBe(png.length);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Workspace File read sniffs each previewable format, and the file name never decides", async () => {
+  const root = await mkdtemp(join(tempRoot, "workspace-files-signatures-"));
+  try {
+    // Only the header decides, and several of these contain NUL bytes: the image rule has to
+    // answer before the binary rule behind it does.
+    const signatures: [string, string, string][] = [
+      ["a.png", "\x89PNG\r\n\x1a\n", "image/png"],
+      ["a.jpg", "\xff\xd8\xff\xe0", "image/jpeg"],
+      ["a.gif", "GIF87a", "image/gif"],
+      ["a.webp", "RIFF\x00\x00\x00\x00WEBP", "image/webp"],
+      ["a.ico", "\x00\x00\x01\x00", "image/x-icon"],
+      ["a.tif", "MM\x00*", "image/tiff"],
+      ["a.avif", "\x00\x00\x00\x18ftypavif", "image/avif"],
+    ];
+    for (const [name, header, contentType] of signatures) {
+      const bytes = Buffer.concat([Buffer.from(header, "latin1"), Buffer.alloc(16, 0x41)]);
+      await Bun.write(join(root, name), bytes);
+      const result = await readAgentWorkspaceFile({ agentWorkspaceDirectory: root, path: name });
+      expect([name, result.status, result.contentType]).toEqual([name, "ok", contentType]);
+      expect(result.contentBase64).toBe(bytes.toString("base64"));
+    }
+
+    // A RIFF header alone is not a picture: the subtype has to say WebP.
+    await Bun.write(join(root, "a.wav"), Buffer.from("RIFF\x00\x00\x00\x00WAVE", "latin1"));
+    const wave = await readAgentWorkspaceFile({ agentWorkspaceDirectory: root, path: "a.wav" });
+    expect(wave.contentType).toBe("");
+
+    // The name is the writer's claim, not evidence: a PNG called `notes.txt` is still a PNG...
+    await Bun.write(join(root, "notes.txt"), Buffer.from("\x89PNG\r\n\x1a\n", "latin1"));
+    const disguised = await readAgentWorkspaceFile({
+      agentWorkspaceDirectory: root,
+      path: "notes.txt",
+    });
+    expect(disguised.contentType).toBe("image/png");
+
+    // ...and the reverse: prose named `.png` stays text, because nothing in its bytes says image.
+    await Bun.write(join(root, "diagram.png"), "this is prose, not a picture");
+    const prose = await readAgentWorkspaceFile({
+      agentWorkspaceDirectory: root,
+      path: "diagram.png",
+    });
+    expect(prose.status).toBe("ok");
+    expect(prose.contentType).toBe("");
+    expect(prose.text).toBe("this is prose, not a picture");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Workspace File read refuses an image past the publish ceiling", async () => {
+  const root = await mkdtemp(join(tempRoot, "workspace-files-image-large-"));
+  try {
+    const bytes = Buffer.concat([
+      Buffer.from("\x89PNG\r\n\x1a\n", "latin1"),
+      Buffer.alloc(1024 * 1024 + 1, 0x41),
+    ]);
+    await Bun.write(join(root, "huge.png"), bytes);
+
+    const result = await readAgentWorkspaceFile({
+      agentWorkspaceDirectory: root,
+      path: "huge.png",
+    });
+    expect(result.status).toBe("too_large");
+    expect(result.contentType).toBe("");
+    expect(result.contentBase64).toBe("");
+    expect(result.sizeBytes).toBe(bytes.length);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

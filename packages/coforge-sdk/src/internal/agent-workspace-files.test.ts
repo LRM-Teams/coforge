@@ -72,6 +72,8 @@ test("Workspace File read keeps request scope and text on the wire", () => {
     sizeBytes: 42,
     modifiedAtMs: 1_700_000_000_000,
     text: "export const answer = 42;\n",
+    contentType: "",
+    contentBase64: "",
   };
   expect(decodeAgentWorkspaceFileReadResult(encodeAgentWorkspaceFileReadResult(result))).toEqual(
     result,
@@ -84,5 +86,40 @@ test("Workspace File read keeps request scope and text on the wire", () => {
   ).toThrow();
   expect(() =>
     encodeAgentWorkspaceFileReadResult({ ...result, text: "x".repeat(600 * 1024) }),
+  ).toThrow();
+});
+
+test("Workspace File read carries a previewable image's bytes and sniffed media type", () => {
+  // A real 1x1 PNG, so the bytes are a payload rather than an arbitrary run of bytes.
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const result = {
+    ...readRequest,
+    status: "ok" as const,
+    sizeBytes: png.length,
+    modifiedAtMs: 1_700_000_000_000,
+    text: "",
+    contentType: "image/png",
+    contentBase64: png.toString("base64"),
+  };
+  expect(decodeAgentWorkspaceFileReadResult(encodeAgentWorkspaceFileReadResult(result))).toEqual(
+    result,
+  );
+  // The bytes are one payload, not two: a result may not claim both a text body and an image.
+  expect(() => encodeAgentWorkspaceFileReadResult({ ...result, text: "not an image" })).toThrow();
+  // A media type with no bytes behind it, and bytes with no media type to name them, are both
+  // unrepresentable: an image read always fills both, and a text read fills neither.
+  expect(() => encodeAgentWorkspaceFileReadResult({ ...result, contentBase64: "" })).toThrow();
+  expect(() => encodeAgentWorkspaceFileReadResult({ ...result, contentType: "" })).toThrow();
+  expect(() => encodeAgentWorkspaceFileReadResult({ ...result, contentType: "png" })).toThrow();
+  expect(() =>
+    encodeAgentWorkspaceFileReadResult({ ...result, contentBase64: "not base64!" }),
+  ).toThrow();
+  // Over the payload bound, refused before anything is allocated.
+  const oversized = Buffer.alloc(1024 * 1024 + 1);
+  expect(() =>
+    encodeAgentWorkspaceFileReadResult({ ...result, contentBase64: oversized.toString("base64") }),
   ).toThrow();
 });

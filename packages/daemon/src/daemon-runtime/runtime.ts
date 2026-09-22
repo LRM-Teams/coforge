@@ -1258,8 +1258,20 @@ export class DaemonRuntime {
   async #readWorkspaceFile(
     connection: DaemonConfig,
     request: Pick<AgentWorkspaceFileReadRequest, "agentId" | "path">,
-  ): Promise<Pick<AgentWorkspaceFileReadResult, "status" | "sizeBytes" | "modifiedAtMs" | "text">> {
-    const unavailable = { status: "error" as const, sizeBytes: 0, modifiedAtMs: 0, text: "" };
+  ): Promise<
+    Pick<
+      AgentWorkspaceFileReadResult,
+      "status" | "sizeBytes" | "modifiedAtMs" | "text" | "contentType" | "contentBase64"
+    >
+  > {
+    const unavailable = {
+      status: "error" as const,
+      sizeBytes: 0,
+      modifiedAtMs: 0,
+      text: "",
+      contentType: "",
+      contentBase64: "",
+    };
     if (this.#workspaceFilesScanning) return unavailable;
     this.#workspaceFilesScanning = true;
     try {
