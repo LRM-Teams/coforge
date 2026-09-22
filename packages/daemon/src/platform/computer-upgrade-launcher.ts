@@ -204,15 +204,7 @@ export async function launchWindowsComputerUpgrade(
         action,
       }),
     );
-    const created = await run([
-      "schtasks.exe",
-      "/Create",
-      "/TN",
-      taskName,
-      "/XML",
-      xmlPath,
-      "/F",
-    ]);
+    const created = await run(["schtasks.exe", "/Create", "/TN", taskName, "/XML", xmlPath, "/F"]);
     if (created !== 0) throw new Error("external Computer upgrade coordinator was rejected");
     const started = await run(["schtasks.exe", "/Run", "/TN", taskName]);
     if (started !== 0) throw new Error("external Computer upgrade coordinator was rejected");

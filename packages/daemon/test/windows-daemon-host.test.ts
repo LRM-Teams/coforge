@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  WindowsUserDaemonHost,
-  windowsDaemonTaskXml,
-} from "../src/daemon-host/windows-task";
+import { WindowsUserDaemonHost, windowsDaemonTaskXml } from "../src/daemon-host/windows-task";
 import { windowsUpgradeTaskXml } from "../src/platform/computer-upgrade-launcher";
 
 test("windowsDaemonTaskXml registers a least-privilege interactive logon task", () => {
@@ -28,7 +25,7 @@ test("windowsDaemonTaskXml registers a least-privilege interactive logon task", 
 test("windowsDaemonTaskXml escapes XML metacharacters in paths", () => {
   const xml = windowsDaemonTaskXml({
     userId: "A&B\\user",
-    executablePath: "C:\\Path <x>&\"y\"\\coforge-computer.exe",
+    executablePath: 'C:\\Path <x>&"y"\\coforge-computer.exe',
     socketPath: "C:\\sock&et.sock",
   });
   expect(xml).toContain("<UserId>A&amp;B\\user</UserId>");
