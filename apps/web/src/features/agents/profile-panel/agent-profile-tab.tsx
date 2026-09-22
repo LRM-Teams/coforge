@@ -439,6 +439,17 @@ export function AgentProfileTab({
  * consequences, so picking an option still opens the container's confirmation dialog rather
  * than applying immediately.
  */
+/** The visibility the Select's chosen key asks for, or `null` when it asks for the current one —
+ * only a real change opens the confirmation dialog. Kept pure so the no-op rule is testable
+ * without rendering the Select. */
+export function visibilityChangeTarget(
+  current: AgentVisibility,
+  key: string,
+): AgentVisibility | null {
+  const target = key === "private" ? AGENT_VISIBILITY.PRIVATE : AGENT_VISIBILITY.PUBLIC;
+  return target === current ? null : target;
+}
+
 function VisibilityField({
   visibility,
   onRequest,
@@ -471,8 +482,8 @@ function VisibilityField({
             selectedKey={isPrivate ? "private" : "public"}
             onSelectionChange={(key) => {
               setEditing(false);
-              const target = key === "private" ? AGENT_VISIBILITY.PRIVATE : AGENT_VISIBILITY.PUBLIC;
-              if (target !== visibility) onRequest(target);
+              const target = visibilityChangeTarget(visibility, String(key));
+              if (target) onRequest(target);
             }}
             className="w-36"
           >

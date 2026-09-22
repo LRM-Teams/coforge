@@ -4,7 +4,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
-import { AgentProfileTab } from "@/features/agents/profile-panel/agent-profile-tab";
+import {
+  AgentProfileTab,
+  visibilityChangeTarget,
+} from "@/features/agents/profile-panel/agent-profile-tab";
 import type { AgentRuntimeControls } from "@/features/agents/agent-runtime-controls";
 import type { getAgentProfile } from "@/features/agents/agents.functions";
 import { formatDateForDisplay } from "@/lib/dates";
@@ -442,4 +445,11 @@ test("a private Agent without the visibility grant shows the Private badge with 
   );
   expect(markup).toContain("Private");
   expect(markup).not.toContain("Edit visibility");
+});
+
+test("visibilityChangeTarget: choosing the current state is a no-op, the opposite opens the dialog", () => {
+  expect(visibilityChangeTarget("public", "public")).toBeNull();
+  expect(visibilityChangeTarget("private", "private")).toBeNull();
+  expect(visibilityChangeTarget("public", "private")).toBe("private");
+  expect(visibilityChangeTarget("private", "public")).toBe("public");
 });
