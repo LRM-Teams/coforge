@@ -75,28 +75,6 @@ export type MemoryCitationBindings = {
   toOfferRefs(citations: readonly MemoryCitation[]): MemoryOfferCitationRef[];
 };
 
-const CAUSAL_PATH_VERSION = /^__v(\d+)__(?::(.*))?$/;
-
-export function encodeCausalPathVersion(
-  causalPathId: string | undefined,
-  factVersion: number,
-): string {
-  return causalPathId ? `__v${factVersion}__:${causalPathId}` : `__v${factVersion}__`;
-}
-
-export function decodeCausalPathVersion(stored: string | undefined): {
-  causalPathId?: string;
-  factVersion?: number;
-} {
-  if (!stored) return {};
-  const match = CAUSAL_PATH_VERSION.exec(stored);
-  if (!match) return { causalPathId: stored };
-  return {
-    factVersion: Number(match[1]),
-    ...(match[2] ? { causalPathId: match[2] } : {}),
-  };
-}
-
 export function createPrismaCausalMemoryCitationBindings(repo: {
   putCitation(input: CausalCitationRecord): Promise<CausalCitationRecord>;
   getCitation(workspaceId: string, citationId: string): Promise<CausalCitationRecord | undefined>;
@@ -108,7 +86,8 @@ export function createPrismaCausalMemoryCitationBindings(repo: {
         workspaceId: record.workspaceId,
         citationId: citation.citationId,
         causalItemId: citation.causalItemId,
-        causalPathId: encodeCausalPathVersion(citation.causalPathId, citation.factVersion),
+        causalPathId: citation.causalPathId,
+        factVersion: citation.factVersion,
         admittedSegmentId: citation.admittedSegmentId,
         sourceMessageIds: citation.sourceMessageIds,
         boundOperationId: record.boundOperationId,
@@ -123,15 +102,14 @@ export function createPrismaCausalMemoryCitationBindings(repo: {
     async get(workspaceId, citationId) {
       const row = await repo.getCitation(workspaceId, citationId);
       if (!row) return null;
-      const versioned = decodeCausalPathVersion(row.causalPathId);
-      if (versioned.factVersion === undefined) return null;
+      if (row.factVersion === undefined || row.factVersion === null) return null;
       try {
         const citation = decodeCausalMemoryCitation({
           kind: CAUSAL_MEMORY_CITATION_KIND,
           citationId: row.citationId,
           causalItemId: row.causalItemId,
-          ...(versioned.causalPathId === undefined ? {} : { causalPathId: versioned.causalPathId }),
-          factVersion: versioned.factVersion,
+          ...(row.causalPathId === undefined ? {} : { causalPathId: row.causalPathId }),
+          factVersion: row.factVersion,
           admittedSegmentId: row.admittedSegmentId,
           sourceMessageIds: row.sourceMessageIds,
           displayContent: row.displayContent ?? "",

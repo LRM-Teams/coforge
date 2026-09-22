@@ -204,6 +204,7 @@ F7 docs task did not re-run the suites.
 | F7 `git diff --check` | exit 0 | No whitespace errors |
 | **V1.4** | Coordinator + Rust `real_runtime` | `find` tags and equivalent `filter` round-trip fact id/version/generation. **`GET /fs/attrs` does not echo tags.** Attrs scenes: stable URI + CM-side binding. |
 | **F6** | `mise exec -- bun test ./apps/web/test/openviking-prototype.smoke.ts --timeout 180000` **exit 0** (1 pass / 0 fail / 27 expect, 12.51s) | Real HTTP on `e44ea6e` + local-embed. Provision, gateway find/resources, session→extract, tag find, PG citation, typed DELETE accepted. Without opt-in: 1 skip. Default bun glob: 0 smoke hits. |
+| **factVersion column** (2026-09-22 follow-up, reviewer re-run) | `prisma validate` 0; `tsc --noEmit` 0; real-PG backfill + repositories + citations integration **7 pass / 0 fail**; F5 scenarios **10/10**; three-module units **185 pass / 0 fail**; `mise run check` exit 0; `mise run test:web` **1737 pass / 78 skip / 0 fail** | C4#5 prefix residue closed; fail-closed reads preserved |
 
 V1.4 / F6 do **not** make the prototype a shipping artifact.
 
@@ -216,10 +217,14 @@ V1.4 / F6 do **not** make the prototype a shipping artifact.
    `/api/openviking/$workspaceId/$` is fail-closed. Policy-gateway +
    runtime-client work when tests inject `resolveAuthorization`. F6
    recorded this and did not pretend the HTTP route is live.
-2. **`factVersion` prefix encoding.** SDK `factVersion: number` is frozen.
-   Prisma citation rows have no dedicated version column; F4 stores
-   `__vN__:` on `causalPathId`. Residue, not a wire rename (C4 post-freeze
-   note).
+2. **`factVersion` formal column (closed 2026-09-22, user-approved follow-up).**
+   SDK `factVersion: number` is unchanged (frozen). Migration
+   `20260922090000_causal_fact_version` adds nullable
+   `causal_citation_records.fact_version`, backfills it from the former
+   `__vN__:` prefix, and strips the prefix from `causal_path_id`. Reads
+   fail closed when `fact_version` is NULL. `memory-citations.ts` (a C2
+   freeze file) was edited under the recorded schema gate to remove the
+   prefix encode/decode helpers; binding semantics are unchanged.
 3. **Daemon trigger-header forwarding.** OpenViking read proxy forwards
    Agent/Daemon bearer headers and strips OV identity headers. Per-trigger
    Message budget headers are not a completed Daemon→Web hop.

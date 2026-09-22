@@ -1240,6 +1240,7 @@ model CausalCitationRecord {
   citationId         String    @map("citation_id")
   causalItemId       String    @map("causal_item_id")
   causalPathId       String?   @map("causal_path_id")
+  factVersion        Int?      @map("fact_version")
   admittedSegmentId  String    @map("admitted_segment_id")
   sourceMessageIds   String[]  @map("source_message_ids")
   boundOperationId   String    @map("bound_operation_id")

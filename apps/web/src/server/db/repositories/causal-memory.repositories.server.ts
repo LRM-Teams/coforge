@@ -156,6 +156,7 @@ export class PrismaCausalMemoryRepository {
         citationId: input.citationId,
         causalItemId: input.causalItemId,
         causalPathId: input.causalPathId,
+        factVersion: input.factVersion ?? null,
         admittedSegmentId: input.admittedSegmentId,
         sourceMessageIds: input.sourceMessageIds,
         boundOperationId: input.boundOperationId,
@@ -164,6 +165,7 @@ export class PrismaCausalMemoryRepository {
       update: {
         causalItemId: input.causalItemId,
         causalPathId: input.causalPathId,
+        factVersion: input.factVersion ?? null,
         admittedSegmentId: input.admittedSegmentId,
         sourceMessageIds: input.sourceMessageIds,
         boundOperationId: input.boundOperationId,
@@ -288,6 +290,7 @@ export class PrismaCausalMemoryRepository {
     citationId: string;
     causalItemId: string;
     causalPathId: string | null;
+    factVersion: number | null;
     admittedSegmentId: string;
     sourceMessageIds: string[];
     boundOperationId: string;
@@ -298,6 +301,9 @@ export class PrismaCausalMemoryRepository {
       citationId: row.citationId,
       causalItemId: row.causalItemId,
       ...(row.causalPathId ? { causalPathId: row.causalPathId } : {}),
+      ...(row.factVersion === null || row.factVersion === undefined
+        ? {}
+        : { factVersion: row.factVersion }),
       admittedSegmentId: row.admittedSegmentId,
       sourceMessageIds: row.sourceMessageIds,
       boundOperationId: row.boundOperationId,

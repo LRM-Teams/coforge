@@ -11,8 +11,6 @@ import {
   createInMemoryCausalMemoryCitationBindings,
   createMemoryCitationBindings,
   createPrismaCausalMemoryCitationBindings,
-  decodeCausalPathVersion,
-  encodeCausalPathVersion,
   MemoryCitationCorrectionError,
   MemoryCitationUngroundedError,
 } from "./memory-citations";
@@ -158,17 +156,7 @@ test("correction accepts only served CausalMemoryCitation and rejects OpenViking
   );
 });
 
-test("encodes factVersion onto the causal path so F4 can reconstruct a versioned citation", () => {
-  expect(encodeCausalPathVersion("path-1", 3)).toBe("__v3__:path-1");
-  expect(decodeCausalPathVersion("__v3__:path-1")).toEqual({
-    factVersion: 3,
-    causalPathId: "path-1",
-  });
-  expect(decodeCausalPathVersion("__v2__")).toEqual({ factVersion: 2 });
-  expect(decodeCausalPathVersion("legacy-path")).toEqual({ causalPathId: "legacy-path" });
-});
-
-test("Prisma causal bindings persist factVersion and hide unversioned legacy rows from F4", async () => {
+test("Prisma causal bindings persist factVersion as a column and hide unversioned rows from F4", async () => {
   const rows = new Map<string, CausalCitationRecord>();
   const bindings = createPrismaCausalMemoryCitationBindings({
     async putCitation(input) {
@@ -191,7 +179,10 @@ test("Prisma causal bindings persist factVersion and hide unversioned legacy row
     workspaceId: "ws-a",
     boundOperationId: "search-1",
   });
-  expect(rows.get("ws-a:cm:decision-1")?.causalPathId).toBe("__v3__:path-1");
+  expect(rows.get("ws-a:cm:decision-1")).toMatchObject({
+    causalPathId: "path-1",
+    factVersion: 3,
+  });
   expect(await bindings.get("ws-a", "cm:decision-1")).toMatchObject({
     kind: CAUSAL_MEMORY_CITATION_KIND,
     factVersion: 3,
@@ -207,4 +198,16 @@ test("Prisma causal bindings persist factVersion and hide unversioned legacy row
     displayContent: "unversioned",
   });
   expect(await bindings.get("ws-a", "legacy")).toBeNull();
+  rows.set("ws-a:null-version", {
+    workspaceId: "ws-a",
+    citationId: "null-version",
+    causalItemId: "old",
+    causalPathId: "path-1",
+    factVersion: undefined,
+    admittedSegmentId: "segment-1",
+    sourceMessageIds: ["11111111-1111-1111-1111-111111111111"],
+    boundOperationId: "old-1",
+    displayContent: "missing version",
+  });
+  expect(await bindings.get("ws-a", "null-version")).toBeNull();
 });

@@ -131,6 +131,7 @@ export type CausalDistillRequest = {
 
 export type CausalRuntimeCitation = CausalCitation & {
   itemKind: CausalItemKind;
+  factVersion?: number;
 };
 
 export type CausalDistillResponse = {
@@ -218,6 +219,7 @@ export type CausalCitationRecord = {
   citationId: string;
   causalItemId: string;
   causalPathId?: string;
+  factVersion?: number;
   admittedSegmentId: string;
   sourceMessageIds: string[];
   boundOperationId: string;

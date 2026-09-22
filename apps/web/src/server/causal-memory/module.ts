@@ -251,6 +251,7 @@ export class CausalMemory implements CausalMemoryModule {
           citationId: item.citationId,
           causalItemId: item.causalItemId,
           causalPathId: item.causalPathId,
+          factVersion: item.factVersion,
           admittedSegmentId: item.admittedSegmentId,
           sourceMessageIds: item.sourceMessageIds,
           boundOperationId: operationId,
