@@ -661,6 +661,8 @@ model Conversation {
   attachmentUploadSessions AttachmentUploadSession[]
   tasks          Task[]
   actionCards    ActionCard[]
+  savedMessages  SavedMessage[]
+  pins           ConversationPin[]
   project        Project?               @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, directKey])
@@ -695,6 +697,12 @@ model ConversationMember {
   /// `channel-authority.server.ts`'s admin-basis computation, which also considers the actor's
   /// Workspace/Agent server role. See ADR 0030.
   channelRole              String            @default("member")
+  /// Forced unread marker (mark-as-unread): top-level messages with sequence >= this read as
+  /// unread regardless of readThroughSequence. Null = none. Cleared when the member reads past it.
+  unreadFromSequence     Int?
+  /// Per-member hide/close: the conversation disappears from this member's list only.
+  /// Distinct from archivedAt (whole conversation) and leftAt (membership ended).
+  hiddenAt               DateTime?
   conversation             Conversation      @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   workspace                Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user                     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -704,6 +712,8 @@ model ConversationMember {
   threadFollows            ThreadFollow[]
   reactions                MessageReaction[]
   mentions                 MessageMention[]
+  savedMessages            SavedMessage[]
+  pins                     ConversationPin[]
   ownedTasks               Task[]            @relation("TaskOwner")
   createdTasks             Task[]            @relation("TaskCreator")
 
@@ -734,6 +744,7 @@ model Message {
   threadFollows  ThreadFollow[]
   reactions      MessageReaction[]
   mentions       MessageMention[]
+  savedBy        SavedMessage[]
   task           Task?
   actionCard     ActionCard?
 
@@ -896,6 +907,37 @@ model MessageReaction {
   @@id([messageId, memberId, emoji])
   @@index([conversationId, messageId])
   @@map("message_reactions")
+}
+
+/// A member's saved messages (#120): bookmark a message, list them, jump back to the conversation.
+model SavedMessage {
+  messageId      String             @db.Uuid
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  memberId       String             @db.Uuid
+  createdAt      DateTime           @default(now())
+  message        Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+  member         ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+  conversation   Conversation       @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@id([messageId, memberId])
+  @@index([workspaceId, memberId, createdAt])
+  @@map("saved_messages")
+}
+
+/// A member's pinned conversations (#121): ordered, per-member, independent of archive/leave.
+model ConversationPin {
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  memberId       String             @db.Uuid
+  sortOrder      Int                @default(0)
+  createdAt      DateTime           @default(now())
+  conversation   Conversation       @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  member         ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+
+  @@id([conversationId, memberId])
+  @@index([workspaceId, memberId, sortOrder])
+  @@map("conversation_pins")
 }
 
 model Attachment {
