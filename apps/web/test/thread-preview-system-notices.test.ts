@@ -44,3 +44,35 @@ describe("system notices in the thread preview (#139)", () => {
     expect(filtered).toHaveLength(0);
   });
 });
+
+describe("the thread pane path stays unfiltered (#139's second rule)", () => {
+  /**
+   * The thread pane must keep showing every reply — the filter lives only inside the
+   * `threadPreview` callback, never in `repliesOf` (the single grouping the thread pane's
+   * `messages` read). Source-pinned (the same style as `message-jump-highlight`): apps/web's
+   * suite renders server-side, so the guarantee "the pane reads the unfiltered grouping" is
+   * what the source itself must show.
+   */
+  test("the pane reads the unfiltered grouping and the filter exists only in the preview", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const source = await readFile(
+      join(import.meta.dir, "../src/features/conversations/direct-conversation.tsx"),
+      "utf8",
+    );
+    // Exactly one system filter, and it is the preview's: a second occurrence would mean the
+    // pane's data source was filtered too — the drift this test exists to catch.
+    const filterCount = source.split('senderKind !== "system"').length - 1;
+    expect(filterCount).toBe(1);
+    expect(source).toContain("senderKind !== \"system\"");
+    // The thread pane reads `repliesOf(...)` — the unfiltered grouping — as its messages
+    // (`threadPaneProps(root)`; the open task popup's thread does too).
+    expect(source).toContain("messages: repliesOf(root.id),");
+    // `repliesOf` itself groups without a system filter (the pane's only data source).
+    const repliesOfLine = source
+      .split("\n")
+      .find((line) => line.includes("const repliesOf = (rootId: string)"));
+    expect(repliesOfLine).toBeDefined();
+    expect(repliesOfLine?.includes("system")).toBe(false);
+  });
+});
