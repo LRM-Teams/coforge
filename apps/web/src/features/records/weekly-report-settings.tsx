@@ -15,12 +15,16 @@ import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { useSubmitGuard } from "@/hooks/use-submit-guard";
 import { m } from "@/paraglide/messages";
 import { CreateWeeklyTemplateDialog } from "./create-weekly-template-dialog";
 import { KeyPointPromptEditor } from "./key-point-prompt-editor";
+import { RecordsDeleteConfirmDialog } from "./records-delete-confirm-dialog";
 import {
   emptyKeyPointPrompts,
   formatRecipientSummary,
+  keyPointHistoryIndexOf,
+  type KeyPointPromptHistoryEntry,
   type KeyPointPromptsMeta,
 } from "./records-content";
 import { memberLabel, weekdayLabel, type TemplateMemberOption } from "./weekly-template-members";
@@ -90,6 +94,21 @@ export function WeeklyReportSettings({
   const [editing, setEditing] = useState<WeeklyTemplateList[number] | null>(null);
   const [detail, setDetail] = useState<WeeklyTemplateList[number] | null>(null);
   const [busy, setBusy] = useState(false);
+  // Each delete confirm keeps its target after closing so the dialog's text stays intact through
+  // the modal's exit animation; the separate `open` flag drives visibility.
+  const [templateDeleteOpen, setTemplateDeleteOpen] = useState(false);
+  const [templatePendingDelete, setTemplatePendingDelete] = useState<
+    WeeklyTemplateList[number] | null
+  >(null);
+  const [templateDeleteError, setTemplateDeleteError] = useState("");
+  const [deletingTemplate, guardTemplateDelete] = useSubmitGuard();
+  const [historyDeleteOpen, setHistoryDeleteOpen] = useState(false);
+  const [historyPendingDelete, setHistoryPendingDelete] = useState<{
+    slot: KeyPointSlot;
+    entry: KeyPointPromptHistoryEntry;
+  } | null>(null);
+  const [historyDeleteError, setHistoryDeleteError] = useState("");
+  const [deletingHistory, guardHistoryDelete] = useSubmitGuard();
 
   function readEditorText(): string {
     return textareaRef.current?.value ?? draftText;
@@ -158,16 +177,26 @@ export function WeeklyReportSettings({
     }
   }
 
-  async function onDelete(template: WeeklyTemplateList[number]) {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await remove({ data: { templateId: template.id } });
-      await router.invalidate({ sync: true });
-      if (detail?.id === template.id) setDetail(null);
-    } finally {
-      setBusy(false);
-    }
+  function askDeleteTemplate(template: WeeklyTemplateList[number]) {
+    setTemplatePendingDelete(template);
+    setTemplateDeleteError("");
+    setTemplateDeleteOpen(true);
+  }
+
+  function confirmDeleteTemplate() {
+    const template = templatePendingDelete;
+    if (!template) return;
+    void guardTemplateDelete(async () => {
+      setTemplateDeleteError("");
+      try {
+        await remove({ data: { templateId: template.id } });
+        if (detail?.id === template.id) setDetail(null);
+        setTemplateDeleteOpen(false);
+        await router.invalidate({ sync: true });
+      } catch {
+        setTemplateDeleteError(m.records_delete_error());
+      }
+    });
   }
 
   async function onSavePrompt() {
@@ -190,19 +219,34 @@ export function WeeklyReportSettings({
     }
   }
 
-  async function onDeleteHistory(historyIndex: number) {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const saved = await deleteHistory({
-        data: { slot: keyPointSlot, historyIndex },
-      });
-      setPrompts(saved);
-      await router.invalidate({ sync: true });
-      setPrompts(saved);
-    } finally {
-      setBusy(false);
-    }
+  function askDeleteHistory(entry: KeyPointPromptHistoryEntry) {
+    setHistoryPendingDelete({ slot: keyPointSlot, entry });
+    setHistoryDeleteError("");
+    setHistoryDeleteOpen(true);
+  }
+
+  function confirmDeleteHistory() {
+    const target = historyPendingDelete;
+    if (!target) return;
+    void guardHistoryDelete(async () => {
+      setHistoryDeleteError("");
+      // Resolve the entry's position in the latest snapshot: a history that changed while the
+      // dialog was open must not make this delete a different entry.
+      const historyIndex = keyPointHistoryIndexOf(prompts[target.slot].history, target.entry);
+      if (historyIndex < 0) {
+        setHistoryDeleteOpen(false);
+        return;
+      }
+      try {
+        const saved = await deleteHistory({ data: { slot: target.slot, historyIndex } });
+        setPrompts(saved);
+        setHistoryDeleteOpen(false);
+        await router.invalidate({ sync: true });
+        setPrompts(saved);
+      } catch {
+        setHistoryDeleteError(m.records_delete_error());
+      }
+    });
   }
 
   const activePrompt = prompts[keyPointSlot];
@@ -312,10 +356,10 @@ export function WeeklyReportSettings({
                           </Button>
                           <Button
                             size="sm"
-                            color="link-destructive"
+                            color="tertiary-destructive"
                             iconLeading={Trash}
                             isDisabled={busy}
-                            onPress={() => void onDelete(template)}
+                            onPress={() => askDeleteTemplate(template)}
                           >
                             {m.records_template_delete()}
                           </Button>
@@ -358,10 +402,38 @@ export function WeeklyReportSettings({
               editingRef.current = false;
               setDraftText(readEditorText());
             }}
-            onDeleteHistory={(index) => void onDeleteHistory(index)}
+            onDeleteHistory={askDeleteHistory}
           />
         </div>
       )}
+
+      <RecordsDeleteConfirmDialog
+        open={templateDeleteOpen}
+        title={m.records_template_delete_confirm_title({
+          name: templatePendingDelete?.name ?? "",
+        })}
+        description={m.records_template_delete_confirm_body()}
+        busy={deletingTemplate}
+        error={templateDeleteError}
+        onOpenChange={(open) => {
+          setTemplateDeleteOpen(open);
+          setTemplateDeleteError("");
+        }}
+        onConfirm={confirmDeleteTemplate}
+      />
+
+      <RecordsDeleteConfirmDialog
+        open={historyDeleteOpen}
+        title={m.records_key_points_prompt_history_delete_confirm_title()}
+        description={m.records_key_points_prompt_history_delete_confirm_body()}
+        busy={deletingHistory}
+        error={historyDeleteError}
+        onOpenChange={(open) => {
+          setHistoryDeleteOpen(open);
+          setHistoryDeleteError("");
+        }}
+        onConfirm={confirmDeleteHistory}
+      />
 
       <WeeklyTemplateDetailDialog
         template={detail}

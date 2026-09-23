@@ -307,7 +307,7 @@ export function ChannelMembersDialog({
                             {!commit && state.data.canRemoveMembers && (
                               <Button
                                 size="sm"
-                                color="link-gray"
+                                color="tertiary-destructive"
                                 onPress={() => beginRemove("user", human.id, human.displayName)}
                               >
                                 {m.channel_members_remove_action()}
@@ -384,7 +384,7 @@ export function ChannelMembersDialog({
                             {!commit && state.data.canRemoveMembers && (
                               <Button
                                 size="sm"
-                                color="link-gray"
+                                color="tertiary-destructive"
                                 onPress={() => beginRemove("agent", agent.id, agent.displayName)}
                               >
                                 {m.channel_members_remove_action()}
@@ -489,7 +489,7 @@ export function ChannelMembersDialog({
               {!leaveConfirmOpen ? (
                 <Button
                   size="sm"
-                  color="secondary"
+                  color="secondary-destructive"
                   onPress={() => {
                     setLeaveConfirmOpen(true);
                     setLeaveError("");
@@ -510,7 +510,7 @@ export function ChannelMembersDialog({
                   <div className="flex gap-2">
                     <Button
                       size="sm"
-                      color="tertiary-destructive"
+                      color="primary-destructive"
                       isDisabled={leaving}
                       isLoading={leaving}
                       showTextWhileLoading
@@ -567,7 +567,7 @@ function RemoveConfirm({
       <div className="flex gap-2">
         <Button
           size="sm"
-          color="tertiary-destructive"
+          color="primary-destructive"
           isDisabled={busy}
           isLoading={busy}
           showTextWhileLoading

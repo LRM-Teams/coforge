@@ -140,6 +140,8 @@
   "agent_runtime_save": "Save runtime config",
   "agent_runtime_saving": "Saving…",
   "agent_runtime_delete_key": "Delete API key",
+  "agent_runtime_delete_key_confirm": "Delete the saved {provider} API key? This can't be undone.",
+  "agent_runtime_deleting": "Deleting…",
   "agent_runtime_save_error": "The runtime configuration could not be saved. Try again.",
   "agent_runtime_delete_error": "The API key could not be deleted. Try again.",
   "agent_control_title": "Agent control",

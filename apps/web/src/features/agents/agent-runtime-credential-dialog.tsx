@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
@@ -51,6 +51,10 @@ export function AgentRuntimeCredentialDialog({
   onDelete?: () => Promise<void>;
   modelFields: { label: string; value: string }[];
 }) {
+  /** Deleting the key is a two-step flow: the entry button swaps the footer for this confirm row. */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /** Set when the confirm row is cancelled, so focus lands back on the entry button it replaced. */
+  const [returnFocusToDeleteEntry, setReturnFocusToDeleteEntry] = useState(false);
   return (
     <ModalOverlay
       isOpen={open}
@@ -65,6 +69,8 @@ export function AgentRuntimeCredentialDialog({
             <form
               onSubmit={async (event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
+                // Enter in the key field must not save while the delete confirm is showing.
+                if (confirmingDelete) return;
                 const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "");
                 await onSave(apiKey);
               }}
@@ -105,33 +111,66 @@ export function AgentRuntimeCredentialDialog({
                   <RuntimeField key={field.label} {...field} />
                 ))}
               </div>
-              <div className="flex justify-between gap-3 border-t border-secondary px-6 py-4">
-                <div>
-                  {credentialHint && onDelete && (
+              {confirmingDelete && credentialHint && onDelete ? (
+                <div className="flex flex-col gap-3 border-t border-secondary px-6 py-4">
+                  <p className="text-sm text-secondary">
+                    {m.agent_runtime_delete_key_confirm({ provider: providerId })}
+                  </p>
+                  <div className="flex justify-end gap-3">
                     <Button
                       type="button"
-                      color="tertiary"
+                      color="secondary"
+                      autoFocus
                       isDisabled={saving}
+                      onPress={() => {
+                        setReturnFocusToDeleteEntry(true);
+                        setConfirmingDelete(false);
+                      }}
+                    >
+                      {m.controls_cancel()}
+                    </Button>
+                    <Button
+                      type="button"
+                      color="primary-destructive"
+                      isDisabled={saving}
+                      isLoading={saving}
+                      showTextWhileLoading
                       onPress={() => void onDelete()}
                     >
-                      {m.agent_runtime_delete_key()}
+                      {saving ? m.agent_runtime_deleting() : m.agent_runtime_delete_key()}
                     </Button>
-                  )}
+                  </div>
                 </div>
-                <div className="flex gap-3">
-                  <Button
-                    type="button"
-                    color="secondary"
-                    isDisabled={saving}
-                    onPress={() => onOpenChange(false)}
-                  >
-                    {m.controls_cancel()}
-                  </Button>
-                  <Button type="submit" isDisabled={saving}>
-                    {saving ? m.agent_runtime_saving() : m.agent_runtime_save()}
-                  </Button>
+              ) : (
+                <div className="flex justify-between gap-3 border-t border-secondary px-6 py-4">
+                  <div>
+                    {credentialHint && onDelete && (
+                      <Button
+                        type="button"
+                        color="secondary-destructive"
+                        autoFocus={returnFocusToDeleteEntry}
+                        isDisabled={saving}
+                        onPress={() => setConfirmingDelete(true)}
+                      >
+                        {m.agent_runtime_delete_key()}
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <Button
+                      type="button"
+                      color="secondary"
+                      isDisabled={saving}
+                      onPress={() => onOpenChange(false)}
+                    >
+                      {m.controls_cancel()}
+                    </Button>
+                    <Button type="submit" isDisabled={saving}>
+                      {saving ? m.agent_runtime_saving() : m.agent_runtime_save()}
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )}
             </form>
           )}
         </Dialog>

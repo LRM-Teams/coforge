@@ -267,7 +267,7 @@ function AttachmentChip({
                   </p>
                   {uploading && <ProgressBar value={attachment.progress} className="mt-1.5" />}
                   {attachment.failed && (
-                    <Button color="link-destructive" size="sm" onPress={onRetry} className="mt-1">
+                    <Button color="link-color" size="sm" onPress={onRetry} className="mt-1">
                       {m.controls_retry()}
                     </Button>
                   )}
