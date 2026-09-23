@@ -21,7 +21,7 @@ import {
 import {
   getUserPreferences,
   saveConversationOpenMode,
-  saveUserTimeZone,
+  saveDateTimePreferences,
 } from "@/features/settings/settings.functions";
 import {
   loadMyWorkspaceInvitations,
@@ -39,6 +39,7 @@ import {
   type ConversationOpenMode,
 } from "@/features/settings/conversation-open-mode";
 import { isAppError } from "@/lib/app-error";
+import type { TimeFormat } from "@/lib/time-format";
 import { m } from "@/paraglide/messages";
 
 type Theme = "system" | "light" | "dark";
@@ -47,6 +48,7 @@ const appRoute = getRouteApi("/_app");
 
 const settingsSections = [
   "account",
+  "language-region",
   "members",
   "preferences",
   "notifications",
@@ -95,6 +97,7 @@ function SettingsPage() {
   const navigate = Route.useNavigate();
   const {
     timeZone: savedTimeZone,
+    timeFormat: savedTimeFormat,
     conversationOpenMode: savedOpenMode,
     members,
   } = Route.useLoaderData();
@@ -103,7 +106,7 @@ function SettingsPage() {
     NotificationPermission | "unsupported"
   >("unsupported");
   const [showAddToHomeScreenGuide, setShowAddToHomeScreenGuide] = useState(false);
-  const saveTimeZone = useServerFn(saveUserTimeZone);
+  const saveDateTime = useServerFn(saveDateTimePreferences);
   const saveOpenMode = useServerFn(saveConversationOpenMode);
   const saveNotificationPreference = useServerFn(saveBrowserNotificationPreference);
   const subscribePush = useServerFn(subscribeBrowserPush);
@@ -173,13 +176,9 @@ function SettingsPage() {
     applyTheme(nextTheme);
   }
 
-  async function changeTimeZone(nextTimeZone: string) {
-    try {
-      await saveTimeZone({ data: { timeZone: nextTimeZone || null } });
-      await router.invalidate({ sync: true });
-    } catch (cause) {
-      toast.error(m.settings_save_error(), cause);
-    }
+  async function changeDateTime(input: { timeZone: string | null; timeFormat: TimeFormat | null }) {
+    await saveDateTime({ data: input });
+    await router.invalidate({ sync: true });
   }
 
   async function changeConversationOpenMode(nextMode: ConversationOpenMode) {
@@ -276,6 +275,7 @@ function SettingsPage() {
       locale={locale}
       theme={theme}
       timeZone={savedTimeZone}
+      timeFormat={savedTimeFormat}
       browserNotificationsEnabled={notifications.enabled}
       browserNotificationPermission={notificationPermission}
       browserNotificationsConfigured={notifications.publicKey !== null}
@@ -291,7 +291,7 @@ function SettingsPage() {
       onLiveAgentActivityChange={changeLiveAgentActivity}
       textSize={textSize}
       onTextSizeChange={changeTextSize}
-      onTimeZoneChange={changeTimeZone}
+      onDateTimeSave={changeDateTime}
       conversationOpenMode={conversationOpenMode(savedOpenMode)}
       onConversationOpenModeChange={changeConversationOpenMode}
       onBrowserNotificationsChange={changeBrowserNotifications}

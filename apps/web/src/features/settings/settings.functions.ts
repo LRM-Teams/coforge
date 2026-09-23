@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { saveUserTimeZoneInputSchema } from "./settings.schemas";
+import { saveDateTimePreferencesInputSchema } from "./settings.schemas";
 
 import { authMiddleware } from "../../server/auth/function-auth";
 import { requireDatabaseClient } from "../../server/db/client.server";
@@ -21,16 +21,21 @@ export const getUserPreferences = createServerFn({ method: "GET" })
     const userId = context.user.id;
     return {
       timeZone: await preferences().get(userId),
+      timeFormat: await preferences().getTimeFormat(userId),
       conversationOpenMode: await preferences().getConversationOpenMode(userId),
     };
   });
 
-export const saveUserTimeZone = createServerFn({ method: "POST" })
+/** The Language & region page saves its Date & time group as one unit. */
+export const saveDateTimePreferences = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator(saveUserTimeZoneInputSchema)
+  .validator(saveDateTimePreferencesInputSchema)
   .handler(async ({ data, context }) => {
     const userId = context.user.id;
-    return { timeZone: await preferences().set(userId, data.timeZone) };
+    return {
+      timeZone: await preferences().set(userId, data.timeZone),
+      timeFormat: await preferences().setTimeFormat(userId, data.timeFormat),
+    };
   });
 
 export const saveConversationOpenMode = createServerFn({ method: "POST" })

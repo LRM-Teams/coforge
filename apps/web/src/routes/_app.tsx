@@ -3,6 +3,7 @@ import { Outlet, createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
 import { AppShell } from "@/components/app-shell";
+import { TimeFormatProvider } from "@/lib/time-format-context";
 import { getUserProfile } from "@/features/profiles/profile.functions";
 import {
   createWorkspace,
@@ -36,6 +37,7 @@ export const Route = createFileRoute("/_app")({
       notifications,
       agents,
       timeZone: preferences.timeZone,
+      timeFormat: preferences.timeFormat,
       conversationOpenMode: preferences.conversationOpenMode,
       recordsPreview: recordsNav.preview,
     };
@@ -44,7 +46,7 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
-  const { user, workspaces, currentWorkspace, agents, recordsPreview, notifications } =
+  const { user, workspaces, currentWorkspace, agents, recordsPreview, notifications, timeFormat } =
     Route.useLoaderData();
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
   const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
@@ -52,31 +54,36 @@ function AppLayout() {
   const select = useServerFn(selectWorkspace);
   const create = useServerFn(createWorkspace);
   return (
-    <BrowserRealtimeProvider
-      workspaceId={currentWorkspace?.id}
-      getConnectionToken={getConnectionToken}
-    >
-      <WorkspaceAgentsProvider workspaceId={currentWorkspace?.id} agents={agents}>
-        {/* ADR: the server prunes dead web-push subscriptions (404/410), and nothing else ever
+    <TimeFormatProvider timeFormat={timeFormat}>
+      <BrowserRealtimeProvider
+        workspaceId={currentWorkspace?.id}
+        getConnectionToken={getConnectionToken}
+      >
+        <WorkspaceAgentsProvider workspaceId={currentWorkspace?.id} agents={agents}>
+          {/* ADR: the server prunes dead web-push subscriptions (404/410), and nothing else ever
             re-registers them — without this the phone stays silent until a manual toggle. */}
-        <BrowserPushLifecycle enabled={notifications.enabled} publicKey={notifications.publicKey} />
-        <AppShell
-          user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
-          workspaces={workspaces}
-          currentWorkspace={currentWorkspace}
-          recordsPreview={recordsPreview}
-          onSelectWorkspace={async (slug) => {
-            await select({ data: { slug } });
-            await router.invalidate({ sync: true });
-          }}
-          onCreateWorkspace={async (input) => {
-            await create({ data: input });
-            await router.invalidate({ sync: true });
-          }}
-        >
-          <Outlet />
-        </AppShell>
-      </WorkspaceAgentsProvider>
-    </BrowserRealtimeProvider>
+          <BrowserPushLifecycle
+            enabled={notifications.enabled}
+            publicKey={notifications.publicKey}
+          />
+          <AppShell
+            user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
+            workspaces={workspaces}
+            currentWorkspace={currentWorkspace}
+            recordsPreview={recordsPreview}
+            onSelectWorkspace={async (slug) => {
+              await select({ data: { slug } });
+              await router.invalidate({ sync: true });
+            }}
+            onCreateWorkspace={async (input) => {
+              await create({ data: input });
+              await router.invalidate({ sync: true });
+            }}
+          >
+            <Outlet />
+          </AppShell>
+        </WorkspaceAgentsProvider>
+      </BrowserRealtimeProvider>
+    </TimeFormatProvider>
   );
 }

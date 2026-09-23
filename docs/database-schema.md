@@ -267,8 +267,8 @@ kind column because the current schema supports only User↔Agent direct chat.
 
 ### `user_preferences`
 
-One row per user for account-level settings (time zone, browser notifications,
-conversation open mode), keyed by `userId` with `ON DELETE CASCADE`. Every setting
+One row per user for account-level settings (time zone, time format, browser
+notifications, conversation open mode), keyed by `userId` with `ON DELETE CASCADE`. Every setting
 column is nullable and NULL means the code default; closed sets are TEXT with a
 `CHECK` constraint. See [ADR 0064](adr/0064-user-preferences-table.md).
 

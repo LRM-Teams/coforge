@@ -39,13 +39,20 @@ import {
   type ConversationOpenMode,
 } from "@/features/settings/conversation-open-mode";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { isTimeFormat, localeTimeFormat, type TimeFormat } from "@/lib/time-format";
 import { cn } from "@/lib/utils";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
 type Locale = "en" | "zh-CN";
 type Theme = "system" | "light" | "dark";
-type SettingsSection = "account" | "members" | "preferences" | "notifications" | "integrations";
+type SettingsSection =
+  | "account"
+  | "language-region"
+  | "members"
+  | "preferences"
+  | "notifications"
+  | "integrations";
 
 interface SettingsContentProps {
   /** Controlled section; falls back to internal state when omitted (tests, previews). */
@@ -88,6 +95,7 @@ interface SettingsContentProps {
   liveAgentActivity: boolean;
   textSize: TextSizeValue;
   timeZone: string | null;
+  timeFormat: TimeFormat | null;
   browserNotificationsEnabled: boolean;
   browserNotificationPermission: NotificationPermission | "unsupported";
   browserNotificationsConfigured: boolean;
@@ -100,7 +108,10 @@ interface SettingsContentProps {
   onRailLabelsChange: (show: boolean) => void;
   onLiveAgentActivityChange: (show: boolean) => void;
   onTextSizeChange: (size: TextSizeValue) => void;
-  onTimeZoneChange: (timeZone: string) => void;
+  onDateTimeSave: (input: {
+    timeZone: string | null;
+    timeFormat: TimeFormat | null;
+  }) => Promise<void>;
   conversationOpenMode: ConversationOpenMode;
   onConversationOpenModeChange: (mode: ConversationOpenMode) => void;
   onBrowserNotificationsChange: (enabled: boolean) => Promise<void>;
@@ -122,6 +133,7 @@ export function SettingsPending() {
               label: m.settings_personal_group(),
               items: [
                 m.settings_account(),
+                m.settings_language_region(),
                 m.settings_preferences(),
                 m.settings_notifications(),
                 m.settings_integrations(),
@@ -179,16 +191,15 @@ export function SettingsContent(props: SettingsContentProps) {
   const [internalSection, setInternalSection] = useState<SettingsSection>("account");
   const section = props.section ?? internalSection;
   const [showList, setShowList] = useState(props.section !== "integrations");
-  const sectionLabel =
-    section === "account"
-      ? m.settings_account()
-      : section === "members"
-        ? m.settings_members()
-        : section === "preferences"
-          ? m.settings_preferences()
-          : section === "integrations"
-            ? m.settings_integrations()
-            : m.settings_notifications();
+  const sectionLabels: Record<SettingsSection, string> = {
+    account: m.settings_account(),
+    "language-region": m.settings_language_region(),
+    members: m.settings_members(),
+    preferences: m.settings_preferences(),
+    notifications: m.settings_notifications(),
+    integrations: m.settings_integrations(),
+  };
+  const sectionLabel = sectionLabels[section];
 
   function selectSection(next: SettingsSection) {
     setInternalSection(next);
@@ -213,6 +224,12 @@ export function SettingsContent(props: SettingsContentProps) {
               icon={UserRound}
               label={m.settings_account()}
               onClick={() => selectSection("account")}
+            />
+            <SettingsNavigationButton
+              active={section === "language-region"}
+              icon={Languages}
+              label={m.settings_language_region()}
+              onClick={() => selectSection("language-region")}
             />
             <SettingsNavigationButton
               active={section === "preferences"}
@@ -263,23 +280,12 @@ export function SettingsContent(props: SettingsContentProps) {
           }
         />
 
-        <section
-          aria-label={
-            section === "account"
-              ? m.settings_account()
-              : section === "members"
-                ? m.settings_members()
-                : section === "preferences"
-                  ? m.settings_preferences()
-                  : section === "integrations"
-                    ? m.settings_integrations()
-                    : m.settings_notifications()
-          }
-          className="flex min-h-0 min-w-0 flex-1 flex-col"
-        >
+        <section aria-label={sectionLabel} className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
             {section === "account" ? (
               <AccountSettings {...props} />
+            ) : section === "language-region" ? (
+              <LanguageRegionSettings {...props} />
             ) : section === "members" ? (
               <WorkspaceMembersPanel
                 actorUserId={props.members.actorUserId}
@@ -625,10 +631,7 @@ function ProfileValue({
 }
 
 function Preferences({
-  locale,
   theme,
-  timeZone,
-  onLocaleChange,
   onThemeChange,
   railLabels,
   onRailLabelsChange,
@@ -636,11 +639,9 @@ function Preferences({
   onLiveAgentActivityChange,
   textSize,
   onTextSizeChange,
-  onTimeZoneChange,
   conversationOpenMode,
   onConversationOpenModeChange,
 }: SettingsContentProps) {
-  const timeZoneOptions = getTimeZoneOptions(m.preferences_system());
   const textSizeLabels: Record<TextSizeValue, string> = {
     sm: m.preferences_text_size_small(),
     default: m.preferences_text_size_default(),
@@ -648,146 +649,351 @@ function Preferences({
     xl: m.preferences_text_size_extra_large(),
     xxl: m.preferences_text_size_huge(),
   };
+  const savedOnDevice = m.preferences_saved_on_device();
 
   return (
-    <div className="w-full px-4 pb-8 sm:px-6">
-      <div className="divide-y divide-secondary border-b border-secondary">
-        <PreferenceSection
-          icon={<Languages aria-hidden="true" />}
-          heading={m.preferences_language()}
-        >
-          <ButtonGroup
-            aria-label={m.preferences_language()}
-            size="sm"
-            selectedKeys={[locale]}
-            disallowEmptySelection
-            onSelectionChange={(keys) => {
-              const next = [...keys][0];
-              if (next !== undefined) onLocaleChange(String(next) as typeof locale);
-            }}
+    <SettingsPage>
+      <SettingsGroup icon={TypeIcon} label={m.preferences_appearance()}>
+        <SettingsCard>
+          <SettingsField
+            label={m.preferences_appearance()}
+            description={m.preferences_appearance_description()}
+            note={savedOnDevice}
           >
-            <ButtonGroupItem id="en">{m.preferences_english()}</ButtonGroupItem>
-            <ButtonGroupItem id="zh-CN">{m.preferences_chinese()}</ButtonGroupItem>
-          </ButtonGroup>
-        </PreferenceSection>
-
-        <PreferenceSection icon={<Clock3 aria-hidden="true" />} heading={m.preferences_time_zone()}>
-          <ComboBox
-            aria-label={m.preferences_time_zone()}
-            className="max-w-sm"
-            placeholder={m.preferences_time_zone_search_placeholder()}
-            shortcut={false}
-            items={timeZoneOptions}
-            selectedKey={timeZone || "system"}
-            onSelectionChange={(key) => {
-              if (key !== null) onTimeZoneChange(key === "system" ? "" : String(key));
-            }}
+            <ButtonGroup
+              aria-label={m.preferences_appearance()}
+              size="sm"
+              selectedKeys={[theme]}
+              disallowEmptySelection
+              onSelectionChange={(keys) => {
+                const next = [...keys][0];
+                if (next !== undefined) onThemeChange(String(next) as typeof theme);
+              }}
+            >
+              <ButtonGroupItem id="system" iconLeading={SunMoon}>
+                {m.preferences_system()}
+              </ButtonGroupItem>
+              <ButtonGroupItem id="light" iconLeading={Sun}>
+                {m.preferences_light()}
+              </ButtonGroupItem>
+              <ButtonGroupItem id="dark" iconLeading={Moon}>
+                {m.preferences_dark()}
+              </ButtonGroupItem>
+            </ButtonGroup>
+          </SettingsField>
+        </SettingsCard>
+        <SettingsCard>
+          <SettingsField
+            label={m.preferences_text_size()}
+            description={m.preferences_text_size_description()}
+            note={savedOnDevice}
           >
-            {(option) => <SelectItem id={option.id} label={option.label} />}
-          </ComboBox>
-        </PreferenceSection>
+            <Select
+              aria-label={m.preferences_text_size()}
+              className="max-w-sm"
+              value={textSize}
+              onChange={(key) => {
+                if (key !== null) onTextSizeChange(String(key) as TextSizeValue);
+              }}
+            >
+              {TEXT_SIZE_OPTIONS.map(({ value, percent }) => (
+                <SelectItem
+                  key={value}
+                  id={value}
+                  label={textSizeLabels[value]}
+                  supportingText={
+                    value === "default"
+                      ? m.preferences_text_size_default_hint()
+                      : m.preferences_text_size_percent({ percent })
+                  }
+                />
+              ))}
+            </Select>
+          </SettingsField>
+        </SettingsCard>
+      </SettingsGroup>
 
-        <PreferenceSection
-          icon={
-            theme === "system" ? (
-              <SunMoon aria-hidden="true" />
-            ) : theme === "light" ? (
-              <Sun aria-hidden="true" />
-            ) : (
-              <Moon aria-hidden="true" />
-            )
-          }
-          heading={m.preferences_appearance()}
-        >
-          <ButtonGroup
-            aria-label={m.preferences_appearance()}
-            size="sm"
-            selectedKeys={[theme]}
-            disallowEmptySelection
-            onSelectionChange={(keys) => {
-              const next = [...keys][0];
-              if (next !== undefined) onThemeChange(String(next) as typeof theme);
-            }}
-          >
-            <ButtonGroupItem id="system" iconLeading={SunMoon}>
-              {m.preferences_system()}
-            </ButtonGroupItem>
-            <ButtonGroupItem id="light" iconLeading={Sun}>
-              {m.preferences_light()}
-            </ButtonGroupItem>
-            <ButtonGroupItem id="dark" iconLeading={Moon}>
-              {m.preferences_dark()}
-            </ButtonGroupItem>
-          </ButtonGroup>
-        </PreferenceSection>
-
-        <PreferenceSection
-          icon={<TypeIcon aria-hidden="true" />}
-          heading={m.preferences_text_size()}
-        >
-          <Select
-            aria-label={m.preferences_text_size()}
-            className="max-w-sm"
-            value={textSize}
-            onChange={(key) => {
-              if (key !== null) onTextSizeChange(String(key) as TextSizeValue);
-            }}
-          >
-            {TEXT_SIZE_OPTIONS.map(({ value, percent }) => (
-              <SelectItem
-                key={value}
-                id={value}
-                label={textSizeLabels[value]}
-                supportingText={
-                  value === "default"
-                    ? m.preferences_text_size_default_hint()
-                    : m.preferences_text_size_percent({ percent })
-                }
-              />
-            ))}
-          </Select>
-        </PreferenceSection>
-
-        <PreferenceSection
-          icon={<LayoutLeft aria-hidden="true" />}
-          heading={m.preferences_sidebar()}
-        >
-          <Toggle
-            size="sm"
-            className="max-w-full"
+      <SettingsGroup icon={LayoutLeft} label={m.preferences_sidebar()}>
+        <SettingsCard>
+          <SettingsField
+            inline
             label={m.preferences_rail_labels()}
-            isSelected={railLabels}
-            onChange={onRailLabelsChange}
-          />
-          <Toggle
-            size="sm"
-            className="max-w-full"
-            label={m.preferences_live_agent_activity()}
-            hint={m.preferences_live_agent_activity_hint()}
-            isSelected={liveAgentActivity}
-            onChange={onLiveAgentActivityChange}
-          />
-        </PreferenceSection>
-
-        <PreferenceSection
-          icon={<MessagesSquare aria-hidden="true" />}
-          heading={m.preferences_conversations()}
-        >
-          <Select
-            aria-label={m.preferences_conversation_open_mode()}
-            className="max-w-sm"
-            value={conversationOpenMode}
-            onChange={(key) => {
-              const mode = String(key);
-              if (isConversationOpenMode(mode)) onConversationOpenModeChange(mode);
-            }}
+            description={m.preferences_rail_labels_description()}
+            note={savedOnDevice}
           >
-            <SelectItem id="newest-read" label={m.preferences_open_newest_read()} />
-            <SelectItem id="first-unread" label={m.preferences_open_first_unread()} />
-            <SelectItem id="newest-unread" label={m.preferences_open_newest_unread()} />
-          </Select>
-        </PreferenceSection>
+            <Toggle
+              size="md"
+              aria-label={m.preferences_rail_labels()}
+              isSelected={railLabels}
+              onChange={onRailLabelsChange}
+            />
+          </SettingsField>
+        </SettingsCard>
+        <SettingsCard>
+          <SettingsField
+            inline
+            label={m.preferences_live_agent_activity()}
+            description={m.preferences_live_agent_activity_hint()}
+            note={savedOnDevice}
+          >
+            <Toggle
+              size="md"
+              aria-label={m.preferences_live_agent_activity()}
+              isSelected={liveAgentActivity}
+              onChange={onLiveAgentActivityChange}
+            />
+          </SettingsField>
+        </SettingsCard>
+      </SettingsGroup>
+
+      <SettingsGroup icon={MessagesSquare} label={m.preferences_conversations()}>
+        <SettingsCard>
+          <SettingsField
+            label={m.preferences_conversation_open_mode()}
+            description={m.preferences_conversation_open_mode_description()}
+          >
+            <Select
+              aria-label={m.preferences_conversation_open_mode()}
+              className="max-w-sm"
+              value={conversationOpenMode}
+              onChange={(key) => {
+                const mode = String(key);
+                if (isConversationOpenMode(mode)) onConversationOpenModeChange(mode);
+              }}
+            >
+              <SelectItem id="newest-read" label={m.preferences_open_newest_read()} />
+              <SelectItem id="first-unread" label={m.preferences_open_first_unread()} />
+              <SelectItem id="newest-unread" label={m.preferences_open_newest_unread()} />
+            </Select>
+          </SettingsField>
+        </SettingsCard>
+      </SettingsGroup>
+    </SettingsPage>
+  );
+}
+
+function LanguageRegionSettings({
+  locale,
+  timeZone,
+  timeFormat,
+  onLocaleChange,
+  onDateTimeSave,
+}: SettingsContentProps) {
+  const timeZoneOptions = getTimeZoneOptions(m.preferences_system());
+  const [draftLocale, setDraftLocale] = useState<Locale>(locale);
+  // Until the viewer saves a choice, the page shows the cycle their language already uses.
+  const effectiveTimeFormat = timeFormat ?? localeTimeFormat(locale);
+  const [draftTimeZone, setDraftTimeZone] = useState(timeZone ?? "");
+  const [draftTimeFormat, setDraftTimeFormat] = useState<TimeFormat>(effectiveTimeFormat);
+  const [saving, guard] = useSubmitGuard();
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftTimeZone(timeZone ?? "");
+    setDraftTimeFormat(effectiveTimeFormat);
+  }, [timeZone, effectiveTimeFormat]);
+
+  const dateTimeChanged =
+    draftTimeZone !== (timeZone ?? "") || draftTimeFormat !== effectiveTimeFormat;
+
+  function saveDateTime() {
+    void guard(async () => {
+      setSaveError(null);
+      try {
+        await onDateTimeSave({
+          timeZone: draftTimeZone || null,
+          // Keep following the language when the viewer left the format untouched.
+          timeFormat:
+            timeFormat === null && draftTimeFormat === effectiveTimeFormat ? null : draftTimeFormat,
+        });
+      } catch (cause) {
+        const reference =
+          isAppError(cause) && cause.errorId
+            ? ` ${m.error_reference({ errorId: cause.errorId })}`
+            : "";
+        setSaveError(`${m.settings_save_error()}${reference}`);
+      }
+    });
+  }
+
+  return (
+    <SettingsPage>
+      <SettingsGroup icon={Languages} label={m.language_region_language_group()}>
+        <SettingsCard>
+          <SettingsField
+            label={m.language_region_display_language()}
+            description={m.language_region_display_language_description()}
+          >
+            <Select
+              aria-label={m.language_region_display_language()}
+              className="max-w-sm"
+              value={draftLocale}
+              onChange={(key) => {
+                if (key === "en" || key === "zh-CN") setDraftLocale(key);
+              }}
+            >
+              <SelectItem id="en" label={m.preferences_english()} />
+              <SelectItem id="zh-CN" label={m.preferences_chinese()} />
+            </Select>
+          </SettingsField>
+          <SettingsCardFooter>
+            <Button
+              type="button"
+              size="sm"
+              isDisabled={draftLocale === locale}
+              onPress={() => onLocaleChange(draftLocale)}
+            >
+              {m.settings_group_save()}
+            </Button>
+          </SettingsCardFooter>
+        </SettingsCard>
+      </SettingsGroup>
+
+      <SettingsGroup icon={Clock3} label={m.language_region_date_time_group()}>
+        <SettingsCard>
+          <SettingsField
+            label={m.preferences_time_zone()}
+            description={m.language_region_time_zone_description()}
+          >
+            <ComboBox
+              aria-label={m.preferences_time_zone()}
+              className="max-w-sm"
+              placeholder={m.preferences_time_zone_search_placeholder()}
+              shortcut={false}
+              items={timeZoneOptions}
+              selectedKey={draftTimeZone || "system"}
+              onSelectionChange={(key) => {
+                if (key !== null) setDraftTimeZone(key === "system" ? "" : String(key));
+              }}
+            >
+              {(option) => <SelectItem id={option.id} label={option.label} />}
+            </ComboBox>
+          </SettingsField>
+          <SettingsField
+            label={m.language_region_time_format()}
+            description={m.language_region_time_format_description()}
+          >
+            <ButtonGroup
+              aria-label={m.language_region_time_format()}
+              size="sm"
+              selectedKeys={[draftTimeFormat]}
+              disallowEmptySelection
+              onSelectionChange={(keys) => {
+                const next = [...keys][0];
+                if (isTimeFormat(next)) setDraftTimeFormat(next);
+              }}
+            >
+              <ButtonGroupItem id="12h">{m.language_region_time_format_12h()}</ButtonGroupItem>
+              <ButtonGroupItem id="24h">{m.language_region_time_format_24h()}</ButtonGroupItem>
+            </ButtonGroup>
+          </SettingsField>
+          <SettingsCardFooter error={saveError}>
+            <Button
+              type="button"
+              size="sm"
+              isDisabled={saving || !dateTimeChanged}
+              onPress={saveDateTime}
+            >
+              {saving ? m.settings_group_saving() : m.settings_group_save()}
+            </Button>
+          </SettingsCardFooter>
+        </SettingsCard>
+      </SettingsGroup>
+    </SettingsPage>
+  );
+}
+
+function SettingsPage({ children }: { children: React.ReactNode }) {
+  return <div className="w-full max-w-5xl space-y-8 px-4 pt-6 pb-8 sm:px-8">{children}</div>;
+}
+
+/** A captioned group of settings; each card inside is one independent setting or save unit. */
+function SettingsGroup({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: React.FC<{ className?: string }>;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section aria-label={label}>
+      <h2 className="flex items-center gap-2 pb-3 text-xs font-semibold tracking-wide text-tertiary uppercase">
+        <Icon aria-hidden="true" className="size-4" />
+        {label}
+      </h2>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
+function SettingsCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-6 rounded-xl border border-secondary bg-primary p-5 shadow-xs sm:p-6">
+      {children}
+    </div>
+  );
+}
+
+function SettingsField({
+  label,
+  description,
+  note,
+  inline = false,
+  children,
+}: {
+  label: string;
+  description: string;
+  /** Where the value is kept, e.g. "Saved on this device." */
+  note?: string;
+  /** Put the control at the end of the row (switches) instead of under the text. */
+  inline?: boolean;
+  children: React.ReactNode;
+}) {
+  const text = (
+    <div className="min-w-0">
+      <h3 className="text-sm font-semibold text-primary">{label}</h3>
+      <p className="mt-1 text-sm text-tertiary">{description}</p>
+    </div>
+  );
+  const noteText = note && <p className="text-xs font-medium text-tertiary">{note}</p>;
+
+  if (inline)
+    return (
+      <div className="flex items-start justify-between gap-6">
+        <div className="flex min-w-0 flex-col gap-3">
+          {text}
+          {noteText}
+        </div>
+        <div className="shrink-0">{children}</div>
       </div>
+    );
+
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      {text}
+      <div className="min-w-0 max-w-xl">{children}</div>
+      {noteText}
+    </div>
+  );
+}
+
+function SettingsCardFooter({
+  error,
+  children,
+}: {
+  error?: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-start gap-2">
+      {children}
+      {error && (
+        <p role="alert" className="text-sm text-error-primary">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -893,26 +1099,6 @@ function NotificationSettings({
         </div>
       )}
     </div>
-  );
-}
-
-function PreferenceSection({
-  icon,
-  heading,
-  children,
-}: {
-  icon: React.ReactNode;
-  heading: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-4 py-6">
-      <div className="flex items-center gap-2">
-        <span className="text-tertiary [&_svg]:size-4">{icon}</span>
-        <h3 className="text-sm font-semibold text-primary">{heading}</h3>
-      </div>
-      <div className="min-w-0 max-w-xl">{children}</div>
-    </section>
   );
 }
 

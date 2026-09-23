@@ -257,7 +257,7 @@ UI 变更必须查看实际渲染，不以源码检查代替视觉检查。按�
 
 - 应用侧栏用官方 `SidebarNavigationSimple`（展开，280px）和 `SidebarNavigationSlim`（收缩，68px）。侧栏底色用 CoForge 的 `--color-sidebar`（亮 `#f8f7fe`，暗色为紫黑渐变），右侧一条 `border-secondary`。这是唯一有意偏离官方（官方侧栏是 `bg-primary`）的地方，目的是品牌辨识。
 - 内容区 `bg-primary`，贴边铺满。页面内的多个面板（列表 + 详情、对话 + thread）之间只用 1px `border-secondary` 分隔。
-- **不用**卡片岛屿：页面级面板没有 `rounded`、没有 `border` 包边、没有 gutter、没有阴影。卡片只用于内容里真正独立的对象（一个附件、一条运行时），以及第 9 节的事实列表分组。
+- **不用**卡片岛屿：页面级面板没有 `rounded`、没有 `border` 包边、没有 gutter、没有阴影。卡片只用于内容里真正独立的对象（一个附件、一条运行时），以及第 9 节的事实列表分组。设置页（语言和地区、偏好设置）按设计稿例外：每组一个图标加大写小标题，组内每个设置或每个保存单元一张卡片（`rounded-xl border border-secondary shadow-xs`），开关放行尾，存在本设备的设置在卡片里注明「仅保存在此设备上」。
 - 侧栏可拖拽：默认 280，范围 240 到 360。手柄不可见，热区 6 到 8px 压在分隔线上，hover 或拖拽时显示 2px 品牌色线。
 - 页头高度 48px（`h-12`），标题 `text-lg font-semibold`，右侧放主操作。侧栏 logo 行同高，logo 和页面标题共一条基线。页头下方的二级操作区（筛选、tab、工具条）高 44px（`h-11`），里面的控件一律 36px（`size="sm"`），不另加上下内边距。
 - 操作区光学对齐：无边框的按钮排（`color="tertiary"` 的 `Button` 标签带、`ButtonUtility` 图标簇）让按钮**内容**（图标或文字）对齐面板沟槽，用负 margin 抵消按钮内边距——`size="sm"` 按钮是 `px-3`，左缘用 `-ml-3`；`ButtonUtility` 是 `p-1.5`，用 `-ml-1.5`，右缘镜像用 `-mr-1.5`。激活态的浅色药丸盒超出沟槽那 12px 是有意的（Linear、Notion 同）。有边框的盒式控件（Input、Select、`ButtonGroup`、卡片）反过来：盒边缘对齐沟槽，**不加**负 margin。范例：会话页 Chat / Tasks / Files 标签带（`conversation-task-tabs.tsx`）。

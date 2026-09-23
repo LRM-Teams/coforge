@@ -1,3 +1,5 @@
+import { hour12For, type TimeFormat } from "./time-format";
+
 export const DEFAULT_TIME_ZONE = "UTC";
 
 export function validateTimeZone(value: string): string {
@@ -15,12 +17,14 @@ export function formatDateForDisplay(
   value: Date | string,
   timeZone: string | null | undefined,
   locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
+  timeFormat: TimeFormat | null = null,
 ) {
   const browserTimeZone =
     typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
   return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
+    hour12: hour12For(timeFormat),
     timeZone: resolveTimeZone(timeZone, browserTimeZone),
   }).format(new Date(value));
 }
@@ -39,12 +43,13 @@ export function formatCalendarDate(
   }).format(new Date(value));
 }
 
-/** Absolute 24h wall-clock time (`HH:MM:SS`), for contexts that need a fixed
- * timestamp instead of relative text (the Activity timeline's clock column). */
+/** Absolute wall-clock time with seconds, for contexts that need a fixed timestamp instead of
+ * relative text (the Activity timeline's clock column), in the viewer's hour cycle. */
 export function formatClockTime(
   value: Date | string,
   timeZone: string | null | undefined,
   locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
+  timeFormat: TimeFormat | null = null,
 ) {
   const browserTimeZone =
     typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
@@ -52,7 +57,7 @@ export function formatClockTime(
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hourCycle: "h23",
+    hour12: hour12For(timeFormat),
     timeZone: resolveTimeZone(timeZone, browserTimeZone),
   }).format(new Date(value));
 }

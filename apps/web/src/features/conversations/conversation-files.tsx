@@ -11,6 +11,7 @@ import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/applica
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { formatDateForDisplay } from "@/lib/dates";
+import { useTimeFormat } from "@/lib/time-format-context";
 
 import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";
@@ -40,6 +41,7 @@ export function FileRow({
   timeZone: string | null;
   onOpenMessage?: (messageId: string) => Promise<void>;
 }) {
+  const timeFormat = useTimeFormat();
   const href = attachmentUrl(file);
   const messageId = file.messageId;
   const isImage = file.inlineImage;
@@ -100,7 +102,7 @@ export function FileRow({
           <span className="tabular-nums">{getReadableFileSize(file.sizeBytes)}</span>
           {" · "}
           <time dateTime={new Date(file.createdAt).toISOString()}>
-            {formatDateForDisplay(file.createdAt, timeZone)}
+            {formatDateForDisplay(file.createdAt, timeZone, undefined, timeFormat)}
           </time>
         </span>
       </span>

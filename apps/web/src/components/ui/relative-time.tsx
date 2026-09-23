@@ -4,6 +4,8 @@ import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { formatClockTime, formatDateForDisplay, formatRelativeTime } from "@/lib/dates";
 import { getLocale } from "@/paraglide/runtime";
 
+import { useTimeFormat } from "@/lib/time-format-context";
+
 /** The server and client cannot agree on `now`, locale or time zone before mount, so both
  * `RelativeTime` and `ClockTime` render their live value only after mount; the markup they emit
  * before that carries just the ISO instant via `dateTime`, which hydrates without a mismatch. */
@@ -44,9 +46,10 @@ export function RelativeTime({
   const now = useClientNow();
   const instant = new Date(value);
   const locale = getLocale();
+  const timeFormat = useTimeFormat();
   // Before mount the server and client cannot agree on locale or time zone, so
   // render nothing visible yet; the dateTime attribute still carries the instant.
-  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale) : "";
+  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale, timeFormat) : "";
   const relative = now ? formatRelativeTime(instant, now, locale) : "";
   const timeElement = (
     <time
@@ -72,7 +75,7 @@ export function RelativeTime({
 }
 
 /**
- * A fixed `HH:MM:SS` (24h) wall-clock time, for contexts that need an absolute timestamp
+ * A fixed wall-clock time with seconds, in the viewer's hour cycle, for contexts that need an absolute timestamp
  * instead of `RelativeTime`'s "6h ago" text — the Activity timeline's clock column. Shares
  * `RelativeTime`'s hydration-safe mount gate and exact-timestamp Tooltip wiring.
  */
@@ -92,8 +95,9 @@ export function ClockTime({
   const now = useClientNow();
   const instant = new Date(value);
   const locale = getLocale();
-  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale) : "";
-  const clock = now ? formatClockTime(instant, timeZone, locale) : "";
+  const timeFormat = useTimeFormat();
+  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale, timeFormat) : "";
+  const clock = now ? formatClockTime(instant, timeZone, locale, timeFormat) : "";
   const timeElement = (
     <time
       dateTime={instant.toISOString()}
