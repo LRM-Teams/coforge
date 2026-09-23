@@ -569,10 +569,13 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
       },
     );
     expect(amendment.history?.[0]).toMatchObject({
-      beforeTitle: "batch two",
-      afterTitle: "batch two amended",
-      beforeDescription: null,
-      afterDescription: "exact acceptance criteria",
+      eventType: "amended",
+      payload: {
+        changes: {
+          title: { from: "batch two", to: "batch two amended" },
+          description: { from: null, to: "exact acceptance criteria" },
+        },
+      },
     });
     const amendmentRace = await Promise.allSettled(
       ["writer a", "writer b"].map((title) =>

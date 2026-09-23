@@ -789,6 +789,50 @@ test("formats usable reminder lists, empty logs, and receipt acknowledgements", 
   ).toContain(`id=${reminderId} revision=3`);
 });
 
+test("Task history lists each event with its payload under the Task header", async () => {
+  const base = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const task = {
+    messageId: "message",
+    conversationId: "conversation",
+    number: 2,
+    title: "Ship it",
+    status: "in_progress" as const,
+    revision: 3,
+    owner: null,
+  };
+  const args = ["task", "history", "--target", "#general", "--number", "2"];
+  expect(
+    await run(args, {
+      ...base,
+      task: async () => ({
+        tasks: [task],
+        history: [
+          {
+            id: "event",
+            seq: 3,
+            eventType: "status_changed",
+            actorType: "agent",
+            actorName: "builder",
+            createdAt: "2026-09-23T06:00:00.000Z",
+            payload: { from: "todo", to: "in_progress" },
+          },
+        ],
+      }),
+    }),
+  ).toBe(
+    "## Task #2 history — revision 3\n\nShip it\n\n" +
+      'seq=3 time=2026-09-23T06:00:00.000Z actor=@builder type=status_changed\n  {"from":"todo","to":"in_progress"}',
+  );
+  expect(await run(args, { ...base, task: async () => ({ tasks: [task], history: [] }) })).toBe(
+    "## Task #2 history — revision 3\n\nShip it\n\nNo recorded events.",
+  );
+});
+
 test("Task commands require exact arguments and reject thread targets", () => {
   expect(
     parseArgs(["task", "claim", "--target", "#general", "--message-id", "message-1"]),

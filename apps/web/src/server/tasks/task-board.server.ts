@@ -6,6 +6,7 @@ import {
   encodeAgentMessageDelivery,
   encodeReminderSync,
   type TaskCommand,
+  type TaskHistoryEvent,
   type TaskPrincipal,
   type TaskResult,
   type TaskStatus,
@@ -53,6 +54,7 @@ const taskSelection = {
     select: {
       id: true,
       userId: true,
+      agentId: true,
       user: { select: { username: true, displayName: true, avatarObjectKey: true } },
       agent: { select: { name: true, displayName: true } },
     },
@@ -65,6 +67,18 @@ type SelectedTask = Prisma.TaskGetPayload<{ select: typeof taskSelection }>;
 type Transaction = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
 type Member = { id: string; userId: string | null; agentId: string | null };
 type HistoryEvent = Prisma.TaskHistoryEventGetPayload<{ select: undefined }>;
+/** One history entry before it is stored: the event type and the payload that type carries. */
+type HistoryChange = TaskHistoryEvent extends infer Event
+  ? Event extends TaskHistoryEvent
+    ? Pick<Event, "eventType" | "payload">
+    : never
+  : never;
+const HISTORY_EVENT_TYPES = new Set<string>([
+  "created",
+  "status_changed",
+  "assignee_changed",
+  "amended",
+]);
 
 export type TaskOverview = {
   tasks: Array<
@@ -144,19 +158,48 @@ function view(task: SelectedTask): TaskView {
   };
 }
 
-function historyEventView(event: HistoryEvent) {
+function historyEventView(event: HistoryEvent): TaskHistoryEvent {
+  // Rows are written only by recordHistory, which types each payload by its event type.
+  if (!HISTORY_EVENT_TYPES.has(event.eventType) || !isRecord(event.payload))
+    throw new AppError("INTERNAL_ERROR");
   return {
     id: event.id,
-    sequence: event.sequence,
-    eventType: event.eventType,
-    actorKind: event.actorKind as "user" | "agent" | "system",
+    seq: event.seq,
+    actorType: event.actorType as TaskHistoryEvent["actorType"],
     actorName: event.actorName,
-    beforeTitle: event.beforeTitle ?? undefined,
-    afterTitle: event.afterTitle ?? undefined,
-    beforeDescription: event.beforeDescription,
-    afterDescription: event.afterDescription,
     createdAt: event.createdAt.toISOString(),
-  };
+    eventType: event.eventType,
+    payload: event.payload,
+  } as TaskHistoryEvent;
+}
+
+/** The assignee and status differences between a Task before and after one change. */
+function ownershipChanges(
+  before: { ownerMemberId: string | null; status: string },
+  after: SelectedTask,
+): HistoryChange[] {
+  const owner = after.owner;
+  return [
+    ...(before.ownerMemberId !== (owner?.id ?? null)
+      ? [
+          {
+            eventType: "assignee_changed" as const,
+            payload: {
+              assigneeId: owner?.agentId ?? owner?.userId ?? null,
+              assigneeType: owner ? (owner.agentId ? ("agent" as const) : ("user" as const)) : null,
+            },
+          },
+        ]
+      : []),
+    ...(before.status !== after.status
+      ? [
+          {
+            eventType: "status_changed" as const,
+            payload: { from: status(before.status), to: status(after.status) },
+          },
+        ]
+      : []),
+  ];
 }
 
 const handleName = (handle: string) => handle.replace(/^@/, "");
@@ -301,17 +344,10 @@ export class TaskBoard {
     const member = scope.member!;
     if (command.operation === "create") return this.create(scope, member, principal, command);
     if (command.operation === "convert")
-      return this.convertOrClaim(
-        scope.conversationId,
-        scope.workspaceId,
-        member.id,
-        command,
-        false,
-      );
+      return this.convertOrClaim(scope.conversationId, scope.workspaceId, member, command, false);
     if (command.operation === "claim")
-      return this.claim(scope.conversationId, scope.workspaceId, member.id, command);
-    if (command.operation === "unclaim")
-      return this.unclaim(scope.conversationId, member.id, command);
+      return this.claim(scope.conversationId, scope.workspaceId, member, command);
+    if (command.operation === "unclaim") return this.unclaim(scope.conversationId, member, command);
     if (command.operation === "assign")
       return this.assign(scope.conversationId, scope.workspaceId, member, command);
     if (command.operation === "unassign")
@@ -799,6 +835,13 @@ export class TaskBoard {
           });
         tasks.push(message.task!);
         sequences.push(sequence);
+        await this.recordHistory(tx, message.task!.messageId, member, [
+          {
+            eventType: "created",
+            payload: { taskNumber: message.task!.number, status: status(message.task!.status) },
+          },
+          ...ownershipChanges({ ownerMemberId: null, status: message.task!.status }, message.task!),
+        ]);
       }
       const receipt = assignee
         ? await this.writeAssignmentReceipt(tx, {
@@ -980,10 +1023,11 @@ export class TaskBoard {
   private async convertOrClaim(
     conversationId: string,
     workspaceId: string,
-    memberId: string,
+    member: Member,
     command: TaskCommand,
     claim: boolean,
   ) {
+    const memberId = member.id;
     const task = await this.db.$transaction(async (tx) => {
       await lockConversation(tx, conversationId);
       let existing = command.number
@@ -1023,6 +1067,9 @@ export class TaskBoard {
           },
           select: taskSelection,
         });
+        await this.recordHistory(tx, existing.messageId, member, [
+          { eventType: "created", payload: { taskNumber: existing.number, status: "todo" } },
+        ]);
       }
       if (!claim) return existing;
       if (
@@ -1033,20 +1080,18 @@ export class TaskBoard {
       if (existing.status === "done" || existing.status === "closed")
         throw new AppError("CONFLICT");
       if (existing.owner && existing.owner.id !== memberId) throw new AppError("CONFLICT");
-      return this.commitTaskChange(
+      const before = { ownerMemberId: existing.owner?.id ?? null, status: existing.status };
+      const claimed = await this.commitTaskChange(
         tx,
-        {
-          messageId: existing.messageId,
-          ownerMemberId: existing.owner?.id ?? null,
-          status: existing.status,
-          revision: existing.revision,
-        },
+        { messageId: existing.messageId, ...before, revision: existing.revision },
         {
           ownerMemberId: memberId,
           claimedAt: new Date(),
           status: existing.status === "todo" ? "in_progress" : existing.status,
         },
       );
+      await this.recordHistory(tx, claimed.messageId, member, ownershipChanges(before, claimed));
+      return claimed;
     });
     await this.signalTaskChange(task);
     return { tasks: [view(task)] };
@@ -1055,7 +1100,7 @@ export class TaskBoard {
   private async claim(
     conversationId: string,
     workspaceId: string,
-    memberId: string,
+    member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
     const selectors: Array<{ number?: number; messageId?: string }> = [
@@ -1072,7 +1117,7 @@ export class TaskBoard {
       const result = await this.convertOrClaim(
         conversationId,
         workspaceId,
-        memberId,
+        member,
         { ...command, number: selectors[0]!.number, messageId: selectors[0]!.messageId },
         true,
       );
@@ -1090,7 +1135,7 @@ export class TaskBoard {
         const result = await this.convertOrClaim(
           conversationId,
           workspaceId,
-          memberId,
+          member,
           {
             ...command,
             numbers: undefined,
@@ -1119,7 +1164,8 @@ export class TaskBoard {
     return { tasks, claims };
   }
 
-  private async unclaim(conversationId: string, memberId: string, command: TaskCommand) {
+  private async unclaim(conversationId: string, member: Member, command: TaskCommand) {
+    const memberId = member.id;
     const task = await this.db.task.findUnique({
       where: {
         conversationId_number: { conversationId, number: command.number! },
@@ -1134,16 +1180,25 @@ export class TaskBoard {
     if (!task) throw new AppError("NOT_FOUND");
     if (task.ownerMemberId !== memberId) throw new AppError("ACCESS_DENIED");
     if (task.status === "done") throw new AppError("CONFLICT");
-    const updated = await this.commitTaskChange(
-      this.db,
-      {
-        messageId: task.messageId,
-        revision: command.expectedRevision ?? task.revision,
-        ownerMemberId: memberId,
-        status: { not: "done" },
-      },
-      { ownerMemberId: null, claimedAt: null },
-    );
+    const updated = await this.db.$transaction(async (tx) => {
+      const released = await this.commitTaskChange(
+        tx,
+        {
+          messageId: task.messageId,
+          revision: command.expectedRevision ?? task.revision,
+          ownerMemberId: memberId,
+          status: { not: "done" },
+        },
+        { ownerMemberId: null, claimedAt: null },
+      );
+      await this.recordHistory(
+        tx,
+        released.messageId,
+        member,
+        ownershipChanges({ ownerMemberId: memberId, status: released.status }, released),
+      );
+      return released;
+    });
     await this.signalTaskChange(updated);
     return { tasks: [view(updated)] };
   }
@@ -1172,11 +1227,15 @@ export class TaskBoard {
       throw new AppError("CONFLICT");
     if (command.status === "done" && task.createsResource && !task.resourceReceipt)
       throw new AppError("CONFLICT");
-    const updated = await this.commitTaskChange(
-      this.db,
-      { messageId: task.messageId, revision: task.revision, ownerMemberId: task.ownerMemberId },
-      { status: command.status },
-    );
+    const updated = await this.db.$transaction(async (tx) => {
+      const changed = await this.commitTaskChange(
+        tx,
+        { messageId: task.messageId, revision: task.revision, ownerMemberId: task.ownerMemberId },
+        { status: command.status },
+      );
+      await this.recordHistory(tx, changed.messageId, member, ownershipChanges(task, changed));
+      return changed;
+    });
     await this.signalTaskChange(updated);
     return { tasks: [view(updated)] };
   }
@@ -1211,7 +1270,7 @@ export class TaskBoard {
         where: {
           conversationId_number: { conversationId, number: command.number! },
         },
-        select: { messageId: true, revision: true, ownerMemberId: true },
+        select: { messageId: true, revision: true, ownerMemberId: true, status: true },
       });
       if (!current) throw new AppError("NOT_FOUND");
       if (
@@ -1237,6 +1296,7 @@ export class TaskBoard {
         },
         { ownerMemberId: owner?.id ?? null, claimedAt: null },
       );
+      await this.recordHistory(tx, task.messageId, member, ownershipChanges(current, task));
       return {
         task,
         changed: true,
@@ -1285,7 +1345,7 @@ export class TaskBoard {
       await lockConversation(tx, conversationId);
       const current = await tx.task.findUnique({
         where: { conversationId_number: { conversationId, number: command.number! } },
-        select: { messageId: true, revision: true, ownerMemberId: true },
+        select: { messageId: true, revision: true, ownerMemberId: true, status: true },
       });
       if (!current) throw new AppError("NOT_FOUND");
       if (!current.ownerMemberId) {
@@ -1307,6 +1367,7 @@ export class TaskBoard {
         },
         { ownerMemberId: null, claimedAt: null },
       );
+      await this.recordHistory(tx, task.messageId, member, ownershipChanges(current, task));
       return { task, changed: true };
     });
     if (result.changed) await this.signalTaskChange(result.task);
@@ -1325,27 +1386,11 @@ export class TaskBoard {
         where: {
           conversationId_number: { conversationId, number: command.number! },
         },
-        select: {
-          ...taskSelection,
-          history: { orderBy: { sequence: "desc" }, take: 1 },
-        },
+        select: taskSelection,
       });
       if (!task) throw new AppError("NOT_FOUND");
       if (command.expectedRevision !== undefined && task.revision !== command.expectedRevision)
         throw new AppError("CONFLICT");
-      const actor = await tx.conversationMember.findUniqueOrThrow({
-        where: {
-          id_conversationId_workspaceId: {
-            id: member.id,
-            conversationId,
-            workspaceId: task.workspaceId,
-          },
-        },
-        select: {
-          agent: { select: { displayName: true } },
-          user: { select: { displayName: true, username: true } },
-        },
-      });
       const updated = await this.commitTaskChange(
         tx,
         { messageId: task.messageId, revision: task.revision },
@@ -1354,20 +1399,23 @@ export class TaskBoard {
           ...(command.description !== undefined && { description: command.description }),
         },
       );
-      const event = await tx.taskHistoryEvent.create({
-        data: {
-          taskMessageId: task.messageId,
-          sequence: (task.history[0]?.sequence ?? 0) + 1,
+      const [event] = await this.recordHistory(tx, task.messageId, member, [
+        {
           eventType: "amended",
-          actorKind: member.agentId ? "agent" : "user",
-          actorName: actor.agent?.displayName ?? actor.user?.displayName ?? actor.user?.username,
-          beforeTitle: command.title !== undefined ? task.title : undefined,
-          afterTitle: command.title !== undefined ? updated.title : undefined,
-          beforeDescription: command.description !== undefined ? task.description : undefined,
-          afterDescription: command.description !== undefined ? updated.description : undefined,
+          payload: {
+            changes: {
+              ...(command.title !== undefined && {
+                title: { from: task.title, to: updated.title },
+              }),
+              ...(command.description !== undefined && {
+                description: { from: task.description, to: updated.description },
+              }),
+            },
+            revision: updated.revision,
+          },
         },
-      });
-      return { updated, event };
+      ]);
+      return { updated, event: event! };
     });
     await this.signalTaskChange(result.updated);
     return { tasks: [view(result.updated)], history: [historyEventView(result.event)] };
@@ -1378,7 +1426,7 @@ export class TaskBoard {
       where: {
         conversationId_number: { conversationId, number: command.number! },
       },
-      select: { ...taskSelection, history: { orderBy: { sequence: "asc" } } },
+      select: { ...taskSelection, history: { orderBy: { seq: "asc" } } },
     });
     if (!task) throw new AppError("NOT_FOUND");
     return { tasks: [view(task)], history: task.history.map(historyEventView) };
@@ -1561,6 +1609,45 @@ export class TaskBoard {
         conversationId,
       },
     };
+  }
+
+  /**
+   * Append history events for one Task, numbered after its latest event. The caller's transaction
+   * holds the Task row (a revision-guarded write or its creation), so sequences cannot race.
+   */
+  private async recordHistory(
+    tx: Transaction,
+    taskMessageId: string,
+    actor: Member,
+    changes: HistoryChange[],
+  ) {
+    if (!changes.length) return [];
+    const [latest, member] = await Promise.all([
+      tx.taskHistoryEvent.findFirst({
+        where: { taskMessageId },
+        orderBy: { seq: "desc" },
+        select: { seq: true },
+      }),
+      tx.conversationMember.findUniqueOrThrow({
+        where: { id: actor.id },
+        select: { user: { select: { username: true } }, agent: { select: { name: true } } },
+      }),
+    ]);
+    const events: HistoryEvent[] = [];
+    for (const [index, change] of changes.entries())
+      events.push(
+        await tx.taskHistoryEvent.create({
+          data: {
+            taskMessageId,
+            seq: (latest?.seq ?? 0) + index + 1,
+            eventType: change.eventType,
+            actorType: actor.agentId ? "agent" : "user",
+            actorName: member.agent?.name ?? member.user?.username ?? null,
+            payload: change.payload,
+          },
+        }),
+      );
+    return events;
   }
 
   private async signalTaskChange(task: SelectedTask) {

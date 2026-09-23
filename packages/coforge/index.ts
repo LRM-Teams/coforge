@@ -2253,13 +2253,24 @@ function formatTasks(result: TaskResult, reviewerIsolation = false): string {
 }
 
 function formatTaskHistory(result: TaskResult): string {
-  if (!result.history?.length) return "No task history.";
-  return result.history
-    .map(
-      (event) =>
-        `${event.sequence} ${event.eventType} actor=${event.actorName ?? event.actorKind} at=${event.createdAt}`,
-    )
-    .join("\n");
+  const task = result.tasks[0];
+  const header = task
+    ? `## Task #${task.number} history — revision ${task.revision}\n\n${task.title}`
+    : "";
+  const events = result.history?.length
+    ? result.history
+        .map((event) => {
+          const actor =
+            event.actorType === "system"
+              ? "@system"
+              : event.actorName
+                ? `@${event.actorName}`
+                : "<unresolved>";
+          return `seq=${event.seq} time=${event.createdAt} actor=${actor} type=${event.eventType}\n  ${JSON.stringify(event.payload)}`;
+        })
+        .join("\n")
+    : "No recorded events.";
+  return header ? `${header}\n\n${events}` : events;
 }
 
 function reviewerIsolationFromEnvironment(): boolean {
