@@ -106,6 +106,9 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
         archived: false,
         muted: false,
         unreadCount: 0,
+        hidden: false,
+        pinned: false,
+        pinSortOrder: null,
       },
     ]);
     expect(second).toEqual(first);
@@ -1212,6 +1215,9 @@ test("reads never enroll: general membership comes from write points and the bac
         archived: false,
         muted: false,
         unreadCount: 0,
+        hidden: false,
+        pinned: false,
+        pinSortOrder: null,
       },
     ]);
 
@@ -1233,6 +1239,9 @@ test("reads never enroll: general membership comes from write points and the bac
           archived: false,
           muted: false,
           unreadCount: 0,
+          hidden: false,
+          pinned: false,
+          pinSortOrder: null,
         },
       ]);
       await channels.open(workspace.id, carol.id, general.id);
