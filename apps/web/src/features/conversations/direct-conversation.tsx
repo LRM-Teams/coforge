@@ -61,6 +61,8 @@ import {
 } from "./message-row";
 import { composerDraftKey } from "./composer-draft";
 import { OutboxMessageRow } from "./outbox-message-row";
+import { SystemMessageGroup } from "./system-message-group";
+import { groupSystemMessages } from "./system-message-groups";
 import { useMessageOutbox, useOutboxEntries } from "./use-message-outbox";
 import {
   OwnMessagesMenu,
@@ -1129,6 +1131,50 @@ export function ConversationPane({
       return next;
     });
   }, []);
+  // Runs of consecutive system messages fold into one summary line (system-message-groups.ts). A
+  // run never crosses a day divider or the unread divider, so both stay drawn, and the message the
+  // pane opens on (the unread boundary) is always a group's first message or a row of its own.
+  const streamItems = useMemo(
+    () =>
+      groupSystemMessages(
+        conversation.messages,
+        (message, previous) =>
+          message.sequence === openBoundary?.sequence ||
+          dayLabel(message.createdAt, dateLocale) !== dayLabel(previous.createdAt, dateLocale),
+      ),
+    [conversation.messages, openBoundary, dateLocale],
+  );
+  /** System message ids whose folded group is open. A group is open while any of its messages is
+   * here, so a group that grows (a new notice, older history) stays open for the reader. */
+  const [openedSystemMessages, setOpenedSystemMessages] = useState<ReadonlySet<string>>(new Set());
+  const toggleSystemGroup = useCallback((messages: readonly { id: string }[]) => {
+    setOpenedSystemMessages((current) => {
+      const next = new Set(current);
+      const open = messages.some((message) => next.has(message.id));
+      for (const message of messages) {
+        if (open) next.delete(message.id);
+        else next.add(message.id);
+      }
+      return next;
+    });
+  }, []);
+  /** Opens the folded group hiding a message a jump is heading for. True when it did, i.e. the
+   * row exists only from the next render on; false when the message is not folded away. */
+  function revealSystemMessage(messageId: string): boolean {
+    const group = streamItems.find(
+      (item) =>
+        item.type === "systemGroup" && item.messages.some((message) => message.id === messageId),
+    );
+    if (
+      group?.type !== "systemGroup" ||
+      group.messages.some((message) => openedSystemMessages.has(message.id))
+    )
+      return false;
+    setOpenedSystemMessages((current) => new Set(current).add(messageId));
+    return true;
+  }
+  const revealSystemMessageRef = useRef(revealSystemMessage);
+  revealSystemMessageRef.current = revealSystemMessage;
   useLayoutEffect(() => {
     const firstRender = previousConversationIdRef.current === undefined;
     const changedConversation =
@@ -1284,7 +1330,16 @@ export function ConversationPane({
       // router's own scroll restoration, which runs after this effect.
       const scroll = () => {
         const message = document.getElementById(anchor);
-        if (!message) return;
+        if (!message) {
+          // A notice folded into a system group: open the group, and let the pending-jump pass
+          // below scroll to the row once it exists.
+          const messageId = anchor.slice("message-".length);
+          if (revealSystemMessageRef.current(messageId)) {
+            setFollowingLatest(false);
+            pendingMessageIdRef.current = messageId;
+          }
+          return;
+        }
         setFollowingLatest(false);
         message.scrollIntoView({ block: "center" });
       };
@@ -1300,11 +1355,15 @@ export function ConversationPane({
     const messageId = pendingMessageIdRef.current;
     if (!messageId) return;
     const message = document.getElementById(`message-${messageId}`);
-    if (!message) return;
+    if (!message) {
+      // Loaded but folded into a system group: open it; this pass runs again once it is open.
+      revealSystemMessage(messageId);
+      return;
+    }
     pendingMessageIdRef.current = undefined;
     message.scrollIntoView({ block: "center", behavior: "smooth" });
     flashMessageRow(messageId);
-  }, [conversation.messages, flashMessageRow]);
+  }, [conversation.messages, openedSystemMessages, flashMessageRow]);
 
   useLayoutEffect(() => {
     if (!pendingLatestRef.current || conversation.hasNewer) return;
@@ -1454,6 +1513,10 @@ export function ConversationPane({
         pendingMessageIdRef.current = undefined;
         toast.error(m.conversation_history_load_error());
       }
+      return;
+    }
+    if (revealSystemMessage(messageId)) {
+      pendingMessageIdRef.current = messageId;
       return;
     }
     document
@@ -1613,9 +1676,50 @@ export function ConversationPane({
             // or its height, so no measurement can shift a row under the reader and no scroll
             // correction is needed while you read; the scrollbar is the real content height.
             <ol ref={messageListRef} className="flex flex-col pt-6">
-              {conversation.messages.map((message, index) => {
-                const key = message.id;
-                const previous = conversation.messages[index - 1];
+              {streamItems.map((item, index) => {
+                // The message just above this item: the previous item's last message.
+                const before = streamItems[index - 1];
+                const previous =
+                  before?.type === "systemGroup" ? before.messages.at(-1) : before?.message;
+                const first = item.type === "systemGroup" ? item.messages[0]! : item.message;
+                // The unread divider is anchored to the snapshot taken at open: once the
+                // mark-read effect has advanced the cursor, the divider must not jump.
+                const unreadStartsHere = openBoundary?.sequence === first.sequence;
+                if (item.type === "systemGroup") {
+                  const groupOpen = item.messages.some((message) =>
+                    openedSystemMessages.has(message.id),
+                  );
+                  return (
+                    <SystemMessageGroup
+                      key={first.id}
+                      id={item.id}
+                      messages={item.messages}
+                      expanded={groupOpen}
+                      onToggleExpanded={() => toggleSystemGroup(item.messages)}
+                      dayChanged={
+                        groupsWithPrevious(first, previous, false, false, dateLocale).dayChanged
+                      }
+                      unreadStartsHere={unreadStartsHere}
+                      dateLocale={dateLocale}
+                    >
+                      {groupOpen &&
+                        item.messages.map((message) => (
+                          <MessageRow
+                            key={message.id}
+                            message={message}
+                            own={false}
+                            dayChanged={false}
+                            grouped={false}
+                            highlighted={message.id === jumpHighlightId}
+                            expanded={false}
+                            onToggleExpanded={() => toggleExpandedMessage(message.id)}
+                            dateLocale={dateLocale}
+                          />
+                        ))}
+                    </SystemMessageGroup>
+                  );
+                }
+                const message = item.message;
                 const own = isOwn(message);
                 const { dayChanged, grouped } = groupsWithPrevious(
                   message,
@@ -1624,12 +1728,9 @@ export function ConversationPane({
                   previous ? isOwn(previous) : false,
                   dateLocale,
                 );
-                // The unread divider is anchored to the snapshot taken at open: once the
-                // mark-read effect has advanced the cursor, the divider must not jump.
-                const unreadStartsHere = openBoundary?.sequence === message.sequence;
                 return (
                   <MessageRow
-                    key={key}
+                    key={message.id}
                     message={message}
                     own={own}
                     dayChanged={dayChanged}

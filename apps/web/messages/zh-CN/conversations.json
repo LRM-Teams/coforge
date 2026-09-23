@@ -53,6 +53,45 @@
     }
   ],
   "conversation_unread_divider": "新消息",
+  "conversation_system_group_task_updates": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条任务更新"
+      }
+    }
+  ],
+  "conversation_system_group_reminders": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条提醒更新"
+      }
+    }
+  ],
+  "conversation_system_group_messages": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 条系统消息"
+      }
+    }
+  ],
+  "conversation_system_group_one_part": [
+    {
+      "declarations": ["input count", "input part", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{part}"
+      }
+    }
+  ],
+  "conversation_system_group_parts": "{parts}",
+  "conversation_system_group_mixed": "{count} 条系统更新：{parts}",
+  "conversation_system_group_separator": "、",
   "messages_title": "消息",
   "messages_agent_list_label": "智能体会话",
   "messages_agents_action": "私聊",

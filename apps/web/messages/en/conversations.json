@@ -53,6 +53,49 @@
     }
   ],
   "conversation_unread_divider": "New messages",
+  "conversation_system_group_task_updates": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} task update",
+        "countPlural=other": "{count} task updates"
+      }
+    }
+  ],
+  "conversation_system_group_reminders": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} reminder update",
+        "countPlural=other": "{count} reminder updates"
+      }
+    }
+  ],
+  "conversation_system_group_messages": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} system message",
+        "countPlural=other": "{count} system messages"
+      }
+    }
+  ],
+  "conversation_system_group_one_part": [
+    {
+      "declarations": ["input count", "input part", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "There is {part}",
+        "countPlural=other": "There are {part}"
+      }
+    }
+  ],
+  "conversation_system_group_parts": "There are {parts}",
+  "conversation_system_group_mixed": "There are {count} system updates: {parts}",
+  "conversation_system_group_separator": ", ",
   "messages_title": "Messages",
   "messages_agent_list_label": "Agent conversations",
   "messages_agents_action": "Direct messages",
