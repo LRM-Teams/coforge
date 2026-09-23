@@ -8,7 +8,9 @@ import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions
 import { browserSenderHandle, browserSenderName } from "./sender-display.server";
 import type { ActionCardView } from "./action-cards.server";
 
-const browserMessageFields = {
+/** Exported so projections that must render exactly like the message stream (the Saved list,
+ * #120/#124) reuse this same row shape instead of growing a near-copy. */
+export const browserMessageFields = {
   id: true,
   sequence: true,
   threadRootId: true,
