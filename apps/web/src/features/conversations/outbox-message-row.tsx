@@ -80,6 +80,7 @@ export function OutboxMessageRow({
   viewerHandle,
   taskReferences,
   onOpenTask,
+  channelReferences,
   onRetry,
   onEdit,
   onDiscard,
@@ -95,6 +96,7 @@ export function OutboxMessageRow({
    * keeps its chip (clickable, same popup) instead of degrading to plain text for the send. */
   taskReferences?: ReadonlySet<number>;
   onOpenTask?: (number: number) => void;
+  channelReferences?: ReadonlyMap<string, string>;
   onRetry: () => void;
   onEdit: () => void;
   onDiscard: () => void;
@@ -135,6 +137,7 @@ export function OutboxMessageRow({
               viewerHandle={viewerHandle}
               taskReferences={taskReferences}
               onOpenTask={onOpenTask}
+              channelReferences={channelReferences}
             />
           </div>
           {entry.attachments.length > 0 && (

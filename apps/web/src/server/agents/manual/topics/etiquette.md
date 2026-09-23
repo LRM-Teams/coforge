@@ -25,9 +25,13 @@ Never wrap `@name` in backticks or a code span when you want it recognized: CoFo
 resolve a mention written inside inline code or a fenced code block, so it stays inert — no
 chip, no notification, no delivery.
 
-`#name` channel references, `#name:shortid` thread references, and `task #N` references are
-shown to humans as plain text; write them so a human reader can follow them (always "task #N",
-not a bare "#N").
+A `#name` that names a channel the reader can open is shown to humans as a link to that channel.
+Write the channel's exact name, followed by a space or punctuation and outside inline code or a
+code block, for it to link; any other `#name` stays plain text.
+
+A `task #N` naming one of this conversation's tasks is shown to humans as a link that opens the
+task; write "task #N" rather than a bare "#N" so every reader can follow it. `#name:shortid`
+thread references are shown as plain text.
 
 These are different from the `user:name`/`channel:name`/`task:n` forms rewritten inside a
 `coforge message search` `<preview>` — that rewritten form only ever appears there, to mark

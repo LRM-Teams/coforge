@@ -1,4 +1,5 @@
 import { useMemo, type ComponentPropsWithoutRef, type KeyboardEvent } from "react";
+import { Link } from "@tanstack/react-router";
 import Markdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
@@ -8,6 +9,7 @@ import type { Element } from "hast";
 import {
   escapeLiteralHtml,
   mentionHandlesByToken,
+  rehypeChannelReferenceChips,
   rehypeMentionChips,
   rehypeTaskReferenceChips,
   type ChipMention,
@@ -20,6 +22,9 @@ const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 
 /** Stable empty set for the common "no task references to make clickable" case. */
 const NO_TASK_NUMBERS: ReadonlySet<number> = new Set();
+
+/** Stable empty map for the common "no channels to link" case. */
+const NO_CHANNELS: ReadonlyMap<string, string> = new Map();
 
 /**
  * A message body rendered as Markdown with mentions highlighted as inline chips.
@@ -47,6 +52,7 @@ export function MessageBody({
   onOpenAgentProfile,
   taskReferences,
   onOpenTask,
+  channelReferences,
 }: {
   body: string;
   mentions?: readonly MentionRef[];
@@ -63,6 +69,9 @@ export function MessageBody({
   taskReferences?: ReadonlySet<number>;
   /** Opens a task-reference chip's detail popup. Absent, a reference stays a plain highlight. */
   onOpenTask?: (number: number) => void;
+  /** The channels the viewer can open, by lower-case name → channel id: a `#name` naming one of
+   * them becomes a link to that channel. Absent, every `#name` stays prose. */
+  channelReferences?: ReadonlyMap<string, string>;
 }) {
   const source = useMemo(() => escapeLiteralHtml(body), [body]);
   const handles = useMemo(() => mentionHandlesByToken(mentions), [mentions]);
@@ -73,13 +82,16 @@ export function MessageBody({
       rehypeSanitize,
       [rehypeMentionChips, { handles, viewerHandle, plain: plainMentions }],
       [rehypeTaskReferenceChips, { numbers: taskReferences ?? NO_TASK_NUMBERS }],
+      // After the task pass, so a `#68` naming a task stays that task's chip.
+      [rehypeChannelReferenceChips, { channels: channelReferences ?? NO_CHANNELS }],
     ],
-    [handles, viewerHandle, plainMentions, taskReferences],
+    [handles, viewerHandle, plainMentions, taskReferences, channelReferences],
   );
   // The `span` override recognises the Agent mention chip (`data-mention-agent-id`, injected by
   // `rehypeMentionChips`) and the task-reference chip (`data-task-reference-number`, injected by
-  // `rehypeTaskReferenceChips`), and makes each an accessible button; every other span passes
-  // through.
+  // `rehypeTaskReferenceChips`), and makes each an accessible button; the channel-reference chip
+  // (`data-channel-id`, injected by `rehypeChannelReferenceChips`) becomes a link to the channel.
+  // Every other span passes through.
   const components = useMemo<Components>(
     () => ({ ...MARKDOWN_COMPONENTS, span: chipSpan(onOpenAgentProfile, onOpenTask) }),
     [onOpenAgentProfile, onOpenTask],
@@ -117,8 +129,10 @@ const MARKDOWN_COMPONENTS = {
  * The `span` renderer. An Agent mention chip carries `data-mention-agent-id` and a task-reference
  * chip that names a conversation task carries `data-task-reference-number` (see
  * `message-markdown.ts`); when the matching handler is provided each becomes a keyboard- and
- * pointer-accessible control. All other spans — including human mention chips and task chips whose
- * task is gone — render unchanged.
+ * pointer-accessible control. A channel-reference chip carries `data-channel-id` and becomes a
+ * router link to that channel: it navigates, so it is a real link (open in a new tab, copy the
+ * address) rather than a button. All other spans — including human mention chips and task chips
+ * whose task is gone — render unchanged.
  */
 function chipSpan(
   onOpenAgentProfile?: (agentId: string) => void,
@@ -132,6 +146,14 @@ function chipSpan(
   }: ComponentPropsWithoutRef<"span"> & ExtraProps) {
     void node;
     // `data-*` attributes arrive on props via react-markdown's hast → props mapping.
+    const channelId = (props as Record<string, unknown>)["data-channel-id"];
+    if (typeof channelId === "string") {
+      return (
+        <Link to="/messages/channels/$channelId" params={{ channelId }} className={className}>
+          {children}
+        </Link>
+      );
+    }
     const agentId = (props as Record<string, unknown>)["data-mention-agent-id"];
     const taskNumber = (props as Record<string, unknown>)["data-task-reference-number"];
     const openTask =

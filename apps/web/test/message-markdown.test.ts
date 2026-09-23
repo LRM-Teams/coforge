@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  CHANNEL_CHIP_CLASS,
   MENTION_CHIP_AGENT_CLASS,
   MENTION_CHIP_CLASS,
   MENTION_CHIP_SELF_CLASS,
@@ -9,6 +10,7 @@ import {
   type ChipMention,
   escapeLiteralHtml,
   mentionHandlesByToken,
+  rehypeChannelReferenceChips,
   rehypeMentionChips,
   rehypeTaskReferenceChips,
 } from "#src/features/conversations/message-markdown";
@@ -455,4 +457,124 @@ test("a #N inside a mention chip's display name is never chipped again", () => {
   expect(mention).toMatchObject({ children: [text("@Scout #5")] });
   expect(gap).toEqual(text(" hi "));
   expect(task).toMatchObject({ properties: { "data-task-reference-number": 5 } });
+});
+
+const PRODUCT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const RELEASE_ID = "99999999-8888-4777-8666-555555555555";
+/** The known channels as the messages layout supplies them: canonical name → channel id. */
+const CHANNELS: ReadonlyMap<string, string> = new Map([
+  ["product", PRODUCT_ID],
+  ["734", RELEASE_ID],
+]);
+
+/** Runs the channel-reference chip plugin over a tree shaped like the sanitized one. */
+function channelChipify(children: unknown[], channels: ReadonlyMap<string, string> = CHANNELS) {
+  const tree = { type: "root", children } as never;
+  rehypeChannelReferenceChips({ channels })(tree);
+  return tree as { children: Array<Record<string, unknown>> };
+}
+
+test("a #name that names a known channel becomes a chip carrying the channel id", () => {
+  const tree = channelChipify([paragraph([text("see #product today")])]);
+  const children = tree.children[0]!.children as Array<Record<string, unknown>>;
+  expect(children[0]).toEqual(text("see "));
+  expect(children[1]).toEqual({
+    type: "element",
+    tagName: "span",
+    properties: { className: CHANNEL_CHIP_CLASS.split(" "), "data-channel-id": PRODUCT_ID },
+    children: [text("#product")],
+  });
+  expect(children[2]).toEqual(text(" today"));
+});
+
+test("a channel name matches case-insensitively and renders the channel's own name", () => {
+  const tree = channelChipify([paragraph([text("#Product")])]);
+  const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  expect(chip).toMatchObject({
+    properties: { "data-channel-id": PRODUCT_ID },
+    children: [text("#product")],
+  });
+});
+
+test("a #name that names no known channel stays text, including a longer name's prefix", () => {
+  const source = "#random and #product-launch and #product_2";
+  const tree = channelChipify([paragraph([text(source)])]);
+  expect(tree.children[0]!.children).toEqual([text(source)]);
+});
+
+test("a channel name runs through letters in any script, so it needs a boundary after it", () => {
+  // `#product频道` is read as one name, `product频道`, which names no channel; with punctuation or a
+  // space after it the name ends and `#product` links.
+  expect(channelChipify([paragraph([text("去#product频道看")])]).children[0]!.children).toEqual([
+    text("去#product频道看"),
+  ]);
+  const children = channelChipify([paragraph([text("去#product，看")])]).children[0]!
+    .children as Array<Record<string, unknown>>;
+  expect(children[0]).toEqual(text("去"));
+  expect(children[1]).toMatchObject({ properties: { "data-channel-id": PRODUCT_ID } });
+  expect(children[2]).toEqual(text("，看"));
+});
+
+test("a #name:shortid thread reference is not half-linked as a channel", () => {
+  for (const source of [
+    "see #product:abcd1234 for that",
+    "see #product:0199aa00-1234-7abc-8def-0123456789ab",
+  ])
+    expect(channelChipify([paragraph([text(source)])]).children[0]!.children).toEqual([
+      text(source),
+    ]);
+  // A colon that starts no message id leaves the channel link in place.
+  const children = channelChipify([paragraph([text("in #product: done")])]).children[0]!
+    .children as Array<Record<string, unknown>>;
+  expect(children[1]).toMatchObject({ properties: { "data-channel-id": PRODUCT_ID } });
+});
+
+test("a #name stays prose inside code, a link, or an existing chip", () => {
+  for (const node of [
+    paragraph([{ type: "element", tagName: "code", properties: {}, children: [text("#product")] }]),
+    { type: "element", tagName: "pre", properties: {}, children: [text("#product")] },
+    paragraph([
+      { type: "element", tagName: "a", properties: { href: "#" }, children: [text("#product")] },
+    ]),
+  ]) {
+    const tree = channelChipify([node]);
+    expect(JSON.stringify(tree)).not.toContain("data-channel-id");
+  }
+});
+
+test("a #name inside a mention chip's display name is never chipped again", () => {
+  const tree = chipify([paragraph([text(`${AGENT_TOKEN} hi`)])], {
+    handles: new Map([
+      [`agent:${UUID}`, { handle: "scout", label: "Scout #product", agentId: UUID }],
+    ]),
+  });
+  rehypeChannelReferenceChips({ channels: CHANNELS })(tree as never);
+  expect(JSON.stringify(tree)).not.toContain("data-channel-id");
+});
+
+test("a #N that is a task stays a task chip; one that is not can name a channel", () => {
+  // Task 68 is a task here; `<@task:999>` is a task token whose task is gone (a plain task chip);
+  // #734 is no task but a channel of that name exists.
+  const tree = taskChipify([paragraph([text("#68 and <@task:999> and #734")])], new Set([68]));
+  rehypeChannelReferenceChips({
+    channels: new Map([
+      ["68", PRODUCT_ID],
+      ["999", PRODUCT_ID],
+      ["734", RELEASE_ID],
+    ]),
+  })(tree as never);
+  const [task, , token, , channel] = tree.children[0]!.children as Array<Record<string, unknown>>;
+  expect(task).toMatchObject({ properties: { "data-task-reference-number": 68 } });
+  expect(JSON.stringify(task)).not.toContain("data-channel-id");
+  expect(token).toMatchObject({ properties: { title: "task #999" } });
+  expect(JSON.stringify(token)).not.toContain("data-channel-id");
+  expect(channel).toMatchObject({
+    properties: { "data-channel-id": RELEASE_ID },
+    children: [text("#734")],
+  });
+});
+
+test("with no known channels a body is left untouched", () => {
+  const tree = channelChipify([paragraph([text("#product")])], new Map());
+  expect(tree.children[0]!.children).toEqual([text("#product")]);
 });
