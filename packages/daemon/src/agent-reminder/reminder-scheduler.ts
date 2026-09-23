@@ -349,7 +349,17 @@ export class ReminderScheduler {
       this.#correlate(receipt, candidate);
       response = candidate;
     } catch (error) {
-      logger.error("Reminder fire failed", { error, agent_id: receipt.agentId });
+      // Which reminder failed matters when several are scheduled: without the id and the
+      // attempt, the log line cannot be told apart across retries (2026-09-23 morning: the
+      // server answered every fire with RPC 104 "method not found" and the log named neither).
+      logger.error("Reminder fire failed", {
+        error,
+        agent_id: receipt.agentId,
+        reminder_id: receipt.reminderId,
+        version: receipt.version,
+        attempt: receipt.attempt,
+        retry_deadline: new Date(receipt.deadline).toISOString(),
+      });
     }
     return this.#serial(receipt.agentId, async () => {
       if (!this.#running || generation !== this.#generation) return false;
