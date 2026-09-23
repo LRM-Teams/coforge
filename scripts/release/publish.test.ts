@@ -768,8 +768,9 @@ test("the publish client keeps ali-oss's documented defaults", async () => {
 
 test("an objects-only publication uploads its files and never touches latest", async () => {
   // The per-platform half of a split publication: parallel jobs must not move the feed's only mutable
-  // object, because docs/release.md requires `latest` to be written last and never to point at an
-  // incomplete version. The finalize job moves it once every platform's objects are up.
+  // object, because docs/release/local-distribution.md requires `latest` to be written last and
+  // never to point at an incomplete version. The finalize job moves it once every platform's
+  // objects are up.
   const outputDirectory = await tempDir("coforge-publish-objects-only-");
   const tree = await fixtureTree("9.9.9-objects-only", outputDirectory);
   const fake = startFakeOssServer({});

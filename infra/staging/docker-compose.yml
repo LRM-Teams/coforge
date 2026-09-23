@@ -78,8 +78,9 @@ services:
       OTEL_SERVICE_NAME: coforge-web
       OTEL_DEPLOYMENT_ENVIRONMENT: staging
       # Which release feed this deployment's `curl .../computer/install.sh | sh` installs
-      # from. Not a secret, and deployment-specific by design: docs/release.md requires a
-      # staging entry point to install the staging build, never the production one.
+      # from. Not a secret, and deployment-specific by design:
+      # docs/release/local-feed-hosting.md requires a staging entry point to install the staging
+      # build, never the production one.
       COFORGE_RELEASE_FEED_URL: https://releases-staging.coforge.cn
       # Private user files (chat attachments, avatars) live in the staging OSS bucket; see
       # docs/operations/aliyun-oss-cdn.md. No AccessKey pair: the ECS instance carries the

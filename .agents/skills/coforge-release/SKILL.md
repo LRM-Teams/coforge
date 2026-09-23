@@ -5,9 +5,10 @@ description: Operate and verify CoForge cloud images and local Computer installa
 
 # CoForge release
 
-Read [`docs/release.md`](../../../docs/release.md) completely before acting. It
-is canonical; this Skill only routes and enforces its workflow. Also follow
-[`AGENTS.md`](../../../AGENTS.md) for Issue, branch, review, and decision gates.
+Before acting, read [`docs/release/README.md`](../../../docs/release/README.md)
+first, then the topic files under `docs/release/` that the task needs. That
+contract is canonical; this Skill only routes and enforces its workflow. Also
+follow [`AGENTS.md`](../../../AGENTS.md) for Issue, branch, review, and decision gates.
 
 ## Classify authority
 
@@ -39,23 +40,32 @@ is canonical; this Skill only routes and enforces its workflow. Also follow
 
 ## Route the operation
 
-- **Inspect**: collect the fields in **Release identity and evidence** and
-  **Audit records** for the selected release track using read-only operations.
-- **Publish test**: execute the matching cloud or local-package path in **Main
-  to staging**, including its **Health verification** and audit record, only
-  through the implemented interface.
-- **Install local**: use one selection mode in **Per-user installation**, then
-  apply the local **Health verification** checks.
-- **Prepare production**: assemble the packet in **Staging to production**, ask a
-  human to approve the track's exact identity, and stop.
+- **Inspect**: collect the fields in
+  [Release identity and evidence](../../../docs/release/evidence.md) and
+  [Audit records](../../../docs/release/audit-records.md) for the selected release track
+  using read-only operations.
+- **Publish test**: execute the matching cloud or local-package path in
+  [Main to staging](../../../docs/release/main-to-staging.md), including its
+  [Health verification](../../../docs/release/health-verification.md) and audit record,
+  only through the implemented interface.
+- **Install local**: use one selection mode in
+  [Per-user installation](../../../docs/release/per-user-installation.md), then apply the
+  local [Health verification](../../../docs/release/health-verification.md#local-computer-distribution)
+  checks.
+- **Prepare production**: assemble the packet in
+  [Staging to production](../../../docs/release/staging-to-production.md), ask a human to
+  approve the track's exact identity, and stop.
 - **Promote production**: re-read the durable approval, require an exact cloud
   digest or local source commit and version match, then execute the matching
-  path in **Staging to production** through the implemented interface. The Agent
-  may execute and monitor; it cannot supply the human approval.
-- **Rollback**: follow **Rollback** for authorization and target selection, then
-  verify and audit the result through the same implemented interface.
+  path in [Staging to production](../../../docs/release/staging-to-production.md) through
+  the implemented interface. The Agent may execute and monitor; it cannot
+  supply the human approval.
+- **Rollback**: follow [Rollback](../../../docs/release/rollback.md) for authorization and
+  target selection, then verify and audit the result through the same
+  implemented interface.
 
-For every mutating operation, apply **Routine release boundary** before the
+For every mutating operation, apply
+[Routine release boundary](../../../docs/release/routine-release-boundary.md) before the
 first mutation. Also stop when another deployment owns the environment gate or
 when the implemented interface cannot provide the required evidence. Report a
 blocker instead of weakening TLS, exposing secrets, guessing a target, or
@@ -76,6 +86,7 @@ and do not report end-user delivery as verified from storage evidence alone.
 
 ## Return
 
-Return the compact record defined by **Release identity and evidence** and
-**Audit records**, plus blockers and follow-up work. Never print credentials,
-token-bearing URLs, secret values, or unredacted logs.
+Return the compact record defined by
+[Release identity and evidence](../../../docs/release/evidence.md) and
+[Audit records](../../../docs/release/audit-records.md), plus blockers and follow-up work.
+Never print credentials, token-bearing URLs, secret values, or unredacted logs.

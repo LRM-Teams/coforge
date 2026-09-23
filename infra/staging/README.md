@@ -158,7 +158,7 @@ Secret 和 Variable 的区别不是「重不重要」，而是**能不能读回�
 ### 触发 Computer 本地分发发布
 
 云应用走 push-to-main 自动部署，但本地 Computer/Daemon 发布是手动的（见
-[`docs/release.md`](../../docs/release.md#local-computer-distribution-model)）：只挂
+[`docs/release/github-actions.md`](../../docs/release/github-actions.md)）：只挂
 `workflow_dispatch`，不挂 `on: push`。触发一次 staging 发布：
 
 ```sh
@@ -241,7 +241,7 @@ gh variable list --env staging --repo LRM-Teams/coforge
 
 Web 这一侧是在返回安装脚本时把脚本里写死的生产 feed 换成本部署的 feed，
 这样 `curl https://staging.coforge.cn/computer/install.sh | sh` 装的是 staging 版本
-而不是生产版本（`docs/release.md` 的 "Local Computer distribution model"）。
+而不是生产版本（`docs/release/local-feed-hosting.md`）。
 **没配这个变量时这两个端点返回 503，不会返回一个指向错误 feed 的 200。**
 
 部署时 workflow 把 Authing 应用 ID、应用密钥、session 密钥、Agent Runtime 凭据主密钥、

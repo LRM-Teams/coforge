@@ -38,7 +38,7 @@ The architecture invariants every change must respect are in
 | [docs/reliable-message-delivery.md](docs/reliable-message-delivery.md) | Message delivery guarantees |
 | [docs/observability.md](docs/observability.md) | Agent Activity, status, and observability baseline |
 | [docs/local-logging.md](docs/local-logging.md) | Computer/Daemon logging contract |
-| [docs/release.md](docs/release.md) | Release contract: deployment, Computer distribution, promotion, rollback |
+| [docs/release/](docs/release/README.md) | Release contract: deployment, Computer distribution, promotion, rollback |
 | [docs/design.md](docs/design.md) | Product UI design guidance |
 | [docs/design-tokens.md](docs/design-tokens.md) | Design tokens |
 | [docs/operations/aliyun-oss-cdn.md](docs/operations/aliyun-oss-cdn.md) | OSS/CDN provisioning runbook |

@@ -2,7 +2,7 @@ name: Publish Computer (staging)
 run-name: Publish Computer ${{ inputs.version || format('0.1.0-dev.{0}', github.run_number) }} to staging
 
 # Publishing a local Computer distribution is manual, never automatic on a push to main - see
-# docs/release.md's "Local Computer distribution model": a client release leaves a persistent
+# docs/release/github-actions.md: a client release leaves a persistent
 # artifact set behind, unlike the cloud application track's replace-a-running-service model, so a
 # build per merge is waste. Do not add a `push:` trigger here.
 on:
