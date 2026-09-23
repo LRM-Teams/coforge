@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import {
+  Bookmark,
+  BookmarkCheck,
   Code02,
   Copy01,
   CornerUpLeft,
@@ -28,6 +30,7 @@ import { m } from "@/paraglide/messages";
 import { ActionCard, type ActionCardView } from "./action-card";
 import { AttachmentPreview } from "./attachment-preview";
 import { attachmentPreviewKind } from "./attachment-preview-kind";
+import { useSavedMessages } from "./conversation-navigation";
 import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
@@ -518,6 +521,7 @@ export function MessageRow({
   threadPreview,
   messageFooter,
   onToggleReaction,
+  onToggleSave,
   onOpenAgentProfile,
   viewerHandle,
   plainMentions,
@@ -545,6 +549,9 @@ export function MessageRow({
   messageFooter?: (message: MessageView) => ReactNode;
   /** Toggles the viewer's own emoji reaction on a message; the conversation refreshes it. */
   onToggleReaction?: (messageId: string, emoji: string, active: boolean) => void;
+  /** Saves/unsaves this message for the viewer (#127): the conversation owns the write, the
+   * Chat page's Saved context supplies `saved`. Absent, the row offers no save action. */
+  onToggleSave?: (messageId: string, saved: boolean) => Promise<void>;
   /** Opens the Agent profile panel; present only where the conversation owns that slot
    * (`features/agents/profile-panel/`'s `openAgentProfile`). Absent, the avatar/name render inert. */
   onOpenAgentProfile?: (agentId: string) => void;
@@ -610,6 +617,8 @@ export function MessageRow({
   const bodyRef = useRef<HTMLDivElement>(null);
   const quoteAffordanceRef = useRef<HTMLDivElement>(null);
   const toast = useAppToast();
+  const savedMessages = useSavedMessages();
+  const saveSaved = savedMessages?.ids.has(message.id) ?? false;
   const [quoteOffer, setQuoteOffer] = useState<
     { quote: string; html: string; text: string; top: number; left: number } | undefined
   >(undefined);
@@ -970,7 +979,7 @@ export function MessageRow({
           {messageFooter?.(message)}
           {threadPreview?.(message)}
         </div>
-        {(threadEntry || onToggleReaction || copyable) && (
+        {(threadEntry || onToggleReaction || onToggleSave || copyable) && (
           /* Hidden until revealed: hover/focus in the wide desktop shell (`lg` and up, with
              a hover-capable fine pointer). An unread-thread badge stays inside this bar, but
              does not force it open: the thread preview already exposes the unread count, so
@@ -1012,6 +1021,21 @@ export function MessageRow({
                 onPick={(emoji) => onToggleReaction(message.id, emoji, true)}
               />
             )}
+            {onToggleSave && (
+              <ButtonUtility
+                size="xs"
+                color="tertiary"
+                icon={saveSaved ? BookmarkCheck : Bookmark}
+                tooltip={saveSaved ? m.conversation_unsave() : m.conversation_save()}
+                aria-label={saveSaved ? m.conversation_unsave() : m.conversation_save()}
+                onClick={() => {
+                  void onToggleSave(message.id, !saveSaved).catch(() => {
+                    toast.error(m.conversation_save_failed());
+                  });
+                }}
+                className="p-1 *:data-icon:size-3.5"
+              />
+            )}
             <ButtonUtility
               size="xs"
               color="tertiary"
@@ -1027,7 +1051,7 @@ export function MessageRow({
             />
           </div>
         )}
-        {sheetActions && (thread || onToggleReaction || copyable) && (
+        {sheetActions && (thread || onToggleReaction || onToggleSave || copyable) && (
           /* The mobile-shell counterpart of the hover toolbar: a bottom action sheet in the
              Slack/Discord mobile layout — the quoted message card, a quick-reaction row,
              then full-width actions (thread row, whole-message copy last) — opened by a tap
@@ -1111,7 +1135,24 @@ export function MessageRow({
                   </div>
                 )}
                 <div className="flex flex-col px-3 pt-1 pb-3">
-                  {onToggleReaction && (copyable || thread) && (
+                  {onToggleSave && (
+                    <Button
+                      color="tertiary"
+                      size="md"
+                      noTextPadding
+                      iconLeading={saveSaved ? BookmarkCheck : Bookmark}
+                      onPress={() => {
+                        setActionsOpen(false);
+                        void onToggleSave(message.id, !saveSaved).catch(() => {
+                          toast.error(m.conversation_save_failed());
+                        });
+                      }}
+                      className="w-full justify-start rounded-lg py-3 *:data-icon:size-5 [&>[data-text]]:flex-1 [&>[data-text]]:text-left"
+                    >
+                      {saveSaved ? m.conversation_unsave() : m.conversation_save()}
+                    </Button>
+                  )}
+                  {(onToggleReaction || onToggleSave) && (copyable || thread) && (
                     <div aria-hidden="true" className="mx-1 mt-1 mb-1 h-px bg-secondary" />
                   )}
                   {thread && (

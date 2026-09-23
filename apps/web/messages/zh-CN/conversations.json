@@ -207,5 +207,13 @@
   "files_download": "下载",
   "files_locate_message": "定位到消息",
   "files_loading": "加载中…",
-  "files_load_failed": "文件加载失败"
+  "files_load_failed": "文件加载失败",
+  "conversation_save": "收藏消息",
+  "conversation_save_failed": "收藏消息失败",
+  "conversation_unsave": "取消收藏",
+  "conversation_saved_nav": "已保存",
+  "conversation_saved_title": "已保存的消息",
+  "conversation_saved_empty_title": "还没有已保存的消息",
+  "conversation_saved_empty_description": "收藏的消息会出现在这里，点击即可跳回原对话。",
+  "conversation_saved_dm": "私聊"
 }
