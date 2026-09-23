@@ -144,7 +144,7 @@ responsibility.
 - `features/settings/` — preference pages and device-local preferences.
 - `features/tasks/` — Task board, list, overview, and message task actions.
 - `features/workspaces/` — Workspace switcher and creation, member directory
-  reads, invitations, and human roles.
+  reads, invitations, human roles, and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
   visibility, deletion, and the Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions and delivery.
